@@ -1577,6 +1577,7 @@ struct TodayView: View {
                 // The same full order/visibility registry as Liquid Today and Android. Every editor row maps
                 // to one real section here, so a change saved from the shared sheet immediately affects this
                 // reference implementation too.
+                ExperimentEventRecorder()
                 ForEach(sectionOrder) { section in
                     todaySection(section)
                 }

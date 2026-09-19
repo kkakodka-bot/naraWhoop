@@ -386,6 +386,7 @@ struct LiquidTodayView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     scene
                     ServerScoreStatusNote(state: serverScores.state, day: selectedDayKey)
+                    ExperimentEventRecorder()
                     // The strain/illness early-warning banner, dropped in the liquid Home rewrite. Liquid is
                     // the DEFAULT Today on both platforms (RootTabView.swift's liquidTodayEnabled = true,
                     // RootView.swift likewise), so while this was unmounted a RAISED health alert had no
