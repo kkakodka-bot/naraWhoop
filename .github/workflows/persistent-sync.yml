@@ -1,0 +1,66 @@
+name: Persistent sync integrity subset
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Strand/**'
+      - 'StrandiOS/**'
+      - 'StrandTests/**'
+      - 'Packages/**'
+      - 'Tests/PersistentSyncNative/**'
+      - 'Tests/CloudUploadNative/**'
+      - '.github/workflows/persistent-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-integrity:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      NOOP_HERMETIC_TESTING: '1'
+      NOOP_TEST_DISABLE_BLUETOOTH: '1'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Tooling
+        run: brew install xcodegen zstd
+      - name: Candidate identity
+        run: |
+          git rev-parse HEAD
+          xcodebuild -version
+      - name: Native lifecycle and cloud outcomes
+        run: |
+          zsh Tests/PersistentSyncNative/run.sh "$RUNNER_TEMP/persistent-native"
+          zsh Tests/CloudUploadNative/run.sh "$RUNNER_TEMP"
+      - name: Store and push packages
+        run: |
+          swift test --package-path Packages/WhoopStore --scratch-path "$RUNNER_TEMP/store-build"
+          swift test --package-path Packages/NoopPush --scratch-path "$RUNNER_TEMP/push-build"
+      - name: Hosted integration subset
+        run: |
+          xcodegen generate
+          xcodebuild test -project Strand.xcodeproj -scheme Strand -configuration Debug \
+            -destination 'platform=macOS' -derivedDataPath "$RUNNER_TEMP/hosted-build" \
+            CODE_SIGN_IDENTITY=- \
+            -only-testing:StrandTests/RealtimeWearPolicyTests \
+            -only-testing:StrandTests/BLEConnectionOwnerTests \
+            -only-testing:StrandTests/HistoricalCommitLeaseTests \
+            -only-testing:StrandTests/ResourceBudgetTests \
+            -only-testing:StrandTests/BackfillManagerLifecycleTests \
+            -only-testing:StrandTests/BackfillActorPipelineTests \
+            -only-testing:StrandTests/BackfillerPersistCircuitBreakerTests \
+            -only-testing:StrandTests/BackfillerHistoricalProgressTests \
+            -only-testing:StrandTests/BackfillerImuSessionTests \
+            -only-testing:StrandTests/BackfillContinuationTests
+      - name: Unsigned iOS Release build
+        run: |
+          xcodebuild build -project Strand.xcodeproj -scheme NOOPiOS -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/ios-release" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+      - name: Acceptance boundary
+        run: echo 'This is a local integrity subset. Physical, deployed-server and performance gates remain NOT_MEASURED; release remains NOT_READY.'
