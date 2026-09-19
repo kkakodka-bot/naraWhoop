@@ -277,6 +277,29 @@ extension WhoopStore {
             v18AuxPruneEveryRows: Self.v18AuxPruneEveryRows, captureScope: captureScope)
     }
 
+    /// Commits an ordinary historical chunk and its exact recovery archive before authorizing ACK.
+    /// External research raw/IMU writers keep their separate flush-before-cursor path.
+    @discardableResult
+    public func commitHistoricalChunk(_ streams: Streams, scope: DurableIngestScope,
+                                      family: String, trim: UInt32, recoveryFrames: [[UInt8]],
+                                      clockRef: ClockRef, postOffloadJobKinds: [String],
+                                      note: String? = nil) async throws -> BackfillInsertOutcome {
+        guard !scope.deviceID.isEmpty, !family.isEmpty else { throw DurableIngestError.identityConflict }
+        return try await insertAndMarkIfNeeded(streams, deviceId: scope.deviceID,
+            postOffloadJobKinds: postOffloadJobKinds, note: note,
+            v18AuxRetentionRows: Self.v18AuxRetentionRows,
+            v18AuxPruneEveryRows: Self.v18AuxPruneEveryRows, captureScope: scope,
+            performRetention: false, transactionTail: { db in
+                _ = try Self.persistSensorQuarantine(db, frames: recoveryFrames, scope: scope,
+                    family: family, trim: trim, clockRef: clockRef, preserveOccurrences: true,
+                    maxBytes: 64 * 1_048_576, maxRecords: 100_000, allowPruning: false)
+                try db.execute(sql: """
+                    INSERT INTO cursors (name, value) VALUES (?, ?)
+                    ON CONFLICT(name) DO UPDATE SET value = excluded.value
+                    """, arguments: ["strap_trim:\(scope.key)", Int64(trim)])
+            })
+    }
+
     /// The single write transaction behind both entry points. `postOffloadJobKinds` upserts one fresh
     /// token per kind on the first chunk that inserts a scoring row; a duplicate-only replay inserts
     /// zero rows and therefore neither refreshes nor removes the debt.
@@ -296,11 +319,14 @@ extension WhoopStore {
                                        v18AuxPruneEveryRows: Int,
                                        ppgWaveformRetentionRows: Int = WhoopStore.ppgWaveformRetentionRows,
                                        ppgWaveformPruneEveryRows: Int = WhoopStore.ppgWaveformPruneEveryRows,
-                                       captureScope: DurableIngestScope? = nil
+                                       captureScope: DurableIngestScope? = nil,
+                                       performRetention: Bool = true,
+                                       transactionTail: ((Database) throws -> Void)? = nil
     ) async throws -> BackfillInsertOutcome {
         // Banked rows, accumulated across batches so the sweep does not run on every one.
         var v18Written = 0
         var ppgWaveformWritten = 0
+        var insertedStepTimestamps: [Int] = []
         let result: (counts: (Int, Int, Int, Int, Int, Int, Int, Int), markedJobs: Bool,
                      insertedHistoricalSensorRows: Int)
             = try syncWrite { db in
@@ -484,14 +510,12 @@ extension WhoopStore {
                     INSERT INTO stepSample (deviceId, ts, counter, activityClass, provenanceJSON) VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(deviceId, ts) DO NOTHING
                     """)
-                var insertedStepTimestamps: [Int] = []
                 for s in streams.steps {
                     try stmt.execute(arguments: [deviceId, s.ts, s.counter, s.activityClass, try s.provenance?.canonicalJSON()])
                     let inserted = db.changesCount
                     stepsInserted += inserted
                     if inserted > 0 { insertedStepTimestamps.append(s.ts) }
                 }
-                stepDataRevision.record(deviceId: deviceId, insertedTimestamps: insertedStepTimestamps)
                 try recordFrontier("steps", timestamps: streams.steps.map(\.ts))
             }
             // Band sleep_state (#175). Persist-only, same as steps — the strap's OWN @81 high-nibble state
@@ -614,9 +638,11 @@ extension WhoopStore {
             }
             let historicalSensorRows = hr + rr + spo2 + skin + resp + grav
                 + stepsInserted + sleepStateInserted + ppgHrInserted + ppgWaveformWritten + v18Written
+            try transactionTail?(db)
             return (counts: (hr, rr, ev, bat, spo2, skin, resp, grav), markedJobs: markedJobs,
                     insertedHistoricalSensorRows: historicalSensorRows)
         }
+        stepDataRevision.record(deviceId: deviceId, insertedTimestamps: insertedStepTimestamps)
 
         // Rolling retention is amortised. The delete finds the Nth-newest row by rank, so it walks up to
         // `v18AuxRetentionRows` index entries. The 604,800-row cap is swept
@@ -630,7 +656,7 @@ extension WhoopStore {
             // now its own transaction rather than riding the insert's. A throw here would surface as an
             // insert failure and make Backfiller re-send a chunk it has already banked. Leaving the budget
             // unspent instead means the next batch simply retries the sweep.
-            if banked >= v18AuxPruneEveryRows,
+            if performRetention, banked >= v18AuxPruneEveryRows,
                (try? syncWrite { db in
                    try db.execute(sql: """
                        DELETE FROM v18AuxSample WHERE deviceId = ? AND rowid IN (
@@ -650,7 +676,7 @@ extension WhoopStore {
         if ppgWaveformWritten > 0 {
             let banked = (ppgWaveformRowsSincePrune[deviceId] ?? 0) + ppgWaveformWritten
             ppgWaveformRowsSincePrune[deviceId] = banked
-            if banked >= ppgWaveformPruneEveryRows,
+            if performRetention, banked >= ppgWaveformPruneEveryRows,
                (try? syncWrite { db in
                    try db.execute(sql: """
                        DELETE FROM ppgWaveformSample WHERE deviceId = ? AND ts < (

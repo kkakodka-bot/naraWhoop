@@ -225,46 +225,58 @@ extension WhoopStore {
         guard !frames.isEmpty else { return 0 }
         guard frames.count <= maxRecords, maxBytes >= 0 else { throw DurableIngestError.capacityExceeded }
         return try syncWrite { db in
-            guard try Self.captureScope(db, deviceID: scope.deviceID) == scope else {
-                throw DurableIngestError.identityConflict
-            }
-            var retained = try Int.fetchOne(db, sql: "SELECT COALESCE(SUM(length(frame)), 0) FROM sensorQuarantine") ?? 0
-            var count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sensorQuarantine") ?? 0
-            let offeredBytes = frames.reduce(0) { $0 + $1.count }
-            if offeredBytes > maxBytes - retained || frames.count > maxRecords - count {
-                // Recover capacity only from exact verified receipts whose grace elapsed. Never
-                // evict unsent evidence to make the current chunk fit; admission remains atomic.
-                _ = try Self.pruneSensorQuarantine(db, now: Int(Date().timeIntervalSince1970))
-                retained = try Int.fetchOne(db, sql: "SELECT COALESCE(SUM(length(frame)), 0) FROM sensorQuarantine") ?? 0
-                count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sensorQuarantine") ?? 0
-            }
-            var inserted = 0
-            let chunkDigest = preserveOccurrences ? DurableIngestScope.sha256(Self.packFrames(frames)) : ""
-            for (ordinal, frame) in frames.enumerated() {
-                let bytes = Data(frame)
-                let digest = DurableIngestScope.sha256(bytes)
-                let occurrence = preserveOccurrences ? "\n\(trim)\n\(chunkDigest)\n\(ordinal)" : ""
-                let memberDigest = DurableIngestScope.sha256(Data("\(scope.key)\n\(family)\n\(digest)\(occurrence)".utf8))
-                let id = preserveOccurrences ? "h1-\(memberDigest)-\(chunkDigest)-\(ordinal)" : memberDigest
-                if let existing = try Row.fetchOne(db, sql: "SELECT * FROM sensorQuarantine WHERE id = ?", arguments: [id]) {
-                    try Self.enqueueQuarantineArchive(db, row: existing, clockRef: clockRef)
-                    continue
-                }
-                guard bytes.count <= maxBytes - retained, count < maxRecords else { throw DurableIngestError.capacityExceeded }
-                try db.execute(sql: """
-                    INSERT INTO sensorQuarantine
-                        (id, scopeKey, environment, accountId, deviceId, family, trim, frame, capturedAt)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [id, scope.key, scope.environment, scope.accountID, scope.deviceID,
-                                      family, Int64(trim), bytes, Int(Date().timeIntervalSince1970)])
-                try Self.registerRawResource(db, scope: scope, lane: "sensorQuarantine", key: id, bytes: bytes)
-                let row = try Row.fetchOne(db, sql: "SELECT * FROM sensorQuarantine WHERE id = ?", arguments: [id])!
-                try Self.enqueueQuarantineArchive(db, row: row, clockRef: clockRef)
-                retained += bytes.count; count += 1; inserted += 1
-            }
-            if inserted > 0 { try Self.markRawUploadOwed(db) }
-            return inserted
+            try Self.persistSensorQuarantine(db, frames: frames, scope: scope, family: family,
+                trim: trim, clockRef: clockRef, preserveOccurrences: preserveOccurrences,
+                maxBytes: maxBytes, maxRecords: maxRecords, allowPruning: true)
         }
+    }
+
+    /// Used by the ordinary historical transaction; never opens a nested transaction.
+    @discardableResult
+    nonisolated static func persistSensorQuarantine(_ db: Database, frames: [[UInt8]],
+        scope: DurableIngestScope, family: String, trim: UInt32, clockRef: ClockRef?,
+        preserveOccurrences: Bool, maxBytes: Int, maxRecords: Int, allowPruning: Bool) throws -> Int {
+        guard !frames.isEmpty else { return 0 }
+        guard frames.count <= maxRecords, maxBytes >= 0 else { throw DurableIngestError.capacityExceeded }
+        guard try Self.captureScope(db, deviceID: scope.deviceID) == scope else {
+            throw DurableIngestError.identityConflict
+        }
+        var retained = try Int.fetchOne(db, sql: "SELECT COALESCE(SUM(length(frame)), 0) FROM sensorQuarantine") ?? 0
+        var count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sensorQuarantine") ?? 0
+        let offeredBytes = frames.reduce(0) { $0 + $1.count }
+        if allowPruning && (offeredBytes > maxBytes - retained || frames.count > maxRecords - count) {
+            // Recover capacity only from exact verified receipts whose grace elapsed. Never
+            // evict unsent evidence to make the current chunk fit; admission remains atomic.
+            _ = try Self.pruneSensorQuarantine(db, now: Int(Date().timeIntervalSince1970))
+            retained = try Int.fetchOne(db, sql: "SELECT COALESCE(SUM(length(frame)), 0) FROM sensorQuarantine") ?? 0
+            count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sensorQuarantine") ?? 0
+        }
+        var inserted = 0
+        let chunkDigest = preserveOccurrences ? DurableIngestScope.sha256(Self.packFrames(frames)) : ""
+        for (ordinal, frame) in frames.enumerated() {
+            let bytes = Data(frame)
+            let digest = DurableIngestScope.sha256(bytes)
+            let occurrence = preserveOccurrences ? "\n\(trim)\n\(chunkDigest)\n\(ordinal)" : ""
+            let memberDigest = DurableIngestScope.sha256(Data("\(scope.key)\n\(family)\n\(digest)\(occurrence)".utf8))
+            let id = preserveOccurrences ? "h1-\(memberDigest)-\(chunkDigest)-\(ordinal)" : memberDigest
+            if let existing = try Row.fetchOne(db, sql: "SELECT * FROM sensorQuarantine WHERE id = ?", arguments: [id]) {
+                try Self.enqueueQuarantineArchive(db, row: existing, clockRef: clockRef)
+                continue
+            }
+            guard bytes.count <= maxBytes - retained, count < maxRecords else { throw DurableIngestError.capacityExceeded }
+            try db.execute(sql: """
+                INSERT INTO sensorQuarantine
+                    (id, scopeKey, environment, accountId, deviceId, family, trim, frame, capturedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [id, scope.key, scope.environment, scope.accountID, scope.deviceID,
+                                  family, Int64(trim), bytes, Int(Date().timeIntervalSince1970)])
+            try Self.registerRawResource(db, scope: scope, lane: "sensorQuarantine", key: id, bytes: bytes)
+            let row = try Row.fetchOne(db, sql: "SELECT * FROM sensorQuarantine WHERE id = ?", arguments: [id])!
+            try Self.enqueueQuarantineArchive(db, row: row, clockRef: clockRef)
+            retained += bytes.count; count += 1; inserted += 1
+        }
+        if inserted > 0 { try Self.markRawUploadOwed(db) }
+        return inserted
     }
 
     public func pendingSensorQuarantine(scope: DurableIngestScope, afterID: String? = nil,
