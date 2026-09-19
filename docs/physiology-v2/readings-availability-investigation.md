@@ -1,5 +1,10 @@
 # Missing readings: September 18 follow-up
 
+Release follow-up: after this audit, the user approved the Supabase upload repair.
+The [deployment record](supabase-deployment-20260918.md) documents receiver version 7,
+all five applied migrations, real upload recovery, and the separate client archive
+defect found afterward. The audit snapshots and pre-release statuses below are retained.
+
 The installed app's missing metrics have several distinct causes. The upload failure is now diagnosed from production logs. The beat-timing adapter and calibrated SpO2 implementation are still missing. Fixing uploads or scheduling does not by itself provide those measurements.
 
 ## Revisions and scope

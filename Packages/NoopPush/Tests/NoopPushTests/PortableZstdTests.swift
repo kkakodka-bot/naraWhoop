@@ -9,7 +9,11 @@ final class PortableZstdTests: XCTestCase {
         guard let executable = candidates.first(where: FileManager.default.isExecutableFile(atPath:)) else {
             throw XCTSkip("Requires the independent zstd CLI for portable-frame interoperability")
         }
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portable-zstd-\(UUID().uuidString)")
+        // Foundation's macOS temporaryDirectory can ignore TMPDIR. Keep the 64 MiB
+        // reference fixtures on an explicitly selected test volume when host storage is full.
+        let temporaryRoot = ProcessInfo.processInfo.environment["NOOP_TEST_TMPDIR"]
+            .map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory
+        let directory = temporaryRoot.appendingPathComponent("portable-zstd-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let input = directory.appendingPathComponent("input.zst")

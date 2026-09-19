@@ -26,4 +26,26 @@ final class HeartRateWindowsTests: XCTestCase {
         XCTAssertEqual(CurrentHRV.completedWindow(nowUnix: 459), 0..<300)
         XCTAssertEqual(CurrentHRV.completedWindow(nowUnix: 600), 300..<600)
     }
+
+    func testMovingSecondsAreExcludedWithoutInvalidatingAnOtherwiseCoveredWindow() throws {
+        let hr = (0..<300).map { HRSample(ts: $0, bpm: $0 == 10 ? 180 : 60) }
+        let gravity = (0..<300).map {
+            GravitySample(ts: $0, x: 0, y: 0, z: 1, dynAccel: $0 < 20 ? 0.04 : 0.01)
+        }
+        let window = try XCTUnwrap(HeartRateWindows.windows(start: 0, end: 300, hr: hr, gravity: gravity).first)
+        XCTAssertEqual(window.lowMotionSampleFraction, 280.0 / 300.0, accuracy: 1e-12)
+        XCTAssertEqual(window.lowMotionBpm, 60)
+        XCTAssertNil(window.lowMotionReason)
+        XCTAssertEqual(window.movingSeconds, 20)
+        XCTAssertEqual(window.motionObservedSeconds, 300)
+
+        let tooMuchMotion = gravity.map {
+            GravitySample(ts: $0.ts, x: 0, y: 0, z: 1, dynAccel: $0.ts < 31 ? 0.04 : 0.01)
+        }
+        let rejected = try XCTUnwrap(HeartRateWindows.windows(start: 0, end: 300, hr: hr, gravity: tooMuchMotion).first)
+        XCTAssertNil(rejected.lowMotionBpm)
+        XCTAssertEqual(rejected.lowMotionReason, "insufficient_motion_matched_samples")
+        XCTAssertEqual(rejected.movingSeconds, 31)
+        XCTAssertEqual(rejected.motionObservedSeconds, 300)
+    }
 }

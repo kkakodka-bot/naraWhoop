@@ -23,16 +23,12 @@ import java.util.UUID
 private val log = LoggerFactory.getLogger("ScoringApplication")
 
 fun main(args: Array<String>) {
-    require(args.isEmpty() || args.contentEquals(arrayOf("--replay-day")) || args.contentEquals(arrayOf("--inventory-signals")) ||
-        args.contentEquals(arrayOf("--archive-only")) || args.contentEquals(arrayOf("--models-only")) ||
-        args.contentEquals(arrayOf("--activate-models"))) {
-        "Use no arguments, --replay-day, --inventory-signals, --archive-only, --models-only, or --activate-models; commands cannot be combined"
-    }
-    if (args.contains("--inventory-signals")) {
+    val requestedMode = ScoringConfig.runModeFromArgs(args)
+    if (requestedMode == ScoringRunMode.INVENTORY) {
         SignalInventoryCommand.run(System.getenv())
         return
     }
-    if (args.contains("--models-only") || args.contains("--activate-models")) {
+    if (requestedMode in setOf(ScoringRunMode.MODELS_ONLY,ScoringRunMode.ACTIVATE_MODELS)) {
         val databaseUrl = requireNotNull(System.getenv("DATABASE_URL")) { "DATABASE_URL required" }
         val modelId = requireNotNull(System.getenv("PHYSIOLOGY_MODEL_ID")) { "PHYSIOLOGY_MODEL_ID required for isolated model commands" }
         PostgresClient(databaseUrl, queryTimeoutSeconds = 15).use { db ->
@@ -46,7 +42,7 @@ fun main(args: Array<String>) {
                 assembler = VerifiedModelJobAssembler(JdbcAcquisitionContractResolver(db.dataSource)), modelId = modelId)
             val queue = ModelWorkQueue(db)
             val model = runner.configuredModels().single { it.id == modelId }
-            if (args.contains("--activate-models")) {
+            if (requestedMode == ScoringRunMode.ACTIVATE_MODELS) {
                 val revision = queue.activate(model)
                 log.info("Activated shadow model {} revision {}; historical backfill enqueued", model.id, revision)
             } else {
@@ -58,7 +54,16 @@ fun main(args: Array<String>) {
         return
     }
     val config = ScoringConfig.fromEnv()
-    if (args.contains("--archive-only")) {
+    val mode = config.runMode(args)
+    if (mode == ScoringRunMode.CHECK_CONFIG) {
+        println(RuntimePreflightCommand.run(config))
+        return
+    }
+    if (mode == ScoringRunMode.PERSISTENT &&
+        listOf(config.replayUserId, config.replayDay, config.replayDeviceId).any { it != null }) {
+        log.warn("Ignoring REPLAY_* environment in persistent mode; use --replay-day for an explicit one-shot replay")
+    }
+    if (mode == ScoringRunMode.ARCHIVE_ONLY) {
         val b2 = requireNotNull(config.b2Config) { "Archive-only mode requires B2 configuration" }
         PostgresClient(config.databaseUrl).use { db ->
             val outbox = DerivedArchiveOutbox(db, DerivedArtifactWriter(b2, config.supabaseUrl, config.serviceRoleKey))
@@ -91,7 +96,7 @@ fun main(args: Array<String>) {
     val archiveOutbox = derivedWriter?.let { DerivedArchiveOutbox(db, it) }
     val poller = ScoringPoller(config, reader, queue, scorer, writer, heartbeat, archiveOutbox)
 
-    if (args.contains("--replay-day") || config.replayUserId != null) {
+    if (mode == ScoringRunMode.REPLAY) {
         val userId = UUID.fromString(config.replayUserId ?: error("REPLAY_USER_ID required for --replay-day"))
         val day = config.replayDay ?: error("REPLAY_DAY required for --replay-day")
         val deviceId = resolveReplayDeviceId(reader, userId, config.replayDeviceId)

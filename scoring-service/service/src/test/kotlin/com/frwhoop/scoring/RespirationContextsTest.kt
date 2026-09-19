@@ -10,7 +10,7 @@ import org.junit.Test
 
 class RespirationContextsTest {
     private fun quiet(start: Long = 0) = HeartRateWindows.Measurement(start, start + 300,
-        60.0, 60.0, 1.0, 1.0, null, null)
+        60.0, 60.0, 1.0, 1.0, null, null, motionObservedSeconds = 300)
     private fun awake(start: Long = 0, end: Long = 300) = SleepContextSpan(start, end, "awake", "fixture")
 
     @Test fun quietMotionAloneDoesNotEstablishAwakeRest() {
@@ -23,12 +23,26 @@ class RespirationContextsTest {
     }
 
     @Test fun movingMissingAndOffBodyWindowsNeverQualify() {
-        for (reason in listOf("movement_detected", "insufficient_motion_matched_samples", "off_body_evidence")) {
+        for (reason in listOf("insufficient_motion_matched_samples", "off_body_evidence")) {
             val window = quiet().copy(lowMotionBpm = null, lowMotionReason = reason)
             assertTrue(RespirationContexts.withAwakeRest(emptyList(), listOf(window), emptyList(), listOf(awake())).isEmpty())
         }
         assertTrue(RespirationContexts.withAwakeRest(emptyList(), listOf(quiet()), emptyList(),
             listOf(awake(), SleepContextSpan(299, 300, "off_body", "fixture"))).isEmpty())
+        // Frequent sampled HR may tolerate and exclude a few moving seconds, but that does not
+        // certify the full five-minute interval as a motion-clean respiration context.
+        assertNotNull(quiet().copy(lowMotionSampleFraction = 280.0 / 300.0, movingSeconds = 20).lowMotionBpm)
+        assertTrue(RespirationContexts.withAwakeRest(emptyList(),
+            listOf(quiet().copy(lowMotionSampleFraction = 280.0 / 300.0, movingSeconds = 20)),
+            emptyList(), listOf(awake())).isEmpty())
+
+        val hr = (0L until 300).map { com.noop.data.HrSample("d", it, 60) }
+        val gravity = (30L until 300).map { com.noop.data.GravitySample("d", it, 0.0, 0.0, 1.0, dynAccel = .01) }
+        val missingMotion = HeartRateWindows.windows(0, 300, hr, gravity).single()
+        assertNotNull(missingMotion.lowMotionBpm)
+        assertEquals(270, missingMotion.motionObservedSeconds)
+        assertTrue(RespirationContexts.withAwakeRest(emptyList(), listOf(missingMotion), emptyList(),
+            listOf(awake())).isEmpty())
     }
 
     @Test fun conflictingSleepOrUnknownStateCannotBecomeRest() {

@@ -380,7 +380,15 @@ public enum PushProtocol {
             guard case .rawBatch(let record) = rows[0] else {
                 throw PushProtocolException("binary row kind mismatch")
             }
-            return (record.startTs, record.endTs, Int(record.frameCount))
+            guard record.endTs >= record.startTs else {
+                throw PushProtocolException("rawBatch capture bounds are reversed")
+            }
+            let (endExclusive, overflow) = record.endTs.addingReportingOverflow(1)
+            guard !overflow else { throw PushProtocolException("rawBatch capture end overflows") }
+            // Stored capture bounds include the last captured second. Only manifest indexing
+            // is half-open; retain the original bounds and clocks inside the packed evidence.
+            // This does not claim continuous sensor coverage within the capture interval.
+            return (record.startTs, endExclusive, Int(record.frameCount))
         case .ppgWaveformSample, .v18AuxSample, .rawImuSession:
             let timestamps: [Int64] = try rows.map { row in
                 switch row {

@@ -236,7 +236,7 @@ class PhysiologyPublicationIntegrationTest {
             val value = payload(item).apply { getJSONObject("daily").put("heart_rate_windows", JSONArray().put(
                 JSONObject().put("start",1789606800).put("end",1789607100)
                     .put("user_id",user.toString()).put("device_id",ownerDevice.toString())
-                    .put("method_version","sampled-hr-five-minute-1").put("mean_bpm",mean))) }
+                    .put("method_version","sampled-hr-five-minute-2").put("mean_bpm",mean))) }
             publish(value)
         }
         sql("update physiology_source_selection set device_id='$secondary' where user_id='$user' and feature='respiration'")
@@ -269,7 +269,7 @@ class PhysiologyPublicationIntegrationTest {
             val value = payload(item).apply { getJSONObject("daily").put("heart_rate_windows", JSONArray().put(
                 JSONObject().put("start",1789606800).put("end",1789607100)
                     .put("user_id",owner.toString()).put("device_id",ownerDevice.toString())
-                    .put("method_version","sampled-hr-five-minute-1").put("mean_bpm",60))) }
+                    .put("method_version","sampled-hr-five-minute-2").put("mean_bpm",60))) }
             expectFailure("22023") { publish(value) }
         }
         assertEquals(0L,count("server_physiology_results"))

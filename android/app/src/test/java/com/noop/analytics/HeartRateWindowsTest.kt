@@ -26,4 +26,22 @@ class HeartRateWindowsTest {
             assertEquals(id,text("reason"),window.reason); assertEquals(id,text("quiet_reason"),window.lowMotionReason)
         }
     }
+
+    @Test fun movingSecondsAreExcludedWithoutInvalidatingAnOtherwiseCoveredWindow() {
+        val hr=(0L until 300L).map { HrSample("d",it,if(it==10L) 180 else 60) }
+        val gravity=(0L until 300L).map { GravitySample("d",it,0.0,0.0,1.0,dynAccel=if(it<20) .04 else .01) }
+        val window=HeartRateWindows.windows(0,300,hr,gravity).single()
+        assertEquals(280.0/300.0,window.lowMotionSampleFraction,1e-12)
+        assertEquals(60.0,window.lowMotionBpm!!,1e-12)
+        assertNull(window.lowMotionReason)
+        assertEquals(20,window.movingSeconds)
+        assertEquals(300,window.motionObservedSeconds)
+
+        val tooMuchMotion=(0L until 300L).map { GravitySample("d",it,0.0,0.0,1.0,dynAccel=if(it<31) .04 else .01) }
+        val rejected=HeartRateWindows.windows(0,300,hr,tooMuchMotion).single()
+        assertNull(rejected.lowMotionBpm)
+        assertEquals("insufficient_motion_matched_samples",rejected.lowMotionReason)
+        assertEquals(31,rejected.movingSeconds)
+        assertEquals(300,rejected.motionObservedSeconds)
+    }
 }

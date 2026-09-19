@@ -3,6 +3,7 @@ package com.frwhoop.scoring
 import com.frwhoop.scoring.db.PostgresClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class PostgresClientTest {
@@ -69,5 +70,39 @@ class PostgresClientTest {
         val (user, password) = PostgresClient.parseUserInfo("jdbc:postgresql://postgres:p@ss@db:5432/postgres")
         assertEquals("postgres", user)
         assertEquals("p@ss", password)
+    }
+
+    @Test
+    fun percentEncodedCredentialsAreDecodedAfterSplitting() {
+        val url = "postgresql://postgres%2Eproject:p%40ss%2Fword%3Fend%25@pooler.example:5432/postgres?sslmode=require"
+        assertEquals(
+            PostgresClient.Companion.UserInfo("postgres.project", "p@ss/word?end%"),
+            PostgresClient.parseUserInfo(url),
+        )
+        assertEquals("jdbc:postgresql://pooler.example:5432/postgres?sslmode=require", PostgresClient.normalizeJdbcUrl(url))
+    }
+
+    @Test
+    fun percentEscapesAreDecodedOnceAndLiteralPlusIsPreserved() {
+        val result = PostgresClient.parseUserInfo("jdbc:postgresql://user%3Aname:p+%2B%252F%20end@db:5432/postgres")
+        assertEquals("user:name", result.user)
+        assertEquals("p++%2F end", result.password)
+    }
+
+    @Test
+    fun encodedUtf8AndPasswordlessUsernameAreSupported() {
+        assertEquals("caf\u00e9", PostgresClient.parseUserInfo("postgres://caf%C3%A9@db/postgres").user)
+        assertNull(PostgresClient.parseUserInfo("postgres://caf%C3%A9@db/postgres").password)
+    }
+
+    @Test
+    fun malformedEscapesFailWithoutExposingTheCredential() {
+        for (password in listOf("secret%", "secret%2", "secret%zz")) {
+            val error = assertThrows(IllegalArgumentException::class.java) {
+                PostgresClient.parseUserInfo("postgres://user:$password@db/postgres")
+            }
+            assertEquals("DATABASE_URL has malformed percent encoding in userinfo", error.message)
+            assertNull(error.cause)
+        }
     }
 }

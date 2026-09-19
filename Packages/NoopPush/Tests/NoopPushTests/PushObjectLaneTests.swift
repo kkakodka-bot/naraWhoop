@@ -110,8 +110,8 @@ final class PushObjectLaneTests: XCTestCase {
             decodedLimit: PushProtocolLimits.maxObjectDecodedBytes,
         )
         XCTAssertEqual(rawBatch.contentSha256, "cc0e6daf0ff9d5696767968a9faef4c031368bf8a5efdd490520517a34fef749")
-        XCTAssertEqual(rawBatch.batchId, "50649896-7ae5-50ff-bc46-70356304df31")
-        XCTAssertEqual(rawBatch.objectId, "6b570a51-ff86-5ad1-82fc-2da881536723")
+        XCTAssertEqual(rawBatch.batchId, "ed3d5ac8-09af-529d-a7a1-b6a56abef5bb")
+        XCTAssertEqual(rawBatch.objectId, "22cc7400-3e75-5ed5-bc24-3875d185de70")
     }
 
     func testResumeAfterKillSkipsPutWhenUploaded() async throws {

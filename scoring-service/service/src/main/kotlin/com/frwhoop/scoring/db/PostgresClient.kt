@@ -2,6 +2,8 @@ package com.frwhoop.scoring.db
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.sql.Connection
 
 /**
@@ -64,7 +66,8 @@ class PostgresClient private constructor(
 
         /** Extract user/password from `user:pass@` userinfo. Splits at the LAST `@` before the first
          *  `/` (path), so an `@` inside the password survives; the password is everything after the
-         *  FIRST `:` within userinfo. Handles `postgresql://`, `postgres://`, and `jdbc:`-prefixed forms. */
+         *  FIRST `:` within userinfo. URI escapes are decoded exactly once, after splitting.
+         *  Handles `postgresql://`, `postgres://`, and `jdbc:`-prefixed forms. */
         fun parseUserInfo(databaseUrl: String): UserInfo {
             val authority = authorityOf(databaseUrl) ?: return UserInfo(null, null)
             val at = authority.lastIndexOf('@')
@@ -72,10 +75,18 @@ class PostgresClient private constructor(
             val userinfo = authority.substring(0, at)
             val colon = userinfo.indexOf(':')
             return if (colon < 0) {
-                UserInfo(userinfo, null)
+                UserInfo(decodeUserInfo(userinfo), null)
             } else {
-                UserInfo(userinfo.substring(0, colon), userinfo.substring(colon + 1))
+                UserInfo(decodeUserInfo(userinfo.substring(0, colon)), decodeUserInfo(userinfo.substring(colon + 1)))
             }
+        }
+
+        private fun decodeUserInfo(value: String): String = try {
+            // URLDecoder handles form data, where '+' means space; URI userinfo keeps literal '+'.
+            URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8)
+        } catch (_: IllegalArgumentException) {
+            // Decoder errors can include the credential. Keep both the message and cause sanitized.
+            throw IllegalArgumentException("DATABASE_URL has malformed percent encoding in userinfo")
         }
 
         private fun authorityOf(databaseUrl: String): String? {

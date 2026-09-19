@@ -133,39 +133,57 @@ class PhysiologyShadowRunner(
             it.end > it.start && it.kind in setOf("qualified_sleep", "qualified_awake_rest") })
         require(contexts.zipWithNext().all { (a,b) -> a.end <= b.start })
         val windows = mutableListOf<RespirationEstimator.Result>()
-        val summaries = mutableListOf<ContextSummary>()
         val ownerValid = request.intervals.all { it.userId == request.userId.toString() && it.deviceId == request.deviceId.toString() }
-        for (context in contexts) {
-            val local = mutableListOf<RespirationEstimator.Result>()
-            var start = context.start
-            while (start + 120 <= context.end && windows.size < 512) {
-                checkCancellation()
-                val end = start + 120
-                val rows = if (ownerValid) request.intervals.filter { row -> row.verifiedSpan
-                    ?.takeIf { it.start.isFinite() && it.end.isFinite() && it.end > it.start }
-                    ?.let { it.end >= start - 2 && it.start <= end + 2 }
-                    ?: (!row.eventTime.isFinite() || (row.eventTime >= start - 2 && row.eventTime <= end + 2)) } else emptyList()
-                val evidence = request.respirationContamination.filter { it.end > start && it.start < end }
-                val observed = evidence.filter { it.contamination.motionObservedFraction == 1.0 &&
-                    it.contamination.evidenceVersion.isNotBlank() && it.contamination.evidenceVersion != "unverified" }
-                    .map { PhysiologyQuality.Span(it.start, it.end) }
-                var through = start
-                var seconds = 0.0
-                for (span in observed.sortedBy { it.start }) {
-                    val lo = maxOf(start, through, span.start)
-                    val hi = minOf(end, span.end)
-                    if (hi > lo) { seconds += hi - lo; through = hi }
-                }
-                val contamination = RespirationEstimator.Contamination(seconds / 120,
-                    evidence.any { it.contamination.motionContaminated },
-                    evidence.flatMap { it.contamination.signalQualityReasons }.distinct().sorted(),
-                    evidence.map { it.contamination.evidenceVersion }.distinct().sorted().joinToString("+").ifBlank { "unverified" })
-                val output = RespirationEstimator.estimate(RespirationEstimator.fromIntervals(start, 120, rows,
-                    request.inputRevision, contamination))
-                val result = if (ownerValid) output else output.copy(reason = "interval_owner_mismatch", breathsPerMinute = null)
-                windows += result; local += result; start += 60
+        val localWindows = contexts.map { mutableListOf<RespirationEstimator.Result>() }
+        data class Candidate(val contextIndex: Int, val start: Double)
+        val candidates = contexts.flatMapIndexed { index, context ->
+            buildList {
+                var start = context.start
+                while (start + 120 <= context.end) { add(Candidate(index, start)); start += 60 }
             }
-            summaries += ContextSummary(context.start, context.end, RespirationEstimator.summarize(local, context.start, context.end, context.kind))
+        }
+        val selected = if (candidates.size <= 512) candidates else {
+            // Each eligible two-minute opportunity gets equal weight. Midpoint stratification
+            // spans the full day while preventing a large number of short fragments from taking
+            // the budget away from a long qualified sleep interval.
+            List(512) { slot ->
+                val position = kotlin.math.floor((slot + .5) * candidates.size / 512).toInt()
+                    .coerceIn(0, candidates.lastIndex)
+                candidates[position]
+            }
+        }
+        for (candidate in selected) {
+            checkCancellation()
+            val start = candidate.start
+            val end = start + 120
+            val rows = if (ownerValid) request.intervals.filter { row -> row.verifiedSpan
+                ?.takeIf { it.start.isFinite() && it.end.isFinite() && it.end > it.start }
+                ?.let { it.end >= start - 2 && it.start <= end + 2 }
+                ?: (!row.eventTime.isFinite() || (row.eventTime >= start - 2 && row.eventTime <= end + 2)) } else emptyList()
+            val evidence = request.respirationContamination.filter { it.end > start && it.start < end }
+            val observed = evidence.filter { it.contamination.motionObservedFraction == 1.0 &&
+                it.contamination.evidenceVersion.isNotBlank() && it.contamination.evidenceVersion != "unverified" }
+                .map { PhysiologyQuality.Span(it.start, it.end) }
+            var through = start
+            var seconds = 0.0
+            for (span in observed.sortedBy { it.start }) {
+                val lo = maxOf(start, through, span.start)
+                val hi = minOf(end, span.end)
+                if (hi > lo) { seconds += hi - lo; through = hi }
+            }
+            val contamination = RespirationEstimator.Contamination(seconds / 120,
+                evidence.any { it.contamination.motionContaminated },
+                evidence.flatMap { it.contamination.signalQualityReasons }.distinct().sorted(),
+                evidence.map { it.contamination.evidenceVersion }.distinct().sorted().joinToString("+").ifBlank { "unverified" })
+            val output = RespirationEstimator.estimate(RespirationEstimator.fromIntervals(start, 120, rows,
+                request.inputRevision, contamination))
+            val result = if (ownerValid) output else output.copy(reason = "interval_owner_mismatch", breathsPerMinute = null)
+            windows += result
+            localWindows[candidate.contextIndex] += result
+        }
+        val summaries = contexts.mapIndexed { index, context ->
+            ContextSummary(context.start, context.end,
+                RespirationEstimator.summarize(localWindows[index], context.start, context.end, context.kind))
         }
         val waitingModels = MODEL_IDS.map { id -> JSONObject().put("model_id", id).put("publication_mode", "shadow")
             .put("canonical_outputs_allowed", false).put("status", "abstained")
@@ -173,7 +191,7 @@ class PhysiologyShadowRunner(
             .put("user_id", request.userId).put("device_id", request.deviceId).put("input_revision", request.inputRevision) }
         onProgress(Result(windows.toList(), summaries.toList(), waitingModels, emptyList(), 0))
         if (!includeModels) return Result(windows, summaries, waitingModels,
-            if (windows.size >= 512) listOf("respiration_window_budget_reached") else emptyList(), 0)
+            if (candidates.size > 512) listOf("respiration_window_budget_reached") else emptyList(), 0)
         val rawReasons = mutableListOf<String>(); val decoded = mutableListOf<VerifiedRawObjectReader.Decoded>()
         if (contexts.isEmpty()) rawReasons += "no_qualified_respiration_context"
         if (catalogue == null) rawReasons += "raw_object_reader_not_configured" else {
@@ -228,7 +246,7 @@ class PhysiologyShadowRunner(
                 .put("user_id", request.userId).put("device_id", request.deviceId).put("input_revision", request.inputRevision)
                 .put("status", "abstained").put("reason", reason).put("output", JSONObject.NULL)
         }
-        if (windows.size >= 512) rawReasons += "respiration_window_budget_reached"
+        if (candidates.size > 512) rawReasons += "respiration_window_budget_reached"
         return Result(windows, summaries, outputs, rawReasons.distinct(), decoded.size)
     }
 

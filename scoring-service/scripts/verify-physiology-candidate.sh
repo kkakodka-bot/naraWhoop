@@ -28,7 +28,7 @@ run() {
 }
 gates=("${@:-all}")
 if [[ "${gates[0]}" == all ]]; then
-  gates=(swift kernel manifests database migrations edge python checkpoint macos ios-simulator iphone whitespace)
+  gates=(swift kernel manifests database runtime-preflight migrations edge python checkpoint macos ios-simulator iphone whitespace)
 fi
 for gate in "${gates[@]}"; do
   case "$gate" in
@@ -42,13 +42,15 @@ for gate in "${gates[@]}"; do
     manifests)
       run manifests bash -c 'java -cp "$1/scoring-service/service/build/install/service/lib/*" com.frwhoop.scoring.scoring.ProductionAlgorithmManifest > "$2/manifests.json" && cmp "$2/manifests.json" "$1/docs/physiology-v2/candidate-algorithm-manifests.json"' _ "$repo_dir" "$evidence" ;;
     database) run database bash scoring-service/scripts/test-physiology-queue.sh ;;
+    runtime-preflight) run runtime-preflight bash scoring-service/scripts/test-runtime-preflight.sh ;;
     migrations)
       run migration-fresh bash scoring-service/scripts/test-physiology-migration-chain.sh fresh
       run migration-populated bash scoring-service/scripts/test-physiology-migration-chain.sh populated ;;
     edge) run edge bash -c 'cd "$1/supabase/functions" && npx --yes deno test --allow-all tests/' _ "$repo_dir" ;;
     python)
       run python-inference "$PHYSIOLOGY_PYTHON" -m unittest discover -s scoring-service/inference/tests -v
-      run python-reference "$PHYSIOLOGY_PYTHON" -m unittest discover -s Tools/physiology-bench/tests -v ;;
+      run python-reference "$PHYSIOLOGY_PYTHON" -m unittest discover -s Tools/physiology-bench/tests -v
+      run python-deployment "$PHYSIOLOGY_PYTHON" -m unittest discover -s infra/vps/tests -p test_scoring_deploy.py -v ;;
     checkpoint)
       : "${PHYSIOLOGY_WAV2SLEEP_PYTHON:?Set the pinned released-checkpoint environment Python executable}"
       : "${PHYSIOLOGY_WAV2SLEEP_SOURCE:?Set the pinned wav2sleep source checkout}"

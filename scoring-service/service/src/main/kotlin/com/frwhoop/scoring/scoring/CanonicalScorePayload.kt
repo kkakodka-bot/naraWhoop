@@ -55,6 +55,8 @@ object CanonicalScorePayload {
                 .put("statistic","sampled_hr_and_low_motion_mean_not_daily_resting_baseline")
                 .putNullable("mean_bpm",window.meanBpm).putNullable("low_motion_bpm",window.lowMotionBpm)
                 .put("sample_fraction",window.sampleFraction).put("low_motion_sample_fraction",window.lowMotionSampleFraction)
+                .put("moving_seconds",window.movingSeconds)
+                .put("motion_observed_fraction",window.motionObservedSeconds / 300.0)
                 .putNullable("reason",window.reason).putNullable("low_motion_reason",window.lowMotionReason) }))
             .putNullable("recovery", bundle.result.daily.recovery ?: bundle.result.recovery)
             .putNullable("strain", bundle.result.daily.strain ?: bundle.result.strain)

@@ -210,4 +210,73 @@ class PhysiologyShadowRunnerTest {
         val duplicate = runner.evaluate(original.copy(respirationContamination = original.respirationContamination + original.respirationContamination))
         assertTrue(duplicate.windows.all { it.motionObservedFraction == 1.0 })
     }
+
+    @Test fun `bounded respiration attempts are shared across qualified contexts`() {
+        val input=request().copy(
+            start=0,
+            end=75_000,
+            intervals=emptyList(),
+            contexts=listOf(
+                PhysiologyShadowRunner.Context(0.0,37_000.0,"qualified_sleep"),
+                PhysiologyShadowRunner.Context(38_000.0,75_000.0,"qualified_awake_rest"),
+            ),
+        )
+        val result=PhysiologyShadowRunner().evaluate(input)
+        assertEquals(512,result.windows.size)
+        assertEquals(2,result.summaries.size)
+        assertEquals(256,result.summaries[0].summary.totalWindows)
+        assertEquals(256,result.summaries[1].summary.totalWindows)
+        assertTrue(result.rawReasons.contains("respiration_window_budget_reached"))
+    }
+
+    @Test fun `bounded respiration samples a long sleep across its full span despite fragmented awake rest`() {
+        val sleep = PhysiologyShadowRunner.Context(0.0, 36_000.0, "qualified_sleep")
+        val awake = (0 until 100).map { index ->
+            val start = 36_000.0 + index * 300.0
+            PhysiologyShadowRunner.Context(start, start + 300.0, "qualified_awake_rest")
+        }
+        val input=request().copy(start=0,end=66_000,intervals=emptyList(),contexts=listOf(sleep)+awake)
+        val result=PhysiologyShadowRunner().evaluate(input)
+        assertEquals(512,result.windows.size)
+        assertTrue(result.rawReasons.contains("respiration_window_budget_reached"))
+        assertEquals(101,result.summaries.size)
+        val sleepStarts=result.windows.filter { it.start < sleep.end }.map { it.start }
+        assertTrue(sleepStarts.size in 300..315)
+        assertTrue(sleepStarts.minOrNull()!! < 120)
+        assertTrue(sleepStarts.maxOrNull()!! > sleep.end - 240)
+    }
+
+    @Test fun `maximum fragmented context count cannot consume the long sleep budget`() {
+        val sleep = PhysiologyShadowRunner.Context(0.0, 36_000.0, "qualified_sleep")
+        val awake = (0 until 511).map { index ->
+            val start = 36_000.0 + index * 300.0
+            PhysiologyShadowRunner.Context(start, start + 300.0, "qualified_awake_rest")
+        }
+        val input=request().copy(start=0,end=189_300,intervals=emptyList(),contexts=listOf(sleep)+awake)
+        val result=PhysiologyShadowRunner().evaluate(input)
+        assertEquals(512,result.windows.size)
+        assertEquals(512,result.summaries.size)
+        val sleepStarts=result.windows.filter { it.start < sleep.end }.map { it.start }
+        // Sleep contributes 599 of 2,643 opportunities, so equal-weight sampling should retain
+        // about 116 attempts and cover the night rather than reducing it to one midpoint.
+        assertTrue(sleepStarts.size in 110..122)
+        assertTrue(sleepStarts.minOrNull()!! < 240)
+        assertTrue(sleepStarts.maxOrNull()!! > sleep.end - 300)
+    }
+
+    @Test fun `respiration candidate sets below the budget remain exhaustive`() {
+        val input=request().copy(start=0,end=600,intervals=emptyList(),
+            contexts=listOf(PhysiologyShadowRunner.Context(0.0,600.0,"qualified_sleep")))
+        val result=PhysiologyShadowRunner().evaluate(input)
+        assertEquals((0..480 step 60).map(Int::toDouble),result.windows.map { it.start })
+        assertFalse(result.rawReasons.contains("respiration_window_budget_reached"))
+    }
+
+    @Test fun `exactly full respiration budget does not report omitted candidates`() {
+        val input=request().copy(start=0,end=30_780,intervals=emptyList(),
+            contexts=listOf(PhysiologyShadowRunner.Context(0.0,30_780.0,"qualified_sleep")))
+        val result=PhysiologyShadowRunner().evaluate(input)
+        assertEquals(512,result.windows.size)
+        assertFalse(result.rawReasons.contains("respiration_window_budget_reached"))
+    }
 }

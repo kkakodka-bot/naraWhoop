@@ -1,33 +1,17 @@
-# Merge into /opt/frwhoop/supabase-docker/docker/docker-compose.yml on the VPS.
-# Requires secrets: DATABASE_URL (pooler), INGEST_SECRET, SUPABASE_URL, SERVICE_ROLE_KEY, WORKER_SECRET.
+# Installed as /opt/frwhoop/supabase-docker/docker/docker-compose.scoring.yml.
+# /opt/frwhoop/scoring.env holds the hosted database and PostgREST destinations.
 services:
-  scoring-shadow:
-    image: frwhoop/scoring-service:physiology-v2
-    build:
-      context: ../../..
-      dockerfile: scoring-service/Dockerfile
+  scoring-physiology-v2:
+    image: frwhoop/scoring-service:${SCORING_IMAGE_TAG:?SCORING_IMAGE_TAG is required}
+    container_name: scoring-physiology-v2
     restart: unless-stopped
-    depends_on:
-      - db
-      - rest
     env_file:
+      - ${SCORING_ENV_FILE:-/opt/frwhoop/scoring.env}
       - /opt/frwhoop/b2.env
     environment:
-      DATABASE_URL: ${SCORING_DATABASE_URL}
-      INGEST_SECRET: ${INGEST_SECRET}
-      SUPABASE_URL: http://rest:3000
-      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-      WORKER_SECRET: ${WORKER_SECRET}
-      SCORING_POLL_SECONDS: ${SCORING_POLL_SECONDS:-8}
-      # Separate from the retained scoring service; it must continue baseline computation.
       SCORING_ALGORITHM_VERSION: frwhoop-physiology-2
-      B2_BUCKET: ${B2_BUCKET_NAME:-FRWHOOP}
-      DERIVED_RETENTION_DAYS: ${DERIVED_RETENTION_DAYS:-90}
+    command: []
     networks:
       - default
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep -f /app/bin/service || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
+    # Container/process existence is not scoring health. The acceptance script verifies
+    # advancing hosted poll/publication timestamps; ingest-verify reports processing separately.

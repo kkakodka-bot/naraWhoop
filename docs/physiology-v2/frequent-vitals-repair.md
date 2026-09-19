@@ -47,9 +47,13 @@ The backfill lifecycle test failures were inherited test configuration: onboardi
 
 ## What runs every five minutes
 
-`HeartRateWindows` in Swift/Kotlin calculates UTC-aligned completed 300-second windows. Each unique sampled second contributes once. Conflicting duplicates and off-body samples are excluded. At least 90% sampled-second coverage is required. Low-motion averages additionally require matching dynamic-acceleration observations and no detected movement/off-body evidence. Missing motion is not quietness. These engineering gates are not clinical validation.
+`HeartRateWindows` in Swift/Kotlin calculates UTC-aligned completed 300-second windows. Each unique sampled second contributes once. Conflicting duplicates and off-body samples are excluded. At least 90% sampled-second coverage is required. Low-motion averages additionally require at least 90% heart-rate samples matched to valid quiet dynamic-acceleration observations, no quiet-data gap longer than 30 seconds, and no off-body evidence; moving seconds are excluded from the average. Missing motion is not quietness. These engineering gates are not clinical validation.
 
 Both clients show this history separately from the overnight resting-heart-rate baseline. Cards refresh at boundaries while visible, after sync, and manually. The Kotlin server uses the same implementation and emits owner/device-scoped `daily.heart_rate_windows`; RPC readback follows the selected HRV device/version. Its deployment and sustained fresh-publication cadence remain pending.
+
+In the preserved 24-hour phone database immediately before build 354, collection was already dense: 83,496 unique HR seconds and 83,501 gravity seconds produced 275 measured five-minute windows. The old any-motion veto retained 46 low-motion windows; the revised quiet-sample policy retained 121, recovering 75 without counting the moving seconds in the average. This is one device-day behavior reproduction, not population or accuracy validation.
+
+The daytime awake-rest respiration lane is stricter than the low-motion HR estimate: all 300 seconds must have valid motion observations and none may show movement. Missing accelerometer seconds cannot certify a whole two-minute respiratory window as motion-clean. The published HR-window provenance carries both moving seconds and the independently observed motion fraction.
 
 Existing strict HRV measurements already use five-minute windows. They remain null without real timing/continuity evidence. The current-HRV read now requests the correct aligned window and retains packet provenance. Apple SDNN and WHOOP RMSSD remain separate. The new HR history does not substitute itself for HRV, nightly resting HR, respiration or SpO₂.
 

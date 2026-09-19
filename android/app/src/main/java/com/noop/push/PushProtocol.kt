@@ -307,7 +307,15 @@ object PushProtocol {
     private fun binaryBounds(table: PushBinaryTable, rows: List<PushBinaryRow>): Triple<Long, Long, Int> = when (table) {
         PushBinaryTable.RAW_BATCH -> {
             val record = (rows.single() as PushBinaryRow.RawBatch).record
-            Triple(record.startTs, record.endTs, record.frameCount)
+            if (record.endTs < record.startTs) throw PushProtocolException("rawBatch capture bounds are reversed")
+            val endExclusive = try {
+                Math.addExact(record.endTs, 1L)
+            } catch (_: ArithmeticException) {
+                throw PushProtocolException("rawBatch capture end overflows")
+            }
+            // Stored capture bounds include their final second. Only manifest indexing is
+            // half-open; original packed bounds/clocks remain evidence, not continuous coverage.
+            Triple(record.startTs, endExclusive, record.frameCount)
         }
         PushBinaryTable.PPG_WAVEFORM_SAMPLE, PushBinaryTable.V18_AUX_SAMPLE, PushBinaryTable.RAW_IMU_SESSION -> {
             val timestamps = rows.map { row ->

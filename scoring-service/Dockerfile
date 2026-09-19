@@ -10,6 +10,8 @@ RUN chmod +x gradlew
 RUN ./gradlew :service:installDist --no-daemon -x test
 
 FROM eclipse-temurin:17-jre-jammy
+ARG RELEASE_SHA=unknown
+LABEL org.opencontainers.image.revision=$RELEASE_SHA
 WORKDIR /app
 COPY --from=build /build/scoring-service/service/build/install/service /app/
 ENV JAVA_OPTS="-Xmx1g -XX:+UseContainerSupport"

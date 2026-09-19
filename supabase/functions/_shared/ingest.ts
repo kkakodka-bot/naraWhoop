@@ -356,8 +356,23 @@ export function createPushIngest({
         if (!replacementStaging) {
           throw new PushProtocolError('replacement_staging_unavailable', 503);
         }
-        const staged = await ingestStep('replacement', header.stream,
+        var staged = await ingestStep('replacement', header.stream,
           () => replacementStaging!.stagePart({ userId, header, records, bodySha256 }));
+        const superseded = staged.supersededComplete;
+        if (superseded) {
+          await ingestStep('projection', header.stream, () => applyReplacement({
+            header: superseded.header,
+            records: superseded.records,
+            userId,
+            deviceId,
+            upsertRows,
+            deleteRows,
+          }));
+          await ingestStep('replacement', header.stream,
+            () => replacementStaging!.clearGeneration({ userId, header: superseded.header }));
+          staged = await ingestStep('replacement', header.stream,
+            () => replacementStaging!.stagePart({ userId, header, records, bodySha256 }));
+        }
         if (staged.isCompletingPart) {
           await ingestStep('projection', header.stream, () => applyReplacement({
             header,
