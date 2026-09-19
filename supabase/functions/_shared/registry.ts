@@ -5,7 +5,7 @@ import {
   sleepSessionRow,
   workoutSessionRow,
 } from './structuredSync.ts';
-import { OBJECT_LANE_STREAMS } from './keys.ts';
+import { OBJECT_LANE_STREAMS, isUuid, uuidFromParts } from './keys.ts';
 
 export const PUSH_PROTOCOL_VERSIONS = ['1.2', '1.1', '1.0'];
 
@@ -17,7 +17,7 @@ export const APPEND_STREAMS = new Set([
 
 export const REPLACE_STREAMS = new Set([
   'dailyMetric', 'sleepSession', 'workout', 'journal', 'metricSeries', 'appleDaily',
-  'scoreInputProvenance', 'labMarker', 'liveSession',
+  'scoreInputProvenance', 'labMarker', 'liveSession', 'eventLabel',
 ]);
 
 export const BINARY_STREAMS = new Set([
@@ -34,7 +34,7 @@ export const ALL_STREAMS = new Set([...APPEND_STREAMS, ...REPLACE_STREAMS, ...BI
  * a capability the negotiated version cannot exercise. A stream absent from the capability set is
  * simply not attempted, which is the correct outcome for a sender that predates the lane.
  */
-const PROTOCOL_1_2_ONLY = new Set(OBJECT_LANE_STREAMS);
+const PROTOCOL_1_2_ONLY = new Set([...OBJECT_LANE_STREAMS, 'eventLabel']);
 
 /** Streams added in protocol 1.1 — excluded from the 1.0 capability set. */
 const PROTOCOL_1_1_ONLY_APPEND = new Set([
@@ -45,8 +45,8 @@ const PROTOCOL_1_1_ONLY_REPLACE = new Set([
 ]);
 
 export const PROTOCOL_1_0_STREAMS = new Set([
-  ...[...APPEND_STREAMS].filter((s) => !PROTOCOL_1_1_ONLY_APPEND.has(s)),
-  ...[...REPLACE_STREAMS].filter((s) => !PROTOCOL_1_1_ONLY_REPLACE.has(s)),
+  ...[...APPEND_STREAMS].filter((s) => !PROTOCOL_1_1_ONLY_APPEND.has(s) && !PROTOCOL_1_2_ONLY.has(s)),
+  ...[...REPLACE_STREAMS].filter((s) => !PROTOCOL_1_1_ONLY_REPLACE.has(s) && !PROTOCOL_1_2_ONLY.has(s)),
 ]);
 
 type AppendMapRowArgs = {
@@ -411,6 +411,42 @@ export const REPLACE_STREAM_PROJECTIONS: Record<string, {
       };
     },
     rowKey: (record) => `${record?.key?.day}|${record?.key?.question}`,
+  },
+  eventLabel: {
+    table: 'noop_event_labels',
+    onConflict: 'id',
+    windowSelector: 'startTs',
+    mapRow: ({ userId, deviceId, sourceId, batchId, replacementId, record }) => {
+      const externalId = record.key?.id;
+      const startTs = Number(record.key?.startTs);
+      const endValue = record.data?.endTs;
+      const endTs = endValue == null ? null : Number(endValue);
+      const label = typeof record.data?.label === 'string' ? record.data.label.trim() : '';
+      if (!isUuid(externalId) || !Number.isInteger(startTs) || startTs < 0 || !label) return null;
+      if (endTs != null && (!Number.isInteger(endTs) || endTs < startTs)) return null;
+      const notes = record.data?.notes;
+      const timeZone = record.data?.timeZoneIdentifier;
+      const localSource = record.data?.source;
+      return {
+        id: uuidFromParts(['noop-event-label', userId, externalId]),
+        external_id: externalId,
+        user_id: userId,
+        device_id: deviceId,
+        label,
+        start_ts: startTs,
+        end_ts: endTs,
+        source: 'patient',
+        confidence: 'confirmed',
+        notes: typeof notes === 'string' && notes.trim() ? notes.trim() : null,
+        time_zone_identifier: typeof timeZone === 'string' && timeZone ? timeZone : null,
+        local_source: typeof localSource === 'string' && localSource ? localSource : 'manual_experiment',
+        source_id: sourceId,
+        batch_id: batchId,
+        replacement_id: replacementId,
+        updated_at: new Date().toISOString(),
+      };
+    },
+    rowKey: (record) => String(record?.key?.id || ''),
   },
 };
 

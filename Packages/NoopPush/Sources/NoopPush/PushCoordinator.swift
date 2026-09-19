@@ -90,6 +90,9 @@ public struct PushCoordinator: Sendable {
     }
 
     public func pushMutable(_ table: PushMutableTable, deviceId: String) async -> PushResult {
+        if table == .eventLabel {
+            return await pushEventLabels(deviceId: deviceId)
+        }
         let fullWindow = PushWindow.ending(today: today(), calendar: calendar)
         let rows: [PushMutableRecord]
         do {
@@ -187,6 +190,93 @@ public struct PushCoordinator: Sendable {
             return .accepted(
                 batchId: replacementId,
                 recordCount: changedRows.count,
+                hasMore: false,
+                batchCount: batches.count
+            )
+        } catch {
+            return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
+        }
+    }
+
+    /// Event labels are editable and may be stopped or corrected long after they began, so the
+    /// ordinary rolling 14-day mutable window is not sufficient. Send one bounded full snapshot
+    /// per device and use a single content hash; receiver-side replace semantics converge edits and
+    /// deletions without turning the local log into a network-coupled outbox.
+    private func pushEventLabels(deviceId: String) async -> PushResult {
+        let now = today()
+        let endOfToday = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
+        let fullWindow = PushWindow(
+            fromDay: "1970-01-01",
+            toDay: "1970-01-01",
+            startTsInclusive: 0,
+            endTsExclusive: Int64(endOfToday.timeIntervalSince1970)
+        )
+
+        let rows: [PushMutableRecord]
+        do {
+            rows = try await source.mutableRows(
+                table: .eventLabel,
+                deviceId: deviceId,
+                window: fullWindow,
+                limit: PushProtocolLimits.maxMutableSnapshotRecords + 1
+            )
+        } catch is PushProtocolException {
+            return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+        } catch {
+            return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
+        }
+        guard rows.count <= PushProtocolLimits.maxMutableSnapshotRecords else {
+            return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+        }
+
+        let hash: String
+        do {
+            let encodedBytes = try rows.reduce(into: 0) { total, row in
+                total += try PushProtocol.mutableRecordEncodedSize(table: .eventLabel, record: row)
+            }
+            guard encodedBytes <= PushProtocolLimits.maxMutableSnapshotEncodedBytes else {
+                return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+            }
+            hash = try PushProtocol.mutableSnapshotHash(table: .eventLabel, records: rows)
+        } catch {
+            return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+        }
+
+        do {
+            if try await progress.window(table: .eventLabel, deviceId: deviceId)?.dayHashes["all"] == hash {
+                return .noData
+            }
+        } catch {
+            return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
+        }
+
+        let batches: [PushBatch]
+        do {
+            batches = try PushProtocol.mutableBatches(
+                table: .eventLabel,
+                sourceId: sourceId,
+                deviceId: deviceId,
+                window: fullWindow,
+                records: rows
+            )
+        } catch {
+            return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+        }
+        for batch in batches {
+            let accepted = await deliver(batch)
+            guard case .accepted = accepted else { return accepted }
+        }
+
+        let replacementId = batches.first?.replacementId ?? batches.first?.batchId ?? ""
+        do {
+            try await progress.saveWindow(
+                table: .eventLabel,
+                deviceId: deviceId,
+                progress: PushWindowProgress(window: fullWindow, batchId: replacementId, dayHashes: ["all": hash])
+            )
+            return .accepted(
+                batchId: replacementId,
+                recordCount: rows.count,
                 hasMore: false,
                 batchCount: batches.count
             )
@@ -391,7 +481,7 @@ public struct PushCoordinator: Sendable {
         // lands today's Charge / sleep / workouts / journal before dense per-second append streams.
         // Append tables follow: lightweight event + battery, then the heavy HR/SpO₂/temp/resp/gravity
         // lanes, with rrInterval last among append tables. Binary/object lanes stay last.
-        let mutableOrder: [PushMutableTable] = [.dailyMetric, .sleepSession, .workout, .journal]
+        let mutableOrder: [PushMutableTable] = [.eventLabel, .dailyMetric, .sleepSession, .workout, .journal]
         let appendOrder: [PushAppendTable] = [
             .event, .battery, .hrSample, .spo2Sample, .skinTempSample,
             .respSample, .gravitySample, .rrInterval,
@@ -687,7 +777,7 @@ public struct PushCoordinator: Sendable {
                 throw PushProtocolException("mutable day key is invalid")
             }
             return day
-        case .sleepSession, .workout:
+        case .sleepSession, .workout, .eventLabel:
             guard let timestamp = record.key["startTs"]?.int64Value else {
                 throw PushProtocolException("mutable startTs key is not an integer")
             }

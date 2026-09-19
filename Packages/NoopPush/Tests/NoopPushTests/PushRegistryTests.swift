@@ -29,8 +29,9 @@ final class PushRegistryTests: XCTestCase {
         let shipped = fixture.tables.values
             .filter { $0.classification == "shipped" }
             .compactMap(\.wireStream)
-        XCTAssertEqual(PushRegistryV1_2.streamNames, Set(shipped),
-                       "PushRegistryV1_2 must name every shipped wire stream in cloud_ingestion_registry.json")
+        let fileBackedStreams = Set(PushRegistryV1_2.additionalStreams.map(\.wireName))
+        XCTAssertEqual(PushRegistryV1_2.streamNames, Set(shipped).union(fileBackedStreams),
+                       "PushRegistryV1_2 must name every shipped DB stream plus file-backed event labels")
     }
 
     func testV1IsSubsetOfV1_1() {
