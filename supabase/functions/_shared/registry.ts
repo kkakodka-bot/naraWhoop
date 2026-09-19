@@ -5,7 +5,7 @@ import {
   sleepSessionRow,
   workoutSessionRow,
 } from './structuredSync.ts';
-import { OBJECT_LANE_STREAMS } from './keys.ts';
+import { OBJECT_LANE_STREAMS, isUuid, uuidFromParts } from './keys.ts';
 import { isDeepStrictEqual } from 'node:util';
 import { scalarProvenance } from './scalarProvenance.ts';
 

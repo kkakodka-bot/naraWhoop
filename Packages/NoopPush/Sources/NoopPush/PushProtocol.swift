@@ -74,6 +74,10 @@ public enum PushProtocol {
             ]
         ),
         "journal": (["day", "question"], ["answeredYes", "notes", "numericValue"]),
+        "eventLabel": (
+            ["id", "startTs"],
+            ["label", "endTs", "notes", "timeZoneIdentifier", "source"]
+        ),
     ]
 
     public static func appendBatch(
@@ -694,7 +698,7 @@ public enum PushProtocol {
                 "selector": .string("day"),
                 "startInclusive": .string(window.fromDay),
             ]
-        case .sleepSession, .workout:
+        case .sleepSession, .workout, .eventLabel:
             return [
                 "endExclusive": .int(window.endTsExclusive),
                 "selector": .string("startTs"),

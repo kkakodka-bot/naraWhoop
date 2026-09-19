@@ -5,7 +5,8 @@ import Combine
 /// Unix seconds retain fractional precision; each tap is committed before the UI changes.
 struct ExperimentEvent: Codable, Identifiable {
     let id: UUID
-    let label: String
+    var label: String
+    var note: String?
     let deviceId: String
     let startUnixSeconds: Double
     var endUnixSeconds: Double?
@@ -13,10 +14,24 @@ struct ExperimentEvent: Codable, Identifiable {
     let source: String
 }
 
+struct ExperimentEventExport: Codable {
+    let schemaVersion: Int
+    let exportedAtUnixSeconds: Double
+    let events: [ExperimentEvent]
+    let customLabels: [String]
+}
+
+@MainActor
+protocol ExperimentEventPushSource: Sendable {
+    func eventDeviceIds() -> [String]
+    func eventSnapshot(deviceId: String, from start: Int64, to end: Int64, limit: Int) -> [ExperimentEvent]
+}
+
 @MainActor
 final class ExperimentEventLog: ObservableObject {
     static let shared = ExperimentEventLog()
     @Published private(set) var events: [ExperimentEvent] = []
+    @Published private(set) var customLabels: [String] = []
     @Published private(set) var errorMessage: String?
     private var fileURL: URL?
     private var loaded = false
@@ -36,7 +51,14 @@ final class ExperimentEventLog: ObservableObject {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                    withIntermediateDirectories: true)
             if FileManager.default.fileExists(atPath: url.path) {
-                events = try JSONDecoder().decode([ExperimentEvent].self, from: Data(contentsOf: url))
+                let data = try Data(contentsOf: url)
+                if let state = try? JSONDecoder().decode(PersistedState.self, from: data) {
+                    events = state.events
+                    customLabels = state.customLabels
+                } else {
+                    // Build 345 stored a bare event array. Read it once and upgrade on the next write.
+                    events = try JSONDecoder().decode([ExperimentEvent].self, from: data)
+                }
             }
             loaded = true
         } catch {
@@ -44,11 +66,11 @@ final class ExperimentEventLog: ObservableObject {
         }
     }
 
-    func start(label: String, deviceId: String, at date: Date = Date()) {
+    func start(label: String, note: String? = nil, deviceId: String, at date: Date = Date()) {
         let label = label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard loaded, active == nil, !label.isEmpty else { return }
         var next = events
-        next.append(ExperimentEvent(id: UUID(), label: label, deviceId: deviceId,
+        next.append(ExperimentEvent(id: UUID(), label: label, note: trimmed(note), deviceId: deviceId,
             startUnixSeconds: date.timeIntervalSince1970, endUnixSeconds: nil,
             timeZoneIdentifier: TimeZone.current.identifier, source: "manual_experiment"))
         save(next)
@@ -65,12 +87,50 @@ final class ExperimentEventLog: ObservableObject {
         save(next)
     }
 
+    func addCustomLabel(_ value: String) {
+        let label = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard loaded, !label.isEmpty,
+              !customLabels.contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame }) else { return }
+        save(events, customLabels: customLabels + [label])
+    }
+
+    func removeCustomLabel(_ value: String) {
+        guard loaded else { return }
+        let next = customLabels.filter { $0.caseInsensitiveCompare(value) != .orderedSame }
+        guard next != customLabels else { return }
+        save(events, customLabels: next)
+    }
+
+    func update(id: UUID, label value: String, note: String?) {
+        let label = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard loaded, !label.isEmpty, let index = events.firstIndex(where: { $0.id == id }) else { return }
+        var next = events
+        next[index].label = label
+        next[index].note = trimmed(note)
+        save(next)
+    }
+
+    func delete(id: UUID) {
+        guard loaded else { return }
+        let next = events.filter { $0.id != id }
+        guard next.count != events.count else { return }
+        save(next)
+    }
+
     func export() -> URL? {
         guard loaded else { return nil }
         do {
             let url = FileManager.default.temporaryDirectory
                 .appendingPathComponent("noop-events-\(UUID().uuidString).json")
-            try encoded(events).write(to: url, options: .atomic)
+            let snapshot = ExperimentEventExport(
+                schemaVersion: 2,
+                exportedAtUnixSeconds: Date().timeIntervalSince1970,
+                events: events,
+                customLabels: customLabels
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(snapshot).write(to: url, options: .atomic)
             return url
         } catch {
             errorMessage = "Could not export labels: \(error.localizedDescription)"
@@ -78,20 +138,56 @@ final class ExperimentEventLog: ObservableObject {
         }
     }
 
-    private func encoded(_ events: [ExperimentEvent]) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(events)
+    func eventDeviceIds() -> [String] {
+        Array(Set(events.map(\.deviceId).filter { !$0.isEmpty })).sorted()
+    }
+
+    func eventSnapshot(deviceId: String, from start: Int64, to end: Int64, limit: Int) -> [ExperimentEvent] {
+        Array(events.lazy
+            .filter {
+                $0.deviceId == deviceId
+                    && $0.startUnixSeconds >= Double(start)
+                    && $0.startUnixSeconds < Double(end)
+            }
+            .sorted {
+                if $0.startUnixSeconds != $1.startUnixSeconds {
+                    return $0.startUnixSeconds < $1.startUnixSeconds
+                }
+                return $0.id.uuidString < $1.id.uuidString
+            }
+            .prefix(limit))
     }
 
     private func save(_ next: [ExperimentEvent]) {
+        save(next, customLabels: customLabels)
+    }
+
+    private func save(_ next: [ExperimentEvent], customLabels nextLabels: [String]) {
         guard loaded, let fileURL else { return }
         do {
-            try encoded(next).write(to: fileURL, options: .atomic)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let state = PersistedState(schemaVersion: 2, events: next, customLabels: nextLabels)
+            try encoder.encode(state).write(to: fileURL, options: .atomic)
             events = next
+            customLabels = nextLabels
             errorMessage = nil
         } catch {
             errorMessage = "Event was not saved: \(error.localizedDescription). Please try again."
         }
     }
+
+    private func trimmed(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let result = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return result.isEmpty ? nil : result
+    }
+
+    private struct PersistedState: Codable {
+        let schemaVersion: Int
+        let events: [ExperimentEvent]
+        let customLabels: [String]
+    }
 }
+
+extension ExperimentEventLog: ExperimentEventPushSource {}

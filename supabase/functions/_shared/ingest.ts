@@ -149,6 +149,19 @@ export async function deleteReplacementRows(rest: SupabaseRest, table: string, f
     return;
   }
 
+  if (table === 'noop_event_labels') {
+    const rows = await rest.select(
+      'noop_event_labels',
+      `user_id=eq.${filter.userId}&device_id=eq.${filter.deviceId}&start_ts=gte.${filter.startTsGte}&start_ts=lt.${filter.startTsLt}&select=id,external_id`,
+    );
+    for (const row of rows) {
+      if (!filter.keepKeys.has(String(row.external_id))) {
+        await rest.delete('noop_event_labels', `id=eq.${row.id}`);
+      }
+    }
+    return;
+  }
+
   if (table === 'sessions') {
     const kinds = filter.kind === 'workout' ? ['workout', 'manual_workout'] : [filter.kind];
     const startIso = new Date(filter.startTsGte * 1000).toISOString();

@@ -156,7 +156,14 @@ enum CloudPushWorker {
 
         let namespace = admission.namespace(endpoint: endpoint.url, protocolVersion: capabilities.protocolVersion,
                                              receiverStateID: capabilities.receiverStateId)
-        let capturedSnapshot = CloudPushSnapshot(db: db, imuPushSource: binding.imuSource)
+        let eventPushSource = await MainActor.run {
+            ExperimentEventLog.shared as any ExperimentEventPushSource
+        }
+        let capturedSnapshot = CloudPushSnapshot(
+            db: db,
+            imuPushSource: binding.imuSource,
+            eventPushSource: eventPushSource
+        )
         let snapshot = AccountFencedSnapshot(source: capturedSnapshot, admission: admission)
         let coordinator: PushCoordinator
         let preparedBlocked: Bool

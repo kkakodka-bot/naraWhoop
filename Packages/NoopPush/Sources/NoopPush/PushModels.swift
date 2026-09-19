@@ -28,6 +28,7 @@ public enum PushMutableTable: String, CaseIterable, PushTable, Sendable {
     case sleepSession
     case workout
     case journal
+    case eventLabel
 
     public var wireName: String { rawValue }
 }

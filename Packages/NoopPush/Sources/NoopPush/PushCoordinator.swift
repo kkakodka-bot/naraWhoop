@@ -128,6 +128,9 @@ public struct PushCoordinator: Sendable {
 
     public func pushMutable(_ table: PushMutableTable, deviceId: String) async -> PushResult {
         guard allowsPreparation() else { return pressureDeferred }
+        if table == .eventLabel {
+            return await pushEventLabels(deviceId: deviceId)
+        }
         let fullWindow = PushWindow.ending(today: today(), calendar: calendar)
         let rows: [PushMutableRecord]
         do {
