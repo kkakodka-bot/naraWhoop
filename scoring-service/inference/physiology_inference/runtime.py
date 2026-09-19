@@ -10,7 +10,7 @@ import time
 import tempfile
 import signal
 
-from .contracts import shadow_result
+from .contracts import canonical_hash, shadow_result
 
 
 @dataclass(frozen=True)
@@ -62,8 +62,15 @@ class ShadowRuntime:
                 def invalid_constant(value):
                     raise ValueError("nonfinite worker output")
                 result = json.loads(output, parse_constant=invalid_constant)
-                if result.get("publication_mode") != "shadow" or result.get("canonical_outputs_allowed") is not False or any(
+                if not isinstance(result, dict) or result.get("model_id") != model_id or result.get("publication_mode") != "shadow" or result.get("canonical_outputs_allowed") is not False or any(
                         result.get(k) != job.get(k) for k in ("user_id", "device_id", "input_revision", "input_hash")):
+                    return shadow_result(job, model_id, reason="inference_output_contract_invalid")
+                if result.get("status") not in ("complete", "abstained"):
+                    return shadow_result(job, model_id, reason="inference_output_contract_invalid")
+                if result.get("status") == "complete" and (not isinstance(result.get("output"), dict) or
+                        result.get("activation_hash") != (canonical_hash(activation) if activation else None) or
+                        result.get("checkpoint_sha256") != activation.get("assets", {}).get("weights", {}).get("sha256") or
+                        any(result.get(k) != activation.get(k) for k in ("code_revision", "preprocess_version", "quality_policy_version"))):
                     return shadow_result(job, model_id, reason="inference_output_contract_invalid")
                 result["elapsed_seconds"] = time.monotonic() - started
                 result["resource_scope"] = "host_measurement_not_target_vps"

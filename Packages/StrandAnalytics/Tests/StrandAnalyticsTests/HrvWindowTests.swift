@@ -3,17 +3,17 @@ import WhoopProtocol
 @testable import StrandAnalytics
 
 func hrvEvidence(start: Int = 0, count: Int = 300, pattern: [Double] = [1000], offset: Double = 0,
-                 mode: String = "", deviceId: String = "d", firmware: String? = "test-v1") -> [PhysiologyQuality.IntervalObservation] {
+                 mode: String = "", deviceId: String = "d", firmware: String? = "test-v1", source: String? = nil) -> [PhysiologyQuality.IntervalObservation] {
     var time = Double(start) + offset
     var rows: [PhysiologyQuality.IntervalObservation] = []
     for i in 0..<count {
         let value = mode == "boundary" && i == 0 ? 2000 : pattern[i % pattern.count]
         let end = time + value / 1000
         var row = PhysiologyQuality.IntervalObservation(originalId: "i\(i)", deviceId: deviceId,
-            source: mode == "source_switch" && i >= 150 ? "other" : "test", modality: mode == "sdnn" ? "sdnn" : "ecg_nn",
+            source: source ?? (mode == "source_switch" && i >= 150 ? "other" : "test"), modality: mode == "sdnn" ? "sdnn" : "ecg_nn",
             eventTime: time, originalRRMs: value, startBeatId: mode == "legacy" ? nil : "b\(i)",
-            endBeatId: mode == "legacy" ? nil : "b\(i + 1)", continuityGroup: mode == "legacy" ? nil : "run",
-            verifiedSpan: ["legacy", "packet"].contains(mode) ? nil : .init(time, end), timestampPrecisionSeconds: 0.001,
+            endBeatId: mode == "legacy" ? nil : "b\(i + 1)", continuityGroup: mode == "legacy" ? nil : (mode == "reconnect" && i >= 150 ? "new-run" : "run"),
+            verifiedSpan: ["legacy", "packet"].contains(mode) || (mode == "mixed_timing" && i == 150) ? nil : .init(time, end), timestampPrecisionSeconds: 0.001,
             decoderVersion: "fixture-v1", clockVersion: "verified-fixture-v1", ordinal: i, deviceFirmware: firmware)
         if mode == "rejected_beat" && i == 149 { row.endBeatAccepted = false }
         if mode == "corrected" && i == 150 {
@@ -28,6 +28,69 @@ func hrvEvidence(start: Int = 0, count: Int = 300, pattern: [Double] = [1000], o
 }
 
 final class HrvWindowTests: XCTestCase {
+    func testRejectedBeatOutsideWindowStillRejectsItsSharedInsideEndpoint() {
+        var previous = PhysiologyQuality.IntervalObservation(originalId: "previous", deviceId: "d", source: "test", modality: "ecg_nn",
+            eventTime: -1, originalRRMs: 1000, startBeatId: "previous-beat", endBeatId: "b0", continuityGroup: "run",
+            verifiedSpan: .init(-1, 0), timestampPrecisionSeconds: 0.001, decoderVersion: "fixture-v1", clockVersion: "verified-fixture-v1", deviceFirmware: "test-v1")
+        previous.endBeatAccepted = false
+        let observations = [previous] + hrvEvidence()
+        for result in [HrvWindow.measure(start: 0, observations: observations), HrvSeries.windows(start: 0, end: 300, observations: observations)[0]] {
+            XCTAssertEqual(result.validPairCount, 298); XCTAssertFalse(result.pairMask[1]); XCTAssertFalse(result.correctedPairMask[1])
+        }
+        var conflicting = hrvEvidence()[100]; conflicting.endBeatAccepted = false
+        XCTAssertEqual(HrvSeries.selectedWindow(start: 0, observations: hrvEvidence() + [conflicting]).reason, "original_identity_conflict")
+    }
+    func testMixedTimingAbstainsAndCorrectionCannotRecoverMissingAcquisition() {
+        var rows = hrvEvidence(mode: "mixed_timing")
+        rows[150].correctedRRMs = 1400
+        rows[150].corrections = [.init(id: "repair", pass: "p1", kind: "replaced")]
+        let result = HrvWindow.measure(start: 0, observations: rows)
+        XCTAssertEqual(result.reason, "mixed_verified_unverified_timing")
+        XCTAssertNil(result.observedRMSSD); XCTAssertNil(result.correctedRMSSD)
+        XCTAssertEqual(result.validPairCount, 297)
+        XCTAssertFalse(result.correctedPairMask[150]); XCTAssertFalse(result.correctedPairMask[151])
+        XCTAssertEqual(result.researchObservedRMSSD, 0)
+    }
+
+    func testCorrectionsCannotBridgeRejectedEndpointsOrDeletedOriginals() {
+        var rows = hrvEvidence(mode: "rejected_beat")
+        rows[149].correctedRRMs = 1200; rows[150].correctedRRMs = 800
+        rows[149].corrections = [.init(id: "repair", pass: "p1", kind: "deleted")]
+        rows[150].corrections = [.init(id: "repair", pass: "p1", kind: "replaced")]
+        let result = HrvWindow.measure(start: 0, observations: rows)
+        for i in 149...151 { XCTAssertFalse(result.pairMask[i]); XCTAssertFalse(result.correctedPairMask[i]) }
+        XCTAssertEqual(HrvWindow.measure(start: 0, observations: hrvEvidence(mode: "reconnect")).validPairCount, 298)
+        var deleted = hrvEvidence()
+        deleted[150].corrections = [.init(id: "deletion", pass: "p1", kind: "deleted")]
+        let deletion = HrvWindow.measure(start: 0, observations: deleted)
+        XCTAssertEqual(deletion.validPairCount, 297)
+        XCTAssertFalse(deletion.pairMask[150]); XCTAssertFalse(deletion.pairMask[151])
+    }
+
+    func testAvailableSignalFailuresAbstainAndMissingSignalsStayUnavailable() {
+        let clean = HrvWindow.measure(start: 0, observations: hrvEvidence())
+        XCTAssertEqual(Set(clean.unavailableQualitySignals), Set(["motion", "contact", "optical_quality", "detector_agreement"]))
+        for field in ["motion_contamination", "contact_rejected", "optical_quality_rejected", "detector_disagreement", "invalid_detector_evidence"] {
+            var rows = hrvEvidence()
+            switch field {
+            case "motion_contamination": rows[100].motionContaminated = true
+            case "contact_rejected": rows[100].contactAccepted = false
+            case "optical_quality_rejected": rows[100].opticalQualityAccepted = false
+            case "detector_disagreement": rows[100].detectorAgreementFraction = 0.5
+            default: rows[100].detectorAgreementFraction = 2
+            }
+            let result = HrvWindow.measure(start: 0, observations: rows)
+            XCTAssertEqual(result.reason, field); XCTAssertNil(result.observedRMSSD)
+            XCTAssertFalse(result.pairMask[100]); XCTAssertFalse(result.pairMask[101])
+        }
+    }
+
+    func testExtremeAlternationRetainsEvidenceWithoutCleanHighHrvClaim() {
+        let result = HrvWindow.measure(start: 0, observations: hrvEvidence(pattern: [600, 1400]))
+        XCTAssertEqual(result.reason, "rhythm_ambiguity"); XCTAssertEqual(result.researchObservedRMSSD, 800)
+        XCTAssertNil(result.observedRMSSD); XCTAssertFalse(result.baselineEligible)
+        XCTAssertEqual(HrvWindow.measure(start: 0, observations: hrvEvidence(count: 240, pattern: [450, 1250, 2050, 1250])).observedRMSSD, 800)
+    }
     private struct Goldens: Decodable {
         struct Case: Decodable {
             let id: String; let count: Int; let pattern: [Double]; let offset: Double?; let mode: String?; let context: String?
@@ -83,7 +146,7 @@ final class HrvWindowTests: XCTestCase {
         XCTAssertEqual(rows.map(\.originalRRMs), [1000, 500])
         XCTAssertEqual(rows[0].endBeatId, rows[1].startBeatId); XCTAssertTrue(rows.allSatisfy { $0.verifiedSpan == nil })
         let result = HrvWindow.measure(start: HrvWindow.alignedStart(Int(rows[0].eventTime)), observations: rows)
-        XCTAssertEqual(result.reason, "timing_coverage_unverified"); XCTAssertEqual(result.validPairCount, 1)
+        XCTAssertEqual(result.reason, "timing_coverage_unverified"); XCTAssertEqual(result.validPairCount, 0)
         let zeroFrame = decode("aa011a00010023592f12000000000000f153650000003c03000400000002c74eaa5b")
         XCTAssertTrue(PhysiologyQuality.historicalPacket(zeroFrame, packetId: "zero-word-packet", deviceId: "d").isEmpty)
     }
@@ -124,6 +187,6 @@ final class HrvWindowTests: XCTestCase {
         }
         XCTAssertTrue(HrvWindow.measure(start: 0, observations: rows(precision: 0.020)).measurementValid)
         XCTAssertTrue(HrvWindow.measure(start: 0, observations: rows(duration: 1.002, precision: 0.020)).measurementValid)
-        XCTAssertEqual(HrvWindow.Policy().version, "engineering-shadow-90-v2")
+        XCTAssertEqual(HrvWindow.Policy().version, "engineering-multisignal-90-v3")
     }
 }

@@ -15,10 +15,13 @@ final class ServerRespirationSummaryTests: XCTestCase {
         let summary = try XCTUnwrap(ServerRespirationSummary.project(loaded, day: day))
         XCTAssertEqual(try XCTUnwrap(summary.breathsPerMinute), 12, accuracy: 0.1)
         XCTAssertEqual(summary.context, "main_sleep")
-        XCTAssertEqual(summary.method, "resp-spectrum-acf-1")
+        XCTAssertEqual(summary.method, "resp-spectrum-acf-2")
         XCTAssertGreaterThan(try XCTUnwrap(summary.coverage), 0.9)
         XCTAssertEqual(summary.acceptedWindows, summary.totalWindows)
         XCTAssertNil(summary.reason)
+        XCTAssertEqual(summary.qualityPolicyVersion, "resp-quality-2")
+        XCTAssertEqual(summary.coverageByThird.count, 3)
+        XCTAssertFalse(try XCTUnwrap(loaded.fullDaySleepEpochs).isEmpty)
         XCTAssertEqual(loaded.nights.count, 2)
         XCTAssertTrue(loaded.nights.flatMap(\.stages).contains { $0.state == "sleep_unstaged" })
         XCTAssertEqual(loaded.features["sleep"]?.inputRevision, 42)
@@ -31,7 +34,8 @@ final class ServerRespirationSummaryTests: XCTestCase {
                        scalar: Any = 16.0, context: String = "main_sleep", median: Any = 16.0,
                        coverage: Any = 0.5) throws -> ServerScoreDayCache {
         let payload: [String: Any] = ["server_scoring": ["schema_version": 2, "user_id": "owner", "day": "2026-09-18",
-            "algorithm_version": version, "features": ["respiration": ["status": status, "device_id": "strap", "algorithm_version": version]],
+            "algorithm_version": version, "features": ["respiration": ["status": status, "device_id": "strap", "algorithm_version": version,
+                "canonical_qualification": "signed_reference_approval", "feature_manifest_hash": String(repeating: "f", count: 64)]],
             "daily": ["resp_rate_bpm": scalar, "respiration_summary": ["median_bpm": median, "mean_bpm": 16.0,
                 "distribution_bpm": [18.0, 14.0, 16.0], "accepted_seconds": 180.0, "coverage": coverage,
                 "accepted_windows": 3, "total_windows": 6, "context": context,

@@ -88,7 +88,9 @@ object SleepStagerV2 {
         // already establishes) so the binary-search bounds are correct even if a caller violates the
         // already-sorted-by-ts contract; the clip itself is a single O(log n) lower/upper-bound sublist, not
         // a linear filter.
-        val gravC = clipSorted(grav.filter(SleepSignalValidity::gravity).sortedBy { it.ts }, start - PAD_LO, end + PAD_HI) { it.ts }
+        if(end-start>SleepOpportunityDetector.MAXIMUM_EPISODE_SECONDS)
+            return listOf(SleepStageSemantics.unknown(start,end,"episode_exceeds_supported_duration"))
+        val gravC = clipSorted(grav.filter(SleepSignalValidity::hasOrientation).sortedBy { it.ts }, start - PAD_LO, end + PAD_HI) { it.ts }
         val hrC = clipSorted(hr.filter(SleepSignalValidity::heartRate).sortedBy { it.ts }, start - PAD_LO, end + PAD_HI) { it.ts }
         val rrC = clipSorted(rr.sortedBy { it.ts }, start - PAD_LO, end + PAD_HI) { it.ts }
 
@@ -139,6 +141,8 @@ object SleepStagerV2 {
         if (end <= start) return emptyList()
         val feats = features(start, end, gravS, hrS, rrS)
         if (feats.isEmpty()) return listOf(SleepStageSemantics.unknown(start, end))
+        val frozen=SleepSignalValidity.constantSensorSpans(hr,grav,30*60)
+        fun isFrozen(epoch: Epoch)=frozen.any { it.first<epoch.start+30 && it.last>=epoch.start }
         val labels = HashMap<Long, String>()
         val run = ArrayList<Epoch>()
         fun finishRun() {
@@ -146,7 +150,7 @@ object SleepStagerV2 {
             run.clear()
         }
         for (f in feats) {
-            if (f.evidenceCoverage < minimumEpochCoverage) { finishRun(); continue }
+            if (f.evidenceCoverage < minimumEpochCoverage || isFrozen(f)) { finishRun(); continue }
             if (run.isNotEmpty() && f.start != run.last().start + 30) finishRun()
             run.add(f)
         }
@@ -160,8 +164,9 @@ object SleepStagerV2 {
                 val stage = if (label == "awake") "wake" else label
                 segments.add(StageSegment(lo, hi, stage, state = if (stage == "wake") "awake" else "sleep",
                     evidenceCoverage = f.evidenceCoverage, computationMode = "retrospective",
-                    algorithmVersion = "sleep-v2-evidence-1", probabilitiesCalibrated = false))
-            } else segments.add(SleepStageSemantics.unknown(lo, hi, "insufficient_epoch_coverage", f.evidenceCoverage))
+                    algorithmVersion = "sleep-v2-evidence-2", probabilitiesCalibrated = false))
+            } else segments.add(SleepStageSemantics.unknown(lo, hi,
+                if(isFrozen(f)) "sensor_stale_or_constant" else "insufficient_joint_hr_motion_coverage", f.evidenceCoverage))
         }
         return SleepStageSemantics.coalesced(SleepStageSemantics.normalized(segments, start, end))
     }
@@ -359,7 +364,7 @@ object SleepStagerV2 {
             var s = maxOf(start, e)
             while (s < minOf(end, e + 30)) {
                 secHR[s]?.let { hrs.add(it) }; secG[s]?.let { gseq.add(it); gtimes.add(s) }
-                if (secHR[s] != null || secG[s] != null) observed++
+                if (secHR[s] != null && secG[s] != null) observed++
                 s++
             }
             if (hrs.isEmpty() && gseq.isEmpty()) { e += 30; continue }   // no coverage → skip the epoch

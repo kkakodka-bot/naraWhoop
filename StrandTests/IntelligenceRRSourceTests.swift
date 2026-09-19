@@ -45,8 +45,8 @@ final class IntelligenceRRSourceTests: XCTestCase {
             sourceKind: .liveBLE, capabilities: [.hr, .hrv], status: .active, addedAt: 2, lastSeenAt: 2))
     }
 
-    // A completed night relative to the test's local day, using the established HR-only sleep fixture.
-    private func night() -> (day: String, hr: [HRSample], rr: [RRInterval]) {
+    // A completed night with distinct cardiac and observed, non-frozen motion evidence.
+    private func night() -> (day: String, hr: [HRSample], rr: [RRInterval], gravity: [GravitySample]) {
         let start = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970) - 86_400
         let day = Repository.localDayKey(Date(timeIntervalSince1970: Double(start)))
         var hr: [HRSample] = []
@@ -60,7 +60,8 @@ final class IntelligenceRRSourceTests: XCTestCase {
             hr.append(HRSample(ts: ts, bpm: bpm))
             rr.append(RRInterval(ts: ts, rrMs: 900 + (i.isMultiple(of: 2) ? 16 : -16)))
         }
-        return (day, hr, rr)
+        let gravity = hr.map { GravitySample(ts: $0.ts, x: Double($0.ts % 2) * 0.000001, y: 0, z: 1) }
+        return (day, hr, rr, gravity)
     }
 
     func testNightlyScoringRejectsLegacyAliasAndRecomputesAfterZeroInsertPromotion() async throws {
@@ -69,7 +70,7 @@ final class IntelligenceRRSourceTests: XCTestCase {
             let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
             try register(registry, canonicalModel: "WHOOP")
             let input = night()
-            _ = try await store.insert(Streams(hr: input.hr, rr: input.rr), deviceId: canonical)
+            _ = try await store.insert(Streams(hr: input.hr, rr: input.rr, gravity: input.gravity), deviceId: canonical)
             let repo = Repository(deviceId: canonical)
             repo.setStoreForTesting(store)
             repo.adoptActiveDeviceId(active)
@@ -115,7 +116,7 @@ final class IntelligenceRRSourceTests: XCTestCase {
             let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
             try register(registry, canonicalModel: "4.0")
             let input = night()
-            _ = try await store.insert(Streams(hr: input.hr, rr: input.rr), deviceId: canonical)
+            _ = try await store.insert(Streams(hr: input.hr, rr: input.rr, gravity: input.gravity), deviceId: canonical)
             let repo = Repository(deviceId: active)
             repo.setStoreForTesting(store)
             let engine = IntelligenceEngine(repo: repo, profile: ProfileStore(), deviceId: canonical)
@@ -137,7 +138,7 @@ final class IntelligenceRRSourceTests: XCTestCase {
             try register(registry, canonicalModel: "5.0")
             let input = night()
             let standard = input.rr.map { RRInterval(ts: $0.ts, rrMs: $0.rrMs, srcChannel: .whoop5Standard) }
-            _ = try await store.insert(Streams(hr: input.hr, rr: standard), deviceId: canonical)
+            _ = try await store.insert(Streams(hr: input.hr, rr: standard, gravity: input.gravity), deviceId: canonical)
             // Today's read begins 30h before midnight. Only the older day's extension sees history;
             // that single history record must select history for its ENTIRE window, including overlap.
             let midnight = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970)

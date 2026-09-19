@@ -6,7 +6,8 @@ final class ServerSleepViewModelTests: XCTestCase {
         let opportunity = opportunityKind.map { "\"\($0)\"" } ?? "null"
         let data = Data("""
         {"server_scoring":{"schema_version":2,"user_id":"owner","day":"2026-09-18","algorithm_version":"frwhoop-physiology-2",
-        "features":{"sleep":{"status":"fresh","device_id":"device","algorithm_version":"sleep-v2"}},
+        "features":{"sleep":{"status":"fresh","device_id":"device","algorithm_version":"sleep-v2",
+        "canonical_qualification":"signed_reference_approval","feature_manifest_hash":"\(String(repeating: "f", count: 64))"}},
         "nights":[{"id":"night","device_id":"device","start_at":"2026-09-18T14:00:00Z","end_at":"2026-09-18T14:01:30Z","is_nap":true,
         "episode_type":"\(type)","main_sleep_group_id":"canonical-group","measurement_available":\(available),"asleep_min":0,"opportunity_kind":\(opportunity),
         "stages":\(stages)}]}}
@@ -76,7 +77,8 @@ final class ServerSleepViewModelTests: XCTestCase {
         let start = Int(try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-18T14:00:00Z")).timeIntervalSince1970)
         let body = """
         {"server_scoring":{"schema_version":2,"user_id":"owner","day":"2026-09-18","algorithm_version":"per_feature",
-        "features":{"sleep":{"status":"fresh","device_id":"device","algorithm_version":"frwhoop-server-1"}},
+        "features":{"sleep":{"status":"fresh","device_id":"device","algorithm_version":"frwhoop-server-1",
+        "canonical_qualification":"signed_reference_approval","feature_manifest_hash":"\(String(repeating: "f", count: 64))"}},
         "nights":[{"id":"night","device_id":"device","algorithm_version":"frwhoop-server-1","start_at":"2026-09-18T14:00:00Z",
         "end_at":"2026-09-18T14:01:30Z","is_nap":true,"asleep_min":1,"in_bed_min":1.5,
         "stages":[{"start":\(start),"end":\(start+30),"stage":"wake"},{"start":\(start+30),"end":\(start+60),"stage":"deep"},

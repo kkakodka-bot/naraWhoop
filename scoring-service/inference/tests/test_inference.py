@@ -35,6 +35,8 @@ def job(signals=None, **kwargs):
 
 def rows(participant="train"):
     return [{"participant": participant, "recording": "fixture", "start": i * 30, "end": (i + 1) * 30,
+             "source_recording_id": "synthetic-" + participant, "source_sha256": sha256(participant.encode()).hexdigest(),
+             "evidence_coverage": {"hr": 1.0, "motion": 1.0},
              "features": {"hr_mean": 50 + i % 4 * 10, "motion": 1 if i % 4 == 0 else 0},
              "label": ("wake", "light", "deep", "rem")[i % 4], "label_source": "independent_psg",
              "fixture_type": "synthetic_not_reference"} for i in range(40)]
@@ -59,9 +61,12 @@ class ContractsTest(unittest.TestCase):
                 source = (repo / manifest["preprocessing_source"]).resolve()
                 self.assertTrue(source.is_relative_to(repo))
                 self.assertEqual(manifest["preprocessing_sha256"], sha256(source.read_bytes()).hexdigest())
+                policy = (repo / manifest["quality_policy_source"]).resolve()
+                self.assertTrue(policy.is_relative_to(repo))
+                self.assertEqual(manifest["quality_policy_sha256"], sha256(policy.read_bytes()).hexdigest())
                 self.assertEqual(manifest["adapter_sha256"], runtime_hash)
                 self.assertEqual(manifest["implementation"]["implementation_sha256"], runtime_hash)
-                self.assertEqual(manifest["operational_status"], "metadata_only")
+                self.assertIn(manifest["operational_status"], ("metadata_only", "adapter_ready"))
                 self.assertEqual(manifest["publication_mode"], "shadow")
                 self.assertIs(manifest["canonical_outputs_allowed"], False)
 

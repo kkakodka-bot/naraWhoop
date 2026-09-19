@@ -20,7 +20,7 @@ class PostgresClient private constructor(
     internal val dataSource: HikariDataSource,
 ) : AutoCloseable {
 
-    constructor(databaseUrl: String) : this(
+    constructor(databaseUrl: String, queryTimeoutSeconds: Int? = null) : this(
         HikariDataSource(
             HikariConfig().apply {
                 driverClassName = "org.postgresql.Driver"
@@ -30,6 +30,12 @@ class PostgresClient private constructor(
                 connectionTimeout = 30_000
                 idleTimeout = 600_000
                 maxLifetime = 1_800_000
+                queryTimeoutSeconds?.let { seconds ->
+                    require(seconds in 1..60)
+                    addDataSourceProperty("socketTimeout", seconds + 5)
+                    addDataSourceProperty("cancelSignalTimeout", 5)
+                    addDataSourceProperty("options", "-c statement_timeout=${seconds * 1000}")
+                }
 
                 val creds = parseUserInfo(databaseUrl)
                 if (creds.user != null) {
@@ -100,8 +106,19 @@ class PostgresClient private constructor(
         }
     }
 
-    fun <T> withConnection(block: (Connection) -> T): T =
-        dataSource.connection.use(block)
+    private val activeConnections = java.util.concurrent.ConcurrentHashMap.newKeySet<Connection>()
+
+    fun <T> withConnection(block: (Connection) -> T): T = dataSource.connection.use { connection ->
+        activeConnections.add(connection)
+        try { block(connection) } finally { activeConnections.remove(connection) }
+    }
+
+    /** Used only by a dedicated model process's hard attempt deadline. */
+    fun abortActiveConnections() {
+        activeConnections.toList().forEach { connection -> runCatching {
+            connection.abort { task -> Thread(task, "model-jdbc-abort").apply { isDaemon = true }.start() }
+        } }
+    }
 
     override fun close() {
         dataSource.close()

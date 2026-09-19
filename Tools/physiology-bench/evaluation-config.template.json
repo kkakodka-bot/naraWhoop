@@ -6,5 +6,10 @@
   "reference_maximum_gap_s": null,
   "episode_minimum_iou": null,
   "beat_tolerance_s": null,
+  "nightly_coverage_policy": {
+    "minimum_accepted_seconds": null,
+    "minimum_accepted_fraction": null,
+    "minimum_third_fraction": null
+  },
   "status": "draft_requires_prespecified_reference_plan"
 }

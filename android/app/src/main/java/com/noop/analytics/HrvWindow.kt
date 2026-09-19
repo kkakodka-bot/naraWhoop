@@ -9,7 +9,7 @@ typealias HrvWindowResult = HrvWindow.Result
 /** Five-minute event-time measurements; engineering thresholds are not clinical cutoffs. */
 object HrvWindow {
     const val SECONDS = 300
-    const val ALGORITHM_VERSION = "observed-pair-rmssd-v2"
+    const val ALGORITHM_VERSION = "observed-pair-rmssd-v3"
     data class Policy(
         val minimumObservedFraction: Double = 0.90,
         val minimumValidIntervalFraction: Double = 0.90,
@@ -17,7 +17,7 @@ object HrvWindow {
         val maximumCorrectionFraction: Double = 0.10,
         val maximumGapSeconds: Double = 30.0,
         val minimumPairs: Int = 20,
-        val version: String = "engineering-shadow-90-v2",
+        val version: String = "engineering-multisignal-90-v3",
     )
     data class Result(
         val start: Int, val end: Int, val userId: String?, val deviceId: String?,
@@ -33,6 +33,7 @@ object HrvWindow {
         val measurementValid: Boolean, val reason: String?, val context: String,
         val baselineEligible: Boolean, val baselineReason: String?, val timingPrecisionSeconds: Double?,
         val decoderVersions: List<String>, val clockVersions: List<String>,
+        val qualityEvidence: List<String> = emptyList(), val unavailableQualitySignals: List<String> = emptyList(),
     ) {
         /** Publication revisions do not change an otherwise identical physiological measurement. */
         fun sameMeasurement(other: Result): Boolean = this == other.copy(inputRevision = inputRevision)
@@ -44,7 +45,7 @@ object HrvWindow {
                 inputRevision: String = "unversioned", computationMode: String = "retrospective"): Result {
         val lo = start.toDouble()
         val hi = lo + 300
-        val inWindow = observations.filter { row -> row.eventTime >= lo && row.eventTime < hi ||
+        val inWindow = PhysiologyQuality.propagatingEndpointRejections(observations).filter { row -> row.eventTime >= lo && row.eventTime < hi ||
             row.verifiedSpan?.let { it.start < hi && it.end > lo } == true }
         val unique = mutableMapOf<List<String>, PhysiologyQuality.IntervalObservation>()
         val conflictingKeys = mutableSetOf<List<String>>()
@@ -63,20 +64,22 @@ object HrvWindow {
             !row.continuityGroup.isNullOrEmpty() && row.originalId.isNotEmpty()
         fun validTiming(row: PhysiologyQuality.IntervalObservation): Boolean {
             if (!row.timestampPrecisionSeconds.isFinite() || row.timestampPrecisionSeconds <= 0 || !row.eventTime.isFinite()) return false
-            val span = row.verifiedSpan ?: return true
+            val span = row.verifiedSpan ?: return false
             // Clock uncertainty never expands the fixed RR quantization tolerance.
             return row.clockVersion.isNotEmpty() && row.clockVersion != "unknown" && row.timestampPrecisionSeconds <= 0.020 &&
                 span.start.isFinite() && span.end.isFinite() && span.end > span.start && row.originalRRMs.isFinite() &&
                 abs((span.end - span.start) - row.originalRRMs / 1000) <= 0.002001
         }
+        fun signalReason(row: PhysiologyQuality.IntervalObservation): String? = PhysiologyQuality.signalRejectionReason(row)
         val rejectedBeats = mutableSetOf<List<String>>()
         for (row in rows) {
             if (row.startBeatId != null && !row.startBeatAccepted) rejectedBeats.add(listOf(row.userId, row.deviceId, row.source, row.startBeatId))
             if (row.endBeatId != null && !row.endBeatAccepted) rejectedBeats.add(listOf(row.userId, row.deviceId, row.source, row.endBeatId))
         }
         fun originalAccepted(row: PhysiologyQuality.IntervalObservation): Boolean = row.originalAccepted &&
+            row.corrections.none { it.kind in listOf("inserted", "deleted") } &&
             row.startBeatAccepted && row.endBeatAccepted && !row.rhythmAmbiguous && row.originalRRMs.isFinite() &&
-            row.originalRRMs in 250.0..2500.0 && proof(row) &&
+            row.originalRRMs in 250.0..2500.0 && proof(row) && validTiming(row) && signalReason(row) == null &&
             listOf(row.userId, row.deviceId, row.source, row.startBeatId ?: "") !in rejectedBeats &&
             listOf(row.userId, row.deviceId, row.source, row.endBeatId ?: "") !in rejectedBeats
         fun successive(a: PhysiologyQuality.IntervalObservation, b: PhysiologyQuality.IntervalObservation): Boolean {
@@ -97,6 +100,7 @@ object HrvWindow {
         for (index in 1 until rows.size) {
             val a = rows[index - 1]; val b = rows[index]
             if (!successive(a, b)) continue
+            if (!validTiming(a) || !validTiming(b)) { pairReasons[index] = "timing_unverified"; continue }
             if (!inside(a) || !inside(b)) { pairReasons[index] = "window_boundary"; continue }
             pairMask[index] = accepted[index - 1] && accepted[index]
             pairReasons[index] = if (pairMask[index]) null else "rejected_original_beat"
@@ -104,7 +108,14 @@ object HrvWindow {
             val ca = a.correctedRRMs ?: if (accepted[index - 1]) a.originalRRMs else Double.NaN
             val cb = b.correctedRRMs ?: if (accepted[index]) b.originalRRMs else Double.NaN
             if (ca.isFinite() && cb.isFinite() && ca in 250.0..2500.0 && cb in 250.0..2500.0 &&
-                !a.rhythmAmbiguous && !b.rhythmAmbiguous) { correctedPairMask[index] = true; correctedDifferences.add(cb - ca) }
+                !a.rhythmAmbiguous && !b.rhythmAmbiguous && signalReason(a) == null && signalReason(b) == null &&
+                a.startBeatAccepted && a.endBeatAccepted && b.startBeatAccepted && b.endBeatAccepted &&
+                listOf(a.userId, a.deviceId, a.source, a.startBeatId ?: "") !in rejectedBeats &&
+                listOf(a.userId, a.deviceId, a.source, a.endBeatId ?: "") !in rejectedBeats &&
+                listOf(b.userId, b.deviceId, b.source, b.endBeatId ?: "") !in rejectedBeats &&
+                (a.corrections + b.corrections).none { it.kind in listOf("inserted", "deleted") }) {
+                correctedPairMask[index] = true; correctedDifferences.add(cb - ca)
+            }
         }
         fun rms(values: List<Double>): Double? = if (values.isEmpty()) null else sqrt(values.sumOf { it * it } / values.size)
         val spans = PhysiologyQuality.union(rows.filter { proof(it) && validTiming(it) }.mapNotNull { it.verifiedSpan }, lo, hi)
@@ -123,6 +134,7 @@ object HrvWindow {
         val sources = rows.map { it.source }.toSet(); val modalities = rows.map { it.modality }.toSet()
         val firmware = rows.map { it.deviceFirmware }.toSet()
         val endpointKeys = rows.filter(::proof).map { listOf(it.userId, it.deviceId, it.source, it.startBeatId, it.endBeatId) }
+        val extremeAlternation = PhysiologyQuality.hasAmbiguousAlternation(rows)
         val reason: String? = when {
             alignedStart(start) != start -> "unaligned_window"
             computationMode !in listOf("retrospective", "causal") -> "invalid_computation_mode"
@@ -140,10 +152,12 @@ object HrvWindow {
             modalities.size != 1 || rows.first().modality !in listOf("ppg_ibi", "ecg_nn") -> "unsupported_modality"
             rows.none(::proof) -> "continuity_unverified"
             endpointKeys.toSet().size != endpointKeys.size -> "duplicate_interval_identity"
-            rows.any { !validTiming(it) } -> "invalid_timing_metadata"
+            rows.any { it.verifiedSpan != null && !validTiming(it) } -> "invalid_timing_metadata"
             rows.any { it.correctedRRMs != null && it.corrections.isEmpty() } -> "missing_correction_provenance"
             spans.isEmpty() -> "timing_coverage_unverified"
-            rows.any { it.rhythmAmbiguous } -> "rhythm_ambiguity"
+            rows.any { it.verifiedSpan == null } -> "mixed_verified_unverified_timing"
+            rows.any { it.rhythmAmbiguous } || extremeAlternation -> "rhythm_ambiguity"
+            rows.any { signalReason(it) != null } -> rows.mapNotNull(::signalReason).sorted().first()
             duration / 300 < policy.minimumObservedFraction -> "insufficient_observed_time"
             gap > policy.maximumGapSeconds -> "acquisition_gap"
             validFraction < policy.minimumValidIntervalFraction -> "insufficient_original_intervals"
@@ -172,6 +186,11 @@ object HrvWindow {
             observedDifferences.size, correctedDifferences.size, if (affected > 0) "corrected-original-timeline-rmssd-v1" else null,
             events.values.map { it.pass }.toSet().sorted(), gap, correctionFraction, events.size, events.values.count { it.kind == "inserted" },
             events.values.count { it.kind == "deleted" }, reason == null, reason, state, reason == null && eligibleContext, baselineReason,
-            rows.map { it.timestampPrecisionSeconds }.filter { it.isFinite() && it > 0 }.maxOrNull(), rows.map { it.decoderVersion }.toSet().sorted(), rows.map { it.clockVersion }.toSet().sorted())
+            rows.map { it.timestampPrecisionSeconds }.filter { it.isFinite() && it > 0 }.maxOrNull(), rows.map { it.decoderVersion }.toSet().sorted(), rows.map { it.clockVersion }.toSet().sorted(),
+            listOf("ibi_plausibility", "original_beat_continuity", "gap_topology", "correction_burden", "acquisition_versions", "rhythm_ambiguity_screen") +
+                listOf("motion" to rows.any { it.motionContaminated != null }, "contact" to rows.any { it.contactAccepted != null },
+                    "optical_quality" to rows.any { it.opticalQualityAccepted != null }, "detector_agreement" to rows.any { it.detectorAgreementFraction != null }).filter { it.second }.map { it.first },
+            listOf("motion" to rows.all { it.motionContaminated != null }, "contact" to rows.all { it.contactAccepted != null },
+                "optical_quality" to rows.all { it.opticalQualityAccepted != null }, "detector_agreement" to rows.all { it.detectorAgreementFraction != null }).filter { !it.second || rows.isEmpty() }.map { it.first })
     }
 }

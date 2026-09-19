@@ -1,0 +1,35 @@
+# Download wheels only for CPython 3.11, Linux x86_64. The bundle builder adds
+# the actual wheel SHA-256 values; this version inventory is not an activation.
+antlr4-python3-runtime==4.9.3
+certifi==2026.7.22
+charset-normalizer==3.5.1
+filelock==4.0.1
+fsspec==2026.9.0
+hf-xet==1.6.0
+huggingface-hub==0.34.0
+hydra-core==1.3.2
+idna==3.20
+Jinja2==3.1.6
+llvmlite==0.45.1
+MarkupSafe==3.0.3
+mpmath==1.3.0
+networkx==3.6.1
+numba==0.62.1
+numpy==2.3.1
+omegaconf==2.3.0
+packaging==25.0
+pandas==2.3.0
+pyarrow==19.0.1
+pyEDFlib==0.1.42
+python-dateutil==2.9.0.post0
+pytz==2026.3.post1
+PyYAML==6.0.2
+requests==2.34.2
+setuptools==80.9.0
+six==1.17.0
+sympy==1.14.0
+torch==2.7.1+cpu
+tqdm==4.67.1
+typing_extensions==4.16.0
+tzdata==2026.4
+urllib3==2.8.0

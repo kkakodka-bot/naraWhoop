@@ -9,7 +9,7 @@
     "path": "scoring-service/inference",
     "evidence": "local_checkpoint_adapter_contract_tests_only",
     "activation_status": "blocked_pending_separate_rights_inputs_and_environment_qualification",
-    "implementation_sha256": "6fb1623116d9df9589d18b1719483908db35bcadec14e79e6977b73a21e9a5fb",
+    "implementation_sha256": "73e1a2ec1174429abbbaa1ac9e4159873e8930a863954b07bfe28020c1a69dbb",
     "details": "scoring-service/inference/README.md"
   },
   "code": {
@@ -56,8 +56,8 @@
     "orientation": "aligned axes required where accelerometry is consumed"
   },
   "preprocessing_sha256": "73bfd7402886a1b14929b1a251b23dec691799844bfa9b45ee64dbb6fcd0b564",
-  "quality_policy_sha256": "e64720d20239277443f6c6e837f0f29095037e910c2e14b7a48ef48a183600ad",
-  "adapter_sha256": "6fb1623116d9df9589d18b1719483908db35bcadec14e79e6977b73a21e9a5fb",
+  "quality_policy_sha256": "58661e5a2c43b9e00d0fe599cd73c23595280f3121c9c3b2ce89e81ff695cb0d",
+  "adapter_sha256": "73e1a2ec1174429abbbaa1ac9e4159873e8930a863954b07bfe28020c1a69dbb",
   "resource_limits": {
     "maximum_concurrency": 1,
     "threads": 1,
@@ -74,5 +74,7 @@
     "Actual target resource benchmark and locked-phone overnight soak are absent.",
     "ECG-trained outputs require PPG-IBI transfer validation; no deep/light distinction is supplied."
   ],
-  "preprocessing_source": "scoring-service/inference/physiology_inference/comparators.py"
+  "preprocessing_source": "scoring-service/inference/physiology_inference/comparators.py",
+  "quality_policy_source": "models/policies/physiology-shadow-quality-2.json",
+  "quality_policy_version": "physiology-shadow-quality-2"
 }

@@ -1,0 +1,30 @@
+{
+  "version": "physiology-shadow-quality-2",
+  "publication_mode": "shadow",
+  "canonical_outputs_allowed": false,
+  "policy_status": "engineering_contract_not_reference_validated",
+  "raw_input": {
+    "verified_owner_device_revision_digest": "required",
+    "verified_timing_units_channel_semantics": "required",
+    "observed_mask": "required",
+    "acquisition_gaps": "abstain_not_impute",
+    "duplicate_physical_records": "reject",
+    "capture_firmware_and_device_family": "qualified_object_bound_attestation_required"
+  },
+  "feature_sleep": {
+    "version": "feature-softmax-duration-2",
+    "qualified_hr_bpm_inclusive": [20, 240],
+    "qualified_motion_inclusive": [0, 4],
+    "minimum_independent_modality_coverage": {"hr": 0.9, "motion": 0.9},
+    "known_signal_quality_rejection": "unknown",
+    "calibration": "development_people_only_never_training_or_held_out",
+    "missing_supported_evidence": "unknown_with_null_probabilities"
+  },
+  "released_waveform_models": {
+    "input_contract": "model_specific_released_preprocessing_required",
+    "gaps_or_unsupported_downsampling": "abstain",
+    "flat_ppg_epoch": "whole_request_abstention_if_any_original_30s_epoch_std_below_1e-6",
+    "uncalibrated_probabilities": "explicitly_uncalibrated",
+    "wrist_transfer_or_reference_accuracy": "not_established"
+  }
+}

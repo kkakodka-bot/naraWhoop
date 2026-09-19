@@ -1,0 +1,30 @@
+# Optional, separately activated model worker. Never merge this into canonical scoring by default.
+# PHYSIOLOGY_MODEL_IMAGE must be an immutable digest from the reviewed environment build.
+services:
+  physiology-model:
+    image: ${PHYSIOLOGY_MODEL_IMAGE:?set reviewed model image with immutable sha256 digest}
+    command: ["--models-only"]
+    profiles: ["qualified-shadow-model"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cpus: 1
+    mem_limit: 3g
+    pids_limit: 64
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    env_file:
+      - /opt/frwhoop/model-worker.env
+    environment:
+      JAVA_OPTS: -Xmx512m -XX:+UseContainerSupport
+      PHYSIOLOGY_MODEL_ID: ${PHYSIOLOGY_MODEL_ID:?set exactly one model per worker}
+      PHYSIOLOGY_SHADOW_CONFIG: /qualified/config/runner.json
+      MODEL_POLL_SECONDS: 8
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      MKL_NUM_THREADS: 1
+    volumes:
+      - ${PHYSIOLOGY_MODEL_CONFIG:?set reviewed immutable configuration directory}:/qualified/config:ro
+      - ${PHYSIOLOGY_MODEL_ASSETS:?set reviewed immutable assets directory}:/qualified/assets:ro

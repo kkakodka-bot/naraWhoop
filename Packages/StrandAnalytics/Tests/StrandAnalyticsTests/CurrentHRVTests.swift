@@ -8,7 +8,7 @@ final class CurrentHRVTests: XCTestCase {
         XCTAssertEqual(r.rmssdMs, 0); XCTAssertEqual(r.cleanBeats, 300); XCTAssertEqual(r.coverage, 1)
     }
     func testCleanHighVariabilitySurvives() throws {
-        let r = try XCTUnwrap(CurrentHRV.derive(observations: hrvEvidence(pattern: [600, 1400]), nowUnix: 599))
+        let r = try XCTUnwrap(CurrentHRV.derive(observations: hrvEvidence(pattern: [450, 1250, 2050, 1250]), nowUnix: 599))
         XCTAssertEqual(r.rmssdMs, 800)
     }
     func testLatestCompletedWindowCannotBorrowOldOrFutureData() {

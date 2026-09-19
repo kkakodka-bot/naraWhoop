@@ -16,7 +16,7 @@ class CurrentHrvTest {
         assertEquals(0.0, r.rmssdMs, 1e-9); assertEquals(300, r.cleanBeats); assertEquals(1.0, r.coverage, 1e-9)
     }
     @Test fun cleanHighVariabilitySurvives() {
-        assertEquals(800.0, CurrentHrv.deriveObservations(hrvEvidence(pattern = listOf(600.0, 1400.0)), 599)!!.rmssdMs, 1e-9)
+        assertEquals(800.0, CurrentHrv.deriveObservations(hrvEvidence(pattern = listOf(450.0, 1250.0, 2050.0, 1250.0)), 599)!!.rmssdMs, 1e-9)
     }
     @Test fun latestCompletedWindowCannotBorrowOldOrFutureData() {
         assertNull(CurrentHrv.deriveObservations(hrvEvidence(start = -300) + hrvEvidence(start = 300), 300))

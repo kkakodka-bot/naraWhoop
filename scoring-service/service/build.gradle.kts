@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     kotlin("jvm")
     application
@@ -30,6 +32,34 @@ tasks.withType<Test>().configureEach {
 
 sourceSets.test {
     resources.srcDir(rootProject.file("../android/app/src/test/resources"))
+}
+
+val physiologySourceFingerprint by tasks.registering {
+    val repository=rootProject.projectDir.parentFile
+    val sources=files(fileTree(repository.resolve("android/app/src/main/java/com/noop/analytics")) { include("**/*.kt") },
+        fileTree(repository.resolve("android/app/src/main/java/com/noop/protocol")) { include("**/*.kt") },
+        fileTree(rootProject.file("analytics-kernel/src/main/kotlin")) { include("**/*.kt") },
+        fileTree(projectDir.resolve("src/main/kotlin")) { include("**/*.kt") },
+        projectDir.resolve("build.gradle.kts"),rootProject.file("analytics-kernel/build.gradle.kts"))
+    val destination=layout.buildDirectory.file("generated/physiology/physiology-source.sha256")
+    inputs.files(sources).withPathSensitivity(PathSensitivity.RELATIVE)
+    outputs.file(destination)
+    doLast {
+        val hash=MessageDigest.getInstance("SHA-256")
+        for(source in sources.files.sortedBy { it.relativeTo(repository).invariantSeparatorsPath }) {
+            hash.update(source.relativeTo(repository).invariantSeparatorsPath.toByteArray(Charsets.UTF_8))
+            hash.update(0.toByte()); hash.update(source.readBytes()); hash.update(0.toByte())
+        }
+        destination.get().asFile.apply { parentFile.mkdirs(); writeText(hash.digest().joinToString("") { "%02x".format(it) }) }
+    }
+}
+sourceSets.main { resources.srcDir(layout.buildDirectory.dir("generated/physiology")) }
+tasks.named("processResources") { dependsOn(physiologySourceFingerprint) }
+
+tasks.register<JavaExec>("algorithmManifests") {
+    dependsOn("classes")
+    classpath=sourceSets["main"].runtimeClasspath
+    mainClass.set("com.frwhoop.scoring.scoring.ProductionAlgorithmManifest")
 }
 
 tasks.named<JavaExec>("run") {

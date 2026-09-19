@@ -17,10 +17,14 @@ public struct ServerRespirationSummary: Equatable {
     /// Measurement eligibility is separate from snapshot freshness (for example newer_input_pending).
     public let measurementReason: String?
     public let legacy: Bool
+    public var coverageByThird: [Double] = []
+    public var rejectionReasons: [String] = []
+    public var qualityPolicyVersion: String?
+    public var evidenceStrength: Double?
 
     public static func project(_ cache: ServerScoreDayCache?, day: String) -> Self? {
         guard let cache, cache.day == day, !cache.ownerId.isEmpty,
-              let feature = cache.features["respiration"],
+              let feature = cache.features["respiration"], feature.hasCanonicalAuthorization,
               let device = feature.deviceId, !device.isEmpty,
               let version = feature.algorithmVersion, !version.isEmpty,
               let bytes = cache.rawSnapshotJSON?.data(using: .utf8),
@@ -51,6 +55,8 @@ public struct ServerRespirationSummary: Equatable {
         let total = nonnegativeInt(summary["total_windows"])
         let context = summary["context"] as? String
         let distribution = (summary["distribution_bpm"] as? [Any] ?? []).compactMap(number).filter { $0 > 0 }.sorted()
+        let thirds = (summary["coverage_by_third"] as? [Any] ?? []).compactMap(number)
+        let quality = summary["quality_policy_version"] as? String
         let visible = ["available", "fresh", "stale"].contains(feature.status)
         let measurementReason = daily["respiration_unavailable_reason"] as? String
         var reason = feature.reason ?? measurementReason
@@ -64,6 +70,10 @@ public struct ServerRespirationSummary: Equatable {
             } else if median != scalar || mean == nil || coverage == nil || coverage == 0 || seconds == nil || seconds == 0 ||
                         accepted == nil || accepted == 0 || total == nil || accepted! > total! {
                 primary = nil; reason = "inconsistent_respiration_summary"
+            } else if quality == "resp-quality-2" &&
+                        (seconds! < 1800 || accepted! < 3 || coverage! < 0.5 || thirds.count != 3 ||
+                         thirds.contains(where: { $0 < 0.1 || $0 > 1 })) {
+                primary = nil; reason = "insufficient_distributed_night_coverage"
             }
         }
         if primary == nil { reason = reason ?? "no_quality_eligible_windows" }
@@ -72,6 +82,10 @@ public struct ServerRespirationSummary: Equatable {
                     acceptedWindows: legacy ? nil : accepted, totalWindows: legacy ? nil : total,
                     context: legacy ? nil : context, method: legacy ? nil : summary["method_version"] as? String,
                     calibrationStatus: legacy ? nil : summary["calibration_status"] as? String,
-                    reason: reason, measurementReason: primary == nil ? measurementReason : nil, legacy: legacy)
+                    reason: reason, measurementReason: primary == nil ? measurementReason : nil, legacy: legacy,
+                    coverageByThird: legacy ? [] : thirds,
+                    rejectionReasons: legacy ? [] : summary["rejection_reasons"] as? [String] ?? [],
+                    qualityPolicyVersion: legacy ? nil : quality,
+                    evidenceStrength: legacy ? nil : number(summary["evidence_strength"]))
     }
 }

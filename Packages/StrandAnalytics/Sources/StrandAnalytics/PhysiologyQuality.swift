@@ -40,6 +40,11 @@ public enum PhysiologyQuality {
         public var qualityReason: String?
         public var corrections: [Correction] = []
         public var correctedRRMs: Double?
+        /// Nil means unavailable, never clean. Populate only from time-aligned, qualified signals.
+        public var motionContaminated: Bool?
+        public var contactAccepted: Bool?
+        public var opticalQualityAccepted: Bool?
+        public var detectorAgreementFraction: Double?
 
         public init(originalId: String, userId: String = "local", deviceId: String, source: String,
                     modality: String = "ppg_ibi", eventTime: Double, originalRRMs: Double,
@@ -70,6 +75,73 @@ public enum PhysiologyQuality {
         }
     }
 
+    public static func signalRejectionReason(_ row: IntervalObservation) -> String? {
+        if row.motionContaminated == true { return "motion_contamination" }
+        if row.contactAccepted == false { return "contact_rejected" }
+        if row.opticalQualityAccepted == false { return "optical_quality_rejected" }
+        if let agreement = row.detectorAgreementFraction {
+            if !agreement.isFinite || !(0...1).contains(agreement) { return "invalid_detector_evidence" }
+            if agreement < 0.90 { return "detector_disagreement" }
+        }
+        return nil
+    }
+
+    /// A rejected original beat stays rejected on both sides of an event-time window boundary.
+    public static func propagatingEndpointRejections(_ observations: [IntervalObservation]) -> [IntervalObservation] {
+        var rejected = Set<[String]>()
+        for row in observations {
+            if let beat = row.startBeatId, !row.startBeatAccepted { rejected.insert([row.userId, row.deviceId, row.source, beat]) }
+            if let beat = row.endBeatId, !row.endBeatAccepted { rejected.insert([row.userId, row.deviceId, row.source, beat]) }
+        }
+        guard !rejected.isEmpty else { return observations }
+        var originals: [[String]: IntervalObservation] = [:]
+        var conflicts = Set<[String]>()
+        for row in observations {
+            let key = [row.userId, row.deviceId, row.source, row.originalId]
+            if let prior = originals[key], prior != row { conflicts.insert(key) }
+            else { originals[key] = row }
+        }
+        return observations.map { row in
+            if conflicts.contains([row.userId, row.deviceId, row.source, row.originalId]) { return row }
+            var result = row
+            result.startBeatAccepted = row.startBeatAccepted && !rejected.contains([row.userId, row.deviceId, row.source, row.startBeatId ?? ""])
+            result.endBeatAccepted = row.endBeatAccepted && !rejected.contains([row.userId, row.deviceId, row.source, row.endBeatId ?? ""])
+            return result
+        }
+    }
+
+    /// Engineering ambiguity screen, not a rhythm diagnosis or an upper HRV bound.
+    public static func hasAmbiguousAlternation(_ observations: [IntervalObservation]) -> Bool {
+        let rows = observations.sorted { ($0.verifiedSpan?.start ?? $0.eventTime) < ($1.verifiedSpan?.start ?? $1.eventTime) }
+        func usable(_ row: IntervalObservation) -> Bool {
+            guard let span = row.verifiedSpan else { return false }
+            return row.originalAccepted && row.startBeatAccepted && row.endBeatAccepted &&
+                row.originalRRMs.isFinite && (250...2500).contains(row.originalRRMs) &&
+                span.start.isFinite && span.end.isFinite && span.end > span.start &&
+                abs(span.end - span.start - row.originalRRMs / 1000) <= 0.002001 &&
+                row.timestampPrecisionSeconds.isFinite && row.timestampPrecisionSeconds > 0 && row.timestampPrecisionSeconds <= 0.020
+        }
+        func adjacent(_ a: IntervalObservation, _ b: IntervalObservation) -> Bool {
+            usable(a) && usable(b) && a.userId == b.userId && a.deviceId == b.deviceId && a.source == b.source &&
+                a.deviceFirmware == b.deviceFirmware && a.clockVersion == b.clockVersion && a.decoderVersion == b.decoderVersion &&
+                a.continuityGroup != nil && a.continuityGroup == b.continuityGroup && a.endBeatId != nil &&
+                a.endBeatId == b.startBeatId && a.startBeatId != b.endBeatId &&
+                abs(a.verifiedSpan!.end - b.verifiedSpan!.start) <= 0.000001
+        }
+        guard rows.count > 2 else { return false }
+        var run = 0
+        for i in 2..<rows.count {
+            let a = rows[i - 2], b = rows[i - 1], c = rows[i]
+            let x = b.originalRRMs - a.originalRRMs, y = c.originalRRMs - b.originalRRMs
+            let scale = (a.originalRRMs + b.originalRRMs + c.originalRRMs) / 3
+            if adjacent(a, b) && adjacent(b, c) && x * y < 0 && min(abs(x), abs(y)) > max(250, 0.35 * scale) {
+                run += 1
+                if run >= 20 { return true }
+            } else { run = 0 }
+        }
+        return false
+    }
+
     public static func legacy(_ rows: [RRInterval], deviceId: String) -> [IntervalObservation] {
         rows.map { row in
             IntervalObservation(originalId: "legacy:\(row.ts):\(row.rrMs):\(row.seq)", deviceId: deviceId,
@@ -94,16 +166,17 @@ public enum PhysiologyQuality {
         } }
     }
 
-    /// Prefer proven packet-local originals without mixing standard BLE into historical ownership.
+    /// Keep packet-local originals and separate standard candidates for per-window qualification.
     /// Unmatched historical rows stay unknown; coarse seconds cannot assign them to packet words.
     public static func packetOrLegacy(_ packets: [RRPacketProvenance], legacy rows: [RRInterval],
                                       deviceId: String, userId: String = "local") -> [IntervalObservation]? {
         let observed = checkedPackets(packets, deviceId: deviceId, userId: userId)
         guard observed.contains(where: { $0.originalRRMs > 0 }) else { return nil }
         let packetTimes = Set(observed.map { Int($0.eventTime) })
-        let unknown = rows.filter { $0.srcChannel == .whoop5Historical && !packetTimes.contains($0.ts) }.map { row in
+        let unknown = rows.filter { $0.srcChannel == .whoop5Standard ||
+            ($0.srcChannel == .whoop5Historical && !packetTimes.contains($0.ts)) }.map { row in
             IntervalObservation(originalId: "legacy:\(row.ts):\(row.rrMs):\(row.seq)", userId: userId,
-                deviceId: deviceId, source: "whoop5_history", eventTime: Double(row.ts),
+                deviceId: deviceId, source: row.srcChannel == .whoop5Historical ? "whoop5_history" : "channel:7", eventTime: Double(row.ts),
                 originalRRMs: Double(row.rrMs), ordinal: row.ord)
         }
         return observed + unknown

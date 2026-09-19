@@ -4,6 +4,23 @@ import WhoopProtocol
 @testable import WhoopStore
 
 final class Whoop5RRStoreTests: XCTestCase {
+    func testPhysiologyInputsRetainWindowCandidatesWithoutChangingLegacyReadPolicy() async throws {
+        let store = try await WhoopStore.inMemory()
+        try registry(store, model: "5.0 MG")
+        _ = try await store.insert(Streams(rr: [
+            RRInterval(ts: 100, rrMs: 900, srcChannel: .whoop5Historical),
+            RRInterval(ts: 301, rrMs: 1000, srcChannel: .whoop5Standard),
+            RRInterval(ts: 302, rrMs: 800, srcChannel: .whoop5Realtime),
+            RRInterval(ts: 303, rrMs: 1024)
+        ]), deviceId: id)
+        let candidates = try await store.rrPhysiologyInputs(deviceId: id, from: 0, to: 600, limit: 100)
+        XCTAssertEqual(candidates.map(\.rrMs), [900, 1000])
+        let legacy = try await read(store)
+        XCTAssertEqual(legacy.map(\.rrMs), [900])
+        try await store.registryWriter.write { db in try db.execute(sql: "UPDATE rrInterval SET tsSuspect = 1 WHERE ts = 301") }
+        let quarantined = try await store.rrPhysiologyInputs(deviceId: id, from: 0, to: 600, limit: 100)
+        XCTAssertEqual(quarantined.map(\.rrMs), [900])
+    }
     private let id = "my-whoop"
     private func registry(_ store: WhoopStore, model: String, brand: String = "WHOOP") throws {
         try store.registryWriter.write { db in
@@ -43,6 +60,7 @@ final class Whoop5RRStoreTests: XCTestCase {
         _ = try await store.insert(Streams(rr: [RRInterval(ts: 100, rrMs: 1000)]), deviceId: id)
         try registry.setActive("old-four")
         let global = try await store.analysisFingerprint()
+        XCTAssertTrue(global.hasPrefix("v5|"), "per-window source qualification must invalidate the old persisted watermark")
         let day = try await store.dayStreamFingerprint(deviceId: id, from: 0, to: 1000)
         let legacy = try await read(store)
         XCTAssertEqual(legacy.map(\.rrMs), [1000])

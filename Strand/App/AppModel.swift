@@ -708,7 +708,7 @@ final class AppModel: ObservableObject {
         let now = Int(Date().timeIntervalSince1970)
         let bounds = CurrentHRV.completedWindow(nowUnix: now)
         let deviceId = repo.deviceId
-        guard let rows = try? await store.rrIntervals(deviceId: deviceId, from: bounds.lowerBound, to: bounds.upperBound - 1, limit: 10_000),
+        guard let rows = try? await store.rrPhysiologyInputs(deviceId: deviceId, from: bounds.lowerBound, to: bounds.upperBound - 1, limit: 10_000),
               let newest = rows.map(\.ts).max(),
               now - newest <= CurrentHRV.staleThresholdSeconds else { currentHrv = nil; return }
         let packets = (try? await store.rrPacketProvenance(deviceId: deviceId,

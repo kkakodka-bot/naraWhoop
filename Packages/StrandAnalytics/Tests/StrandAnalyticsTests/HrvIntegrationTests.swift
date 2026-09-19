@@ -5,7 +5,7 @@ import WhoopProtocol
 final class HrvIntegrationTests: XCTestCase {
     private let profile = UserProfile(weightKg: 75, heightCm: 178, age: 30, sex: "male")
     private var observations: [PhysiologyQuality.IntervalObservation] {
-        hrvEvidence() + hrvEvidence(start: 300, pattern: [950, 1050]) + hrvEvidence(start: 600, pattern: [600, 1400])
+        hrvEvidence() + hrvEvidence(start: 300, pattern: [950, 1050]) + hrvEvidence(start: 600, pattern: [450, 1250, 2050, 1250])
     }
     func testEnginePublishesWindowArithmeticNotCachedVendorValueOrDeepOnlyPreference() throws {
         let provided = SleepSession(start: 0, end: 900, efficiency: 1,
@@ -38,7 +38,7 @@ final class HrvIntegrationTests: XCTestCase {
         let grid = SleepStager.buildEpochGrid(start: 0, end: 300, gravTimes: [], gravDeltas: [], hr: [], rr: rows, resp: [])
         let legacy = SleepStager.extractFeatures(grid: grid, ckFlags: [], dogHR: [], onsetIdx: 0, finalWakeIdx: 9)
         XCTAssertTrue(legacy.allSatisfy { $0.rmssd.isNaN && $0.sdnn.isNaN })
-        let measurement = HrvWindow.measure(start: 0, observations: hrvEvidence(pattern: [600, 1400]))
+        let measurement = HrvWindow.measure(start: 0, observations: hrvEvidence(pattern: [450, 1250, 2050, 1250]))
         XCTAssertFalse(measurement.baselineEligible); XCTAssertTrue(measurement.measurementValid)
         let proven = SleepStager.extractFeatures(grid: grid, ckFlags: [], dogHR: [], onsetIdx: 0, finalWakeIdx: 9, hrvMeasurements: [measurement])
         XCTAssertTrue(proven.allSatisfy { $0.rmssd == 800 && $0.sdnn.isFinite })

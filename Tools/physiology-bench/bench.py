@@ -8,10 +8,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from physiology_bench.contracts import content_hash, file_hash, load_json, validate_dataset
+from physiology_bench.contracts import content_hash, digest, file_hash, load_json, require, validate_dataset
+from physiology_bench.approval import create_approval
 from physiology_bench.evaluate import evaluate
 from physiology_bench.manifests import validate_model
-from physiology_bench.promotion import promotion_decision, sign
+from physiology_bench.promotion import freeze_policy, promotion_decision, sign, utc
 from physiology_bench.splits import audit_fit_artifacts, participant_split, purge_overlap
 
 
@@ -41,13 +42,16 @@ def main(argv=None):
     gate.add_argument("--policy", required=True)
     gate.add_argument("--evaluation", required=True)
     gate.add_argument("--trusted-key-file", required=True)
+    approval = commands.add_parser("prepare-approval", help="Create offline signed RPC arguments; never submit or activate")
+    for name in ("policy", "evaluation", "trusted-key-file", "feature-registration", "reviewer-approval", "approval-key-file"):
+        approval.add_argument("--" + name, required=True)
     check = commands.add_parser("validate-model")
     check.add_argument("--manifest", required=True)
     check.add_argument("--for-execution", action="store_true")
     audit = commands.add_parser("fit-audit")
     audit.add_argument("--artifacts", required=True)
     audit.add_argument("--split", required=True)
-    for command in (split, purge, score, signer, gate, check, audit):
+    for command in (split, purge, score, signer, gate, approval, check, audit):
         command.add_argument("--output", help="New output file; existing paths are never overwritten")
     args = parser.parse_args(argv)
     try:
@@ -61,13 +65,35 @@ def main(argv=None):
         elif args.command == "evaluate":
             started = datetime.now(timezone.utc).isoformat()
             policy = load_json(args.policy)
-            report = evaluate(*(load_json(getattr(args, name)) for name in ("dataset", "baseline", "candidate", "split", "config")),
+            dataset, split, config = (load_json(getattr(args, name)) for name in ("dataset", "split", "config"))
+            fit_audit = model_manifest = None
+            if dataset.get("evidence_kind") == "reference" and config.get("partition") in ("test", "external"):
+                freeze_policy(policy)
+                require(utc(policy["frozen_at"]) < utc(started), "policy must be frozen before heldout evaluation")
+                for key, value in (("dataset_sha256", dataset), ("split_sha256", split), ("config_sha256", config)):
+                    require(policy[key] == content_hash(value), f"frozen {key} mismatch before heldout predictions")
+                for key in ("feature_manifest_sha256", "algorithm_manifest_sha256"):
+                    digest(policy.get(key), key)
+                require(args.fit_audit and args.model_manifest,
+                        "frozen fit audit and model manifest required before heldout predictions")
+                fit_audit = load_json(args.fit_audit)
+                model_manifest = validate_model(load_json(args.model_manifest), for_execution=True)
+                require(content_hash(model_manifest) == policy["model_manifest_sha256"],
+                        "frozen model manifest mismatch before heldout predictions")
+                require(content_hash(fit_audit) == policy["fit_audit_sha256"] and
+                        fit_audit.get("split_sha256") == policy["split_sha256"] and
+                        audit_fit_artifacts(fit_audit.get("artifacts", []), fit_audit.get("split", {})) == fit_audit,
+                        "frozen fit audit mismatch before heldout predictions")
+            report = evaluate(dataset, load_json(args.baseline), load_json(args.candidate), split, config,
                               verified_reference_hashes=tuple(file_hash(path) for path in args.reference_artifact))
             result = {"schema_version": 1, "evaluation_started_at": started,
+                      "evaluation_finished_at": datetime.now(timezone.utc).isoformat(),
                       "policy_sha256": content_hash(policy), "report": report,
+                      "feature_manifest_sha256": policy.get("feature_manifest_sha256"),
+                      "algorithm_manifest_sha256": policy.get("algorithm_manifest_sha256"),
                       "functional_gates_passed": False,
-                      "fit_audit": load_json(args.fit_audit) if args.fit_audit else None,
-                      "model_manifest": load_json(args.model_manifest) if args.model_manifest else None,
+                      "fit_audit": fit_audit or (load_json(args.fit_audit) if args.fit_audit else None),
+                      "model_manifest": model_manifest or (load_json(args.model_manifest) if args.model_manifest else None),
                       "evidence": {}, "resources": {}}
         elif args.command == "fit-audit":
             result = audit_fit_artifacts(load_json(args.artifacts)["artifacts"], load_json(args.split))
@@ -77,6 +103,11 @@ def main(argv=None):
             key = Path(args.trusted_key_file).read_bytes()
             result = promotion_decision(load_json(args.policy), load_json(args.evaluation),
                                         {hashlib.sha256(key).hexdigest(): key})
+        elif args.command == "prepare-approval":
+            key = Path(args.trusted_key_file).read_bytes()
+            result = create_approval(load_json(args.policy), load_json(args.evaluation),
+                {hashlib.sha256(key).hexdigest(): key}, load_json(args.feature_registration),
+                load_json(args.reviewer_approval), Path(args.approval_key_file).read_bytes())
         else:
             manifest = validate_model(load_json(args.manifest), args.for_execution)
             result = {"valid": True, "manifest_sha256": content_hash(manifest), "operational_status": manifest["operational_status"]}

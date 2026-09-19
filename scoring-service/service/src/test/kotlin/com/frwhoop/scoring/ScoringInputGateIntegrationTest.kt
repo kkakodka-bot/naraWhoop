@@ -208,7 +208,8 @@ class ScoringInputGateIntegrationTest {
         val model=PhysiologyShadowRunner.Model("neurokit2",JSONObject(),Path.of("."))
         val assembler=PhysiologyShadowRunner.JobAssembler { _,request,_ -> PhysiologyShadowRunner.PreparedJob(JSONObject()
             .put("user_id",request.userId).put("device_id",request.deviceId).put("input_revision",request.inputRevision)) }
-        val slow=PhysiologyShadowRunner.Executor { _,_ -> Thread.sleep(5000);JSONObject() }
+        var modelCalls=0
+        val slow=PhysiologyShadowRunner.Executor { _,_ -> modelCalls++;Thread.sleep(5000);JSONObject() }
         val runner=PhysiologyShadowRunner(models=listOf(model),executor=slow,assembler=assembler,totalTimeoutSeconds=120)
         repeat(2) { index ->
             sql(hrInsert(ts+index));makeDue()
@@ -217,7 +218,9 @@ class ScoringInputGateIntegrationTest {
                 val budget=if(index==0) guard.remainingDuration.minusSeconds(2) else Duration.ZERO
                 val shadow=runner.evaluate(PhysiologyShadowRunner.Request(user,device,item.inputRevision.toString(),
                     ts,ts+300,emptyList()),budget)
-                assertTrue(shadow.rawReasons.contains(if(index==0) "shadow_request_timeout" else "shadow_publication_budget_exhausted"))
+                if(index==0) assertTrue(shadow.rawReasons.isEmpty())
+                else assertTrue(shadow.rawReasons.contains("shadow_publication_budget_exhausted"))
+                assertEquals(0,modelCalls)
                 guard.requireActive()
                 publish(EngineIngestWriter.publicationPayload(emptyTransportFixture().copy(physiologyShadow=shadow),item))
                 assertTrue(queue.markDone(item,1))

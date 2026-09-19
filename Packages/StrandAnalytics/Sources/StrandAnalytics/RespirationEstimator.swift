@@ -2,8 +2,20 @@ import Foundation
 
 /// Shadow spectral/autocorrelation estimator; engineering gates are not clinical cutoffs.
 public enum RespirationEstimator {
-    public static let version = "resp-spectrum-acf-1"
-    public static let preprocessVersion = "masked-linear-detrend-hann-1"
+    public static let version = "resp-spectrum-acf-2"
+    public static let preprocessVersion = "plausible-masked-linear-detrend-hann-2"
+    public static let qualityPolicyVersion = "resp-quality-2"
+    public struct Contamination: Codable, Equatable, Sendable {
+        public var motionObservedFraction: Double?
+        public var motionContaminated: Bool
+        public var signalQualityReasons: [String]
+        public var evidenceVersion: String
+        public init(motionObservedFraction: Double? = nil, motionContaminated: Bool = false,
+                    signalQualityReasons: [String] = [], evidenceVersion: String = "unverified") {
+            self.motionObservedFraction = motionObservedFraction; self.motionContaminated = motionContaminated
+            self.signalQualityReasons = signalQualityReasons; self.evidenceVersion = evidenceVersion
+        }
+    }
     public struct Input: Sendable {
         public let start: Double
         public let sampleRateHz: Double
@@ -16,6 +28,9 @@ public enum RespirationEstimator {
         public var motionContaminated: Bool = false
         public var inputRevision: String = "local"
         public var maximumSupportedRate: Double?
+        public var contamination = Contamination()
+        public var inputRejectionReasons: [String] = []
+        public var acquisitionIdentity: [String] = []
         public init(start: Double, sampleRateHz: Double, values: [Double], observed: [Bool], source: String,
                     modality: String, timingVerified: Bool, channelVerified: Bool) {
             self.start = start; self.sampleRateHz = sampleRateHz; self.values = values; self.observed = observed
@@ -34,6 +49,8 @@ public enum RespirationEstimator {
         public var minimumAutocorrelation = 0.5
         public var maximumDisagreement = 1.5
         public var harmonicPowerRatio = 0.2
+        public var subharmonicPowerRatio = 0.002
+        public var minimumMotionObservedFraction = 0.9
         public init() {}
     }
     public struct Result: Codable, Equatable, Sendable {
@@ -58,6 +75,11 @@ public enum RespirationEstimator {
         public var preprocessVersion: String = RespirationEstimator.preprocessVersion
         public var publicationMode: String = "shadow"
         public var computationMode: String = "windowed_retrospective"
+        public var qualityPolicyVersion: String = RespirationEstimator.qualityPolicyVersion
+        public var motionObservedFraction: Double?
+        public var qualityEvidenceVersion: String = "unverified"
+        public var rejectionReasons: [String] = []
+        public var acquisitionIdentity: [String] = []
     }
 
     public static func estimate(_ input: Input, policy: Policy = Policy()) -> Result {
@@ -73,7 +95,10 @@ public enum RespirationEstimator {
                 autocorrelationRate: acfRate, spectralFraction: spectralFraction, autocorrelation: acfStrength,
                 effectiveCycles: cycles, source: input.source, modality: input.modality,
                 inputRevision: input.inputRevision, minimumRate: policy.minimumRate, maximumRate: maximumRate,
-                acceptedSpans: acceptedSpans)
+                acceptedSpans: acceptedSpans, motionObservedFraction: input.contamination.motionObservedFraction,
+                qualityEvidenceVersion: input.contamination.evidenceVersion,
+                rejectionReasons: Array(Set(input.inputRejectionReasons + input.contamination.signalQualityReasons + [reason].compactMap { $0 })).sorted(),
+                acquisitionIdentity: input.acquisitionIdentity)
         }
         guard input.start.isFinite, rate.isFinite, rate >= 1, rate <= 128, (32...16384).contains(n),
               input.observed.count == n, duration >= 32, duration <= 300,
@@ -81,7 +106,13 @@ public enum RespirationEstimator {
               policy.maximumRate < 0.8 * rate * 30 else { return result("unsupported_shape_or_rate") }
         guard input.timingVerified else { return result("timing_unverified") }
         guard input.channelVerified else { return result("channel_semantics_unverified") }
-        guard !input.motionContaminated else { return result("motion_contamination") }
+        guard !input.motionContaminated, !input.contamination.motionContaminated else { return result("motion_contamination") }
+        guard input.contamination.signalQualityReasons.isEmpty else { return result("signal_quality_contamination") }
+        guard let motionCoverage = input.contamination.motionObservedFraction, motionCoverage.isFinite,
+              motionCoverage >= policy.minimumMotionObservedFraction, motionCoverage <= 1,
+              !input.contamination.evidenceVersion.isEmpty, input.contamination.evidenceVersion != "unverified" else {
+            return result("motion_evidence_unavailable")
+        }
         let mask = input.values.indices.map { input.observed[$0] && input.values[$0].isFinite }
         let indices = mask.indices.filter { mask[$0] }
         coverage = Double(indices.count) / Double(n)
@@ -91,7 +122,9 @@ public enum RespirationEstimator {
         var run = 0, longest = 0
         for observed in mask { run = observed ? 0 : run + 1; longest = max(longest, run) }
         maxGap = Double(longest) / rate
-        guard coverage >= policy.minimumObservedFraction else { return result("insufficient_observed_time") }
+        guard coverage >= policy.minimumObservedFraction else {
+            return result(input.inputRejectionReasons.contains("interval_out_of_plausibility") ? "interval_out_of_plausibility" : "insufficient_observed_time")
+        }
         guard maxGap <= policy.maximumGapSeconds else { return result("acquisition_gap") }
         let count = Double(indices.count)
         let meanT = indices.reduce(0.0) { $0 + Double($1) } / count
@@ -147,6 +180,20 @@ public enum RespirationEstimator {
             return (firstBin...highestBin).contains(k) && abs(k - peak) > 2 && power[k] >= power[peak] * policy.harmonicPowerRatio
         }
         guard !harmonic else { return result("harmonic_ambiguity") }
+        // A dominant second harmonic can agree with the first ACF peak. Retain a weaker,
+        // resolved fundamental as ambiguity instead of silently reporting twice its rate.
+        let half = Int((Double(peak) / 2).rounded())
+        if half > firstBin, half < highestBin, peak - half > 2 {
+            let candidate = ((half - 1)...(half + 1)).max { power[$0] < power[$1] }!
+            let neighborhood = (max(firstBin, candidate - 5)...min(highestBin, candidate + 5))
+                .filter { abs($0 - candidate) > 2 && abs($0 - peak) > 2 }.map { power[$0] }.sorted()
+            let background = neighborhood.isEmpty ? 0 : neighborhood[neighborhood.count / 2]
+            if power[candidate] >= power[peak] * policy.subharmonicPowerRatio,
+               power[candidate] > background * 8,
+               power[candidate] >= power[candidate - 1], power[candidate] >= power[candidate + 1] {
+                return result("harmonic_ambiguity")
+            }
+        }
         guard abs(acfRate! - spectralRate!) <= policy.maximumDisagreement else { return result("spectral_autocorrelation_disagreement") }
         cycles = duration * coverage * acfRate! / 60
         guard cycles! >= policy.minimumCycles else { return result("insufficient_cycles") }
@@ -160,12 +207,18 @@ public enum RespirationEstimator {
     /// Resampling is restricted to adjacent verified original spans. Coarse packet time is ineligible.
     public static func fromIntervals(start: Double, duration: Int,
                                       observations: [PhysiologyQuality.IntervalObservation],
-                                      inputRevision: String = "local") -> Input {
+                                      inputRevision: String = "local", contamination: Contamination = Contamination()) -> Input {
         precondition((32...300).contains(duration) && start.isFinite)
         var unique: [PhysiologyQuality.IntervalObservation] = []
-        for row in observations where !unique.contains(row) { unique.append(row) }
+        for row in observations where !unique.contains(row) {
+            let validSpan = row.verifiedSpan.flatMap { $0.start.isFinite && $0.end.isFinite && $0.end > $0.start ? $0 : nil }
+            let overlaps = validSpan.map { $0.end > start && $0.start < start + Double(duration) }
+                ?? (!row.eventTime.isFinite || (row.eventTime >= start && row.eventTime < start + Double(duration)))
+            if overlaps { unique.append(row) }
+        }
         let rows = unique.sorted { ($0.verifiedSpan?.start ?? $0.eventTime) < ($1.verifiedSpan?.start ?? $1.eventTime) }
-        let ownership = Set(rows.map { [$0.userId, $0.deviceId, $0.source, $0.modality, $0.clockVersion] })
+        let ownership = Set(rows.map { [$0.userId, $0.deviceId, $0.source, $0.modality, $0.clockVersion,
+                                        $0.decoderVersion, $0.deviceFirmware ?? "unknown"] })
         let identities = Dictionary(grouping: rows, by: \.originalId)
         let verified = !rows.isEmpty && ownership.count == 1 && identities.values.allSatisfy { $0.count == 1 } && rows.allSatisfy { row in
             guard let span = row.verifiedSpan else { return false }
@@ -173,7 +226,9 @@ public enum RespirationEstimator {
                 row.eventTime.isFinite && row.originalRRMs.isFinite &&
                 abs((span.end - span.start) - row.originalRRMs / 1000) <= 0.002001 &&
                 row.timestampPrecisionSeconds.isFinite && row.timestampPrecisionSeconds > 0 && row.timestampPrecisionSeconds <= 0.020 &&
-                row.startBeatId?.isEmpty == false && row.endBeatId?.isEmpty == false &&
+                !row.originalId.isEmpty && row.startBeatId?.isEmpty == false && row.endBeatId?.isEmpty == false &&
+                row.startBeatId != row.endBeatId &&
+                !row.deviceId.isEmpty && !row.source.isEmpty && !row.decoderVersion.isEmpty &&
                 row.continuityGroup?.isEmpty == false && !row.clockVersion.isEmpty && row.clockVersion != "unknown" && row.decoderVersion != "unknown" &&
                 ["ecg_nn", "ppg_ibi"].contains(row.modality)
         }
@@ -187,16 +242,26 @@ public enum RespirationEstimator {
             row.startBeatAccepted && row.endBeatAccepted &&
                 !rejectedBeats.contains(row.startBeatId ?? "") && !rejectedBeats.contains(row.endBeatId ?? "")
         }
+        func plausible(_ row: PhysiologyQuality.IntervalObservation) -> Bool {
+            switch row.modality {
+            case "ecg_nn": return (250...3000).contains(row.originalRRMs)
+            case "ppg_ibi": return (250...2500).contains(row.originalRRMs)
+            default: return false
+            }
+        }
+        func usable(_ row: PhysiologyQuality.IntervalObservation) -> Bool {
+            plausible(row) && row.originalAccepted && endpointsAccepted(row) && !row.rhythmAmbiguous &&
+                row.qualityReason == nil && row.corrections.isEmpty && PhysiologyQuality.signalRejectionReason(row) == nil
+        }
+        let rhythmAmbiguity = PhysiologyQuality.hasAmbiguousAlternation(rows)
         var values = [Double](repeating: .nan, count: duration * 4), mask = [Bool](repeating: false, count: duration * 4)
-        if verified, rows.count > 1 {
+        if verified, !rhythmAmbiguity, rows.count > 1 {
             for i in 1..<rows.count {
                 let a = rows[i - 1], b = rows[i], sa = a.verifiedSpan!, sb = b.verifiedSpan!
                 guard a.endBeatId == b.startBeatId, a.continuityGroup == b.continuityGroup,
-                      abs(sa.end - sb.start) <= 0.002, a.originalAccepted, b.originalAccepted,
-                      endpointsAccepted(a), endpointsAccepted(b), !a.rhythmAmbiguous, !b.rhythmAmbiguous,
-                      a.corrections.isEmpty, b.corrections.isEmpty else { continue }
+                      abs(sa.end - sb.start) <= 0.000001, usable(a), usable(b) else { continue }
                 let left = (sa.start + sa.end) / 2, right = (sb.start + sb.end) / 2
-                guard right > left, right - left <= 2 else { continue }
+                guard right > left, right - left <= (a.modality == "ecg_nn" ? 3 : 2.5) else { continue }
                 for j in values.indices {
                     let t = start + Double(j) / 4
                     if t >= left && t < right {
@@ -209,7 +274,21 @@ public enum RespirationEstimator {
         var input = Input(start: start, sampleRateHz: 4, values: values, observed: mask,
             source: rows.first?.source ?? "unavailable", modality: "rsa_ibi_ms", timingVerified: verified, channelVerified: verified)
         input.inputRevision = inputRevision
-        if verified { input.maximumSupportedRate = 24 / rows.map { $0.verifiedSpan!.end - $0.verifiedSpan!.start }.max()! }
+        input.acquisitionIdentity = ownership.count == 1 ? ownership.first! : []
+        input.contamination = contamination
+        input.inputRejectionReasons = Array(Set(rows.flatMap { row -> [String] in
+            var reasons = [String]()
+            if !plausible(row) { reasons.append("interval_out_of_plausibility") }
+            if !row.originalAccepted || !endpointsAccepted(row) { reasons.append("rejected_original_endpoint") }
+            if row.rhythmAmbiguous || rhythmAmbiguity { reasons.append("rhythm_ambiguity") }
+            if !row.corrections.isEmpty { reasons.append("corrected_intervals_excluded") }
+            if let reason = row.qualityReason { reasons.append(reason) }
+            if let reason = PhysiologyQuality.signalRejectionReason(row) { reasons.append(reason) }
+            return reasons
+        })).sorted()
+        if verified, let longest = rows.filter(usable).map({ $0.verifiedSpan!.end - $0.verifiedSpan!.start }).max() {
+            input.maximumSupportedRate = 24 / longest
+        }
         return input
     }
 
@@ -221,7 +300,9 @@ public enum RespirationEstimator {
     }
     /// Correlated evidence never multiplies confidence; disagreeing eligible channels abstain.
     public static func fuse(_ results: [Result], maximumDisagreement: Double = 1.5) -> Fusion {
-        let accepted = results.filter { $0.reason == nil && $0.breathsPerMinute != nil }
+        var unique: [Result] = []
+        for row in results where !unique.contains(row) { unique.append(row) }
+        let accepted = unique.filter { $0.reason == nil && $0.breathsPerMinute?.isFinite == true && $0.breathsPerMinute! > 0 }
         guard let first = accepted.first else { return Fusion(breathsPerMinute: nil, reason: "no_eligible_channels", methods: [], evidenceStrength: nil) }
         let methods = accepted.map(\.modality)
         guard accepted.allSatisfy({ $0.start == first.start && $0.end == first.end && $0.inputRevision == first.inputRevision }) else {
@@ -245,18 +326,60 @@ public enum RespirationEstimator {
         public let context: String
         /// Sorted accepted-window estimates, not a duration-weighted or reference distribution.
         public let distributionBpm: [Double]
+        public var reason: String?
+        public var coverageByThird: [Double] = []
+        public var rejectionReasons: [String] = []
+        public var qualityPolicyVersion: String = RespirationEstimator.qualityPolicyVersion
+        /// Signal evidence, not a calibrated probability or independent-window confidence.
+        public var evidenceStrength: Double?
+    }
+    public struct SummaryPolicy: Sendable {
+        public var minimumSleepAcceptedSeconds = 1800.0
+        public var minimumAwakeRestAcceptedSeconds = 120.0
+        public var minimumSleepWindows = 3
+        public var minimumCoverage = 0.5
+        public var minimumCoveragePerThird = 0.1
+        public init() {}
     }
     /// Overlapping strides contribute duration once; sleep and awake-rest summaries remain separate.
-    public static func summarize(_ results: [Result], start: Double, end: Double, context: String) -> Summary {
-        precondition(end > start && ["qualified_sleep", "qualified_awake_rest"].contains(context))
-        let inPeriod = results.filter { $0.start >= start && $0.end <= end }
-        let accepted = inPeriod.filter { $0.reason == nil && $0.breathsPerMinute != nil }
+    public static func summarize(_ results: [Result], start: Double, end: Double, context: String,
+                                 policy: SummaryPolicy = SummaryPolicy()) -> Summary {
+        precondition(start.isFinite && end.isFinite && end > start && ["qualified_sleep", "qualified_awake_rest"].contains(context))
+        var inPeriod: [Result] = []
+        for row in results where row.start >= start && row.end <= end && !inPeriod.contains(row) { inPeriod.append(row) }
+        let accepted = inPeriod.filter { $0.reason == nil && $0.breathsPerMinute?.isFinite == true && $0.breathsPerMinute! > 0 }
         let values = accepted.compactMap(\.breathsPerMinute).sorted()
-        let spans = accepted.flatMap(\.acceptedSpans)
+        let spans = accepted.flatMap { PhysiologyQuality.union($0.acceptedSpans, start: $0.start, end: $0.end) }
         let seconds = PhysiologyQuality.union(spans, start: start, end: end).reduce(0.0) { $0 + $1.end - $1.start }
-        let median = values.isEmpty ? nil : (values[(values.count - 1) / 2] + values[values.count / 2]) / 2
-        return Summary(median: median, mean: values.isEmpty ? nil : values.reduce(0, +) / Double(values.count),
-            acceptedSeconds: seconds, coverage: seconds / (end - start), acceptedWindows: accepted.count,
-            totalWindows: inPeriod.count, context: context, distributionBpm: values)
+        let third = (end - start) / 3
+        var coverageByThird: [Double] = []
+        for i in 0..<3 {
+            let lower = start + Double(i) * third
+            let upper = start + Double(i + 1) * third
+            let covered = PhysiologyQuality.union(spans, start: lower, end: upper)
+            var duration = 0.0
+            for span in covered { duration += span.end - span.start }
+            coverageByThird.append(duration / third)
+        }
+        let provenance = Set(accepted.map { [$0.source, $0.modality, $0.inputRevision, $0.methodVersion, $0.preprocessVersion, $0.qualityPolicyVersion] + $0.acquisitionIdentity })
+        let conflicts = Dictionary(grouping: inPeriod, by: { "\($0.start):\($0.end)" }).values.contains { $0.count > 1 }
+        let coverage = seconds / (end - start)
+        let reason: String?
+        if conflicts { reason = "conflicting_window_results" }
+        else if provenance.count > 1 { reason = "incompatible_window_provenance" }
+        else if values.isEmpty { reason = "no_quality_eligible_windows" }
+        else if seconds < (context == "qualified_sleep" ? policy.minimumSleepAcceptedSeconds : policy.minimumAwakeRestAcceptedSeconds) {
+            reason = "insufficient_accepted_duration"
+        } else if context == "qualified_sleep" && accepted.count < policy.minimumSleepWindows { reason = "insufficient_accepted_windows" }
+        else if coverage < policy.minimumCoverage { reason = "insufficient_period_coverage" }
+        else if coverageByThird.contains(where: { $0 < policy.minimumCoveragePerThird }) { reason = "unrepresentative_temporal_coverage" }
+        else { reason = nil }
+        let median = reason != nil ? nil : (values[(values.count - 1) / 2] + values[values.count / 2]) / 2
+        return Summary(median: median, mean: reason != nil ? nil : values.reduce(0, +) / Double(values.count),
+            acceptedSeconds: seconds, coverage: coverage, acceptedWindows: accepted.count,
+            totalWindows: inPeriod.count, context: context, distributionBpm: values, reason: reason,
+            coverageByThird: coverageByThird,
+            rejectionReasons: Array(Set(inPeriod.flatMap(\.rejectionReasons) + [reason].compactMap { $0 })).sorted(),
+            evidenceStrength: reason == nil ? accepted.compactMap(\.autocorrelation).min() : nil)
     }
 }

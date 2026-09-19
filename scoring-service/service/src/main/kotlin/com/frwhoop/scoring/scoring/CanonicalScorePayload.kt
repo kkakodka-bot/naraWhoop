@@ -18,7 +18,7 @@ object CanonicalScorePayload {
         val sessions = bundle.result.sleepSessions.sortedWith(compareBy({ it.start }, { it.end }))
         require(sessions.all { it.end > it.start && it.end - it.start <= 172800 }) { "invalid sleep bounds" }
         require(sessions.zipWithNext().all { (a,b) -> a.end <= b.start }) { "overlapping sleep episodes" }
-        for (stage in sessions.flatMap { it.stages }) {
+        for (stage in sessions.flatMap { it.stages } + bundle.result.fullDaySleepEpochs) {
             require(stage.end>stage.start) { "invalid stage bounds" }
             val probabilities=listOf(stage.pWake,stage.pLight,stage.pDeep,stage.pRem)
             require((probabilities.all { it==null } || probabilities.all { it!=null } &&
@@ -28,11 +28,9 @@ object CanonicalScorePayload {
             }
             require(stage.probabilitiesCalibrated!=true || probabilities.all { it!=null }) { "calibration requires probability vector" }
         }
-        val candidates = sessions.indices.filter { sessions[it].hasKnownState }.ifEmpty { sessions.indices.toList() }
         val explicitMain=sessions.indices.filter { sessions[it].episodeType=="main_sleep" }.toSet()
-        val mainIndices = if(sessions.any { it.episodeType!=null }) explicitMain else SleepStageTotals.mainNightGroupIndices(
-            candidates.map { SleepStageTotals.NightBlock(sessions[it].start, sessions[it].end) }, bundle.tzOffsetSeconds,
-        ).orEmpty().map { candidates[it] }.toSet()
+        val mainIndices = if(sessions.any { it.episodeType!=null }) explicitMain else
+            com.noop.analytics.SleepOpportunityDetector.mainSleepGroupIndices(sessions,bundle.tzOffsetSeconds).toSet()
         val groupId = if (mainIndices.isEmpty()) null else stableId(bundle, "main:${bundle.day}")
         val nights = JSONArray()
         val main = mutableListOf<JSONObject>()
@@ -70,16 +68,33 @@ object CanonicalScorePayload {
                 .put("distribution_kind","sorted_accepted_window_estimates")
                 .put("accepted_seconds",summary.acceptedSeconds).put("coverage",summary.coverage)
                 .put("accepted_windows",summary.acceptedWindows).put("total_windows",summary.totalWindows)
+                .put("coverage_by_third",JSONArray(summary.coverageByThird))
+                .put("rejection_reasons",JSONArray(summary.rejectionReasons))
+                .putNullable("reason",summary.reason).put("quality_policy_version",summary.qualityPolicyVersion)
+                .put("evidence_strength",summary.evidenceStrength)
                 .put("context",if (summary.context == "qualified_sleep") "main_sleep" else summary.context)
                 .put("measurement_context",summary.context).put("context_provenance","estimated_binary_sleep")
                 .put("method_version",com.noop.analytics.RespirationEstimator.VERSION)
                 .put("preprocess_version",com.noop.analytics.RespirationEstimator.PREPROCESS_VERSION)
                 .put("calibration_status","not_reference_validated") })
             .putNullable("respiration_unavailable_reason",if(bundle.respirationSummary?.median!=null) null else
-                if(bundle.respirationSummary==null) "sleep_context_unavailable" else "no_quality_eligible_windows")
+                if(bundle.respirationSummary==null) "sleep_context_unavailable" else bundle.respirationSummary.reason)
             .putNullable("hrv_summary",bundle.result.hrvNightSummary?.let(HrvPayloadCodec::summary))
             .putNullable("main_sleep_group_id", groupId)
             .put("opportunity_kind", "estimated_sleep_opportunity")
+            .put("full_day_sleep_epochs",JSONArray(bundle.result.fullDaySleepEpochs.map { segment ->
+                val normalized=normalizeStage(segment)
+                JSONObject().put("start",segment.start).put("end",segment.end)
+                .put("stage",if(normalized in listOf("state_unknown","off_body","sleep_unstaged")) "unknown" else normalized)
+                .put("state",when(normalized) { "light","deep","rem" -> "sleep"; "wake" -> "awake"; else -> normalized })
+                .putNullable("reason",if(binaryStageDisagreement(segment)) "stage_binary_disagreement" else segment.abstentionReason)
+                .putNullable("context_kind",segment.contextKind).putNullable("context_provenance",segment.contextProvenance)
+                .putNullable("p_sleep",segment.sleepProbability).putNullable("evidence_coverage",segment.evidenceCoverage)
+                .putNullable("p_wake",segment.pWake).putNullable("p_light",segment.pLight)
+                .putNullable("p_deep",segment.pDeep).putNullable("p_rem",segment.pRem)
+                .putNullable("algorithm_version",segment.algorithmVersion)
+                .put("computation_mode",segment.computationMode ?: "retrospective")
+                .put("calibration_status",if(segment.probabilitiesCalibrated==true) "calibrated" else "uncalibrated") }))
         val keys = listOf("asleep_min", "awake_min", "light_min", "deep_min", "rem_min",
             "sleep_unstaged_min", "state_unknown_min", "off_body_min", "in_bed_min")
         for (key in keys) {
@@ -122,6 +137,10 @@ object CanonicalScorePayload {
         return JSONObject()
             .put("schema_version", SCHEMA_VERSION)
             .put("algorithm_version", bundle.algorithmVersion)
+            .put("feature_manifests",JSONObject().apply {
+                listOf("hrv","sleep","respiration").forEach { put(it,ProductionAlgorithmManifest.feature(it)) }
+            })
+            .put("feature_manifest_hashes",ProductionAlgorithmManifest.hashes())
             .put("user_id", bundle.userId.toString())
             .put("device_id", bundle.deviceId)
             .put("day", bundle.day)
@@ -175,8 +194,9 @@ object CanonicalScorePayload {
             val reason = when {
                 covering.isEmpty() -> "missing_features"
                 names.size > 1 -> "conflicting_segments"
+                metadata?.let(::binaryStageDisagreement) == true -> "stage_binary_disagreement"
                 state == "state_unknown" -> metadata?.abstentionReason ?: "state_unavailable"
-                state == "sleep_unstaged" -> "stage_unavailable"
+                state == "sleep_unstaged" -> metadata?.abstentionReason ?: "stage_unavailable"
                 else -> null
             }
             duration[state] = (duration[state] ?: 0) + end - start
@@ -193,19 +213,14 @@ object CanonicalScorePayload {
                 .putNullable("p_wake",metadata?.pWake).putNullable("p_light",metadata?.pLight)
                 .putNullable("p_deep",metadata?.pDeep).putNullable("p_rem",metadata?.pRem)
                 .putNullable("algorithm_version",metadata?.algorithmVersion)
+                .putNullable("context_kind",metadata?.contextKind).putNullable("context_provenance",metadata?.contextProvenance)
                 .put("computation_mode",metadata?.computationMode ?: "retrospective"))
         }
         fun minutes(state: String) = (duration[state] ?: 0) / 60.0
         val asleep = listOf("light", "deep", "rem", "sleep_unstaged").sumOf { minutes(it) }
         val span = (session.end - session.start) / 60.0
         val available = (asleep+minutes("wake"))>0
-        val episodeType = when {
-            asleep == 0.0 -> "uncertain"
-            isMain -> "main_sleep"
-            session.episodeType in listOf("nap", "other_sleep") -> session.episodeType!!
-            span <= 180.0 -> "nap"
-            else -> "other_sleep"
-        }
+        val episodeType = com.noop.analytics.SleepOpportunityDetector.episodeType(session,isMain)
         return JSONObject()
             .put("id", stableId(bundle, "episode:${session.start}:${session.end}"))
             .put("period_day", bundle.day).put("device_id", bundle.deviceId)
@@ -242,12 +257,16 @@ object CanonicalScorePayload {
         if (segment.state in listOf("state_unknown","off_body")) return segment.state!!
         if (segment.state=="sleep_unstaged") return "sleep_unstaged"
         if (segment.state=="awake") return "wake"
+        if (segment.state=="sleep" && segment.stage !in listOf("light","deep","rem")) return "sleep_unstaged"
         return when (segment.stage) {
         "awake" -> "wake"
         "wake", "light", "deep", "rem", "sleep_unstaged" -> segment.stage
         else -> "state_unknown"
         }
     }
+
+    private fun binaryStageDisagreement(segment: StageSegment): Boolean =
+        segment.state in listOf("sleep","sleep_unstaged") && segment.stage in listOf("wake","awake")
 
     private fun stableId(bundle: ServerScoreBundle, key: String): String =
         UUID.nameUUIDFromBytes("${bundle.userId}/${bundle.deviceId}/${bundle.algorithmVersion}/$key"

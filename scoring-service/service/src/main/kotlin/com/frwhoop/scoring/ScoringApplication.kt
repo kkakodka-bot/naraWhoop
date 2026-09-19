@@ -11,7 +11,12 @@ import com.frwhoop.scoring.scoring.DayScorer
 import com.frwhoop.scoring.scoring.CanonicalScorePayload
 import com.frwhoop.scoring.scoring.ScoringPoller
 import com.frwhoop.scoring.b2.B2ObjectStore
+import com.frwhoop.scoring.b2.B2Config
 import com.frwhoop.scoring.signals.PhysiologyShadowRunner
+import com.frwhoop.scoring.signals.VerifiedModelJobAssembler
+import com.frwhoop.scoring.signals.ModelWorkQueue
+import com.frwhoop.scoring.signals.ModelQueueWorker
+import com.frwhoop.scoring.signals.JdbcAcquisitionContractResolver
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -19,11 +24,37 @@ private val log = LoggerFactory.getLogger("ScoringApplication")
 
 fun main(args: Array<String>) {
     require(args.isEmpty() || args.contentEquals(arrayOf("--replay-day")) || args.contentEquals(arrayOf("--inventory-signals")) ||
-        args.contentEquals(arrayOf("--archive-only"))) {
-        "Use no arguments, --replay-day, --inventory-signals, or --archive-only; commands cannot be combined"
+        args.contentEquals(arrayOf("--archive-only")) || args.contentEquals(arrayOf("--models-only")) ||
+        args.contentEquals(arrayOf("--activate-models"))) {
+        "Use no arguments, --replay-day, --inventory-signals, --archive-only, --models-only, or --activate-models; commands cannot be combined"
     }
     if (args.contains("--inventory-signals")) {
         SignalInventoryCommand.run(System.getenv())
+        return
+    }
+    if (args.contains("--models-only") || args.contains("--activate-models")) {
+        val databaseUrl = requireNotNull(System.getenv("DATABASE_URL")) { "DATABASE_URL required" }
+        val modelId = requireNotNull(System.getenv("PHYSIOLOGY_MODEL_ID")) { "PHYSIOLOGY_MODEL_ID required for isolated model commands" }
+        PostgresClient(databaseUrl, queryTimeoutSeconds = 15).use { db ->
+            val objects = B2Config.fromEnv()?.let { credentials ->
+                val store = B2ObjectStore(credentials)
+                object : B2ObjectStore.GetClient {
+                    override fun getObject(key: String, maximumBytes: Int) = store.getObject(key, maximumBytes)
+                }
+            }
+            val runner = PhysiologyShadowRunner.fromEnvironment(db.dataSource, objects,
+                assembler = VerifiedModelJobAssembler(JdbcAcquisitionContractResolver(db.dataSource)), modelId = modelId)
+            val queue = ModelWorkQueue(db)
+            val model = runner.configuredModels().single { it.id == modelId }
+            if (args.contains("--activate-models")) {
+                val revision = queue.activate(model)
+                log.info("Activated shadow model {} revision {}; historical backfill enqueued", model.id, revision)
+            } else {
+                val seconds = (System.getenv("MODEL_POLL_SECONDS")?.toLongOrNull() ?: 8L).also { require(it in 1..600) }
+                ModelQueueWorker(queue, SignalSampleReader(db), runner, modelId,
+                    abortInputs = db::abortActiveConnections).runForever(java.time.Duration.ofSeconds(seconds))
+            }
+        }
         return
     }
     val config = ScoringConfig.fromEnv()
@@ -47,13 +78,8 @@ fun main(args: Array<String>) {
     val db = PostgresClient(config.databaseUrl)
     val reader = SignalSampleReader(db)
     val queue = ScoringWorkQueue(db)
-    val rawObjects=config.b2Config?.let { credentials ->
-        val objects=B2ObjectStore(credentials)
-        object : B2ObjectStore.GetClient {
-            override fun getObject(key: String,maximumBytes: Int)=objects.getObject(key,maximumBytes)
-        }
-    }
-    val scorer = DayScorer(PhysiologyShadowRunner.fromEnvironment(db.dataSource,rawObjects))
+    // Model configuration, object retrieval and Python execution are absent from this process path.
+    val scorer = DayScorer(PhysiologyShadowRunner())
     val writer = EngineIngestWriter(config.supabaseUrl, config.serviceRoleKey, config.ingestSecret)
     val derivedWriter = config.b2Config?.let {
         DerivedArtifactWriter(it, config.supabaseUrl, config.serviceRoleKey)

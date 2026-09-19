@@ -106,8 +106,9 @@ class SleepStagerV2Test {
                 .map { "${it.start - start}:${it.end - start}:${it.stage}" }
         }
         val base = refMidnight + 3_000_000L
-        val cancelledOracle = listOf("0:4320:light", "4320:5400:rem")
-        val retainedOracle = listOf("0:5400:wake")
+        // Impossible vectors cannot manufacture motion evidence through cancellation or ordering.
+        val cancelledOracle = listOf("0:5400:unknown")
+        val retainedOracle = listOf("0:5400:unknown")
         assertEquals(cancelledOracle, stagedShape(base, signalLast = false, shuffled = false))
         assertEquals(cancelledOracle, stagedShape(base + 10_000_020L, signalLast = false, shuffled = true))
         assertEquals(retainedOracle, stagedShape(base + 20_000_010L, signalLast = true, shuffled = false))
@@ -238,7 +239,7 @@ class SleepStagerV2Test {
             val restless = ph == 3 && (i % 20) < 6
             grav.add(
                 if (restless) GravitySample(dev, ts, x = 0.2, y = 0.15, z = 0.96)
-                else GravitySample(dev, ts, x = 0.0, y = 0.0, z = 1.0))
+                else GravitySample(dev, ts, x = 0.000001 * (i % 2), y = 0.0, z = 1.0))
             val bpm = when (ph) {
                 0 -> 50
                 1 -> 54 + intArrayOf(0, 1, 2, 3, 2, 1)[(i / 20) % 6]

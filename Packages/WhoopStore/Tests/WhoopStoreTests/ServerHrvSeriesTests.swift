@@ -18,6 +18,7 @@ final class ServerHrvSeriesTests: XCTestCase {
         let body: [String: Any] = ["server_scoring": [
             "schema_version": 2, "user_id": "owner", "day": day, "algorithm_version": "per_feature",
             "features": ["hrv": ["status": status, "device_id": "device", "algorithm_version": version,
+                                 "canonical_qualification": "signed_reference_approval", "feature_manifest_hash": String(repeating: "f", count: 64),
                                  "input_revision": 42, "observed_through": "2026-09-18T00:30:00Z"]],
             "daily": ["hrv_rmssd_ms": 999], "measurements": rows, "nights": []]]
         let parsed = try ServerScoreCacheCodec.parseSnapshot(JSONSerialization.data(withJSONObject: body), day: day, ownerId: "owner")

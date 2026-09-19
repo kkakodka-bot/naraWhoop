@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1
+# Build for linux/amd64 with --build-context model_bundle=/path/to/verified/offline/bundle.
+# Official image digests resolved 2026-09-19; model bundle is independently hash-verified below.
+FROM eclipse-temurin:17-jdk-jammy@sha256:e573c097106f35634857604fdfbe70a2a2bbcaa52574bca3d2025703d0df994d AS build
+WORKDIR /build
+COPY android /build/android
+COPY scoring-service /build/scoring-service
+WORKDIR /build/scoring-service
+RUN JAVA_TOOL_OPTIONS=-XX:ActiveProcessorCount=1 ./gradlew :service:installDist --no-daemon --max-workers=1 -x test
+
+FROM eclipse-temurin:17-jre-jammy@sha256:24cd8eed18b5976441d27b45823490eb5e8efff4b3ecdc632e442717ea66f160 AS jre
+
+FROM python:3.11-slim-bookworm@sha256:4b4c524dc3dce996864e030c7bd9c6b0e517597189fee48f48e05b499442444b
+COPY --from=jre /opt/java/openjdk /opt/java/openjdk
+COPY --from=build /build/scoring-service/service/build/install/service /app
+COPY --from=model_bundle / /opt/physiology/
+COPY scoring-service/inference/physiology_inference /tmp/expected-physiology
+ENV JAVA_HOME=/opt/java/openjdk \
+    PATH=/opt/java/openjdk/bin:/usr/local/bin:/usr/bin:/bin \
+    JAVA_OPTS="-Xmx512m -XX:+UseContainerSupport" \
+    PYTHONPATH=/opt/physiology/inference:/opt/physiology/upstream/src \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HF_HUB_OFFLINE=1 \
+    OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1
+RUN python -m physiology_inference.bundle verify --root /opt/physiology \
+    && python -c "from pathlib import Path; import hashlib; inventory=lambda root: {p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in Path(root).iterdir() if p.is_file() and (p.suffix=='.py' or p.name=='upstream-lock.json')}; assert inventory('/tmp/expected-physiology')==inventory('/opt/physiology/inference/physiology_inference'), 'bundle_runtime_source_mismatch'" \
+    && python -m pip install --no-cache-dir --no-index --no-deps --require-hashes \
+       --find-links=/opt/physiology/wheelhouse -r /opt/physiology/requirements.lock \
+    && python -m pip check \
+    && java -version \
+    && python -c "import torch; import wav2sleep; assert not torch.cuda.is_available()"
+WORKDIR /app
+USER 65532:65532
+ENTRYPOINT ["/app/bin/service"]
+CMD ["--models-only"]

@@ -113,6 +113,7 @@ public enum AnalyticsEngine {
         public let hrvMeasurements: [HrvWindowResult]
         public let hrvBaselines: [HrvSeries.Baseline]
         public let hrvNightSummary: HrvSeries.Summary?
+        public let fullDaySleepEpochs: [StageSegment]
 
         public init(daily: DailyMetric, sleepSessions: [SleepSession],
                     cachedSleep: [CachedSleepSession], workouts: [ExerciseSession],
@@ -127,7 +128,7 @@ public enum AnalyticsEngine {
                     skinTempRelative: SkinTempRelative? = nil,
                     detectionFunnel: WorkoutDetector.DetectionFunnel? = nil,
                     hrvMeasurements: [HrvWindowResult] = [], hrvBaselines: [HrvSeries.Baseline] = [],
-                    hrvNightSummary: HrvSeries.Summary? = nil) {
+                    hrvNightSummary: HrvSeries.Summary? = nil, fullDaySleepEpochs: [StageSegment] = []) {
             self.daily = daily; self.sleepSessions = sleepSessions
             self.cachedSleep = cachedSleep; self.workouts = workouts
             self.detectionFunnel = detectionFunnel
@@ -142,6 +143,7 @@ public enum AnalyticsEngine {
             self.sessionMotionByStart = sessionMotionByStart
             self.sessionSleepStateByStart = sessionSleepStateByStart
             self.hrvMeasurements = hrvMeasurements; self.hrvBaselines = hrvBaselines; self.hrvNightSummary = hrvNightSummary
+            self.fullDaySleepEpochs = fullDaySleepEpochs
         }
     }
 
@@ -523,13 +525,9 @@ public enum AnalyticsEngine {
             detectedSessions = (opportunities?.episodes ?? []).map { s in
                 // Naps have binary evidence, not a forced miniature overnight stage architecture.
                 guard s.end-s.start >= 3600, useSleepStagerV2 else { return s }
-                let stages = SleepStagerV2.stageSession(start: s.start, end: s.end, grav: gravity, hr: hr, rr: rr, resp: resp).map { original in
-                    var segment = original
-                    if segment.state == "state_unknown" {
-                        segment.state = "sleep_unstaged"; segment.abstentionReason = "binary_sleep_stage_unavailable"
-                    }
-                    return segment
-                }
+                let stages = SleepOpportunityDetector.stagesPreservingBinarySleep(
+                    SleepStagerV2.stageSession(start: s.start, end: s.end, grav: gravity, hr: hr, rr: rr, resp: resp),
+                    start: s.start,end: s.end)
                 return SleepSession(start: s.start, end: s.end,
                     efficiency: SleepStager.efficiency(start: s.start, end: s.end, stages: stages), stages: stages,
                     restingHR: s.restingHR, avgHRV: nil, boundaryProvenance: s.boundaryProvenance,
@@ -660,7 +658,9 @@ public enum AnalyticsEngine {
         }
         let groupId = mainGroupIdx.map { matched[$0].start }.min().map { "sleep-group:\($0)" }
         for i in matched.indices {
-            matched[i].episodeType = matched[i].hasKnownState ? (mainGroupIdx.contains(i) ? "main_sleep" : "nap") : "uncertain"
+            matched[i].episodeType = useFullDaySleepOpportunities
+                ? SleepOpportunityDetector.episodeType(matched[i], isMain: mainGroupIdx.contains(i))
+                : matched[i].hasKnownState ? (mainGroupIdx.contains(i) ? "main_sleep" : "nap") : "uncertain"
             matched[i].groupedNightId = mainGroupIdx.contains(i) ? groupId : nil
         }
         let mainGroup: [SleepSession] = mainGroupIdx.map { matched[$0] }
@@ -1132,7 +1132,10 @@ public enum AnalyticsEngine {
                          chargeDrivers: chargeDrivers,
                          skinTempRelative: skinTempRelative,
                          detectionFunnel: detectionFunnel,
-                         hrvMeasurements: hrvMeasurements, hrvBaselines: hrvBaselines, hrvNightSummary: hrvNightSummary)
+                         hrvMeasurements: hrvMeasurements, hrvBaselines: hrvBaselines, hrvNightSummary: hrvNightSummary,
+                         fullDaySleepEpochs: useFullDaySleepOpportunities ? SleepStageSemantics.applyingContext(
+                            opportunityEpochs, start: dayStartUtc, end: dayEndUtc, context: contexts,
+                            mode: sleepComputationMode, observedThrough: sleepObservedThrough) : [])
     }
 
     // MARK: - Rest composite (Charge/Effort/Rest)

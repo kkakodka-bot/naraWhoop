@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .contracts import canonical_bytes, content_hash, digest, identifier, number, require
 from .manifests import validate_model
 from .splits import audit_fit_artifacts
 
 COMMON_ROLES = {"primary_improvement", "coverage_noninferiority", "subgroup_regression", "resource_budget"}
-ROLES = COMMON_ROLES | {"wake_noninferiority", "end_to_end_detection"}
+ROLES = COMMON_ROLES | {"wake_noninferiority", "end_to_end_detection", "nightly_accuracy", "nightly_coverage"}
 FAMILY_PATHS = {"sleep": "stages", "hrv": "numeric/rmssd_ms", "respiration": "numeric/respiratory_rate_bpm"}
 
 
@@ -63,7 +63,8 @@ def freeze_policy(policy: dict) -> dict:
     require(isinstance(policy.get("minimum_participants"), int) and policy["minimum_participants"] > 1,
             "prespecified participant budget required")
     criteria = policy.get("criteria", [])
-    required_roles = COMMON_ROLES | ({"wake_noninferiority", "end_to_end_detection"} if policy["metric_family"] == "sleep" else set())
+    required_roles = COMMON_ROLES | ({"wake_noninferiority", "end_to_end_detection"} if family == "sleep"
+                                     else {"nightly_accuracy", "nightly_coverage"})
     require(required_roles <= {row.get("role") for row in criteria}, "policy lacks mandatory improvement/noninferiority/resource criteria")
     require(isinstance(policy.get("required_subgroups"), list) and bool(policy["required_subgroups"]),
             "intended-use subgroup plan required")
@@ -84,8 +85,8 @@ def freeze_policy(policy: dict) -> dict:
                     or (path.endswith("candidate_minus_baseline_kappa") and row["operator"] == ">=" and row["limit"] > 0),
                     "primary budget must require strict improvement, not equality or degradation")
         elif row["role"] == "wake_noninferiority":
-            require(family == "sleep" and path == "report/stages/native/candidate_minus_baseline_wake_specificity_all_reference"
-                    and row["operator"] == ">=", "wake noninferiority must compare full-reference wake specificity")
+            require(family == "sleep" and path == "report/binary/candidate_minus_baseline_wake_specificity_all_reference"
+                    and row["operator"] == ">=", "wake noninferiority must compare independent binary full-reference wake specificity")
         elif row["role"] == "coverage_noninferiority":
             require(path == f"report/{metric_path}/native/candidate_minus_baseline_accepted_coverage"
                     and row["operator"] == ">=", "coverage noninferiority must compare the feature's native accepted coverage")
@@ -104,6 +105,15 @@ def freeze_policy(policy: dict) -> dict:
             require(family == "sleep" and ((path == "report/detection/candidate/recall" and row["operator"] == ">=" and row["limit"] > 0)
                     or (path == "report/detection/candidate/false_episodes_per_24h" and row["operator"] == "<=" and row["limit"] >= 0)),
                     "end-to-end criteria must bound annotated episode recall/false episodes")
+        elif row["role"] == "nightly_accuracy":
+            endpoint = "errors" if family == "hrv" else "median_errors"
+            require(family != "sleep" and path == f"report/{metric_path}/nightly_representative/candidate/{endpoint}/mae"
+                    and row["operator"] == "<=" and row["limit"] > 0,
+                    "nightly accuracy must bound the feature's representative-night MAE")
+        elif row["role"] == "nightly_coverage":
+            require(family != "sleep" and path == f"report/{metric_path}/nightly_representative/candidate/retained_night_coverage"
+                    and row["operator"] == ">=" and 0 < row["limit"] <= 1,
+                    "nightly coverage must require representative accepted nights")
         else:
             expected = {"resources/p95_latency_ms": "<=", f"resources/{memory_metric}": "<=",
                         "resources/cpu_seconds_per_record": "<=", "resources/records_per_hour": ">="}
@@ -155,6 +165,26 @@ def qualified_participants(report: dict, family: str, minimum: int, assignments:
     return set(participants)
 
 
+def qualified_nightly_participants(report: dict, family: str, minimum: int, allowed: set[str]) -> None:
+    if family == "sleep":
+        return
+    nightly = lookup(report, FAMILY_PATHS[family] + "/nightly_representative/candidate") or {}
+    participants = nightly.get("participants", [])
+    require(nightly.get("status") == "evaluated" and isinstance(participants, list)
+            and all(isinstance(pid, str) for pid in participants), "representative-night evaluation unavailable")
+    require(len(set(participants)) == len(participants) and nightly.get("participant_n") == len(participants)
+            and len(participants) >= minimum and set(participants) <= allowed,
+            "qualified representative-night participant budget not met")
+    interval = nightly.get("mae_participant_ci" if family == "hrv" else "median_mae_participant_ci", {})
+    require(interval.get("participant_n") == len(participants) and interval.get("unit") == "participant"
+            and isinstance(interval.get("replicates"), int) and interval["replicates"] >= 10
+            and isinstance(interval.get("defined_replicates"), int)
+            and 0 < interval["defined_replicates"] <= interval["replicates"],
+            "representative-night participant uncertainty unavailable")
+    require(number(interval.get("lower"), "nightly uncertainty lower") <= number(interval.get("upper"), "nightly uncertainty upper"),
+            "representative-night uncertainty invalid")
+
+
 def promotion_decision(policy_envelope: dict, evaluation_envelope: dict, trusted_keys: dict[str, bytes]) -> dict:
     reasons = []
     try:
@@ -163,6 +193,8 @@ def promotion_decision(policy_envelope: dict, evaluation_envelope: dict, trusted
         require(manifest.get("schema_version") == 1, "unsupported evaluation manifest")
         require(manifest.get("policy_sha256") == content_hash(policy), "evaluation is not bound to frozen policy")
         require(utc(policy["frozen_at"]) < utc(manifest.get("evaluation_started_at")), "policy frozen after evaluation began")
+        require(utc(manifest.get("evaluation_started_at")) <= utc(manifest.get("evaluation_finished_at"))
+                <= datetime.now(timezone.utc), "evaluation completion missing, reversed or in the future")
         report = manifest.get("report", {})
         require(report.get("reference_validation_ready") is True and report.get("evidence_kind") == "reference",
                 "real synchronized heldout reference evaluation required")
@@ -170,6 +202,11 @@ def promotion_decision(policy_envelope: dict, evaluation_envelope: dict, trusted
         verified_hashes = report.get("verified_reference_artifact_sha256", [])
         provenance = report.get("reference_provenance", [])
         require(bool(verified_hashes) and bool(provenance), "reference artifact byte verification missing")
+        reference_modalities = {row.get("modality") for row in provenance}
+        required_modalities = {"hrv": {"ECG"}, "sleep": {"PSG"},
+                               "respiration": {"airflow", "capnography", "validated_respiratory_effort"}}
+        require(bool(reference_modalities & required_modalities[policy["metric_family"]]),
+                "feature-compatible primary reference required")
         for reference in provenance:
             digest(reference.get("sha256"), "reference artifact hash")
             require(reference["sha256"] in verified_hashes and reference.get("adjudicated") is True
@@ -197,14 +234,18 @@ def promotion_decision(policy_envelope: dict, evaluation_envelope: dict, trusted
                 "evaluated participant outside heldout partition")
         qualified = qualified_participants(report, policy["metric_family"], policy["minimum_participants"],
                                            assignments, report["partition"], set(evaluated), "overall")
+        qualified_nightly_participants(report, policy["metric_family"], policy["minimum_participants"], qualified)
         for gate in ("functional_gate_suite", "locked_phone_soak", "actual_target_resources", "reference_custodian_attestation"):
             evidence = manifest.get("evidence", {}).get(gate, {})
             require(evidence.get("status") == "passed", f"missing {gate}")
             digest(evidence.get("artifact_sha256"), f"{gate} artifact hash")
             identifier(evidence.get("reviewer"), f"{gate} reviewer")
         for subgroup in policy["required_subgroups"]:
-            qualified_participants(report.get("subgroups", {}).get(subgroup, {}), policy["metric_family"],
+            subgroup_report = report.get("subgroups", {}).get(subgroup, {})
+            subgroup_qualified = qualified_participants(subgroup_report, policy["metric_family"],
                                    policy["minimum_subgroup_participants"], assignments, report["partition"], qualified, subgroup)
+            qualified_nightly_participants(subgroup_report, policy["metric_family"],
+                                           policy["minimum_subgroup_participants"], subgroup_qualified)
         memory_metric = policy.get("memory_resource_metric", "maximum_rss_bytes")
         require(number(manifest.get("resources", {}).get(memory_metric), "measured memory") > 0, "measured memory must be positive")
         if memory_metric == "process_tree_memory_peak_bytes":

@@ -44,7 +44,7 @@ object CurrentHrv {
     /** The latest completed UTC window, never pooled with a previous sparse window. */
     fun deriveObservations(observations: List<PhysiologyQuality.IntervalObservation>, nowUnix: Int,
                            policy: HrvWindow.Policy = HrvWindow.Policy(), inputRevision: String = "unversioned"): Snapshot? {
-        val result = HrvWindow.measure(completedWindow(nowUnix).first,
+        val result = HrvSeries.selectedWindow(completedWindow(nowUnix).first,
             observations, policy = policy, inputRevision = inputRevision, computationMode = "causal")
         val rmssd = result.observedRMSSD ?: return null
         if (!result.measurementValid) return null

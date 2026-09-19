@@ -12,7 +12,7 @@ class SleepOpportunityDetectorTest {
     private fun hr(sleep: List<LongRange>)=(day until day+86400 step 5).map { t ->
         HrSample("device",t,if(sleep.any { t in it }) 55 else 80)
     }
-    private fun gravity()=(day until day+86400 step 5).map { GravitySample("device",it,0.0,0.0,1.0) }
+    private fun gravity()=(day until day+86400 step 5).map { GravitySample("device",it,0.00001*kotlin.math.sin(it.toDouble()),0.0,1.0) }
 
     @Test fun twentyMinuteAfternoonNapAndDaytimeShiftSleepAreCandidatesWithoutTimeOfDayGate() {
         val ranges=listOf(day+8*3600 until day+13*3600,nap until nap+1200)

@@ -63,6 +63,9 @@ cd "$service_dir"
   --tests com.frwhoop.scoring.ProjectionInvalidationIntegrationTest \
   --tests com.frwhoop.scoring.IndependentScoringWorkIntegrationTest \
   --tests com.frwhoop.scoring.PhysiologyPublicationIntegrationTest \
+  --tests com.frwhoop.scoring.PhysiologyPromotionIntegrationTest \
+  --tests com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest \
+  --tests com.frwhoop.scoring.MotionEvidenceIntegrationTest \
   --tests com.frwhoop.scoring.PhysiologyDependencyIntegrationTest \
   --tests com.frwhoop.scoring.RrPacketProvenanceIntegrationTest \
   --tests com.frwhoop.scoring.StandardHRReceiptIntegrationTest \
@@ -75,6 +78,9 @@ cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.Scorin
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ScoringInputGateIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ProjectionInvalidationIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyPublicationIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyPromotionIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.MotionEvidenceIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyDependencyIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.CalendarOwnershipIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.RrPacketProvenanceIntegrationTest.xml" "$pg_test_dir/"
