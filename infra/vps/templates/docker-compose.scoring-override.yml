@@ -6,16 +6,12 @@ services:
     container_name: scoring-physiology-v2
     restart: unless-stopped
     env_file:
-      - /opt/frwhoop/scoring.env
+      - ${SCORING_ENV_FILE:-/opt/frwhoop/scoring.env}
       - /opt/frwhoop/b2.env
     environment:
       SCORING_ALGORITHM_VERSION: frwhoop-physiology-2
     command: []
     networks:
       - default
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep -f /app/bin/service || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
+    # Container/process existence is not scoring health. The acceptance script verifies
+    # advancing hosted poll/publication timestamps; ingest-verify reports processing separately.

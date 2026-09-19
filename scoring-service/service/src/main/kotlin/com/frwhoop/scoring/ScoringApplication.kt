@@ -18,16 +18,21 @@ import java.util.UUID
 private val log = LoggerFactory.getLogger("ScoringApplication")
 
 fun main(args: Array<String>) {
-    require(args.isEmpty() || args.contentEquals(arrayOf("--replay-day")) || args.contentEquals(arrayOf("--inventory-signals")) ||
-        args.contentEquals(arrayOf("--archive-only"))) {
-        "Use no arguments, --replay-day, --inventory-signals, or --archive-only; commands cannot be combined"
-    }
-    if (args.contains("--inventory-signals")) {
+    if (ScoringConfig.runModeFromArgs(args) == ScoringRunMode.INVENTORY) {
         SignalInventoryCommand.run(System.getenv())
         return
     }
     val config = ScoringConfig.fromEnv()
-    if (args.contains("--archive-only")) {
+    val mode = config.runMode(args)
+    if (mode == ScoringRunMode.CHECK_CONFIG) {
+        println(RuntimePreflightCommand.run(config))
+        return
+    }
+    if (mode == ScoringRunMode.PERSISTENT &&
+        listOf(config.replayUserId, config.replayDay, config.replayDeviceId).any { it != null }) {
+        log.warn("Ignoring REPLAY_* environment in persistent mode; use --replay-day for an explicit one-shot replay")
+    }
+    if (mode == ScoringRunMode.ARCHIVE_ONLY) {
         val b2 = requireNotNull(config.b2Config) { "Archive-only mode requires B2 configuration" }
         PostgresClient(config.databaseUrl).use { db ->
             val outbox = DerivedArchiveOutbox(db, DerivedArtifactWriter(b2, config.supabaseUrl, config.serviceRoleKey))
@@ -65,7 +70,7 @@ fun main(args: Array<String>) {
     val archiveOutbox = derivedWriter?.let { DerivedArchiveOutbox(db, it) }
     val poller = ScoringPoller(config, reader, queue, scorer, writer, heartbeat, archiveOutbox)
 
-    if (args.contains("--replay-day") || config.replayUserId != null) {
+    if (mode == ScoringRunMode.REPLAY) {
         val userId = UUID.fromString(config.replayUserId ?: error("REPLAY_USER_ID required for --replay-day"))
         val day = config.replayDay ?: error("REPLAY_DAY required for --replay-day")
         val deviceId = resolveReplayDeviceId(reader, userId, config.replayDeviceId)

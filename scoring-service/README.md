@@ -23,6 +23,7 @@ export JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home"
 ./gradlew :analytics-kernel:test          # parity oracle (alias: :analytics-kernel:parityGate)
 ./gradlew :service:test :service:installDist
 bash scripts/test-physiology-queue.sh  # new disposable local PostgreSQL; retained evidence logs
+bash scripts/test-runtime-preflight.sh  # separate read-only preflight transaction/auth cases
 ```
 
 ## Run locally
@@ -50,6 +51,8 @@ export REPLAY_DAY='2026-09-15'
 
 If the user has exactly one registered device, `REPLAY_DEVICE_ID` may be omitted.
 A one-shot replay can leave an archive pending; the long-running process owns archive retries.
+Replay now requires the explicit `--replay-day` argument. With no arguments the process always
+runs persistently; leftover `REPLAY_*` variables produce a warning and do not select replay mode.
 
 For a read-only owner/night signal-availability report, use `--inventory-signals` with explicit
 `INVENTORY_USER_ID`, `INVENTORY_DEVICE_ID`, `INVENTORY_DAY` and optional paired `INVENTORY_START`/`INVENTORY_END`.
@@ -88,6 +91,23 @@ docker build -t frwhoop/scoring-service:latest -f scoring-service/Dockerfile .
 See `infra/vps/templates/docker-compose.scoring-override.yml`. It runs the persistent
 `scoring-physiology-v2` service from an immutable commit tag against the hosted Supabase database
 and PostgREST endpoint. Keep the separately built, patched v1 image available for rollback.
+
+The deploy script requires dedicated hosted-project variables in `/opt/frwhoop/secrets.env`:
+`SCORING_DATABASE_URL`, `SCORING_SUPABASE_URL` (ending `/rest/v1`),
+`SCORING_SUPABASE_SERVICE_ROLE_KEY`, and `SCORING_INGEST_SECRET`. The generic `SERVICE_ROLE_KEY`
+created during VPS provisioning belongs to the separate self-hosted database and is not a fallback.
+
+Before replacing any worker, the candidate image runs `--check-config`: a read-only database/schema
+and ingest-secret check followed by an authenticated read of the hosted heartbeat. It checks that
+the direct database hostname or pooler username identifies the same project as the canonical
+`https://<project>.supabase.co/rest/v1` URL. Custom domains need separate binding evidence and are
+rejected by this deployment check. Failures produce a fixed stage code without printing secrets.
+Passing preflight is configuration evidence; `phase3-acceptance-checks.sh` still verifies actual
+advancing poll/publication timestamps after deployment. Process existence alone is not worker health.
+
+The operations-only `ingest-verify` report exposes `physiology_processing` independently of
+`complete` (`complete_scope: ingestion_only`). It distinguishes a worker that never polled, queued
+or failed work, absent/stale publication, and published results whose measurements are unavailable.
 
 ## Scoped kernel (Locked #3)
 
