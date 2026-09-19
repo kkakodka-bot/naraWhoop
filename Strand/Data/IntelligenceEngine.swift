@@ -472,6 +472,7 @@ final class IntelligenceEngine: ObservableObject {
 
     /// Metadata-only admission. Cold row verification belongs to the runner's four-page budget.
     func preparePreferenceProjection(maxDays: Int = 21) async -> PreferenceWorkDisposition {
+        guard ResourceBudget.shared.permits(.bulk) else { return .retryAfter(Int64(Date().timeIntervalSince1970) + 15) }
         guard preferenceProjectionTask == nil else { return .busy }
         let result = await preparePreferenceProjectionForAdmission(maxDays: maxDays)
         return preferenceProjectionTask == nil ? result : .busy
@@ -622,6 +623,7 @@ final class IntelligenceEngine: ObservableObject {
     /// Automatic callers join one page budget. An explicit correction first fences the old pass.
     func runPreferenceProjection(maxDays: Int = 21,
         mode: WorkoutPreferenceEvaluation.AdmissionMode = .automatic) async -> PreferenceWorkDisposition {
+        guard ResourceBudget.shared.permits(.bulk) else { return .retryAfter(Int64(Date().timeIntervalSince1970) + 15) }
         if mode == .refreshCore { invalidatePreferenceEvaluationPermit() }
         if let previous = preferenceProjectionTask {
             if mode == .automatic { return await previous.value }
@@ -1201,6 +1203,7 @@ final class IntelligenceEngine: ObservableObject {
     /// Personal baselines (HRV / resting HR) are folded from the imported history, so even the first
     /// live night can be scored against your norm.
     func analyzeRecent(maxDays: Int = 21, force: Bool = true, skipIfUnchanged: Bool = false) async {
+        guard ResourceBudget.shared.permits(.bulk) else { return }
         if captureScoringReaderInputs()?.accepted != nil {
             _ = await runPreferenceProjection(maxDays: maxDays,
                 mode: force && !skipIfUnchanged ? .refreshCore : .automatic)

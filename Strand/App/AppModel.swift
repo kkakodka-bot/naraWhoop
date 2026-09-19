@@ -823,7 +823,7 @@ final class AppModel: ObservableObject {
                 // sample (the heal above, or a sync) moves the fingerprint and the tick rescores as before.
                 // #1538: the backstop is subject to the same background reality as the post-offload pass,
                 // and it was the LAST way the livelock could survive. This loop lives as long as the
-                // process, so it keeps ticking while backgrounded as a bluetooth-central, and its own
+                // process and may tick during a Bluetooth wake; suspension pauses it. Its own
                 // `force: false` watermark gate cannot save it: a killed pass never advances the
                 // watermark, so the tick still reads the data as new and starts another full pass. The
                 // comment above says the gate also can't skip while the strap streams live HR. Wrapping
@@ -2380,6 +2380,7 @@ final class AppModel: ObservableObject {
     }
 
     private func handleWristChange(_ worn: Bool) {
+        ble.wristStateDidChange()
         if worn {
             if !behavior.wristOnShortcut.isEmpty { MacActions.runShortcut(behavior.wristOnShortcut) }
         } else {

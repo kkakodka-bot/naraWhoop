@@ -740,6 +740,7 @@ final class Backfiller {
         lastChunkArrival = chunkArrival
         var decodeMs = 0, insertMs = 0, rawMs = 0, imuMs = 0, ackMs = 0
         var diagnosticsMs = 0, archiveMs = 0, cursorMs = 0
+        var cursorCommittedWithChunk = false
         var pendingInfo: [BackfillChunkInfo] = []
         func info(_ event: BackfillChunkInfo) async {
             if chunkInfo != nil {
@@ -986,9 +987,21 @@ final class Backfiller {
                 // The durable debt is part of the SAME transaction as the decoded rows (safe trim): if the
                 // job upsert fails, the insert rolls back too and this chunk stays on the strap for replay.
                 if let durableStore = store as? WhoopStore {
-                    outcome = try await durableStore.insertAndMarkJobsOwed(
-                        decoded, deviceId: deviceId, postOffloadJobKinds: postOffloadJobKinds,
-                        note: "historical rows committed", captureScope: scope)
+                    let touchesIMU = zip(frames, parsed).contains { frame, packet in
+                        packet.ok && packet.crcOK == true && Whoop5RawImu.decodeColumns(frame) != nil
+                    }
+                    if !enableRawCapture && !touchesIMU && !persistStalled {
+                        outcome = try await durableStore.commitHistoricalChunk(decoded, scope: scope,
+                            family: String(describing: family), trim: trim, recoveryFrames: rejected,
+                            clockRef: ref, postOffloadJobKinds: postOffloadJobKinds,
+                            note: "historical chunk committed")
+                        cursorCommittedWithChunk = true
+                    } else {
+                        // External raw/IMU writers retain their existing flush-before-cursor boundary.
+                        outcome = try await durableStore.insertAndMarkJobsOwed(
+                            decoded, deviceId: deviceId, postOffloadJobKinds: postOffloadJobKinds,
+                            note: "historical rows committed", captureScope: scope)
+                    }
                 } else {
                     outcome = try await store.insertAndMarkJobsOwed(
                         decoded, deviceId: deviceId, postOffloadJobKinds: postOffloadJobKinds,
@@ -1055,7 +1068,7 @@ final class Backfiller {
 
             // All non-console history is admitted atomically to bounded quarantine + raw outbox
             // before trim. Capacity or archival failure holds ACK; no oldest-record eviction.
-            if !rejected.isEmpty {
+            if !rejected.isEmpty && !cursorCommittedWithChunk {
                 await flushInfo()   // Archive warnings retain their order before the durable archive.
                 let archiveStart = CFAbsoluteTimeGetCurrent()
                 let archived = await archiveRecovery(rejected, scope: scope, trim: trim, family: family,
@@ -1071,6 +1084,7 @@ final class Backfiller {
                 }
                 await onQuarantined?(rejected.count)
             }
+            if cursorCommittedWithChunk && !rejected.isEmpty { await onQuarantined?(rejected.count) }
 
             // Optional research capture is additional to the unconditional recovery archive.
             if enableRawCapture {
@@ -1152,14 +1166,13 @@ final class Backfiller {
             await infoConnection(ConnectionTrace.noCursorLine())
         }
 
-        await flushInfo()   // Publish this chunk synchronously before any cursor/ACK transition.
-
         // #57: if an EARLIER chunk this session failed to persist, do NOT advance the cursor or ack — not
         // even for this (possibly empty/metadata) END. An empty END skips the insert and never throws;
         // acking it would trim the strap PAST the held records-carrying chunks, freeing history we never
         // stored. Stall the whole offload until a fresh session with a working store re-offers everything
         // past the last GOOD ack. Twin of the Android guard.
         if persistStalled {
+            await flushInfo()
             await log?("Backfill: persist stalled earlier this session — NOT acking trim=\(trim) so the strap can't trim past un-stored history. Reconnect once the store is healthy (#57).")
             await recordPhaseSample()
             await resumeCommitWatchdogIfNeeded()
@@ -1167,7 +1180,10 @@ final class Backfiller {
         }
 
         let cursorStart = CFAbsoluteTimeGetCurrent()
-        do { try await store.setCursor("strap_trim:\(scope.key)", Int(trim)) } catch {
+        do {
+            if !cursorCommittedWithChunk { try await store.setCursor("strap_trim:\(scope.key)", Int(trim)) }
+        } catch {
+            await flushInfo()
             cursorMs = Int((CFAbsoluteTimeGetCurrent() - cursorStart) * 1000)
             await log?("Backfill: failed to write strap_trim cursor (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk; history won't advance until the cursor write succeeds.")
             persistStalled = true   // #57
@@ -1185,6 +1201,7 @@ final class Backfiller {
             await ackTrim(trim, endData)
         }
         ackMs = Int((CFAbsoluteTimeGetCurrent() - ackStart) * 1000)
+        await flushInfo() // Optional presentation follows durable authorization and ACK submission.
         lastAckedTrim = trim   // #364: record the advanced cursor for the auto-continue spin-detector
         notePersistSuccess()
         await recordPhaseSample()

@@ -217,9 +217,9 @@ struct StrandiOSApp: App {
                 // skips the bump when the merged caches are byte-identical) and refresh() assigns every cache
                 // BEFORE bumping the seq, so this publish always reads fresh data. `dropFirst()` skips the
                 // publisher's attach-time replay of the current value; the .active publish already covers
-                // launch. BUDGET: this app runs with bluetooth-central, so the process is NOT suspended in
-                // the background, and the 15-minute analyze tick + backfill-completion refreshes bump the
-                // seq back there too, where WidgetKit reloads DO count against the daily budget. Hence the
+                // launch. BUDGET: bluetooth-central permits event-driven wakes; iOS can suspend the
+                // process between events. Refreshes during a background wake still count against the
+                // WidgetKit daily budget. Hence the
                 // foreground gate: publish only while .active (foreground-initiated reloads are budget
                 // exempt); a background bump is covered by the widget's own 15-minute timeline policy and
                 // by the .active republish on return.

@@ -423,6 +423,18 @@ public final class LiveState: ObservableObject {
     /// gates buzz, alarms, double-tap and history sync. LiveView has drawn this line since #69; this
     /// shared label (sidebar + Settings) had not, so the two screens disagreed about the same link.
     public var connectionStatusLabel: String {
+        switch connectionPhase {
+        case "restoring": return "Restoring connection"
+        case "pendingConnection", "reconnecting": return "Reconnecting · pending"
+        case "connecting": return "Connecting"
+        case "discovering": return "Discovering services"
+        case "subscribing": return "Subscribing"
+        case "bluetoothUnavailable": return "Bluetooth unavailable"
+        case "failed": return "Recovering connection"
+        case "intentionallyDisconnected": return "Disconnected by request"
+        default: break
+        }
+        if backfilling { return "Catching up" }
         if connected && encryptedBond { return "Bonded · streaming" }
         if connected && bonded { return "Live HR (not fully paired)" }
         if connected { return "Connected" }
@@ -430,6 +442,8 @@ public final class LiveState: ObservableObject {
         // No `bonded`-only idle arm: without an encrypted bond there was never a pairing to be idle from.
         return "Disconnected"
     }
+    /// Projection of the connection owner; contains no peripheral or account identity.
+    @Published public var connectionPhase = "idle"
     /// True when the link is up with a REAL encrypted bond → status reads green. A live-HR-only link is
     /// amber via [connectionStatusIsIdle]: it works, but every pairing-gated feature is unavailable.
     public var connectionStatusIsActive: Bool { connected && encryptedBond }

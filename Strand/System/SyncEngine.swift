@@ -125,6 +125,7 @@ final class SyncEngine {
     }
 
     private func drainOnce(reason: SyncDrainPolicy.WakeReason) async {
+        guard ResourceBudget.shared.permits(.bulk) else { return }
         guard let host, host.isAccountRuntimeActive else { return }
         // Durable jobs may be visible after the first productive chunk, but export surfaces must describe
         // the terminal backlog, not an intermediate oldest-first slice. A disconnect clears this process-
@@ -147,6 +148,7 @@ final class SyncEngine {
         var prerequisiteInvoked = false
 
         for stage in SyncDrainPolicy.stageOrder {
+            guard ResourceBudget.shared.permits(.bulk) else { break }
             guard host.isAccountRuntimeActive, !Task.isCancelled else { return }
             guard SyncDrainPolicy.shouldRun(stage: stage, owedKinds: owedKinds, reason: reason),
                   let token = capturedTokens[stage.rawValue] else { continue }
