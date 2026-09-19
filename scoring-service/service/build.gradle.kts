@@ -38,9 +38,14 @@ val physiologySourceFingerprint by tasks.registering {
     val repository=rootProject.projectDir.parentFile
     val sources=files(fileTree(repository.resolve("android/app/src/main/java/com/noop/analytics")) { include("**/*.kt") },
         fileTree(repository.resolve("android/app/src/main/java/com/noop/protocol")) { include("**/*.kt") },
+        listOf("data/OuraRespScale.kt","data/DeviceBrandCatalog.kt","data/V18AuxCodec.kt",
+            "testcentre/TestDomain.kt","testcentre/CaptureAccumulator.kt").map {
+            repository.resolve("android/app/src/main/java/com/noop/$it") },
         fileTree(rootProject.file("analytics-kernel/src/main/kotlin")) { include("**/*.kt") },
         fileTree(projectDir.resolve("src/main/kotlin")) { include("**/*.kt") },
-        projectDir.resolve("build.gradle.kts"),rootProject.file("analytics-kernel/build.gradle.kts"))
+        projectDir.resolve("build.gradle.kts"),rootProject.file("analytics-kernel/build.gradle.kts"),
+        rootProject.file("build.gradle.kts"),rootProject.file("settings.gradle.kts"),rootProject.file("gradle.properties"),
+        rootProject.file("gradle/wrapper/gradle-wrapper.properties"),rootProject.file("gradle/wrapper/gradle-wrapper.jar"))
     val destination=layout.buildDirectory.file("generated/physiology/physiology-source.sha256")
     inputs.files(sources).withPathSensitivity(PathSensitivity.RELATIVE)
     outputs.file(destination)

@@ -66,7 +66,9 @@ The offline bundle builder verifies released source/checkpoint hashes, requires 
 
 The dedicated SQL model queue, leases, retries, cancellation/revision fences and deployment recipe are separate from deterministic scoring. Per-model jobs do not wait on another model's inference. Worker output remains shadow. Serial and concurrency benchmark tooling reports latency, CPU, throughput and dedicated-cgroup memory separately from RSS, with no qualification from an unreviewed host.
 
-Remaining resource blocker: no completed Linux wheel bundle/image build and no actual-VPS model run were performed by this specialist. MacOS checkpoint execution cannot satisfy these gates. Actual-VPS access, representative qualified inputs, independently frozen budgets, dedicated cgroup accounting at concurrency 1 and 2, and ingestion/database headroom must be measured before deployment approval.
+Linux packaging preflight subsequently built and verified all 33 pinned CPU wheels, installed them offline with no broken requirements, and ran the actual checkpoint twice successfully under Linuxamd64 emulation. Repeatability is within each environment; cross-platform byte identity is not claimed. The combined JVM image build was cancelled during Kotlin compilation when the shared local Docker VM became unresponsive with 96% disk utilization. No completed combined image or actual-VPS run is claimed. See [exact preflight commands, identities and cleanup](linux-model-packaging-preflight.md).
+
+Remaining resource blocker: rebuild the combined image on an adequately provisioned build host after final integration, then measure actual-VPS resources. Actual-VPS access, representative qualified inputs, independently frozen budgets, dedicated cgroup accounting at concurrency 1 and 2, and ingestion/database headroom remain required before deployment approval.
 
 ## Scientific validation and release state
 
@@ -75,7 +77,7 @@ No synchronized ECG with adjudicated beats, PSG with independently timestamped o
 | Feature/model state | Code/unit evidence | Integration evidence | Device/overnight/reference | Publication/deployment |
 |---|---|---|---|---|
 | Verified raw model input | JVM adapter and adversarial tests | Receipt registry/queue integration candidate; exact-head suite in final ledger | Missing qualified device receipt | Shadow-only; not deployed |
-| wav2sleep four-stage challenger | Real released checkpoint execution, deterministic repeat, gap rejection | Python adapter and bounded worker; actual Linux image/VPS pending | No device acquisition or PSG qualification | Shadow-only; not canonical/deployed |
+| wav2sleep four-stage challenger | Real released checkpoint execution on macOS and Linuxamd64 CPU, deterministic repeat, gap rejection | Offline Linux package/install checked; combined JVM image incomplete and VPS pending | No device acquisition or PSG qualification | Shadow-only; not canonical/deployed |
 | Compact feature challenger | Training, disjoint calibration, unknown and identity regressions | Synthetic child-worker inference | No real trained cohort/feature assembler/overnight evaluation | Shadow-only; not canonical/deployed |
 | Other learned respiration/staging adapters | Contract and selected synthetic tests only | Model-specific missing contracts/dependencies remain explicit | No qualified target/reference execution | Inventory/shadow; not canonical/deployed |
 

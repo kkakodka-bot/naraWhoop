@@ -1,6 +1,13 @@
 do $$ declare r record; j jsonb; begin
   for r in select * from audit_fixture.before_rows loop
-    execute format('select jsonb_agg(to_jsonb(r) order by to_jsonb(r)::text) from public.%I r',r.table_name) into j;
+    if r.table_name='noop_gravity_samples' then
+      select jsonb_agg(to_jsonb(g)-array['motion_evidence_version','orientation_evidence_version'] order by to_jsonb(g)::text)
+        into j from noop_gravity_samples g;
+      assert not exists(select 1 from noop_gravity_samples where motion_evidence_version is not null or orientation_evidence_version is not null),
+        'historical numeric values cannot gain acquisition proof';
+    else
+      execute format('select jsonb_agg(to_jsonb(r) order by to_jsonb(r)::text) from public.%I r',r.table_name) into j;
+    end if;
     assert j=r.rows,'source rows changed: '||r.table_name;
   end loop;
   assert (select count(*)=3 from noop_rr_intervals),'same-second RR lost';

@@ -13,9 +13,11 @@ Migration `20260918230000_physiology_signed_promotion.sql` restores all default 
 
 A v2 feature needs an immutable feature manifest, immutable checkpoint/source digest, preprocessing and quality identities, reference evaluation and prespecified policy hashes, participant-disjoint held-out evidence, and an immutable signed human approval. Application roles cannot provision or read release-signing keys. Qualification-row edits alone cannot authorize selection. Changing a manifest requires a new registered algorithm version; approvals and revocations are append-only. The read RPC checks authorization again and requires the snapshot's feature-manifest hash to match the approved release. Old v2 snapshots cannot inherit a later release's qualification.
 
-The build generates a source fingerprint over the server, shared analytics/protocol inputs, and build contracts. `:service:algorithmManifests` exports the exact distribution's three manifests. For deterministic methods, `checkpoint_kind=deterministic_source_not_learned_weights` makes explicit that the checkpoint digest identifies source, not trained weights. Learned checkpoints have their own actual weight-file digests and independent shadow activations.
+The build generates a source fingerprint over the server, shared analytics/protocol/pure-data inputs, and Gradle build/wrapper contracts. `:service:algorithmManifests` exports the exact distribution's three manifests, recorded in [candidate-algorithm-manifests.json](candidate-algorithm-manifests.json). Exact-head verification compares that artifact with the built distribution. For deterministic methods, `checkpoint_kind=deterministic_source_not_learned_weights` makes explicit that the checkpoint digest identifies source, not trained weights. Learned checkpoints have their own actual weight-file digests and independent shadow activations.
 
 The native client rejects prequalification v2 caches without server qualification metadata. In server mode, unavailable HRV, sleep, and respiration do not fall back to experimental local values. Retained legacy results remain independently identifiable; rollback selects the retained legacy service/results and never runs v2 under the v1 label. No deployment or production database mutation was performed by this work.
+
+Production rollout must retain the actual legacy image/worker and its result path while v2 is shadow. This candidate explicitly refuses to run its new computation under the legacy version. A retained historical value is not a promise that an unobserved legacy worker is currently processing new days. Apply the additive migrations before the updated receiver/scorer; deploy-time verification and legacy-worker continuity remain operator acceptance gates.
 
 ## Implementation boundaries
 
@@ -35,7 +37,7 @@ The [independent audit](production-candidate-independent-audit.md) records repai
 | --- | --- | --- |
 | WHOOP R-R projection and raw packet identity | Original words, source channel, packet-local order, owner/device, coarse event timestamp; rejected endpoints are retained | Verified subsecond beat acquisition clock, cross-packet continuity, capture-time firmware. Packet identity is not timing proof. Current unqualified inputs correctly return unavailable HRV/RSA. |
 | Sampled HR | Timestamped sampled HR and plausibility; sleep-context features when coverage is sufficient | ECG-adjudicated NN truth, beat timing, respiration from mean HR |
-| Gravity and dynamic acceleration | Plausible gravity orientation; projected dynamic acceleration in g where present; observed-second motion contamination | Missing seconds, impossible vectors, conflicting duplicates, or unproven IMU respiratory mechanics are not stillness/respiration evidence |
+| Gravity and dynamic acceleration | Receiver-attested numeric orientation and dynamic acceleration in g; plausible gravity checks and observed-second contamination | Historical receiver-coerced scalars have no proof and remain unavailable to v2. Missing seconds, impossible vectors, conflicting duplicates, or unproven IMU respiratory mechanics are not stillness/respiration evidence |
 | Wrist/contact/optical evidence | Explicit wrist-off events or attributed off-body annotations can reject contaminated intervals | Absence of wrist-off is not verified optical/contact quality; no invented perfusion or detector-agreement score |
 | Raw NPB1 PPG objects | Verified object bytes/digest, ownership, indexed raw records | Container timestamps alone do not prove waveform clock, channel separation, wavelength, units, synchronization, or capture firmware. A separately reviewed immutable acquisition receipt is required. |
 | Sleep context | Binary engineering detector, manual opportunity/boundary edits, persistent tombstones, reported reading/phone use, event-time calendar ownership | Passive phone-scrolling detection, PSG stages, or confirmed bed occupancy from wrist stillness |
@@ -53,17 +55,19 @@ Each row describes this source candidate, not the deployed service. Exact-head c
 
 | Feature | Implemented | Unit tests | Integration tests | Device tested | Overnight soaked | Reference validated | Shadow | Canonical v2 | Deployed |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Five-minute HRV | Yes; acquisition gate explicit | Required gate | Required gate | No | No | No | Yes | No | No |
-| Nightly HRV/baseline | Yes; representative/independent-night gates | Required gate | Required gate | No | No | No | Yes | No | No |
-| Sleep opportunity/binary/context | Yes | Required gate | Required gate | No | No | No | Yes | No | No |
-| Fixed-coefficient four-stage baseline | Yes; unknown coverage retained | Required gate | Required gate | No | No | No | Yes | No | No |
-| Learned staging challenger | Executable with qualified inputs/checkpoint | Required gate | Required gate | No | No | No | Yes | No | No |
-| Overnight respiration | Yes; qualified RSA, guarded waveform adapters | Required gate | Required gate | No | No | No | Yes | No | No |
+| Five-minute HRV | Yes; acquisition gate explicit | Yes | Local service/SQL/readback | No | No | No | Yes | No | No |
+| Nightly HRV/baseline | Yes; representative/independent-night gates | Yes | Local service/SQL/readback | No | No | No | Yes | No | No |
+| Sleep opportunity/binary/context | Yes | Yes | Local service/SQL/readback | No | No | No | Yes | No | No |
+| Fixed-coefficient four-stage baseline | Yes; unknown coverage retained | Yes | Local service/SQL/readback | No | No | No | Yes | No | No |
+| Learned staging challenger | Executable with qualified inputs/checkpoint | Yes | JVM/PG/Python and released checkpoint; combined image pending | No | No | No | Yes | No | No |
+| Overnight respiration | Yes; qualified RSA, guarded waveform adapters | Yes | Local service/SQL/readback | No | No | No | Yes | No | No |
 
 Code completeness, acquisition readiness, scientific validation, deployment readiness, and canonical promotion are different acceptance decisions. iPhoneOS compilation is not a physical device test. Local CPU/model benchmarks are not actual-VPS capacity evidence. There is no supported claim of Apple, Fitbit/Google, Oura, WHOOP, clinical, or production accuracy.
 
+The [Linux packaging preflight](linux-model-packaging-preflight.md) completed a pinned offline wheel installation and actual released-checkpoint execution. The combined JVM/Python image build was cancelled under local Docker resource pressure and remains incomplete. The compact feature learner and additional respiratory-model inventory do not claim production input adapters where preprocessing or channel contracts remain unresolved.
+
 ## Reproducible exact-head checks
 
-`scoring-service/scripts/verify-physiology-candidate.sh` records the candidate commit, commands, logs, exit status, and detects tracked source changes during verification. Set the documented environment paths for the pinned Python environment, Java 17, Gradle/TMPDIR caches, `PHYSIOLOGY_BUILD_ROOT`, and `PHYSIOLOGY_PACKAGE_CACHE`; keep generated evidence outside the repository. The default gates cover Swift analytics/protocol/store/push, macOS application tests, unsigned simulator and iPhoneOS builds, analytics kernel/service/distribution, disposable PostgreSQL, fresh/populated migration chains, Edge, Python inference/reference tooling, and whitespace against the recorded PR21 base. Android application builds/tests are deliberately excluded.
+`scoring-service/scripts/verify-physiology-candidate.sh` records the candidate commit, actual PR base, commands, logs, exit status, and detects tracked source changes during verification. Set paths for the pinned Python environment, Java 17, Gradle/TMPDIR caches, `PHYSIOLOGY_BUILD_ROOT`, `PHYSIOLOGY_PACKAGE_CACHE`, `PHYSIOLOGY_WAV2SLEEP_PYTHON`, `PHYSIOLOGY_WAV2SLEEP_SOURCE`, and `PHYSIOLOGY_CHECKPOINT_ROOT`; keep generated evidence outside the repository. The default gates cover Swift analytics/protocol/store/push, macOS application tests, unsigned simulator and iPhoneOS builds, analytics kernel/service/distribution, immutable-manifest comparison, disposable PostgreSQL and runtime preflight, fresh/populated migration chains, Edge, Python inference/reference/deployment tooling, released-checkpoint execution, and whitespace against the recorded PR21 base. Android application builds/tests are deliberately excluded.
 
 The migration harness uses the digest-pinned official Supabase PostgreSQL image, no network, no published ports, no host binds, and the non-superuser `postgres` migration role. Populated-chain checks preserve baseline samples, legacy scores, and manual edits. Disposable containers are stopped and retained for inspection, not deployed.

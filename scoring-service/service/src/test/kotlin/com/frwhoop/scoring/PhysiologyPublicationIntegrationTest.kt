@@ -110,6 +110,9 @@ class PhysiologyPublicationIntegrationTest {
             .put("hrv_rmssd_ms",80).put("resting_hr_bpm",55).put("resp_rate_bpm",12) }
         publish(value)
         fun readNight(): JSONObject = db.withConnection { c -> c.createStatement().use { s ->
+            // The disposable bootstrap lacks Supabase's public-schema default SELECT grants.
+            s.execute("grant usage on schema auth to authenticated")
+            s.execute("grant select on devices,noop_hr_samples,server_daily_scores,server_sleep_nights to authenticated")
             s.execute("set role authenticated")
             try {
                 s.execute("select set_config('request.jwt.claim.sub','$user',false)")
