@@ -66,8 +66,19 @@ final class BackfillerImuSessionTests: XCTestCase {
         let backfiller = Backfiller(
             store: store,
             deviceId: "devA",
-            ackTrim: { _, _ in acked = true },
+            ackTrim: { _, _ in
+                store.operations.append("ack")
+                acked = true
+            },
+            rejectedSink: { frames, _, _ in
+                XCTAssertFalse(frames.isEmpty)
+                XCTAssertFalse(acked)
+                store.operations.append("archive")
+                return true
+            },
             imuSessionSink: { _, records in
+                XCTAssertFalse(acked)
+                store.operations.append("imu")
                 imuRecordsSeen += records.count
                 return true
             })
@@ -78,7 +89,9 @@ final class BackfillerImuSessionTests: XCTestCase {
         XCTAssertEqual(imuRecordsSeen, 1)
         XCTAssertTrue(acked)
         XCTAssertFalse(backfiller.persistStalled)
-        XCTAssertTrue(store.operations.contains("cursor"))
+        XCTAssertEqual(store.operations.filter { ["archive", "imu", "cursor", "ack"].contains($0) },
+                       ["archive", "imu", "cursor", "ack"],
+                       "exact recovery evidence and IMU must be durable before cursor and ACK")
     }
 
     func testChunkTimingIncludesSlowDiagnosticAndArchiveCallbacksBeforeAck() async {

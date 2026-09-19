@@ -37,7 +37,10 @@ final class BackfillerHistoricalProgressTests: XCTestCase {
         XCTAssertEqual(acknowledgements, 1)
         XCTAssertFalse(log.contains { $0.contains("no banked history to offload") })
         let jobs = try await store.owedJobs()
-        XCTAssertTrue(jobs.isEmpty, "raw-only progress must not request scoring")
+        XCTAssertFalse(jobs.contains { $0.kind == SyncJobKind.rescore.rawValue },
+                       "raw-only progress must not request scoring")
+        XCTAssertEqual(Set(jobs.map(\.kind)), [SyncJobKind.cloudPush.rawValue],
+                       "durable raw data must retain its independent upload debt")
 
         backfiller.begin(family: .whoop4)
         await backfiller.ingest(record)
