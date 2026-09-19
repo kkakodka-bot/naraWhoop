@@ -549,9 +549,17 @@ public protocol PushSnapshotSource: Sendable {
     func appendRecordAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> PushAppendRecord?
     func appendRows(table: PushAppendTable, deviceId: String, afterRowId: Int64, limit: Int) async throws -> [PushAppendRecord]
     func mutableRows(table: PushMutableTable, deviceId: String, window: PushWindow, limit: Int) async throws -> [PushMutableRecord]
+    /// Stable partition keys for mutable streams whose editable horizon is larger than the normal
+    /// rolling window. Most database-backed streams do not need this; file-backed event labels use
+    /// UTC day keys so old edits and deletions converge without one unbounded in-memory snapshot.
+    func mutablePartitionKeys(table: PushMutableTable, deviceId: String) async throws -> [String]
     func binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Int64) async throws -> PushBinaryRow?
     func binaryRows(table: PushBinaryTable, deviceId: String, afterRowId: Int64, limit: Int) async throws -> [PushBinaryRow]
     func acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: [PushBinaryRow]) async throws
+}
+
+public extension PushSnapshotSource {
+    func mutablePartitionKeys(table: PushMutableTable, deviceId: String) async throws -> [String] { [] }
 }
 
 /// JSON values permitted on the push wire.

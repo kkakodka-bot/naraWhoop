@@ -1,4 +1,5 @@
 import SwiftUI
+import StrandDesign
 
 /// Fast, removable research logger. It records annotations only; it never starts or stops sensors.
 struct ExperimentEventRecorder: View {
@@ -29,23 +30,23 @@ struct ExperimentEventRecorder: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            if let active = log.active {
-                activeCard(active)
-            } else {
-                quickEventGrid
-            }
-            recentSection
-            footer
-            if let error = log.errorMessage {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red)
+        NoopCard {
+            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+                header
+                if let active = log.active {
+                    activeCard(active)
+                } else {
+                    quickEventGrid
+                }
+                recentSection
+                footer
+                if let error = log.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.statusCritical)
+                }
             }
         }
-        .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
         .sheet(isPresented: $showingCustomEvent) { customEventSheet }
         .sheet(item: $editingEvent) { event in editEventSheet(event) }
         .confirmationDialog(
@@ -75,13 +76,16 @@ struct ExperimentEventRecorder: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: NoopMetrics.rowSpacing) {
             Image(systemName: "flag.checkered")
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Event recorder").font(.headline)
+                .foregroundStyle(StrandPalette.accent)
+            VStack(alignment: .leading, spacing: NoopMetrics.spaceHalf) {
+                Text("Event recorder")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
                 Text("Labels only · sensors keep running independently")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
             }
             Spacer()
             Menu {
@@ -96,36 +100,42 @@ struct ExperimentEventRecorder: View {
                 Button("Upload now", systemImage: "icloud.and.arrow.up") { uploadNow() }
                     .disabled(!cloud.ready)
             } label: {
-                Image(systemName: "ellipsis.circle").font(.title3)
+                Image(systemName: "ellipsis.circle")
+                    .font(StrandFont.title2)
+                    .foregroundStyle(StrandPalette.accent)
             }
             .accessibilityLabel("Event recorder actions")
         }
     }
 
     private var quickEventGrid: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Tap to start").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 126), spacing: 8)], spacing: 8) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            Text("Tap to start").strandOverline()
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: NoopMetrics.tileHeight), spacing: NoopMetrics.space2)],
+                spacing: NoopMetrics.space2
+            ) {
                 ForEach(quickLabels, id: \.self) { label in
                     Button {
                         start(label: label, note: nil)
                     } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "play.fill").font(.caption2)
+                        HStack(spacing: NoopMetrics.space2) {
+                            Image(systemName: "play.fill").font(StrandFont.footnote)
                             Text(label).lineLimit(1)
                             Spacer(minLength: 0)
                         }
-                        .font(.subheadline.weight(.medium))
-                        .padding(.horizontal, 11)
-                        .frame(minHeight: 42)
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .padding(.horizontal, NoopMetrics.space3)
+                        .frame(minHeight: NoopMetrics.controlHeight)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 11))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .contextMenu {
                         if log.customLabels.contains(label) {
                             Button("Remove quick event", role: .destructive) {
                                 log.removeCustomLabel(label)
+                                exportURL = nil
                             }
                         }
                     }
@@ -137,40 +147,44 @@ struct ExperimentEventRecorder: View {
                     showingCustomEvent = true
                 } label: {
                     Label("New event", systemImage: "plus")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 11)
-                        .frame(minHeight: 42)
+                        .font(StrandFont.subhead)
+                        .padding(.horizontal, NoopMetrics.space3)
+                        .frame(minHeight: NoopMetrics.controlHeight)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.accentColor.opacity(0.13), in: RoundedRectangle(cornerRadius: 11))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
             }
         }
     }
 
     private func activeCard(_ active: ExperimentEvent) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
             HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(active.label).font(.title3.weight(.semibold))
+                VStack(alignment: .leading, spacing: NoopMetrics.spaceHalf) {
+                    Text(active.label)
+                        .font(StrandFont.title2)
+                        .foregroundStyle(StrandPalette.textPrimary)
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text("Recording · \(duration(from: active.startUnixSeconds, to: context.date))")
-                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            .font(StrandFont.captionNumber)
+                            .foregroundStyle(StrandPalette.textSecondary)
                     }
                 }
                 Spacer()
-                Circle().fill(.red).frame(width: 9, height: 9)
+                Circle()
+                    .fill(StrandPalette.statusCritical)
+                    .frame(width: NoopMetrics.space2, height: NoopMetrics.space2)
                     .accessibilityLabel("Recording")
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: NoopMetrics.space2) {
                 TextField("Optional note", text: $activeNote)
                     .textFieldStyle(.roundedBorder)
                 Button("Save note") {
                     log.update(id: active.id, label: active.label, note: activeNote)
                     exportURL = nil
                 }
-                .font(.caption)
+                .font(StrandFont.caption)
             }
 
             Button(role: .destructive) {
@@ -184,26 +198,30 @@ struct ExperimentEventRecorder: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .tint(StrandPalette.statusCritical)
 
             Text("The active event survives backgrounding and app relaunch.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
         }
-        .padding(12)
-        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 13))
     }
 
     @ViewBuilder
     private var recentSection: some View {
         if !recentEvents.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Recent").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Text("Recent").strandOverline()
                 ForEach(recentEvents) { event in
-                    HStack(spacing: 9) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(event.label).font(.subheadline.weight(.medium))
-                            Text(recentDetail(event)).font(.caption2).foregroundStyle(.secondary)
+                    HStack(spacing: NoopMetrics.rowSpacing) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(StrandPalette.statusPositive)
+                        VStack(alignment: .leading, spacing: NoopMetrics.spaceHalf) {
+                            Text(event.label)
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Text(recentDetail(event))
+                                .font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textSecondary)
                         }
                         Spacer()
                         Menu {
@@ -216,7 +234,8 @@ struct ExperimentEventRecorder: View {
                                 pendingDelete = event
                             }
                         } label: {
-                            Image(systemName: "ellipsis").padding(6)
+                            Image(systemName: "ellipsis")
+                                .padding(NoopMetrics.space2)
                         }
                         .accessibilityLabel("Actions for \(event.label)")
                     }
@@ -226,15 +245,15 @@ struct ExperimentEventRecorder: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: NoopMetrics.space2) {
             Image(systemName: cloudIcon)
             Text(cloudStatus)
                 .lineLimit(2)
-            Spacer(minLength: 4)
+            Spacer(minLength: NoopMetrics.space1)
             Text("\(log.events.count) events")
         }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
+        .font(StrandFont.footnote)
+        .foregroundStyle(StrandPalette.textSecondary)
     }
 
     private var customEventSheet: some View {
@@ -248,6 +267,7 @@ struct ExperimentEventRecorder: View {
                 Section {
                     Button("Save preset") {
                         log.addCustomLabel(customName)
+                        exportURL = nil
                         showingCustomEvent = false
                     }
                     .disabled(trimmed(customName).isEmpty)
@@ -263,7 +283,10 @@ struct ExperimentEventRecorder: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Start") {
                         let name = trimmed(customName)
-                        if rememberCustom { log.addCustomLabel(name) }
+                        if rememberCustom {
+                            log.addCustomLabel(name)
+                            exportURL = nil
+                        }
                         start(label: name, note: customNote)
                         showingCustomEvent = false
                     }
@@ -329,9 +352,9 @@ struct ExperimentEventRecorder: View {
         case .failed: return "Saved locally · cloud export needs attention"
         case .complete:
             if let date = cloud.lastSuccessAt {
-                return "Included in cloud export · \(date.formatted(date: .omitted, time: .shortened))"
+                return "Last cloud export completed · \(date.formatted(date: .omitted, time: .shortened))"
             }
-            return "Cloud export up to date"
+            return "Saved locally · included in next cloud export"
         case .idle: return "Saved locally · included in next cloud export"
         }
     }

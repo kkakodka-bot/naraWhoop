@@ -40,8 +40,9 @@ examples.
 
 **Upload now** uses the existing opt-in Cloud Push worker. Under push protocol
 1.2, the recorder contributes the file-backed `eventLabel` stream. The sender
-uploads the full authoritative snapshot for each device identity, so renamed and
-deleted events converge remotely as well as new events. The receiver projects
+uploads bounded authoritative UTC-day snapshots for each device identity, so
+renamed and deleted events converge remotely as well as new events without a
+whole-history size ceiling. The receiver projects
 these rows into `noop_event_labels`, preserving the stable event identity, note,
 time zone, source, batch, and installation provenance.
 

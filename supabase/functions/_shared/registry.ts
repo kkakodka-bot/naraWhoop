@@ -428,7 +428,7 @@ export const REPLACE_STREAM_PROJECTIONS: Record<string, {
       const timeZone = record.data?.timeZoneIdentifier;
       const localSource = record.data?.source;
       return {
-        id: uuidFromParts(['noop-event-label', userId, externalId]),
+        id: uuidFromParts(['noop-event-label', userId, sourceId, externalId]),
         external_id: externalId,
         user_id: userId,
         device_id: deviceId,

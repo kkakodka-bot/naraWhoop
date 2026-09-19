@@ -12,6 +12,7 @@ import {
   PushProtocolError,
 } from '../_shared/registry.ts';
 import { OBJECT_LANE_STREAMS } from '../_shared/keys.ts';
+import { deleteReplacementRows } from '../_shared/ingest.ts';
 
 const OBJECT_LANE_PATH = '/functions/v1/push/objects';
 
@@ -83,6 +84,34 @@ Deno.test('event labels are advertised only to 1.2 clients and map to durable an
   assert.equal(row?.source, 'patient');
   assert.equal(row?.confidence, 'confirmed');
   assert.equal(row?.local_source, 'manual_experiment');
+});
+
+Deno.test('event-label replacement deletes are scoped to the uploading installation', async () => {
+  const selects: string[] = [];
+  const deletes: string[] = [];
+  const rest = {
+    configured: true,
+    async select(_table: string, query: string) {
+      selects.push(query);
+      return [
+        { id: 'delete-me', external_id: 'old-event' },
+        { id: 'keep-me', external_id: 'current-event' },
+      ];
+    },
+    async delete(_table: string, query: string) { deletes.push(query); },
+  };
+
+  await deleteReplacementRows(rest as any, 'noop_event_labels', {
+    userId: 'user',
+    deviceId: 'device',
+    sourceId: '33333333-3333-4333-8333-333333333333',
+    startTsGte: 1_789_689_600,
+    startTsLt: 1_789_776_000,
+    keepKeys: new Set(['current-event']),
+  });
+
+  assert.match(selects[0], /source_id=eq\.33333333-3333-4333-8333-333333333333/);
+  assert.deepEqual(deletes, ['id=eq.delete-me']);
 });
 
 Deno.test('negotiateProtocol picks the newest mutually-supported version or refuses', () => {

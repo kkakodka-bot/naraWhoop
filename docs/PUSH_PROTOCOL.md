@@ -21,13 +21,13 @@ does not open the health database or send a batch.
 GET /the/user-configured-path HTTP/1.1
 Accept: application/json
 Authorization: Bearer <user-supplied-token>
-NOOP-Push-Accept-Version: 1.1,1.0
+NOOP-Push-Accept-Version: 1.2,1.1,1.0
 ```
 
 A successful capability response has these required members:
 
 ```json
-{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"5fc7b9a0-8055-4e49-a308-3a290f98d81a","streams":["hrSample","rrInterval","dailyMetric","labMarker"]}
+{"type":"capabilities","protocolVersion":"1.2","receiverStateId":"5fc7b9a0-8055-4e49-a308-3a290f98d81a","streams":["hrSample","rrInterval","dailyMetric","labMarker","eventLabel"]}
 ```
 
 `NOOP-Push-Accept-Version` is a comma-separated, sender-preferred list of exact versions it can emit.
@@ -271,11 +271,12 @@ rule makes edits and deletions within the rolling window converge to NOOP's loca
 tombstone for a row that has already aged out of that window.
 
 Protocol 1.2's file-backed `eventLabel` stream is the intentional exception to
-the 14-day mutable horizon. Apple senders compare one canonical hash for the
-complete local event log and replace the timestamp window from the Unix epoch
-through the next UTC day. This bounded full snapshot lets old labels be renamed
-or deleted without introducing tombstones. The same 1,000-record / 2-MiB mutable
-snapshot limits apply.
+the 14-day mutable horizon. Apple senders retain canonical hashes for every UTC
+day containing labels and replace changed day windows no matter how old they are.
+A formerly populated day is sent as an empty replacement when its final label is
+deleted. These bounded partitions let old labels be renamed or deleted without
+tombstones or a whole-history size ceiling. The same 1,000-record / 2-MiB mutable
+snapshot limits apply to each UTC day.
 
 A sender must have at most one incomplete replacement generation per `(sourceId, deviceId, stream)`.
 Observing the first part of a different generation supersedes every older incomplete generation in that

@@ -24,6 +24,8 @@ struct ExperimentEventLogSmokeTest {
         precondition(reopened.customLabels == ["Reading"])
         precondition(reopened.active?.startUnixSeconds == start.timeIntervalSince1970)
         precondition(reopened.active?.deviceId == "strap-A")
+        precondition(reopened.eventDayKeys(deviceId: "strap-A") == ["2026-09-18"])
+        precondition(reopened.eventDayKeys(deviceId: "strap-B").isEmpty)
         reopened.stop(at: start.addingTimeInterval(-1))
         precondition(reopened.active != nil && reopened.errorMessage != nil)
         reopened.stop(at: start.addingTimeInterval(90.5))

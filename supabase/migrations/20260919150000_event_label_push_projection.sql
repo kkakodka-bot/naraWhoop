@@ -15,8 +15,8 @@ where external_id is null;
 alter table public.noop_event_labels
   alter column external_id set not null;
 
-create unique index if not exists noop_event_labels_user_external_id_uidx
-  on public.noop_event_labels (user_id, external_id);
+create unique index if not exists noop_event_labels_user_source_external_id_uidx
+  on public.noop_event_labels (user_id, source_id, external_id);
 
 create index if not exists noop_event_labels_device_start_idx
   on public.noop_event_labels (user_id, device_id, start_ts desc);

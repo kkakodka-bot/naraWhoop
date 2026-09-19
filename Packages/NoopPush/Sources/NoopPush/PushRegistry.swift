@@ -122,8 +122,7 @@ public enum PushRegistryV1_1 {
     public static let streamNames: Set<String> = Set(streams.map(\.wireName)).union(binaryStreams)
 }
 
-/// Protocol 1.2 adds the direct-to-bucket object lane and the file-backed 100 Hz IMU stream.
-/// NDJSON and mutable streams are unchanged from 1.1; only the binary set grows.
+/// Protocol 1.2 adds the direct-to-bucket object lane, file-backed 100 Hz IMU, and manual event labels.
 public enum PushRegistryV1_2 {
     public static let additionalBinaryStreams: Set<String> = ["rawImuSession"]
     public static let binaryStreams: Set<String> = PushRegistryV1_1.binaryStreams.union(additionalBinaryStreams)

@@ -143,16 +143,19 @@ final class PushProtocolTests: XCTestCase {
         )
 
         let first = try PushProtocol.mutableBatch(
-            table: .eventLabel, sourceId: sourceA, deviceId: "strap-a", window: window, records: [event]
+            table: .eventLabel, sourceId: sourceA, deviceId: "strap-a", window: window, records: [event],
+            protocolVersion: PushProtocol.objectVersion
         )
         let retry = try PushProtocol.mutableBatch(
-            table: .eventLabel, sourceId: sourceA, deviceId: "strap-a", window: window, records: [event]
+            table: .eventLabel, sourceId: sourceA, deviceId: "strap-a", window: window, records: [event],
+            protocolVersion: PushProtocol.objectVersion
         )
 
         XCTAssertEqual(first.batchId, retry.batchId)
         XCTAssertEqual("eventLabel", first.table.wireName)
         let headerLine = String(data: first.body, encoding: .utf8)!.split(separator: "\n")[0]
         let header = try JSONSerialization.jsonObject(with: Data(headerLine.utf8)) as! [String: Any]
+        XCTAssertEqual("1.2", header["protocolVersion"] as? String)
         let wireWindow = header["window"] as! [String: Any]
         XCTAssertEqual("startTs", wireWindow["selector"] as? String)
         XCTAssertEqual(window.startTsInclusive, wireWindow["startInclusive"] as? Int64)

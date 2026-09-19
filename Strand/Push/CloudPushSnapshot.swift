@@ -139,6 +139,11 @@ struct CloudPushSnapshot: PushSnapshotSource {
         }
     }
 
+    func mutablePartitionKeys(table: PushMutableTable, deviceId: String) async throws -> [String] {
+        guard table == .eventLabel, let eventPushSource else { return [] }
+        return await eventPushSource.eventDayKeys(deviceId: deviceId)
+    }
+
     func binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Int64) async throws -> PushBinaryRow? {
         if table == .rawImuSession {
             // The IMU cursor is the record's ts, so "record at cursor" is the record with that ts.

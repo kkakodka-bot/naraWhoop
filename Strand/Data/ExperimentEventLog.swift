@@ -3,7 +3,7 @@ import Combine
 
 /// Temporary research labels. Independent of sensor collection and the database schema.
 /// Unix seconds retain fractional precision; each tap is committed before the UI changes.
-struct ExperimentEvent: Codable, Identifiable {
+struct ExperimentEvent: Codable, Identifiable, Sendable {
     let id: UUID
     var label: String
     var note: String?
@@ -14,7 +14,7 @@ struct ExperimentEvent: Codable, Identifiable {
     let source: String
 }
 
-struct ExperimentEventExport: Codable {
+struct ExperimentEventExport: Codable, Sendable {
     let schemaVersion: Int
     let exportedAtUnixSeconds: Double
     let events: [ExperimentEvent]
@@ -24,6 +24,7 @@ struct ExperimentEventExport: Codable {
 @MainActor
 protocol ExperimentEventPushSource: Sendable {
     func eventDeviceIds() -> [String]
+    func eventDayKeys(deviceId: String) -> [String]
     func eventSnapshot(deviceId: String, from start: Int64, to end: Int64, limit: Int) -> [ExperimentEvent]
 }
 
@@ -140,6 +141,18 @@ final class ExperimentEventLog: ObservableObject {
 
     func eventDeviceIds() -> [String] {
         Array(Set(events.map(\.deviceId).filter { !$0.isEmpty })).sorted()
+    }
+
+    func eventDayKeys(deviceId: String) -> [String] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return Array(Set(events.lazy.filter { $0.deviceId == deviceId }.map { event in
+            let components = calendar.dateComponents(
+                [.year, .month, .day],
+                from: Date(timeIntervalSince1970: event.startUnixSeconds)
+            )
+            return String(format: "%04d-%02d-%02d", components.year!, components.month!, components.day!)
+        })).sorted()
     }
 
     func eventSnapshot(deviceId: String, from start: Int64, to end: Int64, limit: Int) -> [ExperimentEvent] {
