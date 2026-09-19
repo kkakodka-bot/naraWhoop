@@ -40,8 +40,8 @@ final class ImuSessionFileStore: @unchecked Sendable {
     /// The continuous recorder's store (Developer Options → Record 100 Hz IMU locally). A SEPARATE
     /// directory + window registry from `shared` on purpose: the rawImuSession cloud-push lane reads
     /// `shared` only, so this mode's 100 Hz data stays local unless the user explicitly exports it.
-    static let continuous = ImuSessionFileStore(directoryComponent: "OpenWhoop/RawImuContinuous",
-                                                defaultsKey: "imu-continuous-windows-v1")
+    static let continuous = ImuSessionFileStore(directoryComponent: "OpenWhoop/RawImuLive",
+                                                defaultsKey: "imu-live-windows-v2")
     static let sampleRate = 100, axes = 6, blockSeconds = 30
     static let segmentSeconds: Int64 = 30 * 60
     /// Per-session conflict-evidence file (FRWHOOP issue #1): a sorted JSON array of strap timestamps

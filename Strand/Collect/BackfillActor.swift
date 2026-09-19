@@ -35,6 +35,7 @@ struct BackfillMainHooks: Sendable {
     let firmwareLayout: @Sendable (Int) async -> Void
     let onPersistCircuitBreak: @Sendable () async -> Void
     let onOffloadComplete: @Sendable () async -> Void
+    var opticalSink: (@Sendable (String, [[UInt8]]) async -> Bool)? = nil
 }
 
 /// Serial offload pipeline: FIFO frame queue, chunk commits, and IMU session persistence off the main actor.
@@ -62,8 +63,10 @@ actor BackfillActor {
             log: { line in await hooks.log(line) },
             rejectedSink: { frames, trim, family in await hooks.rejectedSink(frames, trim, family) },
             imuSessionSink: { deviceId, records in
-                ImuSessionFileStore.shared.persistHistoricalImu(deviceId: deviceId, records: records)
+                if deviceId == BluetoothOpticalRecorder.enrolledDeviceId { return true } // enrolled strap: live-only IMU
+                return ImuSessionFileStore.shared.persistHistoricalImu(deviceId: deviceId, records: records)
             },
+            opticalSink: hooks.opticalSink,
             onChunk: { decoded, console in await hooks.onChunk(decoded, console) },
             connectionActive: hooks.connectionActive,
             connectionLog: { line in await hooks.connectionLog(line) },

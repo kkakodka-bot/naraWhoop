@@ -328,6 +328,7 @@ struct LiquidTodayView: View {
                 liquidRefreshIndicator   // grows in the revealed space; a vessel filling with the pull
 
                 VStack(alignment: .leading, spacing: 12) {
+                    LiveBluetoothDiagnosticCard()
                     scene
                     ExperimentEventRecorder()
                     // The strain/illness early-warning banner, dropped in the liquid Home rewrite. Liquid is

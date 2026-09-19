@@ -1437,6 +1437,7 @@ struct TodayView: View {
                        topBackground: showDayCycleBackground
                            ? AnyView(SceneScreenBackground(hour: demoSceneHour)) : nil) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                LiveBluetoothDiagnosticCard()
                 #if os(iOS)
                 // Compact top bar: profile/settings (left) · ‹ Today › day-nav (centre, bold) · strap
                 // battery (right). Replaces the big title + the full-width day-nav pill (WHOOP-style).

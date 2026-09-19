@@ -941,6 +941,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// bounded `startSensorCapture` and `noopRawCaptureEnabled` (frame retention), so neither can
     /// silently keep this producer running after the user turns it off.
     let imuRecorder = ImuContinuousRecorder()
+    let opticalRecorder = BluetoothOpticalRecorder()
+    let liveBluetoothDiagnostics = LiveBluetoothDiagnostics()
+    private var opticalCommandGate = false
     /// Admits the raw-data command family to the 5/MG send() allowlist for the duration of the
     /// recorder's OWN start/stop sends (and the unexpected-producer fail-safe's). Held only around
     /// those sends; never left on — a default install can never form these bytes.
@@ -1522,7 +1525,10 @@ public final class BLEManager: NSObject, ObservableObject {
         let actor = BackfillActor()
         let hooks = BackfillMainHooks(
             ackTrim: { [weak self] trim, endData in
-                await MainActor.run { self?.ackHistoricalChunk(trim: trim, endData: endData) }
+                await MainActor.run {
+                    self?.liveBluetoothDiagnostics.didSaveBackfillChunk()
+                    self?.ackHistoricalChunk(trim: trim, endData: endData)
+                }
             },
             onBankedOffload: { [weak self] c in
                 await MainActor.run {
@@ -1558,6 +1564,9 @@ public final class BLEManager: NSObject, ObservableObject {
             },
             onOffloadComplete: { [weak self] in
                 await MainActor.run { self?.afterBackfillIngest() }
+            },
+            opticalSink: { [weak self] deviceId, frames in
+                await MainActor.run { self?.opticalRecorder.persistHistory(deviceId: deviceId, frames: frames) ?? false }
             })
         await actor.configure(store: store, deviceId: deviceId, hooks: hooks,
                               enableRawCapture: enableRawCapture,
@@ -1636,6 +1645,29 @@ public final class BLEManager: NSObject, ObservableObject {
     /// CoreBluetooth-free; every strap touch goes through these closures so the state machine is
     /// testable and the 5/MG send() allowlist stays the single byte-forming gate.
     private func wireImuRecorder() {
+        opticalRecorder.sendEnable = { [weak self] in
+            guard let self else { return }
+            self.rawDataCommandGate = true
+            self.send(.startRawData, payload: [0x01], writeType: .withResponse)
+            self.rawDataCommandGate = false
+            self.opticalCommandGate = true
+            self.send(.enableOpticalData, payload: [0x01], writeType: .withResponse)
+            self.opticalCommandGate = false
+        }
+        opticalRecorder.sendDisable = { [weak self] in
+            guard let self else { return }
+            self.opticalCommandGate = true
+            self.send(.enableOpticalData, payload: [0x00], writeType: .withResponse)
+            self.opticalCommandGate = false
+            // Raw producer is shared with live IMU; never stop another active owner's stream.
+            if !self.imuRecorder.expectsImuPackets && !self.rawCaptureInFlight {
+                self.rawDataCommandGate = true
+                self.send(.stopRawData, payload: [0x01], writeType: .withResponse)
+                self.rawDataCommandGate = false
+            }
+        }
+        opticalRecorder.log = { [weak self] in self?.log($0) }
+
         imuRecorder.transport = ImuContinuousRecorder.Transport(
             sendStart: { [weak self] in self?.sendImuRecorderStart() },
             sendStop: { [weak self] in self?.sendImuRecorderStop() },
@@ -1666,7 +1698,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// this switch's Off must stop the producer even while raw-frame retention stays on.
     private func sendImuRecorderStop() {
         rawDataCommandGate = true
-        send(.stopRawData, payload: [0x01], writeType: .withResponse)
+        if !opticalRecorder.isEnabled(for: deviceId) {
+            send(.stopRawData, payload: [0x01], writeType: .withResponse)
+        }
         send(.toggleIMUMode, payload: [0x01, 0x00], writeType: .withResponse)
         rawDataCommandGate = false
     }
@@ -1745,6 +1779,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // Frame the inbound stream for the chosen family (WHOOP 4.0 CRC8 vs WHOOP 5.0 CRC16/puffin)
         // and tell the router which decoder to use. Fresh per connection so no stale bytes carry over.
         reassembler = CharacteristicReassembler(family: model.deviceFamily)
+        liveBluetoothDiagnostics.reset()
         router.family = model.deviceFamily
         router.deviceId = deviceId   // #1706: attribute this connection's alarm readback
         // Live 5/MG persistence: point the Collector's decode at the selected family and install the
@@ -2373,16 +2408,14 @@ public final class BLEManager: NSObject, ObservableObject {
     private func stopUnexpectedRealtimeImu(_ frame: [UInt8], isOffload: Bool, now: Date = Date()) {
         guard selectedModel.deviceFamily == .whoop5, !isOffload, frame.count > 8,
               frame[8] == 43 || frame[8] == 51,
+              Whoop5RawImu.rawColumns(frame) != nil, verifyFrame(frame, family: .whoop5).ok,
               !rawCaptureInFlight, !sensorAcquisition.cleanupRequired,
               !imuRecorder.expectsImuPackets,
               !UserDefaults.standard.noopRawCaptureEnabled,
               now.timeIntervalSince(rawCaptureStoppedAt) >= 3,
               now.timeIntervalSince(unexpectedImuStopAt) >= 30 else { return }
         unexpectedImuStopAt = now
-        rawDataCommandGate = true
-        send(.stopRawData, payload: [0x01], writeType: .withResponse)
-        send(.toggleIMUMode, payload: [0x01, 0x00], writeType: .withResponse)
-        rawDataCommandGate = false
+        sendImuRecorderStop()
         log("Raw IMU fail-safe: unexpected realtime packet type \(frame[8]) while capture was off; stop requested")
     }
 
@@ -2826,8 +2859,8 @@ public final class BLEManager: NSObject, ObservableObject {
     /// are appended; non-IMU frames return immediately. WHOOP 4.0 live IMU still flows through
     /// `Collector.recordGroundTruthImu` on the `collector?.ingest` path.
     private func recordGroundTruthImuFrame(_ frame: [UInt8]) {
-        guard Whoop5RawImu.rawColumns(frame) != nil,
-              verifyFrame(frame, family: .whoop5).crc32OK == true else { return }
+        guard ImuContinuousRecorder.isFreshLiveFrame(frame, isOffload: false,
+            receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000)) else { return }
         _ = ImuSessionFileStore.shared.append(deviceId: deviceId, frame: frame,
             receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000))
     }
@@ -2840,7 +2873,8 @@ public final class BLEManager: NSObject, ObservableObject {
     /// FRWHOOP issue #1: best-effort repair of session .imus data from the retained raw archive.
     /// Returns the number of newly routed one-second IMU records (0 when no store/windows exist).
     public func repairGroundTruthImuSessions() async -> Int {
-        await collector?.repairImuSessionsFromRawArchive() ?? 0
+        guard deviceId != BluetoothOpticalRecorder.enrolledDeviceId else { return 0 }
+        return await collector?.repairImuSessionsFromRawArchive() ?? 0
     }
 
     /// Send a command to the WHOOP strap.
@@ -2862,7 +2896,14 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         let isSensorOpcode = command == .startRawData
             || command == .stopRawData || command == .toggleIMUMode
-        if isSensorOpcode && !sensorControlWriteAuthorized {
+        let continuousSensorWrite = rawDataCommandGate
+            && deviceId == BluetoothOpticalRecorder.enrolledDeviceId
+            && !sensorAcquisition.isActive && !sensorAcquisition.cleanupRequired
+            && !sensorCommandLaneTaintedUntilReconnect
+            && ((command == .startRawData && payload == [0x01])
+                || (command == .stopRawData && payload == [0x01])
+                || (command == .toggleIMUMode && (payload == [0x01, 0x01] || payload == [0x01, 0x00])))
+        if isSensorOpcode && !sensorControlWriteAuthorized && !continuousSensorWrite {
             log("send(\(command.label)) blocked — stock-sensor opcodes are controller-owned")
             return
         }
@@ -2934,6 +2975,10 @@ public final class BLEManager: NSObject, ObservableObject {
                 // keep their own separate opt-in clauses below and are never sent from this path. Driven
                 // only by probeDeviceConfigValues() (user-initiated, Test Centre gated).
                 || (DeviceConfigReadProbe.isReadOnlyOpcode(command.rawValue) && deviceConfigReport != nil)
+                // Candidate optical control, bounded to the explicit recorder owner. No guessed
+                // AFE settings or sample-rate arguments are sent.
+                || (command == .enableOpticalData && opticalCommandGate && didBond
+                    && (payload == [0x01] || payload == [0x00]))
                 || command == .sendHistoricalData || command == .historicalDataResult
                 || command == .setClock || command == .getClock
                 // Bounded Raw Data Collector (sensorControlWriteAuthorized around its own writes)
@@ -5995,6 +6040,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // Record it continuously — independent of the realtime stream or the open screen.
         collector?.ingestStandardHR(hr: m.hr, rr: m.rr, contact: m.contact,
                                     at: Int(Date().timeIntervalSince1970))
+        liveBluetoothDiagnostics.receiveHeartRate(data, at: now)
     }
 }
 
@@ -6224,6 +6270,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        liveBluetoothDiagnostics.reset()
         cancelScanFallback()
         cancelPendingConnectProbe()   // #730: the connect resolved; no pending-connect log needed
         failedConnectAttempts = 0   // a successful connect clears the reconnect backoff (#414)
@@ -6524,6 +6571,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // not hidden) and re-arms from the post-bond hook on the next link. An unfinished stop
         // becomes owed again — the write may not have landed.
         imuRecorder.handleDisconnect()
+        opticalRecorder.disconnected()
+        liveBluetoothDiagnostics.reset()
         // Link loss makes producer state unknowable. Persisted ownership survives and the next
         // authenticated connection is stop-first; an interrupted capture is never re-armed.
         sensorAcquisitionRunToken &+= 1
@@ -6743,6 +6792,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // the user manually taps connect.
         selectedModel = .persisted
         reassembler = CharacteristicReassembler(family: selectedModel.deviceFamily)
+        liveBluetoothDiagnostics.reset()
         router.family = selectedModel.deviceFamily
         router.deviceId = deviceId   // #1706: attribute this connection's alarm readback
         configureCollectorFamily()
@@ -7154,6 +7204,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             if didBond, !imuRecorderArmedLink {
                 imuRecorderArmedLink = true
                 imuRecorder.handleBonded5MG()
+                opticalRecorder.bonded(deviceId: deviceId)
             }
             startKeepAlive()                                    // re-subscribe + liveness watchdog
             // Kick the historical offload ONCE per connection — this is the 5/MG edition of the WHOOP4
@@ -7477,6 +7528,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         }
         guard let data = characteristic.value else { return }
         let bytes = [UInt8](data)
+        liveBluetoothDiagnostics.receiveBytes(bytes.count)
         // Level A is authoritative: persist the exact notification value before routing,
         // reassembly, packet classification, or any semantic decoder can touch it.
         guard captureSensorWireEvidence(bytes, characteristic: characteristic) else { return }
@@ -7508,6 +7560,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             // notification was reverting the true reading back to 100% (#77).
             if selectedModel.deviceFamily != .whoop4, let pct = bytes.first {
                 state.setBattery(Double(pct))
+                liveBluetoothDiagnostics.receiveBattery(bytes)
             }
         case BLEManager.disSerialChar:
             // #520: NUL-terminated ASCII per the DIS spec; trim any padding before resolving.
@@ -7554,6 +7607,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
              BLEManager.eventNotifyChar:
             // Reassemble (no-op for already-complete frames) then route each complete frame.
             for frame in reassembler.feed(bytes, characteristicID: characteristic.uuid.uuidString) {
+                liveBluetoothDiagnostics.receiveFrame(frame, family: .whoop4)
                 if backfilling, BLEManager.isOffloadFrame(frame, family: .whoop4) {
                     // Historical replay is bulk sync traffic, not live UI traffic. Feed it only to
                     // the Backfiller; parsing every record through FrameRouter updates SwiftUI for
@@ -7643,8 +7697,10 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     noteRealtimeImuCandidateAfterStop(validated: false)
                 }
                 for frame in reassembler.feed(bytes, characteristicID: characteristic.uuid.uuidString) {
+                    liveBluetoothDiagnostics.receiveFrame(frame, family: .whoop5)
                     let isOffload = backfilling && BLEManager.isOffloadFrame(frame, family: .whoop5)
                     noteSensorAcquisitionFirmwareResponse(frame)
+                    opticalRecorder.observeCommandResponse(frame)
                     noteWhoop5R22Telemetry(frame, duringOffload: isOffload)   // #174 deep-data telemetry
                     // Durable EVENT-frame log for deep-data research (#103) — BEFORE the offload
                     // branch, so it sees both live events and their history replays (either path
@@ -7686,6 +7742,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     // every inbound frame). Offload frames are excluded — the Backfiller persists
                     // those under its flush-before-ack durability invariant, and a buffered live
                     // duplicate here would defeat it.
+                    opticalRecorder.ingestOutsideOffload(frame, deviceId: deviceId)
                     recordGroundTruthImuFrame(frame)
                     router.handle(frame: frame)
                     // #592: a 5/MG extended-battery probe COMMAND_RESPONSE (puffin envelope: type @8, cmd
