@@ -54,11 +54,15 @@ class RespirationContextsTest {
         assertEquals(sleep, RespirationContexts.withAwakeRest(sleep, listOf(quiet()), emptyList(), listOf(awake())))
     }
 
-    @Test fun observedAwakeEpochsQualifyButUnknownEpochsDoNot() {
-        val stages = listOf(StageSegment(0, 300, "wake", state = "awake"))
-        assertEquals(1, RespirationContexts.withAwakeRest(emptyList(), listOf(quiet()), stages, emptyList()).size)
-        assertTrue(RespirationContexts.withAwakeRest(emptyList(), listOf(quiet()),
-            listOf(StageSegment(0, 300, "unknown", state = "awake")), emptyList()).isEmpty())
+    @Test fun binaryAwakeQualifiesIndependentlyOfStagesButUnknownBinaryStateDoesNot() {
+        for(stage in listOf("wake","unknown")) {
+            val stages=listOf(StageSegment(0,300,stage,state="awake"))
+            assertEquals(1,RespirationContexts.withAwakeRest(emptyList(),listOf(quiet()),stages,emptyList()).size)
+        }
+        for(state in listOf(null,"state_unknown","sleep","sleep_unstaged","off_body")) {
+            assertTrue(RespirationContexts.withAwakeRest(emptyList(),listOf(quiet()),
+                listOf(StageSegment(0,300,"unknown",state=state)),emptyList()).isEmpty())
+        }
     }
 
     @Test fun touchingRestWindowsMergeWithoutBridgingAnIneligibleWindowOrSleep() {

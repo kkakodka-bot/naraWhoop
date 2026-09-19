@@ -28,7 +28,7 @@ run() {
 }
 gates=("${@:-all}")
 if [[ "${gates[0]}" == all ]]; then
-  gates=(swift kernel manifests database runtime-preflight migrations edge python checkpoint macos ios-simulator iphone whitespace)
+  gates=(swift kernel manifests database runtime-preflight migrations edge python checkpoint macos ios-simulator iphone iphone-device whitespace)
 fi
 for gate in "${gates[@]}"; do
   case "$gate" in
@@ -59,7 +59,7 @@ for gate in "${gates[@]}"; do
         HF_HUB_OFFLINE=1 OMP_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 \
         "$PHYSIOLOGY_WAV2SLEEP_PYTHON" -m physiology_inference.checkpoint_smoke \
         --checkpoint-root "$PHYSIOLOGY_CHECKPOINT_ROOT" --epochs 20 --output "$evidence/checkpoint-smoke.json" ;;
-    macos|ios-simulator|iphone)
+    macos|ios-simulator|iphone|iphone-device)
       run "generate-$gate" xcodegen generate
       common=(-project Strand.xcodeproj -clonedSourcePackagesDirPath "$PHYSIOLOGY_PACKAGE_CACHE"
         -disableAutomaticPackageResolution -onlyUsePackageVersionsFromResolvedFile)
@@ -70,7 +70,11 @@ for gate in "${gates[@]}"; do
       else
         destination='generic/platform=iOS'
         [[ "$gate" != ios-simulator ]] || destination='generic/platform=iOS Simulator'
-        run "$gate" xcodebuild "${common[@]}" -scheme NOOPiOS -destination "$destination" \
+        if [[ "$gate" == iphone-device ]]; then
+          : "${PHYSIOLOGY_IPHONE_UDID:?Set an available paired iPhone UDID; this builds but does not install}"
+          destination="platform=iOS,id=$PHYSIOLOGY_IPHONE_UDID"
+        fi
+        run "$gate" xcodebuild "${common[@]}" -scheme NOOPiOS -destination "$destination" -destination-timeout 20 \
           -derivedDataPath "$PHYSIOLOGY_BUILD_ROOT/xcode-$gate" CODE_SIGNING_ALLOWED=NO build
       fi ;;
     whitespace) run whitespace git diff --check "$candidate_base...HEAD" ;;
