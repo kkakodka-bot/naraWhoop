@@ -754,7 +754,7 @@ final class HealthKitBridge: ObservableObject {
                                             value: -Int(CaffeineLogStore.retentionHours), to: end) {
                 // nil means the READ failed; only an actual empty result is allowed to clear the set.
                 if let imported = await collectCaffeine(start: caffeineStart, end: end) {
-                    guard accountRuntimeActive, !Task.isCancelled else { return }
+                    guard accountRuntimeActive, !Task.isCancelled else { return false }
                     caffeineLog.replaceImported(imported)
                 }
             }
@@ -1210,10 +1210,9 @@ final class HealthKitBridge: ObservableObject {
                 HKQuery.predicateForObjects(withMetadataKey: "naraAccountNamespace", allowedValues: [owner]),
                 HKQuery.predicateForObjects(withMetadataKey: "naraScoreDay", allowedValues: [snapshot.day])
             ])
-            let save: HealthWritebackBoundary.Operation? = samples.isEmpty ? nil : {
-                try boundary.check()
-                try await self.store.save(samples)
-            }
+            let save: HealthWritebackBoundary.Operation?
+            if samples.isEmpty { save = nil }
+            else { save = { try boundary.check(); try await self.store.save(samples) } }
             try await boundary.replace(delete: {
                 try boundary.check()
                 _ = try await self.store.deleteObjects(of: type, predicate: predicate)
@@ -1426,10 +1425,9 @@ final class HealthKitBridge: ObservableObject {
                 extras.append(HKQuantitySample(type: t, quantity: .init(unit: .meter(), doubleValue: meters),
                                                start: start, end: end))
             }
-            let addSamples: HealthWritebackBoundary.Operation? = extras.isEmpty ? nil : {
-                try boundary.check()
-                try await builder.addSamples(extras)
-            }
+            let addSamples: HealthWritebackBoundary.Operation?
+            if extras.isEmpty { addSamples = nil }
+            else { addSamples = { try boundary.check(); try await builder.addSamples(extras) } }
             try await boundary.workout(begin: {
                 try boundary.check()
                 try await builder.beginCollection(at: start)
