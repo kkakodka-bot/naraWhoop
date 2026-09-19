@@ -7,7 +7,7 @@ struct CloudUploadTaskSnapshot: Sendable {
 }
 
 enum CloudUploadSessionEvent: Sendable {
-    case completed(CloudUploadTaskSnapshot, status: Int, body: Data, error: Bool)
+    case completed(CloudUploadTaskSnapshot, status: Int, body: Data, error: Bool, retryAfter: String? = nil)
     case finishedEvents
     case invalidated
 }
@@ -70,6 +70,10 @@ final class CloudUploadURLSession: NSObject, CloudUploadSessionAdapter, URLSessi
 
     func create(request: URLRequest, file: URL, description: String) -> CloudUploadTaskSnapshot {
         let task = session.uploadTask(with: request, fromFile: file)
+        if let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+            task.countOfBytesClientExpectsToSend = Int64(size)
+        }
+        task.countOfBytesClientExpectsToReceive = Int64(PushProtocolLimits.maxAckBytes)
         task.taskDescription = description
         lock.lock(); handles[task.taskIdentifier] = task; lock.unlock()
         return .init(identifier: task.taskIdentifier, description: description)
@@ -112,7 +116,8 @@ final class CloudUploadURLSession: NSObject, CloudUploadSessionAdapter, URLSessi
         lock.unlock()
         continuation.yield(.completed(.init(identifier: task.taskIdentifier, description: task.taskDescription),
                                       status: (task.response as? HTTPURLResponse)?.statusCode ?? 0,
-                                      body: body, error: error != nil || tooLarge))
+                                      body: body, error: error != nil || tooLarge,
+                                      retryAfter: (task.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After")))
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

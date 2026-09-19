@@ -300,7 +300,9 @@ final class CloudUploadQueueTests: XCTestCase {
         await gate.release()
         try await reconciliation.value
         let saved = try XCTUnwrap(journal.load()[object.id])
-        XCTAssertEqual(saved.phase, .retryPending)
+        XCTAssertEqual(saved.phase, .prepared)
+        XCTAssertEqual(saved.failures, 0, "admission denial is not a failed HTTP attempt")
+        XCTAssertNil(saved.nextAttemptAt)
         XCTAssertEqual(saved.objectID, object.objectID)
         XCTAssertEqual(saved.objectKey, object.objectKey)
         XCTAssertEqual(saved.payloadSHA256, object.payloadSHA256)
@@ -401,7 +403,7 @@ final class CloudUploadQueueTests: XCTestCase {
         let q = try queue(context, layout, adapter)
         try await q.reconcile()
         await q.receive(try XCTUnwrap(adapter.first).task, status: 200, body: try receipt(job, key: "another/key"), error: false)
-        XCTAssertEqual(try journal.load()[job.id]?.phase, .retryPending)
+        XCTAssertEqual(try journal.load()[job.id]?.phase, .pausedTerminal)
         XCTAssertNotNil(try journal.load()[job.id]?.responseBody)
         XCTAssertEqual(try Data(contentsOf: journal.bodyURL(job)), Data([2, 4, 6]))
     }
@@ -476,7 +478,7 @@ final class CloudUploadQueueTests: XCTestCase {
         let completed = expectation(description: "file upload callback")
         let listener = Task {
             for await event in adapter.events {
-                if case let .completed(task, status, body, error) = event {
+                if case let .completed(task, status, body, error, _) = event {
                     XCTAssertEqual(task.description, "controlled-file")
                     XCTAssertEqual(status, 200); XCTAssertFalse(error)
                     XCTAssertEqual(body, Data("controlled-receipt".utf8))
@@ -538,10 +540,13 @@ final class CloudUploadQueueTests: XCTestCase {
             bearerToken: "not-used-for-background-body", context: context)
         try transport.bindReceiverState("synthetic-receiver")
         do { _ = try await transport.post(batch); XCTFail("bare HTTP success is not an ACK") }
-        catch { XCTAssertEqual(error as? CloudUploadError, .invalidReceipt) }
+        catch let error as PushTransportException {
+            XCTAssertEqual(error.failure.code, .ackInvalid)
+            XCTAssertFalse(error.failure.retryable)
+        } catch { XCTFail("invalid receipt was not returned as a typed terminal outcome") }
         let journal = try CloudUploadJournal(directory: layout.uploadDirectory)
         let saved = try XCTUnwrap(journal.load().values.first)
-        XCTAssertEqual(saved.phase, .retryPending)
+        XCTAssertEqual(saved.phase, .pausedTerminal)
         XCTAssertEqual(try Data(contentsOf: journal.bodyURL(saved)), try CloudPushTransport.gzip(batch.body))
         XCTAssertEqual(saved.headers["Content-Encoding"], "gzip")
         CloudPushBackgroundRuntime.install(nil)

@@ -15,6 +15,8 @@ public struct PushCoordinator: Sendable {
     private let associateInlineReceipt: (@Sendable (PushBatch, PushDurabilityReceipt) async throws -> Void)?
     private let commitSource: (@Sendable (PushSourceCommit) async throws -> Void)?
     private let prepareSelection: (@Sendable (PushPreparedSelection) async throws -> Void)?
+    private let allowsPreparation: @Sendable () -> Bool
+    private var pressureDeferred: PushResult { .rejected(reason: "resource_pressure", retryable: true, failure: nil) }
 
     public init(
         source: any PushSnapshotSource,
@@ -29,7 +31,8 @@ public struct PushCoordinator: Sendable {
         associateReceipt: (@Sendable (PushBinaryBatch, [PushBinaryRow], PushDurabilityReceipt) async throws -> Void)? = nil,
         associateInlineReceipt: (@Sendable (PushBatch, PushDurabilityReceipt) async throws -> Void)? = nil,
         commitSource: (@Sendable (PushSourceCommit) async throws -> Void)? = nil,
-        prepareSelection: (@Sendable (PushPreparedSelection) async throws -> Void)? = nil
+        prepareSelection: (@Sendable (PushPreparedSelection) async throws -> Void)? = nil,
+        allowsPreparation: @escaping @Sendable () -> Bool = { true }
     ) {
         self.source = source
         self.transport = transport
@@ -44,10 +47,12 @@ public struct PushCoordinator: Sendable {
         self.associateInlineReceipt = associateInlineReceipt
         self.commitSource = commitSource
         self.prepareSelection = prepareSelection
+        self.allowsPreparation = allowsPreparation
     }
 
     public func pushAppend(_ table: PushAppendTable, deviceId: String,
                            protocolVersion: String = PushProtocol.version) async -> PushResult {
+        guard allowsPreparation() else { return pressureDeferred }
         let stored: PushCursor?
         do {
             stored = try await progress.cursor(table: table, deviceId: deviceId)
@@ -88,6 +93,7 @@ public struct PushCoordinator: Sendable {
 
         let batch: PushBatch
         do {
+            guard allowsPreparation() else { return pressureDeferred }
             batch = try PushProtocol.appendBatch(table: table, sourceId: sourceId, deviceId: deviceId,
                 startCursor: effective, records: rows, protocolVersion: protocolVersion)
         } catch {
@@ -121,6 +127,7 @@ public struct PushCoordinator: Sendable {
     }
 
     public func pushMutable(_ table: PushMutableTable, deviceId: String) async -> PushResult {
+        guard allowsPreparation() else { return pressureDeferred }
         let fullWindow = PushWindow.ending(today: today(), calendar: calendar)
         let rows: [PushMutableRecord]
         do {
@@ -140,10 +147,12 @@ public struct PushCoordinator: Sendable {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         }
 
+        guard allowsPreparation() else { return pressureDeferred }
         var encodedBytes = 0
         let days = enumerateDays(from: fullWindow.fromDay, to: fullWindow.toDay)
         var recordsByDay = Dictionary(uniqueKeysWithValues: days.map { ($0, [PushMutableRecord]()) })
         for record in rows {
+            guard allowsPreparation() else { return pressureDeferred }
             let size: Int
             do {
                 size = try PushProtocol.mutableRecordEncodedSize(table: table, record: record)
@@ -235,6 +244,7 @@ public struct PushCoordinator: Sendable {
     }
 
     public func pushBinary(_ table: PushBinaryTable, deviceId: String) async -> PushResult {
+        guard allowsPreparation() else { return pressureDeferred }
         // Cloud raw streams require an object manifest and typed receipt, never inline legacy ACKs.
         if receiptOwner != nil { return .rejected(reason: "use_object_lane", retryable: false, failure: nil) }
         let stored: PushCursor?
@@ -280,6 +290,7 @@ public struct PushCoordinator: Sendable {
 
         let batch: PushBinaryBatch
         do {
+            guard allowsPreparation() else { return pressureDeferred }
             batch = try PushProtocol.binaryObjectBatch(
                 table: table, sourceId: sourceId, deviceId: deviceId, startCursor: effective, rows: rows
             )
@@ -308,6 +319,7 @@ public struct PushCoordinator: Sendable {
     /// complete → advance cursor, only on a matching ack. Raw rows move exclusively through this
     /// lane; when the receiver advertises no lane the rows stay local.
     public func pushObjects(_ table: PushBinaryTable, deviceId: String, lane: PushObjectLane) async -> PushResult {
+        guard allowsPreparation() else { return pressureDeferred }
         let stored: PushCursor?
         do {
             stored = try await progress.binaryCursor(table: table, deviceId: deviceId)
@@ -352,6 +364,7 @@ public struct PushCoordinator: Sendable {
 
         let batch: PushBinaryBatch
         do {
+            guard allowsPreparation() else { return pressureDeferred }
             batch = try PushProtocol.binaryObjectBatch(
                 table: table, sourceId: sourceId, deviceId: deviceId, startCursor: effective,
                 rows: table == .rawBatch ? Array(rows.prefix(1)) : rows,
@@ -409,6 +422,10 @@ public struct PushCoordinator: Sendable {
     ) async -> PushRunResult {
         precondition(startDeviceIndex >= 0)
         precondition(maxDevices > 0)
+        guard allowsPreparation() else {
+            return PushRunResult(acceptedBatches: 0, rejectedBatches: 0, hasMoreAppendRows: true,
+                                 hasRetryableFailure: true)
+        }
         let ndjsonEnabled = !capabilities.appendTables.isEmpty || !capabilities.mutableTables.isEmpty
         let binaryAllowed = binaryEnabled && !capabilities.binaryTables.isEmpty
         if capabilities.isEmpty || (!ndjsonEnabled && !binaryAllowed) {
@@ -633,7 +650,7 @@ public struct PushCoordinator: Sendable {
             let intent: PushObjectIntent
             do {
                 intent = try await transport.createObjectIntent(manifest, lane: lane)
-            } catch let error as PushTransportException where error.failure.receiverCode == "object_id_conflict" {
+            } catch let error as PushTransportException where receiptOwner == nil && error.failure.receiverCode == "object_id_conflict" {
                 // Same id, different bytes: the id is burned server-side. Mint a fresh one and
                 // retry exactly once; a second conflict means something is deeply wrong.
                 manifest = manifest.replacingObjectId(PushProtocol.freshObjectId())
@@ -698,7 +715,7 @@ public struct PushCoordinator: Sendable {
                 ack = try await transport.completeObject(objectId: manifest.objectId, lane: lane)
             } catch let error as PushTransportException {
                 let code = error.failure.receiverCode
-                if !reuploaded, code == "size_mismatch" || code == "object_missing" {
+                if receiptOwner == nil, !reuploaded, code == "size_mismatch" || code == "object_missing" {
                     // The bytes at the bucket are missing or short of what the intent committed:
                     // re-sign the same objectId and re-PUT exactly once.
                     reuploaded = true

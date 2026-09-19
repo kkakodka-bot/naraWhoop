@@ -61,7 +61,9 @@ struct CloudPushTransport: PushTransport {
         let response = compressedResponse.statusCode == 415
             ? try await execute(body: batch.body, batchID: batch.batchId, contentEncoding: nil, contentType: "application/x-ndjson; charset=utf-8", selectionID: saved?.selectionID)
             : compressedResponse
-        try await queue.validateResponse(batch: batch, response: response, captured: captured, receiverStateID: state, selectionID: saved?.selectionID)
+        if (200...299).contains(response.statusCode) {
+            try await queue.validateResponse(batch: batch, response: response, captured: captured, receiverStateID: state, selectionID: saved?.selectionID)
+        }
         return response
     }
 
@@ -173,6 +175,7 @@ struct CloudPushTransport: PushTransport {
     func requirePreparedSelections() { destination.requirePrepared() }
 
     func prepareSelection(_ selection: PushPreparedSelection, progressVersion: String) async throws {
+        guard ResourceBudget.shared.permits(.bulk) else { throw CloudUploadError.retryScheduled }
         requirePreparedSelections()
         let (queue, captured, state) = try durableQueue()
         let value = try CloudPushPreparedSelection(context: captured, endpoint: endpoint.url,

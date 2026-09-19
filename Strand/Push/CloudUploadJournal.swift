@@ -9,7 +9,10 @@ enum CloudUploadError: Error, Equatable {
 }
 
 struct CloudUploadJob: Codable, Sendable {
-    enum Phase: String, Codable { case prepared, transferring, uploaded, responseSaved, receiptSaved, retryPending }
+    enum Phase: String, Codable { case prepared, transferring, uploaded, responseSaved, receiptSaved, retryPending
+        case pausedTerminal = "paused_terminal"
+    }
+    enum Disposition: String, Codable { case retryable, terminal, authentication, awaitingReceipt, verified }
     enum Operation: String, Codable { case request, objectPut, objectComplete }
 
     let id: String
@@ -40,6 +43,12 @@ struct CloudUploadJob: Codable, Sendable {
     var nextAttemptAt: Date?
     var responseStatus: Int?
     var responseBody: Data?
+    var responseRetryAfter: String?
+    var responseCode: String?
+    var responseDisposition: Disposition?
+    var responseAttempt: UUID?
+    var authenticationRefreshCount: Int?
+    var authenticationRefreshPending: Bool?
     var acknowledged = false
     var receiverStateID: String = ""
     var batchID: String?
@@ -55,7 +64,7 @@ struct CloudUploadJob: Codable, Sendable {
     var context: AccountSessionContext { .init(scope: owner, generation: generation) }
     var response: PushTransportResponse? {
         guard let status = responseStatus, let body = responseBody else { return nil }
-        return .init(statusCode: status, body: body)
+        return .init(statusCode: status, body: body, retryAfter: responseRetryAfter)
     }
 }
 

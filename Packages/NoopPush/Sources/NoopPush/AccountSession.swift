@@ -250,17 +250,22 @@ public final class AccountSessionController: @unchecked Sendable {
         return parsed
     }
 
-    public func authorizedSession() async throws -> AuthorizedCloudSession {
+    public func authorizedSession(refreshing rejectedContext: AccountSessionContext? = nil) async throws -> AuthorizedCloudSession {
         _ = storedSession()
         let selected: (AuthorizedCloudSession?, Task<AuthorizedCloudSession, Error>?) = try locked {
             try loadLocked()
             guard let configuration else { throw AccountAuthError.notConfigured }
             guard let session else { throw AccountAuthError.signedOut }
+            if let rejectedContext {
+                guard rejectedContext == AccountSessionContext(scope: session.scope, generation: generation) else {
+                    throw AccountAuthError.staleOperation
+                }
+            }
             if dirtyCredential {
                 do { try credentials.save(session); dirtyCredential = false; failure = nil }
                 catch { throw AccountAuthError.credentialUnavailable }
             }
-            if session.expiresAt > now().addingTimeInterval(60) {
+            if rejectedContext == nil, session.expiresAt > now().addingTimeInterval(60) {
                 return (AuthorizedCloudSession(context: .init(scope: session.scope, generation: generation),
                                                accessToken: session.accessToken, expiresAt: session.expiresAt), nil)
             }

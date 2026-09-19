@@ -5,11 +5,13 @@ struct CloudUploadPolicy: Sendable {
     var concurrency: Int
     var allowsCellular: Bool
     var allowsConstrained: Bool
+    var cancelTransfers = false
 
     static func current(wifiOnly: Bool, enabled: Bool = true) -> Self {
         let state = ProcessInfo.processInfo.thermalState
-        let limit = !enabled || state == .critical ? 0 : (state == .serious || ProcessInfo.processInfo.isLowPowerModeEnabled ? 1 : 2)
-        return .init(concurrency: limit, allowsCellular: !wifiOnly, allowsConstrained: !wifiOnly)
+        let limit = !enabled || !ResourceBudget.shared.permits(.bulk) ? 0 : 1
+        return .init(concurrency: limit, allowsCellular: !wifiOnly, allowsConstrained: !wifiOnly,
+                     cancelTransfers: !enabled || state == .critical)
     }
 }
 
@@ -26,6 +28,8 @@ actor CloudUploadQueue {
     private let policy: @Sendable () -> CloudUploadPolicy
     private let control: @Sendable (URLRequest) async throws -> PushTransportResponse
     private let now: @Sendable () -> Date
+    private let randomUnit: @Sendable () -> Double
+    private let refreshCredentials: (@Sendable (AccountSessionContext) async throws -> Void)?
     private var jobs: [String: CloudUploadJob]
     private var waiters: [String: [UUID: CheckedContinuation<PushTransportResponse, Error>]] = [:]
     private var pumping = false
@@ -34,6 +38,7 @@ actor CloudUploadQueue {
     private var reconciliationRequested = false
     private var suspended = false
     private var cancellingTasks: Set<Int> = []
+    private struct SavedOutcomeError: Error { let underlying: Error }
     private struct CleanupBatch: Hashable {
         let receiverStateID: String
         let batchID: String
@@ -44,7 +49,9 @@ actor CloudUploadQueue {
          isCurrent: @escaping Current, policy: @escaping @Sendable () -> CloudUploadPolicy,
          control: @escaping @Sendable (URLRequest) async throws -> PushTransportResponse,
          maximumBytes: Int = 1_073_741_824, now: @escaping @Sendable () -> Date = { Date() },
-         journalWriteObserver: (@Sendable (URL) throws -> Void)? = nil) throws {
+         journalWriteObserver: (@Sendable (URL) throws -> Void)? = nil,
+         randomUnit: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
+         refreshCredentials: (@Sendable (AccountSessionContext) async throws -> Void)? = nil) throws {
         guard layout.scope == context.scope else { throw CloudUploadError.staleOwner }
         self.context = context
         self.adapter = adapter
@@ -53,10 +60,20 @@ actor CloudUploadQueue {
         self.policy = policy
         self.control = control
         self.now = now
+        self.randomUnit = randomUnit
+        self.refreshCredentials = refreshCredentials
         journal = try CloudUploadJournal(directory: layout.uploadDirectory, maximumBytes: maximumBytes, afterWrite: journalWriteObserver)
         try journal.loadSelections(owner: context.scope)
         jobs = try journal.load()
         guard jobs.values.allSatisfy({ $0.owner == context.scope }) else { throw CloudUploadError.staleOwner }
+        for var job in jobs.values where job.authenticationRefreshPending == true {
+            // The refresh allowance was consumed before a possible process death. Never repeat it blindly.
+            job.phase = .pausedTerminal
+            job.authenticationRefreshPending = false
+            job.responseDisposition = .authentication
+            try journal.save(job)
+            jobs[job.id] = job
+        }
         for job in jobs.values {
             if let id = job.preparedSelectionID {
                 guard let selection = journal.selections[id], let state = journal.continuations[id],
@@ -71,6 +88,16 @@ actor CloudUploadQueue {
         guard !suspended, captured == context, isCurrent(captured) else { throw CloudUploadError.staleOwner }
     }
 
+    func pausedMessage(captured: AccountSessionContext) throws -> String? {
+        try check(captured)
+        let paused = jobs.values.filter { $0.phase == .pausedTerminal && !$0.acknowledged }
+        guard !paused.isEmpty else { return nil }
+        if paused.contains(where: { $0.responseDisposition == .authentication }) {
+            return "Cloud sync paused for authentication. Local data is retained."
+        }
+        return "Cloud sync paused for a server or receipt error. Local data is retained; retry after resolution."
+    }
+
     static func objectJobID(endpoint: String, objectID: String, receiverStateID: String = "") -> String {
         AccountScope.digest("object-v1\u{0}\(endpoint)\u{0}\(receiverStateID)\u{0}\(objectID)")
     }
@@ -79,6 +106,7 @@ actor CloudUploadQueue {
                           beforeFreshAdmission: @Sendable () throws -> Void = {}) throws {
         try check(captured)
         guard value.owner == context.scope else { throw CloudUploadError.staleOwner }
+        guard ResourceBudget.shared.permits(.bulk) else { throw CloudUploadError.retryScheduled }
         let legacyJobs = jobs.values.filter { $0.preparedSelectionID == nil }.count
         // This synchronous actor-local boundary precedes any new reservation/body publication.
         // An exact existing reservation (including interrupted publication) keeps its original
@@ -444,22 +472,28 @@ actor CloudUploadQueue {
             && job.validatedReceipt?.isValid == true && ack.durabilityReceipt == job.validatedReceipt
     }
 
-    /// The caller has matched the full ACK and decoded batch. Save this before cursor progression.
-    /// An invalid cached 2xx is made retryable instead of replaying forever.
+    /// Only a saved successful response reaches receipt validation. HTTP accounting happens once in receive.
     func validateResponse(batch: PushBatch, response: PushTransportResponse, captured: AccountSessionContext,
                           receiverStateID: String, selectionID: String? = nil) throws {
         try check(captured)
+        guard (200...299).contains(response.statusCode) else {
+            throw PushTransportException(PushFailure.http(status: response.statusCode, receiverCode: PushError.parseCode(response.body)))
+        }
         let matching = jobs.values.filter { $0.batchID == batch.batchId && $0.receiverStateID == receiverStateID
             && $0.preparedSelectionID == selectionID && $0.operation == .request && $0.responseBody == response.body && $0.responseStatus == response.statusCode }
         let ack = try? PushAck.parse(response.body)
         let valid = (200...299).contains(response.statusCode) && ack?.exactlyMatches(batch) == true
             && ack?.durabilityReceipt?.matches(batch, owner: context.scope) == true
         for var job in matching {
-            if valid { job.validatedReceipt = ack?.durabilityReceipt }
-            else { job.phase = .retryPending; job.validatedReceipt = nil; backoff(&job) }
+            if valid { job.validatedReceipt = ack?.durabilityReceipt; job.responseDisposition = .verified }
+            else if job.responseDisposition != .terminal {
+                job.phase = .pausedTerminal; job.validatedReceipt = nil
+                job.responseDisposition = .terminal; job.responseCode = "receipt_mismatch"
+                job.failures += 1; job.nextAttemptAt = nil
+            }
             try commit(job)
         }
-        guard valid, !matching.isEmpty else { throw CloudUploadError.invalidReceipt }
+        guard valid, !matching.isEmpty else { throw PushTransportException(PushFailure(code: .ackInvalid)) }
     }
 
     private func prepare(_ body: Data, job: inout CloudUploadJob) throws {
@@ -476,7 +510,7 @@ actor CloudUploadQueue {
         try check(context)
         guard !reconciling, !pumping else {
             reconciliationRequested = true
-            if policy().concurrency <= 0 { try cancelKnownTransfers() }
+            if policy().cancelTransfers { try cancelKnownTransfers() }
             return
         }
         reconciliationRequested = false
@@ -486,7 +520,6 @@ actor CloudUploadQueue {
         try check(context)
         cancellingTasks.formIntersection(tasks.map(\.identifier))
         let admission = policy()
-        let limit = max(0, min(2, admission.concurrency))
         var claimed: Set<Int> = []
         try recoverCleanupMarkers()
         for var job in jobs.values {
@@ -506,7 +539,7 @@ actor CloudUploadQueue {
                 let matching = tasks.filter { $0.description == job.taskDescription }
                 let networkAllowed = (admission.allowsCellular || job.allowsCellular == false) &&
                     (admission.allowsConstrained || job.allowsConstrained == false)
-                if let task = matching.first, claimed.count < limit, networkAllowed, mayDeliver(job),
+                if let task = matching.first, !admission.cancelTransfers, networkAllowed, mayDeliver(job),
                    !cancellingTasks.contains(task.identifier) {
                     job.taskIdentifier = task.identifier
                     claimed.insert(task.identifier)
@@ -551,58 +584,83 @@ actor CloudUploadQueue {
         for id in Array(waiters.keys) { resolve(id, result: .failure(CloudUploadError.staleOwner)) }
     }
 
-    func receive(_ task: CloudUploadTaskSnapshot, status: Int, body: Data, error: Bool) async {
+    func receive(_ task: CloudUploadTaskSnapshot, status: Int, body: Data, error: Bool, retryAfter: String? = nil) async {
         if cancellingTasks.remove(task.identifier) != nil { await pump(); return }
-        guard !suspended, isCurrent(context), let description = task.description,
+        guard reconciled, !suspended, isCurrent(context), let description = task.description,
               var job = jobs.values.first(where: { $0.taskDescription == description }),
-              job.generation == context.generation,
+              job.generation == context.generation, job.phase == .transferring,
               job.taskIdentifier == task.identifier || job.taskIdentifier == nil else { return }
         job.correlation = job.correlation ?? (job.objectID ?? job.batchID).flatMap(UUID.init(uuidString:)) ?? UUID()
         let interval = SyncPipelineTrace.begin(.uploadReceipt, correlation: job.correlation!)
         var outcome = SyncPipelineTrace.Outcome.failed
         defer { SyncPipelineTrace.end(interval, outcome: outcome) }
+        job.responseAttempt = job.attempt
         job.taskIdentifier = nil; job.attempt = nil
-        do {
-            guard !error, body.count <= PushProtocolLimits.maxAckBytes else { throw CloudUploadError.retryScheduled }
-            if job.operation == .objectPut {
-                if status == 401 || status == 403 { job.needsNewIntent = true }
-                guard (200...299).contains(status) else { throw CloudUploadError.retryScheduled }
-                job.phase = .uploaded
-                job.operation = .objectComplete
-                job.failures = 0; job.nextAttemptAt = nil
-                try commit(job) // Durable PUT completion precedes both waiter release and receiver completion.
-                resolve(job.id, result: .success(.init(statusCode: status, body: Data())))
-                outcome = .waitingForServer
-            } else if job.operation == .objectComplete {
-                job.responseStatus = status; job.responseBody = body
-                job.phase = .responseSaved
-                try commit(job) // Preserve response before interpreting receipt semantics.
-                guard (200...299).contains(status), let ack = try parseReceipt(job), ack.releasesLocalRows else {
-                    let version = job.manifest.flatMap { try? JSONDecoder().decode(PushObjectManifest.self, from: $0).protocolVersion }
-                    let code = PushError.parseCode(body, expectedVersion: version ?? PushProtocol.objectVersion)
-                    if code == "object_missing" || code == "size_mismatch" {
-                        job.operation = .objectPut; job.needsNewIntent = true
-                    }
-                    throw CloudUploadError.invalidReceipt
-                }
-                job.verifiedObjectKey = ack.objectKey; job.validatedReceipt = ack.durabilityReceipt
-                job.phase = .receiptSaved; job.failures = 0; job.nextAttemptAt = nil
-                try commit(job)
-                resolve(job.id, result: .success(.init(statusCode: status, body: body)))
-                outcome = .succeeded
-            } else {
-                job.responseStatus = status; job.responseBody = body
-                job.phase = (200...299).contains(status) || status == 415 ? .responseSaved : .retryPending
-                if job.phase == .retryPending { backoff(&job) }
-                try commit(job)
-                resolve(job.id, result: .success(.init(statusCode: status, body: body)))
-                // A saved HTTP response is not a validated application receipt.
-                outcome = .pending
-            }
-        } catch {
-            job.phase = .retryPending
+        job.responseStatus = status
+        job.responseBody = Data(body.prefix(PushProtocolLimits.maxAckBytes))
+        job.responseRetryAfter = retryAfter.map { String($0.prefix(128)) }
+        let version = job.manifest.flatMap { try? JSONDecoder().decode(PushObjectManifest.self, from: $0).protocolVersion }
+        job.responseCode = PushError.parseCode(body, expectedVersion: version ?? PushProtocol.version)
+        var result: Result<PushTransportResponse, Error>
+        let response = PushTransportResponse(statusCode: status, body: body, retryAfter: job.responseRetryAfter)
+        if (error || status == 0) && body.count <= PushProtocolLimits.maxAckBytes {
+            job.responseDisposition = .retryable; job.phase = .retryPending
             backoff(&job)
-            do { try commit(job) } catch { /* Keep original durable state and source rows on storage failure. */ }
+            result = .failure(PushTransportException(PushFailure(code: .networkIO)))
+        } else if body.count > PushProtocolLimits.maxAckBytes {
+            pause(&job, code: "response_too_large")
+            result = .failure(PushTransportException(PushFailure(code: .ackInvalid)))
+        } else if !(200...299).contains(status) {
+            let failure = PushFailure.http(status: status, receiverCode: job.responseCode)
+            if status == 401 || status == 403 {
+                job.responseDisposition = .authentication
+                if (job.authenticationRefreshCount ?? 0) == 0 {
+                    job.authenticationRefreshCount = 1
+                    if job.operation == .objectPut {
+                        job.needsNewIntent = true
+                        job.phase = .retryPending
+                        backoff(&job)
+                    } else if refreshCredentials != nil {
+                        job.authenticationRefreshPending = true
+                        job.phase = .retryPending
+                        backoff(&job)
+                    } else { pause(&job, authentication: true) }
+                } else { pause(&job, authentication: true) }
+            } else if failure.retryable {
+                job.responseDisposition = .retryable; job.phase = .retryPending
+                backoff(&job)
+            } else if status == 415 && job.operation == .request {
+                // The existing negotiated identity representation is an explicit compatible re-encode.
+                job.phase = .responseSaved; job.responseDisposition = .terminal
+                job.failures += 1; job.nextAttemptAt = nil
+            } else { pause(&job) }
+            result = job.operation == .request ? .success(response) : .failure(PushTransportException(failure))
+        } else if job.operation == .objectPut {
+            job.phase = .uploaded; job.operation = .objectComplete
+            job.responseDisposition = .awaitingReceipt
+            job.failures = 0; job.nextAttemptAt = nil
+            result = .success(response); outcome = .waitingForServer
+        } else if job.operation == .objectComplete {
+            if let ack = try? parseReceipt(job), ack.releasesLocalRows {
+                job.verifiedObjectKey = ack.objectKey; job.validatedReceipt = ack.durabilityReceipt
+                job.phase = .receiptSaved; job.responseDisposition = .verified
+                job.failures = 0; job.nextAttemptAt = nil
+                result = .success(response); outcome = .succeeded
+            } else {
+                pause(&job, code: "receipt_mismatch")
+                result = .failure(PushTransportException(PushFailure(code: .ackInvalid)))
+            }
+        } else {
+            job.phase = .responseSaved; job.responseDisposition = .awaitingReceipt
+            job.nextAttemptAt = nil
+            result = .success(response); outcome = .pending
+        }
+        do {
+            try commit(job)
+            resolve(job.id, result: result)
+        } catch {
+            // Disk failure is not a second HTTP response. Stop admission until a fresh reconciliation.
+            reconciled = false
             resolve(job.id, result: .failure(error))
         }
         await pump()
@@ -613,6 +671,7 @@ actor CloudUploadQueue {
         if !reconciled { try await reconcile() }
         try check(captured)
         if let job = jobs[id] {
+            if job.phase == .pausedTerminal { throw pausedFailure(job) }
             if job.phase == .receiptSaved || (job.phase == .responseSaved && job.operation == .request),
                let response = job.response { return response }
             if acceptUploaded, job.phase == .uploaded || job.operation == .objectComplete {
@@ -657,6 +716,17 @@ actor CloudUploadQueue {
             defer { SyncPipelineTrace.end(interval, outcome: outcome) }
             do {
                 try check(context)
+                guard ResourceBudget.shared.permits(.bulk) else { throw CloudUploadError.retryScheduled }
+                if job.authenticationRefreshPending == true {
+                    job.authenticationRefreshPending = false
+                    job.phase = .pausedTerminal
+                    try commit(job) // Reserve exactly one refresh before suspending for credentials.
+                    guard let refreshCredentials else { throw pausedFailure(job) }
+                    try await refreshCredentials(context)
+                    try check(context)
+                    job.phase = .retryPending
+                    try commit(job)
+                }
                 if job.operation == .objectPut && (job.needsNewIntent || job.signedExpiry.map({ $0 <= now().addingTimeInterval(30) }) == true) {
                     job = try await renewIntent(job)
                 }
@@ -699,8 +769,23 @@ actor CloudUploadQueue {
                 adapter.resume(task.identifier)
                 active += 1; outcome = .waitingForOS
             } catch {
-                job.phase = .retryPending; job.attempt = nil; job.taskIdentifier = nil
-                backoff(&job)
+                if let saved = error as? SavedOutcomeError {
+                    resolve(id, result: .failure(saved.underlying))
+                    continue
+                }
+                if !reconciled {
+                    resolve(id, result: .failure(error))
+                    break
+                }
+                if (error as? CloudUploadError) == .retryScheduled {
+                    resolve(id, result: .failure(error))
+                    continue
+                }
+                job.attempt = nil; job.taskIdentifier = nil
+                if job.phase != .pausedTerminal {
+                    job.phase = .retryPending
+                    backoff(&job)
+                }
                 try? commit(job)
                 resolve(id, result: .failure(error))
             }
@@ -712,6 +797,7 @@ actor CloudUploadQueue {
 
     private func renewIntent(_ original: CloudUploadJob) async throws -> CloudUploadJob {
         guard let manifest = original.manifest, let objectID = original.objectID else { throw CloudUploadError.corruptJournal }
+        let originalManifest = try JSONDecoder().decode(PushObjectManifest.self, from: manifest)
         var request = URLRequest(url: try apiURL(original, completion: false, intent: true))
         request.httpMethod = "POST"; request.httpBody = manifest
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -721,10 +807,39 @@ actor CloudUploadQueue {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let response = try await control(request)
         try check(context)
-        guard (200...299).contains(response.statusCode) else { throw CloudUploadError.retryScheduled }
-        let originalManifest = try JSONDecoder().decode(PushObjectManifest.self, from: manifest)
-        let intent = try PushObjectIntent.parse(response.body, expectedObjectId: objectID, expectedVersion: originalManifest.protocolVersion)
-        guard intent.duplicate || intent.objectKey == original.objectKey else { throw CloudUploadError.invalidReceipt }
+        guard (200...299).contains(response.statusCode) else {
+            var job = original
+            job.responseStatus = response.statusCode
+            job.responseBody = Data(response.body.prefix(PushProtocolLimits.maxAckBytes))
+            job.responseRetryAfter = response.retryAfter
+            job.responseCode = PushError.parseCode(response.body, expectedVersion: originalManifest.protocolVersion)
+            let failure = PushFailure.http(status: response.statusCode, receiverCode: job.responseCode)
+            if failure.code == .httpAuth, (job.authenticationRefreshCount ?? 0) == 0, refreshCredentials != nil {
+                job.authenticationRefreshCount = 1
+                job.authenticationRefreshPending = true
+                job.responseDisposition = .authentication
+                job.phase = .retryPending
+                backoff(&job)
+            } else if failure.retryable {
+                job.responseDisposition = .retryable
+                job.phase = .retryPending
+                backoff(&job)
+            } else { pause(&job, authentication: failure.code == .httpAuth) }
+            try commit(job)
+            throw SavedOutcomeError(underlying: PushTransportException(failure))
+        }
+        let intent: PushObjectIntent
+        do {
+            intent = try PushObjectIntent.parse(response.body, expectedObjectId: objectID, expectedVersion: originalManifest.protocolVersion)
+            guard intent.duplicate || intent.objectKey == original.objectKey else { throw CloudUploadError.invalidReceipt }
+        } catch {
+            var job = original
+            job.responseStatus = response.statusCode
+            job.responseBody = Data(response.body.prefix(PushProtocolLimits.maxAckBytes))
+            pause(&job, code: "receipt_mismatch")
+            try commit(job)
+            throw SavedOutcomeError(underlying: PushTransportException(PushFailure(code: .ackInvalid)))
+        }
         var job = original
         job.signedURL = intent.uploadUrl; job.signedHeaders = intent.requiredHeaders
         job.signedExpiry = Self.expiry(intent.expiresAt); job.needsNewIntent = false
@@ -776,10 +891,61 @@ actor CloudUploadQueue {
         return ack
     }
 
-    private func commit(_ job: CloudUploadJob) throws { try journal.save(job); jobs[job.id] = job }
+    private func commit(_ job: CloudUploadJob) throws {
+        do { try journal.save(job); jobs[job.id] = job }
+        catch {
+            // A write can fail after rename/fsync. Reload its recorded outcome rather than applying
+            // the same response to stale in-memory counters. Reconciliation must re-persist first.
+            reconciled = false
+            if let saved = try? journal.load(), saved.values.allSatisfy({ $0.owner == context.scope }) {
+                jobs = saved
+            }
+            throw error
+        }
+    }
+    private func pausedFailure(_ job: CloudUploadJob) -> PushTransportException {
+        if job.responseCode == "receipt_mismatch" || job.responseCode == "response_too_large" {
+            return PushTransportException(PushFailure(code: .ackInvalid))
+        }
+        return PushTransportException(PushFailure.http(status: job.responseStatus ?? 422, receiverCode: job.responseCode))
+    }
+    private func pause(_ job: inout CloudUploadJob, code: String? = nil, authentication: Bool = false) {
+        job.phase = .pausedTerminal
+        job.responseDisposition = authentication ? .authentication : .terminal
+        if let code { job.responseCode = code }
+        job.failures += 1; job.nextAttemptAt = nil
+        job.validatedReceipt = nil
+    }
+
+    func resumePaused(jobID: String, captured: AccountSessionContext) async throws {
+        try check(captured)
+        guard var job = jobs[jobID], job.phase == .pausedTerminal else { throw CloudUploadError.invalidRequest }
+        job.phase = .retryPending; job.nextAttemptAt = nil
+        job.responseDisposition = nil; job.responseStatus = nil; job.responseBody = nil
+        job.responseRetryAfter = nil; job.responseCode = nil
+        job.authenticationRefreshCount = 0; job.authenticationRefreshPending = false
+        try commit(job)
+        await pump()
+    }
+
     private func backoff(_ job: inout CloudUploadJob) {
-        job.failures = min(job.failures + 1, 10)
-        job.nextAttemptAt = now().addingTimeInterval(min(3600, 5 * pow(2, Double(job.failures))))
+        job.failures += 1
+        let ceiling = min(3600, 5 * pow(2, Double(min(job.failures, 10))))
+        let jitter = min(1, max(0, randomUnit())) * ceiling
+        let date = now()
+        var retryDate = date.addingTimeInterval(jitter)
+        if let value = job.responseRetryAfter {
+            if let seconds = Double(value), seconds.isFinite, seconds >= 0 {
+                retryDate = max(retryDate, date.addingTimeInterval(seconds))
+            } else {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = TimeZone(secondsFromGMT: 0)
+                formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
+                if let specified = formatter.date(from: value) { retryDate = max(retryDate, specified) }
+            }
+        }
+        job.nextAttemptAt = retryDate
     }
     private func resolve(_ id: String, result: Result<PushTransportResponse, Error>) {
         for waiter in waiters.removeValue(forKey: id)?.values ?? [:].values { waiter.resume(with: result) }

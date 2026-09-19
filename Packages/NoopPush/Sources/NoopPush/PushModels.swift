@@ -366,10 +366,12 @@ public struct PushBatch: Sendable {
 public struct PushTransportResponse: Sendable {
     public let statusCode: Int
     public let body: Data
+    public let retryAfter: String?
 
-    public init(statusCode: Int, body: Data) {
+    public init(statusCode: Int, body: Data, retryAfter: String? = nil) {
         self.statusCode = statusCode
         self.body = body
+        self.retryAfter = retryAfter
     }
 }
 

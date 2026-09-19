@@ -7,6 +7,7 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
     let identifier: String
     let queue: CloudUploadQueue
     let progressDirectory: URL
+    let controlSession: URLSession
     private let adapter: CloudUploadURLSession
     private let invalidation = CloudUploadInvalidation()
     private let lifecycleLock = NSLock()
@@ -36,12 +37,14 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
         adapter = CloudUploadURLSession(identifier: identifier, configuration: sessionConfiguration)
         let adapter = self.adapter
         let controlSession = CloudPushTransport.makeSession()
+        self.controlSession = controlSession
         do { queue = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
             authorize: authorize, isCurrent: isCurrent, policy: policy, control: { request in
                 let (data, response) = try await controlSession.data(for: request)
                 guard data.count <= PushProtocolLimits.maxAckBytes else { throw CloudUploadError.responseTooLarge }
-                return .init(statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0, body: data)
-            }, now: now)
+                return .init(statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0, body: data,
+                             retryAfter: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After"))
+            }, now: now, refreshCredentials: { try await CloudAuthClient.refreshRejectedCredentials($0) })
         } catch {
             let identifier = self.identifier
             let completion = self.completion
@@ -61,8 +64,8 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
         eventTask = Task {
             for await event in adapter.events {
                 switch event {
-                case let .completed(task, status, body, error):
-                    await queue.receive(task, status: status, body: body, error: error)
+                case let .completed(task, status, body, error, retryAfter):
+                    await queue.receive(task, status: status, body: body, error: error, retryAfter: retryAfter)
                 case .finishedEvents:
                     // Serial stream consumption guarantees receipt writes finish before OS completion.
                     completion.finish()

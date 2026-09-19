@@ -66,4 +66,8 @@ enum CloudAuthClient {
         return try await controller.authorizedSession()
     }
     static func validAccessToken() async throws -> String { try await authorizedSession().accessToken }
+    static func refreshRejectedCredentials(_ context: AccountSessionContext) async throws {
+        ensureConfiguration()
+        _ = try await controller.authorizedSession(refreshing: context)
+    }
 }

@@ -31,7 +31,7 @@ enum CloudPushPeriodicScheduler {
     ///   - interval: minimum seconds between runs (default 5 min)
     ///   - reason: label for diagnostics (e.g. "live-hr", "timer", "imu")
     static func pushIfDue(db: any DatabaseWriter, interval: TimeInterval? = nil, reason: String = "periodic") {
-        guard CloudPushSettings.ready else { return }
+        guard CloudPushSettings.ready, ResourceBudget.shared.permits(.bulk) else { return }
         let interval = interval ?? effectiveInterval()
         guard interval > 0 else { return }
 

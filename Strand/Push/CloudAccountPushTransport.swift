@@ -13,7 +13,8 @@ struct CloudAccountPushTransport: PushTransport {
     init(endpoint: PushValidEndpoint, authorization: AuthorizedCloudSession,
          dependentAdmission: SyncEngine.DependentStageAdmission? = nil) throws {
         try self.init(endpoint: endpoint, context: authorization.context, accessToken: authorization.accessToken,
-                      session: CloudPushTransport.makeSession(), isCurrent: { CloudAuthClient.isCurrent($0) },
+                      session: CloudPushBackgroundRuntime.current(for: authorization.context).controlSession,
+                      isCurrent: { CloudAuthClient.isCurrent($0) },
                       dependentAdmission: dependentAdmission)
         base.requirePreparedSelections()
     }

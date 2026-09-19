@@ -39,7 +39,7 @@ enum CloudPushWorker {
     ) async -> CloudPushRunOutcome {
         var traceOutcome = SyncPipelineTrace.Outcome.pending
         defer { SyncPipelineTrace.event(.uploadScheduling, outcome: traceOutcome) }
-        guard let endpoint = CloudPushSettings.enabledEndpoint() else { return .deferred }
+        guard ResourceBudget.shared.permits(.bulk), let endpoint = CloudPushSettings.enabledEndpoint() else { return .deferred }
         guard let binding = CloudPushCaptureBindings.binding(for: db),
               let initial = CloudAuthClient.currentContext(), binding.scope == initial.scope else {
             traceOutcome = .authenticationRequired
@@ -167,7 +167,8 @@ enum CloudPushWorker {
                         let id = try await accountTransport.base.preparedSelectionID(batchID: batchID, sourceID: binding.sourceID)
                         try await committer.commit(value, preparedSelectionID: id)
                     },
-                    prepareSelection: { try admission.check(); try await accountTransport.base.prepareSelection($0, progressVersion: version) })
+                    prepareSelection: { try admission.check(); try await accountTransport.base.prepareSelection($0, progressVersion: version) },
+                    allowsPreparation: { ResourceBudget.shared.permits(.bulk) })
             }
             _ = try await CloudPushProgressRecovery.recover(admission: admission,
                 endpoint: endpoint.url, receiverStateID: capabilities.receiverStateId,
@@ -201,6 +202,13 @@ enum CloudPushWorker {
         let cycleCompleted = run.nextDeviceIndex == 0
         CloudPushSettings.saveCycleNeedsAnotherPass(namespace: namespace, needed: cycleCompleted ? false : more)
 
+        if let runtime = try? CloudPushBackgroundRuntime.current(for: initial),
+           let message = try? await runtime.queue.pausedMessage(captured: initial) {
+            CloudPushSettings.recordScopedRun(context: initial, state: .failed,
+                message: message, batches: run.acceptedBatches, records: run.acceptedRecords)
+            if (try? admission.check()) != nil { await markOwed?() }
+            return .terminalFailure
+        }
         if run.hasRetryableFailure || preparedBlocked {
             traceOutcome = .failed
             CloudPushSettings.recordScopedRun(context: initial, state: .retrying,
@@ -238,6 +246,7 @@ enum CloudPushWorker {
     }
 
     private static func validate(_ admission: SyncEngine.DependentStageAdmission?) async -> Bool {
+        guard ResourceBudget.shared.permits(.bulk) else { return false }
         guard let admission else { return true }
         guard await admission.validate() else { return false }
         do { try admission.checkBoundary(); return true }
