@@ -110,6 +110,7 @@ async function applyReplacement({
       startTsLt: Number(bounds.endExclusive),
       keepKeys: keys,
       stream: header.stream,
+      sourceId: header.sourceId,
       kind: header.stream === 'sleepSession' ? 'sleep' : 'workout',
     });
   }
@@ -152,7 +153,7 @@ export async function deleteReplacementRows(rest: SupabaseRest, table: string, f
   if (table === 'noop_event_labels') {
     const rows = await rest.select(
       'noop_event_labels',
-      `user_id=eq.${filter.userId}&device_id=eq.${filter.deviceId}&start_ts=gte.${filter.startTsGte}&start_ts=lt.${filter.startTsLt}&select=id,external_id`,
+      `user_id=eq.${filter.userId}&device_id=eq.${filter.deviceId}&source_id=eq.${filter.sourceId}&start_ts=gte.${filter.startTsGte}&start_ts=lt.${filter.startTsLt}&select=id,external_id`,
     );
     for (const row of rows) {
       if (!filter.keepKeys.has(String(row.external_id))) {
