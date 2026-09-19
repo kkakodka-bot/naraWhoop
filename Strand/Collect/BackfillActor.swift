@@ -41,6 +41,7 @@ struct BackfillMainHooks: Sendable {
     /// synchronous main-actor body: one batch cannot suspend between its ordered observations.
     var chunkInfo: (@MainActor @Sendable ([BackfillChunkInfo]) -> Void)? = nil
     var onQuarantined: @Sendable (Int) async -> Void = { _ in }
+    var opticalSink: (@Sendable (String, [[UInt8]]) async -> Bool)? = nil
 }
 
 /// Thread-safe handoff for BLE notify-path frame yields into the actor pipeline.
@@ -205,6 +206,7 @@ actor BackfillActor {
                 guard sink.deliveryIsCurrent else { return false }
                 return imuStore.persistHistoricalImu(deviceId: deviceId, records: records)
             },
+            opticalSink: hooks.opticalSink,
             onChunk: { decoded, console in
                 guard sink.deliveryIsCurrent else { return }
                 await hooks.onChunk(decoded, console)

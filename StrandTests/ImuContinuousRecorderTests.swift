@@ -349,7 +349,7 @@ final class ImuContinuousRecorderTests: XCTestCase {
 
     // MARK: - Acceptance 3: disconnect gap is real; verified history repairs; no duplicates
 
-    func testDisconnectGapIsReportedAndLateHistoryRepairsWithoutDuplicates() {
+    func testDisconnectGapRemainsMissingWhenHistoryArrives() {
         let recorder = makeRecorder()
         recorder.setEnabled(true)
         recorder.ingestFrame(imuFrame(ts: harness.nowSec), isOffload: false,
@@ -372,17 +372,17 @@ final class ImuContinuousRecorderTests: XCTestCase {
         XCTAssertEqual(recorder.coverage.coveredSeconds, 3)
         XCTAssertEqual(recorder.coverage.gapCount, 1, "the 4-second disconnect shows as one gap")
 
-        // The strap retained part of the gap and offloads it later: verified history repairs it.
+        // Historical delivery must never be counted as live capture or repair the disconnect.
         let repairTs = harness.nowSec - 3
         recorder.ingestFrame(imuFrame(ts: repairTs), isOffload: true, receivedAtMs: harness.nowMs)
         recorder.refreshCoverage()
-        XCTAssertEqual(recorder.coverage.coveredSeconds, 4)
+        XCTAssertEqual(recorder.coverage.coveredSeconds, 3)
 
         // The same second arriving twice (live + replay) is written once and counted.
         recorder.ingestFrame(imuFrame(ts: repairTs), isOffload: true, receivedAtMs: harness.nowMs)
         recorder.refreshCoverage()
-        XCTAssertEqual(recorder.coverage.coveredSeconds, 4, "no duplicate seconds")
-        XCTAssertEqual(recorder.status.duplicatesSkipped, 1)
+        XCTAssertEqual(recorder.coverage.coveredSeconds, 3, "history never fills a live gap")
+        XCTAssertEqual(recorder.status.duplicatesSkipped, 0)
     }
 
     func testSameSecondDifferentBytesSurfacesAConflictAndKeepsFirstWrite() throws {
@@ -390,7 +390,7 @@ final class ImuContinuousRecorderTests: XCTestCase {
         recorder.setEnabled(true)
         let ts = harness.nowSec
         recorder.ingestFrame(imuFrame(ts: ts, seed: 1), isOffload: false, receivedAtMs: harness.nowMs)
-        recorder.ingestFrame(imuFrame(ts: ts, seed: 2), isOffload: true, receivedAtMs: harness.nowMs)
+        recorder.ingestFrame(imuFrame(ts: ts, seed: 2), isOffload: false, receivedAtMs: harness.nowMs)
         XCTAssertEqual(recorder.status.conflicts, 1)
         XCTAssertTrue(harness.logs.contains { $0.contains("CONFLICT") })
         let segments = store.exportSegments(
@@ -440,6 +440,38 @@ final class ImuContinuousRecorderTests: XCTestCase {
         XCTAssertEqual(recorder.status.phase, .stopSent, "never claims stopped while packets flow")
     }
 
+
+    func testHistoricalTypeOutsideOffloadAndCorruptOrStaleLiveFramesAreRejected() {
+        let recorder = makeRecorder()
+        recorder.setEnabled(true)
+        let frame = imuFrame(ts: harness.nowSec)
+        var historical = frame; historical[8] = 47; historical[9] = 21
+        recorder.ingestFrame(stampWhoop5Crc(historical), isOffload: false, receivedAtMs: harness.nowMs)
+        var corrupt = frame; corrupt[100] ^= 1
+        recorder.ingestFrame(corrupt, isOffload: false, receivedAtMs: harness.nowMs)
+        recorder.ingestFrame(imuFrame(ts: harness.nowSec - 60), isOffload: false, receivedAtMs: harness.nowMs)
+        recorder.ingestFrame(imuFrame(ts: harness.nowSec + 60), isOffload: false, receivedAtMs: harness.nowMs)
+        recorder.refreshCoverage()
+        XCTAssertEqual(recorder.coverage.coveredSeconds, 0)
+        XCTAssertNil(recorder.status.lastLivePacketAt)
+        recorder.ingestFrame(frame, isOffload: false, receivedAtMs: harness.nowMs)
+        recorder.refreshCoverage()
+        XCTAssertEqual(recorder.coverage.coveredSeconds, 1)
+    }
+
+    func testEnrolledStrapDefaultsOnButExplicitOffIsPreserved() {
+        harness.deviceId = BluetoothOpticalRecorder.enrolledDeviceId
+        let recorder = makeRecorder()
+        recorder.handleBonded5MG()
+        XCTAssertTrue(recorder.status.enabled)
+        XCTAssertEqual(harness.starts, 1)
+        recorder.setEnabled(false)
+        let relaunched = makeRecorder()
+        relaunched.handleBonded5MG()
+        XCTAssertFalse(relaunched.status.enabled)
+        XCTAssertEqual(harness.starts, 1)
+    }
+
     // MARK: - Storage policy
 
     func testRetentionEvictsOldestSegmentAndLateHistoryCannotRegrowIt() throws {
@@ -480,7 +512,7 @@ final class ImuContinuousRecorderTests: XCTestCase {
         // Late history for an evicted second is refused — evicted stays evicted.
         recorder.ingestFrame(noisyFrame(ts: firstBucketStart), isOffload: true,
                              receivedAtMs: harness.nowMs)
-        XCTAssertEqual(recorder.status.droppedAfterEviction, 1)
+        XCTAssertEqual(recorder.status.droppedAfterEviction, 0, "history is excluded before the retention layer")
         XCTAssertEqual(store.segmentInventory().count, 1)
     }
 

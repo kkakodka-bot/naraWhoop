@@ -1004,6 +1004,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// work in the old collector; retry via drainCaptureAfterAccountChange(), never a new store.
     private(set) var accountChangeDrainTask: Task<Bool, Never>?
     private(set) var ingestStore: WhoopStore?
+    let opticalRecorder = BluetoothOpticalRecorder()
+    let liveBluetoothDiagnostics = LiveBluetoothDiagnostics()
+    private var opticalCommandGate = false
     /// Admits the raw-data command family to the 5/MG send() allowlist for the duration of the
     /// recorder's OWN start/stop sends (and the unexpected-producer fail-safe's). Held only around
     /// those sends; never left on — a default install can never form these bytes.
@@ -1882,6 +1885,9 @@ public final class BLEManager: NSObject, ObservableObject {
                     guard actor?.deliverySessionIsCurrent == true else { return }
                     self?.afterBackfillIngest()
                 }
+            },
+            opticalSink: { [weak self] deviceId, frames in
+                await MainActor.run { self?.opticalRecorder.persistHistory(deviceId: deviceId, frames: frames) ?? false }
             },
             chunkInfo: { [weak self, weak actor] events in
                 guard let self, actor?.deliverySessionIsCurrent == true else { return }
@@ -3417,7 +3423,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// are appended; non-IMU frames return immediately. WHOOP 4.0 live IMU still flows through
     /// `Collector.recordGroundTruthImu` on the `collector?.ingest` path.
     private func recordGroundTruthImuFrame(_ frame: [UInt8]) {
-        guard Whoop5RawImu.rawColumns(frame) != nil,
+        guard ImuContinuousRecorder.isFreshLiveFrame(frame, isOffload: false,
+            receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000)),
+              Whoop5RawImu.rawColumns(frame) != nil,
               verifyFrame(frame, family: .whoop5).crc32OK == true else { return }
         _ = imuSessionStore.append(deviceId: deviceId, frame: frame,
             receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000))
@@ -3462,7 +3470,14 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         let isSensorOpcode = command == .startRawData
             || command == .stopRawData || command == .toggleIMUMode
-        if isSensorOpcode && !sensorControlWriteAuthorized {
+        let continuousSensorWrite = rawDataCommandGate
+            && deviceId == BluetoothOpticalRecorder.enrolledDeviceId
+            && !sensorAcquisition.isActive && !sensorAcquisition.cleanupRequired
+            && !sensorCommandLaneTaintedUntilReconnect
+            && ((command == .startRawData && payload == [0x01])
+                || (command == .stopRawData && payload == [0x01])
+                || (command == .toggleIMUMode && (payload == [0x01, 0x01] || payload == [0x01, 0x00])))
+        if isSensorOpcode && !sensorControlWriteAuthorized && !continuousSensorWrite {
             log("send(\(command.label)) blocked — stock-sensor opcodes are controller-owned")
             return false
         }
@@ -6966,6 +6981,7 @@ public final class BLEManager: NSObject, ObservableObject {
         collector?.ingestStandardHR(hr: m.hr, rr: m.rr, contact: m.contact,
                                     family: router.family,
                                     at: Int(Date().timeIntervalSince1970))
+        liveBluetoothDiagnostics.receiveHeartRate(data, at: now)
     }
 }
 
@@ -7223,6 +7239,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             central.cancelPeripheralConnection(peripheral)
             return
         }
+        liveBluetoothDiagnostics.reset()
         cancelScanFallback()
         cancelPendingConnectProbe()   // #730: the connect resolved; no pending-connect log needed
         failedConnectAttempts = 0   // a successful connect clears the reconnect backoff (#414)
@@ -7789,6 +7806,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     /// notifications are re-routed without user interaction.
     public func centralManager(_ central: CBCentralManager,
                                willRestoreState dict: [String: Any]) {
+        liveBluetoothDiagnostics.reset()
         if onboardingSetup.required, onboardingSetup.phase != .ready {
             // A restored peripheral is not fresh evidence that the user approved
             // pairing. Resume only through the setup screen's explicit retry.

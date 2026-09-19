@@ -384,6 +384,7 @@ struct LiquidTodayView: View {
                 liquidRefreshIndicator   // grows in the revealed space; a vessel filling with the pull
 
                 VStack(alignment: .leading, spacing: 12) {
+                    LiveBluetoothDiagnosticCard()
                     scene
                     ServerScoreStatusNote(state: serverScores.state, day: selectedDayKey)
                     ExperimentEventRecorder()

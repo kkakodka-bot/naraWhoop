@@ -17,14 +17,11 @@ import WhoopProtocol
 ///    command acknowledgment never counts as recording: the `recording` phase is entered only
 ///    after the first valid decoded frame. The requested state persists across relaunch/reconnect
 ///    and re-arms on every new bonded link. Seconds with no data stay absent — coverage is
-///    reported, never claimed. Delayed history is incorporated only when the strap actually
-///    retained and re-sent it, deduplicated by strap timestamp; a same-second payload that
-///    disagrees with what is already stored is surfaced as a conflict, not silently merged.
-///  - OFF: close the current window immediately (late strap history inside the window's bounds can
-///    still repair it — the strap timestamp decides), and request the hardware stop
-///    (STOP_RAW_DATA + TOGGLE_IMU_MODE [0x01,0x00]) UNCONDITIONALLY — never gated on
-///    `noopRawCaptureEnabled`, so the retention setting cannot silently keep this producer
-///    running. If no link is up, the owed stop is persisted and sent on the next bond; the
+///    reported, never claimed. History never repairs this live-only recorder; only CRC-valid
+///    realtime packets close to receive time count. Same-second conflicts keep the first copy.
+///  - OFF: close the current window immediately; history never repairs its gaps. Request the stop
+///    (TOGGLE_IMU_MODE [0x01,0x00], plus STOP_RAW_DATA when no optical owner remains).
+///    Raw-frame retention never keeps the IMU producer running. If no link is up, the owed stop is persisted and sent on the next bond; the
 ///    recorder never re-arms while off.
 ///
 /// Local-only by construction: the continuous store's directory/registry are separate from the
@@ -323,6 +320,12 @@ final class ImuContinuousRecorder: ObservableObject {
         guard !accountShutdown else { return }
         let deviceId = transport.activeDeviceId()
         guard !deviceId.isEmpty else { return }
+        // Default only the explicitly enrolled research strap; a saved Off remains an opt-out.
+        if deviceId == BluetoothOpticalRecorder.enrolledDeviceId,
+           defaults.object(forKey: Self.enabledKey) == nil {
+            setEnabled(true)
+            return
+        }
         if !enabled {
             // Never re-arm while Off — but an owed stop is sent before anything else.
             if stopPending {
@@ -367,11 +370,22 @@ final class ImuContinuousRecorder: ObservableObject {
     /// Every reassembled 5/MG frame, live or offload replay. Verification is the decoder's full
     /// length + sample-count gate — a command acknowledgment or a same-type non-IMU frame never
     /// counts as a packet.
+    /// Historical record types are excluded even when no app-owned offload is active: another
+    /// BLE client may trigger history. Reject stale/future samples and corrupt frames as well.
+    nonisolated static func isFreshLiveFrame(_ frame: [UInt8], isOffload: Bool, receivedAtMs: Int64) -> Bool {
+        guard !isOffload, frame.count > 9, frame[8] == 43 || frame[8] == 51,
+              verifyFrame(frame, family: .whoop5).ok,
+              let ts = Whoop5RawImu.baseTs(frame), Whoop5RawImu.rawColumns(frame) != nil else { return false }
+        let ageMs = receivedAtMs - Int64(ts) * 1_000
+        return ageMs >= -2_000 && ageMs <= 5_000
+    }
+
     func ingestFrame(_ frame: [UInt8], isOffload: Bool, receivedAtMs: Int64) {
         guard !accountShutdown else { return }
         // Historical IMU is owned by the Backfiller session sink — skip decode entirely while disabled.
         if !enabled && isOffload { return }
-        guard let decoded = Whoop5RawImu.decodeColumns(frame) else { return }
+        guard Self.isFreshLiveFrame(frame, isOffload: isOffload, receivedAtMs: receivedAtMs),
+              let decoded = Whoop5RawImu.decodeColumns(frame) else { return }
         let ts64 = Int64(decoded.baseTs)
         if !isOffload {
             lastLivePacketAt = now()
@@ -600,7 +614,9 @@ final class ImuContinuousRecorder: ObservableObject {
         }
         let meta: [String: Any] = [
             "generator": "NOOP continuous IMU recorder",
-            "format": 1,
+            "format": 2,
+            "transport_provenance": "live_only",
+            "historical_repair_enabled": false,
             "exported_at": Self.iso8601(now()),
             "device_id": transport.activeDeviceId(),
             "sample_rate_hz": ImuSessionFileStore.sampleRate,

@@ -17,6 +17,7 @@ import WhoopProtocol
 struct TestCentreView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var live: LiveState
+    @AppStorage(LiveBluetoothDiagnostics.visibilityKey) private var showLiveBluetoothDiagnostic = true
 
     /// The Report orchestrator: assembles the redacted bundle, runs the mandatory review gate, shares.
     @StateObject private var report = TestCentreReport()
@@ -90,10 +91,12 @@ struct TestCentreView: View {
         ScreenScaffold(title: "Test Centre",
                        subtitle: "Turn on a test for the thing that's wrong, wear the strap, then tap Report. All on \(Platform.deviceNounPhrase).") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                developerOptionsCard
                 domainModesCard.staggeredAppear(index: 0)
                 syncStatusCard.staggeredAppear(index: 1)
                 diagnosticToolsCard.staggeredAppear(index: 2)
                 if is5MG { rawDataCollectorCard.staggeredAppear(index: 3) }
+                if is5MG { BluetoothOpticalRecorderCard(recorder: model.ble.opticalRecorder) }
                 if is5MG { ImuRecorderCard(recorder: model.ble.imuRecorder).staggeredAppear(index: 3) }
                 if is5MG { fiveMGProtocolDiagnosticsCard.staggeredAppear(index: 4) }
                 exportCard.staggeredAppear(index: 3)
@@ -146,6 +149,17 @@ struct TestCentreView: View {
                     if idx > 0 { Divider().overlay(StrandPalette.hairline) }
                     TestModeRow(mode: mode, report: report)
                 }
+            }
+        }
+    }
+
+    private var developerOptionsCard: some View {
+        NoopCard {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                Text("Developer Options").font(StrandFont.subhead)
+                Toggle("Show live Bluetooth diagnostic", isOn: $showLiveBluetoothDiagnostic)
+                Text("Show live streams, backfill chunks and incoming Bluetooth throughput at the top of Today. Hiding this panel does not stop collection.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
             }
         }
     }
