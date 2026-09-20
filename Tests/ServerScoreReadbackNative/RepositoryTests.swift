@@ -50,8 +50,10 @@ final class ServerScoreRepositoryNativeTests: XCTestCase {
         let revision = repo.state.revision
         XCTAssertEqual(repo.state.days["2026-09-18"]?.snapshot?.daily?[.hrv], 42)
         await repo.refreshVisibleDays()
-        XCTAssertGreaterThan(repo.state.revision, revision)
+        XCTAssertEqual(repo.state.revision, revision, "an unchanged result must not invalidate content projections")
         XCTAssertEqual(repo.state.days.count, 1)
+        let count = await feed.days.count
+        XCTAssertEqual(count, 1, "a fresh repeated screen request should not call the receiver")
     }
     func testMidnightRefreshUsesNewCalendarDay() async throws {
         _ = try identity()

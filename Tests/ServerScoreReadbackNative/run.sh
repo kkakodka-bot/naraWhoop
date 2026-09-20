@@ -35,7 +35,8 @@ xcrun swiftc -D SERVER_SCORE_NATIVE_TESTS -D SERVER_SCORE_REPOSITORY_TESTS \
   StrandTests/ServerScoreContentReadyTraceTests.swift \
   StrandTests/ServerScoreReadTransportTests.swift StrandTests/ServerScoreLocalComputePolicyTests.swift \
   Tests/ServerScoreReadbackNative/RepositoryFixtures.swift \
-  Tests/ServerScoreReadbackNative/RepositoryTests.swift Tests/ServerScoreReadbackNative/main.swift \
+  Tests/ServerScoreReadbackNative/RepositoryTests.swift Tests/ServerScoreReadbackNative/RefreshTests.swift \
+  Tests/ServerScoreReadbackNative/main.swift \
   "$w4StoreBuild"/WhoopStore.build/*.swift.o "$w4StoreBuild"/GRDB.build/*.swift.o \
   "$w4StoreBuild"/WhoopProtocol.build/*.swift.o "$w4StoreBuild"/OuraProtocol.build/*.swift.o \
   "$w4IdentityBuild"/NoopPush.build/*.swift.o \

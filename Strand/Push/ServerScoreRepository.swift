@@ -14,8 +14,25 @@ final class ServerScoreRepository: ObservableObject {
     @Published private(set) var signOutNeedsRetry = false
 
     typealias Fetch = @Sendable (String, AccountSessionContext) async throws -> ServerScoreResponse
+    typealias Restore = @Sendable (ServerScoreCachedSnapshot) async throws -> ServerScoreSnapshot
+    enum RefreshReason: Equatable { case automatic, userInitiated, invalidation, poll }
+    struct RefreshPolicy {
+        var currentDay: TimeInterval = 45
+        var historicalDay: TimeInterval = 5 * 60
+        var pending: TimeInterval = 15
+        var failure: TimeInterval = 15
+        var maximumFailure: TimeInterval = 5 * 60
+    }
+    private struct ReadAdmission {
+        let attemptedAt: Date
+        let nextAttempt: Date
+        let invalidation: UInt64
+        let failures: Int
+    }
     private let fetchSnapshot: Fetch
+    private let restoreSnapshot: Restore
     private let now: () -> Date
+    private let refreshPolicy: RefreshPolicy
     private var context: AccountSessionContext?
     private var cache: ServerScoreSnapshotCache?
     private var epoch = UUID()
@@ -26,13 +43,21 @@ final class ServerScoreRepository: ObservableObject {
     private var selectedDay: String?
     private var pollTask: Task<Void, Never>?
     private var hydrationTask: Task<Void, Never>?
+    private var hydrationID: UUID?
+    private var cacheHydration: (id: UUID, task: Task<Void, Never>)?
+    private var hydratedEpoch: UUID?
     private var requests: [String: (id: UUID, task: Task<Void, Never>)] = [:]
+    private var admissions: [String: ReadAdmission] = [:]
+    private var invalidations: [String: UInt64] = [:]
     private var subscriptions: Set<AnyCancellable> = []
 
     init(fetch: @escaping Fetch = { try await ServerScoreClient.fetchDaySnapshot(day: $0, context: $1) },
-         now: @escaping () -> Date = { Date() }) {
+         now: @escaping () -> Date = { Date() }, refreshPolicy: RefreshPolicy = .init(),
+         restore: @escaping Restore = { try await ServerScoreDecodeWorker.shared.restore($0) }) {
         fetchSnapshot = fetch
+        restoreSnapshot = restore
         self.now = now
+        self.refreshPolicy = refreshPolicy
         synchronizeIdentity()
         restoreSignOutFailure()
         NotificationCenter.default.publisher(for: CloudAuthClient.identityDidChange)
@@ -50,7 +75,10 @@ final class ServerScoreRepository: ObservableObject {
                     guard let self, !self.retired else { return }
                     if note.name == .NSSystemTimeZoneDidChange, !self.explicitTimeZone { self.setTimeZone(.current) }
                     self.publish(days: self.state.days)
-                    if self.foreground { Task { [weak self] in await self?.refreshVisibleDays() } }
+                    self.invalidateVisibleDays()
+                    if self.foreground {
+                        Task { [weak self] in await self?.refreshVisibleDays() }
+                    }
                 }.store(in: &subscriptions)
         }
     }
@@ -58,11 +86,24 @@ final class ServerScoreRepository: ObservableObject {
     var currentDay: String { ServerScoreDate.day(now(), timeZone: timeZone) }
 
     func wire(store: WhoopStore) {
+        installCache(store: store)
+        hydrateAndRefresh()
+    }
+
+    /// Launch may await cached ownership without waiting for a network request or maintenance.
+    func wireAndHydrate(store: WhoopStore) async {
+        installCache(store: store)
+        await hydrate()
+    }
+
+    private func installCache(store: WhoopStore) {
         guard !retired else { return }
         epoch = UUID()
+        hydratedEpoch = nil
+        cancelHydration()
+        cancelRequests()
         cache = ServerScoreSnapshotCache(db: store.registryWriter)
         synchronizeIdentity()
-        hydrateAndRefresh()
     }
 
     func configure(timeZone: TimeZone) {
@@ -75,6 +116,10 @@ final class ServerScoreRepository: ObservableObject {
         timeZone = zone
         epoch = UUID()
         cancelRequests()
+        cancelHydration()
+        admissions.removeAll()
+        invalidations.removeAll()
+        hydratedEpoch = nil
         selectedDay = nil
         publish(days: [:])
         hydrateAndRefresh()
@@ -89,7 +134,7 @@ final class ServerScoreRepository: ObservableObject {
             startPolling(todayKey: currentDay)
         } else {
             stopPolling()
-            hydrationTask?.cancel()
+            cancelHydration()
             cancelRequests()
         }
     }
@@ -100,10 +145,14 @@ final class ServerScoreRepository: ObservableObject {
         foreground = false
         epoch = UUID()
         stopPolling()
-        hydrationTask?.cancel()
+        cancelHydration()
         cancelRequests()
         subscriptions.removeAll()
+        if let context { ServerScoreReadTransport.retire(context: context) }
         context = nil
+        admissions.removeAll()
+        invalidations.removeAll()
+        hydratedEpoch = nil
         signedIn = false
         lastFetchedAt = nil
         lastError = nil
@@ -118,7 +167,7 @@ final class ServerScoreRepository: ObservableObject {
             synchronizeIdentity()
             lastError = nil
             await hydrate()
-            await refreshVisibleDays()
+            await refreshVisibleDays(reason: .userInitiated)
             startPolling(todayKey: currentDay)
         } catch {
             guard !retired else { return }
@@ -164,11 +213,12 @@ final class ServerScoreRepository: ObservableObject {
         synchronizeIdentity()
         guard state.configured, signedIn else { return }
         // The compatibility argument is not captured: each iteration recalculates today.
-        stopPolling()
+        guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
+            await self?.hydrationTask?.value
             while !Task.isCancelled {
                 guard let self, self.foreground, !self.retired else { return }
-                await self.refreshVisibleDays()
+                await self.refreshVisibleDays(reason: .poll)
                 do { try await Task.sleep(for: .seconds(ServerScoringSettings.pollIntervalSeconds)) }
                 catch { return }
             }
@@ -177,22 +227,38 @@ final class ServerScoreRepository: ObservableObject {
 
     func stopPolling() { pollTask?.cancel(); pollTask = nil }
 
-    func refreshVisibleDays(todayKey: String? = nil) async {
-        guard !retired, foreground else { return }
-        synchronizeIdentity()
-        publish(days: state.days)
-        guard signedIn, state.configured else { return }
-        if let day = todayKey, ServerScoreDate.isDay(day) { selectedDay = day }
-        let current = currentDay
-        await fetch(day: current)
-        if let selectedDay, selectedDay != current, !Task.isCancelled { await fetch(day: selectedDay) }
+    private func invalidateVisibleDays() {
+        for day in Set([currentDay, selectedDay].compactMap({ $0 })) {
+            invalidations[day, default: 0] &+= 1
+        }
     }
 
-    func refreshRecentDays(limit: Int = 14) async {
-        await refreshVisibleDays()
+    func refreshVisibleDays(todayKey: String? = nil, reason: RefreshReason = .automatic) async {
+        guard !retired else { return }
+        synchronizeIdentity()
+        if let day = todayKey, ServerScoreDate.isDay(day) { selectedDay = day }
+        guard foreground else { return }
+        publish(days: state.days)
+        guard signedIn, state.configured else { return }
+        let current = currentDay
+        let days = selectedDay.map { $0 == current ? [current] : [$0, current] } ?? [current]
+        if reason == .invalidation {
+            for day in days { invalidations[day, default: 0] &+= 1 }
+        }
+        for day in days {
+            guard !Task.isCancelled else { return }
+            await fetch(day: day, reason: reason)
+        }
+    }
+
+    func refreshRecentDays(limit: Int = 14, reason: RefreshReason = .automatic) async {
+        await refreshVisibleDays(reason: reason)
         for offset in 1..<max(1, min(limit, 14)) {
             guard foreground, !retired, !Task.isCancelled else { return }
-            await fetch(day: ServerScoreDate.offsetDay(currentDay, by: -offset, timeZone: timeZone))
+            let day = ServerScoreDate.offsetDay(currentDay, by: -offset, timeZone: timeZone)
+            guard day != selectedDay else { continue }
+            if reason == .invalidation { invalidations[day, default: 0] &+= 1 }
+            await fetch(day: day, reason: reason)
         }
     }
 
@@ -220,8 +286,12 @@ final class ServerScoreRepository: ObservableObject {
         guard next != context else { return }
         epoch = UUID()
         stopPolling()
-        hydrationTask?.cancel()
+        cancelHydration()
         cancelRequests()
+        if let context { ServerScoreReadTransport.retire(context: context) }
+        admissions.removeAll()
+        invalidations.removeAll()
+        hydratedEpoch = nil
         context = next
         signedIn = next != nil
         selectedDay = nil
@@ -239,11 +309,23 @@ final class ServerScoreRepository: ObservableObject {
         requests.removeAll()
     }
 
-    private func hydrateAndRefresh() {
-        guard !retired else { return }
+    private func cancelHydration() {
         hydrationTask?.cancel()
+        hydrationTask = nil
+        hydrationID = nil
+        cacheHydration?.task.cancel()
+        cacheHydration = nil
+    }
+
+    private func hydrateAndRefresh() {
+        guard !retired, foreground, hydrationTask == nil else { return }
+        let id = UUID()
+        hydrationID = id
         hydrationTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if self.hydrationID == id { self.hydrationTask = nil; self.hydrationID = nil }
+            }
             await self.hydrate()
             guard !Task.isCancelled else { return }
             await self.refreshVisibleDays()
@@ -251,6 +333,17 @@ final class ServerScoreRepository: ObservableObject {
     }
 
     private func hydrate() async {
+        guard hydratedEpoch != epoch else { return }
+        if let current = cacheHydration { await current.task.value; return }
+        let id = UUID()
+        let work = Task<Void, Never> { [weak self] in await self?.performHydration() }
+        cacheHydration = (id, work)
+        await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+        if cacheHydration?.id == id { cacheHydration = nil }
+    }
+
+    private func performHydration() async {
+        guard hydratedEpoch != epoch else { return }
         guard let cache, let session = cacheSession, let expected = context else { return }
         let token = epoch
         let interval = SyncPipelineTrace.begin(.cacheLoad)
@@ -263,19 +356,25 @@ final class ServerScoreRepository: ObservableObject {
             var days = state.days
             var capabilities = state.capabilities
             for row in rows {
-                let snapshot = try await ServerScoreDecodeWorker.shared.restore(row)
+                let snapshot = try await restoreSnapshot(row)
                 guard isCurrent(expected, epoch: token), !Task.isCancelled else { outcome = .cancelled; return }
-                if let current = state.days[snapshot.day], current.snapshot != nil, !current.cached { continue }
+                if state.days[snapshot.day]?.snapshot != nil { continue }
                 capabilities.formUnion(snapshot.supported)
                 days[snapshot.day] = ServerScoreDayState(snapshot: snapshot, phase: phase(snapshot.status), fetchedAt: row.fetchedAt,
                     cached: true, pending: false, requestedInputRevision: nil, archiveStatus: nil)
             }
             guard isCurrent(expected, epoch: token), !Task.isCancelled else { outcome = .cancelled; return }
-            // Fetches may have completed while the actor decoded the cached rows.
+            // Disk hydration cannot roll back a newer in-memory result or erase a fetch failure.
             for (day, entry) in state.days {
-                if entry.snapshot != nil, !entry.cached { days[day] = entry }
+                if entry.snapshot != nil || days[day]?.snapshot == nil { days[day] = entry }
+                else if let restored = days[day] {
+                    days[day] = ServerScoreDayState(snapshot: restored.snapshot, phase: entry.phase,
+                        fetchedAt: restored.fetchedAt, cached: true, pending: entry.pending,
+                        requestedInputRevision: entry.requestedInputRevision, archiveStatus: entry.archiveStatus)
+                }
             }
             publish(days: days, capabilities: capabilities.union(state.capabilities))
+            hydratedEpoch = token
             outcome = rows.isEmpty ? .pending : .succeeded
         } catch {
             if !isCurrent(expected, epoch: token) || Task.isCancelled { outcome = .cancelled; return }
@@ -283,20 +382,55 @@ final class ServerScoreRepository: ObservableObject {
         }
     }
 
-    private func fetch(day: String) async {
+    private func fetch(day: String, reason: RefreshReason, followInvalidation: Bool = true) async {
         guard !retired, foreground, let expected = context, state.configured else { return }
         if let existing = requests[day] { await existing.task.value; return }
+        guard admits(day: day, reason: reason) else { return }
         let id = UUID()
         let token = epoch
+        let invalidation = invalidations[day, default: 0]
         let work = Task<Void, Never> { [weak self] in
-            await self?.performFetch(day: day, expected: expected, token: token)
+            await self?.performFetch(day: day, expected: expected, token: token, invalidation: invalidation)
         }
         requests[day] = (id, work)
         await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
         if requests[day]?.id == id { requests.removeValue(forKey: day) }
+        // A receipt arriving during this request may describe work the response could not observe.
+        // Coalesce those edges into one trailing read; sustained changes retain ordinary polling.
+        if followInvalidation, isCurrent(expected, epoch: token), !Task.isCancelled,
+           invalidations[day, default: 0] != invalidation {
+            await fetch(day: day, reason: .automatic, followInvalidation: false)
+        }
     }
 
-    private func performFetch(day: String, expected: AccountSessionContext, token: UUID) async {
+    private func admits(day: String, reason: RefreshReason) -> Bool {
+        guard reason != .userInitiated else { return true }
+        guard let admission = admissions[day] else { return true }
+        let date = now()
+        // A wall-clock rollback must not extend a transient failure pause indefinitely.
+        if date < admission.attemptedAt { return true }
+        if admission.failures > 0 { return date >= admission.nextAttempt }
+        return admission.invalidation != invalidations[day, default: 0] || date >= admission.nextAttempt
+    }
+
+    private func recordAdmission(day: String, invalidation: UInt64, failed: Bool, pending: Bool = false) {
+        let date = now()
+        let failures = failed ? min(10, (admissions[day]?.failures ?? 0) + 1) : 0
+        let interval = failed
+            ? min(refreshPolicy.maximumFailure, refreshPolicy.failure * pow(2, Double(failures - 1)))
+            : (pending ? refreshPolicy.pending : (day == currentDay ? refreshPolicy.currentDay : refreshPolicy.historicalDay))
+        admissions[day] = ReadAdmission(attemptedAt: date, nextAttempt: date.addingTimeInterval(max(0, interval)),
+                                        invalidation: invalidation, failures: failures)
+        // Navigation is unbounded, but retry/freshness bookkeeping is not.
+        let keep = Set([currentDay, selectedDay, day].compactMap { $0 }).union(requests.keys)
+        for key in admissions.keys.sorted(by: { admissions[$0]!.attemptedAt < admissions[$1]!.attemptedAt })
+            where admissions.count > 32 && !keep.contains(key) {
+            admissions.removeValue(forKey: key)
+            invalidations.removeValue(forKey: key)
+        }
+    }
+
+    private func performFetch(day: String, expected: AccountSessionContext, token: UUID, invalidation: UInt64) async {
         let interval = SyncPipelineTrace.begin(.scoreRefresh)
         var outcome: SyncPipelineTrace.Outcome = .failed
         defer { SyncPipelineTrace.end(interval, outcome: outcome) }
@@ -308,18 +442,19 @@ final class ServerScoreRepository: ObservableObject {
             if let user = response.userId, user.lowercased() != expected.scope.userID.lowercased() { throw ServerScoreDecodeError.invalid }
             if let zone = response.timezone, zone != timeZone.identifier {
                 setDay(day, (state.days[day] ?? .empty(.timezoneMismatch)).retaining(.timezoneMismatch))
+                recordAdmission(day: day, invalidation: invalidation, failed: true)
                 return
             }
             if let snapshot = response.snapshot {
-                if let previous = state.days[day]?.snapshot,
-                   previous.sourceDeviceId == snapshot.sourceDeviceId, previous.algorithmVersion == snapshot.algorithmVersion,
+                if let previous = state.days[day]?.snapshot, sameNamespace(previous, snapshot),
                    previous.resultRevision == snapshot.resultRevision, previous != snapshot {
                     throw ServerScoreSnapshotCacheError.revisionConflict
                 }
-                if let previous = state.days[day]?.snapshot,
-                   previous.sourceDeviceId == snapshot.sourceDeviceId, previous.algorithmVersion == snapshot.algorithmVersion,
+                if let previous = state.days[day]?.snapshot, sameNamespace(previous, snapshot),
                    (snapshot.resultRevision < previous.resultRevision || snapshot.inputRevision < previous.inputRevision) {
-                    setDay(day, state.days[day]!.retaining(.pending)); outcome = .stale; return
+                    setDay(day, state.days[day]!.retaining(.pending))
+                    recordAdmission(day: day, invalidation: invalidation, failed: false, pending: true)
+                    outcome = .stale; return
                 }
                 if let cache, let session = cacheSession {
                     let row = try await ServerScoreDecodeWorker.shared.prepare(snapshot, owner: session.owner, now: now())
@@ -328,7 +463,10 @@ final class ServerScoreRepository: ObservableObject {
                     guard isCurrent(expected, epoch: token), !Task.isCancelled else { outcome = .cancelled; return }
                     let result = try await cache.store(row, session: session)
                     guard isCurrent(expected, epoch: token), !Task.isCancelled else { outcome = .cancelled; return }
-                    if result == .ignoredOlderRevision { outcome = .stale; return }
+                    if result == .ignoredOlderRevision {
+                        recordAdmission(day: day, invalidation: invalidation, failed: false, pending: true)
+                        outcome = .stale; return
+                    }
                 }
                 let capabilities = state.capabilities.union(snapshot.supported)
                 ServerScoringSettings.setKnownCapabilities(capabilities, scope: expected.scope)
@@ -341,6 +479,7 @@ final class ServerScoreRepository: ObservableObject {
                 lastFetchedAt = entry.fetchedAt
                 lastError = nil
                 outcome = response.pending ? .waitingForServer : .succeeded
+                recordAdmission(day: day, invalidation: invalidation, failed: false, pending: response.pending)
             } else {
                 setDay(day, ServerScoreDayState(snapshot: state.days[day]?.snapshot, phase: phase(response.status),
                     fetchedAt: state.days[day]?.fetchedAt, cached: state.days[day]?.snapshot != nil,
@@ -351,6 +490,8 @@ final class ServerScoreRepository: ObservableObject {
                     publish(days: state.days, capabilities: capabilities)
                 }
                 outcome = response.status == "pending" ? .waitingForServer : .failed
+                recordAdmission(day: day, invalidation: invalidation,
+                                failed: response.status == "failed", pending: response.pending || response.status == "pending")
             }
         } catch {
             guard isCurrent(expected, epoch: token) else { outcome = .cancelled; return }
@@ -362,6 +503,7 @@ final class ServerScoreRepository: ObservableObject {
             else { status = .failed }
             setDay(day, (state.days[day] ?? .empty(status)).retaining(status))
             lastError = state.days[day]?.note
+            recordAdmission(day: day, invalidation: invalidation, failed: true)
         }
     }
 
@@ -374,6 +516,12 @@ final class ServerScoreRepository: ObservableObject {
         case "unsupported": return .unsupported
         default: return .failed
         }
+    }
+
+    private func sameNamespace(_ lhs: ServerScoreSnapshot, _ rhs: ServerScoreSnapshot) -> Bool {
+        lhs.userId.lowercased() == rhs.userId.lowercased() && lhs.sourceDeviceId == rhs.sourceDeviceId
+            && lhs.day == rhs.day && lhs.timezone == rhs.timezone && lhs.schemaVersion == rhs.schemaVersion
+            && lhs.algorithmVersion == rhs.algorithmVersion
     }
 
     private func setDay(_ day: String, _ entry: ServerScoreDayState) {
@@ -389,11 +537,27 @@ final class ServerScoreRepository: ObservableObject {
         let keep = Set([currentDay, selectedDay].compactMap { $0 })
         for key in days.keys.sorted() where days.count > 14 && !keep.contains(key) { days.removeValue(forKey: key) }
         let authenticated = context.map(CloudAuthClient.isCurrent) ?? false
-        signedIn = authenticated
-        state = ServerScoreViewState(generation: context?.generation, revision: state.revision &+ 1,
+        if signedIn != authenticated { signedIn = authenticated }
+        let configured = ServerScoringSettings.isEnabled && ServerScoringSettings.anonKey() != nil && context != nil
+        let activated = context.map { ServerScoringSettings.activatedMetrics(scope: $0.scope) } ?? []
+        let nextCapabilities = capabilities ?? state.capabilities
+        let sameOwnership = state.generation == context?.generation && state.currentDay == currentDay
+            && state.timezone == timeZone.identifier && state.configured == configured
+            && state.authenticated == authenticated && state.capabilities == nextCapabilities && state.activated == activated
+        let contentUnchanged = sameOwnership && Set(state.days.keys).union(days.keys).allSatisfy { day in
+            switch (state.days[day]?.snapshot, days[day]?.snapshot) {
+            case (nil, nil): return true
+            case let (old?, next?):
+                return sameNamespace(old, next)
+                    && old.inputRevision == next.inputRevision && old.resultRevision == next.resultRevision
+            default: return false
+            }
+        }
+        let next = ServerScoreViewState(generation: context?.generation,
+            revision: contentUnchanged ? state.revision : state.revision &+ 1,
             currentDay: currentDay, timezone: timeZone.identifier,
-            configured: ServerScoringSettings.isEnabled && ServerScoringSettings.anonKey() != nil && context != nil,
-            authenticated: authenticated, capabilities: capabilities ?? state.capabilities,
-            activated: context.map { ServerScoringSettings.activatedMetrics(scope: $0.scope) } ?? [], days: days)
+            configured: configured, authenticated: authenticated, capabilities: nextCapabilities,
+            activated: activated, days: days)
+        if next != state { state = next }
     }
 }

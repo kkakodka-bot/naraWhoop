@@ -5,6 +5,8 @@ let suite = XCTestSuite(name: "W4 native readback")
 suite.addTest(ServerScoreSnapshotV2Tests.defaultTestSuite)
 #if SERVER_SCORE_REPOSITORY_TESTS
 suite.addTest(ServerScoreRepositoryNativeTests.defaultTestSuite)
+suite.addTest(ServerScoreRefreshNativeTests.defaultTestSuite)
+suite.addTest(ServerScoreReadSessionOwnerTests.defaultTestSuite)
 suite.addTest(ServerScoreSleepSessionTests.defaultTestSuite)
 suite.addTest(ServerScoreHistoryContractTests.defaultTestSuite)
 suite.addTest(ServerScoreContentReadyTraceTests.defaultTestSuite)
@@ -13,7 +15,7 @@ suite.addTest(ServerScoreLocalComputePolicyTests.defaultTestSuite)
 suite.addTest(ServerScoreSleepDetailsTests.defaultTestSuite)
 suite.addTest(ServerScoreContextMotionTests.defaultTestSuite)
 suite.addTest(ServerScoreWorkoutDetailsTests.defaultTestSuite)
-let expectedCount = 101
+let expectedCount = 119
 #else
 let expectedCount = 13
 #endif
