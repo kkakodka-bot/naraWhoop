@@ -72,7 +72,7 @@ final class PpgSchemaCompatibilityTests: XCTestCase {
         XCTAssertEqual(rows.map(\.recordIndex), [nil, 10, 11, 12])
         XCTAssertEqual(rows.map(\.samples), [[3], [1], [2], [4]])
         let jobs = try await store.owedJobs()
-        XCTAssertEqual(jobs.map(\.kind), ["compat-scoring"])
+        XCTAssertEqual(Set(jobs.map(\.kind)), ["compat-scoring", "cloudPush"])
         try await dbq.read { db in
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT rowid FROM ppgWaveformSample WHERE recordIndex=10"), 1)
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT rowid FROM ppgWaveformSample WHERE recordIndex=11"), 2)

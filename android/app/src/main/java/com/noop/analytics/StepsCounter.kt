@@ -18,7 +18,7 @@ import com.noop.data.StepSample
 object StepsCounter {
     private val LOCOMOTION_ACTIVITY_CLASSES = setOf(1, 2)
 
-    internal fun hasActivityClasses(samples: List<StepSample>): Boolean =
+    fun hasActivityClasses(samples: List<StepSample>): Boolean =
         samples.any { it.activityClass != null }
 
     internal fun shouldCountDelta(activityClass: Int?, hasActivityClasses: Boolean): Boolean =

@@ -23,7 +23,7 @@ final class HistoricalSensorProgressTests: XCTestCase {
         XCTAssertEqual(first.insertedHistoricalSensorRows, 3)
         XCTAssertFalse(first.markedJobs)
         let jobs = try await store.owedJobs()
-        XCTAssertTrue(jobs.isEmpty)
+        XCTAssertEqual(jobs.map(\.kind), ["cloudPush"])
 
         let replay = try await store.insertAndMarkJobsOwed(
             streams, deviceId: "test", postOffloadJobKinds: [SyncJobKind.rescore.rawValue])
@@ -103,7 +103,7 @@ final class HistoricalSensorProgressTests: XCTestCase {
     }
 
     func testDuplicateReplayDoesNotSpendAuxiliaryOrWaveformRetentionBudget() async throws {
-        let store = try await WhoopStore.inMemory()
+        let store = try await receiptedFixtureStore()
         func streams(_ timestamps: [Int]) -> Streams {
             Streams(
                 ppgWaveform: timestamps.map { PpgWaveformSample(ts: $0, samples: [1], recordIndex: $0) },

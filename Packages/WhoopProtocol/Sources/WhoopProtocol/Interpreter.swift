@@ -21,6 +21,15 @@ public struct ParsedFrame: Codable, Equatable {
     public let rawHex: String
     public let fields: [DecodedField]
     public let parsed: [String: ParsedValue]
+    /// Only v18 capture needs this digest. Raw hex remains disabled on the fast path.
+    public let frameSHA256: String?
+
+    public init(ok: Bool, typeName: String, seq: Int?, cmdName: String?, crcOK: Bool?, lenBytes: Int,
+                rawHex: String, fields: [DecodedField], parsed: [String: ParsedValue], frameSHA256: String? = nil) {
+        self.ok = ok; self.typeName = typeName; self.seq = seq; self.cmdName = cmdName; self.crcOK = crcOK
+        self.lenBytes = lenBytes; self.rawHex = rawHex; self.fields = fields; self.parsed = parsed
+        self.frameSHA256 = frameSHA256
+    }
 }
 
 // MARK: - low-level readers (LE), nil when out of range (mirrors interpreter._read)
@@ -188,7 +197,8 @@ public func parseFrame(_ frame: [UInt8], collectFields: Bool = false) -> ParsedF
 
     return ParsedFrame(ok: true, typeName: typeName, seq: seq, cmdName: cmdName,
                        crcOK: crcOK, lenBytes: frame.count, rawHex: rawHex,
-                       fields: fb.fields, parsed: fb.parsed)
+                       fields: fb.fields, parsed: fb.parsed,
+                       frameSHA256: fb.parsed["hist_version"]?.intValue == 18 ? ScalarProvenance.digest(Data(frame)) : nil)
 }
 
 /// #47: the packet type NAME only — NO CRC verify, NO FieldBuilder — for hot-path pre-filters that just
@@ -335,7 +345,8 @@ private func parseFrameWhoop5(_ frame: [UInt8], collectFields: Bool) -> ParsedFr
 
     var result = ParsedFrame(ok: true, typeName: typeName, seq: seq, cmdName: cmdName,
                              crcOK: crcOK, lenBytes: frame.count, rawHex: rawHex,
-                             fields: fb.fields, parsed: fb.parsed)
+                             fields: fb.fields, parsed: fb.parsed,
+                             frameSHA256: fb.parsed["hist_version"]?.intValue == 18 ? ScalarProvenance.digest(Data(frame)) : nil)
     result.rrPacketProvenance = RRPacketProvenance.checked(frame)
     return result
 }

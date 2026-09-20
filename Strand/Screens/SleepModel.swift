@@ -27,6 +27,8 @@ struct Stages {
 struct Night {
     let session: CachedSleepSession
     let stages: Stages
+    var serverSessionIDs: [String] = []
+    var serverMainGroupStarts: Set<Int>?
     /// The REAL per-segment timeline for on-device computed nights (nil for imported nights,
     /// whose export carries totals only — those keep the synthetic reconstruction below). (#77)
     var realSegments: [SleepInterval]? = nil
@@ -40,6 +42,8 @@ struct Night {
     /// (older rows) — the Sleep tab then shows an honest empty state instead of a fabricated zero trace.
     /// This is read off the already-resolved group, NOT a re-resolution of the night.
     var motionEpochs: [Double] = []
+    /// Server epochs retain their absolute starts and null holes; nil means the night remains local.
+    var serverMotion: [ServerScoreSleepDiagnostics.Motion]?
 
     /// The LEARNED habitual midsleep (local time-of-day seconds) the owning view loaded for the user — the
     /// SAME value the engine threaded into the daily total — so `editTarget` resolves the SAME main block
@@ -54,7 +58,8 @@ struct Night {
     /// `applySleepEdit` matches. nil when there's no underlying block (a synthetic stub) — the edit
     /// affordance is then hidden. (#318, #518, #547)
     var editTarget: CachedSleepSession? {
-        SleepView.mainNightSession(sourceBlocks, habitualMidsleepSec: habitualMidsleepSec)
+        guard serverSessionIDs.isEmpty else { return nil }
+        return SleepView.mainNightSession(sourceBlocks, habitualMidsleepSec: habitualMidsleepSec)
     }
 
     /// The `startTs` of every block in the day's bridged MAIN-night GROUP (the winning block plus the
@@ -62,7 +67,22 @@ struct Night {
     /// group are naps. Without this the tab treated every block except the single winner as a nap and a
     /// biphasic night rendered as phantom naps. (#555)
     var mainGroupStarts: Set<Int> {
-        Set(SleepView.mainNightGroup(sourceBlocks, habitualMidsleepSec: habitualMidsleepSec).map { $0.startTs })
+        serverMainGroupStarts ?? Set(SleepView.mainNightGroup(sourceBlocks, habitualMidsleepSec: habitualMidsleepSec).map { $0.startTs })
+    }
+
+    /// A server-classified nap cannot supply evidence for (or warnings about) the main night.
+    /// Preserve the existing local selector and sparse-flag policy for locally owned nights.
+    var stageCoverageFraction: Double? {
+        if let serverMainGroupStarts {
+            return HypnogramCoverage.groupFraction(sourceBlocks.filter { serverMainGroupStarts.contains($0.startTs) })
+        }
+        let group = SleepView.mainNightGroup(sourceBlocks, habitualMidsleepSec: habitualMidsleepSec)
+        return HypnogramCoverage.groupFraction(group.isEmpty ? sourceBlocks : group)
+    }
+
+    var hasSparseMainStaging: Bool {
+        let blocks = serverMainGroupStarts.map { starts in sourceBlocks.filter { starts.contains($0.startTs) } } ?? sourceBlocks
+        return blocks.contains { $0.stagingSparse == true }
     }
 
     /// Total time in bed in minutes (from reconstructed stages).
@@ -75,7 +95,7 @@ struct Night {
     /// On-device computed nights use their REAL timeline; imported nights are reconstructed
     /// from durations only (the export has no per-epoch timeline).
     var intervals: [SleepInterval] {
-        if let real = realSegments, real.count >= 2 { return real }
+        if let real = realSegments, !serverSessionIDs.isEmpty || real.count >= 2 { return real }
         var t: TimeInterval = 0
         var out: [SleepInterval] = []
         func add(_ stage: SleepStage, _ minutes: Double) {
@@ -172,15 +192,17 @@ struct SleepModel {
     /// Recency-weighted sleep-debt estimate across the latest 14 usable nights, with
     /// raw per-night deltas for context. Computed once per data change.
     let sleepDebtLedger: SleepDebtLedger
+    /// An owned scalar debt does not authorize rebuilding its evidence from local history.
+    var debtLedgerUnavailable = false
 }
 
 /// Explicit inputs for `SleepModel.build(_:)` — a snapshot of the repository state the builder reads.
 /// The Sleep tab fills these from its `Repository` + loaded session/motion state; another host can
 /// supply the same fields to get a byte-identical model.
 struct SleepModelInputs {
-    /// The cached per-day metric rows (`Repository.days`).
+    /// Retained local daily rows, never Repository's server-overlaid presentation.
     let days: [DailyMetric]
-    /// One-per-night sessions (`Repository.sleeps`) — the `navSessions` fallback and the
+    /// Retained local one-per-night sessions, the `navSessions` fallback and the
     /// consistency bedtime-spread series read this directly.
     let sleeps: [CachedSleepSession]
     /// Every un-deduplicated sleep block (`SleepView.allSessions`); empty until the fuller list loads,
@@ -192,6 +214,25 @@ struct SleepModelInputs {
     let habitualMidsleepSec: Int?
     /// Per-epoch motion keyed by detected block start (`SleepView.motionByStart`).
     let motionByStart: [Int: [Double]]
+}
+
+extension SleepModelInputs {
+    /// Capture all synchronous local inputs on the main actor before any asynchronous auxiliary read.
+    @MainActor
+    static func captureLocal(from repository: Repository,
+                             allSessions: [CachedSleepSession] = [],
+                             habitualMidsleepSec: Int? = nil,
+                             motionByStart: [Int: [Double]] = [:]) -> Self {
+        Self(days: repository.localSleepModelDays, sleeps: repository.localSleepModelSleeps,
+             allSessions: allSessions, importedSleep: repository.importedSleep,
+             habitualMidsleepSec: habitualMidsleepSec, motionByStart: motionByStart)
+    }
+
+    func withLocalSessions(_ sessions: [CachedSleepSession], habitualMidsleepSec: Int?,
+                           motionByStart: [Int: [Double]]) -> Self {
+        Self(days: days, sleeps: sleeps, allSessions: sessions, importedSleep: importedSleep,
+             habitualMidsleepSec: habitualMidsleepSec, motionByStart: motionByStart)
+    }
 }
 
 // MARK: - Pure derivation pipeline
@@ -308,24 +349,23 @@ extension SleepModel {
     // MARK: Typical / need
 
     static func mean(_ vals: [Double]) -> Double? {
-        guard !vals.isEmpty else { return nil }
-        return vals.reduce(0, +) / Double(vals.count)
+        DailyPresentationMath.mean(vals)
     }
 
     /// Mean total sleep duration (minutes) across nights with data — the "typical".
     static func typicalTotalMin(days: [DailyMetric]) -> Double? {
-        mean(days.compactMap { $0.totalSleepMin }.filter { $0 > 0 })
+        DailyPresentationMath.positiveMean(days.map(\.totalSleepMin))
     }
 
     /// Mean of a per-stage minutes column across days with data.
     static func typicalStageMin(days: [DailyMetric], _ key: KeyPath<DailyMetric, Double?>) -> Double? {
-        mean(days.compactMap { $0[keyPath: key] }.filter { $0 > 0 })
+        DailyPresentationMath.positiveMean(days.map { $0[keyPath: key] })
     }
 
     /// The personal sleep need (minutes): mean asleep, but never below a 7.5h floor so
     /// debt/performance read sensibly even for a chronically short sleeper.
     static func sleepNeedMin(days: [DailyMetric]) -> Double {
-        Swift.max(450, typicalTotalMin(days: days) ?? 450)   // 450 min = 7.5h
+        DailyPresentationMath.descriptiveSleepNeed(observedMinutes: days.map(\.totalSleepMin))   // 450 min = 7.5h
     }
 
     /// The NORMATIVE per-user sleep need (minutes) the DEBT surfaces measure against — the
@@ -380,8 +420,7 @@ extension SleepModel {
 
     static func efficiencySeries(days: [DailyMetric]) -> Metric {
         metric(days: days) { d in
-            guard let e = d.efficiency else { return nil }
-            return e <= 1.0 ? e * 100 : e
+            DailyPresentationMath.efficiencyPercent(d.efficiency)
         }
     }
 
@@ -398,22 +437,11 @@ extension SleepModel {
         func bedMinutes(_ s: CachedSleepSession) -> Double {
             let d = Date(timeIntervalSince1970: TimeInterval(s.effectiveStartTs))
             let comps = cal.dateComponents([.hour, .minute], from: d)
-            var m = Double((comps.hour ?? 0) * 60 + (comps.minute ?? 0))
-            if m < 12 * 60 { m += 24 * 60 }   // wrap evening onsets into one continuous scale
-            return m
+            return Double((comps.hour ?? 0) * 60 + (comps.minute ?? 0))
         }
         let mins = sleeps.map(bedMinutes)
         guard mins.count >= 3 else { return (nil, nil, []) }
-        var scores: [Double] = []
-        for i in mins.indices {
-            let lo = Swift.max(0, i - 13)
-            let window = Array(mins[lo...i])
-            guard window.count >= 3 else { continue }
-            let m = window.reduce(0, +) / Double(window.count)
-            let variance = window.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(window.count)
-            let sd = variance.squareRoot()
-            scores.append(Swift.max(0, Swift.min(100, 100 * (1 - sd / 120))))
-        }
+        let scores = DailyPresentationMath.bedtimeConsistencySeries(localBedMinutes: mins)
         return (scores.last, mean(scores), scores)
     }
 
@@ -425,17 +453,14 @@ extension SleepModel {
         return metric(days: days) { d in
             guard let asleep = d.totalSleepMin, asleep > 0 else { return nil }
             let need = imported[d.day]?.needMin ?? fallbackNeed
-            guard need > 0 else { return nil }
-            return asleep / need * 100
+            return DailyPresentationMath.hoursVsNeededPercent(asleepMin: asleep, needMin: need)
         }
     }
 
     /// Restorative % = (deep + REM) / asleep — the share of the night that does the work.
     static func restorativeSeries(days: [DailyMetric]) -> Metric {
         metric(days: days) { d in
-            guard let deep = d.deepMin, let rem = d.remMin,
-                  let asleep = d.totalSleepMin, asleep > 0 else { return nil }
-            return (deep + rem) / asleep * 100
+            DailyPresentationMath.restorativePercent(deepMin: d.deepMin, remMin: d.remMin, asleepMin: d.totalSleepMin)
         }
     }
 
@@ -490,7 +515,8 @@ extension SleepModel {
     /// Build every expensive derivation exactly once, as a pure function of `inputs`. Returns nil when
     /// there is no usable latest night (the caller renders the empty state). This is the former
     /// `SleepView.buildModel()` body, re-expressed over explicit inputs. (#940)
-    static func build(_ inputs: SleepModelInputs) -> SleepModel? {
+    static func build(_ inputs: SleepModelInputs,
+                      compute: ServerScoreLocalComputePolicy = .init()) -> SleepModel? {
         // Replicate `navSessions`: fall back to the one-per-night list until the fuller list loads.
         let navSessions = inputs.allSessions.isEmpty ? inputs.sleeps : inputs.allSessions
         let dayGroups = navDays(navSessions: navSessions)
@@ -516,24 +542,34 @@ extension SleepModel {
             }
         }
 
-        let napSleepMinByDay = napSleepMinutesByDay(navDays: dayGroups, habitualMidsleepSec: habitual)
-        return SleepModel(
+        let empty: Metric = (nil, nil, [])
+        let napSleepMinByDay = compute.value(for: .sleepDebt, suppressed: [:],
+            local: napSleepMinutesByDay(navDays: dayGroups, habitualMidsleepSec: habitual))
+        var model = SleepModel(
             night: night,
             intervals: night.intervals,
             isPersistedHypnogram: (night.realSegments?.count ?? 0) >= 2,
             isStubNight: isStub,
-            performance: performanceSeries(days: inputs.days, importedSleep: inputs.importedSleep),
-            efficiency: efficiencySeries(days: inputs.days),
-            consistency: consistencySeries(days: inputs.days, sleeps: inputs.sleeps, importedSleep: inputs.importedSleep),
-            hoursVsNeeded: hoursVsNeededSeries(days: inputs.days, importedSleep: inputs.importedSleep),
-            restorative: restorativeSeries(days: inputs.days),
-            respiratory: respiratorySeries(days: inputs.days),
-            sleepDebt: sleepDebtSeries(days: inputs.days, importedSleep: inputs.importedSleep, napSleepMinByDay: napSleepMinByDay),
-            typicalTotalMin: typicalTotalMin(days: inputs.days),
-            typicalDeepMin: typicalStageMin(days: inputs.days, \.deepMin),
-            typicalRemMin: typicalStageMin(days: inputs.days, \.remMin),
-            typicalLightMin: typicalStageMin(days: inputs.days, \.lightMin),
-            trendPoints: durationTrendPoints(days: inputs.days),
-            sleepDebtLedger: debtLedger(days: inputs.days, napSleepMinByDay: napSleepMinByDay))
+            performance: compute.value(for: .sleepPerformance, suppressed: empty,
+                local: performanceSeries(days: inputs.days, importedSleep: inputs.importedSleep)),
+            efficiency: compute.value(for: .sleepEfficiency, suppressed: empty, local: efficiencySeries(days: inputs.days)),
+            consistency: compute.value(for: .sleepConsistency, suppressed: empty,
+                local: consistencySeries(days: inputs.days, sleeps: inputs.sleeps, importedSleep: inputs.importedSleep)),
+            hoursVsNeeded: compute.value(for: .hoursVsNeeded, suppressed: empty,
+                local: hoursVsNeededSeries(days: inputs.days, importedSleep: inputs.importedSleep)),
+            restorative: compute.value(for: .restorativePercent, suppressed: empty, local: restorativeSeries(days: inputs.days)),
+            respiratory: compute.value(for: .respiration, suppressed: empty, local: respiratorySeries(days: inputs.days)),
+            sleepDebt: compute.value(for: .sleepDebt, suppressed: empty,
+                local: sleepDebtSeries(days: inputs.days, importedSleep: inputs.importedSleep, napSleepMinByDay: napSleepMinByDay)),
+            typicalTotalMin: compute.value(for: .sleepTotal, suppressed: nil, local: typicalTotalMin(days: inputs.days)),
+            typicalDeepMin: compute.value(for: .sleepDeep, suppressed: nil, local: typicalStageMin(days: inputs.days, \.deepMin)),
+            typicalRemMin: compute.value(for: .sleepREM, suppressed: nil, local: typicalStageMin(days: inputs.days, \.remMin)),
+            typicalLightMin: compute.value(for: .sleepLight, suppressed: nil, local: typicalStageMin(days: inputs.days, \.lightMin)),
+            trendPoints: compute.value(for: .sleepTotal, suppressed: [], local: durationTrendPoints(days: inputs.days)),
+            sleepDebtLedger: compute.value(for: .sleepDebt,
+                suppressed: SleepDebtLedger(balanceMin: 0, nights: [], needMin: 0),
+                local: debtLedger(days: inputs.days, napSleepMinByDay: napSleepMinByDay)))
+        model.debtLedgerUnavailable = compute.owned.contains(.sleepDebt)
+        return model
     }
 }

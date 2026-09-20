@@ -1,6 +1,10 @@
 import Foundation
 import GRDB
 
+public enum DeviceIdentityMigrationError: Error, Equatable {
+    case capturedIdentityRequiresExplicitMigration
+}
+
 /// Synchronous GRDB access to the device registry + day-ownership tables. Kept synchronous (its own
 /// queue) to mirror the existing store helpers; the app wraps it behind the WhoopStore actor / a
 /// @MainActor cache. Enforces invariant I1 (at most one .active) inside setActive's transaction.
@@ -118,6 +122,7 @@ public struct DeviceRegistryStore: Sendable {
     /// `Database.swift`. The `pairedDevice` registry row itself is NOT here (a delete-data operation
     /// empties the device's recordings; archiving/removing the registry entry is a separate op).
     static let deviceScopedTables = [
+        "rawDurabilityReceipt", "sensorQuarantine", "ingestRawResource",
         "hrSample", "rrInterval", "rrPacketProvenance", "standardHRReceipt", "spo2Sample", "skinTempSample", "respSample", "gravitySample",
         "stepSample", "ppgHrSample", "event", "battery", "dailyMetric", "sleepSession",
         "journal", "workout", "appleDaily", "metricSeries", "dayOwnership",
@@ -184,6 +189,16 @@ public struct DeviceRegistryStore: Sendable {
         return try dbQueue.write { db in
             guard try Bool.fetchOne(db, sql: "SELECT 1 FROM pairedDevice WHERE id = ?", arguments: [activeId]) ?? false
             else { return false }   // nothing to re-point
+            // Receipt keys attest to the original capture source. UPDATE OR IGNORE + DELETE
+            // would both transfer that attestation and discard a conflicting payload. Without
+            // an explicit alias/recovery migration, preserve the entire transaction unchanged.
+            for table in ["ingestRawResource", "sensorQuarantine", "rawDurabilityReceipt",
+                          "rawBatch", "ppgWaveformSample", "v18AuxSample"] {
+                if try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \(table) WHERE deviceId IN (?, ?))",
+                    arguments: [activeId, activeId + Self.computedSuffix]) == true {
+                    throw DeviceIdentityMigrationError.capturedIdentityRequiresExplicitMigration
+                }
+            }
             let serialExists = try Bool.fetchOne(db, sql: "SELECT 1 FROM pairedDevice WHERE id = ?", arguments: [serialId]) ?? false
             if serialExists {
                 // A prior pairing already established the serial id: carry THIS pairing's fresh BLE identity +

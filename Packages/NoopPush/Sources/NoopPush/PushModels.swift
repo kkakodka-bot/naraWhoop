@@ -15,8 +15,12 @@ public enum PushAppendTable: String, CaseIterable, PushTable, Sendable {
     case skinTempSample
     case respSample
     case gravitySample
+    case stepSample
+    case sleepStateSample
+    case ppgHrSample
 
     public var wireName: String { rawValue }
+    public var isScalarExtension: Bool { [.stepSample, .sleepStateSample, .ppgHrSample].contains(self) }
 }
 
 public enum PushMutableTable: String, CaseIterable, PushTable, Sendable {
@@ -48,6 +52,7 @@ public struct PushPpgWaveformRecord: Sendable {
     public let rowId: Int64
     public let ts: Int64
     public let burstIndex: Int32?
+    public let recordIndex: Int64?
     public let samples: Data
     public let recordIndex: Int64?
 
@@ -56,6 +61,7 @@ public struct PushPpgWaveformRecord: Sendable {
         self.rowId = rowId
         self.ts = ts
         self.burstIndex = burstIndex
+        self.recordIndex = recordIndex
         self.samples = samples
         self.recordIndex = recordIndex
     }
@@ -65,12 +71,17 @@ public struct PushV18AuxRecord: Sendable {
     public let rowId: Int64
     public let ts: Int64
     public let fields: Data
+    public let recordIndex: Int64?
+    /// Capture-time local receipt key, never encoded as a wire identity.
+    public let resourceKey: String?
 
-    public init(rowId: Int64, ts: Int64, fields: Data) {
+    public init(rowId: Int64, ts: Int64, fields: Data, recordIndex: Int64? = nil, resourceKey: String? = nil) {
         precondition(rowId > 0)
         self.rowId = rowId
         self.ts = ts
         self.fields = fields
+        self.recordIndex = recordIndex
+        self.resourceKey = resourceKey
     }
 }
 
@@ -153,6 +164,73 @@ public struct PushBinaryBatch: Sendable {
     public let payload: Data
 
     public var wireName: String { table.wireName }
+
+    /// Restores saved bytes with exact membership checks. Never invokes the compressor or selector.
+    public static func restoring(manifest: PushObjectManifest, endCursor: PushCursor?, manifestJSON: Data,
+                                 payload: Data, wireSHA256: String, rows: [PushBinaryRow]) throws -> Self {
+        guard PushProtocol.isObjectVersion(manifest.protocolVersion),
+              let table = PushBinaryTable(rawValue: manifest.stream),
+              PushPreparedSelection.uuid(manifest.batchId), PushPreparedSelection.uuid(manifest.objectId),
+              PushPreparedSelection.uuid(manifest.sourceId), !manifest.deviceId.isEmpty,
+              manifest.deviceId.utf8.count <= 1024, manifestJSON.count <= 8192,
+              !payload.isEmpty, payload.count <= PushProtocolLimits.maxObjectWireBytes,
+              Int64(payload.count) == manifest.compressedBytes,
+              PushDurabilityReceipt.sha256(payload) == wireSHA256,
+              manifest.contentEncoding == table.contentEncoding,
+              !rows.isEmpty, rows.count <= PushProtocolLimits.maxRecords else { throw PushPreparedSelection.invalid() }
+        var packedSize = PushBinaryCodec.packedHeaderSize(for: table)
+        for row in rows {
+            let n = try PushBinaryCodec.packedRowSize(row, ppgIdentityV2: PushProtocol.hasPPGIdentity(manifest.protocolVersion),
+                v18IdentityV2: manifest.protocolVersion == PushProtocol.auxiliaryIdentityVersion)
+            guard n <= PushProtocolLimits.maxObjectDecodedBytes - packedSize else { throw PushPreparedSelection.invalid() }
+            packedSize += n
+        }
+        let packed = try PushBinaryCodec.pack(table: table, rows: rows,
+            ppgIdentityV2: PushProtocol.hasPPGIdentity(manifest.protocolVersion),
+            v18IdentityV2: manifest.protocolVersion == PushProtocol.auxiliaryIdentityVersion)
+        guard Int64(packed.count) == manifest.uncompressedBytes,
+              PushDurabilityReceipt.sha256(packed) == manifest.contentSha256 else { throw PushPreparedSelection.invalid() }
+        var positions: [(Int64, Int64)] = []
+        for row in rows {
+            switch row {
+            case .ppgWaveform(let r): positions.append((r.rowId, r.ts))
+            case .v18Aux(let r): positions.append((r.rowId, r.ts))
+            case .rawImuSession(let r): positions.append((r.rowId, r.ts))
+            case .rawBatch(let r):
+                guard rows.count == 1, endCursor == nil, r.startTs < Int64.max, r.endTs >= r.startTs,
+                      manifest.startTs == r.startTs, manifest.endTs == (r.endTs == r.startTs ? r.startTs + 1 : r.endTs),
+                      manifest.sampleCount == Int64(r.frameCount) else { throw PushPreparedSelection.invalid() }
+            }
+        }
+        if table != .rawBatch {
+            guard positions.count == rows.count, positions.allSatisfy({ $0.0 > 0 && $0.1 < Int64.max }),
+                  zip(positions, positions.dropFirst()).allSatisfy({ $0.0.0 < $0.1.0 }),
+                  manifest.startTs == positions.map(\.1).min(),
+                  manifest.endTs == positions.map(\.1).max()! + 1,
+                  manifest.sampleCount == Int64(rows.count),
+                  endCursor?.rowId == positions.last?.0,
+                  endCursor?.naturalKeyFingerprint == (try PushProtocol.binaryKeyFingerprint(table: table,
+                    deviceId: manifest.deviceId, row: rows.last!,
+                    v18IdentityV2: manifest.protocolVersion == PushProtocol.auxiliaryIdentityVersion)) else { throw PushPreparedSelection.invalid() }
+        }
+        let (span, overflow) = manifest.endTs.subtractingReportingOverflow(manifest.startTs)
+        guard !overflow, span > 0, span <= (table == .rawImuSession ? PushProtocolLimits.maxImuObjectWindowSeconds : PushProtocol.maxObjectWindowSeconds),
+              let header = try JSONSerialization.jsonObject(with: manifestJSON) as? [String: Any],
+              header["type"] as? String == "binaryObject", header["contentEncoding"] as? String == manifest.contentEncoding,
+              header["batchId"] as? String == manifest.batchId, header["objectId"] as? String == manifest.objectId,
+              header["sourceId"] as? String == manifest.sourceId, header["deviceId"] as? String == manifest.deviceId,
+              header["protocolVersion"] as? String == manifest.protocolVersion, header["stream"] as? String == manifest.stream,
+              header["contentSha256"] as? String == manifest.contentSha256,
+              PushPreparedSelection.integer(header["sampleCount"]) == manifest.sampleCount,
+              PushPreparedSelection.integer(header["uncompressedBytes"]) == manifest.uncompressedBytes,
+              PushPreparedSelection.integer(header["startTs"]) == manifest.startTs,
+              PushPreparedSelection.integer(header["endTs"]) == manifest.endTs else { throw PushPreparedSelection.invalid() }
+        return .init(protocolVersion: manifest.protocolVersion, batchId: manifest.batchId, sourceId: manifest.sourceId,
+            table: table, deviceId: manifest.deviceId, objectId: manifest.objectId, startTs: manifest.startTs,
+            endTs: manifest.endTs, sampleCount: Int(manifest.sampleCount), uncompressedBytes: packed.count,
+            contentSha256: manifest.contentSha256, contentEncoding: manifest.contentEncoding, endCursor: endCursor,
+            manifestJSON: manifestJSON, payload: payload)
+    }
 }
 
 public struct PushAppendRecord: Sendable {
@@ -180,7 +258,7 @@ public struct PushMutableRecord: Sendable {
     }
 }
 
-public struct PushWindow: Sendable {
+public struct PushWindow: Sendable, Codable {
     public let fromDay: String
     public let toDay: String
     public let startTsInclusive: Int64
@@ -199,7 +277,10 @@ public struct PushWindow: Sendable {
 
     public static func days(from: Date, to: Date, calendar: Calendar = .current) -> PushWindow {
         precondition(to >= from)
-        let formatter = Self.dayFormatter
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = calendar.timeZone
         let fromDay = formatter.string(from: from)
         let toDay = formatter.string(from: to)
         let start = calendar.startOfDay(for: from).timeIntervalSince1970
@@ -213,16 +294,9 @@ public struct PushWindow: Sendable {
         )
     }
 
-    private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = .current
-        return f
-    }()
 }
 
-public struct PushCursor: Sendable, Equatable {
+public struct PushCursor: Sendable, Equatable, Codable {
     public let rowId: Int64
     public let naturalKeyFingerprint: String
 
@@ -232,7 +306,7 @@ public struct PushCursor: Sendable, Equatable {
     }
 }
 
-public struct PushWindowProgress: Sendable {
+public struct PushWindowProgress: Sendable, Codable {
     public let window: PushWindow
     public let batchId: String
     public let dayHashes: [String: String]
@@ -296,10 +370,12 @@ public struct PushBatch: Sendable {
 public struct PushTransportResponse: Sendable {
     public let statusCode: Int
     public let body: Data
+    public let retryAfter: String?
 
-    public init(statusCode: Int, body: Data) {
+    public init(statusCode: Int, body: Data, retryAfter: String? = nil) {
         self.statusCode = statusCode
         self.body = body
+        self.retryAfter = retryAfter
     }
 }
 
@@ -321,7 +397,7 @@ public struct PushObjectLane: Sendable, Equatable {
 
 /// The intent body posted to the object lane. `contentSha256` is over the UNCOMPRESSED payload;
 /// the receiver decompresses the uploaded object and refuses a manifest whose digest does not match.
-public struct PushObjectManifest: Sendable, Equatable {
+public struct PushObjectManifest: Sendable, Equatable, Codable {
     public let protocolVersion: String
     public let batchId: String
     public let sourceId: String
@@ -428,25 +504,33 @@ public struct PushObjectIntent: Sendable, Equatable {
 }
 
 public struct PushObjectAck: Sendable, Equatable {
+    public let protocolVersion: String
     public let objectId: String
     public let status: String
     public let objectKey: String
     public let duplicate: Bool
+    public let durabilityReceipt: PushDurabilityReceipt?
 
-    public init(objectId: String, status: String, objectKey: String, duplicate: Bool) {
+    public init(objectId: String, status: String, objectKey: String, duplicate: Bool,
+                durabilityReceipt: PushDurabilityReceipt? = nil, protocolVersion: String = PushProtocol.objectVersion) {
+        self.protocolVersion = protocolVersion
         self.objectId = objectId
         self.status = status
         self.objectKey = objectKey
         self.duplicate = duplicate
+        self.durabilityReceipt = durabilityReceipt
     }
 
     /// Local rows are released only when the receiver has the object and its digest verified.
-    public var releasesLocalRows: Bool { status == "ready" || status == "verified" }
+    public var releasesLocalRows: Bool {
+        (status == "ready" || status == "verified") && durabilityReceipt?.isValid == true
+            && durabilityReceipt?.objectId == objectId && durabilityReceipt?.objectKey == objectKey
+    }
 }
 
 /// Bookkeeping for an interrupted object upload, persisted between intent and ack so a relaunch
 /// resumes onto the same `objectKey` instead of minting a duplicate manifest row.
-public struct PushInFlightObject: Sendable, Equatable {
+public struct PushInFlightObject: Sendable, Equatable, Codable {
     public let objectId: String
     public let objectKey: String
     public let contentSha256: String

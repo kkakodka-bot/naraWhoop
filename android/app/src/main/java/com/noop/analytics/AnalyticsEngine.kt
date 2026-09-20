@@ -439,6 +439,9 @@ object AnalyticsEngine {
         useFullDaySleepOpportunities: Boolean = false,
         localDayOwnership: List<Pair<Long,Long>>? = null,
         measurementObservedThrough: Long? = null,
+        resolvedSleep: List<DetectedSleep>? = null,
+        excludedMainSleepStarts: Set<Long> = emptySet(),
+        timezone: java.time.ZoneId? = null,
     ): DayResult {
 
         // Precompute the day's UTC bounds ONCE (#996). isoDay is a FIXED-UTC formatter, so
@@ -457,7 +460,7 @@ object AnalyticsEngine {
             hr.minOfOrNull { it.ts } ?: dayStartUtc,gravity.minOfOrNull { it.ts } ?: dayStartUtc))
         val opportunityEnd=minOf(dayEndUtc,sleepObservedThrough ?: dayEndUtc)
         var opportunityEpochs: List<StageSegment> = emptyList()
-        val detectedSessions = if (sleepComputationMode == "causal") emptyList() else if(useFullDaySleepOpportunities) {
+        val detectedSessions = if (resolvedSleep != null || sleepComputationMode == "causal") emptyList() else if(useFullDaySleepOpportunities) {
             if(opportunityEnd<=opportunityStart) emptyList() else SleepOpportunityDetector.detect(
                 opportunityStart,opportunityEnd,hr,gravity,steps,sleepContext+wristOff.map {
                     SleepContextSpan(it.first,it.second,"off_body","wrist_event",availableAt=it.first)
@@ -474,6 +477,7 @@ object AnalyticsEngine {
             wristOff = wristOff, bandSleepState = bandSleepState,
             useSleepStagerV2 = useSleepStagerV2,
             traceSink = traceSink,
+            timezone = timezone,
         )
         val hrvStagedSessions = detectedSessions.map { s ->
             if (useSleepStagerV2 || hrvObservations.isNullOrEmpty()) s else {
@@ -496,11 +500,12 @@ object AnalyticsEngine {
         // from THIS day's hr/rr over its window (the stored ring row carries neither), using the SAME helpers
         // detectSleep populates a session with, then keep only the detected sessions that DON'T overlap a
         // provided one (provided is authoritative where they collide; a separate nap survives).
-        val allSessions: List<DetectedSleep> = if (providedSleep.isEmpty()) {
+        val supplied = resolvedSleep ?: providedSleep
+        val allSessions: List<DetectedSleep> = if (supplied.isEmpty()) {
             refinedSessions
         } else {
             val rrSorted = rr.sortedBy { it.ts }
-            val enrichedProvided = providedSleep.map { s ->
+            val enrichedProvided = supplied.map { s ->
                 // #1884: no HR-only special case any more. This used to short-circuit on `s.hrOnly` to
                 // preserve #1801's display-only guarantee, which withheld both values. Now that an HR-only
                 // session reports what it measured, that clause is not merely redundant — an HR-only night
@@ -528,7 +533,7 @@ object AnalyticsEngine {
             val stages = SleepStageSemantics.applyingContext(s.stages, s.start, s.end, contexts, sleepComputationMode, sleepObservedThrough)
             s.copy(stages = stages, efficiency = SleepStager.efficiency(s.start, s.end, stages),
                 avgHRV = HrvSeries.summarize(hrvMeasurements, s.start.toInt(), s.end.toInt()).meanRMSSD,
-                boundaryProvenance = s.boundaryProvenance ?: if (providedSleep.any { it.start == s.start && it.end == s.end }) "provided_boundary" else "detected_candidate",
+                boundaryProvenance = s.boundaryProvenance ?: if (supplied.any { it.start == s.start && it.end == s.end }) "provided_boundary" else "detected_candidate",
                 denominatorKind = "estimated_sleep_opportunity")
         }
 
@@ -554,12 +559,12 @@ object AnalyticsEngine {
         // single block the bare [mainNightIndex] would pick. Intelligence and the Sleep headline read this
         // SAME group; the debt ledger starts with it and separately credits naps, so #525 does not regress.
         // Mirrors Swift. (#525 / #561)
-        val knownCandidates = matched.indices.filter { matched[it].hasKnownState }
+        val knownCandidates = matched.indices.filter { matched[it].hasKnownState && matched[it].start !in excludedMainSleepStarts }
         val candidates = knownCandidates.ifEmpty { matched.indices.toList() }
         val mainGroupIdx = if (useFullDaySleepOpportunities) SleepOpportunityDetector.mainSleepGroupIndices(
             matched, tzOffsetSeconds, habitualMidsleepSec) else (SleepStageTotals.mainNightGroupIndices(
             candidates.map { SleepStageTotals.NightBlock(matched[it].start, matched[it].end) },
-            tzOffsetSeconds, habitualMidsleepSec,
+            tzOffsetSeconds, habitualMidsleepSec, timezone,
         ) ?: emptyList()).map { candidates[it] }
         // Grouping establishes an estimated opportunity, not sleep in its interruptions. Retain
         // observed wake/off-body epochs there; missing and sub-threshold candidate runs stay unknown.
@@ -640,6 +645,7 @@ object AnalyticsEngine {
         inBedS += SleepStageTotals.interFragmentAwakeSeconds(mainGroup.map { it.start to it.end })
         val efficiency = if (inBedS > 0) tstS / inBedS else 0.0
         val hasKnownSleepState = mainGroup.any { it.hasKnownState }
+        val sleepEvidence = matched.isNotEmpty() && (resolvedSleep == null || mainGroup.any { it.stages.isNotEmpty() })
 
         // #525 NOTE: the sleep-DURATION figures above are main-night-only (the headline "your night"),
         // but the physiological aggregates below (resting HR, HRV, respiration) intentionally stay over
@@ -948,12 +954,12 @@ object AnalyticsEngine {
         val daily = DailyMetric(
             deviceId = "",
             day = day,
-            totalSleepMin = if (hasKnownSleepState) tstS / 60.0 else null,
-            efficiency = if (hasKnownSleepState) efficiency else null,
-            deepMin = if (hasKnownSleepState) deepS / 60.0 else null,
-            remMin = if (hasKnownSleepState) remS / 60.0 else null,
-            lightMin = if (hasKnownSleepState) lightS / 60.0 else null,
-            disturbances = if (hasKnownSleepState) disturbances else null,
+            totalSleepMin = if (hasKnownSleepState && sleepEvidence) tstS / 60.0 else null,
+            efficiency = if (hasKnownSleepState && sleepEvidence) efficiency else null,
+            deepMin = if (hasKnownSleepState && sleepEvidence) deepS / 60.0 else null,
+            remMin = if (hasKnownSleepState && sleepEvidence) remS / 60.0 else null,
+            lightMin = if (hasKnownSleepState && sleepEvidence) lightS / 60.0 else null,
+            disturbances = if (hasKnownSleepState && sleepEvidence) disturbances else null,
             restingHr = restingHRDaily,
             avgHrv = avgHRVDaily,
             // "Every session this day was staged from heart rate alone."

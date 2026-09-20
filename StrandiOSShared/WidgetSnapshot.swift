@@ -21,10 +21,12 @@ public struct WidgetSnapshot: Codable, Equatable {
     public var effortDisplay: String?
     /// True when `effortDisplay` is on WHOOP's 0–21 axis; false/nil means 0–100. Accessibility only.
     public var effortWhoop: Bool?
+    public var accountNamespace: String?
 
     public init(recovery: Int?, bpm: Int?, batteryPct: Int?, bonded: Bool, updated: Date,
                 effort: Int? = nil, rest: Int? = nil, hrv: Int? = nil, restingHr: Int? = nil,
-                effortDisplay: String? = nil, effortWhoop: Bool? = nil) {
+                effortDisplay: String? = nil, effortWhoop: Bool? = nil,
+                accountNamespace: String? = nil) {
         self.recovery = recovery
         self.bpm = bpm
         self.batteryPct = batteryPct
@@ -36,6 +38,7 @@ public struct WidgetSnapshot: Codable, Equatable {
         self.restingHr = restingHr
         self.effortDisplay = effortDisplay
         self.effortWhoop = effortWhoop
+        self.accountNamespace = accountNamespace
     }
 
     /// App Group suite the app and widget both use. Injected from the `APP_GROUP_ID` build setting
@@ -51,6 +54,18 @@ public struct WidgetSnapshot: Codable, Equatable {
         resolveSuiteName(infoDictionary: Bundle.main.infoDictionary ?? [:])
     }()
     public static let storageKey = "noop.widget.snapshot"
+    private static let accountKey = "noop.widget.active-account-v1"
+
+    /// Empty means signed out. Old unowned snapshots are not adopted by an account.
+    public static func activateAccount(namespace: String?,
+                                       defaults: UserDefaults? = UserDefaults(suiteName: suiteName)) {
+        guard let defaults else { return }
+        let next = namespace ?? ""
+        if defaults.string(forKey: accountKey) != next {
+            defaults.removeObject(forKey: storageKey)
+        }
+        defaults.set(next, forKey: accountKey)
+    }
 
     /// Resolve the App Group the current signature actually grants.
     ///
@@ -106,17 +121,23 @@ public struct WidgetSnapshot: Codable, Equatable {
     }
 
     /// Read the last-published snapshot from the shared suite, if any.
-    public static func load() -> WidgetSnapshot? {
-        guard let defaults = UserDefaults(suiteName: suiteName),
+    public static func load(from defaults: UserDefaults? = UserDefaults(suiteName: suiteName)) -> WidgetSnapshot? {
+        guard let defaults,
               let data = defaults.data(forKey: storageKey),
               let snap = try? JSONDecoder().decode(WidgetSnapshot.self, from: data) else { return nil }
+        if let active = defaults.string(forKey: accountKey) {
+            guard !active.isEmpty, snap.accountNamespace == active else { return nil }
+        }
         return snap
     }
 
     /// Persist this snapshot into the shared suite.
-    public func save() {
-        guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
+    public func save(to defaults: UserDefaults? = UserDefaults(suiteName: WidgetSnapshot.suiteName)) {
+        guard let defaults,
               let data = try? JSONEncoder().encode(self) else { return }
+        if let active = defaults.string(forKey: WidgetSnapshot.accountKey) {
+            guard !active.isEmpty, accountNamespace == active else { return }
+        }
         defaults.set(data, forKey: WidgetSnapshot.storageKey)
     }
 
@@ -130,6 +151,7 @@ public struct WidgetSnapshot: Codable, Equatable {
     static func renderedContentChanged(from previous: WidgetSnapshot?, to next: WidgetSnapshot) -> Bool {
         guard let previous else { return true }
         return previous.recovery != next.recovery
+            || previous.accountNamespace != next.accountNamespace
             || previous.bpm != next.bpm
             || previous.batteryPct != next.batteryPct
             || previous.bonded != next.bonded

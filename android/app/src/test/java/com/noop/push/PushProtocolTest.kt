@@ -31,8 +31,10 @@ class PushProtocolTest {
                 "hrSample", "rrInterval", "rrPacketProvenance", "standardHRReceipt", "event", "battery", "spo2Sample", "skinTempSample",
                 "respSample", "gravitySample",
             ),
-            PushAppendTable.entries.map { it.wireName },
+            PushAppendTable.entries.filterNot { it.isScalarExtension }.map { it.wireName },
         )
+        assertEquals(listOf("stepSample", "sleepStateSample", "ppgHrSample"),
+            PushAppendTable.entries.filter { it.isScalarExtension }.map { it.wireName })
     }
 
     @Test

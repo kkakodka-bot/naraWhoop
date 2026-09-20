@@ -78,11 +78,15 @@ enum AIProvider: String, CaseIterable, Identifiable {
     }
 
     var client: any AIProviderClient {
+        client(customConfiguration: .init())
+    }
+
+    func client(customConfiguration: CustomAIConfiguration) -> any AIProviderClient {
         switch self {
         case .openAI:    return OpenAIClient()
         case .anthropic: return AnthropicClient()
         case .gemini:    return GeminiClient()
-        case .custom:    return CustomClient()
+        case .custom:    return CustomClient(configuration: customConfiguration)
         }
     }
 
@@ -92,11 +96,6 @@ enum AIProvider: String, CaseIterable, Identifiable {
     /// LM Studio / llama.cpp: `http://localhost:11434/v1`). `AICoachEngine` exposes it for editing.
     static let customBaseURLKey = "ai.customBaseURL"
     static let customAuthHeaderKey = "ai.customAuthHeader"
-
-    /// The user-set Custom base URL, normalised. Byte-parity with Android `AiCoach.normalizeCustomBaseUrl`.
-    static var customBaseURL: String {
-        normalizeCustomBaseURL(UserDefaults.standard.string(forKey: customBaseURLKey) ?? "")
-    }
 
     /// #1074: normalise the Custom base URL so the derived `/chat/completions` and `/models` endpoints
     /// are always well-formed. The user may paste the base (`http://…:11434/v1`) OR the whole chat URL
@@ -116,14 +115,10 @@ enum AIProvider: String, CaseIterable, Identifiable {
         return base
     }
 
-    static var customAuthHeader: CustomAIAuthHeader {
-        let raw = UserDefaults.standard.string(forKey: customAuthHeaderKey)
-        return CustomAIAuthHeader(rawValue: raw ?? "") ?? .bearer
-    }
-
-    static func applyCustomAuthHeader(_ key: String, to request: inout URLRequest) {
+    static func applyCustomAuthHeader(_ key: String, to request: inout URLRequest,
+                                      header: CustomAIAuthHeader = .bearer) {
         guard !key.isEmpty else { return }
-        switch customAuthHeader {
+        switch header {
         case .bearer:
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         case .xAPIKey:
@@ -134,8 +129,8 @@ enum AIProvider: String, CaseIterable, Identifiable {
     /// Build a Custom endpoint by appending `path` to the user's base URL (trailing slashes tolerated).
     /// Falls back to a loopback placeholder when unset — the request then fails with a clear network
     /// error until the user sets a URL.
-    static func customURL(path: String) -> URL {
-        var base = customBaseURL
+    static func customURL(path: String, baseURL: String = "") -> URL {
+        var base = normalizeCustomBaseURL(baseURL)
         while base.hasSuffix("/") { base.removeLast() }
         return URL(string: base + path) ?? URL(string: "http://localhost" + path)!
     }
@@ -146,8 +141,8 @@ enum AIProvider: String, CaseIterable, Identifiable {
     /// `*.local`), so a public cleartext endpoint can never egress. Throws `AICoachError.badCustomURL`
     /// with an actionable message on rejection. Called by `CustomClient.send` + `fetchModels`, i.e. on
     /// BOTH Custom network paths (mirrors Kotlin `customChatUrl` / `customModelsUrl`).
-    static func guardCustomBaseURL() throws {
-        let base = customBaseURL   // already trimmed / trailing-slash-stripped by the accessor
+    static func guardCustomBaseURL(_ baseURL: String = "") throws {
+        let base = normalizeCustomBaseURL(baseURL)
         guard let comps = URLComponents(string: base),
               let host = comps.host, !host.isEmpty,
               let scheme = comps.scheme?.lowercased(), !scheme.isEmpty else {
@@ -197,6 +192,15 @@ enum AIProvider: String, CaseIterable, Identifiable {
         case a == 169 && b == 254: return true           // 169.254.0.0/16 link-local
         default: return false
         }
+    }
+}
+
+struct CustomAIConfiguration: Equatable {
+    let baseURL: String
+    let authHeader: CustomAIAuthHeader
+    init(baseURL: String = "", authHeader: CustomAIAuthHeader = .bearer) {
+        self.baseURL = AIProvider.normalizeCustomBaseURL(baseURL)
+        self.authHeader = authHeader
     }
 }
 

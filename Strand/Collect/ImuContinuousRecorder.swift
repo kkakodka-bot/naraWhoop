@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import WhoopProtocol
 
@@ -71,6 +72,7 @@ final class ImuContinuousRecorder: ObservableObject {
         var hardwareStopPending = false
         /// Writes are paused because free disk fell below `lowDiskThresholdBytes`.
         var lowDiskPaused = false
+        var resourceConstrained = false
         var retentionCapBytes = defaultCapBytes
         var conflicts = 0
         var duplicatesSkipped = 0
@@ -78,6 +80,7 @@ final class ImuContinuousRecorder: ObservableObject {
         /// Late history dropped because its second was already evicted by retention.
         var droppedAfterEviction = 0
         var droppedForLowDisk = 0
+        var droppedForResourceConstraint = 0
         /// Start of the current on-period (the open window's requested start), nil while Off.
         var recordingSince: Date?
     }
@@ -182,6 +185,31 @@ final class ImuContinuousRecorder: ObservableObject {
     private var noPacketsObserved = false
     private var strayPacketsWhileOff = false
     private var lowDiskPaused = false
+    private var retentionBlocked = false
+    private var resourceConstrained = false
+    private var resourceStopPending = false
+    private var lastResourceStopAt: Date?
+    private var droppedForResourceConstraint = 0
+    private var accountShutdown = false
+
+    /// Transient thermal/low-power policy. The account runtime supplies its current policy before
+    /// connecting and on every change; this never changes the user's persisted capture choice.
+    func setResourceConstrained(_ constrained: Bool) {
+        guard !accountShutdown, constrained != resourceConstrained else { return }
+        resourceConstrained = constrained
+        resourceStopPending = constrained && enabled
+        lastResourceStopAt = nil
+        if constrained {
+            if let openWindowId { store.prepareForRead(openWindowId) }
+            if enabled {
+                phase = .waitingForConnection
+                stopForResourceConstraintIfNeeded()
+            }
+        } else if enabled {
+            arm()
+        }
+        publish()
+    }
     /// Same-second conflict detection for the segment currently being written: strap ts → FNV-1a
     /// of the frame bytes. Reset on each segment roll; older duplicates are dropped by the store's
     /// own first-write-wins timestamp index.
@@ -189,6 +217,18 @@ final class ImuContinuousRecorder: ObservableObject {
     private var bucketHashes: [Int64: UInt64] = [:]
     private var tickCount = 0
     private var timer: Timer?
+
+    /// The old runtime may finish flushing only into its captured store. It must never re-arm.
+    func shutdownForAccountChange() {
+        accountShutdown = true
+        timer?.invalidate()
+        timer = nil
+        transport = Transport()
+        enabled = false
+        if let openWindowId { store.prepareForRead(openWindowId) }
+        phase = .off
+        publish()
+    }
 
     init(store: ImuSessionFileStore = .continuous,
          defaults: UserDefaults = .standard,
@@ -228,7 +268,7 @@ final class ImuContinuousRecorder: ObservableObject {
     var expectsImuPackets: Bool { enabled }
 
     func setEnabled(_ on: Bool) {
-        guard on != enabled else { return }
+        guard !accountShutdown, on != enabled else { return }
         enabled = on
         defaults.set(on, forKey: Self.enabledKey)
         if on {
@@ -237,13 +277,18 @@ final class ImuContinuousRecorder: ObservableObject {
             strayPacketsWhileOff = false
             let deviceId = transport.activeDeviceId()
             if !deviceId.isEmpty { ensureWindow(deviceId: deviceId) }
-            if transport.linkReady() {
+            if resourceConstrained {
+                resourceStopPending = true
+                phase = .waitingForConnection
+                stopForResourceConstraintIfNeeded()
+            } else if transport.linkReady() {
                 arm()
             } else {
                 phase = .waitingForConnection
                 transport.log("IMU recorder: on — waiting for a bonded WHOOP 5/MG link")
             }
         } else {
+            resourceStopPending = false
             // Stop local writes + flush/close the current segment immediately. Late strap history
             // inside the closed window's bounds can still repair it; nothing newer is written.
             closeWindow()
@@ -265,7 +310,7 @@ final class ImuContinuousRecorder: ObservableObject {
     func setRetentionCap(_ bytes: Int64) {
         // The UI offers only `capOptionsBytes`; the guard is just a nonsense filter so tests can
         // exercise eviction with a tiny cap.
-        guard bytes > 0 else { return }
+        guard !accountShutdown, bytes > 0 else { return }
         status.retentionCapBytes = bytes
         defaults.set(bytes, forKey: Self.retentionCapKey)
         enforceRetention()
@@ -275,6 +320,7 @@ final class ImuContinuousRecorder: ObservableObject {
 
     /// Called once per bonded 5/MG link (the BLE layer gates re-entry). Idempotent.
     func handleBonded5MG() {
+        guard !accountShutdown else { return }
         let deviceId = transport.activeDeviceId()
         guard !deviceId.isEmpty else { return }
         if !enabled {
@@ -289,6 +335,11 @@ final class ImuContinuousRecorder: ObservableObject {
             return
         }
         ensureWindow(deviceId: deviceId)
+        if resourceConstrained {
+            phase = .waitingForConnection
+            stopForResourceConstraintIfNeeded()
+            return
+        }
         arm()
     }
 
@@ -296,6 +347,11 @@ final class ImuContinuousRecorder: ObservableObject {
     /// will report as one — and re-arms from the post-bond hook on the next link. An unfinished
     /// stop becomes owed again: the write may not have landed.
     func handleDisconnect() {
+        guard !accountShutdown else { return }
+        if resourceConstrained, enabled {
+            resourceStopPending = true
+            lastResourceStopAt = nil
+        }
         switch phase {
         case .startSent, .recording, .waitingForConnection:
             if enabled { phase = .waitingForConnection }
@@ -312,13 +368,15 @@ final class ImuContinuousRecorder: ObservableObject {
     /// length + sample-count gate — a command acknowledgment or a same-type non-IMU frame never
     /// counts as a packet.
     func ingestFrame(_ frame: [UInt8], isOffload: Bool, receivedAtMs: Int64) {
+        guard !accountShutdown else { return }
         // Historical IMU is owned by the Backfiller session sink — skip decode entirely while disabled.
         if !enabled && isOffload { return }
         guard let decoded = Whoop5RawImu.decodeColumns(frame) else { return }
         let ts64 = Int64(decoded.baseTs)
         if !isOffload {
             lastLivePacketAt = now()
-            if enabled, phase == .startSent || phase == .waitingForConnection {
+            if enabled, !resourceConstrained, !lowDiskPaused, !retentionBlocked,
+               phase == .startSent || phase == .waitingForConnection {
                 noPacketsObserved = false
                 phase = .recording
                 transport.log("IMU recorder: first verified 100 Hz packet — recording")
@@ -337,6 +395,15 @@ final class ImuContinuousRecorder: ObservableObject {
             }
             return
         }
+        if resourceConstrained {
+            droppedForResourceConstraint += 1
+            if !isOffload {
+                resourceStopPending = true
+                stopForResourceConstraintIfNeeded()
+            }
+            publish()
+            return
+        }
         // Retention floor: a second already evicted must not regrow from late history.
         let deviceId = transport.activeDeviceId()
         if let floor = evictedThrough[deviceId], ts64 <= floor {
@@ -344,7 +411,7 @@ final class ImuContinuousRecorder: ObservableObject {
             publish()
             return
         }
-        if lowDiskPaused {
+        if lowDiskPaused || retentionBlocked {
             counters.droppedForLowDisk += 1
             publish()
             return
@@ -358,8 +425,10 @@ final class ImuContinuousRecorder: ObservableObject {
     // MARK: - Tick (timer in production, direct calls in tests)
 
     func tick() {
+        guard !accountShutdown else { return }
         tickCount += 1
         let now = now()
+        stopForResourceConstraintIfNeeded()
         switch phase {
         case .off, .offStopPending:
             break
@@ -443,18 +512,23 @@ final class ImuContinuousRecorder: ObservableObject {
         let cap = status.retentionCapBytes
         var inventory = store.segmentInventory()
         var total = inventory.reduce(Int64(0)) { $0 + $1.bytes }
-        guard total > cap else { return }
+        guard total > cap else { retentionBlocked = false; return }
         let nowBucket = Self.bucketStart(Int64(now().timeIntervalSince1970))
         let deviceByWindow = Dictionary(uniqueKeysWithValues: store.registeredWindows().map { ($0.id, $0.deviceId) })
         for segment in inventory where total > cap {
             if segment.id == openWindowId && segment.bucket == nowBucket { continue }
-            guard store.deleteSegment(id: segment.id, bucket: segment.bucket) else { break }
+            guard store.deleteSegment(id: segment.id, bucket: segment.bucket) else { continue }
             total -= segment.bytes
             counters.evictedSegments += 1
             let floor = segment.bucket + ImuSessionFileStore.segmentSeconds - 1
             let device = deviceByWindow[segment.id] ?? ""
             if floor > evictedThrough[device] ?? .min { evictedThrough[device] = floor }
             transport.log("IMU recorder: retention evicted segment \(segment.id)/\(segment.bucket) (cap \(cap) bytes)")
+        }
+        if total > cap, !retentionBlocked {
+            retentionBlocked = true
+            transport.log("IMU recorder: retention limit reached; waiting for verified durability receipts")
+            if transport.linkReady() { sendStop() }
         }
         persistCounters()
         Self.save(evictedThrough, defaults: defaults, key: Self.evictedThroughKey)
@@ -560,7 +634,8 @@ final class ImuContinuousRecorder: ObservableObject {
     // MARK: - Internals
 
     private func arm() {
-        guard enabled, transport.linkReady() else { return }
+        guard !accountShutdown, enabled, !resourceConstrained, !retentionBlocked, !lowDiskPaused,
+              transport.linkReady() else { return }
         if openWindowId == nil {
             let deviceId = transport.activeDeviceId()
             guard !deviceId.isEmpty else { return }
@@ -574,6 +649,7 @@ final class ImuContinuousRecorder: ObservableObject {
     }
 
     private func sendStart() {
+        guard !accountShutdown, enabled, !resourceConstrained, !retentionBlocked, !lowDiskPaused else { return }
         lastStartSendAt = now()
         transport.sendStart()
     }
@@ -581,6 +657,17 @@ final class ImuContinuousRecorder: ObservableObject {
     private func sendStop() {
         lastStopSendAt = now()
         transport.sendStop()
+    }
+
+    private func stopForResourceConstraintIfNeeded() {
+        guard !accountShutdown, enabled, resourceConstrained, resourceStopPending,
+              transport.linkReady(), !transport.otherProducerActive() else { return }
+        let timestamp = now()
+        guard lastResourceStopAt.map({ timestamp.timeIntervalSince($0) >= Self.stopResendSeconds }) ?? true
+        else { return }
+        resourceStopPending = false
+        lastResourceStopAt = timestamp
+        sendStop()
     }
 
     /// Open a window for this on-period, recovering the still-open one across a relaunch. Windows
@@ -660,12 +747,14 @@ final class ImuContinuousRecorder: ObservableObject {
         status.strayPacketsWhileOff = strayPacketsWhileOff
         status.lastLivePacketAt = lastLivePacketAt
         status.hardwareStopPending = phase == .offStopPending
-        status.lowDiskPaused = lowDiskPaused
+        status.lowDiskPaused = lowDiskPaused || retentionBlocked
+        status.resourceConstrained = resourceConstrained
         status.conflicts = counters.conflicts
         status.duplicatesSkipped = counters.duplicatesSkipped
         status.evictedSegments = counters.evictedSegments
         status.droppedAfterEviction = counters.droppedAfterEviction
         status.droppedForLowDisk = counters.droppedForLowDisk
+        status.droppedForResourceConstraint = droppedForResourceConstraint
     }
 
     private func persistCounters() {

@@ -27,7 +27,7 @@ object StrapLogBuffer {
     /** One retained line: the wall-clock epoch (ms) it was recorded, plus the already-redacted text. */
     private data class Entry(val tsMs: Long, val line: String)
 
-    private val lines = ArrayDeque<Entry>()
+    private val accountLines = mutableMapOf<String, ArrayDeque<Entry>>()
 
     /**
      * Append [text] to the rolling buffer, splitting on newlines so multi-line blobs (e.g. the whole
@@ -38,14 +38,15 @@ object StrapLogBuffer {
      * use the default wall clock.
      */
     @Synchronized
-    fun append(text: String, nowMs: Long = System.currentTimeMillis()) {
+    fun append(text: String, nowMs: Long = System.currentTimeMillis(), namespace: String = "unassigned") {
         if (text.isBlank()) return
+        val lines = accountLines.getOrPut(namespace) { ArrayDeque() }
         for (raw in text.split('\n')) {
             // Keep blank interior lines that sit between real content (formatting), but skip a trailing
             // empty split so "a\n" doesn't bank a phantom line.
             lines.addLast(Entry(nowMs, raw))
         }
-        trim(nowMs)
+        trim(lines, nowMs)
     }
 
     /**
@@ -55,32 +56,34 @@ object StrapLogBuffer {
      * bounded + aged on the way in.
      */
     @Synchronized
-    fun replaceWith(text: String, nowMs: Long = System.currentTimeMillis()) {
-        lines.clear()
-        append(text, nowMs)
+    fun replaceWith(text: String, nowMs: Long = System.currentTimeMillis(), namespace: String = "unassigned") {
+        accountLines.remove(namespace)
+        append(text, nowMs, namespace)
     }
 
     /** Newest-last snapshot of the retained lines as a single string, aged to the window first. Empty
      *  string when nothing is retained. */
     @Synchronized
-    fun snapshot(nowMs: Long = System.currentTimeMillis()): String {
-        trim(nowMs)
+    fun snapshot(nowMs: Long = System.currentTimeMillis(), namespace: String = "unassigned"): String {
+        val lines = accountLines[namespace] ?: return ""
+        trim(lines, nowMs)
         return lines.joinToString("\n") { it.line }
     }
 
     /** Current retained line count (after aging) — for tests + diagnostics. */
     @Synchronized
     fun size(nowMs: Long = System.currentTimeMillis()): Int {
-        trim(nowMs)
+        val lines = accountLines["unassigned"] ?: return 0
+        trim(lines, nowMs)
         return lines.size
     }
 
     /** Drop everything (used by tests; never needed in production). */
     @Synchronized
-    fun clear() = lines.clear()
+    fun clear() = accountLines.clear()
 
     /** Enforce BOTH bounds: drop anything older than the retention window, then cap the line count. */
-    private fun trim(nowMs: Long) {
+    private fun trim(lines: ArrayDeque<Entry>, nowMs: Long) {
         val cutoff = nowMs - RETENTION_MS
         while (lines.isNotEmpty() && lines.first().tsMs < cutoff) lines.removeFirst()
         while (lines.size > MAX_LINES) lines.removeFirst()

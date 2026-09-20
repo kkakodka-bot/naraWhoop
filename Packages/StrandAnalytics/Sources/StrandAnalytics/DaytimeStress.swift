@@ -305,7 +305,8 @@ public enum DaytimeStress {
     public static func analyze(hr: [HRSample], rr: [RRInterval],
                                gravity: [GravitySample] = [],
                                tzOffsetSeconds: Int = 0,
-                               mode: ScoringMode = .dayRelative) -> Result {
+                               mode: ScoringMode = .dayRelative,
+                               timezone: TimeZone? = nil) -> Result {
         // v7.0.2 perf (#707): buckets the day's full HR + R-R streams into per-hour aggregates and runs an
         // RMSSD per hour — invoked from the Stress view, so a `body` re-evaluation re-buckets the whole day.
         // Memoize on the streams' fingerprint + tz offset + scoring mode; result is a small `Result`, raw
@@ -328,15 +329,16 @@ public enum DaytimeStress {
                 Int(($0.x * 128).rounded()) &+ Int(($0.y * 128).rounded()) &* 257
                     &+ Int(($0.z * 128).rounded()) &* 66_049
             }),
-            tz: tzOffsetSeconds, mode: modeKey)
+            tz: tzOffsetSeconds, timezone: timezone, mode: modeKey)
         return analyzeCache.value(key) {
-            analyzeUncached(hr: hr, rr: rr, gravity: gravity, tzOffsetSeconds: tzOffsetSeconds, mode: mode)
+            analyzeUncached(hr: hr, rr: rr, gravity: gravity, tzOffsetSeconds: tzOffsetSeconds,
+                            mode: mode, timezone: timezone)
         }
     }
 
     private struct StressKey: Hashable {
         let hr: StreamFingerprint; let rr: StreamFingerprint; let gravity: StreamFingerprint
-        let tz: Int; let mode: ModeKey
+        let tz: Int; let timezone: TimeZone?; let mode: ModeKey
     }
 
     /// Hashable fingerprint of `ScoringMode` for the memo cache — `BaselineState` itself isn't
@@ -351,21 +353,19 @@ public enum DaytimeStress {
 
     private static func analyzeUncached(hr: [HRSample], rr: [RRInterval],
                                         gravity: [GravitySample],
-                                        tzOffsetSeconds: Int, mode: ScoringMode) -> Result {
+                                        tzOffsetSeconds: Int, mode: ScoringMode, timezone: TimeZone?) -> Result {
         guard !hr.isEmpty else { return .empty }
 
         // 1) Bucket HR + R-R into LOCAL hour-of-day buckets, keyed by the bucket start
         //    (floored to the hour on the local clock).
         var hrByBucket: [Int: [Double]] = [:]
         for s in hr {
-            let local = s.ts + tzOffsetSeconds
-            let bucket = floorDiv(local, bucketSeconds) * bucketSeconds
+            let bucket = hourBucket(s.ts, offsetSeconds: tzOffsetSeconds, timezone: timezone)
             hrByBucket[bucket, default: []].append(Double(s.bpm))
         }
         var rrByBucket: [Int: [Double]] = [:]
         for s in rr {
-            let local = s.ts + tzOffsetSeconds
-            let bucket = floorDiv(local, bucketSeconds) * bucketSeconds
+            let bucket = hourBucket(s.ts, offsetSeconds: tzOffsetSeconds, timezone: timezone)
             rrByBucket[bucket, default: []].append(Double(s.rrMs))
         }
 
@@ -392,8 +392,7 @@ public enum DaytimeStress {
         if !gravity.isEmpty {
             var counts: [Int: (active: Int, total: Int)] = [:]
             for p in WorkoutDetector.activitySeries(gravity) {
-                let local = p.ts + tzOffsetSeconds
-                let bucket = floorDiv(local, bucketSeconds) * bucketSeconds
+                let bucket = hourBucket(p.ts, offsetSeconds: tzOffsetSeconds, timezone: timezone)
                 var e = counts[bucket] ?? (0, 0)
                 e.total += 1
                 if p.intensity > WorkoutDetector.motionThreshold { e.active += 1 }
@@ -433,7 +432,7 @@ public enum DaytimeStress {
             // Ambulatory hours are excluded from the day's OWN calm reference too (the motion
             // gate): an exertion hour's elevated HR / suppressed HRV must not pull the calm
             // anchor up or inflate the across-hour spread the z-scores divide by.
-            let referenceAggs = aggs.filter { isWakingHour($0.bucket) && !isAmbulatory($0.bucket) }
+            let referenceAggs = aggs.filter { isWakingHour($0.bucket, timezone: timezone) && !isAmbulatory($0.bucket) }
             let hrMeans = referenceAggs.compactMap { $0.meanHR }
             let rmssdVals = referenceAggs.compactMap { $0.rmssd }
             refHR = calmReference(hrMeans, calmIsLow: true)         // calm HR is LOW
@@ -476,10 +475,10 @@ public enum DaytimeStress {
         var points: [HourPoint] = []
         points.reserveCapacity(aggs.count)
         for a in aggs {
-            guard isWakingHour(a.bucket) else { continue }
-            let hourOfDay = floorDiv(a.bucket, bucketSeconds) % 24
+            guard isWakingHour(a.bucket, timezone: timezone) else { continue }
+            let hourOfDay = localHour(a.bucket, timezone: timezone)
             // The wall-clock bucket start (undo the local shift applied above).
-            let wallStart = a.bucket - tzOffsetSeconds
+            let wallStart = timezone == nil ? a.bucket - tzOffsetSeconds : a.bucket
             // Motion gate: an AMBULATORY hour — or the post-exercise shadow hour whose HR has not yet
             // recovered to the calm reference — is EXERTION, so its elevated HR is masked out of the
             // score instead of read as stress. The shadow is gated on `refHR` so it self-limits to
@@ -546,9 +545,29 @@ public enum DaytimeStress {
     /// Whether a local hour-bucket start falls inside the waking window the timeline scores
     /// (06:00–22:00). The single source of truth for "waking" — used both to build the calm
     /// reference and to pick the hours to score, so the two can never drift apart.
-    static func isWakingHour(_ bucket: Int) -> Bool {
-        let hourOfDay = floorDiv(bucket, bucketSeconds) % 24
+    static func isWakingHour(_ bucket: Int, timezone: TimeZone? = nil) -> Bool {
+        let hourOfDay = localHour(bucket, timezone: timezone)
         return hourOfDay >= wakingStartHour && hourOfDay < wakingEndHour
+    }
+
+    /// Nil preserves shifted legacy keys. A zone returns an epoch key using the server's local-hour
+    /// truncation policy, not Foundation's elapsed-hour interval (different at half-hour transitions).
+    static func hourBucket(_ ts: Int, offsetSeconds: Int, timezone: TimeZone?) -> Int {
+        guard let timezone else { return floorDiv(ts + offsetSeconds, bucketSeconds) * bucketSeconds }
+        let preferredOffset = timezone.secondsFromGMT(for: Date(timeIntervalSince1970: Double(ts)))
+        // Gregorian wall-hour truncation: discard local minutes/seconds, retaining the source offset
+        // when valid. If truncation crosses a transition, the provisional instant resolves the earlier
+        // overlap offset or pre-gap offset (which shifts a missing wall hour forward by the gap).
+        let wallHour = floorDiv(ts + preferredOffset, bucketSeconds) * bucketSeconds
+        let provisional = wallHour - preferredOffset
+        let resolvedOffset = timezone.secondsFromGMT(for: Date(timeIntervalSince1970: Double(provisional)))
+        return wallHour - resolvedOffset
+    }
+
+    static func localHour(_ bucket: Int, timezone: TimeZone?) -> Int {
+        guard let timezone else { return floorDiv(bucket, bucketSeconds) % 24 }
+        let offset = timezone.secondsFromGMT(for: Date(timeIntervalSince1970: Double(bucket)))
+        return ((floorDiv(bucket + offset, bucketSeconds) % 24) + 24) % 24
     }
 
     /// The day's "calm" reference for a signal: the quartile toward the calm end (lower

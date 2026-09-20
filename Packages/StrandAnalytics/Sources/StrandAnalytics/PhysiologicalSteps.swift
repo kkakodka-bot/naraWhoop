@@ -43,7 +43,7 @@ public enum PhysiologicalSteps {
 
     /// Kotlin twin: `PhysiologicalSteps.classifyForCycle`.
     public static func classifyForCycle(_ blocks: [SleepBlock], offsetSec: Int,
-                                        habitualMidsleepSec: Int?) -> [SleepBlock] {
+                                        habitualMidsleepSec: Int?, timezone: TimeZone? = nil) -> [SleepBlock] {
         guard !blocks.isEmpty else { return [] }
         let explicit = blocks.indices.filter { blocks[$0].kind == .mainSleep }
         let selectable = blocks.indices.filter { blocks[$0].kind != .nap }
@@ -53,12 +53,13 @@ public enum PhysiologicalSteps {
         } else {
             let nightBlocks = selectable.map { SleepStageTotals.NightBlock(start: blocks[$0].effectiveOnset,
                                                                             end: blocks[$0].end) }
-            let eligible = SleepStageTotals.bridgedNightGroups(nightBlocks, offsetSec: offsetSec)
+            let eligible = SleepStageTotals.bridgedNightGroups(nightBlocks, offsetSec: offsetSec, timezone: timezone)
                 .filter { group in
                     let total = group.indices.reduce(0) { $0 + max(0, nightBlocks[$1].durationS) }
                     let onset = group.indices.map { nightBlocks[$0].start }.min()
                     return total >= minMainSleepSeconds && onset.map {
-                        SleepStageTotals.isOvernightOnset($0, offsetSec: offsetSec)
+                        SleepStageTotals.isOvernightOnset($0, offsetSec:
+                            timezone?.secondsFromGMT(for: Date(timeIntervalSince1970: Double($0))) ?? offsetSec)
                     } == true
                 }
                 .flatMap { $0.indices }
@@ -67,7 +68,8 @@ public enum PhysiologicalSteps {
                                             end: blocks[selectable[index]].end)
             }
             let picked = SleepStageTotals.mainNightGroupIndices(candidates, offsetSec: offsetSec,
-                                                                habitualMidsleepSec: habitualMidsleepSec) ?? []
+                                                                habitualMidsleepSec: habitualMidsleepSec,
+                                                                timezone: timezone) ?? []
             selected = Set(picked.map { selectable[eligible[$0]] })
         }
         return blocks.indices.map { index in

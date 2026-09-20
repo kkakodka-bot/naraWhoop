@@ -1,4 +1,5 @@
 import XCTest
+import CryptoKit
 @testable import WhoopProtocol
 
 /// WHOOP 5.0 ("puffin") HISTORICAL_DATA (type 47) decode, verified against a real captured frame.
@@ -307,7 +308,7 @@ final class Whoop5HistoricalTests: XCTestCase {
 
     // MARK: - #175 band sleep_state STREAM extraction (decode → extractHistoricalStreams row)
 
-    func testHistoricalV18SleepStateReachesStream() {
+    func testHistoricalV18SleepStateReachesStream() throws {
         // #175: the decoded band sleep_state must now survive extractHistoricalStreams as a
         // SleepStateSample row (it was decoded but DROPPED before). On the REAL worn daytime fixture the
         // band reads 0 (wake) — the only value we have ever captured — and that 0 is carried verbatim
@@ -316,7 +317,9 @@ final class Whoop5HistoricalTests: XCTestCase {
         let s = extractHistoricalStreams([f], deviceClockRef: 1780916150, wallClockRef: 1780916150)
         // v31 additionally carries the WHOLE @81 byte alongside `state`; on this fixture the byte is 0,
         // so both the interpreted nibble and the raw byte read 0.
-        XCTAssertEqual(s.sleepState, [SleepStateSample(ts: 1780916150, state: 0, rawByte: 0)],
+        let provenance = try ScalarProvenance(origin: .whoopV18, recordIndex: 25_443_699,
+            frameSHA256: "f33c461502c48aa493723f437268fbe88b2d08e25b7c73deedd427544b8a9ade")
+        XCTAssertEqual(s.sleepState, [SleepStateSample(ts: 1780916150, state: 0, rawByte: 0, provenance: provenance)],
                        "the real worn fixture's band wake state (0) must reach the stream")
     }
 
@@ -338,16 +341,19 @@ final class Whoop5HistoricalTests: XCTestCase {
         return b
     }
 
-    func testHistoricalV18SleepStateStreamCarriesEachNibble() {
+    func testHistoricalV18SleepStateStreamCarriesEachNibble() throws {
         // The non-zero codes come only from an in-memory byte override (we hold NO real sleeping-night
         // capture), so this proves the PLUMBING carries whatever the band reports — it does NOT assert
         // the code meanings against real data. The CRC is re-stamped so the extractor's CRC gate passes.
         for (raw, expected) in [(0x10, 1), (0x20, 2), (0x30, 3)] {
-            let f = parseFrame(mutatingCRCValid(81, to: UInt8(raw)), family: .whoop5)
+            let bytes = mutatingCRCValid(81, to: UInt8(raw))
+            let f = parseFrame(bytes, family: .whoop5)
             XCTAssertEqual(f.crcOK, true, "the re-stamped frame must pass CRC (raw 0x\(String(raw, radix: 16)))")
             let s = extractHistoricalStreams([f], deviceClockRef: 1780916150, wallClockRef: 1780916150)
             // v31 carries the whole byte too; `state` must still be exactly its high nibble.
-            XCTAssertEqual(s.sleepState, [SleepStateSample(ts: 1780916150, state: expected, rawByte: raw)],
+            let digest = SHA256.hash(data: Data(bytes)).map { String(format: "%02x", $0) }.joined()
+            let provenance = try ScalarProvenance(origin: .whoopV18, recordIndex: 25_443_699, frameSHA256: digest)
+            XCTAssertEqual(s.sleepState, [SleepStateSample(ts: 1780916150, state: expected, rawByte: raw, provenance: provenance)],
                            "band code \(expected) must reach the stream (raw 0x\(String(raw, radix: 16)))")
         }
     }

@@ -145,7 +145,8 @@ final class PushObjectLaneTests: XCTestCase {
             onComplete: { _ in
                 completeCalls += 1
                 return PushObjectAck(
-                    objectId: batch.objectId, status: "ready", objectKey: "k/resume", duplicate: false
+                    objectId: batch.objectId, status: "ready", objectKey: "k/verified", duplicate: false,
+                    durabilityReceipt: try objectReceiptFixture(batch)
                 )
             }
         )
@@ -154,6 +155,11 @@ final class PushObjectLaneTests: XCTestCase {
             transport: transport,
             progress: progress,
             sourceId: sourceA,
+            receiptOwner: objectReceiptOwner,
+            associateReceipt: { uploaded, rows, receipt in
+                XCTAssertEqual(uploaded.batchId, receipt.batchId)
+                XCTAssertEqual(rows.count, 1)
+            },
         ).pushObjects(.rawImuSession, deviceId: "dev", lane: lane)
         guard case .accepted = result else {
             return XCTFail("expected accepted, got \(result)")
@@ -228,7 +234,8 @@ final class PushObjectLaneTests: XCTestCase {
             onComplete: { _ in
                 completeCalls += 1
                 return PushObjectAck(
-                    objectId: batch.objectId, status: "ready", objectKey: "k/resume", duplicate: false
+                    objectId: batch.objectId, status: "ready", objectKey: "k/verified", duplicate: false,
+                    durabilityReceipt: try objectReceiptFixture(batch)
                 )
             }
         )
@@ -237,6 +244,11 @@ final class PushObjectLaneTests: XCTestCase {
             transport: transport,
             progress: progress,
             sourceId: sourceA,
+            receiptOwner: objectReceiptOwner,
+            associateReceipt: { uploaded, rows, receipt in
+                XCTAssertEqual(uploaded.batchId, receipt.batchId)
+                XCTAssertEqual(rows.count, 1)
+            },
         ).pushObjects(.rawImuSession, deviceId: "dev", lane: lane)
         guard case .accepted = result else {
             return XCTFail("expected accepted, got \(result)")
@@ -390,6 +402,19 @@ private struct FakePpgSource: PushSnapshotSource {
         rows.filter { $0.rowId > afterRowId }.prefix(limit).map { .ppgWaveform($0) }
     }
     func acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: [PushBinaryRow]) async throws {}
+}
+
+private let objectReceiptOwner = try! AccountScope(projectURL: "https://fixture.invalid", userID: "11111111-1111-4111-8111-111111111111")
+private func objectReceiptFixture(_ batch: PushBinaryBatch) throws -> PushDurabilityReceipt {
+    let object: [String: Any] = ["version": 1, "state": "verified_indexed",
+        "receiptId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "ownerUserId": objectReceiptOwner.userID,
+        "deviceId": PushDurabilityReceipt.canonicalDevice(owner: objectReceiptOwner.userID, device: batch.deviceId),
+        "objectId": batch.objectId, "batchId": batch.batchId, "sourceId": batch.sourceId,
+        "stream": batch.wireName, "schemaVersion": 1, "objectKey": "k/verified",
+        "contentSha256": batch.contentSha256, "wireSha256": PushDurabilityReceipt.sha256(batch.payload),
+        "compressedBytes": batch.payload.count, "uncompressedBytes": batch.uncompressedBytes,
+        "verifiedAt": "2026-09-18T00:00:00Z", "indexedAt": "2026-09-18T00:00:01Z"]
+    return try JSONDecoder().decode(PushDurabilityReceipt.self, from: JSONSerialization.data(withJSONObject: object))
 }
 
 private final class MemoryObjectProgress: PushProgressStore {

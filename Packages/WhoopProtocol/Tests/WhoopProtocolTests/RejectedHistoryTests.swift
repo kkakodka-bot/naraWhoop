@@ -7,6 +7,23 @@ import XCTest
 /// decode cleanly, console (type-50) frames, and 5/MG v26 PPG blocks must NOT be returned.
 final class RejectedHistoryTests: XCTestCase {
 
+    func testRecoveryIncludesMappedDeepAndUnknownNon47WithoutResearchToggle() {
+        let v18 = bytes(whoop5V18Hex)
+        let v26 = bytes(whoop5V26Hex)
+        XCTAssertEqual(historicalRecoveryRecords([v18, v26, v18], family: .whoop5), [v18, v26, v18])
+        let unknown = frameFromPayload([1, 2, 3], type: 99, seq: 1, cmd: 0)
+        let deep = frameFromPayload([4, 5, 6], type: 52, seq: 2, cmd: 0)
+        XCTAssertEqual(historicalRecoveryRecords([unknown, deep], family: .whoop4), [unknown, deep])
+    }
+
+    func testRecoveryExcludesOnlyValidatedConsoleAndIgnoresIncompleteParseCache() {
+        let console = frameFromPayload([0], type: 50, seq: 0, cmd: 0)
+        var corrupt = console
+        corrupt[corrupt.count - 1] ^= 1
+        let input = [console, corrupt, [0xAA], bytes(v24Hex)]
+        XCTAssertEqual(historicalRecoveryRecords(input, family: .whoop4, parsedFrames: []), Array(input.dropFirst()))
+    }
+
     private func bytes(_ s: String) -> [UInt8] {
         var out = [UInt8](); out.reserveCapacity(s.count / 2); var i = s.startIndex
         while i < s.endIndex { let j = s.index(i, offsetBy: 2)

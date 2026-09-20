@@ -40,6 +40,7 @@ struct BackfillMainHooks: Sendable {
     /// Optional so existing injected hooks preserve their delivery behavior. Production uses a
     /// synchronous main-actor body: one batch cannot suspend between its ordered observations.
     var chunkInfo: (@MainActor @Sendable ([BackfillChunkInfo]) -> Void)? = nil
+    var onQuarantined: @Sendable (Int) async -> Void = { _ in }
 }
 
 /// Thread-safe handoff for BLE notify-path frame yields into the actor pipeline.
@@ -49,11 +50,19 @@ private final class BackfillPipelineSink: @unchecked Sendable {
     private var currentSession: UUID?
     private var deliverySession: UUID?
     private var pendingFrames = 0
+    private var pendingBytes = 0
+    private let maxPendingBytes = 8 * 1_048_576
 
     func install(_ continuation: AsyncStream<BackfillPipelineItem>.Continuation) {
         lock.lock(); defer { lock.unlock() }
         self.continuation?.finish()
         self.continuation = continuation
+    }
+
+    func finish() {
+        lock.lock(); defer { lock.unlock() }
+        continuation?.finish()
+        continuation = nil
     }
 
     func reserve(_ sessionID: UUID) {
@@ -91,17 +100,25 @@ private final class BackfillPipelineSink: @unchecked Sendable {
         deliverySession = sessionID
     }
 
-    func yieldFrame(_ frame: [UInt8], sessionID: UUID?) {
+    func yieldFrame(_ frame: [UInt8], sessionID: UUID?) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard let currentSession, sessionID == nil || sessionID == currentSession,
-              let continuation else { return }
+              let continuation else { return false }
+        guard pendingFrames < 16_384, frame.count <= maxPendingBytes - pendingBytes else {
+            // Invalidate synchronously so an in-flight chunk cannot ACK after an overflow.
+            self.currentSession = nil
+            return false
+        }
         pendingFrames += 1
+        pendingBytes += frame.count
         continuation.yield(.frame(frame, sessionID: currentSession))
+        return true
     }
 
-    func consumedFrame() {
+    func consumedFrame(bytes: Int) {
         lock.lock(); defer { lock.unlock() }
         pendingFrames -= 1
+        pendingBytes -= bytes
     }
 
     @discardableResult
@@ -121,6 +138,7 @@ private enum BackfillPipelineItem {
     case clockRef(ClockRef?)
     case oldest(Int?)
     case newest(Int?)
+    case drain(CheckedContinuation<Void, Never>)
 }
 
 /// Serial offload pipeline: FIFO frame/control queue, chunk commits, and IMU session persistence off the main actor.
@@ -141,6 +159,8 @@ actor BackfillActor {
                    hooks: BackfillMainHooks,
                    enableRawCapture: Bool,
                    postOffloadJobKinds: [String],
+                   captureScope: DurableIngestScope? = nil,
+                   imuStore: ImuSessionFileStore = .shared,
                    extract: @escaping Backfiller.Extractor = { extractHistoricalStreams($0, deviceClockRef: $1, wallClockRef: $2,
                                                                                          sessionOldestUnix: $3, sessionNewestUnix: $4,
                                                                                          subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled) }) {
@@ -183,7 +203,7 @@ actor BackfillActor {
             },
             imuSessionSink: { deviceId, records in
                 guard sink.deliveryIsCurrent else { return false }
-                return ImuSessionFileStore.shared.persistHistoricalImu(deviceId: deviceId, records: records)
+                return imuStore.persistHistoricalImu(deviceId: deviceId, records: records)
             },
             onChunk: { decoded, console in
                 guard sink.deliveryIsCurrent else { return }
@@ -212,7 +232,12 @@ actor BackfillActor {
                 await hooks.onChunkCommitAborted()
             },
             chunkInfo: chunkInfoSink,
+            onQuarantined: { count in
+                guard sink.deliveryIsCurrent else { return }
+                await hooks.onQuarantined(count)
+            },
             extract: extract)
+        backfiller?.captureScope = captureScope
         let (stream, continuation) = AsyncStream<BackfillPipelineItem>.makeStream()
         pipelineSink.install(continuation)
         processingTask?.cancel()
@@ -220,8 +245,16 @@ actor BackfillActor {
     }
 
     /// Thread-safe frame handoff from the BLE notify path — no per-frame `Task`.
-    nonisolated func yieldFrame(_ frame: [UInt8], sessionID: UUID? = nil) {
+    @discardableResult
+    nonisolated func yieldFrame(_ frame: [UInt8], sessionID: UUID? = nil) -> Bool {
         pipelineSink.yieldFrame(frame, sessionID: sessionID)
+    }
+
+    /// A barrier behind any suspended commit. Invalidation itself is synchronous at the call site.
+    func drainAfterInvalidation() async {
+        await withCheckedContinuation { done in
+            if !pipelineSink.yield(.drain(done)) { done.resume() }
+        }
     }
 
     /// Reserve synchronously with the manager's start admission, before its first await.
@@ -327,8 +360,13 @@ actor BackfillActor {
             case .clockRef(let ref): backfiller?.clockRef = ref
             case .oldest(let value): backfiller?.sessionOldestUnix = value
             case .newest(let value): backfiller?.sessionNewestUnix = value
+            case .drain(let done):
+                acceptingFrames = false
+                backfiller?.timeoutFired()
+                pipelineSink.finish()
+                done.resume()
             case .frame(let frame, let sessionID):
-                defer { pipelineSink.consumedFrame() }
+                defer { pipelineSink.consumedFrame(bytes: frame.count) }
                 guard acceptingFrames, activeSessionID == sessionID,
                       pipelineSink.isCurrent(sessionID) else { continue }
                 pipelineSink.setDelivery(sessionID)

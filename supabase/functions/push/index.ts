@@ -44,6 +44,7 @@ import {
 import { createEnrollmentService, EnrollmentError } from '../_shared/enrollment.ts';
 import { createNoopDeviceResolver } from '../_shared/devices.ts';
 import { createUploadReceiptStore } from '../_shared/receipts.ts';
+import { commitArchivedBatch } from '../_shared/projections.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024 + 64 * 1024;
 
@@ -94,6 +95,7 @@ const pushIngest = createPushIngest({
   resolveDeviceId,
   replacementStaging: pushStaging,
   receiptStore,
+  commitProjection: (receipt, body) => commitArchivedBatch(rest, receipt, body),
 });
 const pushObjects = createPushObjects({
   cfg,
@@ -250,7 +252,7 @@ async function handleInlineBatch(req: Request): Promise<Response> {
     const encoding = String(req.headers.get('content-encoding') || '').toLowerCase();
     if (encoding === 'gzip') {
       try {
-        body = new Uint8Array(gunzipSync(body));
+        body = new Uint8Array(gunzipSync(body, { maxOutputLength: 4 * 1024 * 1024 }));
       } catch {
         return json({ type: 'error', protocolVersion: '1.1', code: 'invalid_gzip' }, 400);
       }

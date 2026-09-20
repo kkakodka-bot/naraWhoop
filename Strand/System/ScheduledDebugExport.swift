@@ -1,4 +1,5 @@
 import Foundation
+import NoopPush
 #if os(iOS)
 import BackgroundTasks
 #endif
@@ -30,6 +31,17 @@ import BackgroundTasks
 /// default cap and a visible clear action both matter. Mirrors Android's `LogExport` retention.
 @MainActor
 enum ScheduledDebugExport {
+    private static var defaults = UserDefaults(suiteName: "com.frwhoop.account.signed-out")!
+    private static var exportDirectory: URL?
+    private static var generation = UUID()
+
+    static func configureAccount(_ layout: AccountStorageLayout?) {
+        cancel()
+        generation = UUID()
+        defaults = UserDefaults(suiteName: layout?.preferencesSuite ?? "com.frwhoop.account.signed-out")!
+        exportDirectory = layout?.scope == nil ? nil : layout?.directory.appendingPathComponent("debug-exports", isDirectory: true)
+        if !AppRuntimeMode.isUnitTesting { activateIfEnabled() }
+    }
 
     // MARK: - Persisted settings (own keys; mirror Android `DebugExportSettings` + the WindDownNudge shape)
 
@@ -58,10 +70,10 @@ enum ScheduledDebugExport {
     /// shape (0-means-unset sentinel, clamp to a sane 1...100).
     static var keepCount: Int {
         get {
-            let v = UserDefaults.standard.integer(forKey: K.keepCount)   // 0 when never set
+            let v = defaults.integer(forKey: K.keepCount)   // 0 when never set
             return v == 0 ? defaultKeepCount : min(max(v, 1), 100)
         }
-        set { UserDefaults.standard.set(min(max(newValue, 1), 100), forKey: K.keepCount) }
+        set { defaults.set(min(max(newValue, 1), 100), forKey: K.keepCount) }
     }
 
     /// Filename prefixes for the two scheduled-export file kinds this type writes into Documents (the
@@ -114,7 +126,7 @@ enum ScheduledDebugExport {
     /// another feature put in Documents. Returns the number of files removed.
     @discardableResult
     static func clearScheduledExports() -> Int {
-        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        guard let docs = exportDirectory
         else { return 0 }
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: docs.path) else { return 0 }
@@ -133,7 +145,7 @@ enum ScheduledDebugExport {
     /// the same way. Must also be registered at launch for `submit` to succeed — wired in the app entry point.
     static let bgTaskIdentifier = (Bundle.main.bundleIdentifier ?? "com.noopapp.noop") + ".debugexport"
 
-    static var isEnabled: Bool { UserDefaults.standard.bool(forKey: K.enabled) }
+    static var isEnabled: Bool { exportDirectory != nil && defaults.bool(forKey: K.enabled) }
 
     /// A delivered BGAppRefresh request is single-shot and should schedule its successor only while the
     /// user still has scheduled exports enabled. Kept outside the iOS-only `register` block so the
@@ -142,7 +154,7 @@ enum ScheduledDebugExport {
 
     /// Time-of-day to export, minutes since local midnight. Clamped to a valid minute. Default 07:00.
     static var timeMinutes: Int {
-        let v = UserDefaults.standard.object(forKey: K.time) as? Int ?? defaultTimeMinutes
+        let v = defaults.object(forKey: K.time) as? Int ?? defaultTimeMinutes
         return min(max(v, 0), minutesPerDay - 1)
     }
 
@@ -150,7 +162,7 @@ enum ScheduledDebugExport {
 
     /// Enable/disable and (re)schedule. Disabling cancels the schedule and stops the drops.
     static func setEnabled(_ on: Bool) {
-        UserDefaults.standard.set(on, forKey: K.enabled)
+        defaults.set(on, forKey: K.enabled)
         if on {
             scheduleNext()
             catchUpIfDue()
@@ -162,7 +174,7 @@ enum ScheduledDebugExport {
     /// Update the time-of-day and reschedule so the new time takes effect immediately (the Android
     /// `applyTimeChange` analogue).
     static func setTimeMinutes(_ minutes: Int) {
-        UserDefaults.standard.set(min(max(minutes, 0), minutesPerDay - 1), forKey: K.time)
+        defaults.set(min(max(minutes, 0), minutesPerDay - 1), forKey: K.time)
         if isEnabled { scheduleNext() }
     }
 
@@ -195,9 +207,10 @@ enum ScheduledDebugExport {
         macTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: .main)
         let delay = secondsToNextOccurrence(timeMinutes)
+        let capturedGeneration = generation
         timer.schedule(deadline: .now() + delay)
         timer.setEventHandler {
-            guard isEnabled else { return }
+            guard capturedGeneration == generation, isEnabled else { return }
             _ = performExport(markDay: true)
             // Re-arm for the following day (the timer is one-shot so a clock change can't drift it).
             scheduleNext()
@@ -235,7 +248,7 @@ enum ScheduledDebugExport {
         let comps = cal.dateComponents([.hour, .minute], from: now)
         let nowMinutes = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
         guard nowMinutes >= timeMinutes else { return true }      // not yet time today
-        guard UserDefaults.standard.string(forKey: K.lastRun) != dayKey(now) else { return true } // already ran today
+        guard defaults.string(forKey: K.lastRun) != dayKey(now) else { return true } // already ran today
         return performExport(markDay: true) != nil
     }
 
@@ -261,13 +274,15 @@ enum ScheduledDebugExport {
     /// double-write; the "Run now" button passes false so a manual tap always produces a file.
     @discardableResult
     private static func performExport(markDay: Bool, captureURL: URL? = nil) -> URL? {
-        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+        guard let docs = exportDirectory else {
             return nil
         }
         let stamp = FileExport.timestamp()
         let logURL = docs.appendingPathComponent("noop-strap-log-\(stamp).txt")
         do {
-            try LiveState.scheduledExportText(extraHeaderLines: DebugDataDiagnostics.strapStateLines())
+            try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+            try LiveState.scheduledExportText(extraHeaderLines: DebugDataDiagnostics.strapStateLines(defaults: defaults),
+                                            defaults: defaults)
                 .write(to: logURL, atomically: true, encoding: .utf8)
         } catch {
             return nil
@@ -280,7 +295,7 @@ enum ScheduledDebugExport {
             try? FileManager.default.copyItem(at: capture, to: dest)
         }
         if markDay {
-            UserDefaults.standard.set(dayKey(Date()), forKey: K.lastRun)
+            defaults.set(dayKey(Date()), forKey: K.lastRun)
         }
         // Retention (#650): these accumulate in Documents with no UI in the loop to notice, so prune
         // after every write (scheduled OR manual "Run now") — mirrors Android pruning on every

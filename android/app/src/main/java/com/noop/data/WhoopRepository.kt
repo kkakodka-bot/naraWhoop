@@ -271,12 +271,12 @@ data class SkinTempRow(val ts: Long, val raw: Int, val aux1Raw: Int? = null, val
  * 2=run; null when the byte was 0xFF/invalid or absent. Optional + defaulted so existing call sites and the
  * persisted store (which carries only ts/counter today) are unchanged.
  */
-data class StepRow(val ts: Long, val counter: Int, val activityClass: Int? = null)
+data class StepRow(val ts: Long, val counter: Int, val activityClass: Int? = null, val provenanceJSON: String? = null)
 /**
  * The strap's OWN @81 high-nibble band sleep_state at [ts] (0 wake/1 still/2 asleep/3 up), decoded and
  * streamed but dropped at storage until #175. deviceId attached on insert. Swift `SleepStateSample`.
  */
-data class SleepStateRow(val ts: Long, val state: Int, val rawByte: Int? = null)
+data class SleepStateRow(val ts: Long, val state: Int, val rawByte: Int? = null, val provenanceJSON: String? = null)
 data class RespRow(val ts: Long, val raw: Int)
 /**
  * The 1 Hz gravity vector at [ts], plus the strap's OWN gravity-removed motion magnitude from the same
@@ -299,14 +299,13 @@ data class GravityRow(
     val dynAccel: Double? = null,
 )
 /** HR derived from the v26 PPG waveform: [ts] window-centre sec, [bpm], [conf] in 0…1. (#156) */
-data class PpgHrRow(val ts: Long, val bpm: Int, val conf: Double)
+data class PpgHrRow(val ts: Long, val bpm: Int, val conf: Double, val provenanceJSON: String? = null)
 /**
  * The RAW v26 optical PPG waveform for one strap-second (#156 follow-up): [ts] the record's wall-clock
  * unix second, [samples] the raw i16 ADC counts (usually 24, fewer on a truncated frame). deviceId is
  * attached on insert; the samples are packed to a little-endian i16 BLOB by [StreamPersistence.packPpgSamples].
  */
-data class PpgWaveformRow(val ts: Long, val samples: List<Int>, val burstIndex: Int? = null,
-                          val recordIndex: Long? = null)
+data class PpgWaveformRow(val ts: Long, val samples: List<Int>, val burstIndex: Int? = null, val recordIndex: Long? = null)
 
 /** Count of rows ACTUALLY inserted per stream (mirrors WhoopStore.insert return tuple). */
 data class InsertCounts(
@@ -431,6 +430,10 @@ class WhoopRepository(
     private val transactor: Transactor = object : Transactor {
         override suspend fun <R> run(block: suspend () -> R): R = block()
     },
+    private val retainAuxConflict: (V18AuxSampleEntity, V18AuxSampleEntity) -> Unit = { _, _ ->
+        throw IllegalStateException("Auxiliary conflict archive unavailable")
+    },
+    private val capturedDatabase: WhoopDatabase? = null,
 ) {
 
     /** Transaction boundary injected so repository writes remain testable without a Room runtime. */
@@ -462,6 +465,8 @@ class WhoopRepository(
         transactor = object : Transactor {
             override suspend fun <R> run(block: suspend () -> R): R = db.withTransaction { block() }
         },
+        retainAuxConflict = V18AuxConflictArchive(db)::retain,
+        capturedDatabase = db,
     )
 
     // MARK: - Device
@@ -545,6 +550,20 @@ class WhoopRepository(
         }
     }
 
+    /** Publish an already-committed GPS HR change to this exact runtime's repository, without reinserting. */
+    internal fun publishGpsHrCommit(commit: GpsWorkoutCommit, isCurrentRuntime: () -> Boolean): Boolean {
+        val database = capturedDatabase ?: return false
+        if (commit.database !== database || commit.insertedHr <= 0 || !database.isOpen ||
+            database.accountIdentity != commit.account.identity) return false
+        val fence = database.accountWriteFence ?: return false
+        return try {
+            fence.commit {
+                if (!database.isOpen || !isCurrentRuntime()) false
+                else commit.publishOnce { publishReadoutRevisions(InsertCounts(hr = commit.insertedHr)) }
+            }
+        } catch (_: com.noop.account.AccountWriteRevokedException) { false }
+    }
+
     /** Bounded process-local cache witness; duplicate rows do not advance because InsertCounts is zero. */
     fun stepDataRevisionSignature(deviceId: String, onset: Long, endExclusive: Long): String =
         stepRevisionIndex.signature(deviceId, onset, endExclusive)
@@ -605,14 +624,16 @@ class WhoopRepository(
         // already carries on each StepRow; it was dropped here before v13 (the insert listed only ts/counter).
         // it.activityClass is null when the @63 byte was 0xFF/invalid/absent → stored as SQL NULL.
         val stepIds = if (streams.steps.isEmpty()) emptyList() else
-            dao.insertSteps(streams.steps.map { StepSample(deviceId, it.ts, it.counter, it.activityClass) })
+            dao.insertSteps(streams.steps.map { StepSample(deviceId, it.ts, it.counter, it.activityClass,
+                provenanceJSON = it.provenanceJSON?.let(ScalarProvenance::canonical)) })
         // Band sleep_state (#175). Persist-only, same as steps — the strap's OWN @81 high-nibble state
         // (0 wake/1 still/2 asleep/3 up), decoded and streamed but dropped at storage until now. Idempotent
         // by (deviceId, ts); not counted into InsertCounts (no consumer reads a count). The raw 0-3 code is
         // stored verbatim — a strap that never reports it inserts nothing.
         val sleepStateIds = if (streams.sleepState.isEmpty()) emptyList() else
             dao.insertSleepState(
-                streams.sleepState.map { SleepStateSampleEntity(deviceId, it.ts, it.state, it.rawByte) },
+                streams.sleepState.map { SleepStateSampleEntity(deviceId, it.ts, it.state, it.rawByte,
+                    provenanceJSON = it.provenanceJSON?.let(ScalarProvenance::canonical)) },
             )
         val respIds = if (streams.resp.isEmpty()) emptyList() else
             dao.insertResp(streams.resp.map { RespSample(deviceId, it.ts, it.raw) })
@@ -625,11 +646,11 @@ class WhoopRepository(
         // v26 PPG-derived HR (#156). Idempotent by (deviceId, ts); counted into InsertCounts.hr so the
         // backfill "persisted N" summary reflects HR recovered from the optical waveform too.
         val ppgHrIds = if (streams.ppgHr.isEmpty()) emptyList() else
-            dao.insertPpgHr(streams.ppgHr.map { PpgHrSample(deviceId, it.ts, it.bpm, it.conf) })
+            dao.insertPpgHr(streams.ppgHr.map { PpgHrSample(deviceId, it.ts, it.bpm, it.conf,
+                provenanceJSON = it.provenanceJSON?.let(ScalarProvenance::canonical)) })
         // RAW v26 optical PPG waveform (#156 follow-up) — the samples ppgHr above is derived FROM.
         // Persist-only, same as steps/sleepState: not added to the InsertCounts return. Idempotent by
-        // (deviceId, ts), IGNORE-on-conflict keeps the FIRST-seen waveform for a second (mirrors every
-        // other per-second stream). Packed into one compact i16 BLOB per row (see packPpgSamples).
+        // (deviceId, ts, recordIndex), so distinct records in a second survive. Packed i16 BLOB.
         if (streams.ppgWaveform.isNotEmpty()) {
             dao.insertPpgWaveform(
                 streams.ppgWaveform.map {
@@ -637,19 +658,7 @@ class WhoopRepository(
                         it.burstIndex, it.recordIndex ?: -1)
                 },
             )
-            // #1911 rolling retention, amortised and best-effort on exactly the same terms as the v18-aux
-            // sweep below (see [PPG_WAVEFORM_RETENTION_ROWS] for why this is newest-N and not an age-based
-            // drop). Its own counter: a batch routinely writes one of these two tables and not the other.
-            val bankedPpg = (ppgWaveformRowsSincePrune[deviceId] ?: 0) + streams.ppgWaveform.size
-            ppgWaveformRowsSincePrune[deviceId] = bankedPpg
-            if (bankedPpg >= ppgWaveformPruneEveryRows) {
-                runCatching { dao.prunePpgWaveform(deviceId, ppgWaveformRetentionRows) }
-                    .onSuccess { ppgWaveformRowsSincePrune[deviceId] = 0 }
-                    // prunePpgWaveform is a suspend call, so a scope cancellation arrives here as a
-                    // CancellationException that runCatching would otherwise swallow, leaving the caller
-                    // running inside a cancelled coroutine. Same rethrow as the v18-aux sweep below.
-                    .onFailure { if (it is kotlin.coroutines.cancellation.CancellationException) throw it }
-            }
+            // No automatic raw eviction without a verified record-level durability receipt.
         }
 
         // Every remaining v18 slot (v31), one compact blob per strap-second. Persist-only, same as
@@ -658,30 +667,19 @@ class WhoopRepository(
         // what keeps a WHOOP 4.0 offload from writing here at all.
         if (streams.v18Aux.isNotEmpty()) {
             val rows = streams.v18Aux.mapNotNull {
-                val blob = V18AuxCodec.pack(it)
-                if (blob.isEmpty()) null else V18AuxSampleEntity(deviceId, it.ts, blob)
+                val blob = V18AuxIdentity.pack(it)
+                if (blob.isEmpty()) null else V18AuxSampleEntity(deviceId, it.ts, it.recordIndex ?: -1, blob)
             }
             if (rows.isNotEmpty()) {
-                dao.insertV18Aux(rows)
-                // Rolling retention is amortised. The delete finds the Nth-newest row by rank, so it walks up
-                // to [V18_AUX_RETENTION_ROWS] index entries; this keeps 604,800 and an offload inserts once
-                // per chunk. Swept once per [V18_AUX_PRUNE_EVERY_ROWS] rows instead, which keeps
-                // newest-N-rows exactly (a time window would not — a sporadically-worn strap's rows span
-                // far more than a week, and the census wants that). Counter is per device because the
-                // delete is. Swift twin: `WhoopStore.v18AuxRowsSincePrune`.
-                val banked = (v18AuxRowsSincePrune[deviceId] ?: 0) + rows.size
-                v18AuxRowsSincePrune[deviceId] = banked
-                // Best-effort: a retention-sweep failure must not roll back the decoded rows and make
-                // Backfiller re-send the chunk. Leaving the budget unspent means the next batch retries.
-                if (banked >= v18AuxPruneEveryRows) {
-                    runCatching { dao.pruneV18Aux(deviceId, v18AuxRetentionRows) }
-                        .onSuccess { v18AuxRowsSincePrune[deviceId] = 0 }
-                        // pruneV18Aux is a suspend call, so a scope cancellation arrives here as a
-                        // CancellationException that runCatching would otherwise swallow — the caller would
-                        // then carry on inside a cancelled coroutine. Same rethrow AppViewModel (#125) and
-                        // HealthConnectWriter already use.
-                        .onFailure { if (it is kotlin.coroutines.cancellation.CancellationException) throw it }
+                for (row in rows) {
+                    val previous = dao.v18AuxIdentity(row.deviceId, row.ts, row.recordIndex)
+                    if (previous == null) check(dao.insertV18Aux(listOf(row)).single() != -1L)
+                    else if (!previous.fields.contentEquals(row.fields)) {
+                        retainAuxConflict(previous, row)
+                        throw V18AuxIdentityConflict()
+                    }
                 }
+                // No automatic raw eviction without a verified record-level durability receipt.
             }
         }
 
@@ -1163,8 +1161,7 @@ class WhoopRepository(
     suspend fun ppgWaveformSamples(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT):
         List<PpgWaveformRow> =
         dao.ppgWaveformSamples(deviceId, from, to, limit)
-            .map { PpgWaveformRow(it.ts, StreamPersistence.unpackPpgSamples(it.samples),
-                it.burstIndex, it.recordIndex.takeUnless { index -> index == -1L }) }
+            .map { PpgWaveformRow(it.ts, StreamPersistence.unpackPpgSamples(it.samples), it.burstIndex, it.recordIndex.takeIf { index -> index >= 0 }) }
 
     /**
      * The banked 5/MG v18 auxiliary fields in [from, to] for one device, ascending by ts — one row per

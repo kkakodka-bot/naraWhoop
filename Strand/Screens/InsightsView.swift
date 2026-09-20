@@ -59,6 +59,7 @@ struct InsightsLoadCache {
 }
 
 struct InsightsView: View {
+    @EnvironmentObject private var model: AppModel
     @EnvironmentObject var repo: Repository
     /// Deep-link into the v5 "What moves you" hub (the n-of-1 ranked-effect + dose-response surface).
     @EnvironmentObject var router: NavRouter
@@ -240,7 +241,7 @@ struct InsightsView: View {
                     // Caffeine window (#526), log an intake + a rough on-device "still active" hint.
                     // Self-contained (owns its own UserDefaults-backed store); sits in the same
                     // "log today" block. Opt-in: shows nothing until the user logs an intake.
-                    CaffeineLogCard()
+                    CaffeineLogCard(store: model.caffeineLog, defaults: model.accountDefaults)
                     experimentSection
                     if behaviours.isEmpty {
                         // No journal yet, explain, without dead-ending on a paid export.

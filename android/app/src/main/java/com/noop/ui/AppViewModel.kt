@@ -121,11 +121,11 @@ internal fun circadianBinsFrom(
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Process-wide context for prefs + the background-connection service. */
-    private val appContext = app.applicationContext
+    private val appContext = (app as NoopApplication).accountRuntime.context
 
     /** The process owns the store + BLE client (see [NoopApplication]) so the connection can outlive
      *  this Activity-scoped ViewModel and keep streaming under [WhoopConnectionService]. */
-    private val noopApp = app as NoopApplication
+    private val noopApp = (app as NoopApplication).accountRuntime
 
     // Offline store — process-wide, shared with the background service.
     private val repository: WhoopRepository = noopApp.repository
@@ -137,6 +137,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val repo: WhoopRepository get() = repository
 
     val serverScores get() = noopApp.serverScoreRepository
+    // The Sleep consumer can bind this coherent result once its ownership/activation gate is approved.
+    val serverSleepDays get() = serverScores.sleepDays
 
     /** The registry's active strap id (the same id the read path resolves to). The getter stays source
      * compatible for existing call sites; reactive screens collect [activeStrapIdFlow]. */
@@ -266,7 +268,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Permanently delete all of a device's recorded data (its registry row is kept). */
     suspend fun deletePairedDeviceData(id: String) {
-        if (com.noop.testcentre.ImuSessionFileStore(getApplication()).deleteDevice(id))
+        if (com.noop.testcentre.ImuSessionFileStore(appContext).deleteDevice(id))
             noopApp.deviceRegistry.deleteDeviceData(id)
     }
 
@@ -274,7 +276,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  duplicate/stale strap disappears from the list entirely (an archived row could otherwise only be
      *  re-activated or data-wiped, never purged — #1193). Twin of Swift `DeviceRegistry.forget`. */
     suspend fun forgetPairedDevice(id: String) {
-        if (com.noop.testcentre.ImuSessionFileStore(getApplication()).deleteDevice(id))
+        if (com.noop.testcentre.ImuSessionFileStore(appContext).deleteDevice(id))
             noopApp.deviceRegistry.forget(id)
     }
 
@@ -852,7 +854,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // kills the background BLE overnight — the very window a battery capture needs to span).
         if (NoopPrefs.detailedCapture(appContext)) ble.setDetailedCapture(true)
         // #78 hole-4: wire the app-foreground salvage probe (see salvageProbeLifecycleCallbacks above).
-        noopApp.registerActivityLifecycleCallbacks(salvageProbeLifecycleCallbacks)
+        app.registerActivityLifecycleCallbacks(salvageProbeLifecycleCallbacks)
         // Resolve the active band's name for the Live screen header (MW-6). Falls back to "WHOOP" in the
         // UI until this first read lands.
         refreshActiveDeviceName()
@@ -1455,6 +1457,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val peakHr: Int = 0,
         val pausedAtMs: Long? = null,
         val pausedDurationMs: Long = 0L,
+        val gpsSessionId: String? = null,
+        val sourceDeviceId: String? = null,
     )
 
     private val _activeWorkout = MutableStateFlow<ActiveWorkout?>(null)
@@ -1492,6 +1496,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  itself is collected by [WhoopConnectionService], not here, so it survives the screen turning off
      *  (#215) — this observer just republishes it to the UI while the ViewModel is alive. */
     private var gpsJob: Job? = null
+    private var gpsMutationInFlight = false
+    private val gpsFinalizer by lazy {
+        com.noop.location.GpsWorkoutFinalizer(appContext, noopApp.gpsSession, onCommitted = { committed ->
+            repository.publishGpsHrCommit(committed) {
+                !noopApp.closed && appContext.runtime === noopApp && noopApp.database === committed.database
+            }
+        })
+    }
+
+    private fun gpsFailure(message: String = "GPS workout could not be saved. Your saved route is retained; try again.") {
+        if (!noopApp.closed && noopApp.context.isCurrent())
+            android.widget.Toast.makeText(appContext, message, android.widget.Toast.LENGTH_LONG).show()
+    }
+
+    private fun launchGpsMutation(body: suspend () -> Unit) {
+        if (gpsMutationInFlight || noopApp.closed || !noopApp.context.isCurrent()) return
+        gpsMutationInFlight = true
+        viewModelScope.launch {
+            try { body() }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { gpsFailure() }
+            finally { gpsMutationInFlight = false }
+        }
+    }
 
     /** Emit one Workouts & GPS test-mode line tagged .workouts iff the mode is on. The cheap
      *  TestCentre.active(WORKOUTS) gate is read here, so nothing is built when the mode is off. The line
@@ -1506,7 +1534,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Begin a workout for [sport]; start GPS route tracking when [gpsEnabled]. Single buzz confirms. */
     fun startWorkout(sport: Sport = WorkoutSport.default, gpsEnabled: Boolean = false) {
-        if (_activeWorkout.value != null) return
+        if (_activeWorkout.value != null || gpsMutationInFlight || noopApp.closed || !noopApp.context.isCurrent()) return
+        if (gpsEnabled) {
+            val capturedDevice = deviceId
+            launchGpsMutation {
+                val saved = noopApp.gpsSession.startDurable(System.currentTimeMillis(), sport.name, capturedDevice)
+                if (noopApp.closed || !noopApp.context.isCurrent()) return@launchGpsMutation
+                _lastWorkout.value = null
+                _activeWorkout.value = ActiveWorkout(startMs = saved.startMs, sport = sport, gpsEnabled = true,
+                    gpsSessionId = saved.sessionId, sourceDeviceId = saved.deviceId)
+                observeGpsSession()
+                WhoopConnectionService.start(appContext)
+                buzz(1, HapticPrefs.WORKOUT)
+            }
+            return
+        }
         _lastWorkout.value = null
         val startMs = System.currentTimeMillis()
         _activeWorkout.value = ActiveWorkout(startMs = startMs, sport = sport, gpsEnabled = gpsEnabled)
@@ -1517,19 +1559,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 event = "start", sportKey = WorkoutEditing.traceSportKey(sport.name), hrSamples = 0,
             )
         }
-        if (gpsEnabled) {
-            // Hand the route to the process-level session and make sure the foreground service is up to
-            // collect it — even if the user hasn't opted into background connection, the route must keep
-            // tracking with the screen off (#215). Then mirror the shared route back into the UI state.
-            GpsSession.start(startMs, sport.name)
-            WhoopConnectionService.start(appContext)
-            observeGpsSession()
-        } else {
-            // A non-GPS session has no process-level GpsSession backing it, so make it durable: snapshot
-            // it now (and on every captured sample) so an OS kill mid-session can be rehydrated + ended
-            // on relaunch (#529). GPS sessions are already covered by GpsSession's process durability.
-            persistNonGpsWorkout(_activeWorkout.value)
-        }
+        persistNonGpsWorkout(_activeWorkout.value)
     }
 
     /** Snapshot the in-flight NON-GPS workout to durable storage (#529). No-op for a GPS session (the
@@ -1558,9 +1588,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun observeGpsSession() {
         gpsJob?.cancel()
         gpsJob = viewModelScope.launch {
-            GpsSession.state.collect { s ->
+            noopApp.gpsSession.state.collect { s ->
                 val w = _activeWorkout.value ?: return@collect
-                _activeWorkout.value = w.copy(track = s.track, distanceM = s.distanceM, paceSecPerKm = s.paceSecPerKm)
+                if (noopApp.closed || !noopApp.context.isCurrent() || !w.gpsEnabled || w.gpsSessionId != s.sessionId) return@collect
+                _activeWorkout.value = w.copy(track = s.track, distanceM = s.distanceM, paceSecPerKm = s.paceSecPerKm,
+                    pausedAtMs = s.pausedAtMs ?: if (s.storageBlocked) System.currentTimeMillis() else null,
+                    pausedDurationMs = s.pausedDurationMs)
+                if (s.storageBlocked) gpsFailure("GPS capture paused because storage is unavailable. Your saved route is retained.")
             }
         }
     }
@@ -1571,14 +1605,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * reopening the app doesn't hide an in-flight ride. HR samples that elapsed while the UI was gone
      * aren't recoverable here (they stream live), but the route — the thing #215 was about — is intact.
      */
-    private fun rehydrateActiveGpsWorkout() {
-        val s = GpsSession.state.value
-        if (!s.active || _activeWorkout.value != null) return
+    private suspend fun rehydrateActiveGpsWorkout() {
+        val s = noopApp.gpsSession.recoverDurable()
+        if (s.sessionId == null || _activeWorkout.value != null || noopApp.closed || !noopApp.context.isCurrent()) return
         val sport = WorkoutSport.all.firstOrNull { it.name == s.sportName } ?: WorkoutSport.default
         _activeWorkout.value = ActiveWorkout(
             startMs = s.startMs, sport = sport, gpsEnabled = true,
             track = s.track, distanceM = s.distanceM, paceSecPerKm = s.paceSecPerKm,
             pausedAtMs = s.pausedAtMs, pausedDurationMs = s.pausedDurationMs,
+            gpsSessionId = s.sessionId, sourceDeviceId = s.deviceId,
         )
         observeGpsSession()
     }
@@ -1604,12 +1639,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleWorkoutPause() {
         val w = _activeWorkout.value ?: return
+        if (w.gpsEnabled) {
+            launchGpsMutation {
+                val s = noopApp.gpsSession.state.value
+                if (s.endMs != null) { gpsFailure("This workout is waiting to save. Tap End to retry."); return@launchGpsMutation }
+                if (s.active) noopApp.gpsSession.pauseDurable() else {
+                    noopApp.gpsSession.resumeDurable()
+                    WhoopConnectionService.start(appContext)
+                }
+            }
+            return
+        }
         val now = System.currentTimeMillis()
         val updated = if (w.pausedAtMs == null) {
-            if (w.gpsEnabled) GpsSession.pause()
             w.copy(pausedAtMs = now)
         } else {
-            if (w.gpsEnabled) GpsSession.resume()
             w.copy(pausedAtMs = null, pausedDurationMs = w.pausedDurationMs + (now - w.pausedAtMs))
         }
         _activeWorkout.value = updated
@@ -1619,13 +1663,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Abort the active workout and discard all in-flight data. */
     fun discardWorkout() {
         val w = _activeWorkout.value ?: return
+        if (w.gpsEnabled) {
+            launchGpsMutation {
+                noopApp.gpsSession.discardDurable(checkNotNull(w.gpsSessionId))
+                if (noopApp.closed || !noopApp.context.isCurrent()) return@launchGpsMutation
+                gpsJob?.cancel(); gpsJob = null
+                _activeWorkout.value = null; _lastWorkout.value = null
+                if (!NoopPrefs.backgroundConnection(appContext)) WhoopConnectionService.stop(appContext)
+            }
+            return
+        }
         _activeWorkout.value = null
         gpsJob?.cancel(); gpsJob = null
         activeWorkoutStore.clear()
-        if (w.gpsEnabled) {
-            GpsSession.stop()
-            if (!NoopPrefs.backgroundConnection(appContext)) WhoopConnectionService.stop(appContext)
-        }
         _lastWorkout.value = null
     }
 
@@ -1634,6 +1684,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  discarded quietly. Double-buzz confirms the save. */
     fun endWorkout() {
         val w = _activeWorkout.value ?: return
+        if (w.gpsEnabled) { endGpsWorkout(w); return }
         _activeWorkout.value = null
         gpsJob?.cancel(); gpsJob = null
         // Drop the durable non-GPS snapshot the instant the session ends — whether it saves below or is
@@ -1642,7 +1693,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // The process-level session is authoritative for the route: it kept accumulating even if this
         // ViewModel was cleared mid-ride (screen off), so [w.track] may be stale. Stop it and take its
         // final track. A non-GPS workout has nothing in the session, so fall back to the local track. (#215)
-        val track = if (w.gpsEnabled) GpsSession.stop() else w.track
+        val track = w.track
         val distanceM = if (w.gpsEnabled) RouteMath.totalMeters(track) else w.distanceM
         // If we promoted the foreground service ONLY to keep GPS tracking alive (the user hasn't opted
         // into the background connection), drop it now the route is finished — otherwise a lingering
@@ -1725,6 +1776,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private fun endGpsWorkout(w: ActiveWorkout) = launchGpsMutation {
+        val row = gpsFinalizer.finish(checkNotNull(w.gpsSessionId), com.noop.location.GpsWorkoutFinalizer.Inputs(
+            samples = w.samples, profile = currentProfile(), maxHr = profileStore.hrMax.toDouble(),
+            restingHr = _today.value?.restingHr?.toDouble() ?: StrainScorer.defaultRestingHR,
+            method = NoopPrefs.effortMethod(appContext), sex = profileStore.sex))
+        if (noopApp.closed || !noopApp.context.isCurrent()) return@launchGpsMutation
+        gpsJob?.cancel(); gpsJob = null
+        _activeWorkout.value = null; _lastWorkout.value = row
+        if (!NoopPrefs.backgroundConnection(appContext)) WhoopConnectionService.stop(appContext)
+        buzz(2, HapticPrefs.WORKOUT)
+        if (_hcWriteback.value) {
+            runCatching { HealthConnectWriter.writeExercise(appContext, row, w.sport.exerciseType) }
+            writebackHealthConnectNow()
+        }
+    }
+
     /** Append the current smoothed bpm to the active workout and recompute its running strain. Called
      *  from ingestHr on every fresh sample; a no-op when no workout is running. */
     private fun captureWorkoutSample(bpm: Int) {
@@ -1736,7 +1803,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         @Suppress("UNNECESSARY_SAFE_CALL")
         val w = _activeWorkout?.value ?: return
         if (w.pausedAtMs != null) return
-        val s = w.samples + HrSample(deviceId = deviceId, ts = System.currentTimeMillis() / 1000, bpm = bpm)
+        if (w.gpsEnabled && w.sourceDeviceId != deviceId) return
+        val s = w.samples + HrSample(deviceId = w.sourceDeviceId ?: deviceId, ts = System.currentTimeMillis() / 1000, bpm = bpm)
         val strain = StrainScorer.strain(
             s, maxHR = profileStore.hrMax.toDouble(),
             method = NoopPrefs.effortMethod(appContext), sex = profileStore.sex) ?: 0.0
@@ -2457,11 +2525,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // recreated on reopen), rebuild its active-workout card from the process-level session. Placed
         // in THIS init — not the first one above — because it reads _activeWorkout, which is declared
         // below the first init block and would still be null there (JVM field init order). (#215)
-        rehydrateActiveGpsWorkout()
         // Then, if no GPS session claimed the card, rehydrate a NON-GPS manual workout from its durable
         // snapshot so an OS kill mid-session can still be ended + saved (#529). Order matters: a live GPS
         // session wins; the non-GPS path only fills in when [_activeWorkout] is still null.
-        rehydrateActiveNonGpsWorkout()
+        launchGpsMutation {
+            rehydrateActiveGpsWorkout()
+            rehydrateActiveNonGpsWorkout()
+        }
     }
 
     /** Flip auto-sync. Persists and, on enable, kicks an immediate import; thereafter it catches up on
@@ -3054,7 +3124,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         super.onCleared()
         // #78 hole-4: drop the app-foreground salvage-probe hook with this ViewModel (the next Activity's
         // ViewModel re-registers its own), so a cleared VM can never leak resume callbacks.
-        noopApp.unregisterActivityLifecycleCallbacks(salvageProbeLifecycleCallbacks)
+        getApplication<Application>().unregisterActivityLifecycleCallbacks(salvageProbeLifecycleCallbacks)
         // The BLE client is process-owned (NoopApplication) and may be held up by
         // WhoopConnectionService, so we never shut it down here. Only drop the connection when the
         // user hasn't opted into background streaming — otherwise closing the UI would defeat the

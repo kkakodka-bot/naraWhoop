@@ -20,6 +20,7 @@ struct TestCentreView: View {
 
     /// The Report orchestrator: assembles the redacted bundle, runs the mandatory review gate, shares.
     @StateObject private var report = TestCentreReport()
+    @StateObject private var preferenceActions = ScoringPreferenceActions()
 
     /// Re-read activation on appear so a toggle flip elsewhere reflects here.
     @State private var refreshToken = 0
@@ -100,6 +101,7 @@ struct TestCentreView: View {
             }
         }
         .id(refreshToken)
+        .onDisappear { preferenceActions.suspendPresentation() }
         .onAppear {
             refreshToken &+= 1
             ScheduledDebugExport.activateIfEnabled()
@@ -279,11 +281,12 @@ struct TestCentreView: View {
 
                 Divider().overlay(StrandPalette.hairline)
 
-                // Recalibrate Charge baseline: the same Baselines.recalibrateRecoveryBaselines call the
-                // Settings Recovery card uses.
+                // The same accepted reset command as Settings, including both baseline epochs.
                 NoopButton("Recalibrate Charge baseline", systemImage: "arrow.triangle.2.circlepath", kind: .secondary) {
                     showRecalibrateConfirm = true
                 }
+                .disabled(preferenceActions.disabled(model))
+                ScoringPreferenceActionStatus(actions: preferenceActions)
                 Text("Re-anchors every baseline that feeds Charge to your recent nights. No stored day is deleted.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -532,14 +535,11 @@ struct TestCentreView: View {
     /// Re-anchor every baseline that feeds Charge from now, via the single cross-platform source of
     /// truth, then kick a recompute. Same path as the Settings Recovery card.
     private func recalibrateCharge() {
-        Baselines.recalibrateRecoveryBaselines()
-        Task {
-            await model.intelligence.analyzeRecent()
-            await model.repo.refresh()
+        preferenceActions.recalibrate(model: model) {
+            infoTitle = String(localized: "Baseline reset saved")
+            infoMessage = preferenceActions.resetConfirmation
+            showInfo = true
         }
-        infoTitle = String(localized: "Charge baseline recalibrating")
-        infoMessage = String(localized: "NARA will re-learn your baseline from tonight's data onward. Your history is kept, and it takes a few nights to settle.")
-        showInfo = true
     }
 
     /// The manual "Clear scheduled exports" action (#650): wipes every scheduled strap-log / raw-capture

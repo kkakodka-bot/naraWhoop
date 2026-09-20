@@ -287,7 +287,13 @@ class SourceCoordinator(
         }
     }
 
+    fun shutdown() {
+        tearDownNonWhoopSource()
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
+
     private suspend fun reconcile(id: String): Boolean {
+        if ((context as? com.noop.account.AccountStorageContext)?.isCurrent() == false) return false
         if (id == lastSeenId) return true
         lastSeenId = id
         // CONTAIN every device-switch failure here. reconcile is the single entry point for both

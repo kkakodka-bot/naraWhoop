@@ -495,7 +495,20 @@ public enum AnalyticsEngine {
                                   sleepObservedThrough: Int? = nil,
                                   useFullDaySleepOpportunities: Bool = false,
                                   localDayOwnership: [(start: Int,end: Int)]? = nil,
-                                  measurementObservedThrough: Int? = nil) -> DayResult {
+                                  measurementObservedThrough: Int? = nil,
+                                  // nil keeps detection/providedSleep merging; an explicit set replaces
+                                  // both, including [] for an authoritative dismissal. Raw inputs remain
+                                  // available to every other consumer. Missing physiology is enriched below.
+                                  resolvedSleep: [SleepSession]? = nil,
+                                  // Exclude naps from main-night ranking only, not returned sessions or
+                                  // day-best physiological aggregates. Keys are admitted session starts.
+                                  excludedMainSleepStarts: Set<Int> = [],
+                                  // UTC [start,end) admission, independently supplied from a real local day.
+                                  // nil retains the legacy fixed-offset predicate.
+                                  localDayBounds: Range<Int>? = nil,
+                                  // Per-instant offsets for main-night grouping and automatic detection.
+                                  // Day membership still requires localDayBounds or uses the fixed offset.
+                                  timezone: TimeZone? = nil) -> DayResult {
 
         // Precompute the day's UTC bounds ONCE (#996). `dayString(ts, offsetSec:)` formats the UTC
         // calendar day of (ts + offset) with a FIXED offset, so "== day" is exactly membership in
@@ -503,10 +516,16 @@ public enum AnalyticsEngine {
         // DateFormatter over the full-day dayHr/daySteps streams (~86k 1 Hz samples each) once per
         // analyzeDay, ×maxDays every pass — into an integer range check. Byte-identical to the
         // formatter compare (locked by AnalyticsEngineDayBoundsTests, incl. fractional offsets).
-        let dayStartUtc = localDayStart ?? (dayStartUtcSeconds(day) - tzOffsetSeconds)
-        let dayEndUtc = localDayEndExclusive ?? (dayStartUtc + 86_400)
+        let calendarDayStart = dayStartUtcSeconds(day)
+        let dayStartUtc = localDayStart ?? localDayBounds?.lowerBound ?? (calendarDayStart - tzOffsetSeconds)
+        let dayEndUtc = localDayEndExclusive ?? localDayBounds?.upperBound ?? (dayStartUtc + 86_400)
         func tsInDay(_ ts: Int) -> Bool {
-            localDayOwnership?.contains { ts >= $0.start && ts < $0.end } ?? (ts >= dayStartUtc && ts < dayEndUtc)
+            if let localDayOwnership { return localDayOwnership.contains { ts >= $0.start && ts < $0.end } }
+            if let localDayBounds { return localDayBounds.contains(ts) }
+            if localDayStart != nil || localDayEndExclusive != nil {
+                return ts >= dayStartUtc && ts < dayEndUtc
+            }
+            return (ts + tzOffsetSeconds) >= calendarDayStart && (ts + tzOffsetSeconds) < calendarDayStart + 86_400
         }
 
         // ── Sleep detection + staging ─────────────────────────────────────────
@@ -515,7 +534,8 @@ public enum AnalyticsEngine {
         let opportunityEnd = min(dayEndUtc,sleepObservedThrough ?? dayEndUtc)
         var opportunityEpochs: [StageSegment] = []
         let detectedSessions: [SleepSession]
-        if sleepComputationMode == "causal" { detectedSessions = [] }
+        if resolvedSleep != nil { detectedSessions = [] }
+        else if sleepComputationMode == "causal" { detectedSessions = [] }
         else if useFullDaySleepOpportunities {
             let opportunities = opportunityEnd <= opportunityStart ? nil : SleepOpportunityDetector.detect(
                 start: opportunityStart, end: opportunityEnd, hr: hr, gravity: gravity, steps: steps,
@@ -537,6 +557,7 @@ public enum AnalyticsEngine {
                                                   tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
                                                   bandSleepState: bandSleepState,
                                                   useSleepStagerV2: useSleepStagerV2,
+                                                  timezone: timezone,
                                                   traceSink: traceSink) }
         let hrvStagedSessions = detectedSessions.map { s -> SleepSession in
             guard !useSleepStagerV2, let observations = hrvObservations, !observations.isEmpty else { return s }
@@ -560,12 +581,13 @@ public enum AnalyticsEngine {
         // from THIS day's hr/rr over its window (the stored ring row carries neither), using the SAME helpers
         // detectSleep populates a session with, then keep only the detected sessions that DON'T overlap a
         // provided one (provided is authoritative where they collide; a separate nap survives).
+        let supplied = resolvedSleep ?? providedSleep
         let allSessions: [SleepSession]
-        if providedSleep.isEmpty {
+        if supplied.isEmpty {
             allSessions = refinedSessions
         } else {
             let rrSorted = rr.sortedByTsStable()
-            let enrichedProvided: [SleepSession] = providedSleep.map { s in
+            let enrichedProvided: [SleepSession] = supplied.map { s in
                 // #1884: no HR-only special case any more. This used to short-circuit on `s.hrOnly` to
                 // preserve #1801's display-only guarantee, which withheld both values. Now that an HR-only
                 // session reports what it measured, that clause is not merely redundant — an HR-only night
@@ -628,14 +650,13 @@ public enum AnalyticsEngine {
         // this SAME group (the seam below passes the same `gapBridgeMaxMin`), so #525 does not regress.
         let knownCandidates = matched.indices.filter { matched[$0].hasKnownState }
         let candidates = knownCandidates.isEmpty ? Array(matched.indices) : knownCandidates
-        let mainGroupIdx = useFullDaySleepOpportunities ? SleepOpportunityDetector.mainSleepGroupIndices(
-            matched, offsetSeconds: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec) : (SleepStageTotals.mainNightGroupIndices(
-            candidates.map { SleepStageTotals.NightBlock(start: matched[$0].start, end: matched[$0].end) },
-            offsetSec: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec) ?? []).map { candidates[$0] }
-        // Grouping establishes an estimated opportunity, not sleep in its interruptions. Retain
-        // observed wake/off-body epochs there; missing and sub-threshold candidate runs stay unknown.
-        // This precedes server manual overrides, whose explicit bounds must never be extended.
+        let mainGroupIdx: [Int]
         if useFullDaySleepOpportunities {
+            mainGroupIdx = SleepOpportunityDetector.mainSleepGroupIndices(
+                matched, offsetSeconds: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec)
+            // Grouping establishes an estimated opportunity, not sleep in its interruptions. Retain
+            // observed wake/off-body epochs there; missing and sub-threshold candidate runs stay unknown.
+            // This precedes server manual overrides, whose explicit bounds must never be extended.
             let ordered = mainGroupIdx.sorted { matched[$0].start < matched[$1].start }
             for (first,next) in zip(ordered,ordered.dropFirst()) {
                 let session = matched[first], end = matched[next].start
@@ -655,6 +676,12 @@ public enum AnalyticsEngine {
                     episodeType: session.episodeType, groupedNightId: session.groupedNightId,
                     boundaryProvenance: session.boundaryProvenance, denominatorKind: session.denominatorKind)
             }
+        } else {
+            let mainCandidates = matched.enumerated().filter { !excludedMainSleepStarts.contains($0.element.start) }
+            mainGroupIdx = (SleepStageTotals.mainNightGroupIndices(
+                mainCandidates.map { SleepStageTotals.NightBlock(start: $0.element.start, end: $0.element.end) },
+                offsetSec: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec,
+                timezone: timezone) ?? []).map { mainCandidates[$0].offset }
         }
         let groupId = mainGroupIdx.map { matched[$0].start }.min().map { "sleep-group:\($0)" }
         for i in matched.indices {
@@ -1029,14 +1056,17 @@ public enum AnalyticsEngine {
             restingHR: restingHRDaily.map(Double.init))
 
         // ── Assemble DailyMetric ──────────────────────────────────────────────
+        // A resolved set may contain only excluded naps or an unstaged manual interval. Neither
+        // establishes observed main-night sleep duration. Preserve the legacy evidence rule for nil.
+        let sleepEvidence = !matched.isEmpty && (resolvedSleep == nil || mainGroup.contains { !$0.stages.isEmpty })
         let daily = DailyMetric(
             day: day,
-            totalSleepMin: hasKnownSleepState ? tstS / 60.0 : nil,
-            efficiency: hasKnownSleepState ? efficiency : nil,
-            deepMin: hasKnownSleepState ? deepS / 60.0 : nil,
-            remMin: hasKnownSleepState ? remS / 60.0 : nil,
-            lightMin: hasKnownSleepState ? lightS / 60.0 : nil,
-            disturbances: hasKnownSleepState ? disturbances : nil,
+            totalSleepMin: hasKnownSleepState && sleepEvidence ? tstS / 60.0 : nil,
+            efficiency: hasKnownSleepState && sleepEvidence ? efficiency : nil,
+            deepMin: hasKnownSleepState && sleepEvidence ? deepS / 60.0 : nil,
+            remMin: hasKnownSleepState && sleepEvidence ? remS / 60.0 : nil,
+            lightMin: hasKnownSleepState && sleepEvidence ? lightS / 60.0 : nil,
+            disturbances: hasKnownSleepState && sleepEvidence ? disturbances : nil,
             restingHr: restingHRDaily,
             avgHrv: avgHRVDaily,
             recovery: recovery,

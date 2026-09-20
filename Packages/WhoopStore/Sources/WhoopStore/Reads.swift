@@ -126,6 +126,7 @@ extension WhoopStore {
     /// without full-table COUNT scans over millions of dense motion/R-R rows.
     /// `v5` invalidates the persisted watermark for per-window physiology source qualification.
     /// Immutable packet receipts also witness packet-only late arrival.
+    /// `v3` also witnesses authoritative WHOOP 5 RR promotions and registry-only source-policy changes.
     /// The version changes the persisted watermark once so the normal recent window is recomputed.
     /// Older persisted scores remain until explicitly rescored; raw legacy intervals stay on disk.
     public func analysisFingerprint() async throws -> String {
@@ -480,13 +481,14 @@ extension WhoopStore {
     public func stepSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [StepSample] {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
-                SELECT ts, counter, activityClass FROM stepSample
+                SELECT ts, counter, activityClass, provenanceJSON FROM stepSample
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
                 ORDER BY ts ASC LIMIT ?
                 """, arguments: [deviceId, from, to, limit])
                 // activityClass (#316, v19) reads back nil for any pre-v19 row (the column defaulted null) and
                 // for any record whose @63 byte was 0xFF/invalid/absent, an absent class stays absent.
-                .map { StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"]) }
+                .map { try StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"],
+                    provenance: ScalarProvenance.decodeJSON($0["provenanceJSON"])) }
         }
     }
 
@@ -495,11 +497,12 @@ extension WhoopStore {
                                 limit: Int) async throws -> [StepSample] {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
-                SELECT ts, counter, activityClass FROM stepSample
+                SELECT ts, counter, activityClass, provenanceJSON FROM stepSample
                 WHERE deviceId = ? AND ts > ? AND ts < ?
                 ORDER BY ts ASC LIMIT ?
                 """, arguments: [deviceId, afterExclusive, endExclusive, limit]).map {
-                    StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"])
+                    try StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"],
+                        provenance: ScalarProvenance.decodeJSON($0["provenanceJSON"]))
                 }
         }
     }
@@ -509,10 +512,11 @@ extension WhoopStore {
     public func stepSampleBefore(deviceId: String, before: Int) async throws -> StepSample? {
         try syncRead { db in
             try Row.fetchOne(db, sql: """
-                SELECT ts, counter, activityClass FROM stepSample
+                SELECT ts, counter, activityClass, provenanceJSON FROM stepSample
                 WHERE deviceId = ? AND ts < ? ORDER BY ts DESC LIMIT 1
                 """, arguments: [deviceId, before]).map {
-                    StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"])
+                    try StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"],
+                        provenance: ScalarProvenance.decodeJSON($0["provenanceJSON"]))
                 }
         }
     }

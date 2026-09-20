@@ -37,6 +37,15 @@ final class Whoop5RawImuTests: XCTestCase {
         return f
     }
 
+    func testMappedDeepIMURemainsRecoveryEvidenceDespitePlausibilityFiltering() {
+        let frame = syntheticFrame(i: 3, axLSB: 4096, gxLSB: 328)
+        XCTAssertEqual(Whoop5RawImu.rawColumns(frame)?.count, 600)
+        let parsed = parseFrame(frame, family: .whoop5)
+        let streams = extractHistoricalStreams([parsed], deviceClockRef: 1_790_000_000, wallClockRef: 1_790_000_000)
+        XCTAssertGreaterThan(streams.droppedImplausible, 0, "synthetic baseTs=100 is outside plausible history")
+        XCTAssertEqual(historicalRecoveryRecords([frame], family: .whoop5, parsedFrames: [parsed]), [frame])
+    }
+
     func testDecodesKnownSampleWithCorrectScales() {
         // ax = 4096 LSB → 1.0 g; gx = 328 LSB → 328 * 2000/32768 = 20.02 °/s.
         let f = syntheticFrame(i: 3, axLSB: 4096, gxLSB: 328)

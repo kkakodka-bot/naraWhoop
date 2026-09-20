@@ -1,6 +1,7 @@
 import XCTest
 @testable import Strand
 import WhoopProtocol
+import WhoopStore
 
 /// State-machine tests for the Developer Options "Record 100 Hz IMU locally" producer owner.
 /// Every test drives the recorder through its injected transport/clock seams — no CoreBluetooth,
@@ -27,6 +28,8 @@ final class ImuContinuousRecorderTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
     private var store: ImuSessionFileStore!
+    private let captureScope = DurableIngestScope(
+        environment: "https://fixture.invalid", accountID: "owner-a", deviceID: "strap")
 
     override func setUp() async throws {
         try await super.setUp()
@@ -35,7 +38,8 @@ final class ImuContinuousRecorderTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         suiteName = "imu-recorder-test-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
-        store = ImuSessionFileStore(directory: directory, defaultsKey: "windows", defaults: defaults)
+        store = ImuSessionFileStore(directory: directory, defaultsKey: "windows", defaults: defaults,
+                                    captureScope: captureScope)
         addTeardownBlock {
             try? FileManager.default.removeItem(at: self.directory)
             if let suiteName = self.suiteName { self.defaults?.removePersistentDomain(forName: suiteName) }
@@ -164,6 +168,107 @@ final class ImuContinuousRecorderTests: XCTestCase {
         recorder.tick()
         XCTAssertEqual(recorder.status.phase, .startSent)
         XCTAssertEqual(harness.starts, 2, "a stalled stream re-arms instead of silently gapping")
+    }
+
+    func testResourceConstraintFlushesRetainsBytesAndResumesWithoutChangingIntent() throws {
+        let recorder = makeRecorder()
+        recorder.setEnabled(true)
+        let ts = harness.nowSec
+        recorder.ingestFrame(imuFrame(ts: ts), isOffload: false, receivedAtMs: harness.nowMs)
+        recorder.setResourceConstrained(true)
+        let window = try XCTUnwrap(store.registeredWindows().first)
+        let saved = store.exportSegments(window.id, from: Int(ts), to: Int(ts)).map(\.data)
+        XCTAssertFalse(saved.isEmpty, "the in-memory block was flushed before pausing")
+        XCTAssertTrue(defaults.bool(forKey: ImuContinuousRecorder.enabledKey))
+        XCTAssertTrue(recorder.status.enabled)
+        XCTAssertTrue(recorder.status.resourceConstrained)
+        XCTAssertEqual(harness.stops, 1)
+
+        advance(seconds: 1)
+        recorder.ingestFrame(imuFrame(ts: harness.nowSec), isOffload: false, receivedAtMs: harness.nowMs)
+        recorder.tick()
+        recorder.setResourceConstrained(true)
+        XCTAssertEqual(recorder.status.phase, .waitingForConnection,
+                       "a late packet must not claim recording while capture is paused")
+        XCTAssertEqual(harness.starts, 1)
+        XCTAssertEqual(harness.stops, 1, "duplicate notifications and late packets cannot storm stop")
+        XCTAssertEqual(recorder.status.droppedForResourceConstraint, 1)
+        XCTAssertEqual(recorder.status.droppedForLowDisk, 0)
+        XCTAssertEqual(store.exportSegments(window.id, from: Int(ts), to: Int(ts)).map(\.data), saved)
+
+        advance(seconds: 30)
+        recorder.ingestFrame(imuFrame(ts: harness.nowSec), isOffload: false, receivedAtMs: harness.nowMs)
+        XCTAssertEqual(harness.stops, 2, "continued packets get a bounded stop retry")
+        recorder.setResourceConstrained(false)
+        recorder.setResourceConstrained(false)
+        XCTAssertEqual(harness.starts, 2, "lifting constraints re-arms exactly once")
+        XCTAssertEqual(recorder.status.phase, .startSent)
+        XCTAssertFalse(recorder.status.resourceConstrained)
+        recorder.ingestFrame(imuFrame(ts: harness.nowSec), isOffload: false, receivedAtMs: harness.nowMs)
+        recorder.refreshCoverage()
+        XCTAssertEqual(recorder.coverage.coveredSeconds, 2)
+        XCTAssertTrue(defaults.bool(forKey: ImuContinuousRecorder.enabledKey))
+    }
+
+    func testResourceConstraintAppliedBeforeArmingSurvivesReconnectAndDefersResumeUntilBonded() {
+        let recorder = makeRecorder()
+        recorder.setResourceConstrained(true)
+        recorder.setEnabled(true)
+        XCTAssertEqual(harness.starts, 0)
+        XCTAssertEqual(harness.stops, 1)
+        harness.linkReady = false
+        recorder.handleDisconnect()
+        advance(seconds: 31)
+        recorder.tick()
+        harness.linkReady = true
+        recorder.handleBonded5MG()
+        XCTAssertEqual(harness.stops, 2, "a constrained reconnect must stop, never start")
+        XCTAssertEqual(harness.starts, 0)
+        harness.linkReady = false
+        recorder.handleDisconnect()
+        recorder.setResourceConstrained(false)
+        XCTAssertEqual(harness.starts, 0)
+        harness.linkReady = true
+        recorder.handleBonded5MG()
+        XCTAssertEqual(harness.starts, 1)
+    }
+
+    func testResourcePauseDoesNotStopAnotherProducerAndUserOffWinsOverResume() {
+        let recorder = makeRecorder()
+        recorder.setEnabled(true)
+        harness.otherProducer = true
+        recorder.setResourceConstrained(true)
+        advance(seconds: 31)
+        recorder.tick()
+        XCTAssertEqual(harness.stops, 0)
+        harness.otherProducer = false
+        recorder.tick()
+        XCTAssertEqual(harness.stops, 1, "stop deferred until this recorder can own the producer")
+        recorder.setEnabled(false)
+        recorder.setResourceConstrained(false)
+        recorder.tick()
+        XCTAssertEqual(harness.starts, 1)
+        XCTAssertFalse(recorder.status.enabled)
+        XCTAssertFalse(defaults.bool(forKey: ImuContinuousRecorder.enabledKey))
+    }
+
+    func testResourcePolicyAndQueuedCallbacksCannotReviveShutdownRecorder() {
+        let recorder = makeRecorder()
+        recorder.setEnabled(true)
+        recorder.setResourceConstrained(true)
+        recorder.shutdownForAccountChange()
+        recorder.setResourceConstrained(false)
+        recorder.setEnabled(true)
+        recorder.handleBonded5MG()
+        recorder.ingestFrame(imuFrame(ts: harness.nowSec), isOffload: false, receivedAtMs: harness.nowMs)
+        recorder.tick()
+        XCTAssertEqual(harness.starts, 1)
+        XCTAssertFalse(recorder.status.enabled)
+        XCTAssertEqual(recorder.status.phase, .off)
+        XCTAssertTrue(defaults.bool(forKey: ImuContinuousRecorder.enabledKey),
+                      "runtime shutdown must not change the next runtime's saved choice")
+        recorder.refreshCoverage()
+        XCTAssertEqual(recorder.coverage.coveredSeconds, 0)
     }
 
     // MARK: - Acceptance 2 + 4: Off stops immediately, sends the hardware stop unconditionally
@@ -337,7 +442,7 @@ final class ImuContinuousRecorderTests: XCTestCase {
 
     // MARK: - Storage policy
 
-    func testRetentionEvictsOldestSegmentAndLateHistoryCannotRegrowIt() {
+    func testRetentionEvictsOldestSegmentAndLateHistoryCannotRegrowIt() throws {
         let recorder = makeRecorder()
         recorder.setEnabled(true)
         recorder.setRetentionCap(40_000)   // tiny, so two ~36 KB incompressible blocks exceed it
@@ -356,6 +461,13 @@ final class ImuContinuousRecorderTests: XCTestCase {
         }
         XCTAssertEqual(store.segmentInventory().count, 2)
 
+        let oldest = try XCTUnwrap(store.segmentInventory().min { $0.bucket < $1.bucket })
+        let identity = try XCTUnwrap(store.segmentResourceIdentity(id: oldest.id, bucket: oldest.bucket))
+        try store.recordSegmentReceipt(RawDurabilityReceipt(scope: identity.scope, lane: identity.lane,
+            resourceKey: identity.resourceKey, contentSHA256: identity.contentSHA256,
+            objectKey: "fixture/verified-object", receiptID: "fixture/verified-manifest",
+            verifiedAt: 1, retainUntil: 1), id: oldest.id, bucket: oldest.bucket)
+
         recorder.tick()   // tick 1 — retention runs on tick 15; drive it directly below
         for _ in 0..<14 { recorder.tick() }
         XCTAssertEqual(store.segmentInventory().count, 1,
@@ -370,6 +482,28 @@ final class ImuContinuousRecorderTests: XCTestCase {
                              receivedAtMs: harness.nowMs)
         XCTAssertEqual(recorder.status.droppedAfterEviction, 1)
         XCTAssertEqual(store.segmentInventory().count, 1)
+    }
+
+    func testRetentionWithoutReceiptPreservesOldSegmentsAndPausesNewCapture() {
+        let recorder = makeRecorder()
+        recorder.setEnabled(true)
+        recorder.setRetentionCap(40_000)
+        for _ in 0..<2 {
+            for offset in 0..<Int64(30) {
+                recorder.ingestFrame(noisyFrame(ts: harness.nowSec + offset), isOffload: false,
+                                     receivedAtMs: harness.nowMs + offset * 1_000)
+            }
+            advance(seconds: 1_800)
+        }
+        let before = store.totalBytes()
+        for _ in 0..<15 { recorder.tick() }
+        XCTAssertEqual(store.segmentInventory().count, 2)
+        XCTAssertEqual(store.totalBytes(), before)
+        XCTAssertEqual(recorder.status.evictedSegments, 0)
+        XCTAssertTrue(recorder.status.lowDiskPaused)
+        recorder.ingestFrame(noisyFrame(ts: harness.nowSec), isOffload: false, receivedAtMs: harness.nowMs)
+        XCTAssertEqual(recorder.status.droppedForLowDisk, 1)
+        XCTAssertEqual(store.totalBytes(), before)
     }
 
     func testLowDiskPausesWritesAndSurfacesIt() {

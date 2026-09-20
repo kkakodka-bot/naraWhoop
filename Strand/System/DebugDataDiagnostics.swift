@@ -46,11 +46,11 @@ enum DebugDataDiagnostics {
             + " (last 48h)"
     }
 
-    static func strapStateLines() -> [String] {
+    static func strapStateLines(defaults: UserDefaults = .standard) -> [String] {
         var lines: [String] = []
         lines.append(String(repeating: "─", count: 40))
         lines.append("Strap & data")
-        let d = UserDefaults.standard
+        let d = defaults
         // Parse through the enum, never against string literals. `selectedWhoopModel` stores
         // `WhoopModel.rawValue` ("WHOOP 4.0" / "WHOOP 5.0 / MG") — both writers use `.rawValue` — but this
         // switch tested for "whoop5"/"whoop4", which are the CASE names, not the raw values. Neither ever

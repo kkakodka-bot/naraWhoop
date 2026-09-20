@@ -16,8 +16,9 @@ import UserNotifications
 struct StrandiOSApp: App {
     /// UIKit bridge for Home Screen quick actions. SwiftUI keeps ownership of the scene and window.
     @UIApplicationDelegateAdaptor(HomeScreenQuickActionAppDelegate.self) private var appDelegate
-    @StateObject private var model: AppModel
-    @StateObject private var health: HealthKitBridge
+    @StateObject private var runtime: AccountAppRuntime
+    private var model: AppModel { runtime.model }
+    private var health: HealthKitBridge { runtime.health }
     /// The phone→watch link. Built + activated here so the watch app actually receives snapshots on a
     /// real device; without an owner that pushes it, the watch only ever shows placeholder data.
     @StateObject private var watch = WatchSessionBridge()
@@ -70,8 +71,7 @@ struct StrandiOSApp: App {
         let router = NavRouter()
         _router = StateObject(wrappedValue: router)
         NotificationPresenter.shared.onCoachBriefTapped = { [weak router] in router?.openCoach() }
-        let model = AppModel()
-        _model = StateObject(wrappedValue: model)
+        _runtime = StateObject(wrappedValue: AccountAppRuntime.shared)
         // #1538: a strap offload completes while the app is BACKGROUNDED — it stays alive as a
         // bluetooth-central to receive it — and the re-score it triggers took nearly eight minutes on the
         // reporter's install, far longer than that wake survives. The pass is all-or-nothing, so being
@@ -79,44 +79,39 @@ struct StrandiOSApp: App {
         // start the same doomed pass again. This processing task is where that work is escalated to; it is
         // the long, deferrable kind rather than the metered refresh kind the two schedulers above use.
         // Registered before launch finishes and permitted in project.yml, or iOS never delivers it.
-        RescoreBackgroundScheduler.register { [weak model] in
-            await model?.syncEngine.drain(reason: .backgroundTask)
+        RescoreBackgroundScheduler.register {
+            await AccountAppRuntime.shared.model.syncEngine.drain(reason: .backgroundTask)
         }
-        CloudPushBackgroundScheduler.register { [weak model] in
-            guard let writer = await model?.repo.registryWriterForPush() else { return }
+        CloudPushBackgroundScheduler.register {
+            let model = AccountAppRuntime.shared.model
+            await CloudPushBackgroundRuntime.reconcileActive()
+            guard let writer = await model.repo.registryWriterForPush(), model.isAccountRuntimeActive else { return }
             await CloudPushWorker.runOnce(db: writer, trigger: "background")
-            await model?.syncEngine.drain(reason: .backgroundTask)
+            await model.syncEngine.drain(reason: .backgroundTask)
         }
-        SyncMaintenanceBackgroundScheduler.register { [weak model] in
-            await model?.syncEngine.drain(reason: .backgroundTask)
+        SyncMaintenanceBackgroundScheduler.register {
+            await AccountAppRuntime.shared.model.syncEngine.drain(reason: .backgroundTask)
         }
-        let bridge = HealthKitBridge(
-            repo: model.repo,
-            appleDeviceId: model.appleDeviceId,
-            noopDeviceId: model.deviceId
-        )
-        _health = StateObject(wrappedValue: bridge)
         // Register a separate, always-on-while-authorized refresh task for Apple Health write-back.
         // The operation is write-only and bounded to the bridge's recent window; fresh BLE offloads still
         // use the immediate hook below. BGTaskScheduler chooses the actual wake time.
-        HealthWritebackBackgroundScheduler.register { [weak bridge, weak model] in
-            guard let bridge else { return false }
+        HealthWritebackBackgroundScheduler.register {
+            let runtime = AccountAppRuntime.shared
+            let bridge = runtime.health
+            let model = runtime.model
             let succeeded = await bridge.writeBackAfterNewData()
             // A person can revoke every write type in Settings while NOOP is closed. Stop requesting
             // wakes once the cold-launched bridge can no longer resume a prior share grant.
             if bridge.auth != .authorized {
                 HealthWritebackBackgroundScheduler.cancel()
             }
-            await model?.syncEngine.drain(reason: .backgroundTask)
+            await model.syncEngine.drain(reason: .backgroundTask)
             return succeeded
         }
         // #1021: publish to Apple Health when an offload lands, not only on foreground entry - the
         // scenePhase pass below starts the offload and wrote to Health in parallel with it, so a night
         // synced on open only reached Health at the next launch. Weak so the scene owns the bridge's
         // lifetime; the bridge no-ops unless Health was authorized.
-        model.healthWriteBack = { [weak bridge] in
-            await bridge?.writeBackAfterNewData() ?? true
-        }
     }
 
     /// The Shortcut-import alert's presentation binding, hoisted OUT of the `.alert` chain.
@@ -161,6 +156,7 @@ struct StrandiOSApp: App {
     var body: some Scene {
         WindowGroup {
             iOSRootView()
+                .id(runtime.generation)
                 .environmentObject(model)
                 .environmentObject(model.ble)   // #334: Today pull-to-sync reads BLEManager (no HR churn)
                 .environmentObject(model.live)
@@ -168,6 +164,7 @@ struct StrandiOSApp: App {
                 .environmentObject(model.profile)
                 .environmentObject(model.behavior)
                 .environmentObject(model.intelligence)
+                .environmentObject(model.serverScores)
                 .environmentObject(model.coach)
                 .environmentObject(health)
                 .environmentObject(router)
@@ -220,9 +217,9 @@ struct StrandiOSApp: App {
                 // skips the bump when the merged caches are byte-identical) and refresh() assigns every cache
                 // BEFORE bumping the seq, so this publish always reads fresh data. `dropFirst()` skips the
                 // publisher's attach-time replay of the current value; the .active publish already covers
-                // launch. BUDGET: this app runs with bluetooth-central, so the process is NOT suspended in
-                // the background, and the 15-minute analyze tick + backfill-completion refreshes bump the
-                // seq back there too, where WidgetKit reloads DO count against the daily budget. Hence the
+                // launch. BUDGET: bluetooth-central permits event-driven wakes; iOS can suspend the
+                // process between events. Refreshes during a background wake still count against the
+                // WidgetKit daily budget. Hence the
                 // foreground gate: publish only while .active (foreground-initiated reloads are budget
                 // exempt); a background bump is covered by the widget's own 15-minute timeline policy and
                 // by the .active republish on return.
@@ -289,7 +286,12 @@ struct StrandiOSApp: App {
                 // supported, so this is safe on every device/simulator combination.
                 .task {
                     watch.activate()
+                    watch.activateAccount(namespace: model.accountStorage?.scope?.namespace)
                     await watch.pushLatest(from: model)
+                }
+                .onChange(of: runtime.generation) { _, _ in
+                    watch.activateAccount(namespace: model.accountStorage?.scope?.namespace)
+                    Task { await liveActivity.end() }
                 }
         }
         // HealthKit authorization is intentionally NOT requested on launch. The system permission
@@ -301,6 +303,7 @@ struct StrandiOSApp: App {
         // HealthKitBridge.sync guards on `auth == .authorized`, so the scenePhase trigger stays a
         // safe no-op until the user opts in.
         .onChange(of: scenePhase) { _, phase in
+            runtime.setForeground(phase == .active)
             if phase == .active {
                 Task { await model.activateCloudCollection() }
                 model.drainPendingIntents(router: router)

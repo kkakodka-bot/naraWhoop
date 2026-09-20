@@ -71,6 +71,8 @@ final class BackfillFrontierTests: XCTestCase {
     }
 
     func testLiveInsertDoesNotConsultFrontier() async throws {
+        UserDefaults.standard.set(true, forKey: "enableBackfillRangeSkip")
+        defer { UserDefaults.standard.removeObject(forKey: "enableBackfillRangeSkip") }
         let store = try await WhoopStore.inMemory()
         try await store.upsertDevice(id: "dev", mac: nil, name: nil)
         let backfill = Streams(hr: [HRSample(ts: 1_700_000_100, bpm: 61)])
@@ -160,5 +162,46 @@ final class BackfillFrontierTests: XCTestCase {
         let ppg = try await store.ppgWaveformSamples(deviceId: "d", from: ts, to: ts)
         XCTAssertEqual(ppg.map(\.recordIndex), [10, 11])
         XCTAssertEqual(ppg.map(\.samples), [[1], [2]])
+    }
+
+    func testDisorderedChunkBelowFrontierStillInsertsWhenSkipDisabled() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: "dev", mac: nil, name: nil)
+        let kinds = [SyncJobKind.rescore.rawValue]
+        UserDefaults.standard.set(true, forKey: "enableBackfillRangeSkip")
+        let first = Streams(hr: [HRSample(ts: 1_700_000_200, bpm: 65)])
+        _ = try await store.insertAndMarkJobsOwed(
+            first, deviceId: "dev", postOffloadJobKinds: kinds, note: nil)
+        let frontier = try await store.backfillFrontierForTest(deviceId: "dev", stream: "hr")
+        XCTAssertEqual(frontier, 1_700_000_200)
+        UserDefaults.standard.set(false, forKey: "enableBackfillRangeSkip")
+        defer { UserDefaults.standard.removeObject(forKey: "enableBackfillRangeSkip") }
+
+        // Chunk max ts is at/below frontier but carries a genuinely-new older row (disordered replay).
+        let disordered = Streams(hr: [
+            HRSample(ts: 1_700_000_100, bpm: 61),
+            HRSample(ts: 1_700_000_200, bpm: 65),
+        ])
+        let outcome = try await store.insertAndMarkJobsOwed(
+            disordered, deviceId: "dev", postOffloadJobKinds: kinds, note: nil)
+        XCTAssertEqual(outcome.counts.hr, 1, "older row must insert when range-skip is off")
+        let stats = try await store.storageStats_rowCountsForTest()
+        XCTAssertEqual(stats.hr, 2)
+    }
+
+    func testExactReplaySkipsWhenSkipEnabled() async throws {
+        UserDefaults.standard.set(true, forKey: "enableBackfillRangeSkip")
+        defer { UserDefaults.standard.removeObject(forKey: "enableBackfillRangeSkip") }
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: "dev", mac: nil, name: nil)
+        let kinds = [SyncJobKind.rescore.rawValue]
+        let chunk = Streams(hr: [HRSample(ts: 1_700_000_100, bpm: 61)])
+        _ = try await store.insertAndMarkJobsOwed(
+            chunk, deviceId: "dev", postOffloadJobKinds: kinds, note: nil)
+        let replay = try await store.insertAndMarkJobsOwed(
+            chunk, deviceId: "dev", postOffloadJobKinds: kinds, note: nil)
+        XCTAssertEqual(replay.counts.hr, 0)
+        let stats = try await store.storageStats_rowCountsForTest()
+        XCTAssertEqual(stats.hr, 1)
     }
 }

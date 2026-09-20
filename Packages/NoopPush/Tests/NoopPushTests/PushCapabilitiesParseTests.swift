@@ -144,7 +144,7 @@ final class PushCapabilitiesParseTests: XCTestCase {
         case "someUnknown":
             return document(version: "1.0", streams: ["hrSample", "stepSample", "futureStream"])
         case "allUnknown":
-            return document(version: "1.1", streams: ["stepSample", "futureStream"])
+            return document(version: "1.1", streams: ["futureScalarStream", "futureStream"])
         case "emptyStreams":
             return document(version: "1.0", streams: [])
         case "duplicate":

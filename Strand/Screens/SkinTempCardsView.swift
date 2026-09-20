@@ -282,10 +282,10 @@ struct MenstrualCycleHomeCard: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var profile: ProfileStore
 
-    @AppStorage(AppModel.cycleAwarenessKey) private var cycleEnabled = false
+    private var cycleEnabled: Bool { model.cycleAwarenessEnabled }
     /// The user's "not for me" opt-out (#hide-cycle): when set, the card is suppressed entirely,
     /// reversibly from Automations. USER-controlled, never age-based.
-    @AppStorage(AppModel.cycleAwarenessHiddenKey) private var cycleHidden = false
+    private var cycleHidden: Bool { model.cycleAwarenessHidden }
     @State private var starts: [String] = []
     @State private var showingTracker = false
 
@@ -393,7 +393,6 @@ struct MenstrualCycleHomeCard: View {
     }
 
     private func openTracker() {
-        cycleEnabled = true
         model.cycleAwarenessEnabled = true
         Task {
             await model.refreshV5Signals()

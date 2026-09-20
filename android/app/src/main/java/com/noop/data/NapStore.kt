@@ -51,7 +51,7 @@ object NapStore {
     fun pruneDismissed(ids: Set<String>, cutoff: Long): Set<String> =
         ids.filter { endTsOf(it)?.let { e -> e >= cutoff } ?: false }.toSet()
 
-    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private fun prefs(context: Context) = com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** The pending nap candidates awaiting review, newest window first, stale entries pruned. */
     fun pending(context: Context, nowEpochSec: Long = System.currentTimeMillis() / 1000L): List<NapCandidate> {

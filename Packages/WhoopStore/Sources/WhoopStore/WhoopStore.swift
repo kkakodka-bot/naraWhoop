@@ -32,14 +32,19 @@ private actor StoreOpenGate {
     static let shared = StoreOpenGate()
 
     func openAndMigrate(path: String, configuration config: Configuration) throws -> DatabasePool {
-        // Self-heal a foreign DB left in place by a bad cross-platform restore (#222): an Android
-        // (Room) backup that slipped past the import guard replaces our file with one that has our
-        // data tables but NO `grdb_migrations` bookkeeping. The migrator then thinks nothing is
-        // applied, re-runs v1, and crashes with `table "device" already exists` on every open — the
-        // store never bootstraps. Quarantine such a file BEFORE opening so we start fresh instead of
-        // looping forever. (A normal GRDB backup carries grdb_migrations and is left untouched.)
-        WhoopStore.quarantineIncompatibleDatabase(at: path)
+        // Never replace an unrecognized store or discard its uncheckpointed WAL. Recovery needs
+        // explicit ownership and restore approval; opening must fail without changing its files.
+        try WhoopStore.validateDatabaseOrigin(at: path)
         let pool = try DatabasePool(path: path, configuration: config)
+        // GRDB enables WAL after prepareDatabase and sets its writer to NORMAL. Configure the
+        // actual commit connection after that setup; a reader PRAGMA does not verify durability.
+        try pool.writeWithoutTransaction { db in
+            try db.execute(sql: "PRAGMA synchronous = FULL")
+            guard try Int.fetchOne(db, sql: "PRAGMA synchronous") == 2,
+                  try String.fetchOne(db, sql: "PRAGMA journal_mode") == "wal" else {
+                throw WhoopStore.OpenError.durableWriterUnavailable
+            }
+        }
         try WhoopStore.makeMigrator().migrate(pool)
         return pool
     }
@@ -71,6 +76,7 @@ public actor WhoopStore {
     var stepDataRevision = StepDataRevisionIndex()
     let revisionInstanceToken = UUID().uuidString
     let dbWriter: any DatabaseWriter
+    var installedWriteFences: Set<UUID> = []
 
     /// Read-only handle to the underlying GRDB writer for the synchronous `DeviceRegistryStore`.
     /// `nonisolated` because a GRDB `DatabaseWriter` (here a `DatabasePool`) is `Sendable` and
@@ -102,10 +108,10 @@ public actor WhoopStore {
         config.prepareDatabase { db in
             // `DatabasePool` puts the database in WAL mode itself (reads run as concurrent snapshots
             // alongside the single writer, #755), so there is no explicit `PRAGMA journal_mode = WAL`.
-            // Bulk-write/read tuning. NORMAL is the durable, recommended pairing with WAL (only an
-            // OS crash/power loss can lose the last transaction — acceptable here). Bigger page cache
-            // + mmap + in-memory temp tables speed the multi-thousand-row import/backfill writes.
-            try db.execute(sql: "PRAGMA synchronous = NORMAL")
+            // A successful history commit authorizes strap deletion. WAL NORMAL can lose the
+            // last commits on power loss, so that is not sufficient at this durability boundary.
+            // FULL syncs the WAL before commit returns; the database actor keeps this off the UI.
+            try db.execute(sql: "PRAGMA synchronous = FULL")
             try db.execute(sql: "PRAGMA cache_size = -16000")     // ~16 MB page cache
             try db.execute(sql: "PRAGMA mmap_size = 268435456")   // 256 MB memory-mapped I/O
             try db.execute(sql: "PRAGMA temp_store = MEMORY")
@@ -115,33 +121,25 @@ public actor WhoopStore {
         self.init(preMigrated: pool)
     }
 
-    /// Move aside a database file that has our data tables but no GRDB migration bookkeeping — the
-    /// signature of a foreign (Android/Room) DB dropped over ours by a bad restore (#222). Opening it
-    /// would make the migrator re-run v1 and throw `table "device" already exists` forever. Moving it
-    /// to a `.incompatible-<ts>` sidecar lets the next open create a clean store. A valid GRDB DB
-    /// (has `grdb_migrations`) and a fresh/empty file are both left untouched. Best-effort + silent.
-    static func quarantineIncompatibleDatabase(at path: String) {
+    public enum OpenError: Error, Equatable {
+        case unrecognizedDatabase
+        case durableWriterUnavailable
+    }
+
+    /// A read-only origin check; unknown user data remains at its original path, with its WAL/SHM.
+    static func validateDatabaseOrigin(at path: String) throws {
         let fm = FileManager.default
         guard fm.fileExists(atPath: path) else { return }
-        let names: Set<String>
-        do {
-            // Read-only probe of sqlite_master; a raw queue does NOT run migrations.
-            let probe = try DatabaseQueue(path: path)
-            names = try probe.read { db in
-                try Set(String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'"))
-            }
-        } catch {
-            return // unreadable/locked → let the real open + migrator deal with it
+        var config = Configuration()
+        config.readonly = true
+        let probe = try DatabaseQueue(path: path, configuration: config)
+        let names = try probe.read { db in
+            try Set(String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'"))
         }
-        let isForeign = !names.contains("grdb_migrations")
-            && (names.contains("device") || names.contains("hrSample"))
-        guard isForeign else { return }
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-        let quarantine = "\(path).incompatible-\(stamp)"
-        try? fm.removeItem(atPath: quarantine)
-        do { try fm.moveItem(atPath: path, toPath: quarantine) } catch { return }
-        // Drop the now-orphaned WAL/SHM sidecars so the fresh DB starts clean.
-        for suffix in ["-wal", "-shm"] { try? fm.removeItem(atPath: path + suffix) }
+        let userTables = names.filter { !$0.hasPrefix("sqlite_") }
+        guard userTables.isEmpty || names.contains("grdb_migrations") else {
+            throw OpenError.unrecognizedDatabase
+        }
     }
 
     /// An in-memory store (migrations applied). For tests.

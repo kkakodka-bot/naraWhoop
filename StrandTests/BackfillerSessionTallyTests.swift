@@ -263,7 +263,8 @@ final class BackfillerSessionTallyTests: XCTestCase {
             store: TallyStore(),
             deviceId: "test",
             ackTrim: { _, _ in },
-            log: { lines.append($0) })
+            log: { lines.append($0) },
+            rejectedSink: { frames, _, _ in !frames.isEmpty })
         backfiller.begin(family: .whoop4)
         for f in v25RecordFrames { await backfiller.ingest(f) }     // records arrive on the open chunk
         await backfiller.ingest(historyEndFrame(trim: 0xFFFFFFFF))  // ...then a no-cursor END carrying them
@@ -294,12 +295,17 @@ final class BackfillerSessionTallyTests: XCTestCase {
             store: store,
             deviceId: "test",
             ackTrim: { _, _ in store.operations.append("ack") },
+            rejectedSink: { frames, _, _ in
+                XCTAssertFalse(frames.isEmpty)
+                store.operations.append("archive")
+                return true
+            },
             postOffloadJobKinds: SyncJobKind.allCases.map(\.rawValue))
         backfiller.begin(family: .whoop4)
         for frame in v25RecordFrames { await backfiller.ingest(frame) }
         await backfiller.ingest(historyEndFrame(trim: 123))
 
-        XCTAssertEqual(Array(store.operations.prefix(4)), ["insert", "debt", "cursor", "ack"])
+        XCTAssertEqual(store.operations, ["insert", "debt", "archive", "cursor", "ack"])
     }
 
     /// #1 (the critical other half): a genuinely empty session (a 0xFFFFFFFF END with no accumulated
@@ -424,11 +430,13 @@ final class BackfillerSessionTallyTests: XCTestCase {
         backfiller.begin(family: .whoop4)
         await backfiller.ingest(historyEndFrame(trim: .max))
         let sample = try XCTUnwrap(backfiller.sessionPhaseTimingSamples().first)
-        XCTAssertEqual(observed, ["info", "ack"])
+        XCTAssertEqual(observed, ["ack", "info"])
         XCTAssertEqual(store.operations, ["cursor"])
         XCTAssertGreaterThanOrEqual(sample.diagnosticsMs, 30, "awaited batch delivery must remain measured")
         XCTAssertGreaterThanOrEqual(sample.cursorMs, 50)
         XCTAssertGreaterThanOrEqual(sample.ackMs, 10)
+        XCTAssertGreaterThanOrEqual(sample.postAckPresentationMs, 30)
+        XCTAssertNil(sample.ackSubmissionMs, "a callback returning is not transport submission evidence")
         XCTAssertGreaterThanOrEqual(sample.totalMs, sample.diagnosticsMs + sample.cursorMs + sample.ackMs)
     }
 }

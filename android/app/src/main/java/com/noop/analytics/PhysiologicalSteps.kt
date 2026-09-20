@@ -47,6 +47,7 @@ object PhysiologicalSteps {
         blocks: List<SleepBlock>,
         tzOffsetSeconds: Long,
         habitualMidsleepSec: Long?,
+        timezone: java.time.ZoneId? = null,
     ): List<SleepBlock> {
         if (blocks.isEmpty()) return emptyList()
         val explicitMain = blocks.indices.filter { blocks[it].kind == SleepKind.MAIN_SLEEP }
@@ -60,12 +61,13 @@ object PhysiologicalSteps {
             }
             // Eliminate nap-shaped GROUPS before choosing a winner. Otherwise a six-hour afternoon nap can
             // win the generic duration scorer, fail the daytime guard, and hide a valid shorter night.
-            val eligible = SleepStageTotals.bridgedNightGroups(selectableNightBlocks, tzOffsetSeconds)
+            val eligible = SleepStageTotals.bridgedNightGroups(selectableNightBlocks, tzOffsetSeconds, timezone)
                 .filter { group ->
                     val total = group.indices.sumOf { i -> selectableNightBlocks[i].durationS.coerceAtLeast(0L) }
                     val onset = group.indices.minOfOrNull { selectableNightBlocks[it].start }
                     total >= MIN_MAIN_SLEEP_SECONDS && onset != null &&
-                        SleepStageTotals.isOvernightOnset(onset, tzOffsetSeconds)
+                        SleepStageTotals.isOvernightOnset(onset,
+                            timezone?.rules?.getOffset(java.time.Instant.ofEpochSecond(onset))?.totalSeconds?.toLong() ?: tzOffsetSeconds)
                 }
                 .flatMap { it.indices }
                 .distinct()
@@ -77,6 +79,7 @@ object PhysiologicalSteps {
                 },
                 tzOffsetSeconds,
                 habitualMidsleepSec,
+                timezone,
             ).orEmpty().map { selectedIndex ->
                 selectable[eligible[selectedIndex]]
             }
@@ -91,13 +94,15 @@ object PhysiologicalSteps {
         blocks: List<SleepBlock>,
         tzOffsetSeconds: Long,
         habitualMidsleepSec: Long?,
+        timezone: java.time.ZoneId? = null,
     ): Long? {
-        val eligible = classifyForCycle(blocks, tzOffsetSeconds, habitualMidsleepSec)
+        val eligible = classifyForCycle(blocks, tzOffsetSeconds, habitualMidsleepSec, timezone)
             .filter { it.kind == SleepKind.MAIN_SLEEP }
         val indices = SleepStageTotals.mainNightGroupIndices(
             eligible.map { SleepStageTotals.NightBlock(it.effectiveOnset, it.end) },
             tzOffsetSeconds,
             habitualMidsleepSec,
+            timezone,
         ) ?: return null
         return indices.minOfOrNull { eligible[it].effectiveOnset }
     }

@@ -22,11 +22,13 @@ final class BackfillIdleWatchdogTests: XCTestCase {
 
     private final class CommitHookStore: BackfillStoreWriting {
         let failure: Failure?
+        let writes = Trace()
         init(failure: Failure? = nil) { self.failure = failure }
         @discardableResult
         func insertAndMarkJobsOwed(_ streams: Streams, deviceId: String,
                                    postOffloadJobKinds: [String],
                                    note: String?) async throws -> BackfillInsertOutcome {
+            writes.append("insert")
             if failure == .insert { throw Failure.insert }
             return BackfillInsertOutcome(counts: (1, 0, 0, 0, 0, 0, 0, 0), markedJobs: true)
         }
@@ -36,12 +38,66 @@ final class BackfillIdleWatchdogTests: XCTestCase {
             (0, 0, 0, 0, 0, 0, 0, 0)
         }
         func enqueueRawBatch(_ meta: RawBatchMeta, frames: [[UInt8]]) async throws {
+            writes.append("raw")
             if failure == .raw { throw Failure.raw }
         }
         func setCursor(_ name: String, _ value: Int) async throws {
+            writes.append("cursor")
             if failure == .cursor { throw Failure.cursor }
+            writes.append("cursor.committed")
         }
         func cursor(_ name: String) async throws -> Int? { nil }
+    }
+
+    private struct DurableArchive {
+        let store: WhoopStore
+        let path: String
+        let trace: Trace
+        let scope = DurableIngestScope.unassigned(deviceID: "test")
+
+        func persist(_ frames: [[UInt8]], trim: UInt32, family: DeviceFamily) async -> Bool {
+            do {
+                try await store.persistSensorQuarantine(frames, scope: scope,
+                    family: String(describing: family), trim: trim, preserveOccurrences: true)
+                trace.append("archive")
+                return true
+            } catch {
+                trace.append("archive.failed")
+                return false
+            }
+        }
+
+        func reopenedRecords() async throws -> [SensorQuarantineRecord] {
+            let reopened = try await WhoopStore(path: path)
+            return try await reopened.pendingSensorQuarantine(scope: scope)
+        }
+
+        func assertPersistedFrames(_ frames: [[UInt8]], trim: UInt32, family: DeviceFamily,
+                                   file: StaticString = #filePath, line: UInt = #line) async throws {
+            let records = try await reopenedRecords()
+            let members = records.map {
+                (record: $0, identity: QuarantineArchiveIdentity(recordID: $0.id,
+                    family: $0.family, trim: $0.trim))
+            }
+            XCTAssertEqual(members.compactMap { $0.identity.ordinal }.sorted(),
+                           Array(frames.indices), "every occurrence needs its original ordinal", file: file, line: line)
+            let ordered = members.sorted { ($0.identity.ordinal ?? -1) < ($1.identity.ordinal ?? -1) }
+            XCTAssertEqual(ordered.map { Array($0.record.frame) }, frames,
+                           "reopened bytes must preserve the entire chunk in order", file: file, line: line)
+            XCTAssertTrue(records.allSatisfy { $0.scope == scope && $0.trim == trim
+                && $0.family == String(describing: family) }, file: file, line: line)
+            XCTAssertEqual(Set(members.compactMap { $0.identity.chunkSHA256 }).count, 1,
+                           "all members must belong to the same captured chunk", file: file, line: line)
+        }
+    }
+
+    private func durableArchive(trace: Trace) async throws -> DurableArchive {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BackfillIdleWatchdog-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("quarantine.sqlite").path
+        return DurableArchive(store: try await WhoopStore(path: path), path: path, trace: trace)
     }
 
     private let whoop5HistoryEndHex =
@@ -94,12 +150,14 @@ final class BackfillIdleWatchdogTests: XCTestCase {
         super.tearDown()
     }
 
-    func testCommitBeginsBeforeDecodeAndDiagnostics() async {
+    func testCommitBeginsBeforeDecodeAndDiagnostics() async throws {
         let trace = Trace()
+        let archive = try await durableArchive(trace: trace)
         let backfiller = Backfiller(
             store: CommitHookStore(), deviceId: "test",
             ackTrim: { _, _ in trace.append("ack") },
             log: { _ in trace.append("diagnostic") },
+            rejectedSink: { await archive.persist($0, trim: $1, family: $2) },
             onChunkCommitBegin: { trace.append("begin") },
             onChunkCommitAborted: { trace.append("aborted") },
             extract: { _, _, _, _, _ in
@@ -113,18 +171,30 @@ final class BackfillIdleWatchdogTests: XCTestCase {
         XCTAssertEqual(events.first, "begin")
         XCTAssertEqual(events.filter { $0 == "begin" }.count, 1)
         XCTAssertTrue(events.contains("decode"))
+        XCTAssertTrue(events.contains("archive"))
         XCTAssertEqual(events.last, "ack")
         XCTAssertFalse(events.contains("aborted"))
+        let records = try await archive.reopenedRecords()
+        XCTAssertEqual(records.map { Array($0.frame) }, [makeValidImuFrame()])
     }
 
-    func testEveryFailedCommitBalancesPauseWithoutAck() async {
+    func testEveryFailedCommitBalancesPauseWithoutAck() async throws {
         for failure in Failure.allCases {
             let trace = Trace()
+            let archiveTrace = Trace()
+            let archive = try await durableArchive(trace: archiveTrace)
+            let store = CommitHookStore(failure: failure)
             let backfiller = Backfiller(
-                store: CommitHookStore(failure: failure), deviceId: "test",
+                store: store, deviceId: "test",
                 ackTrim: { _, _ in trace.append("ack") },
                 enableRawCapture: true,
-                rejectedSink: { _, _, _ in failure != .archive },
+                rejectedSink: { frames, trim, family in
+                    if failure == .archive {
+                        archiveTrace.append("archive.failed")
+                        return false
+                    }
+                    return await archive.persist(frames, trim: trim, family: family)
+                },
                 imuSessionSink: { _, _ in failure != .imu },
                 onChunkCommitBegin: { trace.append("begin") },
                 onChunkCommitAborted: { trace.append("aborted") },
@@ -136,9 +206,26 @@ final class BackfillIdleWatchdogTests: XCTestCase {
             await backfiller.ingest(hexBytes(whoop5HistoryEndHex))
             XCTAssertEqual(trace.snapshot, ["begin", "aborted"], "failure=\(failure)")
             XCTAssertTrue(backfiller.persistStalled, "failure=\(failure)")
-            // An empty END after a failed write must balance its pause and still hold the ACK.
+            let writes = store.writes.snapshot
+            let expectedWrites: [String]
+            switch failure {
+            case .insert, .archive: expectedWrites = ["insert"]
+            case .raw, .imu: expectedWrites = ["insert", "raw"]
+            case .cursor: expectedWrites = ["insert", "raw", "cursor"]
+            }
+            XCTAssertEqual(writes, expectedWrites, "must reach the selected failure=\(failure)")
+            let expectedArchive = failure == .insert ? [] : [failure == .archive ? "archive.failed" : "archive"]
+            XCTAssertEqual(archiveTrace.snapshot, expectedArchive, "failure=\(failure)")
+            let records = try await archive.reopenedRecords()
+            XCTAssertEqual(records.map { Array($0.frame) },
+                           failure == .insert || failure == .archive ? [] : [makeValidImuFrame()])
+            // The stall fence rejects later ENDs before starting another commit or watchdog pause.
             await backfiller.ingest(hexBytes(whoop5HistoryEndHex))
-            XCTAssertEqual(trace.snapshot, ["begin", "aborted", "begin", "aborted"], "failure=\(failure)")
+            XCTAssertEqual(trace.snapshot, ["begin", "aborted"], "failure=\(failure)")
+            XCTAssertEqual(store.writes.snapshot, writes, "stalled END must not reach the store")
+            XCTAssertEqual(archiveTrace.snapshot, expectedArchive, "stalled END must not retry archival")
+            XCTAssertTrue(backfiller.persistStalled)
+            XCTAssertNil(backfiller.lastAckedTrim)
         }
     }
 
@@ -196,28 +283,53 @@ final class BackfillIdleWatchdogTests: XCTestCase {
         XCTAssertFalse(live.backfilling)
     }
 
-    func testMetadataFilterPreservesRecordsAndCorruptEnds() async {
+    func testMetadataFilterPreservesRecordsAndCorruptEnds() async throws {
         let formats: [(DeviceFamily, UInt8)] = [(.whoop4, 49), (.whoop5, 49)]
         for (family, type) in formats {
             let trace = Trace()
+            let archive = try await durableArchive(trace: trace)
+            let store = CommitHookStore()
+            let record = family == .whoop5 ? makeValidImuFrame()
+                : frameFromPayload([42], type: 47, seq: 0, cmd: 18)
+            let end = metadata(family: family, type: type, command: 2)
+            var corruptEnd = end
+            corruptEnd[corruptEnd.count - 1] ^= 1
+            let expectedFrames = [record, corruptEnd, [0xaa]]
             let backfiller = Backfiller(
-                store: CommitHookStore(), deviceId: "test",
-                ackTrim: { _, _ in trace.append("ack") },
+                store: store, deviceId: "test",
+                ackTrim: { trim, endData in
+                    XCTAssertEqual(trace.snapshot, ["decode:3", "archive"])
+                    XCTAssertEqual(store.writes.snapshot, ["insert", "cursor", "cursor.committed"])
+                    XCTAssertEqual(endData, Backfiller.endData(from: end, family: family))
+                    do { try await archive.assertPersistedFrames(expectedFrames, trim: trim, family: family) }
+                    catch { XCTFail("ACK reached before a durable archive could be reopened: \(error)") }
+                    trace.append("ack")
+                },
+                rejectedSink: { frames, trim, capturedFamily in
+                    XCTAssertEqual(frames, expectedFrames)
+                    XCTAssertEqual(capturedFamily, family)
+                    XCTAssertEqual(trace.snapshot, ["decode:3"])
+                    XCTAssertEqual(store.writes.snapshot, ["insert"])
+                    return await archive.persist(frames, trim: trim, family: capturedFamily)
+                },
                 extract: { frames, _, _, _, _ in
+                    XCTAssertEqual(frames.map(\.rawHex),
+                                   expectedFrames.map { parseFrame($0, family: family).rawHex })
                     trace.append("decode:\(frames.count)")
                     return Streams(hr: [HRSample(ts: 1_700_000_100, bpm: 61)])
                 })
             backfiller.begin(family: family)
-            await backfiller.ingest(family == .whoop5 ? makeValidImuFrame()
-                                   : frameFromPayload([42], type: 47, seq: 0, cmd: 18))
-            let end = metadata(family: family, type: type, command: 2)
-            var corruptEnd = end
-            corruptEnd[corruptEnd.count - 1] ^= 1
-            await backfiller.ingest(corruptEnd)
-            await backfiller.ingest([0xaa])
+            for frame in expectedFrames { await backfiller.ingest(frame) }
             XCTAssertEqual(trace.snapshot, [], "corrupt END must not close or acknowledge a chunk")
+            XCTAssertEqual(store.writes.snapshot, [])
+            XCTAssertNil(backfiller.lastAckedTrim)
+            let beforeEnd = try await archive.reopenedRecords()
+            XCTAssertTrue(beforeEnd.isEmpty)
             await backfiller.ingest(end)
-            XCTAssertEqual(trace.snapshot, ["decode:3", "ack"], "family=\(family), type=\(type)")
+            XCTAssertEqual(trace.snapshot, ["decode:3", "archive", "ack"], "family=\(family), type=\(type)")
+            let trim = try XCTUnwrap(backfiller.lastAckedTrim)
+            try await archive.assertPersistedFrames(expectedFrames, trim: trim, family: family)
+            XCTAssertFalse(backfiller.persistStalled)
             await backfiller.ingest(metadata(family: family, type: type, command: 3))
             XCTAssertFalse(backfiller.isBackfilling)
             await backfiller.ingest(metadata(family: family, type: type, command: 1))
@@ -225,12 +337,35 @@ final class BackfillIdleWatchdogTests: XCTestCase {
         }
     }
 
-    func testCanonicalMetadataWithoutMappedFieldsRemainsBuffered() async {
+    func testCanonicalMetadataWithoutMappedFieldsRemainsBuffered() async throws {
         let trace = Trace()
+        let archive = try await durableArchive(trace: trace)
+        let store = CommitHookStore()
+        let unknownMetadata = [UInt8(2), UInt8(3)].map {
+            metadata(family: .whoop5, type: 56, command: $0)
+        }
+        let expectedFrames = [makeValidImuFrame()] + unknownMetadata
+        let end = hexBytes(whoop5HistoryEndHex)
         let backfiller = Backfiller(
-            store: CommitHookStore(), deviceId: "test",
-            ackTrim: { _, _ in trace.append("ack") },
+            store: store, deviceId: "test",
+            ackTrim: { trim, endData in
+                XCTAssertEqual(trace.snapshot, ["decode:3", "archive"])
+                XCTAssertEqual(store.writes.snapshot, ["insert", "cursor", "cursor.committed"])
+                XCTAssertEqual(endData, Backfiller.endData(from: end, family: .whoop5))
+                do { try await archive.assertPersistedFrames(expectedFrames, trim: trim, family: .whoop5) }
+                catch { XCTFail("ACK reached before a durable archive could be reopened: \(error)") }
+                trace.append("ack")
+            },
+            rejectedSink: { frames, trim, family in
+                XCTAssertEqual(frames, expectedFrames)
+                XCTAssertEqual(family, .whoop5)
+                XCTAssertEqual(trace.snapshot, ["decode:3"])
+                XCTAssertEqual(store.writes.snapshot, ["insert"])
+                return await archive.persist(frames, trim: trim, family: family)
+            },
             extract: { frames, _, _, _, _ in
+                XCTAssertEqual(frames.map(\.rawHex),
+                               expectedFrames.map { parseFrame($0, family: .whoop5).rawHex })
                 trace.append("decode:\(frames.count)")
                 return Streams(hr: [HRSample(ts: 1_700_000_100, bpm: 61)])
             })
@@ -238,15 +373,47 @@ final class BackfillIdleWatchdogTests: XCTestCase {
         await backfiller.ingest(makeValidImuFrame())
         // Type 56 has a canonical name but no field schema in this revision. The optimization
         // must preserve the full parser's .other verdict rather than invent a metadata layout.
-        for command in [UInt8(2), UInt8(3)] {
-            let frame = metadata(family: .whoop5, type: 56, command: command)
+        for frame in unknownMetadata {
             XCTAssertEqual(frameTypeName(frame, family: .whoop5), "METADATA")
             XCTAssertEqual(classifyHistoricalMeta(parseFrame(frame, family: .whoop5)), .other)
             await backfiller.ingest(frame)
         }
         XCTAssertTrue(backfiller.isBackfilling)
         XCTAssertEqual(trace.snapshot, [])
+        XCTAssertEqual(store.writes.snapshot, [])
+        XCTAssertNil(backfiller.lastAckedTrim)
+        let beforeEnd = try await archive.reopenedRecords()
+        XCTAssertTrue(beforeEnd.isEmpty)
+        await backfiller.ingest(end)
+        XCTAssertEqual(trace.snapshot, ["decode:3", "archive", "ack"])
+        // Successful HR extraction cannot justify discarding the IMU or unmapped metadata bytes.
+        let trim = try XCTUnwrap(backfiller.lastAckedTrim)
+        try await archive.assertPersistedFrames(expectedFrames, trim: trim, family: .whoop5)
+        XCTAssertFalse(backfiller.persistStalled)
+    }
+
+    func testRejectedRecordWithoutArchiveStallsAndIgnoresLaterEnd() async {
+        let trace = Trace()
+        let store = CommitHookStore()
+        let backfiller = Backfiller(
+            store: store, deviceId: "test",
+            ackTrim: { _, _ in trace.append("ack") },
+            onChunkCommitBegin: { trace.append("begin") },
+            onChunkCommitAborted: { trace.append("aborted") },
+            extract: { _, _, _, _, _ in
+                Streams(hr: [HRSample(ts: 1_700_000_100, bpm: 61)])
+            })
+        backfiller.begin(family: .whoop5)
+        await backfiller.ingest(makeValidImuFrame())
         await backfiller.ingest(hexBytes(whoop5HistoryEndHex))
-        XCTAssertEqual(trace.snapshot, ["decode:3", "ack"])
+        XCTAssertEqual(trace.snapshot, ["begin", "aborted"])
+        XCTAssertEqual(store.writes.snapshot, ["insert"])
+        XCTAssertTrue(backfiller.persistStalled)
+        XCTAssertNil(backfiller.lastAckedTrim)
+        await backfiller.ingest(hexBytes(whoop5HistoryEndHex))
+        XCTAssertEqual(trace.snapshot, ["begin", "aborted"])
+        XCTAssertEqual(store.writes.snapshot, ["insert"])
+        XCTAssertTrue(backfiller.persistStalled)
+        XCTAssertNil(backfiller.lastAckedTrim)
     }
 }

@@ -95,6 +95,8 @@ struct BodyVitalReading: Identifiable {
     private static func sourceLabel(_ source: DailyMetricSource?, key: String) -> String? {
         guard let source else { return nil }
         switch source {
+        case .serverSnapshot:
+            return String(localized: "Server snapshot")
         case .whoopImport:
             return String(localized: "WHOOP import")
         case .noopComputed:
@@ -133,6 +135,7 @@ enum BodyVitalSigns {
                          temperatureUnit: TemperatureUnit,
                          now: Date = Date(),
                          spo2CandidateByDay: [String: Double] = [:],
+                         spo2CandidateDisplayEnabled: Bool = true,
                          hrvOverCountByDay: [String: Double] = [:],
                          // #1846: the Settings lead-with choice, so this tile agrees with Today and the
                          // detail screen. A setting that reaches two of three surfaces is worse than none.
@@ -181,7 +184,7 @@ enum BodyVitalSigns {
         // and both ship behind this one default-off toggle, never as `spo2Pct` (CLAUDE.md derived-
         // biosignal rule). Built into VitalPoints so the tile + sparkline + `latest()` resolve it the
         // same way.
-        let spo2CandidateOn = PuffinExperiment.spo2CandidateDisplayEnabled && !spo2CandidateByDay.isEmpty
+        let spo2CandidateOn = spo2CandidateDisplayEnabled && !spo2CandidateByDay.isEmpty
         let spo2CandidatePoints: [VitalPoint] = spo2CandidateOn
             ? spo2CandidateByDay.map { (day, value) in
                 VitalPoint(day: day, value: value, source: .noopComputed)
@@ -337,7 +340,7 @@ enum BodyVitalSigns {
                 // and the parity contract is the relationship between the two tiles, not the row.
                 missingCaption: spo2IsCandidate
                     ? String(localized: "strap estimate (unverified)")
-                    : (PuffinExperiment.spo2CandidateDisplayEnabled && spo2Row == nil
+                    : (spo2CandidateDisplayEnabled && spo2Row == nil
                        ? String(localized: "toggle ON · no estimate yet")
                        : (spo2rawRow != nil
                           ? String(localized: "Raw counts only — needs an import")
@@ -475,9 +478,9 @@ private extension DailyMetricSource {
     static func vitalPrecedence(for key: String) -> [DailyMetricSource] {
         switch key {
         case "skin":
-            return [.whoopImport, .noopComputed, .localCache]
+            return [.serverSnapshot, .whoopImport, .noopComputed, .localCache]
         default:
-            return [.whoopImport, .noopComputed, .appleHealth, .localCache]
+            return [.serverSnapshot, .whoopImport, .noopComputed, .appleHealth, .localCache]
         }
     }
 }

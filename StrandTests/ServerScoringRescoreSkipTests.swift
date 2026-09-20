@@ -96,7 +96,7 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
 
     func testLocalFallbackDoesNotCarryServerCaption() throws {
         let cache = try snapshot()
-        for overlay in [nil, cache] {
+        for overlay in [Optional<ServerScoreDayCache>.none, cache] {
             let selection = ServerVitalSelection.resolve(.restingHR, serverEnabled: true,
                 selectedDay: "2026-09-18", overlay: overlay, localValue: 51)
             XCTAssertEqual(selection.value, 51)

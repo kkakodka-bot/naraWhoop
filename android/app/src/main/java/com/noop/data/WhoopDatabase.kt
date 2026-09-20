@@ -57,8 +57,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CoachMessageRow::class,
         SyncJobEntity::class,
         SyncJournalEntryEntity::class,
+        LocalCaptureResource::class,
+        LocalCaptureMember::class,
+        GpsWorkoutDelivery::class,
+        GpsDestinationBarrier::class,
     ],
-    version = 42,
+    version = 46,
     // #775: ON so Room's KSP processor writes the generated schema (every table's exact `CREATE TABLE`,
     // columns in declaration order with affinity/NOT NULL/default, PK and indices) as JSON. That export
     // is what lets a plain JVM test — no device, no Robolectric — read Android's REAL schema and compare
@@ -69,6 +73,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     exportSchema = true,
 )
 abstract class WhoopDatabase : RoomDatabase() {
+    internal var accountWriteFence: com.noop.account.AccountWriteFence? = null
+    internal var accountIdentity: com.noop.push.AccountIdentitySnapshot? = null
+    private var storageMutationLease: com.noop.account.AccountStorageMutationLease? = null
+    private var storagePath: String? = null
+    fun retireWrites() {
+        storageMutationLease?.retire()
+        accountWriteFence?.retire()
+    }
     abstract fun whoopDao(): WhoopDao
 
     /** Read-only, schema-neutral snapshots for the opt-in self-hosted push worker. */
@@ -80,27 +92,93 @@ abstract class WhoopDatabase : RoomDatabase() {
         fun databaseName(context: Context): String = com.noop.push.EnrollmentDataScope.databaseName(context)
         /** Room schema version — MUST equal the `@Database(version = …)` above. Surfaced in the backup
          *  manifest (#1410) so an export states its schema. Bump both together on a migration. */
-        const val SCHEMA_VERSION = 42
+        const val SCHEMA_VERSION = 46
 
-        @Volatile
-        private var instance: WhoopDatabase? = null
+        private val instances = mutableMapOf<String, WhoopDatabase>()
 
         /** Process-wide singleton. Safe to call from any thread. */
-        fun get(context: Context): WhoopDatabase =
-            instance ?: synchronized(this) {
-                instance ?: build(context.applicationContext).also { instance = it }
+        fun get(context: Context): WhoopDatabase {
+            val captured = com.noop.account.AccountStorageContext.capture(context)
+            val lease = com.noop.account.AccountStorageMutationLease.capture(captured)
+            val path = captured.getDatabasePath(DB_NAME).absolutePath
+            return lease.withStorageLock {
+                val key = "$path#${captured.identity.generation}"
+                val existing = lease.commit { synchronized(this) { instances[key] } }
+                if (existing != null) existing else {
+                    // Owner inspection can wait on SQLite. Never hold the auth or registry lock here.
+                    verifyExistingOwner(captured, path)
+                    val database = build(captured, lease)
+                    lease.commit { synchronized(this) { instances[key] = database }; database }
+                }
             }
+        }
+
+        /** Drain native transactions without the auth lock; new opens share the namespace lease. */
+        internal fun <T> withRestoreLease(
+            account: com.noop.account.AccountStorageContext,
+            afterQuiesce: () -> Unit = {},
+            install: () -> T,
+        ): T {
+            val lease = com.noop.account.AccountStorageMutationLease.capture(account)
+            val path = account.getDatabasePath(DB_NAME).absolutePath
+            return lease.withStorageLock {
+                var quiescing = false
+                try {
+                    val closing = lease.commit {
+                        check(account.identity.scope != null) { "Restore requires an account owner" }
+                        lease.beginQuiescence()
+                        quiescing = true
+                        synchronized(this) {
+                            instances.filterValues { it.storagePath == path }.also { selected ->
+                                selected.values.forEach { it.accountWriteFence?.retire() }
+                            }
+                        }
+                    }
+                    lease.awaitTransactions()
+                    closing.values.forEach { it.close() }
+                    synchronized(this) { closing.forEach { (key, db) -> if (instances[key] === db) instances.remove(key) } }
+                    afterQuiesce()
+                    // Logout/replacement during quiescence must win before the first live-file mutation.
+                    lease.commit(install)
+                } finally {
+                    if (quiescing) lease.endQuiescence()
+                }
+            }
+        }
+
+        /** Never migrate or bind an existing, unrecognized database merely because of its pathname. */
+        internal fun verifyExistingOwner(context: com.noop.account.AccountStorageContext, path: String) {
+            val file = java.io.File(path)
+            if (!file.exists()) {
+                check(!java.io.File("$path-wal").exists() && !java.io.File("$path-shm").exists()) {
+                    "Account database recovery required"
+                }
+                return
+            }
+            val owner = context.identity.scope ?: return
+            android.database.sqlite.SQLiteDatabase.openDatabase(path, null,
+                android.database.sqlite.SQLiteDatabase.OPEN_READONLY or
+                    android.database.sqlite.SQLiteDatabase.NO_LOCALIZED_COLLATORS,
+                android.database.DatabaseErrorHandler { /* Preserve unrecognized bytes for recovery. */ },
+            ).use { database ->
+                database.rawQuery("SELECT projectURL,userID FROM localAccountOwner WHERE singleton=1", null).use {
+                    check(it.moveToFirst()) { "Account database owner missing" }
+                    com.noop.push.AccountPushAdmission.verifyOwner(owner, it.getString(0), it.getString(1))
+                }
+            }
+        }
 
         /**
          * Close and forget the singleton so all file handles on [DB_NAME] are released.
-         * The next [get] call rebuilds against whatever file is on disk, used by
-         * [DataBackup.importFrom] to swap the database file underneath the app.
+         * Process teardown only. Restore uses [withRestoreLease], never a global close.
          */
         fun close() {
-            synchronized(this) {
-                instance?.close()
-                instance = null
+            val closing = synchronized(this) {
+                val snapshot = instances.values.toList()
+                instances.clear()
+                snapshot
             }
+            closing.forEach { it.retireWrites(); it.close() }
         }
 
         /**
@@ -1014,7 +1092,23 @@ abstract class WhoopDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) { db.execSQL(RR_SOURCE_INDEX_SQL) }
         }
 
-        /** GRDB v48 twin. Keep rowid stable because raw upload cursors address these rows. */
+        /**
+         * Every migration the builder registers, as a VALUE rather than an argument list.
+         *
+         * It was previously spelled inline in `addMigrations(...)`, which meant nothing could check it. A
+         * migration could be written, tested and still left out of the chain: the focused tests assert a
+         * migration's SQL and its start/end versions, not that it is registered. Sabotaging the chain —
+         * removing an entry — left the whole suite green, and removing an OLDER entry did too, so this was
+         * a property of the suite rather than of any one change.
+         *
+         * The consequence is bounded but real. There is deliberately no destructive fallback (see the
+         * builder), so a hole makes Room throw on upgrade rather than silently rebuild — a loud failure for
+         * every existing user on the version that ships it, and with `exportSchema=false` nothing catches
+         * it beforehand. Guarded by WhoopDatabaseMigrationChainTest.
+         *
+         * Starts at 2 -> 3 on purpose: v1 predates this regime and has no upgrade path, which is why the
+         * test asserts NO HOLES up to [SCHEMA_VERSION] rather than coverage from 1.
+         */
         internal val MIGRATION_39_40 = object : Migration(39, 40) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 val key = mutableListOf<Pair<Int, String>>()
@@ -1035,59 +1129,68 @@ abstract class WhoopDatabase : RoomDatabase() {
                     return
                 }
                 check(columns == listOf("deviceId", "ts")) { "Unsupported legacy PPG waveform key" }
-                PPG_RECORD_IDENTITY_MIGRATION_SQL.forEach(db::execSQL)
+                db.execSQL("CREATE TABLE ppgWaveformSample_v40 (deviceId TEXT NOT NULL, ts INTEGER NOT NULL, samples BLOB NOT NULL, burstIndex INTEGER, recordIndex INTEGER NOT NULL DEFAULT -1, PRIMARY KEY(deviceId,ts,recordIndex))")
+                db.execSQL("INSERT INTO ppgWaveformSample_v40(rowid,deviceId,ts,samples,burstIndex,recordIndex) SELECT rowid,deviceId,ts,samples,burstIndex,-1 FROM ppgWaveformSample")
+                db.execSQL("DROP TABLE ppgWaveformSample")
+                db.execSQL("ALTER TABLE ppgWaveformSample_v40 RENAME TO ppgWaveformSample")
             }
         }
 
-        internal val PPG_RECORD_IDENTITY_MIGRATION_SQL = listOf(
-            "CREATE TABLE ppgWaveformSample_v40 (deviceId TEXT NOT NULL, ts INTEGER NOT NULL, " +
-                "samples BLOB NOT NULL, burstIndex INTEGER, recordIndex INTEGER NOT NULL, " +
-                "PRIMARY KEY(deviceId, ts, recordIndex))",
-            "INSERT INTO ppgWaveformSample_v40 (rowid, deviceId, ts, samples, burstIndex, recordIndex) " +
-                "SELECT rowid, deviceId, ts, samples, burstIndex, -1 FROM ppgWaveformSample",
-            "DROP TABLE ppgWaveformSample",
-            "ALTER TABLE ppgWaveformSample_v40 RENAME TO ppgWaveformSample",
-        )
+        internal val MIGRATION_41_42 = object : Migration(41, 42) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (table in listOf("stepSample", "sleepStateSample", "ppgHrSample"))
+                    db.execSQL("ALTER TABLE $table ADD COLUMN provenanceJSON TEXT")
+            }
+        }
+
+        /** Additive local capture index and retained GPS handoff payload; no existing rows replaced. */
+        internal val MIGRATION_42_43 = object : Migration(42, 43) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // HEAD v42 databases skipped V18 identity and provenanceJSON; catch them up here.
+                V18AuxIdentityMigration.installGuards(db)
+                for (table in listOf("stepSample", "sleepStateSample", "ppgHrSample")) {
+                    var has = false
+                    db.query("PRAGMA table_info($table)").use { cursor ->
+                        while (cursor.moveToNext()) {
+                            if (cursor.getString(cursor.getColumnIndexOrThrow("name")) == "provenanceJSON") has = true
+                        }
+                    }
+                    if (!has) db.execSQL("ALTER TABLE $table ADD COLUMN provenanceJSON TEXT")
+                }
+                LocalCaptureSchema.create(db)
+                GpsWorkoutDeliverySchema.create(db)
+            }
+        }
+
+        /** Local barrier control only; no changes to captured payloads, witnesses or raw rows. */
+        internal val MIGRATION_43_44 = object : Migration(43, 44) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                GpsDestinationBarrierSchema.create(db)
+            }
+        }
 
         internal val RR_PACKET_PROVENANCE_MIGRATION_SQL = listOf(
-            "CREATE TABLE rrPacketProvenance (deviceId TEXT NOT NULL, packetId TEXT NOT NULL, ts INTEGER NOT NULL, " +
+            "CREATE TABLE IF NOT EXISTS rrPacketProvenance (deviceId TEXT NOT NULL, packetId TEXT NOT NULL, ts INTEGER NOT NULL, " +
                 "sensorTs INTEGER NOT NULL, recordIndex INTEGER NOT NULL, rawHex TEXT NOT NULL, srcChannel INTEGER NOT NULL, " +
                 "schemaVersion INTEGER NOT NULL, decoderVersion TEXT NOT NULL, clockVersion TEXT NOT NULL, " +
                 "timestampPrecisionSeconds REAL NOT NULL, clockOffsetSeconds INTEGER NOT NULL, declaredCount INTEGER NOT NULL, " +
                 "PRIMARY KEY(deviceId, packetId))",
-            "CREATE INDEX rrPacketProvenance_device_ts ON rrPacketProvenance(deviceId, ts)",
+            "CREATE INDEX IF NOT EXISTS rrPacketProvenance_device_ts ON rrPacketProvenance(deviceId, ts)",
         )
-        internal val MIGRATION_40_41 = object : Migration(40, 41) {
+        internal val MIGRATION_44_45 = object : Migration(44, 45) {
             override fun migrate(db: SupportSQLiteDatabase) { RR_PACKET_PROVENANCE_MIGRATION_SQL.forEach(db::execSQL) }
         }
         internal val STANDARD_HR_RECEIPT_MIGRATION_SQL = listOf(
-            "CREATE TABLE standardHRReceipt (deviceId TEXT NOT NULL, receiptId TEXT NOT NULL, ts INTEGER NOT NULL, " +
+            "CREATE TABLE IF NOT EXISTS standardHRReceipt (deviceId TEXT NOT NULL, receiptId TEXT NOT NULL, ts INTEGER NOT NULL, " +
                 "sessionId TEXT NOT NULL, notificationOrdinal INTEGER NOT NULL, receivedUnixMs INTEGER NOT NULL, " +
                 "receivedMonotonicNs INTEGER NOT NULL, rawHex TEXT NOT NULL, schemaVersion INTEGER NOT NULL, " +
                 "clockVersion TEXT NOT NULL, PRIMARY KEY(deviceId, receiptId))",
-            "CREATE INDEX standardHRReceipt_device_ts ON standardHRReceipt(deviceId, ts)",
+            "CREATE INDEX IF NOT EXISTS standardHRReceipt_device_ts ON standardHRReceipt(deviceId, ts)",
         )
-        internal val MIGRATION_41_42 = object : Migration(41, 42) {
+        internal val MIGRATION_45_46 = object : Migration(45, 46) {
             override fun migrate(db: SupportSQLiteDatabase) { STANDARD_HR_RECEIPT_MIGRATION_SQL.forEach(db::execSQL) }
         }
 
-        /**
-         * Every migration the builder registers, as a VALUE rather than an argument list.
-         *
-         * It was previously spelled inline in `addMigrations(...)`, which meant nothing could check it. A
-         * migration could be written, tested and still left out of the chain: the focused tests assert a
-         * migration's SQL and its start/end versions, not that it is registered. Sabotaging the chain —
-         * removing an entry — left the whole suite green, and removing an OLDER entry did too, so this was
-         * a property of the suite rather than of any one change.
-         *
-         * The consequence is bounded but real. There is deliberately no destructive fallback (see the
-         * builder), so a hole makes Room throw on upgrade rather than silently rebuild — a loud failure for
-         * every existing user on the version that ships it, and with `exportSchema=false` nothing catches
-         * it beforehand. Guarded by WhoopDatabaseMigrationChainTest.
-         *
-         * Starts at 2 -> 3 on purpose: v1 predates this regime and has no upgrade path, which is why the
-         * test asserts NO HOLES up to [SCHEMA_VERSION] rather than coverage from 1.
-         */
         internal val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
             MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
@@ -1099,19 +1202,22 @@ abstract class WhoopDatabase : RoomDatabase() {
             MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
             MIGRATION_36_37,
             MIGRATION_37_38,
-            MIGRATION_38_39,
-            MIGRATION_39_40,
-            MIGRATION_40_41,
-            MIGRATION_41_42,
+            MIGRATION_38_39, MIGRATION_39_40, V18AuxIdentityMigration, MIGRATION_41_42,
+            MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46,
         )
 
-        private fun build(appContext: Context): WhoopDatabase =
-            Room.databaseBuilder(appContext, WhoopDatabase::class.java, databaseName(appContext))
+        private fun build(appContext: com.noop.account.AccountStorageContext,
+                          lease: com.noop.account.AccountStorageMutationLease): WhoopDatabase {
+            val fence = com.noop.account.AccountWriteFence(appContext)
+            return Room.databaseBuilder(appContext, WhoopDatabase::class.java, appContext.getDatabasePath(DB_NAME).absolutePath)
                 // #1014: replace ONLY the corruption handling of the default open-helper. The
                 // platform default silently DELETES a corrupt database file (non-resendable strap
                 // history gone without a trace); this factory logs + preserves the file instead.
                 // Every migration/lifecycle callback is delegated to Room unchanged.
-                .openHelperFactory(CorruptionPreservingOpenHelperFactory())
+                .openHelperFactory(lease.openHelperFactory(fence, DurableAccountOpenHelperFactory()))
+                // A separate fsynced capture may be retired after a Room handoff. Do not let
+                // automatic/low-memory journal selection silently weaken that destination.
+                .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 // Real additive migration, NO destructive fallback (see the class doc): with
                 // exportSchema=false a silent rebuild would lose already-acked, non-resendable strap
                 // history on any schema mismatch. Room throws loudly instead; CI guards the SQL.
@@ -1123,7 +1229,20 @@ abstract class WhoopDatabase : RoomDatabase() {
                 // install still lists its WHOOP. iOS/GRDB re-runs migrations on a fresh DB, so it never hit this.
                 // #548: no calibrated SpO₂ in the seed (import-only).
                 .addCallback(object : RoomDatabase.Callback() {
+                    override fun onOpen(db: SupportSQLiteDatabase) {
+                        val owner = appContext.identity.scope ?: return
+                        db.query("SELECT projectURL,userID FROM localAccountOwner WHERE singleton=1").use {
+                            check(it.moveToFirst()) { "Account database owner missing" }
+                            com.noop.push.AccountPushAdmission.verifyOwner(owner, it.getString(0), it.getString(1))
+                        }
+                    }
                     override fun onCreate(db: SupportSQLiteDatabase) {
+                        V18AuxIdentityMigration.installGuards(db)
+                        appContext.identity.scope?.let { owner ->
+                            db.execSQL("CREATE TABLE localAccountOwner (singleton INTEGER PRIMARY KEY CHECK(singleton=1), projectURL TEXT NOT NULL, userID TEXT NOT NULL)")
+                            db.execSQL("INSERT INTO localAccountOwner(singleton,projectURL,userID) VALUES(1,?,?)",
+                                arrayOf(owner.projectURL, owner.userID))
+                        }
                         val now = System.currentTimeMillis() / 1000
                         db.execSQL(
                             "INSERT OR IGNORE INTO `pairedDevice` " +
@@ -1137,11 +1256,17 @@ abstract class WhoopDatabase : RoomDatabase() {
                         }
                     }
                 })
-                .build()
+                .build().also {
+                    it.accountWriteFence = fence
+                    it.accountIdentity = appContext.identity
+                    it.storageMutationLease = lease
+                    it.storagePath = appContext.getDatabasePath(DB_NAME).absolutePath
+                }
+        }
 
         /** Read-only legacy access. Never copy samples, analysis, ownership, jobs, or upload cursors. */
         private fun copyLegacyPairingMetadata(context: Context, target: SupportSQLiteDatabase) {
-            val legacy = context.getDatabasePath(DB_NAME)
+            val legacy = com.noop.account.AccountStorageContext.platform(context).getDatabasePath(DB_NAME)
             if (!legacy.exists()) return
             android.database.sqlite.SQLiteDatabase.openDatabase(legacy.path, null,
                 android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { source ->

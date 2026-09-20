@@ -12,7 +12,8 @@ import {
 } from './keys.ts';
 import { MAX_OBJECT_LANE_BYTES, MAX_RANGE_MS, expiresAt } from './retention.ts';
 import { createManifestStore, READY_STATUSES, type ManifestStore } from './manifests.ts';
-import { PushProtocolError } from './registry.ts';
+import { completeDurableObject, reserveManifest, MAX_DECODED_OBJECT_BYTES } from './durability.ts';
+import { PushProtocolError, schemaVersionFor } from './registry.ts';
 import type { SupabaseRest } from './rest.ts';
 import type { S3Store } from './s3.ts';
 import type { PushFunctionConfig } from './config.ts';
@@ -23,7 +24,7 @@ import type { UploadAuthMode } from './tokens.ts';
 /** Presigned PUT lifetime. Long enough for a large object on a slow link, short enough to expire. */
 export const UPLOAD_URL_TTL_SEC = 15 * 60;
 
-const SHA_RE = /^[0-9a-f]{64}$/;
+const SHA_RE = /^[0-9a-f]{64}$/i;
 const MIN_PLAUSIBLE_UNIX = 1_400_000_000;
 
 /**
@@ -46,6 +47,9 @@ function fail(code: string, status = 400): PushProtocolError {
 export function validateObjectIntent(manifest: any) {
   const errors: string[] = [];
   const m = manifest || {};
+  const protocolVersion = m.protocolVersion ?? '1.2';
+  const schemaVersion = m.schemaVersion ?? schemaVersionFor(m.stream, protocolVersion);
+  if (!['1.2', '1.3', '1.4'].includes(protocolVersion)) errors.push('protocolVersion');
   if (m.type !== 'binaryObject') errors.push('type');
   if (!OBJECT_LANE_STREAMS.has(m.stream)) errors.push('stream');
   if (!isUuid(m.objectId)) errors.push('objectId');
@@ -64,7 +68,8 @@ export function validateObjectIntent(manifest: any) {
   const sampleCount = Number(m.sampleCount);
   if (!Number.isInteger(sampleCount) || sampleCount < 0) errors.push('sampleCount');
   const uncompressedBytes = Number(m.uncompressedBytes);
-  if (!Number.isInteger(uncompressedBytes) || uncompressedBytes <= 0) errors.push('uncompressedBytes');
+  if (!Number.isSafeInteger(uncompressedBytes) || uncompressedBytes <= 0 || uncompressedBytes > MAX_DECODED_OBJECT_BYTES) errors.push('uncompressedBytes');
+  if (schemaVersion !== schemaVersionFor(m.stream, protocolVersion)) errors.push('schemaVersion');
   const compressedBytes = Number(m.compressedBytes);
   if (!Number.isInteger(compressedBytes) || compressedBytes <= 0 || compressedBytes > MAX_OBJECT_LANE_BYTES) {
     errors.push('compressedBytes');
@@ -88,6 +93,8 @@ export function validateObjectIntent(manifest: any) {
     sampleCount,
     uncompressedBytes,
     compressedBytes,
+    protocolVersion,
+    schemaVersion,
   };
 }
 
@@ -302,7 +309,7 @@ export function createPushObjects({
 
       const spec = pushArchiveSpecForStream(manifest.stream);
       try {
-        await ingestStep('archive_manifest', manifest.stream, () => manifests.insertPending({
+        const reserved = await ingestStep('archive_manifest', manifest.stream, () => reserveManifest(rest, {
           id: manifest.objectId,
           user_id: userId,
           device_id: deviceId,
@@ -320,8 +327,10 @@ export function createPushObjects({
           content_type: spec.contentType,
           format: spec.format,
           compression: spec.compression,
-          schema_version: Number(manifest.schemaVersion ?? 1),
-          sha256: manifest.contentSha256,
+          schema_version: v.schemaVersion ?? Number(manifest.schemaVersion ?? 1),
+          push_protocol_version: v.protocolVersion ?? '1.2',
+          sha256: String(manifest.contentSha256).toLowerCase(),
+          digest_scope: 'decoded',
           sha256_source: SHA_SOURCE.claimed,
           retention_class: spec.retentionClass,
           expires_at: expiresAt(manifest.stream, now(), cfg as unknown as Record<string, unknown>),
@@ -331,23 +340,37 @@ export function createPushObjects({
           auth_mode: effectiveAuthMode,
           status: 'pending',
         }));
+        if (reserved.durability_receipt) {
+          const durabilityReceipt = await completeDurableObject({ rest, raw, row: reserved });
+          return {
+            protocolVersion: reserved.push_protocol_version ?? '1.2',
+            objectId: reserved.id,
+            status: 'ready',
+            objectKey: durabilityReceipt.objectKey,
+            duplicate: true,
+            durabilityReceipt,
+          };
+        }
+        if (['deleted', 'deleting', 'expired'].includes(reserved.status)) throw fail('object_unavailable', 409);
+        const uploadKey = reserved.upload_object_key || reserved.object_key || key;
+        if (String(uploadKey).includes('/verified/')) throw fail('object_unavailable', 409);
+        const signed = await ingestStep('archive_write', manifest.stream, async () => raw.presignPut(uploadKey, urlTtlSec, now()));
+        return {
+          protocolVersion: v.protocolVersion ?? '1.2',
+          objectId: manifest.objectId,
+          status: 'pending',
+          objectKey: uploadKey,
+          uploadUrl: signed.url,
+          requiredHeaders: { 'content-type': spec.contentType },
+          expiresAt: signed.expiresAt,
+          duplicate: false,
+        };
       } catch (err) {
         // The database unique index closes the check/insert race across Edge isolates.
         const winner = await manifests.byUserBatch(userId, manifest.batchId);
         if (winner && winner.id !== manifest.objectId) throw fail('batch_id_conflict', 409);
         throw err;
       }
-
-      const signed = await ingestStep('archive_write', manifest.stream, async () => raw.presignPut(key, urlTtlSec, now()));
-      return {
-        objectId: manifest.objectId,
-        status: 'pending',
-        objectKey: key,
-        uploadUrl: signed.url,
-        requiredHeaders: { 'content-type': spec.contentType },
-        expiresAt: signed.expiresAt,
-        duplicate: false,
-      };
     },
 
     /**
@@ -381,49 +404,8 @@ export function createPushObjects({
       }
       const effectiveAuthMode = authMode || 'legacy_fleet';
       if (row.auth_mode && row.auth_mode !== effectiveAuthMode) throw fail('forbidden', 403);
-      if (READY_STATUSES.has(row.status)) {
-        await writeManifestWindow(row);
-        if (receiptStore) {
-          await receiptStore.recordAccepted({
-            userId,
-            sourceId: row.source_id || sourceId,
-            deviceId: row.device_id,
-            tokenId: tokenId || null,
-            authMode: effectiveAuthMode,
-            lane: 'object',
-            stream: row.object_kind,
-            batchId: row.batch_id,
-            objectId: row.id,
-            bodySha256: row.sha256,
-            acceptedStatus: row.status,
-            acceptedRows: Number(row.sample_count ?? 0),
-          });
-        }
-        return { objectId: row.id, deviceId: row.device_id, status: row.status, objectKey: row.object_key, duplicate: true };
-      }
-
-      await ingestStep('archive_manifest', row.object_kind, () => manifests.mark(objectId, { status: 'uploading' }));
-      const head = await ingestStep('archive_verify', row.object_kind, () => raw.head(row.object_key));
-      if (!head?.exists) {
-        await ingestStep('archive_manifest', row.object_kind, () => manifests.mark(objectId, { status: 'failed' }));
-        throw fail('object_missing', 409);
-      }
-      if (row.compressed_bytes != null && head.contentLength != null
-          && Number(head.contentLength) !== Number(row.compressed_bytes)) {
-        await ingestStep('archive_manifest', row.object_kind, () => manifests.mark(objectId, { status: 'failed' }));
-        throw fail('size_mismatch', 409);
-      }
-
-      const at = now().toISOString();
-      // Ready is an acknowledgement boundary: a failed projection must remain retryable.
-      const window = await writeManifestWindow({ ...row, compressed_bytes: head.contentLength ?? row.compressed_bytes });
-      const updated = await ingestStep('archive_manifest', row.object_kind, () => manifests.mark(objectId, {
-        status: 'ready',
-        compressed_bytes: head.contentLength ?? row.compressed_bytes,
-        uploaded_at: at,
-      }));
-      const next = (Array.isArray(updated) ? updated[0] : updated) || row;
-
+      const duplicate = Boolean(row.durability_receipt);
+      const durabilityReceipt = await ingestStep('archive_verify', row.object_kind, () => completeDurableObject({ rest, raw, row }));
       if (receiptStore) {
         await receiptStore.recordAccepted({
           userId,
@@ -440,8 +422,16 @@ export function createPushObjects({
           acceptedRows: Number(row.sample_count ?? 0),
         });
       }
-
-      return { objectId: next.id, deviceId: row.device_id, status: 'ready', objectKey: next.object_key, window, duplicate: false };
+      await writeManifestWindow({ ...row, object_key: durabilityReceipt.objectKey, compressed_bytes: durabilityReceipt.compressedBytes });
+      return {
+        protocolVersion: row.push_protocol_version ?? '1.2',
+        objectId: row.id,
+        deviceId: row.device_id,
+        status: 'ready',
+        objectKey: durabilityReceipt.objectKey,
+        durabilityReceipt,
+        duplicate,
+      };
     },
   };
 }

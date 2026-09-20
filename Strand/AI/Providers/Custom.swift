@@ -6,6 +6,8 @@ import StrandAnalytics
 /// the OpenAI chat-completions wire format against `AIProvider.custom` endpoints. The API key is
 /// optional — local servers usually need none — so the configured auth header is sent only when set.
 struct CustomClient: AIProviderClient {
+    let configuration: CustomAIConfiguration
+    init(configuration: CustomAIConfiguration = .init()) { self.configuration = configuration }
 
     func send(
         key: String,
@@ -14,7 +16,7 @@ struct CustomClient: AIProviderClient {
         messages: [(role: ChatMessage.Role, content: String)],
         session: URLSession
     ) async throws -> String {
-        try AIProvider.guardCustomBaseURL()   // #321: reject a public cleartext Custom URL before egress
+        try AIProvider.guardCustomBaseURL(configuration.baseURL)
         var wire: [[String: Any]] = [["role": "system", "content": systemPrompt]]
         for m in messages { wire.append(["role": m.role.rawValue, "content": m.content]) }
 
@@ -43,7 +45,7 @@ struct CustomClient: AIProviderClient {
         session: URLSession,
         onDelta: (String) -> Void
     ) async throws {
-        try AIProvider.guardCustomBaseURL()   // #321: reject a public cleartext Custom URL before egress
+        try AIProvider.guardCustomBaseURL(configuration.baseURL)
         var wire: [[String: Any]] = [["role": "system", "content": systemPrompt]]
         for m in messages { wire.append(["role": m.role.rawValue, "content": m.content]) }
 
@@ -55,9 +57,9 @@ struct CustomClient: AIProviderClient {
             "stream": true
         ]
 
-        var req = URLRequest(url: AIProvider.custom.endpoint)
+        var req = URLRequest(url: AIProvider.customURL(path: "/chat/completions", baseURL: configuration.baseURL))
         req.httpMethod = "POST"
-        AIProvider.applyCustomAuthHeader(key, to: &req)
+        AIProvider.applyCustomAuthHeader(key, to: &req, header: configuration.authHeader)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -97,10 +99,10 @@ struct CustomClient: AIProviderClient {
     }
 
     func fetchModels(key: String, session: URLSession) async throws -> [String] {
-        try AIProvider.guardCustomBaseURL()   // #321: reject a public cleartext Custom URL before egress
-        var req = URLRequest(url: AIProvider.custom.modelsEndpoint)
+        try AIProvider.guardCustomBaseURL(configuration.baseURL)
+        var req = URLRequest(url: AIProvider.customURL(path: "/models", baseURL: configuration.baseURL))
         req.httpMethod = "GET"
-        AIProvider.applyCustomAuthHeader(key, to: &req)
+        AIProvider.applyCustomAuthHeader(key, to: &req, header: configuration.authHeader)
 
         return parseModels(try await performRequest(req, session: session))
     }
@@ -148,9 +150,9 @@ struct CustomClient: AIProviderClient {
             body["max_tokens"] = 4096
         }
 
-        var req = URLRequest(url: AIProvider.custom.endpoint)
+        var req = URLRequest(url: AIProvider.customURL(path: "/chat/completions", baseURL: configuration.baseURL))
         req.httpMethod = "POST"
-        AIProvider.applyCustomAuthHeader(key, to: &req)
+        AIProvider.applyCustomAuthHeader(key, to: &req, header: configuration.authHeader)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 

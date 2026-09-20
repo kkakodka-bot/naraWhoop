@@ -10,28 +10,35 @@ plugins {
 // committed); when it's absent — clones, CI without secrets — release falls back to the debug
 // key so `assembleRelease` always produces an installable APK. See docs/BUILD.md.
 val keystorePropsFile = rootProject.file("keystore.properties")
-val keystoreProps = Properties().apply {
-    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
-}
 val isStagingRelease = project.hasProperty("stagingRelease")
 val requestedReleaseBuild = gradle.startParameter.taskNames.any {
     it.contains("Release", ignoreCase = true)
 }
-
-// Fleet cloud-push destination (Supabase Edge Function) + ingest token, baked into BuildConfig.
-// Values live in Config/CloudPushSecrets.properties (git-ignored, never committed — the Xcode
-// half is Config/CloudPushSecrets.xcconfig); when the file is absent the build is simply
-// unconfigured and push stays off. See Config/CloudPushSecrets.example.properties.
-val fleetPushPropsFile = rootProject.file("../Config/CloudPushSecrets.properties")
-val fleetPushProps = Properties().apply {
-    if (fleetPushPropsFile.exists()) fleetPushPropsFile.inputStream().use { load(it) }
+val keystoreProps = Properties().apply {
+    if (requestedReleaseBuild && !isStagingRelease && keystorePropsFile.exists()) {
+        keystorePropsFile.inputStream().use { load(it) }
+    }
 }
-fun fleetPushBuildConfig(key: String): String =
-    "\"" + fleetPushProps.getProperty(key).orEmpty().trim()
+
+// Public project configuration only. Ordinary builds never read the legacy fleet-secret file.
+fun publicPushBuildConfig(key: String): String =
+    "\"" + providers.gradleProperty(key).orNull.orEmpty().trim()
         .replace("\\", "\\\\")
         .replace("\"", "\\\"") + "\""
 
+val fleetPushPropsFile = rootProject.file("../Config/CloudPushSecrets.properties")
+val fleetPushProps = java.util.Properties().apply {
+    if (fleetPushPropsFile.exists()) fleetPushPropsFile.inputStream().use { load(it) }
+}
+fun fleetPushBuildConfig(key: String): String {
+    val fromFile = fleetPushProps.getProperty(key).orEmpty().trim()
+    val raw = fromFile.ifEmpty { providers.gradleProperty(key).orNull.orEmpty().trim() }
+    return "\"" + raw.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+}
+
+
 android {
+    testOptions { unitTests.isIncludeAndroidResources = true }
     namespace = "com.noop"
     compileSdk = 35
 
@@ -65,7 +72,7 @@ android {
             }
         }
         create("release") {
-            if (keystorePropsFile.exists()) {
+            if (keystoreProps.isNotEmpty()) {
                 storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
@@ -100,7 +107,7 @@ android {
             }
             // Real release key when keystore.properties is present. The debug-key fallback is allowed
             // only for explicit fork/staging artifacts that install under their own application id.
-            signingConfig = if (keystorePropsFile.exists()) {
+            signingConfig = if (keystoreProps.isNotEmpty()) {
                 signingConfigs.getByName("release")
             } else {
                 signingConfigs.getByName("debug")
@@ -314,6 +321,8 @@ dependencies {
 
     // --- Unit / instrumentation tests ---
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.12.2")
+    testImplementation("androidx.work:work-testing:2.9.0")
     testImplementation("org.jacoco:org.jacoco.core:0.8.12")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("org.json:json:20240303") // real org.json for JVM unit tests (android.jar ships throwing stubs)

@@ -967,8 +967,59 @@ extension WhoopStore {
                 t.column("fetchedAt", .integer).notNull()
             }
         }
-        // Adopt the record identity already used by research installs without rewriting their rows.
-        // v46 and v47 belong to the source index and server cache and must retain their identities.
+        // PR22 deployed PPG identity as v46-ppg-record-identity immediately after v47. Keep that
+        // identifier at this registration slot so installed PR22 databases and SchemaOracleTests match.
+        migrator.registerMigration("v46-ppg-record-identity") { db in
+            let columns = try db.columns(in: "ppgWaveformSample").map(\.name)
+            let key = try db.primaryKey("ppgWaveformSample").columns
+            if columns.contains("recordIndex") {
+                guard key == ["deviceId", "ts", "recordIndex"] else {
+                    throw DatabaseError(resultCode: .SQLITE_SCHEMA,
+                                        message: "Unsupported PPG waveform record identity key")
+                }
+                return
+            }
+            guard key == ["deviceId", "ts"] else {
+                throw DatabaseError(resultCode: .SQLITE_SCHEMA,
+                                    message: "Unsupported legacy PPG waveform key")
+            }
+            try db.create(table: "ppgWaveformSample_v46") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("ts", .integer).notNull()
+                t.column("samples", .blob).notNull()
+                t.column("burstIndex", .integer)
+                t.column("recordIndex", .integer).notNull()
+                t.primaryKey(["deviceId", "ts", "recordIndex"])
+            }
+            // Unknown historical identities keep their own sentinel; no wire counter is invented.
+            try db.execute(sql: """
+                INSERT INTO ppgWaveformSample_v46 (rowid, deviceId, ts, samples, burstIndex, recordIndex)
+                SELECT rowid, deviceId, ts, samples, burstIndex, -1 FROM ppgWaveformSample
+                """)
+            try db.drop(table: "ppgWaveformSample")
+            try db.rename(table: "ppgWaveformSample_v46", to: "ppgWaveformSample")
+        }
+        ServerScoreCacheMigration.register(in: &migrator)
+        migrator.registerMigration("v49-durable-ingest-receipts") { db in
+            try WhoopStore.createDurableIngestSchema(db)
+        }
+        migrator.registerMigration("v50-account-store-owner") { db in
+            try WhoopStore.installAccountOwnershipSchema(db)
+        }
+        migrator.registerMigration("v51-v18-aux-record-identity") { db in
+            try WhoopStore.installV18AuxIdentitySchema(db)
+        }
+        migrator.registerMigration("v52-scalar-provenance") { db in
+            try WhoopStore.installScalarProvenanceSchema(db)
+        }
+        migrator.registerMigration("v53-standard-hr-capture-journal") { db in
+            try WhoopStore.installStandardHRCaptureSchema(db)
+        }
+        migrator.registerMigration("v54-workout-preference-evaluation") { db in
+            try WhoopStore.installWorkoutPreferenceEvaluationSchema(db)
+        }
+        // HEAD identifiers stay registered so existing physiology-v2 databases skip them and
+        // migrate(upTo:) tests keep resolving. PPG identity is a no-op once v46-ppg has run.
         migrator.registerMigration("v48-ppg-record-identity") { db in
             let columns = try db.columns(in: "ppgWaveformSample").map(\.name)
             let key = try db.primaryKey("ppgWaveformSample").columns
@@ -991,7 +1042,6 @@ extension WhoopStore {
                 t.column("recordIndex", .integer).notNull()
                 t.primaryKey(["deviceId", "ts", "recordIndex"])
             }
-            // Preserve upload rowid cursors; -1 denotes unavailable historical wire identity.
             try db.execute(sql: """
                 INSERT INTO ppgWaveformSample_v48 (rowid, deviceId, ts, samples, burstIndex, recordIndex)
                 SELECT rowid, deviceId, ts, samples, burstIndex, -1 FROM ppgWaveformSample

@@ -70,7 +70,7 @@
     "backfillFrontier": {
       "platform": "ios_only",
       "classification": "local_only",
-      "why": "Backfill duplicate-replay skip frontier (GRDB v45). Operational ingest state — never shipped; Android may adopt separately."
+      "why": "Backfill duplicate-replay skip frontier (GRDB v45). Operational ingest state \u2014 never shipped; Android may adopt separately."
     },
     "coachMessage": {
       "platform": "both",
@@ -150,7 +150,7 @@
       "b2Extension": "ndjson.gz",
       "b2RetentionClass": "core",
       "supabaseTable": "noop_hr_samples",
-      "why": "Measured strap heart rate (bpm) — primary intraday physiology stream."
+      "why": "Measured strap heart rate (bpm) \u2014 primary intraday physiology stream."
     },
     "journal": {
       "platform": "both",
@@ -309,7 +309,7 @@
       "b2Extension": "ndjson.gz",
       "b2RetentionClass": "core",
       "supabaseTable": "noop_spo2_samples",
-      "why": "SpO₂ PPG ADC (red/IR) from offload."
+      "why": "SpO\u2082 PPG ADC (red/IR) from offload."
     },
     "sleepSession": {
       "platform": "both",
@@ -347,12 +347,12 @@
     "syncJob": {
       "platform": "both",
       "classification": "local_only",
-      "why": "Durable post-offload job debt (#1538). Ephemeral scheduling state — not user data and not cloud-shipped."
+      "why": "Durable post-offload job debt (#1538). Ephemeral scheduling state \u2014 not user data and not cloud-shipped."
     },
     "syncJournalEntry": {
       "platform": "both",
       "classification": "local_only",
-      "why": "On-device sync pipeline journal for post-offload stages. Operational telemetry — not cloud-shipped."
+      "why": "On-device sync pipeline journal for post-offload stages. Operational telemetry \u2014 not cloud-shipped."
     },
     "v18AuxSample": {
       "platform": "both",
@@ -375,6 +375,66 @@
       "b2RetentionClass": "core",
       "supabaseTable": "sessions",
       "why": "Workout sessions upserted into `sessions` with kind=workout; zones and route preserved in summary JSON."
+    },
+    "workoutPreferenceEvaluation": {
+      "platform": "ios_only",
+      "classification": "local_only",
+      "why": "Bounded local evaluation, revision and job-settlement control metadata. It contains no source health rows, grants no cloud receipt or pruning authority, and never rewrites manual workout values."
+    },
+    "standardHRCaptureSession": {
+      "platform": "ios_only",
+      "classification": "local_only",
+      "why": "Local StandardHR session identity and retained-capacity accounting. No receiver stream or cloud durability receipt is implemented by this local journal."
+    },
+    "standardHRCaptureOccurrence": {
+      "platform": "ios_only",
+      "classification": "local_only",
+      "why": "Exact original StandardHR notification bytes and immutable local projection debt are retained without eviction. Archive delivery, receiver receipts and receipt-authorized pruning remain separate required integration; local-only is not permission to erase these inputs."
+    },
+    "gpsDestinationBarrier": {
+      "platform": "android_only",
+      "classification": "local_only",
+      "why": "Room44 bounded local destination-barrier control state, not source data, an upload stream or a reusable cloud/local durability receipt."
+    },
+    "gpsWorkoutDelivery": {
+      "platform": "android_only",
+      "classification": "local_only",
+      "why": "Room43 retained immutable GPS workout observations and exact local HR projection witness. This is local handoff evidence, not receiver archival acceptance, raw-measurement provenance or cloud cleanup authority."
+    },
+    "localCaptureResource": {
+      "platform": "android_only",
+      "classification": "local_only",
+      "why": "Room43 local recovery index for immutable account-owned capture files. This metadata is not a cloud stream; capture archive delivery and receipt-safe retention require separate producer and transport integration."
+    },
+    "localCaptureMember": {
+      "platform": "android_only",
+      "classification": "local_only",
+      "why": "Room43 exact capture-member projection index. Projection state is local recovery bookkeeping, not a cloud durability receipt or authority to delete immutable captured bytes."
+    },
+    "serverScoreSnapshotCache": {
+      "platform": "ios_only",
+      "classification": "local_only",
+      "why": "Bounded account-scoped server readback cache; never source input."
+    },
+    "ingestRawResource": {
+      "platform": "ios_only",
+      "classification": "local_only",
+      "why": "Immutable local source ownership and digest association; pruning guard."
+    },
+    "sensorQuarantine": {
+      "platform": "ios_only",
+      "classification": "local_only",
+      "why": "Lossless pending undecoded sensor bytes; retained until verified object archival. Quarantine transport tracked separately in the stream matrix."
+    },
+    "rawDurabilityReceipt": {
+      "platform": "ios_only",
+      "classification": "local_only",
+      "why": "Verified downstream receipt association; local pruning and recovery metadata."
+    },
+    "localAccountOwner": {
+      "platform": "ios_only",
+      "classification": "local_only",
+      "why": "Immutable owner of this local database; not inferred from the current login."
     }
   }
 }

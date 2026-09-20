@@ -10,4 +10,7 @@ int noop_zstd_compress(const uint8_t *src, size_t src_len, uint8_t **out, size_t
 
 void noop_zstd_free(uint8_t *out);
 
+/// Bounded decoding into caller-owned storage. Used as an independent codec oracle.
+int noop_zstd_decompress(const uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_capacity, size_t *out_len);
+
 #endif

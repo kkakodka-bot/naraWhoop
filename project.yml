@@ -174,9 +174,15 @@ targets:
     deploymentTarget: "13.0"
     sources:
       - StrandTests
+      - path: Tests/Fixtures/context-metrics-swift-v1.json
+        buildPhase: resources
       # Compile the exact cross-target snapshot source into the test bundle so the AltStore App Group
       # resolver is covered without adding this iOS/widget-only type to the macOS application module.
       - StrandiOSShared/WidgetSnapshot.swift
+      # Test the exact live adapters' platform-neutral admission sequences. Their HealthKit and
+      # WidgetKit operations remain iOS-only and require a separate iOS integration gate.
+      - StrandiOS/Health/HealthKitBridge.swift
+      - StrandiOS/Widgets/WidgetPublish.swift
     # Same wrapper as the app target, so the OURA_CLOUD_IMPORT-gated Oura tests compile exactly
     # when the app's Oura lane does (flag + creds both come from the untracked OuraSecrets.xcconfig).
     configFiles:
@@ -536,6 +542,8 @@ schemes:
       config: Debug
     test:
       config: Debug
+      environmentVariables:
+        NOOP_HERMETIC_TESTING: "1"
       targets:
         - StrandTests
   NOOPiOS:

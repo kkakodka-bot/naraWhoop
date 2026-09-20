@@ -27,6 +27,7 @@ import Foundation
 
 struct CoupledView: View {
     @EnvironmentObject var repo: Repository
+    @EnvironmentObject var app: AppModel
 
     /// "Card transparency" (0–100, default 100): fades the coupled glance cards in lockstep with the
     /// frosted cards; content stays readable. Mirrors Kotlin `NoopPrefs.cardOpacityPercent`.
@@ -667,7 +668,7 @@ struct CoupledView: View {
                     // #731: when the countdown restarted because the user tapped "Recalibrate baseline",
                     // say so — otherwise the natural response to a fresh countdown is to tap it again,
                     // which resets it once more. nil (and no line) for anyone who never recalibrated.
-                    if let restarted = ChargeBreakdownFormat.currentCalibrationRestartCause() {
+                    if let restarted = ChargeBreakdownFormat.currentCalibrationRestartCause(epoch: app.scoringHrvBaselineEpoch) {
                         Text(restarted)
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textTertiary)

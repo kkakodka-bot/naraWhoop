@@ -24,8 +24,19 @@ class ImuSessionFileStore internal constructor(
     namespace: String,
 ) : ImuSessionPushSource {
     constructor(context: Context, namespace: String = NAMESPACE_SESSIONS) : this(
-        context.getSharedPreferences(com.noop.push.EnrollmentDataScope.storageName(context, preferencesName(namespace)), Context.MODE_PRIVATE),
-        File(context.filesDir, com.noop.push.EnrollmentDataScope.storageName(context, directoryName(namespace))),
+        com.noop.account.AccountStorageContext.capture(context).let { storage ->
+            storage.getSharedPreferences(
+                com.noop.push.EnrollmentDataScope.storageName(storage, preferencesName(namespace)),
+                Context.MODE_PRIVATE,
+            )
+        },
+        File(
+            com.noop.account.AccountStorageContext.capture(context).filesDir,
+            com.noop.push.EnrollmentDataScope.storageName(
+                com.noop.account.AccountStorageContext.capture(context),
+                directoryName(namespace),
+            ),
+        ),
         namespace,
     )
 
@@ -300,14 +311,27 @@ class ImuSessionFileStore internal constructor(
         return rows
     }
 
+    fun flushAll() = synchronized(lock) { pending.keys.toList().forEach(::flushKey) }
+
     private fun flushSession(id: String) = pending.keys.filter { it.startsWith("$id/") }.toList().forEach(::flushKey)
     private fun flushKey(key: String) {
-        val records = pending.remove(key).orEmpty(); if (records.isEmpty()) return
+        val records = pending[key].orEmpty(); if (records.isEmpty()) return
         val id = key.substringBefore('/'); val bucket = key.substringAfter('/').toLong()
-        val file = segmentFile(id, bucket); file.parentFile?.mkdirs(); val newFile = !file.exists()
-        DataOutputStream(FileOutputStream(file, true).buffered()).use { out ->
-            if (newFile) writeHeader(out, bucket)
-            writeBlock(out, records)
+        val file = segmentFile(id, bucket); file.parentFile?.mkdirs()
+        val originalBytes = file.length()
+        try {
+            FileOutputStream(file, true).use { stream ->
+                DataOutputStream(stream.buffered()).use { out ->
+                    if (originalBytes == 0L) writeHeader(out, bucket)
+                    writeBlock(out, records)
+                    out.flush()
+                    stream.fd.sync()
+                }
+            }
+            pending.remove(key)
+        } catch (failure: Exception) {
+            if (file.isFile) runCatching { java.io.RandomAccessFile(file, "rw").use { it.setLength(originalBytes); it.fd.sync() } }
+            throw failure
         }
     }
 

@@ -50,13 +50,14 @@ import com.noop.ui.ClockPrefs
 class NoopGlanceWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val account = com.noop.account.AccountStorageContext.capture(context)
         // A corrupt pref must degrade to the empty-state widget, not throw mid-provide.
-        val snap = runCatching { WidgetSnapshotStore.load(context) }.getOrDefault(WidgetSnapshot())
+        val snap = runCatching { WidgetSnapshotStore.load(account) }.getOrDefault(WidgetSnapshot())
         // Follow the app's Light/Dark/System theme (read straight from noop_prefs; the widget runs in a
         // separate process so it can't see the in-app snapshot state). System resolves off the device's
         // night-mode config. Any failure degrades to dark (the historical default).
         val dark = runCatching {
-            when (context.getSharedPreferences("noop_prefs", Context.MODE_PRIVATE)
+            when (com.noop.account.AccountStorageContext.capture(context).getSharedPreferences("noop_prefs", Context.MODE_PRIVATE)
                 .getString("theme.appearance", "system")) {
                 "light" -> false
                 "dark" -> true
@@ -65,7 +66,7 @@ class NoopGlanceWidget : GlanceAppWidget() {
                     android.content.res.Configuration.UI_MODE_NIGHT_YES
             }
         }.getOrDefault(true)
-        provideContent { WidgetContent(snap, dark) }
+        provideContent { WidgetContent(if (account.isCurrent()) snap else WidgetSnapshot(), dark) }
     }
 
     /** Defence-in-depth, NOT a crash fix: Glance 1.1.0's default already contains composition errors

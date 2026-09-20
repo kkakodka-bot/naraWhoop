@@ -73,6 +73,6 @@ class WindDownStore(private val prefs: SharedPreferences) {
         const val LEAD_MAX = 120
 
         fun from(context: Context): WindDownStore =
-            WindDownStore(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
+            WindDownStore(com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE))
     }
 }

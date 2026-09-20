@@ -6,7 +6,7 @@ import com.noop.data.SecurePrefs
 import java.security.MessageDigest
 
 /** Encrypted durable progress plus remembered device scopes; never endpoint URLs or bearer tokens. */
-class SharedPrefsPushProgressStore private constructor(
+class SharedPrefsPushProgressStore internal constructor(
     private val prefs: SharedPreferences,
 ) : PushProgressStore {
     override suspend fun knownDeviceIds(): Set<String> = prefs.getStringSet(KEY_DEVICES, emptySet()).orEmpty()
@@ -100,6 +100,37 @@ class SharedPrefsPushProgressStore private constructor(
         check(editor.commit()) { "Could not persist in-flight object" }
     }
 
+    override suspend fun preparedBoundary(table: PushBinaryTable, deviceId: String): PushPreparedBoundary? {
+        val encoded = prefs.getString(key("prepared", table.wireName, deviceId), null) ?: return null
+        val o = org.json.JSONObject(encoded)
+        check(o.get("v") == 1)
+        fun cursor(name: String): PushCursor? {
+            if (o.isNull(name)) return null
+            val value = o.getJSONObject(name)
+            val row = value.get("row")
+            check(row is Long || row is Int)
+            check((row as Number).toLong() > 0)
+            return PushCursor(row.toLong(), value.getString("key"))
+        }
+        return PushPreparedBoundary(cursor("start"), requireNotNull(cursor("end")), o.getInt("count"),
+            o.getString("content"), o.getString("payload"), o.getString("manifest"))
+    }
+
+    override suspend fun savePreparedBoundary(table: PushBinaryTable, deviceId: String, prepared: PushPreparedBoundary?) {
+        fun cursor(value: PushCursor?): Any = value?.let {
+            org.json.JSONObject().put("row", it.rowId).put("key", it.naturalKeyFingerprint)
+        } ?: org.json.JSONObject.NULL
+        val encoded = prepared?.let {
+            org.json.JSONObject().put("v", 1).put("start", cursor(it.startCursor)).put("end", cursor(it.endCursor))
+                .put("count", it.sampleCount).put("content", it.contentSha256).put("payload", it.payloadSha256)
+                .put("manifest", it.manifestJSON).toString()
+        }
+        check(prefs.edit().putString(key("prepared", table.wireName, deviceId), encoded).commit()) {
+            "Could not persist prepared auxiliary prefix"
+        }
+        check(preparedBoundary(table, deviceId) == prepared) { "Prepared prefix readback mismatch" }
+    }
+
     private fun key(kind: String, table: String, deviceId: String): String =
         "$kind.$table.${sha256(deviceId)}"
 
@@ -131,7 +162,7 @@ class SharedPrefsPushProgressStore private constructor(
         private val HASH_PATTERN = Regex("[0-9a-f]{64}")
 
         fun from(context: Context) = SharedPrefsPushProgressStore(
-            SecurePrefs.of(context.applicationContext, PREFS),
+            SecurePrefs.of(com.noop.account.AccountStorageContext.capture(context), PREFS),
         )
 
         internal fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")

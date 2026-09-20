@@ -102,6 +102,41 @@ public enum ReadinessEngine {
         return evaluateCache.value(key) { evaluateUncached(days: days, today: today) }
     }
 
+    public enum CalendarInputError: Error, Equatable {
+        case invalidDay(String)
+        case duplicateDay(String)
+    }
+
+    /// Opt-in dated history: missing nights age freshness, and load cannot bridge a missing day.
+    /// The caller supplies already owner/source/reset-admitted observations; no current settings are read.
+    public static func evaluateCalendar(days: [DailyMetric], today: String) throws -> Readiness {
+        let end = try calendarDate(today)
+        var byDay: [String: DailyMetric] = [:]
+        for row in days {
+            _ = try calendarDate(row.day)
+            guard row.day <= today else { continue }
+            guard byDay.updateValue(row, forKey: row.day) == nil else {
+                throw CalendarInputError.duplicateDay(row.day)
+            }
+        }
+        guard byDay[today] != nil else { return evaluateUncached(days: [], today: today) }
+        let calendar = MetricDayCalendar.utc
+        let slots = try (0...baselineWindow).reversed().map { back -> DailyMetric in
+            guard let date = calendar.date(byAdding: .day, value: -back, to: end),
+                  let day = MetricDayCalendar.key(date) else { throw CalendarInputError.invalidDay(today) }
+            return byDay[day] ?? DailyMetric(day: day, totalSleepMin: nil, efficiency: nil,
+                deepMin: nil, remMin: nil, lightMin: nil, disturbances: nil, restingHr: nil,
+                avgHrv: nil, recovery: nil, strain: nil, exerciseCount: nil)
+        }
+        // Calendar mode cannot reuse the observed-row cache: nil slots affect baseline freshness.
+        return evaluateUncached(days: slots, today: today, calendarSlots: true)
+    }
+
+    private static func calendarDate(_ day: String) throws -> Date {
+        do { return try MetricDayCalendar.date(day) }
+        catch { throw CalendarInputError.invalidDay(day) }
+    }
+
     private struct ReadinessKey: Hashable { let today: String?; let rows: StreamFingerprint }
     private static let evaluateCache = AnalyticsMemoCache<ReadinessKey, Readiness>(capacity: 16)
 
@@ -126,7 +161,7 @@ public enum ReadinessEngine {
         return StreamFingerprint(count: days.count, firstTs: minDayHash, lastTs: maxDayHash, checksum: sum)
     }
 
-    private static func evaluateUncached(days: [DailyMetric], today: String?) -> Readiness {
+    private static func evaluateUncached(days: [DailyMetric], today: String?, calendarSlots: Bool = false) -> Readiness {
         let sorted = days.sorted { $0.day < $1.day }
         // When an explicit `today` is given (the dashboard passes the device's real local day key), use
         // the row for THAT day and nothing else: a stale historical import has no row for today, so the
@@ -142,13 +177,17 @@ public enum ReadinessEngine {
                              signals: [], acwr: nil, monotony: nil)
         }
         let history = sorted.filter { $0.day < latest.day }   // everything before today
+        func baseline(_ value: (DailyMetric) -> Double?) -> [Double?] {
+            let slots = history.suffix(baselineWindow).map(value)
+            return calendarSlots ? slots : slots.compactMap { $0 }.map { Optional($0) }
+        }
 
         var signals: [Signal] = []
 
         // HRV readiness ------------------------------------------------------
         let hrvSignal = zSignal(
             value: latest.avgHrv,
-            baseline: history.suffix(baselineWindow).compactMap { $0.avgHrv },
+            baseline: baseline { $0.avgHrv },
             key: "hrv", label: "HRV",
             unit: "ms",
             decimals: 0,
@@ -164,7 +203,7 @@ public enum ReadinessEngine {
         // Resting-HR drift ---------------------------------------------------
         let rhrSignal = zSignal(
             value: latest.restingHr.map(Double.init),
-            baseline: history.suffix(baselineWindow).compactMap { $0.restingHr.map(Double.init) },
+            baseline: baseline { $0.restingHr.map(Double.init) },
             key: "rhr", label: "Resting HR",
             unit: "bpm",
             decimals: 0,
@@ -201,7 +240,8 @@ public enum ReadinessEngine {
         }
 
         // Training Stress Balance (ACWR) + monotony --------------------------
-        let strainSeries = sorted.compactMap { $0.strain }
+        let loadRows = calendarSlots ? Array(sorted.suffix(from: (sorted.lastIndex { $0.strain == nil }).map { $0 + 1 } ?? 0)) : sorted
+        let strainSeries = loadRows.compactMap { $0.strain }
         var acwr: Double? = nil
         var monotony: Double? = nil
         if strainSeries.count >= minChronic {
@@ -243,13 +283,13 @@ public enum ReadinessEngine {
     // MARK: Signal builders
 
     /// Build a z-score signal for a metric where the baseline is the trailing window.
-    private static func zSignal(value: Double?, baseline: [Double],
+    private static func zSignal(value: Double?, baseline: [Double?],
                                 key: String, label: String, unit: String, decimals: Int,
                                 higherIsBetter: Bool, logDomain: Bool = false,
                                 cfg: MetricCfg,
                                 goodText: String, neutralText: String,
                                 watchText: String, badText: String) -> Signal? {
-        guard let v = value, baseline.count >= minBaseline else { return nil }
+        guard let v = value, baseline.compactMap({ $0 }).count >= minBaseline else { return nil }
         // RD1: right-skewed metrics (HRV/RMSSD) are z-scored in the LOG domain — lnRMSSD is closer to
         // normal, so a symmetric z is statistically valid, whereas a raw-ms z over-weights the long
         // upper tail and misstates tail rarity (Plews/Altini; the app's own HRVReadiness works this
@@ -257,7 +297,7 @@ public enum ReadinessEngine {
         // baseline shown is then the GEOMETRIC mean (exp of the log-mean) — a typical night, not an
         // outlier-inflated arithmetic mean.
         let tv = logDomain ? log(max(v, 1.0)) : v
-        let tb = logDomain ? baseline.map { log(max($0, 1.0)) } : baseline
+        let tb = logDomain ? baseline.map { $0.map { log(max($0, 1.0)) } } : baseline
         // RD2: fold the trailing baseline through the shared Winsorized-EWMA spine — recency-weighted,
         // σ-floored (a tight baseline can't saturate the z), and Winsor-clamped so a single freak night
         // is DAMPED not folded raw — instead of a flat mean + sample SD. Hard-outlier REJECTION is off
@@ -265,7 +305,7 @@ public enum ReadinessEngine {
         // shift (fitness change / device swap) rather than reject the new normal as a run of outliers —
         // the window-fold vs incremental-fold distinction, validated on real HRV history. `cfg` is in
         // the SAME space as `tb` (ln for HRV, linear for RHR); center + spread come back σ-floored.
-        let state = Baselines.foldHistory(tb.map { Optional($0) }, cfg: cfg, rejectHardOutliers: false)
+        let state = Baselines.foldHistory(tb, cfg: cfg, rejectHardOutliers: false)
         guard state.usable else { return nil }
         let sigma = max(1.253 * state.spread, 1e-9)   // robust σ from the EWMA-abs-dev spread
         guard sigma > 0 else { return nil }
@@ -365,5 +405,27 @@ public enum ReadinessEngine {
         guard xs.count >= 2, let m = mean(xs) else { return nil }
         let ss = xs.reduce(0) { $0 + ($1 - m) * ($1 - m) }
         return (ss / Double(xs.count - 1)).squareRoot()
+    }
+}
+
+/// Day-label arithmetic, not physical civil-day admission. Shared only by the opt-in dated engines.
+enum MetricDayCalendar {
+    static var utc: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+
+    static func date(_ day: String) throws -> Date {
+        let bounds = try DayCycleResolver.localDayBounds(day: day, timezone: utc.timeZone)
+        return Date(timeIntervalSince1970: Double(bounds.lowerBound))
+    }
+
+    static func key(_ date: Date) -> String? {
+        let parts = utc.dateComponents([.era, .year, .month, .day], from: date)
+        guard parts.era == 1, let year = parts.year, (1...9999).contains(year),
+              let month = parts.month, let day = parts.day else { return nil }
+        return String(format: "%04d-%02d-%02d", year, month, day)
     }
 }

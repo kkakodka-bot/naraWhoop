@@ -96,7 +96,7 @@ class PushHttpTransportPolicyTest {
         assertEquals("GET", method)
         assertEquals("Bearer $UPLOAD_TOKEN", authorization)
         assertEquals("fleet-secret", fleetToken)
-        assertEquals("1.2,1.1,1.0", acceptedVersions)
+        assertEquals("1.4,1.3,1.2,1.1,1.0", acceptedVersions)
         assertEquals(
             PushCapabilitiesResult.Available(
                 PushCapabilities(

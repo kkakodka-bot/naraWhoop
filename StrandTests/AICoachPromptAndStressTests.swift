@@ -12,16 +12,16 @@ import StrandAnalytics
 /// Both paths are UserDefaults / pure — no network, no Keychain — so they run headlessly.
 @MainActor
 final class AICoachPromptAndStressTests: XCTestCase {
+    private var testDefaults: UserDefaults!
 
-    /// A fresh engine plus a clean slate: clear the prompt key before and after so tests don't leak.
+    /// A private account suite keeps the original persistence assertions away from personal settings.
     private func makeEngine() -> AICoachEngine {
-        UserDefaults.standard.removeObject(forKey: AICoachEngine.systemPromptKey)
-        return AICoachEngine(repo: Repository(deviceId: "test-aicoach-prompt"))
-    }
-
-    override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: AICoachEngine.systemPromptKey)
-        super.tearDown()
+        let suite = "test.ai.prompt." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        testDefaults = defaults
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        return AICoachEngine(repo: Repository(deviceId: "test-aicoach-prompt"), defaults: defaults,
+                             accountNamespace: String(repeating: "a", count: 64), keychain: AITestKeychain())
     }
 
     // MARK: - Feature 1: editable system prompt
@@ -38,14 +38,14 @@ final class AICoachPromptAndStressTests: XCTestCase {
         engine.customSystemPrompt = custom
 
         // Persisted under the documented key, and surfaced by the fresh-read property.
-        XCTAssertEqual(UserDefaults.standard.string(forKey: AICoachEngine.systemPromptKey), custom)
+        XCTAssertEqual(testDefaults.string(forKey: AICoachEngine.systemPromptKey), custom)
         XCTAssertEqual(engine.systemPrompt, custom)
         XCTAssertTrue(engine.hasCustomSystemPrompt)
 
         // "Read fresh per send" — a write straight to UserDefaults (as another session might) is
         // picked up by the next `systemPrompt` read without rebuilding the engine.
         let edited = custom + " Always cite a number."
-        UserDefaults.standard.set(edited, forKey: AICoachEngine.systemPromptKey)
+        testDefaults.set(edited, forKey: AICoachEngine.systemPromptKey)
         XCTAssertEqual(engine.systemPrompt, edited)
     }
 
@@ -55,7 +55,7 @@ final class AICoachPromptAndStressTests: XCTestCase {
         XCTAssertTrue(engine.hasCustomSystemPrompt)
 
         engine.resetSystemPrompt()
-        XCTAssertNil(UserDefaults.standard.string(forKey: AICoachEngine.systemPromptKey))
+        XCTAssertNil(testDefaults.string(forKey: AICoachEngine.systemPromptKey))
         XCTAssertEqual(engine.systemPrompt, AICoachEngine.defaultSystemPrompt)
         XCTAssertFalse(engine.hasCustomSystemPrompt)
     }
@@ -64,7 +64,7 @@ final class AICoachPromptAndStressTests: XCTestCase {
         let engine = makeEngine()
         engine.customSystemPrompt = "   \n  "   // whitespace only
         // A blank override clears the key, so the default is sent — never an empty system prompt.
-        XCTAssertNil(UserDefaults.standard.string(forKey: AICoachEngine.systemPromptKey))
+        XCTAssertNil(testDefaults.string(forKey: AICoachEngine.systemPromptKey))
         XCTAssertEqual(engine.systemPrompt, AICoachEngine.defaultSystemPrompt)
         XCTAssertFalse(engine.hasCustomSystemPrompt)
     }

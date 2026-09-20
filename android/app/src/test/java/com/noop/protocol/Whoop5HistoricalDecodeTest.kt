@@ -205,7 +205,9 @@ class Whoop5HistoricalDecodeTest {
     fun sleepStateReachesStreamOnRealFixture() {
         val st = extractHistoricalStreams(listOf(bytes(wornV18)), 1780916150, 1780916150, DeviceFamily.WHOOP5)
         // The whole @81 byte now rides alongside `state`; on this fixture the byte is 0, so both read 0.
-        assertEquals(listOf(com.noop.data.SleepStateRow(1780916150L, 0, rawByte = 0)), st.sleepState)
+        assertEquals(listOf(com.noop.data.SleepStateRow(1780916150L, 0, rawByte = 0)), st.sleepState.map { it.copy(provenanceJSON = null) })
+        assertCapturedProvenance(bytes(wornV18), st.sleepState.single().provenanceJSON)
+        st.steps.forEach { assertCapturedProvenance(bytes(wornV18), it.provenanceJSON) }
     }
 
     // The non-zero codes come only from an in-memory byte override (we hold NO real sleeping-night capture),
@@ -217,8 +219,19 @@ class Whoop5HistoricalDecodeTest {
             val frame = mutateAndReCrc(81, raw)
             val st = extractHistoricalStreams(listOf(frame), 1780916150, 1780916150, DeviceFamily.WHOOP5)
             // `state` must still be exactly the high nibble of the carried raw byte.
-            assertEquals(listOf(com.noop.data.SleepStateRow(1780916150L, expected, rawByte = raw)), st.sleepState)
+            assertEquals(listOf(com.noop.data.SleepStateRow(1780916150L, expected, rawByte = raw)), st.sleepState.map { it.copy(provenanceJSON = null) })
+            assertCapturedProvenance(frame, st.sleepState.single().provenanceJSON)
         }
+    }
+
+    private fun assertCapturedProvenance(frame: ByteArray, encoded: String?) {
+        assertNotNull(encoded)
+        val json = org.json.JSONObject(encoded!!)
+        assertEquals(setOf("v", "origin", "recordIndex", "frameSHA256"), json.keys().asSequence().toSet())
+        assertEquals(1, json.getInt("v")); assertEquals("whoop-v18", json.getString("origin"))
+        assertEquals(25443699L, json.getLong("recordIndex"))
+        val expectedHash = java.security.MessageDigest.getInstance("SHA-256").digest(frame).joinToString("") { "%02x".format(it) }
+        assertEquals(expectedHash, json.getString("frameSHA256"))
     }
 
     @Test

@@ -39,6 +39,23 @@ public enum V18AuxCodec {
     /// dropped bit 16 would bank the `@113` float on no platform at all.
     static let headerBytes = 5
 
+    /// Identity is trusted only when the entire known layout is present. The tolerant read
+    /// decoder below intentionally accepts prefixes and must not establish a primary key.
+    public static func strictRecordIndex(in data: Data) -> Int? {
+        let bytes = [UInt8](data)
+        guard bytes.count >= headerBytes, Int(bytes[0]) == formatVersion else { return nil }
+        var bitmap: UInt32 = 0
+        for byte in 0..<4 { bitmap |= UInt32(bytes[1 + byte]) << (8 * byte) }
+        let known = V18AuxSlot.allCases.reduce(UInt32(0)) { $0 | (1 << $1.rawValue) }
+        guard bitmap & ~known == 0 else { return nil }
+        let expected = headerBytes + V18AuxSlot.allCases.reduce(0) {
+            $0 + (bitmap & (1 << $1.rawValue) == 0 ? 0 : $1.width)
+        }
+        guard bytes.count == expected, bitmap & (1 << V18AuxSlot.recordIndex.rawValue) != 0 else { return nil }
+        // recordIndex is the first slot, an unsigned little-endian u32.
+        return (0..<4).reduce(0) { $0 | (Int(bytes[headerBytes + $1]) << (8 * $1)) }
+    }
+
     /// Pack a sample's slots. Returns an empty `Data` when nothing is present, so a caller can skip the
     /// row entirely rather than banking an all-absent record.
     public static func pack(_ sample: V18AuxSample) -> Data {

@@ -3,6 +3,7 @@ package com.noop.ingest
 import kotlinx.coroutines.sync.withLock
 
 import android.content.Context
+import com.noop.account.AccountStorageContext
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.DistanceRecord
@@ -111,10 +112,22 @@ object HealthConnectWriter {
      * rows under `whoop-<address>`, so a hardcoded legacy "my-whoop" id reads empty tables and
      * exports nothing.
      */
-    suspend fun write(context: Context, repo: WhoopRepository, deviceId: String): WritebackResult =
-        exportMutex.withLock { writeLocked(context, repo, deviceId) }
+    suspend fun write(context: Context, repo: WhoopRepository, deviceId: String): WritebackResult {
+        val account = AccountStorageContext.capture(context)
+        return exportMutex.withLock { writeLocked(account, repo, deviceId) }
+    }
+
+    internal fun accountRecordId(context: Context, id: String): String =
+        "noop-account-${requireNotNull(AccountStorageContext.capture(context).identity.scope).namespace}-$id"
+
+    private fun checkAdmitted(context: Context) {
+        val account = AccountStorageContext.capture(context)
+        if (account.identity.scope == null || !account.isCurrent() || !NoopPrefs.hcWriteback(account))
+            throw kotlinx.coroutines.CancellationException("Health export account is no longer admitted")
+    }
 
     private suspend fun writeLocked(context: Context, repo: WhoopRepository, deviceId: String): WritebackResult {
+        checkAdmitted(context)
         if (HealthConnectClient.getSdkStatus(context) != HealthConnectClient.SDK_AVAILABLE) return WritebackResult.UNAVAILABLE
 
         // Guard the pre-insert work (client acquisition + the day read) the same way the concern inserts
@@ -147,25 +160,25 @@ object HealthConnectWriter {
             d.restingHr?.let {
                 records.add(RestingHeartRateRecord(
                     time = instant, zoneOffset = offset, beatsPerMinute = it.toLong(),
-                    metadata = meta("rhr", d.day, version),
+                    metadata = meta("rhr", d.day, version, accountRecordId(context, "")),
                 ))
             }
             d.avgHrv?.let {
                 records.add(HeartRateVariabilityRmssdRecord(
                     time = instant, zoneOffset = offset, heartRateVariabilityMillis = it,
-                    metadata = meta("hrv", d.day, version),
+                    metadata = meta("hrv", d.day, version, accountRecordId(context, "")),
                 ))
             }
             d.spo2Pct?.let {
                 records.add(OxygenSaturationRecord(
                     time = instant, zoneOffset = offset, percentage = Percentage(it),
-                    metadata = meta("spo2", d.day, version),
+                    metadata = meta("spo2", d.day, version, accountRecordId(context, "")),
                 ))
             }
             d.respRateBpm?.let {
                 records.add(RespiratoryRateRecord(
                     time = instant, zoneOffset = offset, rate = it,
-                    metadata = meta("resp", d.day, version),
+                    metadata = meta("resp", d.day, version, accountRecordId(context, "")),
                 ))
             }
         }
@@ -182,7 +195,7 @@ object HealthConnectWriter {
         var total = 0
         val failures = mutableListOf<WritebackFailure>()
         if (records.isNotEmpty()) {
-            runCatching { client.insertRecords(records); records.size }
+            runCatching { checkAdmitted(context); client.insertRecords(records); records.size }
                 .fold({ total += it }, { failures += it.writebackCategory() })
         }
         runCatching { writeHeartRate(client, context, repo, deviceId, version) }
@@ -192,7 +205,7 @@ object HealthConnectWriter {
         // #1525: separate attempt on purpose. The daily records above go in ONE insertRecords call, so a
         // missing permission there loses resting HR, HRV, SpO2 and respiratory rate together. On its own,
         // an ungranted VO2 max permission costs only VO2 max and is categorized like any other failure.
-        runCatching { writeVo2Max(client, repo, deviceId, version) }
+        runCatching { writeVo2Max(client, context, repo, deviceId, version) }
             .fold({ total += it }, { failures += it.writebackCategory() })
         val result = WritebackResult(total, failures.distinct())
         recordStatus(context, result)
@@ -201,18 +214,19 @@ object HealthConnectWriter {
 
     /** Persist the last writeback outcome (PII-safe category + count + time) for the Data Sources UI (#660). */
     private fun recordStatus(context: Context, result: WritebackResult) {
+        checkAdmitted(context)
         NoopPrefs.setHcWritebackStatus(context, result.statusCode, result.written, System.currentTimeMillis())
     }
 
-    private fun meta(metric: String, day: String, version: Long) = Metadata(
-        clientRecordId = "noop-$metric-$day",
+    private fun meta(metric: String, day: String, version: Long, ownerPrefix: String = "") = Metadata(
+        clientRecordId = "${ownerPrefix}noop-$metric-$day",
         clientRecordVersion = version,
     )
 
     /** Health Connect caps records per insert call; insert in batches to stay well under it. */
-    private suspend fun insertChunked(client: HealthConnectClient, records: List<Record>, batch: Int = 1000): Int {
+    private suspend fun insertChunked(client: HealthConnectClient, context: Context, records: List<Record>, batch: Int = 1000): Int {
         var n = 0
-        records.chunked(batch).forEach { client.insertRecords(it); n += it.size }
+        records.chunked(batch).forEach { checkAdmitted(context); client.insertRecords(it); n += it.size }
         return n
     }
 
@@ -256,10 +270,11 @@ object HealthConnectWriter {
                 samples = c.points.map {
                     HeartRateRecord.Sample(time = Instant.ofEpochSecond(it.tsSec), beatsPerMinute = it.bpm.toLong())
                 },
-                metadata = Metadata(clientRecordId = c.clientId, clientRecordVersion = version),
+                metadata = Metadata(clientRecordId = accountRecordId(context, c.clientId), clientRecordVersion = version),
             )
         }
-        val n = insertChunked(client, records)
+        val n = insertChunked(client, context, records)
+        checkAdmitted(context)
         NoopPrefs.setHcHrFrontier(context, plan.newFrontierSec)
         return n
     }
@@ -312,7 +327,7 @@ object HealthConnectWriter {
                         },
                     )
                 },
-                metadata = Metadata(clientRecordId = p.clientId, clientRecordVersion = p.endSec),
+                metadata = Metadata(clientRecordId = accountRecordId(context, p.clientId), clientRecordVersion = p.endSec),
             )
         }
         // Clear absorbed fragments' old records BEFORE the merged upsert, so a night previously
@@ -343,18 +358,25 @@ object HealthConnectWriter {
             // deleted the bad record by hand, and an id that is no longer there must not take the rest of
             // the batch down with it. `retract` is a handful of entries at most, so the fallback is cheap.
             runCatching {
+                checkAdmitted(context)
                 client.deleteRecords(SleepSessionRecord::class,
-                    recordIdsList = emptyList(), clientRecordIdsList = retract)
+                    recordIdsList = emptyList(), clientRecordIdsList = retract.map { accountRecordId(context, it) })
             }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
                 for (one in retract) {
                     runCatching {
+                        checkAdmitted(context)
                         client.deleteRecords(SleepSessionRecord::class,
-                            recordIdsList = emptyList(), clientRecordIdsList = listOf(one))
-                    }.onFailure { unretracted += one }
+                            recordIdsList = emptyList(), clientRecordIdsList = listOf(accountRecordId(context, one)))
+                    }.onFailure {
+                        if (it is kotlinx.coroutines.CancellationException) throw it
+                        unretracted += one
+                    }
                 }
             }
         }
-        val written = insertChunked(client, records)
+        val written = insertChunked(client, context, records)
+        checkAdmitted(context)
         // Recorded only AFTER the write lands. Remembering ids we failed to write would make the NEXT
         // export retract records that never existed - harmless in itself, but it would also drop the ids
         // that do need retracting from the ledger, quietly restoring the bug this fixes.
@@ -383,6 +405,7 @@ object HealthConnectWriter {
      */
     private suspend fun writeVo2Max(
         client: HealthConnectClient,
+        context: Context,
         repo: WhoopRepository,
         deviceId: String,
         version: Long,
@@ -391,9 +414,9 @@ object HealthConnectWriter {
         val cutoff = LocalDate.now().minusDays(WINDOW_DAYS).toString()
         val today = LocalDate.now().toString()
         val rows = repo.metricSeriesComputedUnion(deviceId, "vo2max_est", cutoff, today)
-        val records = buildVo2MaxRecords(rows, version, zone)
+        val records = buildVo2MaxRecords(rows, version, zone, accountRecordId(context, ""))
         if (records.isEmpty()) return 0
-        return insertChunked(client, records)
+        return insertChunked(client, context, records)
     }
 
     /**
@@ -409,6 +432,7 @@ object HealthConnectWriter {
         rows: List<MetricSeriesRow>,
         version: Long,
         zone: ZoneId,
+        ownerPrefix: String = "",
     ): List<Record> = rows.mapNotNull { row ->
         val date = runCatching { LocalDate.parse(row.day) }.getOrNull() ?: return@mapNotNull null
         if (row.value <= 0.0) return@mapNotNull null
@@ -418,7 +442,7 @@ object HealthConnectWriter {
             zoneOffset = time.offset,
             vo2MillilitersPerMinuteKilogram = row.value,
             measurementMethod = Vo2MaxRecord.MEASUREMENT_METHOD_OTHER,
-            metadata = meta("vo2max", row.day, version),
+            metadata = meta("vo2max", row.day, version, ownerPrefix),
         )
     }
 
@@ -439,7 +463,7 @@ object HealthConnectWriter {
     )
 
     /** Pure: build the records for one workout (testable without a client). */
-    fun buildExerciseRecords(row: WorkoutRow, exerciseType: Int): List<Record> {
+    fun buildExerciseRecords(row: WorkoutRow, exerciseType: Int, ownerPrefix: String = ""): List<Record> {
         val start = Instant.ofEpochSecond(row.startTs)
         val end = Instant.ofEpochSecond(row.endTs)
         val offset = ZoneId.systemDefault().rules.getOffset(start)
@@ -448,7 +472,7 @@ object HealthConnectWriter {
             ExerciseSessionRecord(
                 startTime = start, startZoneOffset = offset, endTime = end, endZoneOffset = offset,
                 exerciseType = exerciseType, title = row.sport,
-                metadata = Metadata(clientRecordId = "noop-workout-${row.startTs}", clientRecordVersion = row.endTs),
+                metadata = Metadata(clientRecordId = "${ownerPrefix}noop-workout-${row.startTs}", clientRecordVersion = row.endTs),
             ),
         )
         row.distanceM?.let {
@@ -456,7 +480,7 @@ object HealthConnectWriter {
                 DistanceRecord(
                     startTime = start, startZoneOffset = offset, endTime = end, endZoneOffset = offset,
                     distance = Length.meters(it),
-                    metadata = Metadata(clientRecordId = "noop-workout-dist-${row.startTs}", clientRecordVersion = row.endTs),
+                    metadata = Metadata(clientRecordId = "${ownerPrefix}noop-workout-dist-${row.startTs}", clientRecordVersion = row.endTs),
                 ),
             )
         }
@@ -466,11 +490,13 @@ object HealthConnectWriter {
     /** Insert one workout's records into Health Connect. Opt-in caller. Returns a [WritebackResult] so a
      *  failed exercise share is visible instead of silently swallowed, and records the outcome (#660). */
     suspend fun writeExercise(context: Context, row: WorkoutRow, exerciseType: Int): WritebackResult {
-        if (HealthConnectClient.getSdkStatus(context) != HealthConnectClient.SDK_AVAILABLE) return WritebackResult.UNAVAILABLE
-        val recs = buildExerciseRecords(row, exerciseType)
-        val result = runCatching { HealthConnectClient.getOrCreate(context).insertRecords(recs); recs.size }
+        val account = AccountStorageContext.capture(context)
+        checkAdmitted(account)
+        if (HealthConnectClient.getSdkStatus(account) != HealthConnectClient.SDK_AVAILABLE) return WritebackResult.UNAVAILABLE
+        val recs = buildExerciseRecords(row, exerciseType, accountRecordId(account, ""))
+        val result = runCatching { checkAdmitted(account); HealthConnectClient.getOrCreate(account).insertRecords(recs); recs.size }
             .fold({ WritebackResult(it, emptyList()) }, { WritebackResult(0, listOf(it.writebackCategory())) })
-        recordStatus(context, result)
+        recordStatus(account, result)
         return result
     }
 
@@ -479,15 +505,19 @@ object HealthConnectWriter {
      *  time so the old record doesn't orphan beside the new one — mirroring the iOS delete-before-write.
      *  Best-effort; a missing record is a no-op. (#1195) */
     suspend fun deleteExercise(context: Context, startTs: Long) {
-        if (HealthConnectClient.getSdkStatus(context) != HealthConnectClient.SDK_AVAILABLE) return
-        val client = HealthConnectClient.getOrCreate(context)
+        val account = AccountStorageContext.capture(context)
+        checkAdmitted(account)
+        if (HealthConnectClient.getSdkStatus(account) != HealthConnectClient.SDK_AVAILABLE) return
+        val client = HealthConnectClient.getOrCreate(account)
+        checkAdmitted(account)
         runCatching {
             client.deleteRecords(ExerciseSessionRecord::class,
-                recordIdsList = emptyList(), clientRecordIdsList = listOf("noop-workout-$startTs"))
+                recordIdsList = emptyList(), clientRecordIdsList = listOf(accountRecordId(account, "noop-workout-$startTs")))
         }
+        checkAdmitted(account)
         runCatching {
             client.deleteRecords(DistanceRecord::class,
-                recordIdsList = emptyList(), clientRecordIdsList = listOf("noop-workout-dist-$startTs"))
+                recordIdsList = emptyList(), clientRecordIdsList = listOf(accountRecordId(account, "noop-workout-dist-$startTs")))
         }
     }
 }

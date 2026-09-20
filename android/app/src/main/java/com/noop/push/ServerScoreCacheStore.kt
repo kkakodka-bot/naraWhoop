@@ -7,7 +7,10 @@ import org.json.JSONObject
 
 /** Separate namespace: ownerless legacy preferences are retained but never read. */
 class ServerScoreCacheStore(private val prefs: SharedPreferences) {
-    constructor(context: Context) : this(context.getSharedPreferences("noop_physiology_cache_v2", Context.MODE_PRIVATE))
+    constructor(context: Context) : this(
+        com.noop.account.AccountStorageContext.capture(context)
+            .getSharedPreferences("noop_physiology_cache_v2", Context.MODE_PRIVATE),
+    )
 
     fun upsert(cache: ServerScoreDayCache) {
         require(cache.ownerId.isNotBlank() && cache.schemaVersion == 2 && cache.features.isNotEmpty())

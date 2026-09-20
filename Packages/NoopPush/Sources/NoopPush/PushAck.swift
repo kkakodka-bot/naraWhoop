@@ -8,6 +8,7 @@ public struct PushAck: Sendable {
     public let endCursor: PushCursor?
     public let acceptedRows: Int
     public let status: String
+    public let durabilityReceipt: PushDurabilityReceipt?
 
     public init(
         protocolVersion: String,
@@ -16,7 +17,8 @@ public struct PushAck: Sendable {
         deviceId: String,
         endCursor: PushCursor?,
         acceptedRows: Int,
-        status: String
+        status: String,
+        durabilityReceipt: PushDurabilityReceipt? = nil
     ) {
         self.protocolVersion = protocolVersion
         self.batchId = batchId
@@ -25,6 +27,7 @@ public struct PushAck: Sendable {
         self.endCursor = endCursor
         self.acceptedRows = acceptedRows
         self.status = status
+        self.durabilityReceipt = durabilityReceipt
     }
 
     public func exactlyMatches(_ batch: PushBatch) -> Bool {
@@ -84,14 +87,14 @@ public struct PushAck: Sendable {
             return value
         }
 
-        func int(_ name: String) throws -> Int {
-            let number = obj[name]
-            if let intValue = number as? Int { return intValue }
-            if let doubleValue = number as? Double, doubleValue.rounded() == doubleValue,
-               doubleValue >= Double(Int.min), doubleValue <= Double(Int.max) {
-                return Int(doubleValue)
+        func nonnegativeInteger(_ value: Any?, name: String, maximum: Int64 = Int64.max) throws -> Int64 {
+            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite, number.doubleValue.rounded() == number.doubleValue,
+                  number.compare(NSNumber(value: 0)) != .orderedAscending,
+                  number.compare(NSNumber(value: maximum)) != .orderedDescending else {
+                throw PushProtocolException("ack.\(name) must be a bounded nonnegative integer")
             }
-            throw PushProtocolException("ack.\(name) must be an integer")
+            return number.int64Value
         }
 
         let rawCursor = obj["endCursor"]
@@ -102,12 +105,7 @@ public struct PushAck: Sendable {
             guard Set(raw.keys).isSuperset(of: ["rowId", "keySha256"]) else {
                 throw PushProtocolException("ack.endCursor is missing required protocol 1.0 members")
             }
-            let rowNumber = raw["rowId"]
-            let rowId: Int64
-            if let v = rowNumber as? Int64 { rowId = v }
-            else if let v = rowNumber as? Int { rowId = Int64(v) }
-            else if let v = rowNumber as? Double, v.rounded() == v { rowId = Int64(v) }
-            else { throw PushProtocolException("ack.endCursor.rowId must be an integer") }
+            let rowId = try nonnegativeInteger(raw["rowId"], name: "endCursor.rowId")
             guard let sha = raw["keySha256"] as? String,
                   sha.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression) != nil
             else { throw PushProtocolException("ack.endCursor.keySha256 must be lowercase SHA-256") }
@@ -122,8 +120,9 @@ public struct PushAck: Sendable {
             stream: try string("stream"),
             deviceId: try string("deviceId"),
             endCursor: cursor,
-            acceptedRows: try int("acceptedRows"),
-            status: try string("status")
+            acceptedRows: Int(try nonnegativeInteger(obj["acceptedRows"], name: "acceptedRows", maximum: Int64(PushProtocolLimits.maxRecords))),
+            status: try string("status"),
+            durabilityReceipt: try parseDurabilityReceipt(obj)
         )
     }
 }
@@ -131,7 +130,8 @@ public struct PushAck: Sendable {
 extension PushObjectIntent {
     /// Parses the receiver's intent response. `expectedObjectId` pins the reply to the request so a
     /// confused or malicious receiver cannot steer the upload onto a different object.
-    public static func parse(_ bytes: Data, expectedObjectId: String) throws -> PushObjectIntent {
+    public static func parse(_ bytes: Data, expectedObjectId: String,
+                             expectedVersion: String = PushProtocol.objectVersion) throws -> PushObjectIntent {
         guard bytes.count <= PushProtocolLimits.maxAckBytes else {
             throw PushProtocolException("object intent exceeds size limit")
         }
@@ -146,7 +146,7 @@ extension PushObjectIntent {
             throw PushProtocolException("object intent contains forbidden remote-control metadata")
         }
         guard obj["type"] as? String == "objectIntent",
-              obj["protocolVersion"] as? String == PushProtocol.objectVersion else {
+              PushProtocol.isObjectVersion(expectedVersion), obj["protocolVersion"] as? String == expectedVersion else {
             throw PushProtocolException("unsupported object intent document")
         }
         guard let objectId = obj["objectId"] as? String, isCanonicalObjectUuid(objectId) else {
@@ -212,7 +212,8 @@ extension PushObjectIntent {
 }
 
 extension PushObjectAck {
-    public static func parse(_ bytes: Data, expectedObjectId: String) throws -> PushObjectAck {
+    public static func parse(_ bytes: Data, expectedObjectId: String,
+                             expectedVersion: String = PushProtocol.objectVersion) throws -> PushObjectAck {
         guard bytes.count <= PushProtocolLimits.maxAckBytes else {
             throw PushProtocolException("object ack exceeds size limit")
         }
@@ -227,7 +228,7 @@ extension PushObjectAck {
             throw PushProtocolException("object ack contains forbidden remote-control metadata")
         }
         guard obj["type"] as? String == "objectAck",
-              obj["protocolVersion"] as? String == PushProtocol.objectVersion else {
+              PushProtocol.isObjectVersion(expectedVersion), obj["protocolVersion"] as? String == expectedVersion else {
             throw PushProtocolException("unsupported object ack document")
         }
         guard let objectId = obj["objectId"] as? String, isCanonicalObjectUuid(objectId) else {
@@ -243,8 +244,16 @@ extension PushObjectAck {
             throw PushProtocolException("object ack.objectKey must be a non-empty key")
         }
         let duplicate = try objectLaneBool(obj, "duplicate")
-        return PushObjectAck(objectId: objectId, status: status, objectKey: objectKey, duplicate: duplicate)
+        return PushObjectAck(objectId: objectId, status: status, objectKey: objectKey, duplicate: duplicate,
+                             durabilityReceipt: try parseDurabilityReceipt(obj), protocolVersion: obj["protocolVersion"] as! String)
     }
+}
+
+private func parseDurabilityReceipt(_ object: [String: Any]) throws -> PushDurabilityReceipt? {
+    guard let raw = object["durabilityReceipt"], !(raw is NSNull) else { return nil }
+    let receipt = try JSONDecoder().decode(PushDurabilityReceipt.self, from: JSONSerialization.data(withJSONObject: raw))
+    guard receipt.isValid else { throw PushProtocolException("invalid durability receipt") }
+    return receipt
 }
 
 private func isCanonicalObjectUuid(_ value: String) -> Bool {

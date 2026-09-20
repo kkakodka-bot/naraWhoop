@@ -100,10 +100,10 @@ object AndroidDiagnostics {
             // so a two-strap log named whichever strap connected last - a 5/MG log reporting a 4.0's
             // 41.17.6.0. resolveFirmware falls back to the legacy key only when one device is paired.
             val fwRows = runCatching {
-                (context.applicationContext as? com.noop.NoopApplication)?.deviceRegistry?.all().orEmpty()
+                com.noop.account.AccountStorageContext.runtime(context)?.deviceRegistry?.all().orEmpty()
             }.getOrDefault(emptyList())
             val fwActive = runCatching {
-                (context.applicationContext as? com.noop.NoopApplication)?.deviceRegistry?.activeDeviceId()
+                com.noop.account.AccountStorageContext.runtime(context)?.deviceRegistry?.activeDeviceId()
             }.getOrNull()
             val fwRow = fwRows.firstOrNull { it.id == fwActive }
             val fw = com.noop.ble.resolveFirmware(
@@ -160,7 +160,7 @@ object AndroidDiagnostics {
                 // would read NO and the line would report a working strap as providing nothing, which is
                 // the exact misreading it exists to prevent.
                 val activeId = runCatching {
-                    (context.applicationContext as? com.noop.NoopApplication)?.deviceRegistry?.activeDeviceId()
+                    com.noop.account.AccountStorageContext.runtime(context)?.deviceRegistry?.activeDeviceId()
                 }.getOrNull()?.takeIf { it.isNotBlank() } ?: "my-whoop"
                 val nowSec = now / 1000L
                 val present = com.noop.data.WhoopRepository.from(context)
@@ -197,14 +197,14 @@ object AndroidDiagnostics {
             // second strap, leaving `dayOwner readId=` and the funnel's orphan check with nothing to be
             // checked against. Name the whole set instead.
             val invRows = runCatching {
-                (context.applicationContext as? com.noop.NoopApplication)?.deviceRegistry?.all().orEmpty()
+                com.noop.account.AccountStorageContext.runtime(context)?.deviceRegistry?.all().orEmpty()
                     .map {
                             InventoryRow(it.id, it.brand, it.model, it.status, it.lastSeenAt,
                                          com.noop.ui.NoopPrefs.firmwareFor(context, it.peripheralId))
                         }
             }.getOrDefault(emptyList())
             val invActive = runCatching {
-                (context.applicationContext as? com.noop.NoopApplication)?.deviceRegistry?.activeDeviceId()
+                com.noop.account.AccountStorageContext.runtime(context)?.deviceRegistry?.activeDeviceId()
             }.getOrNull()
             deviceInventoryLines(invRows, invActive, System.currentTimeMillis() / 1000L) { relTime(it) }
                 .forEach { add(it) }
@@ -228,7 +228,7 @@ object AndroidDiagnostics {
             // and "<uuid>-noop" computed sessions (the engine writes computed under `<importedDeviceId>-noop`
             // and both analyzeRecent callers pass the active strap as importedDeviceId).
             val id = runCatching {
-                (context.applicationContext as? com.noop.NoopApplication)?.deviceRegistry?.activeDeviceId()
+                com.noop.account.AccountStorageContext.runtime(context)?.deviceRegistry?.activeDeviceId()
             }.getOrNull()?.takeIf { it.isNotBlank() } ?: "my-whoop"
             val nowSec = System.currentTimeMillis() / 1000L
             // Pick the MOST RECENT night that actually carries skin-temp — not the OLDEST. The old
@@ -351,7 +351,7 @@ object AndroidDiagnostics {
             val repo = com.noop.data.WhoopRepository.from(context)
             val now = System.currentTimeMillis() / 1000
             val active = runCatching {
-                (context.applicationContext as com.noop.NoopApplication).activeDeviceId
+                checkNotNull(com.noop.account.AccountStorageContext.runtime(context)).activeDeviceId
             }.getOrNull() ?: "unknown"
             add("Active deviceId: $active" + if (active == "my-whoop") "" else "  (imports + spine under my-whoop)")
             // Per-source STORED counts; ids de-duped so a single-WHOOP install (active == my-whoop) lists once.
@@ -397,7 +397,7 @@ object AndroidDiagnostics {
         runCatching {
             val repo = com.noop.data.WhoopRepository.from(context)
             val active = runCatching {
-                (context.applicationContext as com.noop.NoopApplication).activeDeviceId
+                checkNotNull(com.noop.account.AccountStorageContext.runtime(context)).activeDeviceId
             }.getOrNull() ?: "unknown"
             val ids = listOf(active, "my-whoop", "$active-noop", "my-whoop-noop",
                 "apple-health", "health-connect").distinct()
@@ -609,7 +609,7 @@ object AndroidDiagnostics {
         runCatching {
             val repo = com.noop.data.WhoopRepository.from(context)
             val active = runCatching {
-                (context.applicationContext as com.noop.NoopApplication).activeDeviceId
+                checkNotNull(com.noop.account.AccountStorageContext.runtime(context)).activeDeviceId
             }.getOrNull() ?: "unknown"
             val nowMs = System.currentTimeMillis()
             val now = nowMs / 1000L

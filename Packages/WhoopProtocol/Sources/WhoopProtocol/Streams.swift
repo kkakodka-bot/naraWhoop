@@ -342,8 +342,10 @@ public struct StepSample: Equatable, Codable {
     public let ts: Int
     public let counter: Int
     public let activityClass: Int?
-    public init(ts: Int, counter: Int, activityClass: Int? = nil) {
+    public let provenance: ScalarProvenance?
+    public init(ts: Int, counter: Int, activityClass: Int? = nil, provenance: ScalarProvenance? = nil) {
         self.ts = ts; self.counter = counter; self.activityClass = activityClass
+        self.provenance = provenance
     }
 }
 
@@ -367,8 +369,10 @@ public struct SleepStateSample: Equatable, Codable {
     public let state: Int       // 0 wake / 1 still / 2 asleep / 3 up (band's own high-nibble code)
     /// The RAW @81 flag byte, all 8 bits, verbatim. nil when the record carried no @81 byte.
     public let rawByte: Int?
-    public init(ts: Int, state: Int, rawByte: Int? = nil) {
+    public let provenance: ScalarProvenance?
+    public init(ts: Int, state: Int, rawByte: Int? = nil, provenance: ScalarProvenance? = nil) {
         self.ts = ts; self.state = state; self.rawByte = rawByte
+        self.provenance = provenance
     }
 }
 
@@ -384,7 +388,8 @@ public struct PpgWaveformSample: Equatable, Codable, Sendable {
     public let ts: Int          // wall-clock unix seconds (one record per second)
     public let samples: [Int]   // raw i16 ADC counts @24 Hz, verbatim from `ppg_waveform` (usually 24)
     public let burstIndex: Int?  // raw per-burst counter @21; nil for legacy archives
-    /// Wire counter, independent of the timestamp; nil for archives that did not retain it.
+    /// Wire record counter, independent of the timestamp; preserves distinct records emitted
+    /// within the same second. Nil for archives that did not retain it.
     public let recordIndex: Int?
     public init(ts: Int, samples: [Int], burstIndex: Int? = nil, recordIndex: Int? = nil) {
         self.ts = ts

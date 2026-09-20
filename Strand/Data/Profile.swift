@@ -9,9 +9,11 @@ import StrandAnalytics
 final class ProfileStore: ObservableObject {
     /// Canonical source of truth for age (#146): a date of birth, so age advances on its own instead
     /// of silently going stale until the user remembers to bump a number. `age` is derived from this.
-    @Published var dateOfBirth: Date {
+    @Published private var localDateOfBirth: Date {
         didSet {
+            guard active else { return }
             d.set(dateOfBirth, forKey: K.dateOfBirth)
+            d.set(true, forKey: "profile.ageExplicit")
             // Mirror the DERIVED age under the legacy `profile.age` key so the `.noopbak` backup
             // whitelist (which carries an Int age, not a Date) keeps exporting a correct value with no
             // change to the cross-platform backup contract. `BackupSettings.apply` clears
@@ -19,17 +21,18 @@ final class ProfileStore: ObservableObject {
             d.set(age, forKey: K.legacyAge)
         }
     }
-    @Published var sex: String { didSet { d.set(sex, forKey: K.sex) } }          // "male" | "female" | "nonbinary"
-    @Published var weightKg: Double { didSet { d.set(weightKg, forKey: K.weight) } }
-    @Published var heightCm: Double { didSet { d.set(heightCm, forKey: K.height) } }
+    @Published private var localSex: String { didSet { if active { d.set(sex, forKey: K.sex) } } }
+    @Published private var localWeightKg: Double { didSet { if active { d.set(weightKg, forKey: K.weight) } } }
+    @Published private var localHeightCm: Double { didSet { if active { d.set(heightCm, forKey: K.height) } } }
     /// Optional waist circumference (cm); 0 = not set. Only used to ALSO show an estimated VO₂max
     /// alongside Fitness Age — the Fitness Age itself does not need it (the body term cancels).
-    @Published var waistCm: Double { didSet { d.set(waistCm, forKey: K.waist) } }
+    @Published private var localWaistCm: Double { didSet { if active { d.set(waistCm, forKey: K.waist) } } }
     /// 0 = auto-estimate from age.
-    @Published var hrMaxOverride: Int { didSet { d.set(hrMaxOverride, forKey: K.hrMax) } }
+    @Published private var localHrMaxOverride: Int { didSet { if active { d.set(hrMaxOverride, forKey: K.hrMax) } } }
     /// Five personalized inclusive zone starts in BPM; empty = conventional %HRmax zones.
-    @Published var hrZoneThresholds: [Int] {
+    @Published private var localHrZoneThresholds: [Int] {
         didSet {
+            guard active else { return }
             if hrZoneThresholds.isEmpty { d.removeObject(forKey: K.hrZoneThresholds) }
             else { d.set(hrZoneThresholds.map(String.init).joined(separator: ","), forKey: K.hrZoneThresholds) }
         }
@@ -37,8 +40,8 @@ final class ProfileStore: ObservableObject {
     /// Step-calibration divisor (#139/#132): counter ticks per real step for the @57 motion
     /// counter. 1.0 = raw pass-through (default — no behavior change). Clamped 0.5–30.0
     /// (WHOOP 5/MG motion-counter overcount can reach ~24×, so the ceiling has to be high).
-    @Published var stepTicksPerStep: Double {
-        didSet { d.set(min(max(stepTicksPerStep, 0.5), 30.0), forKey: K.stepScale) }
+    @Published private var localStepTicksPerStep: Double {
+        didSet { if active { d.set(min(max(stepTicksPerStep, 0.5), 30.0), forKey: K.stepScale) } }
     }
 
     // ── Steps ESTIMATE calibration (WHOOP 4.0; StepsEstimateEngine) ─────────────────────────────
@@ -47,15 +50,15 @@ final class ProfileStore: ObservableObject {
     // is the ONLY user-settable field (0 = auto-fit; > 0 = manual override fed into calibrate()); the
     // other three are fitted outputs, surfaced read-only.
     /// Fitted (or manually-set) steps-per-unit-of-motion coefficient last persisted by the engine.
-    @Published var stepsCalibrationCoefficient: Double { didSet { d.set(stepsCalibrationCoefficient, forKey: K.stepsCoeff) } }
+    @Published var stepsCalibrationCoefficient: Double { didSet { if active { d.set(stepsCalibrationCoefficient, forKey: K.stepsCoeff) } } }
     /// How many calibration days fed the last auto-fit (0 when purely manual / not yet fit).
-    @Published var stepsCalibrationSampleDays: Int { didSet { d.set(stepsCalibrationSampleDays, forKey: K.stepsSampleDays) } }
+    @Published var stepsCalibrationSampleDays: Int { didSet { if active { d.set(stepsCalibrationSampleDays, forKey: K.stepsSampleDays) } } }
     /// 0–1 trust in the last fit (1.0 for a manual coefficient).
-    @Published var stepsCalibrationConfidence: Double { didSet { d.set(stepsCalibrationConfidence, forKey: K.stepsConfidence) } }
+    @Published var stepsCalibrationConfidence: Double { didSet { if active { d.set(stepsCalibrationConfidence, forKey: K.stepsConfidence) } } }
     /// True when the persisted coefficient came from the user's manual override, not an auto-fit.
-    @Published var stepsCalibrationManual: Bool { didSet { d.set(stepsCalibrationManual, forKey: K.stepsManualFlag) } }
+    @Published var stepsCalibrationManual: Bool { didSet { if active { d.set(stepsCalibrationManual, forKey: K.stepsManualFlag) } } }
     /// User-set manual coefficient. 0 = auto-fit (nil to the engine); > 0 = manual override.
-    @Published var stepsManualCoefficient: Double { didSet { d.set(max(0, stepsManualCoefficient), forKey: K.stepsManualCoeff) } }
+    @Published private var localStepsManualCoefficient: Double { didSet { if active { d.set(max(0, stepsManualCoefficient), forKey: K.stepsManualCoeff) } } }
     /// #1816: true when the strap has banked ANY motion (gravity samples → `dayMotionIntensity > 0`)
     /// in the calibration scan window. Written by `IntelligenceEngine` on every analytics pass so it
     /// tracks a fresh strap's first sync without a separate query. The Today tile reads this to decide
@@ -65,7 +68,7 @@ final class ProfileStore: ObservableObject {
     /// the phone half is actively misleading — it sent a field reporter to enter Apple Health steps by
     /// hand expecting calibration to start, which it cannot without strap motion. Twin of Android's
     /// `ProfileStore.stepsHasBankedMotion`.
-    @Published var stepsHasBankedMotion: Bool { didSet { d.set(stepsHasBankedMotion, forKey: K.stepsHasMotion) } }
+    @Published var stepsHasBankedMotion: Bool { didSet { if active { d.set(stepsHasBankedMotion, forKey: K.stepsHasMotion) } } }
 
     // ── Profile picture (optional, on-device only) ──────────────────────────────────────────────
     /// The user's chosen profile photo as JPEG bytes, or nil for the default SF-Symbol fallback.
@@ -74,12 +77,95 @@ final class ProfileStore: ObservableObject {
     /// downscales) rather than written directly, so the persisted blob stays small (~256px).
     @Published var avatarImageData: Data? {
         didSet {
+            guard active else { return }
             if let avatarImageData { d.set(avatarImageData, forKey: K.avatar) }
             else { d.removeObject(forKey: K.avatar) }
         }
     }
 
-    private let d = UserDefaults.standard
+    private let d: UserDefaults
+    private let domainName: String?
+    private let defaultDOB: Date
+    private var active = true
+    private var scoringBound = false
+    private weak var scoringPreferences: ScoringPreferenceRuntime?
+    private var scoringSubscription: AnyCancellable?
+    private var acceptedPreferences: ScoringPreferenceSnapshot? { active ? scoringPreferences?.accepted : nil }
+    private func stored(_ key: String) -> Any? {
+        if let domainName { return d.persistentDomain(forName: domainName)?[key] }
+        return d.object(forKey: key)
+    }
+    func retire() { active = false; scoringSubscription = nil; scoringPreferences = nil }
+
+    func bindScoringPreferences(_ runtime: ScoringPreferenceRuntime) {
+        guard active, !scoringBound else { return }
+        scoringBound = true; scoringPreferences = runtime
+        scoringSubscription = runtime.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+    }
+
+    // Legacy setters remain local. A bound account is changed only by a completed runtime action.
+    var dateOfBirth: Date {
+        get { scoringBound ? acceptedPreferences?.dateOfBirth ?? defaultDOB : localDateOfBirth }
+        set { if active && !scoringBound { localDateOfBirth = newValue } }
+    }
+    var sex: String {
+        get { scoringBound ? acceptedPreferences?.sex ?? "male" : localSex }
+        set { if active && !scoringBound { localSex = newValue } }
+    }
+    var weightKg: Double {
+        get { scoringBound ? acceptedPreferences?.weightKg ?? 75 : localWeightKg }
+        set { if active && !scoringBound { localWeightKg = newValue } }
+    }
+    var heightCm: Double {
+        get { scoringBound ? acceptedPreferences?.heightCm ?? 178 : localHeightCm }
+        set { if active && !scoringBound { localHeightCm = newValue } }
+    }
+    var waistCm: Double {
+        get { scoringBound ? acceptedPreferences?.waistCm ?? 0 : localWaistCm }
+        set { if active && !scoringBound { localWaistCm = newValue } }
+    }
+    var hrMaxOverride: Int {
+        get { scoringBound ? acceptedPreferences?.hrMaxOverride ?? 0 : localHrMaxOverride }
+        set { if active && !scoringBound { localHrMaxOverride = newValue } }
+    }
+    var hrZoneThresholds: [Int] {
+        get { scoringBound ? acceptedPreferences?.hrZoneThresholds ?? [] : localHrZoneThresholds }
+        set { if active && !scoringBound { localHrZoneThresholds = newValue } }
+    }
+    var stepTicksPerStep: Double {
+        get { scoringBound ? acceptedPreferences?.stepTicksPerStep ?? 1 : localStepTicksPerStep }
+        set { if active && !scoringBound { localStepTicksPerStep = newValue } }
+    }
+    var stepsManualCoefficient: Double {
+        get { scoringBound ? acceptedPreferences?.stepsManualCoefficient ?? 0 : localStepsManualCoefficient }
+        set { if active && !scoringBound { localStepsManualCoefficient = newValue } }
+    }
+
+    /// Do not turn the setup screen's defaults into measured/confirmed server profile inputs.
+    var scoringProfileValues: [String: Any] {
+        var value: [String: Any] = [:]
+        if scoringBound {
+            guard let snapshot = acceptedPreferences else { return value }
+            if snapshot.ageExplicit { value["age"] = age }
+            if snapshot.hasOverride(.sex) { value["sex"] = sex }
+            if snapshot.hasOverride(.weightKg) { value["weightKg"] = weightKg }
+            if snapshot.hasOverride(.heightCm) { value["heightCm"] = heightCm }
+            if waistCm > 0 { value["waistCm"] = waistCm }
+            if snapshot.hasOverride(.stepTicksPerStep) { value["stepTicksPerStep"] = stepTicksPerStep }
+            return value
+        }
+        if stored("profile.ageExplicit") as? Bool == true { value["age"] = age }
+        if stored(K.sex) != nil { value["sex"] = sex }
+        if stored(K.weight) != nil { value["weightKg"] = weightKg }
+        if stored(K.height) != nil { value["heightCm"] = heightCm }
+        if waistCm > 0 { value["waistCm"] = waistCm }
+        if stored(K.stepScale) != nil { value["stepTicksPerStep"] = stepTicksPerStep }
+        return value
+    }
+
+    var confirmedMaxHR: Int? {
+        hrMaxOverride > 0 || (scoringBound ? acceptedPreferences?.ageExplicit == true : stored("profile.ageExplicit") as? Bool == true) ? hrMax : nil
+    }
     private enum K {
         static let dateOfBirth = "profile.dateOfBirth"
         /// Pre-#146 age key. No longer the source of truth; kept mirrored from `dateOfBirth` so the
@@ -99,7 +185,12 @@ final class ProfileStore: ObservableObject {
         static let avatar = "profile.avatarImageData"
     }
 
-    init() {
+    init(defaults: UserDefaults = .standard, domainName: String? = nil) {
+        self.d = defaults
+        self.domainName = domainName
+        self.defaultDOB = Self.dateOfBirth(forAge: 30)
+        let domain = domainName.map { defaults.persistentDomain(forName: $0) ?? [:] }
+        func stored(_ key: String) -> Any? { if let domain { return domain[key] }; return defaults.object(forKey: key) }
         // #146 age migration. `dateOfBirth` is authoritative whenever it exists, so age advances on
         // its own. A pre-#146 install — or a `.noopbak` restore, which writes only the legacy Int age
         // and clears any stale DOB (see `BackupSettings.apply`) — has no DOB yet, so derive one from
@@ -107,36 +198,38 @@ final class ProfileStore: ObservableObject {
         // present DOB is never second-guessed against the mirrored age (doing so would re-freeze age
         // every birthday, the exact staleness #146 fixes).
         let resolvedDOB: Date
-        if let dob = d.object(forKey: K.dateOfBirth) as? Date {
+        if let dob = stored(K.dateOfBirth) as? Date {
             resolvedDOB = dob
-        } else if let legacyAge = d.object(forKey: K.legacyAge) as? Int {
+        } else if let legacyAge = stored(K.legacyAge) as? Int {
             resolvedDOB = Self.dateOfBirth(forAge: legacyAge)
         } else {
             resolvedDOB = Self.dateOfBirth(forAge: 30)
         }
-        dateOfBirth = resolvedDOB
+        localDateOfBirth = resolvedDOB
         // `didSet` doesn't fire for the initial assignment inside `init`, so persist the resolved DOB
         // and its mirrored age explicitly — otherwise a migrated/derived DOB never reaches storage
         // until the user next edits it. Written from the LOCAL (not `self.dateOfBirth`, which Swift
         // forbids reading before every stored property is initialized).
-        d.set(resolvedDOB, forKey: K.dateOfBirth)
-        d.set(Self.years(from: resolvedDOB, to: Date()), forKey: K.legacyAge)
-        sex = d.string(forKey: K.sex) ?? "male"
-        weightKg = d.object(forKey: K.weight) as? Double ?? 75
-        heightCm = d.object(forKey: K.height) as? Double ?? 178
-        waistCm = d.object(forKey: K.waist) as? Double ?? 0
-        hrMaxOverride = d.object(forKey: K.hrMax) as? Int ?? 0
-        let storedThresholds = d.string(forKey: K.hrZoneThresholds)?
+        if domainName == nil {
+            d.set(resolvedDOB, forKey: K.dateOfBirth)
+            d.set(Self.years(from: resolvedDOB, to: Date()), forKey: K.legacyAge)
+        }
+        localSex = stored(K.sex) as? String ?? "male"
+        localWeightKg = stored(K.weight) as? Double ?? 75
+        localHeightCm = stored(K.height) as? Double ?? 178
+        localWaistCm = stored(K.waist) as? Double ?? 0
+        localHrMaxOverride = stored(K.hrMax) as? Int ?? 0
+        let storedThresholds = (stored(K.hrZoneThresholds) as? String)?
             .split(separator: ",").compactMap { Int($0) } ?? []
-        hrZoneThresholds = Self.validZoneThresholds(storedThresholds) ? storedThresholds : []
-        stepTicksPerStep = min(max(d.object(forKey: K.stepScale) as? Double ?? 1.0, 0.5), 30.0)
-        stepsCalibrationCoefficient = d.object(forKey: K.stepsCoeff) as? Double ?? 0
-        stepsCalibrationSampleDays = d.object(forKey: K.stepsSampleDays) as? Int ?? 0
-        stepsCalibrationConfidence = d.object(forKey: K.stepsConfidence) as? Double ?? 0
-        stepsCalibrationManual = d.object(forKey: K.stepsManualFlag) as? Bool ?? false
-        stepsManualCoefficient = max(0, d.object(forKey: K.stepsManualCoeff) as? Double ?? 0)
-        stepsHasBankedMotion = d.object(forKey: K.stepsHasMotion) as? Bool ?? false
-        avatarImageData = d.data(forKey: K.avatar)
+        localHrZoneThresholds = Self.validZoneThresholds(storedThresholds) ? storedThresholds : []
+        localStepTicksPerStep = min(max(stored(K.stepScale) as? Double ?? 1.0, 0.5), 30.0)
+        stepsCalibrationCoefficient = stored(K.stepsCoeff) as? Double ?? 0
+        stepsCalibrationSampleDays = stored(K.stepsSampleDays) as? Int ?? 0
+        stepsCalibrationConfidence = stored(K.stepsConfidence) as? Double ?? 0
+        stepsCalibrationManual = stored(K.stepsManualFlag) as? Bool ?? false
+        localStepsManualCoefficient = max(0, stored(K.stepsManualCoeff) as? Double ?? 0)
+        stepsHasBankedMotion = stored(K.stepsHasMotion) as? Bool ?? false
+        avatarImageData = stored(K.avatar) as? Data
     }
 
     // MARK: - Profile picture

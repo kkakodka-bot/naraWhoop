@@ -234,6 +234,40 @@ final class BackfillActorPipelineTests: XCTestCase {
         await actor.timeoutFired(sessionID: next)
     }
 
+    func testAccountShutdownDrainsSuspendedCommitWithoutAcknowledgement() async throws {
+        let store = OrderedInsertStore(pauseFirstInsert: true)
+        let ack = expectation(description: "old account cannot ACK")
+        ack.isInverted = true
+        let actor = await makeActor(store: store, ack: { ack.fulfill() })
+        await actor.begin(family: .whoop5, continuedAfterRows: false)
+        actor.yieldFrame(makeHrFrame(unix: 1_500, bpm: 31))
+        actor.yieldFrame(hexBytes(whoop5HistoryEndHex))
+        await store.waitForFirstInsert()
+        actor.invalidateSession()
+        let drained = Task { await actor.drainAfterInvalidation() }
+        await store.releaseFirstInsert()
+        await drained.value
+        let order = await store.insertOrder
+        XCTAssertEqual(order, [31], "already-started durable work completes in its original store")
+        XCTAssertFalse(actor.yieldFrame(makeHrFrame(unix: 1_501, bpm: 32)))
+        await fulfillment(of: [ack], timeout: 0.05)
+    }
+
+    func testQueueOverflowFencesInFlightAcknowledgement() async {
+        let store = OrderedInsertStore(pauseFirstInsert: true)
+        let ack = expectation(description: "overflow cannot acknowledge past missing frames")
+        ack.isInverted = true
+        let actor = await makeActor(store: store, ack: { ack.fulfill() })
+        await actor.begin(family: .whoop5, continuedAfterRows: false)
+        actor.yieldFrame(makeHrFrame(unix: 1_500, bpm: 41))
+        actor.yieldFrame(hexBytes(whoop5HistoryEndHex))
+        await store.waitForFirstInsert()
+        XCTAssertFalse(actor.yieldFrame(Array(repeating: 0, count: 8 * 1_048_576 + 1)))
+        await store.releaseFirstInsert()
+        await actor.drainAfterInvalidation()
+        await fulfillment(of: [ack], timeout: 0.05)
+    }
+
     func testSnapshotExcludesPartialChunkWhileCursorWriteIsSuspended() async {
         let store = OrderedInsertStore(pauseCursorAfterInserts: 2)
         let acked = expectation(description: "two complete chunks acknowledged")
@@ -283,6 +317,7 @@ final class BackfillActorPipelineTests: XCTestCase {
                 case .connectionLog(let line): log("connection: " + line)
                 case .firmwareLayout(let version): log("layout: \(version)")
                 case .chunk(let decoded, let console): log("chunk: \(decoded),\(console)")
+                case .quarantined(let count): log("quarantined: \(count)")
                 case .banked(let hr, let rr, let ev, let bat, let spo2, let skin, let resp, let grav):
                     log("banked: \(hr),\(rr),\(ev),\(bat),\(spo2),\(skin),\(resp),\(grav)")
                 }
@@ -364,7 +399,11 @@ final class BackfillActorPipelineTests: XCTestCase {
         let batched = await replayInfoChunk(batched: true, frame: frame)
         XCTAssertEqual(batched.observations, legacy.observations)
         XCTAssertEqual(batched.batches, 1)
-        XCTAssertEqual(batched.stages, ["begin", "insert", "raw", "batch", "cursor", "ack"])
+        // Even a mapped V18 carrier has deep/unknown fields: its complete bytes must now
+        // pass unconditional recovery admission before the optional research raw copy and ACK.
+        XCTAssertEqual(batched.stages, ["begin", "insert", "batch", "archive", "raw", "cursor", "ack"])
+        XCTAssertEqual(batched.archived, [frame])
+        XCTAssertEqual(legacy.archived, [frame])
         XCTAssertTrue(batched.observations.contains("layout: 18"))
         XCTAssertTrue(batched.observations.contains("chunk: true,false"))
         XCTAssertTrue(batched.observations.contains("banked: 1,2,3,4,5,6,7,8"))

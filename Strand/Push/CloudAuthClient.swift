@@ -1,202 +1,84 @@
 import Foundation
-import Security
+import NoopPush
 
-/// Supabase GoTrue session for authenticated score reads (JWT only — never the push ingest token).
+/// Compatibility facade shared by upload, readback, enrollment-gated score reads, and the root-owned
+/// account runtime. Cookie/cache-free control sessions live in AccountSessionController / ReadTransport.
 enum CloudAuthClient {
-    private static let sessionLock = NSLock()
-    private static var generation: UInt64 = 0
-    struct Session: Equatable {
-        let accessToken: String
-        let refreshToken: String
-        let expiresAt: Date
-        let userId: String
+    typealias Session = AccountAuthSession
+    typealias AuthError = AccountAuthError
+    static let identityDidChange = Notification.Name("noop.cloudAuth.identityDidChange")
 
-        var isExpired: Bool { Date().addingTimeInterval(60) >= expiresAt }
+    private static let controller = AccountSessionController(
+        credentials: CloudAccountKeychainStore(), transport: CloudAccountHTTPTransport(),
+        changed: { NotificationCenter.default.post(name: identityDidChange, object: nil) }
+    )
+    private static let configurationLock = NSRecursiveLock()
+    private static var configured = false
+
+    /// Call before constructing a runtime when root selects a different project.
+    static func configure(projectURL: String, anonKey: String) throws {
+        let value = try AccountAuthConfiguration(projectURL: projectURL, anonKey: anonKey)
+        configurationLock.lock()
+        defer { configurationLock.unlock() }
+        configured = true
+        controller.configure(value)
     }
 
-    enum AuthError: Error {
-        case notConfigured
-        case invalidCredentials
-        case network(Error)
-        case decode
+    private static func ensureConfiguration() {
+        guard !AppRuntimeMode.isUnitTesting else { return }
+        configurationLock.lock()
+        defer { configurationLock.unlock() }
+        guard !configured else { return }
+        configured = true
+        let endpoint = CloudPushSettings.endpointText.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard endpoint.hasSuffix("/functions/v1/push"),
+              let anon = Bundle.main.object(forInfoDictionaryKey: "NOOPSupabaseAnonKey") as? String,
+              !anon.hasPrefix("$("),
+              let value = try? AccountAuthConfiguration(
+                projectURL: String(endpoint.dropLast("/functions/v1/push".count)), anonKey: anon
+              ) else { return }
+        controller.configure(value)
     }
 
-    private enum K {
-        static let service = "noop.cloudAuth"
-        static let account = "session"
+    static func identitySnapshot() -> AccountIdentitySnapshot {
+        ensureConfiguration()
+        return controller.identitySnapshot()
+    }
+    static func currentContext() -> AccountSessionContext? { identitySnapshot().context }
+    static func isCurrent(_ context: AccountSessionContext) -> Bool {
+        ensureConfiguration()
+        return controller.isCurrent(context)
+    }
+    static func storedSession() -> Session? { ensureConfiguration(); return controller.storedSession() }
+    static var lastPersistenceError: AuthError? { controller.lastError }
+
+    /// Existing UI call remains nonthrowing; root can surface failure using the checked form.
+    static func clearSession() { do { try clearSessionChecked() } catch {} }
+    static func clearSessionChecked() throws {
+        ensureConfiguration()
+        try controller.clearSession()
     }
 
-    static func storedSession() -> Session? {
-        guard let data = KeychainHelper.load(service: K.service, account: K.account) else { return nil }
-        return try? JSONDecoder().decode(Persisted.self, from: data).session
-    }
-
-    static func clearSession() {
-        sessionLock.withLock {
-            generation &+= 1
-            KeychainHelper.delete(service: K.service, account: K.account)
-        }
-    }
-
+    /// HEAD enrollment/score callers may drop only the matching JWT for the active owner.
     @discardableResult static func clearSession(ifAccessToken token: String, ownerId: String) -> Bool {
-        sessionLock.withLock {
-            guard let current = storedSession(), current.accessToken == token,
-                  current.userId.lowercased() == ownerId.lowercased() else { return false }
-            generation &+= 1
-            KeychainHelper.delete(service: K.service, account: K.account)
-            return true
-        }
+        ensureConfiguration()
+        guard let current = storedSession(), current.accessToken == token,
+              current.userId.lowercased() == ownerId.lowercased() else { return false }
+        clearSession()
+        return true
     }
 
     static func signIn(email: String, password: String) async throws -> Session {
-        let requestGeneration = sessionLock.withLock { generation &+= 1; return generation }
-        guard let base = ServerScoringSettings.supabaseProjectURL(),
-              let anon = ServerScoringSettings.anonKey() else {
-            throw AuthError.notConfigured
-        }
-        var request = URLRequest(url: base.appendingPathComponent("auth/v1/token"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(anon, forHTTPHeaderField: "apikey")
-        request.url = URL(string: base.absoluteString + "/auth/v1/token?grant_type=password")!
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "email": email,
-            "password": password,
-        ])
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                throw AuthError.invalidCredentials
-            }
-            let session = try parseSession(data)
-            try Task.checkCancellation()
-            try sessionLock.withLock {
-                guard generation == requestGeneration else { throw AuthError.invalidCredentials }
-                persist(session)
-            }
-            ServerScoringSettings.setAuthEmail(email)
-            return session
-        } catch let e as AuthError {
-            throw e
-        } catch {
-            throw AuthError.network(error)
-        }
+        ensureConfiguration()
+        return try await controller.signIn(email: email, password: password)
     }
-
-    static func validAccessToken() async throws -> String {
-        guard var session = storedSession() else { throw AuthError.invalidCredentials }
-        if !session.isExpired { return session.accessToken }
-        session = try await refresh(session: session)
-        return session.accessToken
+    static func authorizedSession() async throws -> AuthorizedCloudSession {
+        ensureConfiguration()
+        return try await controller.authorizedSession()
     }
-
-    private static func refresh(session: Session) async throws -> Session {
-        let requestGeneration = sessionLock.withLock { generation }
-        guard let base = ServerScoringSettings.supabaseProjectURL(),
-              let anon = ServerScoringSettings.anonKey() else {
-            throw AuthError.notConfigured
-        }
-        var request = URLRequest(url: URL(string: base.absoluteString + "/auth/v1/token?grant_type=refresh_token")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(anon, forHTTPHeaderField: "apikey")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "refresh_token": session.refreshToken,
-        ])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            sessionLock.withLock {
-                if generation == requestGeneration && storedSession()?.refreshToken == session.refreshToken {
-                    generation &+= 1
-                    KeychainHelper.delete(service: K.service, account: K.account)
-                }
-            }
-            throw AuthError.invalidCredentials
-        }
-        let refreshed = try parseSession(data)
-        try Task.checkCancellation()
-        try sessionLock.withLock {
-            guard generation == requestGeneration, storedSession()?.refreshToken == session.refreshToken,
-                  refreshed.userId == session.userId else { throw AuthError.invalidCredentials }
-            persist(refreshed)
-        }
-        return refreshed
-    }
-
-    private static func parseSession(_ data: Data) throws -> Session {
-        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let access = obj["access_token"] as? String,
-              let refresh = obj["refresh_token"] as? String,
-              let expiresIn = obj["expires_in"] as? Double,
-              let user = obj["user"] as? [String: Any],
-              let userId = user["id"] as? String else {
-            throw AuthError.decode
-        }
-        return Session(
-            accessToken: access,
-            refreshToken: refresh,
-            expiresAt: Date().addingTimeInterval(expiresIn),
-            userId: userId
-        )
-    }
-
-    private static func persist(_ session: Session) {
-        let blob = try? JSONEncoder().encode(Persisted(session: session))
-        if let blob { KeychainHelper.save(blob, service: K.service, account: K.account) }
-    }
-
-    private struct Persisted: Codable {
-        let accessToken: String
-        let refreshToken: String
-        let expiresAt: Date
-        let userId: String
-
-        init(session: Session) {
-            accessToken = session.accessToken
-            refreshToken = session.refreshToken
-            expiresAt = session.expiresAt
-            userId = session.userId
-        }
-
-        var session: Session {
-            Session(accessToken: accessToken, refreshToken: refreshToken, expiresAt: expiresAt, userId: userId)
-        }
-    }
-}
-
-private enum KeychainHelper {
-    static func save(_ data: Data, service: String, account: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(query as CFDictionary)
-        var add = query
-        add[kSecValueData as String] = data
-        SecItemAdd(add as CFDictionary, nil)
-    }
-
-    static func load(service: String, account: String) -> Data? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var out: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &out)
-        guard status == errSecSuccess else { return nil }
-        return out as? Data
-    }
-
-    static func delete(service: String, account: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(query as CFDictionary)
+    static func validAccessToken() async throws -> String { try await authorizedSession().accessToken }
+    static func refreshRejectedCredentials(_ context: AccountSessionContext) async throws {
+        ensureConfiguration()
+        _ = try await controller.authorizedSession(refreshing: context)
     }
 }

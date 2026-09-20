@@ -6,8 +6,16 @@ import {
   workoutSessionRow,
 } from './structuredSync.ts';
 import { OBJECT_LANE_STREAMS } from './keys.ts';
+import { isDeepStrictEqual } from 'node:util';
+import { scalarProvenance } from './scalarProvenance.ts';
 
-export const PUSH_PROTOCOL_VERSIONS = ['1.2', '1.1', '1.0'];
+export const PUSH_PROTOCOL_VERSIONS = ['1.3', '1.2', '1.1', '1.0'];
+// Receiver support precedes advertisement. Add1.4 above only after the cross-stack golden gate.
+export function schemaVersionFor(stream: string, protocolVersion: string): number {
+  if (stream === 'ppgWaveformSample' && ['1.3', '1.4'].includes(protocolVersion)) return 2;
+  if (protocolVersion === '1.4' && ['v18AuxSample', 'stepSample', 'sleepStateSample', 'ppgHrSample'].includes(stream)) return 2;
+  return 1;
+}
 
 export const APPEND_STREAMS = new Set([
   'hrSample', 'rrInterval', 'rrPacketProvenance', 'standardHRReceipt', 'event', 'battery', 'spo2Sample', 'skinTempSample',
@@ -56,15 +64,61 @@ type AppendMapRowArgs = {
   sourceId: unknown;
   batchId: unknown;
   record: any;
+  protocolVersion?: string;
 };
 
-/** v1.0 append streams with Supabase projection tables (P1.1). */
+/** Validate the existing scalar contract without converting absent measurements to zero. */
+export function scalarAppendFields(stream: string, record: any, protocolVersion = '1.1'): Record<string, unknown> | null {
+  if (!['stepSample', 'sleepStateSample', 'ppgHrSample'].includes(stream)) return null;
+  const invalid = (): never => { throw new PushProtocolError('invalid_scalar_record', 422); };
+  const ts = record?.key?.ts;
+  if (!Number.isSafeInteger(ts) || !Number.isFinite(new Date(ts * 1000).getTime())) invalid();
+  const integer = (value: unknown, optional = false): number | null => {
+    if (optional && value == null) return null;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < -2147483648 || value > 2147483647) invalid();
+    return value as number;
+  };
+  const data = record?.data;
+  const provenance = scalarProvenance(data?.provenance, protocolVersion);
+  const extension = protocolVersion === '1.4' ? { provenance } : {};
+  if (stream === 'stepSample') {
+    const counter = integer(data?.counter)!;
+    const activity = integer(data?.activityClass, true);
+    if (counter < 0 || counter > 65535 || (activity != null && (activity < 0 || activity > 2))) invalid();
+    return { ts, counter, activity_class: activity, ...extension };
+  }
+  if (stream === 'sleepStateSample') {
+    const state = integer(data?.state)!;
+    const raw = integer(data?.rawByte, true);
+    if (state < 0 || state > 3 || (raw != null && (raw < 0 || raw > 255 || ((raw >> 4) & 3) !== state))) invalid();
+    return { ts, state, raw_byte: raw, ...extension };
+  }
+  const bpm = integer(data?.bpm)!;
+  const conf = data?.conf;
+  if (bpm <= 0 || (conf != null && (typeof conf !== 'number' || !Number.isFinite(conf) || conf < 0 || conf > 1))) invalid();
+  return { ts, bpm, conf: conf ?? null, ...extension };
+}
+
+function scalarProjection(table: string, stream: string) {
+  return {
+    table, onConflict: 'user_id,device_id,ts', tsKey: 'ts',
+    mapRow: ({ userId, deviceId, sourceId, batchId, record, protocolVersion }: AppendMapRowArgs) => ({
+      user_id: userId, device_id: deviceId, source_id: sourceId, batch_id: batchId,
+      ...scalarAppendFields(stream, record, protocolVersion),
+    }),
+  };
+}
+
+/** Supported append streams with queryable Supabase projections. */
 export const APPEND_STREAM_PROJECTIONS: Record<string, {
   table: string;
   onConflict: string;
   tsKey: string;
   mapRow: (args: AppendMapRowArgs) => Record<string, unknown> | null;
 }> = {
+  stepSample: scalarProjection('noop_step_samples', 'stepSample'),
+  sleepStateSample: scalarProjection('noop_sleep_state_samples', 'sleepStateSample'),
+  ppgHrSample: scalarProjection('noop_ppg_hr_samples', 'ppgHrSample'),
   hrSample: {
     table: 'noop_hr_samples',
     onConflict: 'user_id,device_id,ts',
@@ -582,7 +636,7 @@ export function windowBounds(header: any) {
 }
 
 export function streamsForVersion(version: string): Set<string> {
-  if (version === '1.2') return ALL_STREAMS;
+  if (['1.4', '1.3', '1.2'].includes(version)) return ALL_STREAMS;
   if (version === '1.1') return new Set([...ALL_STREAMS].filter((s) => !PROTOCOL_1_2_ONLY.has(s)));
   if (version === '1.0') return PROTOCOL_1_0_STREAMS;
   return new Set();
@@ -632,7 +686,7 @@ export function capabilitiesBody({
     userId: userId || undefined,
     sourceId: sourceId || undefined,
   };
-  if (protocolVersion === '1.2' && objectLane) {
+  if (['1.4', '1.3', '1.2'].includes(protocolVersion) && objectLane) {
     body.objectLane = {
       ...objectLane,
       streams: advertised.filter((s) => OBJECT_LANE_STREAMS.has(s)),
@@ -686,7 +740,7 @@ export function ackMatchesBatch(ack: any, header: any): boolean {
     && ack?.batchId === header.batchId
     && ack?.stream === header.stream
     && ack?.deviceId === header.deviceId
-    && JSON.stringify(ack?.endCursor ?? null) === JSON.stringify(header.endCursor ?? null)
+    && isDeepStrictEqual(ack?.endCursor ?? null, header.endCursor ?? null)
     && ack?.acceptedRows === header.recordCount
     && ack?.status === 'accepted';
 }

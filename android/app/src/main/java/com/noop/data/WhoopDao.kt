@@ -290,6 +290,9 @@ interface WhoopDao : DeviceRegistryDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertV18Aux(rows: List<V18AuxSampleEntity>): List<Long>
 
+    @Query("SELECT * FROM v18AuxSample WHERE deviceId=:deviceId AND ts=:ts AND recordIndex=:recordIndex")
+    suspend fun v18AuxIdentity(deviceId: String, ts: Long, recordIndex: Long): V18AuxSampleEntity?
+
     /**
      * Bound the PPG waveform table to the newest [keep] rows for [deviceId] (#1911 rolling retention).
      * Same shape as [pruneV18Aux] below, and deliberately the same NEWEST-N semantic rather than an
@@ -309,8 +312,8 @@ interface WhoopDao : DeviceRegistryDao {
      * unbounded. Swift twin: the DELETE at the end of `WhoopStore.insert`.
      */
     @Query(
-        "DELETE FROM v18AuxSample WHERE deviceId = :deviceId AND ts < " +
-            "(SELECT MIN(ts) FROM (SELECT ts FROM v18AuxSample WHERE deviceId = :deviceId ORDER BY ts DESC LIMIT :keep))"
+        "DELETE FROM v18AuxSample WHERE deviceId = :deviceId AND rowid NOT IN " +
+            "(SELECT rowid FROM v18AuxSample WHERE deviceId = :deviceId ORDER BY ts DESC,recordIndex DESC,rowid DESC LIMIT :keep)"
     )
     suspend fun pruneV18Aux(deviceId: String, keep: Int)
 
@@ -466,6 +469,12 @@ interface WhoopDao : DeviceRegistryDao {
     @Upsert
     suspend fun upsertWorkouts(rows: List<WorkoutRow>)
 
+    @Query("SELECT * FROM workout WHERE deviceId=:deviceId AND startTs=:startTs AND sport=:sport")
+    fun gpsWorkoutExact(deviceId: String, startTs: Long, sport: String): WorkoutRow?
+
+    @Query("SELECT * FROM hrSample WHERE deviceId=:deviceId AND ts IN (:timestamps)")
+    fun gpsWorkoutHrExact(deviceId: String, timestamps: List<Long>): List<HrSample>
+
     @Upsert
     suspend fun upsertAppleDaily(rows: List<AppleDaily>)
 
@@ -539,7 +548,7 @@ interface WhoopDao : DeviceRegistryDao {
      */
     @Query(
         "SELECT * FROM v18AuxSample WHERE deviceId = :deviceId AND ts >= :from AND ts <= :to " +
-            "ORDER BY ts ASC LIMIT :limit"
+            "ORDER BY ts ASC,recordIndex ASC,rowid ASC LIMIT :limit"
     )
     suspend fun v18AuxSamples(deviceId: String, from: Long, to: Long, limit: Int):
         List<V18AuxSampleEntity>

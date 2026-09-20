@@ -37,4 +37,10 @@ class EndpointScopedProgressStore(
 
     override suspend fun saveInFlightObject(table: PushBinaryTable, deviceId: String, inFlight: PushInFlightObject?) =
         delegate.saveInFlightObject(table, scoped(deviceId), inFlight)
+
+    override suspend fun preparedBoundary(table: PushBinaryTable, deviceId: String) =
+        delegate.preparedBoundary(table, scoped(deviceId))
+
+    override suspend fun savePreparedBoundary(table: PushBinaryTable, deviceId: String, prepared: PushPreparedBoundary?) =
+        delegate.savePreparedBoundary(table, scoped(deviceId), prepared)
 }

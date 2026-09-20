@@ -5,6 +5,22 @@ import GRDB
 import WhoopProtocol
 
 public struct RawBatchMeta: Equatable {
+    /// New captures use half-open bounds. The caller supplies a captured, stable fallback for
+    /// chunks with no decoded timestamps; an upload retry must never derive it from the current time.
+    public static func captureBounds(streams: Streams, fallbackTimestamp: Int) throws -> (startTs: Int, endTs: Int) {
+        let timestamps = [streams.hr.map(\.ts), streams.rr.map(\.ts),
+            streams.events.map(\.ts), streams.battery.map(\.ts),
+            streams.spo2.map(\.ts), streams.skinTemp.map(\.ts),
+            streams.resp.map(\.ts), streams.gravity.map(\.ts),
+            streams.steps.map(\.ts), streams.sleepState.map(\.ts),
+            streams.ppgHr.map(\.ts), streams.ppgWaveform.map(\.ts),
+            streams.v18Aux.map(\.ts)].flatMap { $0 }
+        let start = timestamps.min() ?? fallbackTimestamp
+        let last = timestamps.max() ?? fallbackTimestamp
+        guard last < Int.max else { throw RawCaptureBoundsError.exclusiveEndOverflow }
+        return (start, last + 1)
+    }
+
     public let batchId: String
     public let deviceId: String
     public let clockRef: ClockRef
@@ -13,13 +29,18 @@ public struct RawBatchMeta: Equatable {
     public let endTs: Int
     public let frameCount: Int
     public let byteSize: Int
+    public let captureScope: DurableIngestScope?
     public init(batchId: String, deviceId: String, clockRef: ClockRef, capturedAt: Int,
-                startTs: Int, endTs: Int, frameCount: Int, byteSize: Int) {
+                startTs: Int, endTs: Int, frameCount: Int, byteSize: Int,
+                captureScope: DurableIngestScope? = nil) {
         self.batchId = batchId; self.deviceId = deviceId; self.clockRef = clockRef
         self.capturedAt = capturedAt; self.startTs = startTs; self.endTs = endTs
         self.frameCount = frameCount; self.byteSize = byteSize
+        self.captureScope = captureScope
     }
 }
+
+public enum RawCaptureBoundsError: Error { case exclusiveEndOverflow }
 
 extension WhoopStore {
     // MARK: - frame (de)serialization
@@ -121,6 +142,12 @@ extension WhoopStore {
                     meta.batchId, meta.deviceId, meta.capturedAt,
                     meta.clockRef.device, meta.clockRef.wall,
                     meta.startTs, meta.endTs, meta.frameCount, meta.byteSize, blob])
+            if db.changesCount > 0 {
+                let scope = try meta.captureScope ?? Self.captureScope(db, deviceID: meta.deviceId)
+                guard scope.deviceID == meta.deviceId else { throw DurableIngestError.identityConflict }
+                try Self.registerRawResource(db, scope: scope, lane: "rawBatch", key: meta.batchId, bytes: packed)
+                try Self.markRawUploadOwed(db)
+            }
         }
     }
 
@@ -236,11 +263,12 @@ extension WhoopStore {
     public func pruneRaw(now: Int, keepWindowSeconds: Int, maxUnsyncedBytes: Int) async throws -> Int {
         try syncWrite { db in
             var pruned = 0
-            // Policy 1: aged synced batches.
+            // A legacy syncedAt flag is not an object-verification receipt.
             let cutoff = now - keepWindowSeconds
             try db.execute(sql: """
                 DELETE FROM rawBatch WHERE syncedAt IS NOT NULL AND syncedAt < ?
-                """, arguments: [cutoff])
+                AND \(Self.rawReceiptPredicate(table: "rawBatch", keySQL: "rawBatch.batchId"))
+                """, arguments: [cutoff, now])
             pruned += db.changesCount
 
             // Policy 2 (#27): size-based eviction of the OLDEST raw beyond the cap. Sum byteSize
@@ -248,7 +276,7 @@ extension WhoopStore {
             // rows are over budget and get dropped. rowid keeps the cutoff stable regardless of ties
             // on capturedAt. Decoded streams persist before raw (E2), so this loses no metric.
             let rows = try Row.fetchAll(db, sql: """
-                SELECT rowid, byteSize FROM rawBatch ORDER BY capturedAt DESC, rowid DESC
+                SELECT rowid, byteSize, batchId, deviceId FROM rawBatch ORDER BY capturedAt DESC, rowid DESC
                 """)
             var cumulative = 0
             var evict: [Int64] = []
@@ -256,7 +284,9 @@ extension WhoopStore {
                 let size: Int = row["byteSize"]
                 let rowid: Int64 = row["rowid"]
                 cumulative += size
-                if cumulative > maxUnsyncedBytes {
+                if cumulative > maxUnsyncedBytes,
+                   try Self.rawResourceCanPrune(db, lane: "rawBatch", deviceID: row["deviceId"],
+                                               key: row["batchId"], now: now) {
                     evict.append(rowid)
                 }
             }

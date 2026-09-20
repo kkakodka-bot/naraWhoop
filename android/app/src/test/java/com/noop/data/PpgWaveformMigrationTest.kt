@@ -155,6 +155,7 @@ class PpgWaveformMigrationTest {
         ) { _, method, args ->
             when (method.name) {
                 "insertPpgWaveform" -> listOf(1L)
+                "v18AuxIdentity" -> { assertEquals(-1L, args[2]); null }
                 "insertV18Aux" -> listOf(1L)
                 "pruneV18Aux" -> Unit
                 "prunePpgWaveform" -> { sweeps.add((args[0] as String) to (args[1] as Int)); Unit }
@@ -182,7 +183,7 @@ class PpgWaveformMigrationTest {
      * window has to earn its own sweep. It must also pass the RETENTION cap as `keep`, not the budget.
      */
     @Test
-    fun waveformRetention_sweepsOnThresholdThenResets(): Unit = runBlocking {
+    fun waveformRetention_repeatedThresholdsDoNotDeleteUnreceiptedRows(): Unit = runBlocking {
         val sweeps = mutableListOf<Pair<String, Int>>()
         val repo = WhoopRepository(sweepRecordingDao(sweeps))
         // Two rows per batch against a budget of 3: banked=2 (no sweep), 4 (sweep, reset), 2 (no sweep).
@@ -196,8 +197,7 @@ class PpgWaveformMigrationTest {
                 ppgWaveformRetentionRows = 99,
             )
         }
-        assertEquals("exactly one sweep — the counter must reset after it", 1, sweeps.size)
-        assertEquals("my-whoop" to 99, sweeps[0])
+        assertEquals("row-count thresholds are not durability receipts", 0, sweeps.size)
     }
 
     /** The budget is per device, because the delete is — one strap must not spend another's. */
@@ -217,8 +217,7 @@ class PpgWaveformMigrationTest {
 
         repo.insert(StreamBatch(ppgWaveform = listOf(waveformRow(1_780_917_240L))),
             "strap-a", ppgWaveformPruneEveryRows = 4)
-        assertEquals(1, sweeps.size)
-        assertEquals("strap-a must sweep on its own fourth row", "strap-a", sweeps[0].first)
+        assertEquals("neither account/device authorizes unreceipted deletion", 0, sweeps.size)
     }
 
     /**

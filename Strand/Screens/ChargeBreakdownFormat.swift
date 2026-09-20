@@ -131,7 +131,7 @@ enum ChargeBreakdownFormat {
     }
 
     /// The recalibration epoch as a short display day ("19 Jul"), or nil when none is set. Pure — the
-    /// caller supplies the epoch (`Baselines.hrvBaselineEpoch()`), so this stays testable. Locale-aware
+    /// caller supplies its accepted epoch, so this stays testable. Locale-aware
     /// via `DateFormatter.setLocalizedDateFormatFromTemplate`, so the day/month order follows the user.
     static func recalibrationDay(epoch: Double, locale: Locale = AppLanguage.activeLocale) -> String? {
         guard epoch > 0 else { return nil }
@@ -141,11 +141,9 @@ enum ChargeBreakdownFormat {
         return fmt.string(from: Date(timeIntervalSince1970: epoch))
     }
 
-    /// Convenience for the calibrating cards: the restart-cause line for the CURRENT recalibration epoch,
-    /// or nil when the user has never recalibrated. Keeps the single UserDefaults read in one place
-    /// instead of repeating it at each card. (#731)
-    static func currentCalibrationRestartCause() -> String? {
-        calibrationRestartCause(recalibratedOn: recalibrationDay(epoch: Baselines.hrvBaselineEpoch()))
+    /// The restart-cause line for the caller's captured recalibration epoch, or nil when none is set.
+    static func currentCalibrationRestartCause(epoch: Double) -> String? {
+        calibrationRestartCause(recalibratedOn: recalibrationDay(epoch: epoch))
     }
 
     /// The supporting line under the countdown, naming the score whose baseline is unlocking. Pure.

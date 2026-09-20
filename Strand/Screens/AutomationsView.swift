@@ -15,10 +15,10 @@ struct AutomationsView: View {
     @EnvironmentObject var router: NavRouter
 
     /// v5 cycle-awareness opt-in (default OFF — the most sensitive health category, manual-first).
-    @AppStorage(AppModel.cycleAwarenessKey) private var cycleAwareness = false
+    private var cycleAwareness: Bool { model.cycleAwarenessEnabled }
     /// #hide-cycle: the user's "not for me" opt-out (never age-based). Master visibility control lives here
     /// so it stays reachable to un-hide even after the offer is gone from Today + Health.
-    @AppStorage(AppModel.cycleAwarenessHiddenKey) private var cycleHidden = false
+    private var cycleHidden: Bool { model.cycleAwarenessHidden }
 
     /// Whether the cycle-awareness opt-in is offered for this profile (#801). Delegates to the shared
     /// ``ProfileStore/cycleAwarenessApplies`` gate (mirrors HealthView's opt-in gate) so a male profile
@@ -165,8 +165,7 @@ struct AutomationsView: View {
                 Text("Recent moments").strandOverline()
                 Spacer()
                 Button("Clear") {
-                    model.moments.removeAll()
-                    UserDefaults.standard.removeObject(forKey: "moments")
+                    model.clearMoments()
                 }
                 .buttonStyle(.plain).font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
             }
@@ -362,9 +361,8 @@ struct AutomationsView: View {
                               help: String(localized: "Shows the cycle-awareness card on Today and in Health. Turn off to hide it entirely — a private choice, never based on your age. You can turn it back on here any time."),
                               isOn: Binding(get: { !cycleHidden },
                                             set: { show in
-                                                cycleHidden = !show
+                                                model.cycleAwarenessHidden = !show
                                                 if !show {
-                                                    cycleAwareness = false
                                                     model.cycleAwarenessEnabled = false
                                                     Task { await model.refreshV5Signals() }
                                                 }
@@ -373,9 +371,8 @@ struct AutomationsView: View {
                     if !cycleHidden {
                         ToggleRow(label: String(localized: "Cycle awareness"),
                                   help: String(localized: "Reads a coarse menstrual-cycle phase from your nightly skin temperature, entirely on \(Platform.deviceNounPhrase). Awareness only: not contraception, not a fertility predictor, not a medical service. The card appears in Health."),
-                                  isOn: $cycleAwareness)
-                            .onChangeCompat(of: cycleAwareness) { on in
-                                model.cycleAwarenessEnabled = on
+                                  isOn: $model.cycleAwarenessEnabled)
+                            .onChangeCompat(of: cycleAwareness) { _ in
                                 Task { await model.refreshV5Signals() }
                             }
                         rowDivider

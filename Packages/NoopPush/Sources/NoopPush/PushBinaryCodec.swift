@@ -27,7 +27,8 @@ public enum PushBinaryCodec {
         }
     }
 
-    public static func pack(table: PushBinaryTable, rows: [PushBinaryRow]) throws -> Data {
+    public static func pack(table: PushBinaryTable, rows: [PushBinaryRow], ppgIdentityV2: Bool = false,
+                            v18IdentityV2: Bool = false) throws -> Data {
         guard !rows.isEmpty else { throw PushProtocolException("binary object must contain a row") }
         switch table {
         case .ppgWaveformSample:
@@ -37,7 +38,7 @@ public enum PushBinaryCodec {
                 }
                 return record
             }
-            return try packPpgRecords(records)
+            return try packPpgRecords(records, identityV2: ppgIdentityV2)
         case .v18AuxSample:
             let records = try rows.map { row -> PushV18AuxRecord in
                 guard case .v18Aux(let record) = row else {
@@ -45,7 +46,7 @@ public enum PushBinaryCodec {
                 }
                 return record
             }
-            return try packV18Records(records)
+            return try packV18Records(records, identityV2: v18IdentityV2)
         case .rawBatch:
             guard rows.count == 1, case .rawBatch(let record) = rows[0] else {
                 throw PushProtocolException("rawBatch upload must contain exactly one batch row")
@@ -73,13 +74,14 @@ public enum PushBinaryCodec {
 
     /// Exact packed size of one row, without packing. Lets batch selection run O(n) instead of
     /// re-packing the growing candidate set per row.
-    public static func packedRowSize(_ row: PushBinaryRow, ppgIdentity: Bool = false) throws -> Int {
+    public static func packedRowSize(_ row: PushBinaryRow, ppgIdentityV2: Bool = false,
+                                      v18IdentityV2: Bool = false) throws -> Int {
         switch row {
         case .ppgWaveform(let record):
             return 8 + 8 + 1 + (record.burstIndex != nil ? 4 : 0) + 4 + record.samples.count
-                + (ppgIdentity || record.recordIndex != nil ? 8 : 0)
+                + (ppgIdentityV2 ? (record.recordIndex == nil ? 1 : 9) : 0)
         case .v18Aux(let record):
-            return 8 + 8 + 4 + record.fields.count
+            return 8 + 8 + 4 + record.fields.count + (v18IdentityV2 ? (record.recordIndex == nil ? 1 : 9) : 0)
         case .rawImuSession(let record):
             guard record.columns.count == imuRecordPayloadBytes else {
                 throw PushProtocolException("rawImuSession record must carry \(imuColumnsPerRecord) i16 columns")
@@ -90,42 +92,57 @@ public enum PushBinaryCodec {
         }
     }
 
-    private static func packPpgRecords(_ records: [PushPpgWaveformRecord]) throws -> Data {
-        let identity = records.contains { $0.recordIndex != nil }
-        var out = header(kind: .ppgWaveformSample, version: identity ? ppgIdentityFormatVersion : formatVersion)
+    private static func packPpgRecords(_ records: [PushPpgWaveformRecord], identityV2: Bool) throws -> Data {
+        guard identityV2 || records.allSatisfy({ $0.recordIndex == nil }) else {
+            throw PushProtocolException("PPG record identity requires negotiated protocol 1.3")
+        }
+        var out = header(kind: .ppgWaveformSample)
+        if identityV2 { out[4] = 2 }
         appendU32(Int32(records.count), to: &out)
         for record in records {
             appendI64(record.rowId, to: &out)
             appendI64(record.ts, to: &out)
+            if identityV2 {
+                if let index = record.recordIndex {
+                    guard index >= 0 else { throw PushProtocolException("invalid PPG record index") }
+                    out.append(1)
+                    appendI64(index, to: &out)
+                } else { out.append(0) }
+            }
             if let burstIndex = record.burstIndex {
                 out.append(1)
                 appendI32(burstIndex, to: &out)
             } else {
                 out.append(0)
             }
-            if identity {
-                if let index = record.recordIndex, !(0...Int64(UInt32.max)).contains(index) {
-                    throw PushProtocolException("PPG recordIndex is outside the wire u32 range")
-                }
-                appendI64(record.recordIndex ?? -1, to: &out)
-            }
             try appendBlob(record.samples, to: &out)
         }
         return out
     }
 
-    private static func packV18Records(_ records: [PushV18AuxRecord]) throws -> Data {
+    private static func packV18Records(_ records: [PushV18AuxRecord], identityV2: Bool) throws -> Data {
+        guard identityV2 || records.allSatisfy({ $0.recordIndex == nil }) else {
+            throw PushProtocolException("auxiliary record identity requires negotiated protocol 1.4")
+        }
         var out = header(kind: .v18AuxSample)
+        if identityV2 { out[4] = 2 }
         appendU32(Int32(records.count), to: &out)
         for record in records {
             appendI64(record.rowId, to: &out)
             appendI64(record.ts, to: &out)
+            if identityV2 {
+                if let index = record.recordIndex {
+                    guard (0...Int64(UInt32.max)).contains(index) else { throw PushProtocolException("invalid auxiliary record index") }
+                    out.append(1); appendI64(index, to: &out)
+                } else { out.append(0) }
+            }
             try appendBlob(record.fields, to: &out)
         }
         return out
     }
 
-    /// Reads both archived v1 PPG and identity-preserving v2 PPG. Does not infer channel or sample time.
+
+    /// Reads v1 PPG and negotiated identity-preserving v2 PPG. Does not infer channel or sample time.
     public static func unpackPpgRecords(_ bytes: Data) throws -> [PushPpgWaveformRecord] {
         guard bytes.count <= PushProtocolLimits.maxObjectDecodedBytes else {
             throw PushProtocolException("PPG object exceeds decoded limit")
@@ -155,16 +172,24 @@ public enum PushBinaryCodec {
         for _ in 0..<count {
             let rowId = Int64(bitPattern: try integer(8))
             let ts = Int64(bitPattern: try integer(8))
+            var index: Int64? = nil
+            if version == 2 {
+                let hasIndex = try integer(1)
+                guard hasIndex <= 1 else { throw PushProtocolException("Invalid PPG record") }
+                if hasIndex == 1 {
+                    let value = Int64(bitPattern: try integer(8))
+                    guard value >= 0, (0...Int64(UInt32.max)).contains(value) else {
+                        throw PushProtocolException("Invalid PPG recordIndex")
+                    }
+                    index = value
+                }
+            }
             let hasBurst = try integer(1)
             guard rowId > 0, hasBurst <= 1 else { throw PushProtocolException("Invalid PPG record") }
             let burst = hasBurst == 1 ? Int32(bitPattern: UInt32(try integer(4))) : nil
-            let index = version == 2 ? Int64(bitPattern: try integer(8)) : -1
-            guard index == -1 || (0...Int64(UInt32.max)).contains(index) else {
-                throw PushProtocolException("Invalid PPG recordIndex")
-            }
             let samples = Data(try take(Int(try integer(4))))
             records.append(PushPpgWaveformRecord(rowId: rowId, ts: ts, burstIndex: burst,
-                samples: samples, recordIndex: index == -1 ? nil : index))
+                samples: samples, recordIndex: index))
         }
         guard offset == data.count else { throw PushProtocolException("Trailing PPG object bytes") }
         return records
@@ -198,10 +223,10 @@ public enum PushBinaryCodec {
         return out
     }
 
-    private static func header(kind: Kind, version: UInt8 = formatVersion) -> Data {
+    private static func header(kind: Kind) -> Data {
         var out = Data(capacity: 6)
         out.append(magic)
-        out.append(version)
+        out.append(formatVersion)
         out.append(kind.rawValue)
         return out
     }

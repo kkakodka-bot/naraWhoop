@@ -112,7 +112,7 @@ final class PpgWaveformSampleTests: XCTestCase {
     // MARK: - #1911 rolling retention
 
     private func retentionStore() async throws -> WhoopStore {
-        let s = try await WhoopStore.inMemory()
+        let s = try await receiptedFixtureStore()
         try await s.upsertDevice(id: "dev1", mac: nil, name: nil)
         return s
     }

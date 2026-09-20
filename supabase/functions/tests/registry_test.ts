@@ -16,6 +16,54 @@ import { OBJECT_LANE_STREAMS } from '../_shared/keys.ts';
 
 const OBJECT_LANE_PATH = '/functions/v1/push/objects';
 
+Deno.test('existing scalar streams are enabled at 1.1 onward, never in 1.0 or the object lane', () => {
+  for (const version of ['1.0', '1.1', '1.2', '1.3']) {
+    const body = capabilitiesBody({ receiverStateId: 'fixture', protocolVersion: version,
+      streams: advertisedStreams(version), objectLane: { endpoint: OBJECT_LANE_PATH, maxObjectBytes: 1024, urlTtlSec: 300 } });
+    for (const stream of ['stepSample', 'sleepStateSample', 'ppgHrSample']) {
+      assert.equal(body.streams.includes(stream), version !== '1.0');
+      assert(!body.objectLane?.streams.includes(stream));
+    }
+  }
+});
+
+Deno.test('scalar mappings preserve nulls and reject malformed measurements without coercion', () => {
+  const cases = [
+    ['stepSample', { counter: 0 }, { counter: 0, activity_class: null }, 'counter'],
+    ['sleepStateSample', { state: 0 }, { state: 0, raw_byte: null }, 'state'],
+    ['ppgHrSample', { bpm: 70 }, { bpm: 70, conf: null }, 'bpm'],
+  ] as const;
+  for (const [stream, data, expected, required] of cases) {
+    const map = (record: unknown) => APPEND_STREAM_PROJECTIONS[stream].mapRow({
+      userId: 'owner', deviceId: 'device', sourceId: 'source', batchId: 'batch', record });
+    assert.deepEqual(map({ key: { ts: 1_790_000_000 }, data }), {
+      user_id: 'owner', device_id: 'device', source_id: 'source', batch_id: 'batch', ts: 1_790_000_000, ...expected });
+    for (const value of [null, undefined, '1', true, 1.5, Infinity, 2147483648]) {
+      assert.throws(() => map({ key: { ts: 1_790_000_000 }, data: { ...data, [required]: value } }), /invalid_scalar_record/);
+    }
+    for (const ts of [null, undefined, '1790000000', 0.5, Infinity]) {
+      assert.throws(() => map({ key: { ts }, data }), /invalid_scalar_record/);
+    }
+  }
+});
+
+Deno.test('scalar numeric boundaries preserve counter wrap, raw band codes and nullable confidence', () => {
+  const map = (stream: string, data: unknown) => APPEND_STREAM_PROJECTIONS[stream].mapRow({
+    userId: 'owner', deviceId: 'device', sourceId: 'source', batchId: 'batch',
+    record: { key: { ts: 1_790_000_000 }, data },
+  });
+  for (const counter of [0, 65535]) assert.equal(map('stepSample', { counter })?.counter, counter);
+  for (const state of [0, 1, 2, 3]) assert.equal(map('sleepStateSample', { state, rawByte: state * 16 + 15 })?.state, state);
+  for (const conf of [null, 0, 1]) assert.equal(map('ppgHrSample', { bpm: 70, conf })?.conf, conf);
+  for (const [stream, data] of [
+    ['stepSample', { counter: 65536 }], ['stepSample', { counter: -1 }],
+    ['stepSample', { counter: 1, activityClass: 3 }], ['sleepStateSample', { state: 4 }],
+    ['sleepStateSample', { state: 1, rawByte: 0 }], ['sleepStateSample', { state: 0, rawByte: 256 }],
+    ['ppgHrSample', { bpm: 0 }], ['ppgHrSample', { bpm: 70, conf: 1.001 }],
+    ['ppgHrSample', { bpm: 70, conf: -0.001 }], ['ppgHrSample', { bpm: 70, conf: '0.5' }],
+  ] as const) assert.throws(() => map(stream, data), /invalid_scalar_record/);
+});
+
 Deno.test('versioned RR packet receipt keeps immutable bytes and cannot assert beat timing', () => {
   assert.ok(advertisedStreams('1.1').includes('rrPacketProvenance'));
   assert.ok(!advertisedStreams('1.0').includes('rrPacketProvenance'));

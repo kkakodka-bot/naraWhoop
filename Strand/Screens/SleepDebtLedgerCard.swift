@@ -24,7 +24,12 @@ struct SleepDebtLedgerCard: View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Sleep-debt ledger", overline: "Last 14 nights")
             NoopCard(tint: StrandPalette.restColor) {
-                if ledger.nightCount == 0 {
+                if model.debtLedgerUnavailable {
+                    Text("Sleep-debt detail is not available in this server result.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if ledger.nightCount == 0 {
                     Text("No nights with sleep data yet. Your ledger fills in as you wear the strap to bed.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)

@@ -44,9 +44,10 @@ import com.noop.ui.ClockPrefs
 class NoopCompactGlanceWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val snap = runCatching { WidgetSnapshotStore.load(context) }.getOrDefault(WidgetSnapshot())
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        val snap = runCatching { WidgetSnapshotStore.load(account) }.getOrDefault(WidgetSnapshot())
         val dark = runCatching {
-            when (context.getSharedPreferences("noop_prefs", Context.MODE_PRIVATE)
+            when (com.noop.account.AccountStorageContext.capture(context).getSharedPreferences("noop_prefs", Context.MODE_PRIVATE)
                 .getString("theme.appearance", "system")) {
                 "light" -> false
                 "dark" -> true
@@ -55,7 +56,7 @@ class NoopCompactGlanceWidget : GlanceAppWidget() {
                     android.content.res.Configuration.UI_MODE_NIGHT_YES
             }
         }.getOrDefault(true)
-        provideContent { CompactWidgetContent(snap, dark) }
+        provideContent { CompactWidgetContent(if (account.isCurrent()) snap else WidgetSnapshot(), dark) }
     }
 
     override fun onCompositionError(

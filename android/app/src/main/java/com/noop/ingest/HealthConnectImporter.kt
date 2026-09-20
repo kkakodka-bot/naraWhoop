@@ -211,6 +211,8 @@ object HealthConnectImporter {
      * re-broadened, and it is safe to call from every entry point that can be the first one reached.
      */
     fun migrateSelectionFromGrants(context: Context, granted: Set<String>) {
+        // OS grants belong to the installation, not to the newly authenticated cloud account.
+        if (com.noop.account.AccountStorageContext.capture(context).identity.scope != null) return
         if (prefs(context).getStringSet(CATEGORY_SELECTION_KEY, null) != null) return
         val inferred = categoriesFromGrantedPermissions(granted)
         if (inferred.isNotEmpty()) setSelectedCategories(context, inferred)
@@ -266,7 +268,7 @@ object HealthConnectImporter {
     private const val CATEGORY_SELECTION_KEY = "noop.hc.importCategories"
 
     private fun prefs(context: Context) =
-        context.getSharedPreferences(NoopPrefs.NAME, Context.MODE_PRIVATE)
+        com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(NoopPrefs.NAME, Context.MODE_PRIVATE)
 
     /** #1735: stamp a COMPLETED import run so the diagnostics header can say when data last moved, not
      *  merely how many rows exist. Raw keys written inline, read back by AndroidDiagnostics - the same
@@ -310,6 +312,11 @@ object HealthConnectImporter {
         // non-lazy default is evaluated at CALL time, before the migration could widen it.
         categories: Set<ImportCategory>? = null,
     ): ImportSummary {
+        val captured = com.noop.account.AccountStorageContext.capture(context)
+        if (captured.identity.scope == null || !captured.isCurrent() ||
+            !prefs(captured).contains(PERMISSION_SIGNATURE_KEY)) {
+            return ImportSummary.failure(SOURCE, "Enable Health Connect for this account before importing.")
+        }
         if (sdkStatus(context) != HealthConnectClient.SDK_AVAILABLE) {
             return ImportSummary.failure(SOURCE, "Health Connect is not available on this device.")
         }

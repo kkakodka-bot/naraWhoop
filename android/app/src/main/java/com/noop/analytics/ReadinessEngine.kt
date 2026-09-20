@@ -1,6 +1,7 @@
 package com.noop.analytics
 
 import com.noop.data.DailyMetric
+import java.time.LocalDate
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.sqrt
@@ -141,6 +142,19 @@ object ReadinessEngine {
         return result
     }
 
+    /** Server admission keeps calendar holes; existing app evaluation retains its observed-row policy. */
+    fun evaluateCalendar(days: List<DailyMetric>, today: String): Readiness {
+        val end = LocalDate.parse(today)
+        val byDay = days.filter { it.day <= today }.associateBy { it.day }
+        require(byDay.size == days.count { it.day <= today }) { "duplicate_readiness_day" }
+        val current = byDay[today] ?: return evaluateUncached(emptyList(), today, true)
+        val calendar = (baselineWindow downTo 0).map { back ->
+            val key = end.minusDays(back.toLong()).toString()
+            byDay[key] ?: DailyMetric(current.deviceId, key)
+        }
+        return evaluateUncached(calendar, today, true)
+    }
+
     private data class ReadinessKey(
         val today: String?, val count: Int, val minDay: Int, val maxDay: Int, val checksum: Long,
     )
@@ -179,7 +193,7 @@ object ReadinessEngine {
 
     /** The uncached readiness synthesis (formerly the body of [evaluate]). [days] may be in any order; the
      *  most recent day is "today" unless [today] is given. */
-    private fun evaluateUncached(days: List<DailyMetric>, today: String? = null): Readiness {
+    private fun evaluateUncached(days: List<DailyMetric>, today: String? = null, calendarSlots: Boolean = false): Readiness {
         val sorted = days.sortedBy { it.day }
         // When an explicit [today] is given (the dashboard passes the device's real local day key), use
         // the row for THAT day and nothing else: a stale historical import has no row for today, so the
@@ -196,13 +210,17 @@ object ReadinessEngine {
             )
         }
         val history = sorted.filter { it.day < latest.day }   // everything before today
+        fun baseline(select: (DailyMetric) -> Double?): List<Double?> {
+            val values = history.takeLast(baselineWindow).map(select)
+            return if (calendarSlots) values else values.filterNotNull()
+        }
 
         val signals = mutableListOf<Signal>()
 
         // HRV readiness ------------------------------------------------------
         val hrvSignal = zSignal(
             value = latest.avgHrv,
-            baseline = history.takeLast(baselineWindow).mapNotNull { it.avgHrv },
+            baseline = baseline { it.avgHrv },
             key = "hrv", labelRes = Copy.TODAY_READINESS_SIGNAL_HRV,
             unit = MetricUnit.MS, decimals = 0,
             higherIsBetter = true,
@@ -218,7 +236,7 @@ object ReadinessEngine {
         // Resting-HR drift ---------------------------------------------------
         val rhrSignal = zSignal(
             value = latest.restingHr?.toDouble(),
-            baseline = history.takeLast(baselineWindow).mapNotNull { it.restingHr?.toDouble() },
+            baseline = baseline { it.restingHr?.toDouble() },
             key = "rhr", labelRes = Copy.TODAY_READINESS_SIGNAL_RESTING_HR,
             unit = MetricUnit.BPM, decimals = 0,
             higherIsBetter = false,
@@ -265,7 +283,9 @@ object ReadinessEngine {
         }
 
         // Training Stress Balance (ACWR) + monotony --------------------------
-        val strainSeries = sorted.mapNotNull { it.strain }
+        // A missing load is not a rest day or a shorter calendar. Use the same contiguous-suffix
+        // admission as TrainingLoadEngine; the existing 7/28 means and 14-observation gate are unchanged.
+        val strainSeries = (if (calendarSlots) sorted.takeLastWhile { it.strain != null } else sorted).mapNotNull { it.strain }
         var acwr: Double? = null
         var monotony: Double? = null
         if (strainSeries.size >= minChronic) {
@@ -319,14 +339,14 @@ object ReadinessEngine {
 
     /** Build a z-score signal for a metric where the baseline is the trailing window. */
     private fun zSignal(
-        value: Double?, baseline: List<Double>,
+        value: Double?, baseline: List<Double?>,
         key: String, labelRes: Copy, unit: MetricUnit, decimals: Int, higherIsBetter: Boolean,
         cfg: MetricCfg,
         logDomain: Boolean = false,
         goodTextRes: Copy, neutralTextRes: Copy,
         watchTextRes: Copy, badTextRes: Copy,
     ): Signal? {
-        if (value == null || baseline.size < minBaseline) return null
+        if (value == null || baseline.count { it != null } < minBaseline) return null
         // RD1: right-skewed metrics (HRV/RMSSD) are z-scored in the LOG domain — lnRMSSD is closer to
         // normal, so a symmetric z is statistically valid, whereas a raw-ms z over-weights the long
         // upper tail and misstates tail rarity (Plews/Altini; the app's own HRVReadiness works this
@@ -334,7 +354,7 @@ object ReadinessEngine {
         // baseline shown is then the GEOMETRIC mean (exp of the log-mean) — a typical night, not an
         // outlier-inflated arithmetic mean.
         val tv = if (logDomain) ln(maxOf(value, 1.0)) else value
-        val tb = if (logDomain) baseline.map { ln(maxOf(it, 1.0)) } else baseline
+        val tb = if (logDomain) baseline.map { it?.let { value -> ln(maxOf(value, 1.0)) } } else baseline
         // RD2: fold the trailing baseline through the shared Winsorized-EWMA spine — recency-weighted,
         // σ-floored (a tight baseline can't saturate the z), and Winsor-clamped so a single freak night
         // is DAMPED not folded raw — instead of a flat mean + sample SD. Hard-outlier REJECTION is off

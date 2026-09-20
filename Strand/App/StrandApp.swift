@@ -5,6 +5,10 @@ import UserNotifications
 @main
 struct StrandApp: App {
     init() {
+        if AppRuntimeMode.isUnitTesting {
+            _router = StateObject(wrappedValue: NavRouter())
+            return
+        }
         // #1008: pin the pre-change Overnight-only default for existing installs before
         // anything reads it. Idempotent; a no-op on fresh installs and after the first launch.
         PuffinExperiment.migrateContinuousHrvOvernightDefault()
@@ -28,7 +32,8 @@ struct StrandApp: App {
         NotificationPresenter.shared.onCoachBriefTapped = { [weak router] in router?.openCoach() }
     }
 
-    @StateObject private var model = AppModel()
+    @StateObject private var runtime = AccountAppRuntime.shared
+    private var model: AppModel { runtime.model }
     /// Shared cross-screen navigation hook (e.g. Live → Devices). The macOS shell (`RootView`)
     /// observes it and drives the sidebar selection.
     @StateObject private var router: NavRouter
@@ -45,7 +50,11 @@ struct StrandApp: App {
 
     var body: some Scene {
         WindowGroup {
+            if AppRuntimeMode.isUnitTesting {
+                Color.clear.frame(width: 1, height: 1)
+            } else {
             ContentView()
+                .id(runtime.generation)
                 .environmentObject(model)
                 .environmentObject(model.ble)   // #334: Today pull-to-sync reads BLEManager (no HR churn)
                 .environmentObject(model.live)
@@ -53,6 +62,7 @@ struct StrandApp: App {
                 .environmentObject(model.profile)
                 .environmentObject(model.behavior)
                 .environmentObject(model.intelligence)
+                .environmentObject(model.serverScores)
                 .environmentObject(model.coach)
                 .environmentObject(router)
                 .environmentObject(UpdateStore.shared)
@@ -77,25 +87,33 @@ struct StrandApp: App {
                 // Single-param form (not the two-param `{ _, phase in }`) — that overload needs macOS 14,
                 // this target is macOS 13.
                 .onChange(of: scenePhase) { phase in
+                    runtime.setForeground(phase == .active)
                     if phase == .active { model.ble.requestSync(.foreground) }
                 }
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 820)
 
         // Menu-bar extra: glanceable live HR + a compact popover.
         MenuBarExtra {
+            if !AppRuntimeMode.isUnitTesting {
             MenuBarContent()
+                .id(runtime.generation)
                 .environmentObject(model)
                 .environmentObject(model.repo)
                 .environmentObject(model.live)
                 .environment(\.locale, AppLanguage.activeLocale)
+            }
         } label: {
+            if !AppRuntimeMode.isUnitTesting {
             MenuBarLabel()
+                .id(runtime.generation)
                 .environmentObject(model)
                 .environmentObject(model.repo)
                 .environmentObject(model.live)
                 .environment(\.locale, AppLanguage.activeLocale)
+            }
         }
         .menuBarExtraStyle(.window)
     }

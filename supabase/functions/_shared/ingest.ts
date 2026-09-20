@@ -23,14 +23,18 @@ import {
   archiveWindowFromRecords,
   replacementKeys,
   windowBounds,
+  scalarAppendFields,
+  schemaVersionFor,
+  streamsForVersion,
 } from './registry.ts';
 import { expiresAt } from './retention.ts';
-import { createManifestStore, completeUpload } from './manifests.ts';
+import { createManifestStore } from './manifests.ts';
+import { reserveManifest, completeDurableObject, type DurabilityReceipt } from './durability.ts';
 import { sha256Hex, type S3Store } from './s3.ts';
 import { createPushIngestQuota, createPushWal, type PushWalStore } from './wal.ts';
 import { createPushReplacementStaging, type PushReplacementStaging } from './staging.ts';
 import type { SupabaseRest } from './rest.ts';
-import { ingestStep, PushIngestFailure } from './pushDiagnostics.ts';
+import { ingestStep } from './pushDiagnostics.ts';
 import { validateAppendProjectionRows } from './appendProjection.ts';
 import type { PushFunctionConfig } from './config.ts';
 import type { UploadReceiptStore } from './receipts.ts';
@@ -206,20 +210,15 @@ export function createPushArchive({ cfg, rest, raw }: {
         auth_mode: authMode,
         status: 'pending',
       };
-      await ingestStep('archive_manifest', stream, () => manifests.insertPending(row));
-      const put = await ingestStep('archive_write', stream, () => raw.putObject(key, body, { contentType: spec.contentType }));
-      const digest = sha256 || sha256Hex(body);
-      const done = await ingestStep('archive_verify', stream, () => completeUpload({
-        manifests,
-        objectStore: raw,
-        objectId,
-        expectedBytes: body.length,
-        expectedSha256: digest,
-      }));
-      if (!done.ok) {
-        throw new PushIngestFailure('archive_verify', stream);
+      row.uncompressed_bytes = args.uncompressedBytes ?? body.length;
+      row.push_protocol_version = args.protocolVersion ?? '1.1';
+      row.digest_scope = args.digestScope || 'wire';
+      const reserved = await ingestStep('archive_manifest', stream, () => reserveManifest(rest, row));
+      if (!reserved.durability_receipt) {
+        await ingestStep('archive_write', stream, () => raw.putObject(reserved.upload_object_key || reserved.object_key || key, body, { contentType: spec.contentType }));
       }
-      return { ready: true, objectKey: key, manifest: done.row, etag: put?.etag || null };
+      const durabilityReceipt = await ingestStep('archive_verify', stream, () => completeDurableObject({ rest, raw, row: reserved }));
+      return { ready: true, objectKey: durabilityReceipt.objectKey, durabilityReceipt, manifest: reserved };
     },
   };
 }
@@ -237,17 +236,19 @@ export function createPushIngest({
   resolveDeviceId,
   replacementStaging,
   receiptStore,
+  commitProjection,
   quotaConfig,
   now = () => new Date(),
 }: {
   walStore: PushWalStore;
-  archiveObject: (args: any) => Promise<{ ready: boolean }>;
+  archiveObject: (args: any) => Promise<{ ready: boolean; durabilityReceipt?: DurabilityReceipt }>;
   upsertRows?: (table: string, rows: unknown[], opts: { onConflict: string }) => Promise<unknown>;
   deleteRows?: (table: string, filter: any) => Promise<void>;
   ensureDevice?: (row: Record<string, unknown>) => Promise<unknown>;
   resolveDeviceId?: (args: { userId: string; externalDeviceId: unknown; sourceId?: string | null }) => Promise<string>;
   replacementStaging?: PushReplacementStaging;
   receiptStore?: UploadReceiptStore;
+  commitProjection?: (receipt: DurabilityReceipt, decodedBody: Uint8Array) => Promise<any>;
   quotaConfig?: { maxBatches: number; maxBytes: number; windowSec: number };
   now?: () => Date;
 }) {
@@ -296,6 +297,14 @@ export function createPushIngest({
       if (OBJECT_LANE_STREAMS.has(header.stream)) {
         throw new PushProtocolError('use_object_lane', 422);
       }
+      if (!streamsForVersion(header.protocolVersion).has(header.stream)) {
+        throw new PushProtocolError('unsupported_version', 422);
+      }
+      const schemaVersion = schemaVersionFor(header.stream, header.protocolVersion);
+      if (header.schemaVersion != null && header.schemaVersion !== schemaVersion) {
+        throw new PushProtocolError('invalid_schema_version', 422);
+      }
+      for (const record of records) scalarAppendFields(header.stream, record, header.protocolVersion);
 
       const resolveCanonicalDevice = async () => {
         if (typeof resolveDeviceId === 'function') {
@@ -343,6 +352,10 @@ export function createPushIngest({
       let deviceId = noopDeviceId(userId, header.deviceId);
       const appendProjection = header.delivery === 'append' ? APPEND_STREAM_PROJECTIONS[header.stream] : undefined;
       let appendRows: Record<string, unknown>[] = [];
+      if (commitProjection && manifest?.durabilityReceipt) {
+        return await ingestStep('projection', header.stream, () => commitProjection(manifest.durabilityReceipt, decodedBody));
+      }
+
       if (header.delivery === 'append') {
         if (!appendProjection) throw new PushProtocolError('unsupported_delivery', 422);
         appendRows = records.map((record) => {
@@ -394,8 +407,10 @@ export function createPushIngest({
         contentType: 'application/x-ndjson',
         format: 'ndjson_gzip_noop_push_v1',
         compression: 'gzip',
-        schemaVersion: 1,
+        schemaVersion,
+        protocolVersion: header.protocolVersion,
         sha256: archiveSha256,
+        uncompressedBytes: decodedBody.length,
         sampleCount: header.recordCount,
         startAt,
         endAt,
@@ -405,6 +420,10 @@ export function createPushIngest({
         tokenId,
         authMode,
       }));
+
+      if (commitProjection && manifest?.durabilityReceipt) {
+        return await ingestStep('projection', header.stream, () => commitProjection(manifest.durabilityReceipt, decodedBody));
+      }
 
       if (header.delivery === 'append') {
         const projection = appendProjection;
