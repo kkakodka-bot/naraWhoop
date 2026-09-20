@@ -8,7 +8,7 @@ struct ExperimentEvent: Codable, Identifiable, Sendable {
     var label: String
     var note: String?
     let deviceId: String
-    let startUnixSeconds: Double
+    var startUnixSeconds: Double
     var endUnixSeconds: Double?
     let timeZoneIdentifier: String
     let source: String
@@ -18,6 +18,9 @@ struct ExperimentEventExport: Codable, Sendable {
     let schemaVersion: Int
     let exportedAtUnixSeconds: Double
     let events: [ExperimentEvent]
+    let eventLabels: [String]
+    /// Retained for older analysis tools. New clients should use `eventLabels`, which includes every
+    /// editable preset rather than separating factory and user-created labels.
     let customLabels: [String]
 }
 
@@ -31,17 +34,22 @@ protocol ExperimentEventPushSource: Sendable {
 @MainActor
 final class ExperimentEventLog: ObservableObject {
     static let shared = ExperimentEventLog()
-    static let builtInLabels = [
+    static let defaultLabels = [
         "Rest", "Walking", "Wrist movement", "Sleeve warming",
         "Off wrist", "Posture change", "Mental arithmetic",
     ]
     @Published private(set) var events: [ExperimentEvent] = []
-    @Published private(set) var customLabels: [String] = []
+    @Published private(set) var eventLabels: [String] = defaultLabels
     @Published private(set) var errorMessage: String?
     private var fileURL: URL?
     private var loaded = false
 
     var active: ExperimentEvent? { events.last(where: { $0.endUnixSeconds == nil }) }
+    var customLabels: [String] {
+        eventLabels.filter { label in
+            !Self.defaultLabels.contains { $0.caseInsensitiveCompare(label) == .orderedSame }
+        }
+    }
 
     init(fileURL: URL? = nil) {
         do {
@@ -59,7 +67,12 @@ final class ExperimentEventLog: ObservableObject {
                 let data = try Data(contentsOf: url)
                 if let state = try? JSONDecoder().decode(PersistedState.self, from: data) {
                     events = state.events
-                    customLabels = state.customLabels
+                    if let savedLabels = state.eventLabels {
+                        eventLabels = deduplicated(savedLabels)
+                    } else {
+                        // Builds 345-355 stored factory labels in code and only persisted additions.
+                        eventLabels = deduplicated(Self.defaultLabels + (state.customLabels ?? []))
+                    }
                 } else {
                     // Build 345 stored a bare event array. Read it once and upgrade on the next write.
                     events = try JSONDecoder().decode([ExperimentEvent].self, from: data)
@@ -79,6 +92,32 @@ final class ExperimentEventLog: ObservableObject {
             startUnixSeconds: date.timeIntervalSince1970, endUnixSeconds: nil,
             timeZoneIdentifier: TimeZone.current.identifier, source: "manual_experiment"))
         save(next)
+    }
+
+    /// Add an interval after it happened. Unlike `start`, this does not affect the active recorder.
+    /// The complete event is committed atomically so it is immediately available to JSON/cloud export.
+    @discardableResult
+    func addCompleted(label value: String, note: String? = nil, deviceId: String,
+                      start: Date, end: Date) -> Bool {
+        let label = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard loaded, !label.isEmpty else { return false }
+        guard end >= start else {
+            errorMessage = "End time must be after the start time."
+            return false
+        }
+        guard end <= Date().addingTimeInterval(60) else {
+            errorMessage = "Past events cannot end in the future."
+            return false
+        }
+        var next = events
+        next.append(ExperimentEvent(id: UUID(), label: label, note: trimmed(note), deviceId: deviceId,
+            startUnixSeconds: start.timeIntervalSince1970, endUnixSeconds: end.timeIntervalSince1970,
+            timeZoneIdentifier: TimeZone.current.identifier, source: "manual_experiment_retroactive"))
+        next.sort {
+            if $0.startUnixSeconds != $1.startUnixSeconds { return $0.startUnixSeconds < $1.startUnixSeconds }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+        return save(next)
     }
 
     func stop(at date: Date = Date()) {
@@ -114,19 +153,55 @@ final class ExperimentEventLog: ObservableObject {
         save(next)
     }
 
-    func addCustomLabel(_ value: String) {
+    @discardableResult
+    func addEventLabel(_ value: String) -> Bool {
         let label = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard loaded, !label.isEmpty,
-              !Self.builtInLabels.contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame }),
-              !customLabels.contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame }) else { return }
-        save(events, customLabels: customLabels + [label])
+        guard loaded, !label.isEmpty else { return false }
+        guard !eventLabels.contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame }) else {
+            errorMessage = "An event type with that name already exists."
+            return false
+        }
+        return save(events, eventLabels: eventLabels + [label])
     }
 
-    func removeCustomLabel(_ value: String) {
+    func addCustomLabel(_ value: String) { _ = addEventLabel(value) }
+
+    func removeEventLabel(_ value: String) {
         guard loaded else { return }
-        let next = customLabels.filter { $0.caseInsensitiveCompare(value) != .orderedSame }
-        guard next != customLabels else { return }
-        save(events, customLabels: next)
+        let next = eventLabels.filter { $0.caseInsensitiveCompare(value) != .orderedSame }
+        guard next != eventLabels else { return }
+        _ = save(events, eventLabels: next)
+    }
+
+    func removeCustomLabel(_ value: String) { removeEventLabel(value) }
+
+    @discardableResult
+    func renameEventLabel(_ oldValue: String, to newValue: String) -> Bool {
+        let label = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard loaded, !label.isEmpty,
+              let index = eventLabels.firstIndex(where: { $0.caseInsensitiveCompare(oldValue) == .orderedSame }) else {
+            return false
+        }
+        guard !eventLabels.enumerated().contains(where: {
+            $0.offset != index && $0.element.caseInsensitiveCompare(label) == .orderedSame
+        }) else {
+            errorMessage = "An event type with that name already exists."
+            return false
+        }
+        var next = eventLabels
+        next[index] = label
+        return save(events, eventLabels: next)
+    }
+
+    func moveEventLabels(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        guard loaded, !offsets.isEmpty else { return }
+        var next = eventLabels
+        let moving = offsets.sorted().map { next[$0] }
+        for index in offsets.sorted(by: >) { next.remove(at: index) }
+        let removedBeforeDestination = offsets.filter { $0 < destination }.count
+        let insertion = max(0, min(next.count, destination - removedBeforeDestination))
+        next.insert(contentsOf: moving, at: insertion)
+        _ = save(events, eventLabels: next)
     }
 
     func update(id: UUID, label value: String, note: String?) {
@@ -136,6 +211,30 @@ final class ExperimentEventLog: ObservableObject {
         next[index].label = label
         next[index].note = trimmed(note)
         save(next)
+    }
+
+    @discardableResult
+    func update(id: UUID, label value: String, note: String?, start: Date, end: Date) -> Bool {
+        let label = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard loaded, !label.isEmpty, let index = events.firstIndex(where: { $0.id == id }) else { return false }
+        guard end >= start else {
+            errorMessage = "End time must be after the start time."
+            return false
+        }
+        guard end <= Date().addingTimeInterval(60) else {
+            errorMessage = "Past events cannot end in the future."
+            return false
+        }
+        var next = events
+        next[index].label = label
+        next[index].note = trimmed(note)
+        next[index].startUnixSeconds = start.timeIntervalSince1970
+        next[index].endUnixSeconds = end.timeIntervalSince1970
+        next.sort {
+            if $0.startUnixSeconds != $1.startUnixSeconds { return $0.startUnixSeconds < $1.startUnixSeconds }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+        return save(next)
     }
 
     func delete(id: UUID) {
@@ -151,9 +250,10 @@ final class ExperimentEventLog: ObservableObject {
             let url = FileManager.default.temporaryDirectory
                 .appendingPathComponent("noop-events-\(UUID().uuidString).json")
             let snapshot = ExperimentEventExport(
-                schemaVersion: 2,
+                schemaVersion: 3,
                 exportedAtUnixSeconds: Date().timeIntervalSince1970,
                 events: events,
+                eventLabels: eventLabels,
                 customLabels: customLabels
             )
             let encoder = JSONEncoder()
@@ -198,22 +298,27 @@ final class ExperimentEventLog: ObservableObject {
             .prefix(limit))
     }
 
-    private func save(_ next: [ExperimentEvent]) {
-        save(next, customLabels: customLabels)
+    @discardableResult
+    private func save(_ next: [ExperimentEvent]) -> Bool {
+        save(next, eventLabels: eventLabels)
     }
 
-    private func save(_ next: [ExperimentEvent], customLabels nextLabels: [String]) {
-        guard loaded, let fileURL else { return }
+    @discardableResult
+    private func save(_ next: [ExperimentEvent], eventLabels nextLabels: [String]) -> Bool {
+        guard loaded, let fileURL else { return false }
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let state = PersistedState(schemaVersion: 2, events: next, customLabels: nextLabels)
+            let state = PersistedState(schemaVersion: 3, events: next,
+                                       customLabels: nil, eventLabels: nextLabels)
             try encoder.encode(state).write(to: fileURL, options: .atomic)
             events = next
-            customLabels = nextLabels
+            eventLabels = nextLabels
             errorMessage = nil
+            return true
         } catch {
             errorMessage = "Event was not saved: \(error.localizedDescription). Please try again."
+            return false
         }
     }
 
@@ -223,10 +328,22 @@ final class ExperimentEventLog: ObservableObject {
         return result.isEmpty ? nil : result
     }
 
+    private func deduplicated(_ values: [String]) -> [String] {
+        var result: [String] = []
+        for value in values {
+            let label = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty,
+                  !result.contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame }) else { continue }
+            result.append(label)
+        }
+        return result
+    }
+
     private struct PersistedState: Codable {
         let schemaVersion: Int
         let events: [ExperimentEvent]
-        let customLabels: [String]
+        let customLabels: [String]?
+        let eventLabels: [String]?
     }
 }
 

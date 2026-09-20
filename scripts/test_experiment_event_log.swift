@@ -9,11 +9,25 @@ struct ExperimentEventLogSmokeTest {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent("events.json")
         let start = Date(timeIntervalSince1970: 1_789_763_348.125)
+
+        // Schema-2 installs persisted only user-added labels. Migration must turn the factory list
+        // into ordinary editable entries without losing those additions.
+        let legacyURL = directory.appendingPathComponent("legacy-events.json")
+        try Data("""
+        {"schemaVersion":2,"events":[],"customLabels":["Reading"]}
+        """.utf8).write(to: legacyURL)
+        let migrated = ExperimentEventLog(fileURL: legacyURL)
+        precondition(migrated.eventLabels == ExperimentEventLog.defaultLabels + ["Reading"])
+        ExperimentEventLog.defaultLabels.forEach(migrated.removeEventLabel)
+        migrated.removeEventLabel("Reading")
+        precondition(ExperimentEventLog(fileURL: legacyURL).eventLabels.isEmpty)
+
         let log = ExperimentEventLog(fileURL: url)
         log.addCustomLabel("  Reading  ")
         log.addCustomLabel("reading")
         log.addCustomLabel("rest")
         precondition(log.customLabels == ["Reading"])
+        precondition(log.eventLabels == ExperimentEventLog.defaultLabels + ["Reading"])
         log.start(label: "  Walking  ", note: "  uphill  ", deviceId: "strap-A", at: start)
         precondition(log.active?.label == "Walking")
         precondition(log.active?.note == "uphill")
@@ -44,19 +58,36 @@ struct ExperimentEventLogSmokeTest {
         precondition(saved.events[0].label == "Outdoor walk")
         precondition(saved.events[0].note == "sunny")
         precondition(saved.events[0].endUnixSeconds! - saved.events[0].startUnixSeconds == 90.5)
+
+        // A completed interval can be added after the fact without becoming the active event.
+        precondition(saved.addCompleted(label: "Reading", note: "chapter 3", deviceId: "strap-A",
+                                        start: start.addingTimeInterval(120),
+                                        end: start.addingTimeInterval(180)))
+        precondition(saved.active == nil && saved.events.count == 2)
+        precondition(!saved.addCompleted(label: "Invalid", deviceId: "strap-A",
+                                         start: start.addingTimeInterval(300),
+                                         end: start.addingTimeInterval(200)))
+
+        // Factory presets are ordinary editable event types after migration.
+        precondition(saved.renameEventLabel("Rest", to: "Recovery rest"))
+        saved.removeEventLabel("Walking")
+        precondition(saved.eventLabels.first == "Recovery rest")
+        precondition(!saved.eventLabels.contains("Walking"))
         let exported = try JSONDecoder().decode(ExperimentEventExport.self,
             from: Data(contentsOf: saved.export()!))
-        precondition(exported.schemaVersion == 2)
-        precondition(exported.customLabels == ["Reading"])
-        precondition(exported.events[0].id == saved.events[0].id)
-        precondition(exported.events[0].endUnixSeconds == saved.events[0].endUnixSeconds)
+        precondition(exported.schemaVersion == 3)
+        precondition(exported.eventLabels == saved.eventLabels)
+        precondition(exported.events.count == 2)
+        precondition(exported.events.first(where: { $0.id == eventID })?.endUnixSeconds ==
+                     saved.events.first(where: { $0.id == eventID })?.endUnixSeconds)
 
         saved.removeCustomLabel("reading")
-        precondition(saved.customLabels.isEmpty)
+        precondition(!saved.eventLabels.contains("Reading"))
         saved.delete(id: eventID)
-        precondition(saved.events.isEmpty)
+        precondition(saved.events.count == 1)
         let deleted = ExperimentEventLog(fileURL: url)
-        precondition(deleted.events.isEmpty && deleted.customLabels.isEmpty)
+        precondition(deleted.events.count == 1)
+        precondition(deleted.eventLabels == saved.eventLabels)
 
         // Corrupt existing labels must never be replaced by an empty/new log.
         let corruptURL = directory.appendingPathComponent("corrupt.json")
@@ -83,6 +114,6 @@ struct ExperimentEventLogSmokeTest {
         try FileManager.default.createDirectory(at: stopURL, withIntermediateDirectories: false)
         stopFailure.stop(at: start.addingTimeInterval(30))
         precondition(stopFailure.active != nil && stopFailure.errorMessage != nil)
-        print("PASS: persistence, duplicate taps, clock reversal, exact export, corrupt-file protection, write failure")
+        print("PASS: persistence, retroactive intervals, editable presets, duplicate taps, clock reversal, export, corrupt-file protection, write failure")
     }
 }
