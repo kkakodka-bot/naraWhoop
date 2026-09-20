@@ -8,5 +8,5 @@ suite.addTest(ResourceBudgetTests.defaultTestSuite)
 suite.run()
 guard let result = suite.testRun else { exit(2) }
 print("PersistentSyncNative: executed=\(result.executionCount) failures=\(result.totalFailureCount) skipped=\(result.skipCount)")
-guard result.executionCount == 15, result.skipCount == 0 else { exit(2) }
+guard result.executionCount == 16, result.skipCount == 0 else { exit(2) }
 exit(result.hasSucceeded ? 0 : 1)

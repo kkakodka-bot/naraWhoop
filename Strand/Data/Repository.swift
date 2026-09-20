@@ -378,8 +378,18 @@ final class Repository: ObservableObject {
 
     /// One immutable server revision feeds every existing repository consumer, including extensions.
     /// Raw/source rows stay in their original tables; switching ownership does not rewrite them.
-    func applyServerScores(_ state: ServerScoreViewState) {
-        guard accountRuntimeActive, state != serverPresentation else { return }
+    @discardableResult
+    func applyServerScores(_ state: ServerScoreViewState) -> Bool {
+        guard accountRuntimeActive, state != serverPresentation else { return false }
+        let contentChanged = state.revision != serverPresentation.revision
+            || state.generation != serverPresentation.generation
+            || state.currentDay != serverPresentation.currentDay
+            || state.timezone != serverPresentation.timezone
+            || state.configured != serverPresentation.configured
+            || state.authenticated != serverPresentation.authenticated
+            || state.capabilities != serverPresentation.capabilities
+            || state.activated != serverPresentation.activated
+            || state.days.compactMapValues(\.snapshot) != serverPresentation.days.compactMapValues(\.snapshot)
         if !hasLocalPresentation {
             localPresentationDays = days
             localPresentationSleeps = sleeps
@@ -387,9 +397,12 @@ final class Repository: ObservableObject {
             hasLocalPresentation = true
         }
         serverPresentation = state
+        // Loading/offline/freshness remain observable without invalidating every derived series.
+        guard contentChanged else { return false }
         publishServerPresentation()
         exploreAllCache = nil
         refreshSeq &+= 1
+        return true
     }
 
     private func publishServerPresentation() {

@@ -42,6 +42,12 @@ final class ResourceBudget: @unchecked Sendable {
 
     func permits(_ work: Work) -> Bool {
         guard work == .bulk else { return true }
+        return bulkResumeDelay() == 0
+    }
+
+    /// Nil while pressure is active; otherwise the remaining foreground optimization delay.
+    /// Durable debt must still be reconciled on OS/lifecycle wakes; this is not a background timer.
+    func bulkResumeDelay() -> TimeInterval? {
         lock.lock(); defer { lock.unlock() }
         let now = clock()
         let processPressure = thermal() >= ProcessInfo.ThermalState.serious.rawValue || lowPower()
@@ -52,8 +58,8 @@ final class ResourceBudget: @unchecked Sendable {
         }
         if !historyOwners.isEmpty || processPressure {
             resumeAfter = now + cooldown
-            return false
+            return nil
         }
-        return now >= resumeAfter
+        return max(0, resumeAfter - now)
     }
 }

@@ -133,4 +133,25 @@ final class ResourceBudgetTests: XCTestCase {
         let budget = environment.budget()
         XCTAssertTrue(budget.permits(.bulk))
     }
+
+    func testResumeDelayTracksLastOwnerAndDoesNotPollWhilePressureIsActive() {
+        let environment = Environment()
+        let budget = environment.budget()
+        let owner = UUID()
+        XCTAssertEqual(budget.bulkResumeDelay(), 0)
+        budget.history(owner: owner, active: true)
+        XCTAssertNil(budget.bulkResumeDelay())
+        environment.update(now: 110)
+        budget.history(owner: owner, active: false)
+        XCTAssertEqual(budget.bulkResumeDelay(), 15)
+        environment.update(now: 124)
+        XCTAssertEqual(budget.bulkResumeDelay(), 1)
+        environment.update(now: 125)
+        XCTAssertEqual(budget.bulkResumeDelay(), 0)
+        environment.update(thermal: .serious)
+        XCTAssertNil(budget.bulkResumeDelay())
+        environment.update(now: 200, thermal: .nominal)
+        XCTAssertEqual(budget.bulkResumeDelay(), 15)
+        XCTAssertTrue(budget.permits(.acknowledgement))
+    }
 }

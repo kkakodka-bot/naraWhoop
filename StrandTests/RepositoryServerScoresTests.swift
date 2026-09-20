@@ -78,6 +78,39 @@ final class RepositoryServerScoresTests: XCTestCase {
         XCTAssertTrue(repo.localSleepModelSleeps.isEmpty)
     }
 
+    func testStatusOnlyPublicationPreservesDerivedRevisionButKeepsStatusVisible() throws {
+        let repo = Repository(deviceId: "my-whoop")
+        repo.days = [local()]
+        let initial = try state()
+        XCTAssertTrue(repo.applyServerScores(initial))
+        let sequence = repo.refreshSeq
+        let projected = repo.days
+        for phase in [ServerScoreDayState.Phase.loading, .offline, .authenticationRequired] {
+            let changed = ServerScoreViewState(generation: initial.generation, revision: initial.revision,
+                currentDay: initial.currentDay, timezone: initial.timezone, configured: true, authenticated: true,
+                capabilities: initial.capabilities, activated: initial.activated,
+                days: initial.days.mapValues { $0.retaining(phase) })
+            XCTAssertFalse(repo.applyServerScores(changed))
+            XCTAssertEqual(repo.serverPresentation.days[day]?.phase, phase)
+            XCTAssertEqual(repo.refreshSeq, sequence)
+            XCTAssertEqual(repo.days, projected)
+        }
+    }
+
+    func testSameNumericRevisionNeverSuppressesOwnershipOrAccountReplacement() throws {
+        let repo = Repository(deviceId: "my-whoop")
+        repo.days = [local()]
+        let initial = try state()
+        repo.applyServerScores(initial)
+        let sequence = repo.refreshSeq
+        let replacement = ServerScoreViewState(generation: UUID(), revision: initial.revision,
+            currentDay: initial.currentDay, timezone: initial.timezone, configured: true, authenticated: true,
+            capabilities: initial.capabilities, activated: [], days: [:])
+        XCTAssertTrue(repo.applyServerScores(replacement))
+        XCTAssertGreaterThan(repo.refreshSeq, sequence)
+        XCTAssertEqual(repo.days, [local()])
+    }
+
     func testMetricCatalogAliasesResolveToTheSameOwnershipKeys() throws {
         XCTAssertEqual(RepositoryServerScores.metric(key: "spo2"), .spo2)
         XCTAssertEqual(RepositoryServerScores.metric(key: "energy_kcal"), .activeKcal)

@@ -413,6 +413,9 @@ enum SyncMaintenanceBackgroundScheduler {
     @MainActor
     private static func shouldRearm() async -> Bool {
         guard let model = AppModel.shared else { return false }
+        // Pressure holds are not settled debt. Keep an OS-owned opportunity without starting
+        // projection preparation during the very backlog/cooldown that deferred it.
+        if !ResourceBudget.shared.permits(.bulk) { return await model.syncEngine.hasOwedWork() }
         return await model.syncEngine.hasRunnableWork()
     }
 

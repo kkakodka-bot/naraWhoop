@@ -30,8 +30,9 @@ final class AppModel: ObservableObject {
     func setForeground(_ foreground: Bool) {
         isForeground = foreground
         guard isAccountRuntimeActive else { return }
-        serverScores.setForeground(foreground)
+        if serverScoreCacheBootstrapFinished { serverScores.setForeground(foreground) }
         if foreground {
+            resumePostOffloadRefreshIfNeeded()
             schedulePreferenceRecompute()
             scheduleScoringProfileInputs()
             scoringInputs?.reconcile()
@@ -39,6 +40,10 @@ final class AppModel: ObservableObject {
             if captureAdmissionEnabled {
                 Task { [weak self] in await self?.retryCaptureForForeground() }
             }
+        } else {
+            postOffloadRefreshTask?.cancel()
+            postOffloadRefreshTask = nil
+            postOffloadRefreshTaskID = nil
         }
     }
 
@@ -265,7 +270,13 @@ final class AppModel: ObservableObject {
     }
     private var startupTask: Task<Void, Never>?
     private var pushCadenceTask: Task<Void, Never>?
+    private var postOffloadRefreshPending = false
+    private var postOffloadRefreshRequest: UInt64 = 0
+    private var postOffloadRefreshTask: Task<Void, Never>?
+    private var postOffloadRefreshTaskID: UUID?
+    private let resourceBudget: ResourceBudget
     private var serverPresentationCancellable: AnyCancellable?
+    private var serverScoreCacheBootstrapFinished = false
     private var preferencePreparation: Task<Void, Error>?
     private var preferenceRefreshTask: Task<Void, Never>?
     private var sourceCoordinatorPreparationInFlight = false
@@ -379,8 +390,10 @@ final class AppModel: ObservableObject {
          nativePreferenceCurrent: @escaping @Sendable (AccountSessionContext) -> Bool = { CloudAuthClient.isCurrent($0) },
          preferenceScoringEnabled: @escaping () -> Bool = { ServerScoringSettings.isEnabled },
          preferenceRecomputeDriver: IntelligenceEngine.PreferenceRecomputeDriver? = nil,
+         resourceBudget: ResourceBudget = .shared,
          isCurrent: @escaping (AccountSessionContext?) -> Bool = { $0 == CloudAuthClient.currentContext() }) {
         self.accountContext = context
+        self.resourceBudget = resourceBudget
         self.capturePreparationHooks = capturePreparationHooks
         self.currentAccountCheck = isCurrent
         self.nativePreferenceCurrent = nativePreferenceCurrent
@@ -520,6 +533,9 @@ final class AppModel: ObservableObject {
         accountPreferences.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }.store(in: &hrCancellables)
+        // AccountAppRuntime can foreground this model before its startup task opens the cache.
+        // Hold network readback until that bounded cache attempt finishes, including view requests.
+        serverScores.setForeground(false)
         guard !AppRuntimeMode.isUnitTesting, consistent, context != nil else { return }
         Task { [weak self] in
             guard let self, self.isAccountRuntimeActive else { return }
@@ -666,7 +682,13 @@ final class AppModel: ObservableObject {
         live.$postOffloadBurstCompleted
             .dropFirst()
             .sink { [weak self] _ in
-                Task { [weak self] in await self?.refreshAfterCompletedBackfill() }
+                guard let self, self.isAccountRuntimeActive else { return }
+                self.postOffloadRefreshRequest &+= 1
+                self.postOffloadRefreshPending = true
+                self.resumePostOffloadRefreshIfNeeded()
+                #if os(iOS)
+                SyncMaintenanceBackgroundScheduler.scheduleIfNeeded()
+                #endif
             }
             .store(in: &hrCancellables)
 
@@ -680,6 +702,10 @@ final class AppModel: ObservableObject {
 
         AppModel.shared = self   // publish for App Intents (Shortcuts) , see the static above (#42)
         syncEngine.bind(self)
+        NotificationCenter.default.publisher(for: ResourceBudget.changed)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.resumePostOffloadRefreshIfNeeded() }
+            .store(in: &hrCancellables)
         NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -719,6 +745,15 @@ final class AppModel: ObservableObject {
         // main thread free for SwiftUI during the deep-history pass right after an import / first launch.
         startupTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
+            // Cached cloud content is a launch dependency; archive preparation and debt drains aren't.
+            if let store = await self.repo.storeHandle() {
+                guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
+                await self.serverScores.wireAndHydrate(store: store)
+                guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
+            }
+            guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
+            self.serverScoreCacheBootstrapFinished = true
+            self.serverScores.setForeground(self.isForeground)
             #if DEBUG
             // DEBUG-only: when launched with `--demo-seed`, populate a deterministic synthetic
             // dataset so an empty simulator/dev build can walk every screen (verification + marketing
@@ -750,12 +785,6 @@ final class AppModel: ObservableObject {
             // event. Resume that durable handoff on launch; this is a no-op when no job is owed.
             await self.syncEngine.drain(reason: .stateRestoration)
             await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
-            if let store = await self.repo.storeHandle() {
-                self.serverScores.wire(store: store)
-                if self.isForeground {
-                    self.serverScores.startPolling(todayKey: Repository.localDayKey(Date()))
-                }
-            }
             await self.recordAppVersionChangeIfNeeded()        // #1410: stamp an update transition once
             if ServerScoringSettings.isEnabled {
                 self.pushCadenceTask = Task(priority: .utility) { [weak self] in
@@ -875,6 +904,10 @@ final class AppModel: ObservableObject {
         scoringContextConsent?.retire()
         serverPresentationCancellable = nil
         pushCadenceTask?.cancel()
+        postOffloadRefreshTask?.cancel()
+        postOffloadRefreshTask = nil
+        postOffloadRefreshTaskID = nil
+        postOffloadRefreshPending = false
         smartAlarmRearmTimer?.invalidate()
         smartAlarmRearmTimer = nil
         hrCancellables.removeAll()
@@ -1367,39 +1400,79 @@ final class AppModel: ObservableObject {
         // Export surfaces remain owed in SyncEngine and run only after the captured rescore token settles.
     }
 
-    private func refreshAfterCompletedBackfill() async {
+    private func resumePostOffloadRefreshIfNeeded() {
+        guard postOffloadRefreshPending, postOffloadRefreshTask == nil,
+              isAccountRuntimeActive, isForeground,
+              let delay = resourceBudget.bulkResumeDelay() else { return }
+        let id = UUID()
+        postOffloadRefreshTaskID = id
+        postOffloadRefreshTask = Task { [weak self] in
+            if delay > 0 {
+                do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+                catch { return }
+            }
+            guard let self, !Task.isCancelled, self.isAccountRuntimeActive, self.isForeground,
+                  self.postOffloadRefreshTaskID == id, self.postOffloadRefreshPending else { return }
+            defer {
+                if self.postOffloadRefreshTaskID == id {
+                    self.postOffloadRefreshTask = nil
+                    self.postOffloadRefreshTaskID = nil
+                    self.resumePostOffloadRefreshIfNeeded()
+                }
+            }
+            let request = self.postOffloadRefreshRequest
+            let completed = await self.refreshAfterCompletedBackfill()
+            if completed, !Task.isCancelled, self.postOffloadRefreshRequest == request {
+                self.postOffloadRefreshPending = false
+            }
+        }
+    }
+
+    private func refreshAfterCompletedBackfill() async -> Bool {
+        guard isAccountRuntimeActive, !Task.isCancelled,
+              resourceBudget.permits(.bulk) else { return false }
         // Terminal empty/duplicate sessions still publish the BLE boundary so an earlier durable burst can
         // flush. If no job is owed, there is no earlier productive work: avoid a 120-day refresh and the
         // rest of the expensive tail for a phantom/console-only completion.
-        guard await syncEngine.hasOwedWork() else {
+        let owed = await syncEngine.hasOwedWork()
+        guard isAccountRuntimeActive, !Task.isCancelled else { return false }
+        guard owed else {
             live.append(log: "Backfill: burst terminal with no new durable rows; downstream drain skipped")
-            return
+            return true
         }
+        guard resourceBudget.permits(.bulk) else { return false }
         live.append(log: "Backfill: refreshing dashboard cache from completed sync")
         await repo.refresh(days: 120)
+        guard isAccountRuntimeActive, !Task.isCancelled,
+              resourceBudget.permits(.bulk) else { return false }
         await deriveCurrentHRV()
         // Post-offload pipeline: re-score (#1538 deferral still inside RescoreBackgroundScheduler.run),
         // cloud push, Apple Health write-back (#1021), and widget publish (#980) all drain through one
         // orchestrator so owed work survives suspension and every wake can settle every stage.
         await syncEngine.drain(reason: .offloadComplete)
         await refreshV5Signals()
+        return isAccountRuntimeActive && !Task.isCancelled && resourceBudget.permits(.bulk)
     }
 
     /// Lightweight trailing-window HRV readout — one small R-R window, not the 21-day rescore. Runs off
     /// the main actor; publishes on success only. No-ops when the newest R-R row is older than the
     /// backfill interval (stale strap / app was asleep).
     private func deriveCurrentHRV() async {
-        guard let store = await repo.storeHandle() else { return }
+        guard isAccountRuntimeActive, !Task.isCancelled,
+              let store = await repo.storeHandle(), isAccountRuntimeActive else { return }
         let now = Int(Date().timeIntervalSince1970)
         let from = now - CurrentHRV.windowSeconds
         let deviceId = repo.deviceId
         guard let rows = try? await store.rrIntervals(deviceId: deviceId, from: from, to: now, limit: 10_000),
               let newest = rows.map(\.ts).max(),
               now - newest <= CurrentHRV.staleThresholdSeconds else { return }
+        guard isAccountRuntimeActive, !Task.isCancelled, repo.deviceId == deviceId,
+              resourceBudget.permits(.bulk) else { return }
 
         let snapshot = await Task.detached(priority: .utility) {
             CurrentHRV.derive(rows: rows, nowUnix: now)
         }.value
+        guard isAccountRuntimeActive, !Task.isCancelled, repo.deviceId == deviceId else { return }
         if let snapshot { currentHrv = snapshot }
     }
 
@@ -2697,7 +2770,9 @@ final class AppModel: ObservableObject {
     func refreshV5Signals() async {
         guard isAccountRuntimeActive else { return }
         refreshServerContextPresentation()
+        guard resourceBudget.permits(.bulk), !Task.isCancelled else { return }
         await computeCyclePhase()
+        guard isAccountRuntimeActive, resourceBudget.permits(.bulk), !Task.isCancelled else { return }
         await computeCircadianPhase()
     }
 
@@ -2710,8 +2785,9 @@ final class AppModel: ObservableObject {
         guard state.days.values.allSatisfy({ entry in
             entry.snapshot.map { $0.userId == accountContext?.scope.userID } ?? true
         }) else { return }
-        repo.applyServerScores(state)
-        refreshServerContextPresentation()
+        if repo.applyServerScores(state) {
+            refreshServerContextPresentation()
+        }
     }
 
     private func refreshServerContextPresentation() {

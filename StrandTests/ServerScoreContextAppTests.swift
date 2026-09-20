@@ -53,23 +53,28 @@ final class ServerScoreContextAppTests: XCTestCase {
             context = .init(scope: scope, generation: UUID())
             layout = .init(baseDirectory: root, scope: scope)
             let captured = context
+            // This suite exercises publication races, not another suite's history cooldown or host heat.
+            let budget = ResourceBudget(cooldown: 0, thermal: { 0 }, lowPower: { false })
             if let inputGate {
                 model = AppModel(storageLayout: layout, context: context, captureAllowed: false,
                     openStore: { await inputGate.open() },
                     postIllnessNotification: { [weak self] in self?.notificationMessages.append($0) },
                     scoringInputDependencies: ScoringPreferenceAppTestSupport.dependencies(context: captured, isCurrent: { $0 == captured }),
                     nativePreferenceCurrent: { $0 == captured },
+                    resourceBudget: budget,
                     isCurrent: { $0 == captured })
             } else if recordNotifications {
                 model = AppModel(storageLayout: layout, context: context, captureAllowed: false,
                     postIllnessNotification: { [weak self] in self?.notificationMessages.append($0) },
                     scoringInputDependencies: ScoringPreferenceAppTestSupport.dependencies(context: captured, isCurrent: { $0 == captured }),
                     nativePreferenceCurrent: { $0 == captured },
+                    resourceBudget: budget,
                     isCurrent: { $0 == captured })
             } else {
                 model = AppModel(storageLayout: layout, context: context, captureAllowed: false,
                     scoringInputDependencies: ScoringPreferenceAppTestSupport.dependencies(context: captured, isCurrent: { $0 == captured }),
-                    nativePreferenceCurrent: { $0 == captured }, isCurrent: { $0 == captured })
+                    nativePreferenceCurrent: { $0 == captured }, resourceBudget: budget,
+                    isCurrent: { $0 == captured })
             }
         }
         func close() async throws {
