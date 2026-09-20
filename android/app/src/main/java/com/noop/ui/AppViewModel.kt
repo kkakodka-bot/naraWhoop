@@ -48,6 +48,8 @@ import com.noop.ingest.HealthConnectWriter
 import com.noop.ingest.LiftingImporter
 import com.noop.notif.IllnessAlertNotifier
 import com.noop.notif.ScheduledReportNotifier
+import com.noop.push.SelfHostedPushScheduler
+import com.noop.push.ServerScoringSettings
 import com.noop.notif.StrainTargetNotifier
 import com.noop.notif.ScheduledReportPolicy
 import com.noop.notif.scorePctOrNull
@@ -133,6 +135,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val ble = noopApp.ble
 
     val repo: WhoopRepository get() = repository
+
+    val serverScores get() = noopApp.serverScoreRepository
 
     /** The registry's active strap id (the same id the read path resolves to). The getter stays source
      * compatible for existing call sites; reactive screens collect [activeStrapIdFlow]. */
@@ -817,7 +821,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
         override fun onActivityStarted(activity: android.app.Activity) {}
-        override fun onActivityPaused(activity: android.app.Activity) {}
+        override fun onActivityPaused(activity: android.app.Activity) {
+            SelfHostedPushScheduler.flushOnBackground(appContext)
+        }
         override fun onActivityStopped(activity: android.app.Activity) {}
         override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
         override fun onActivityDestroyed(activity: android.app.Activity) {}
@@ -833,6 +839,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // export can answer "what ran when". Idempotent — the stored last-seen version only advances
         // once the transition is recorded, so a background-only launch is caught on the next UI open.
         viewModelScope.launch { recordAppVersionChange() }
+        // Phase 4: when server scoring is on, keep push cadence at 30–60 s while foreground (spec).
+        viewModelScope.launch {
+            while (isActive) {
+                SelfHostedPushScheduler.enqueueIfDue(
+                    appContext, ServerScoringSettings.IDLE_PUSH_INTERVAL_MS)
+                delay(ServerScoringSettings.IDLE_PUSH_INTERVAL_MS)
+            }
+        }
         // #1121: re-arm the opt-in detailed-capture rolling log on launch, so a capture the user started
         // keeps going across the process being killed (this phone class is not battery-exempt and Android
         // kills the background BLE overnight — the very window a battery capture needs to span).
@@ -1146,7 +1160,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 // read could straddle a concurrent write from a completing pass.
                 val analyzeHasNewData = analyzeFp != NoopPrefs.analyzeWatermark(appContext)
                 if (analyzeHasNewData) ble.externalLog("re-score: trigger=idle newData=yes")
-                if (analyzeHasNewData) runCatching {
+                if (analyzeHasNewData && !ServerScoringSettings.skipsSyncCoupledRescore(appContext)) runCatching {
                     // #1816: set the motion sink before the pass so the Today tile can name the right
                     // missing half (motion, not phone steps) when none has arrived yet. Cleared after.
                     IntelligenceEngine.stepsHasMotionSink = { hasMotion ->
@@ -1865,6 +1879,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * is rethrown so a ViewModel teardown mid-edit isn't swallowed (matches the loop's #125 handling).
      */
     private suspend fun rescoreAfterEdit() {
+        if (ServerScoringSettings.skipsSyncCoupledRescore(appContext)) {
+            // serverScoring on: edits persist locally; VPS rescores HRV/sleep — local analyzeRecent deferred.
+            return
+        }
         runCatching {
             // #1816: set the motion sink before the pass, clear it after (same pattern as the 15-min loop).
             IntelligenceEngine.stepsHasMotionSink = { hasMotion ->

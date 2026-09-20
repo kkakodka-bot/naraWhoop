@@ -34,6 +34,18 @@ struct HealthView: View {
                        // The day-of-sky liquid backdrop, matching Today / Sleep / Trends: a fixed,
                        // full-bleed time-of-day sky behind the scroll content (does not scroll).
                        topBackground: liquidScaffoldSky()) {
+            if ServerScoringSettings.isEnabled {
+                HStack {
+                    if let metric = MetricCatalog.all.first(where: { $0.key == "hrv" }) {
+                        NavigationLink { MetricDetailView(metric: metric) } label: { Text("Five-minute HRV") }
+                            .buttonStyle(.noopGhost)
+                    }
+                    if let metric = MetricCatalog.all.first(where: { $0.key == "resp_rate" }) {
+                        NavigationLink { MetricDetailView(metric: metric) } label: { Text("Server respiratory rate") }
+                            .buttonStyle(.noopGhost)
+                    }
+                }
+            }
             if repo.days.isEmpty {
                 // First run / no history: whether to show the empty state or the full live stack depends
                 // on whether a strap is streaming live HR — a `live`-dependent choice. It's isolated to
@@ -1259,6 +1271,10 @@ private struct VitalsSection: View {
         )
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Vital Signs", overline: "Latest", trailing: BodyVitalSigns.latestDayLabel(readings))
+            if ServerScoringSettings.isEnabled {
+                Text("Local and imported history. Open HRV or respiratory rate for the selected server result.")
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+            }
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 168), spacing: NoopMetrics.gap)],
                 alignment: .leading,

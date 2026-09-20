@@ -70,7 +70,7 @@ object PushProtocol {
         val body = concatenate(header, selectedLines)
         check(body.size <= MAX_BODY_BYTES)
         return PushBatch(
-            protocolVersion = VERSION,
+            protocolVersion = if (table in setOf(PushAppendTable.RR_PACKET_PROVENANCE, PushAppendTable.STANDARD_HR_RECEIPT)) "1.1" else VERSION,
             batchId = batchId,
             sourceId = sourceId,
             table = table,
@@ -190,7 +190,8 @@ object PushProtocol {
     fun binaryKeyFingerprint(table: PushBinaryTable, deviceId: String, row: PushBinaryRow): String {
         val payload = when {
             table == PushBinaryTable.PPG_WAVEFORM_SAMPLE && row is PushBinaryRow.PpgWaveform ->
-                "ppgWaveformSample\n$deviceId\n${row.record.ts}\n${row.record.burstIndex ?: ""}"
+                "ppgWaveformSample\n$deviceId\n${row.record.ts}\n${row.record.burstIndex ?: ""}" +
+                    (row.record.recordIndex?.let { "\nrecordIndex=$it" } ?: "")
             table == PushBinaryTable.V18_AUX_SAMPLE && row is PushBinaryRow.V18Aux ->
                 "v18AuxSample\n$deviceId\n${row.record.ts}"
             table == PushBinaryTable.RAW_BATCH && row is PushBinaryRow.RawBatch ->
@@ -282,6 +283,7 @@ object PushProtocol {
         decodedLimit: Int,
     ): List<PushBinaryRow> {
         val selected = ArrayList<PushBinaryRow>()
+        val ppgIdentity = rows.any { it is PushBinaryRow.PpgWaveform && it.record.recordIndex != null }
         var decodedBytes = PushBinaryCodec.packedHeaderSize(table)
         var windowStartTs: Long? = null
         for (row in rows.take(MAX_RECORDS)) {
@@ -290,7 +292,7 @@ object PushProtocol {
                     ?: throw PushProtocolException("binary row kind mismatch")
                 if (windowStartTs != null && record.ts - windowStartTs >= MAX_IMU_OBJECT_WINDOW_SECONDS) break
             }
-            val rowSize = PushBinaryCodec.packedRowSize(row)
+            val rowSize = PushBinaryCodec.packedRowSize(row, ppgIdentity)
             if (decodedBytes + rowSize > decodedLimit) break
             selected += row
             decodedBytes += rowSize
@@ -305,7 +307,15 @@ object PushProtocol {
     private fun binaryBounds(table: PushBinaryTable, rows: List<PushBinaryRow>): Triple<Long, Long, Int> = when (table) {
         PushBinaryTable.RAW_BATCH -> {
             val record = (rows.single() as PushBinaryRow.RawBatch).record
-            Triple(record.startTs, record.endTs, record.frameCount)
+            if (record.endTs < record.startTs) throw PushProtocolException("rawBatch capture bounds are reversed")
+            val endExclusive = try {
+                Math.addExact(record.endTs, 1L)
+            } catch (_: ArithmeticException) {
+                throw PushProtocolException("rawBatch capture end overflows")
+            }
+            // Stored capture bounds include their final second. Only manifest indexing is
+            // half-open; original packed bounds/clocks remain evidence, not continuous coverage.
+            Triple(record.startTs, endExclusive, record.frameCount)
         }
         PushBinaryTable.PPG_WAVEFORM_SAMPLE, PushBinaryTable.V18_AUX_SAMPLE, PushBinaryTable.RAW_IMU_SESSION -> {
             val timestamps = rows.map { row ->
@@ -440,7 +450,7 @@ object PushProtocol {
         "delivery" to "append",
         "deviceId" to deviceId,
         "endCursor" to cursorJson(end),
-        "protocolVersion" to VERSION,
+        "protocolVersion" to if (table in setOf(PushAppendTable.RR_PACKET_PROVENANCE, PushAppendTable.STANDARD_HR_RECEIPT)) "1.1" else VERSION,
         "recordCount" to count,
         "sourceId" to sourceId,
         "startCursor" to start?.let(::cursorJson),
@@ -584,6 +594,8 @@ object PushProtocol {
     private val REGISTRY: Map<String, Pair<List<String>, List<String>>> = mapOf(
         "hrSample" to (listOf("ts") to listOf("bpm")),
         "rrInterval" to (listOf("ts", "rrMs", "seq") to listOf("ord", "srcChannel", "tsSuspect")),
+        "rrPacketProvenance" to (listOf("packetId") to listOf("ts", "sensorTs", "recordIndex", "rawHex", "srcChannel", "schemaVersion", "decoderVersion", "clockVersion", "timestampPrecisionSeconds", "clockOffsetSeconds", "declaredCount")),
+        "standardHRReceipt" to (listOf("receiptId") to listOf("ts", "sessionId", "notificationOrdinal", "receivedUnixMs", "receivedMonotonicNs", "rawHex", "schemaVersion", "clockVersion")),
         "event" to (listOf("ts", "kind") to listOf("payloadJSON")),
         "battery" to (listOf("ts") to listOf("soc", "mv", "charging")),
         "spo2Sample" to (listOf("ts") to listOf("red", "ir")),

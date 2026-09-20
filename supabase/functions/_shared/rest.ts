@@ -57,6 +57,11 @@ export function createSupabaseRest({ cfg, fetchImpl = fetch }: { cfg: RestConfig
       const msg = typeof json === 'string' ? json : (json?.message || json?.hint || text);
       const err: any = new Error(`${method} ${path} failed (${res.status}) ${String(msg || '').slice(0, 180)}`);
       err.status = res.status;
+      // Only this exact server-controlled condition is exposed as a retryable protocol error.
+      // Arbitrary SQL messages/codes remain private and are not copied into diagnostics.
+      if (json?.code === '55P03' && json?.message === 'scoring_input_gate_busy') {
+        err.receiverCode = 'scoring_input_gate_busy';
+      }
       throw err;
     }
     return json;

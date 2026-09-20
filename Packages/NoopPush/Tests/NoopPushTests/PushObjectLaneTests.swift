@@ -110,8 +110,8 @@ final class PushObjectLaneTests: XCTestCase {
             decodedLimit: PushProtocolLimits.maxObjectDecodedBytes,
         )
         XCTAssertEqual(rawBatch.contentSha256, "cc0e6daf0ff9d5696767968a9faef4c031368bf8a5efdd490520517a34fef749")
-        XCTAssertEqual(rawBatch.batchId, "50649896-7ae5-50ff-bc46-70356304df31")
-        XCTAssertEqual(rawBatch.objectId, "6b570a51-ff86-5ad1-82fc-2da881536723")
+        XCTAssertEqual(rawBatch.batchId, "ed3d5ac8-09af-529d-a7a1-b6a56abef5bb")
+        XCTAssertEqual(rawBatch.objectId, "22cc7400-3e75-5ed5-bc24-3875d185de70")
     }
 
     func testResumeAfterKillSkipsPutWhenUploaded() async throws {
@@ -246,6 +246,56 @@ final class PushObjectLaneTests: XCTestCase {
         XCTAssertEqual(completeCalls, 1)
     }
 
+    func testCredentialChangeAfterBucketPutStopsBeforeReceiverCompletion() async throws {
+        let row = PushPpgWaveformRecord(
+            rowId: 100, ts: 100, burstIndex: nil, samples: Data([1, 2, 3])
+        )
+        let batch = try PushProtocol.binaryObjectBatch(
+            table: .ppgWaveformSample, sourceId: sourceA, deviceId: "dev", startCursor: nil,
+            rows: [.ppgWaveform(row)],
+            protocolVersion: PushProtocol.objectVersion,
+            decodedLimit: PushProtocolLimits.maxObjectDecodedBytes,
+        )
+        let lane = PushObjectLane(
+            endpoint: "/api/push/objects", maxObjectBytes: Int64(PushProtocolLimits.maxObjectWireBytes),
+            urlTtlSec: 3600, streams: [.ppgWaveformSample]
+        )
+        let destination = DestinationState()
+        var completeCalls = 0
+        let transport = FakeObjectTransport(
+            onIntent: { _ in
+                PushObjectIntent(
+                    objectId: batch.objectId, objectKey: "k/credential-change",
+                    uploadUrl: "https://b2.example/put", requiredHeaders: [:],
+                    expiresAt: nil, duplicate: false
+                )
+            },
+            onUpload: { _, _ in destination.current = false },
+            onComplete: { _ in
+                completeCalls += 1
+                return PushObjectAck(
+                    objectId: batch.objectId, status: "ready",
+                    objectKey: "k/credential-change", duplicate: false
+                )
+            }
+        )
+
+        let result = await PushCoordinator(
+            source: FakePpgSource(rows: [row]),
+            transport: transport,
+            progress: MemoryObjectProgress(),
+            sourceId: sourceA,
+            destinationStillCurrent: { destination.current }
+        ).pushObjects(.ppgWaveformSample, deviceId: "dev", lane: lane)
+
+        guard case .rejected(let reason, let retryable, _) = result else {
+            return XCTFail("expected cancellation")
+        }
+        XCTAssertEqual("cancelled", reason)
+        XCTAssertTrue(retryable)
+        XCTAssertEqual(0, completeCalls)
+    }
+
     func testObjectIdConflictRetriesOnceThenGivesUp() async throws {
         let row = PushRawImuRecord(rowId: 100, ts: 100, columns: imuColumns(seed: 1))
         let lane = PushObjectLane(
@@ -329,6 +379,19 @@ private struct FakeImuSource: PushSnapshotSource {
     func acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: [PushBinaryRow]) async throws {}
 }
 
+private struct FakePpgSource: PushSnapshotSource {
+    let rows: [PushPpgWaveformRecord]
+    func knownDeviceIds(capabilities: PushCapabilities) async throws -> [String] { ["dev"] }
+    func appendRecordAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> PushAppendRecord? { nil }
+    func appendRows(table: PushAppendTable, deviceId: String, afterRowId: Int64, limit: Int) async throws -> [PushAppendRecord] { [] }
+    func mutableRows(table: PushMutableTable, deviceId: String, window: PushWindow, limit: Int) async throws -> [PushMutableRecord] { [] }
+    func binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Int64) async throws -> PushBinaryRow? { nil }
+    func binaryRows(table: PushBinaryTable, deviceId: String, afterRowId: Int64, limit: Int) async throws -> [PushBinaryRow] {
+        rows.filter { $0.rowId > afterRowId }.prefix(limit).map { .ppgWaveform($0) }
+    }
+    func acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: [PushBinaryRow]) async throws {}
+}
+
 private final class MemoryObjectProgress: PushProgressStore {
     private var inflight: [String: PushInFlightObject] = [:]
     func knownDeviceIds() async throws -> Set<String> { [] }
@@ -346,6 +409,10 @@ private final class MemoryObjectProgress: PushProgressStore {
         let key = "\(table.wireName).\(deviceId)"
         if let object { inflight[key] = object } else { inflight.removeValue(forKey: key) }
     }
+}
+
+private final class DestinationState: @unchecked Sendable {
+    var current = true
 }
 
 private struct FakeObjectTransport: PushTransport {

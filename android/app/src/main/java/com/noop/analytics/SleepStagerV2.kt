@@ -88,8 +88,8 @@ object SleepStagerV2 {
         // already establishes) so the binary-search bounds are correct even if a caller violates the
         // already-sorted-by-ts contract; the clip itself is a single O(log n) lower/upper-bound sublist, not
         // a linear filter.
-        val gravC = clipSorted(grav.sortedBy { it.ts }, start - PAD_LO, end + PAD_HI) { it.ts }
-        val hrC = clipSorted(hr.sortedBy { it.ts }, start - PAD_LO, end + PAD_HI) { it.ts }
+        val gravC = clipSorted(grav.filter(SleepSignalValidity::gravity).sortedBy { it.ts }, start - PAD_LO, end + PAD_HI) { it.ts }
+        val hrC = clipSorted(hr.filter(SleepSignalValidity::heartRate).sortedBy { it.ts }, start - PAD_LO, end + PAD_HI) { it.ts }
         val rrC = clipSorted(rr.sortedBy { it.ts }, start - PAD_LO, end + PAD_HI) { it.ts }
 
         val key = StagerCache.fingerprint(StagerCache.Version.V2, start, end, gravC, hrC, rrC)
@@ -136,26 +136,38 @@ object SleepStagerV2 {
         val hrS = hr.sortedBy { it.ts }
         val rrS = rr.sortedBy { it.ts }
 
+        if (end <= start) return emptyList()
         val feats = features(start, end, gravS, hrS, rrS)
-        if (feats.isEmpty()) return listOf(StageSegment(start = start, end = end, stage = "light"))
-        val labels = stageEpochs(feats)
-
-        // Tile [start, end] with one segment per staged epoch. The first segment back-fills [start, firstEpoch)
-        // and the last extends to `end`. "awake" is renamed to the canonical "wake" used by V1 / StageSegment.
-        val segments = ArrayList<StageSegment>()
-        for ((i, f) in feats.withIndex()) {
-            val stage = if (labels[i] == "awake") "wake" else labels[i]
-            val segStart = if (i == 0) start else f.start
-            val segEnd = if (i == feats.size - 1) end else feats[i + 1].start
-            val last = segments.lastOrNull()
-            if (last != null && last.stage == stage) {
-                segments[segments.size - 1].end = segEnd
-            } else {
-                segments.add(StageSegment(start = segStart, end = segEnd, stage = stage))
-            }
+        if (feats.isEmpty()) return listOf(SleepStageSemantics.unknown(start, end))
+        val labels = HashMap<Long, String>()
+        val run = ArrayList<Epoch>()
+        fun finishRun() {
+            for ((f, label) in run.zip(stageEpochs(run))) labels[f.start] = label
+            run.clear()
         }
-        return segments
+        for (f in feats) {
+            if (f.evidenceCoverage < minimumEpochCoverage) { finishRun(); continue }
+            if (run.isNotEmpty() && f.start != run.last().start + 30) finishRun()
+            run.add(f)
+        }
+        finishRun()
+        val segments = ArrayList<StageSegment>()
+        for (f in feats) {
+            val lo = maxOf(start, f.start); val hi = minOf(end, f.start + 30)
+            if (hi <= lo) continue
+            val label = labels[f.start]
+            if (label != null) {
+                val stage = if (label == "awake") "wake" else label
+                segments.add(StageSegment(lo, hi, stage, state = if (stage == "wake") "awake" else "sleep",
+                    evidenceCoverage = f.evidenceCoverage, computationMode = "retrospective",
+                    algorithmVersion = "sleep-v2-evidence-1", probabilitiesCalibrated = false))
+            } else segments.add(SleepStageSemantics.unknown(lo, hi, "insufficient_epoch_coverage", f.evidenceCoverage))
+        }
+        return SleepStageSemantics.coalesced(SleepStageSemantics.normalized(segments, start, end))
     }
+
+    /** Engineering abstention threshold, not a WHOOP/PSG-validated accuracy cutoff. */
+    internal const val minimumEpochCoverage = 0.5
 
     // ── Recipe constants (all fixed a-priori — NOT fit to labels) ────────────────────────────────────
 
@@ -245,6 +257,7 @@ object SleepStagerV2 {
          *  back to this window-relative value when a night never sustains sleep. Only the REM-latency guard
          *  reads it — the deep term and the REM ramp stay fractions of the session, which is what they are. */
         val minutesSinceOnset: Double,
+        val evidenceCoverage: Double = 1.0,
     )
 
     // ── Feature extraction ───────────────────────────────────────────────────────────────────────────
@@ -282,10 +295,6 @@ object SleepStagerV2 {
         }
         val secG = HashMap<Long, Triple<Double, Double, Double>>(gCnt.size)
         for ((k, c) in gCnt) { val d = c.toDouble(); secG[k] = Triple(gxSum[k]!! / d, gySum[k]!! / d, gzSum[k]!! / d) }
-
-        // R-R values bucketed by second (for the RSA respiration window).
-        val rrBy = HashMap<Long, MutableList<Double>>()
-        for (r in rr) rrBy.getOrPut(r.ts) { ArrayList() }.add(r.rrMs.toDouble())
 
         // PERF (v7.0.2 / #707): stdOfSeconds was called twice per epoch over centred ~300 s and ~720 s
         // windows, each call allocating a fresh boxed ArrayList<Double> and re-walking the window — O(epochs ×
@@ -336,23 +345,30 @@ object SleepStagerV2 {
         data class Raw(
             val start: Long, val hr: Double?, val hrVar: Double?, val hrFlat11: Double?,
             val jerks: List<Double>, val gapSec: Int, val jerkMax: Double, val respReg: Double?, val clock: Double,
-            val minutes: Double,
+            val minutes: Double, val evidenceCoverage: Double,
         )
         val raws = ArrayList<Raw>()
         val allJerks = ArrayList<Double>()
-        val firstE = ((start + 29) / 30) * 30
+        val firstE = Math.floorDiv(start + 29, 30L) * 30
         var e = firstE
         while (e < end) {
             val hrs = ArrayList<Double>()
             val gseq = ArrayList<Triple<Double, Double, Double>>()
-            var s = e
-            while (s < e + 30) { secHR[s]?.let { hrs.add(it) }; secG[s]?.let { gseq.add(it) }; s++ }
+            val gtimes = ArrayList<Long>()
+            var observed = 0
+            var s = maxOf(start, e)
+            while (s < minOf(end, e + 30)) {
+                secHR[s]?.let { hrs.add(it) }; secG[s]?.let { gseq.add(it); gtimes.add(s) }
+                if (secHR[s] != null || secG[s] != null) observed++
+                s++
+            }
             if (hrs.isEmpty() && gseq.isEmpty()) { e += 30; continue }   // no coverage → skip the epoch
 
             // Movement: consecutive per-second gravity jerks within the epoch.
             val jerks = ArrayList<Double>()
             var i = 1
             while (i < maxOf(1, gseq.size)) {
+                if (gtimes[i] != gtimes[i - 1] + 1) { i++; continue }
                 val a = gseq[i - 1]; val b = gseq[i]
                 val dx = a.first - b.first; val dy = a.second - b.second; val dz = a.third - b.third
                 jerks.add(sqrt(dx * dx + dy * dy + dz * dz))
@@ -365,21 +381,16 @@ object SleepStagerV2 {
             val hrVar = stdOfSeconds(e - 150, e + 30 + 150)     // 5-min centred window
             val hrFlat11 = stdOfSeconds(e - 330, e + 30 + 360)  // 11-min centred window
 
-            // RSA respiration over a wider beat window [e-90, e+120).
-            val beats = ArrayList<Pair<Double, Double>>()
-            var bs = e - 90
-            while (bs < e + 120) {
-                rrBy[bs]?.let { vs -> for (v in vs) beats.add(Pair(bs.toDouble(), v.coerceIn(300.0, 2000.0))) }
-                bs++
-            }
-            beats.sortWith(compareBy({ it.first }, { it.second }))
-            val respReg = respRegularity(beats)
+            // Coarse-second rows cannot establish original beat timing. The standalone
+            // RespirationEstimator.fromIntervals adapter requires verified spans and identities.
+            val respReg: Double? = null
 
             raws.add(Raw(
                 start = e, hr = hrMean, hrVar = hrVar, hrFlat11 = hrFlat11,
                 jerks = jerks, gapSec = maxOf(1, gseq.size - 1), jerkMax = jerkMax,
                 respReg = respReg, clock = (e + 15 - start).toDouble() / span,
-                minutes = (e + 15 - start).toDouble() / 60.0))
+                minutes = (e + 15 - start).toDouble() / 60.0,
+                evidenceCoverage = observed.toDouble() / (minOf(end, e + 30) - maxOf(start, e))))
             e += 30
         }
 
@@ -400,7 +411,8 @@ object SleepStagerV2 {
             feats.add(Epoch(
                 start = r.start, hr = r.hr, hrVar = r.hrVar, hrFlat11 = r.hrFlat11,
                 moveFrac = moves.toDouble() / r.gapSec, jerkMax = r.jerkMax, respReg = r.respReg,
-                clock = r.clock, jerkScale = jerkScale, minutesSinceOnset = r.minutes))
+                clock = r.clock, jerkScale = jerkScale, minutesSinceOnset = r.minutes,
+                evidenceCoverage = r.evidenceCoverage))
         }
         return feats
     }

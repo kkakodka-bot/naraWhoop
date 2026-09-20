@@ -1,6 +1,736 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Local and imported history. Open HRV or respiratory rate for the selected server result." : {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokaler und importierter Verlauf. Öffne HRV oder Atemfrequenz für das ausgewählte Serverergebnis."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historial local e importado. Abre VFC o frecuencia respiratoria para ver el resultado seleccionado del servidor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historique local et importé. Ouvrez la VFC ou la fréquence respiratoire pour voir le résultat sélectionné du serveur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cronologia locale e importata. Apri HRV o frequenza respiratoria per il risultato selezionato del server."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historia lokalna i zaimportowana. Otwórz HRV lub częstość oddechów, aby zobaczyć wybrany wynik z serwera."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Histórico local e importado. Abra a VFC ou a frequência respiratória para ver o resultado selecionado do servidor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальная и импортированная история. Откройте ВСР или частоту дыхания, чтобы увидеть выбранный результат сервера."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地和导入的历史记录。打开心率变异性或呼吸频率，查看所选服务器结果。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機與匯入的歷史紀錄。開啟心率變異性或呼吸頻率，以查看所選伺服器結果。"
+          }
+        }
+      }
+    },
+    "%@ – %@ UTC": { "shouldTranslate": false },
+    "Server · %@ · %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Server · %@ · %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Servidor · %@ · %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Serveur · %@ · %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Server · %@ · %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Serwer · %@ · %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Servidor · %@ · %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Сервер · %@ · %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "服务器 · %@ · %@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "伺服器 · %@ · %@" } }
+    } },
+    "Five-minute HRV": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "5-Minuten-HRV" } },
+      "es": { "stringUnit": { "state": "translated", "value": "VFC de cinco minutos" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "VFC sur cinq minutes" } },
+      "it": { "stringUnit": { "state": "translated", "value": "HRV su cinque minuti" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "HRV z pięciu minut" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "VFC de cinco minutos" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "ВСР за пять минут" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "五分钟HRV" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "五分鐘HRV" } }
+    } },
+    "Server RMSSD windows; missing readings are not zero.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "RMSSD-Fenster vom Server; fehlende Messwerte sind nicht null." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Ventanas RMSSD del servidor; las lecturas ausentes no son cero." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Fenêtres RMSSD du serveur ; les mesures manquantes ne sont pas nulles." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Finestre RMSSD del server; le letture mancanti non sono zero." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Okna RMSSD z serwera; brak odczytu nie oznacza zera." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Janelas RMSSD do servidor; leituras em falta não são zero." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Окна RMSSD с сервера; отсутствие показаний не означает ноль." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "服务器RMSSD时间窗；缺失读数不等于零。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "伺服器RMSSD時間窗；缺失讀數不等於零。" } }
+    } },
+    "No five-minute HRV windows are available for this day.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Für diesen Tag sind keine 5-Minuten-HRV-Fenster verfügbar." } },
+      "es": { "stringUnit": { "state": "translated", "value": "No hay ventanas de VFC de cinco minutos disponibles para este día." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Aucune fenêtre de VFC de cinq minutes n’est disponible pour ce jour." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Nessuna finestra HRV di cinque minuti disponibile per questo giorno." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Brak pięciominutowych okien HRV dla tego dnia." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Não há janelas de VFC de cinco minutos disponíveis para este dia." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "За этот день нет доступных пятиминутных окон ВСР." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "此日期没有可用的五分钟HRV时间窗。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "此日期沒有可用的五分鐘HRV時間窗。" } }
+    } },
+    "Sign in to view server physiology.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Melde dich an, um serverbasierte Physiologiedaten anzuzeigen." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Inicia sesión para ver la fisiología del servidor." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Connectez-vous pour consulter la physiologie du serveur." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Accedi per visualizzare la fisiologia del server." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Zaloguj się, aby wyświetlić dane fizjologiczne z serwera." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Inicie sessão para ver a fisiologia do servidor." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Войдите, чтобы просмотреть физиологические данные сервера." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请登录以查看服务器生理分析。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請登入以查看伺服器生理分析。" } }
+    } },
+    "Configure the server connection to view physiology.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Richte die Serververbindung ein, um Physiologiedaten anzuzeigen." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Configura la conexión al servidor para ver la fisiología." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Configurez la connexion au serveur pour consulter la physiologie." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Configura la connessione al server per visualizzare la fisiologia." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Skonfiguruj połączenie z serwerem, aby wyświetlić dane fizjologiczne." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Configure a ligação ao servidor para ver a fisiologia." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Настройте подключение к серверу для просмотра физиологических данных." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请配置服务器连接以查看生理分析。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請設定伺服器連線以查看生理分析。" } }
+    } },
+    "Local history": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Lokaler Verlauf" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Historial local" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Historique local" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Cronologia locale" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Historia lokalna" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Histórico local" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Локальная история" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "本地历史记录" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "本地歷史記錄" } }
+    } },
+    "Server status: %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Serverstatus: %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Estado del servidor: %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "État du serveur : %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Stato del server: %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Stan serwera: %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Estado do servidor: %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Состояние сервера: %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "服务器状态：%@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "伺服器狀態：%@" } }
+    } },
+    "Device: %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Gerät: %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Dispositivo: %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Appareil : %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Dispositivo: %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Urządzenie: %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Dispositivo: %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Устройство: %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "设备：%@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "裝置：%@" } }
+    } },
+    "Model: %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Modell: %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Modelo: %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Modèle : %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Modello: %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Model: %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Modelo: %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Модель: %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "模型：%@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "模型：%@" } }
+    } },
+    "Observed through: %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Beobachtet bis: %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Observado hasta: %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Observé jusqu’au : %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Osservato fino a: %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Dane obserwowane do: %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Observado até: %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Наблюдения до: %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "观测截至：%@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "觀測截至：%@" } }
+    } },
+    "Context: %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Kontext: %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Contexto: %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Contexte : %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Contesto: %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Kontekst: %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Contexto: %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Контекст: %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "情境：%@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "情境：%@" } }
+    } },
+    "Source: %@ · %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Quelle: %@ · %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Fuente: %@ · %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Source : %@ · %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Fonte: %@ · %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Źródło: %@ · %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Fonte: %@ · %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Источник: %@ · %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "来源：%@ · %@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "來源：%@ · %@" } }
+    } },
+    "Observed coverage: %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Beobachtete Abdeckung: %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Cobertura observada: %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Couverture observée : %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Copertura osservata: %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Pokrycie obserwacjami: %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Cobertura observada: %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Покрытие наблюдениями: %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "观测覆盖率：%@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "觀測覆蓋率：%@" } }
+    } },
+    "Baseline comparison: %@ · n=%@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Basislinienvergleich: %@ · n=%@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Comparación con la referencia: %@ · n=%@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Comparaison à la référence : %@ · n=%@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Confronto con il riferimento: %@ · n=%@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Porównanie z poziomem odniesienia: %@ · n=%@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Comparação com a referência: %@ · n=%@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Сравнение с базовым уровнем: %@ · n=%@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "基线比较：%@ · n=%@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "基線比較：%@ · n=%@" } }
+    } },
+    "Baseline deviation: %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Abweichung von der Basislinie: %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Desviación de la referencia: %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Écart à la référence : %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Scostamento dal riferimento: %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Odchylenie od poziomu odniesienia: %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Desvio face à referência: %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Отклонение от базового уровня: %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "基线偏差：%@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "基線偏差：%@" } }
+    } },
+    "Eligible": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Geeignet" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Apto" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Admissible" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Idoneo" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Kwalifikuje się" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Elegível" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Подходит" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "符合条件" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "符合條件" } }
+    } },
+    "Excluded": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Ausgeschlossen" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Excluido" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Exclu" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Escluso" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Wykluczone" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Excluído" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Исключено" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已排除" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已排除" } }
+    } },
+    "Unavailable": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Nicht verfügbar" } },
+      "es": { "stringUnit": { "state": "translated", "value": "No disponible" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Indisponible" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Non disponibile" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Niedostępne" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Indisponível" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Недоступно" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "不可用" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法使用" } }
+    } },
+    "Server respiratory rate": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Server-Atemfrequenz" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Frecuencia respiratoria del servidor" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Fréquence respiratoire du serveur" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Frequenza respiratoria del server" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Częstość oddechu z serwera" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Frequência respiratória do servidor" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Частота дыхания с сервера" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "服务器呼吸频率" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "伺服器呼吸頻率" } }
+    } },
+    "Configure the server connection to view respiratory rate.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Richte die Serververbindung ein, um die Atemfrequenz anzuzeigen." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Configura la conexión al servidor para ver la frecuencia respiratoria." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Configurez la connexion au serveur pour consulter la fréquence respiratoire." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Configura la connessione al server per visualizzare la frequenza respiratoria." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Skonfiguruj połączenie z serwerem, aby wyświetlić częstość oddechu." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Configure a ligação ao servidor para ver a frequência respiratória." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Настройте подключение к серверу для просмотра частоты дыхания." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请配置服务器连接以查看呼吸频率。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請設定伺服器連線以查看呼吸頻率。" } }
+    } },
+    "Sign in to view server respiratory rate.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Melde dich an, um die Server-Atemfrequenz anzuzeigen." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Inicia sesión para ver la frecuencia respiratoria del servidor." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Connectez-vous pour consulter la fréquence respiratoire du serveur." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Accedi per visualizzare la frequenza respiratoria del server." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Zaloguj się, aby wyświetlić częstość oddechu z serwera." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Inicie sessão para ver a frequência respiratória do servidor." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Войдите, чтобы просмотреть частоту дыхания с сервера." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请登录以查看服务器呼吸频率。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請登入以查看伺服器呼吸頻率。" } }
+    } },
+    "%@ breaths/min": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "%@ Atemzüge/min" } },
+      "es": { "stringUnit": { "state": "translated", "value": "%@ respiraciones/min" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "%@ respirations/min" } },
+      "it": { "stringUnit": { "state": "translated", "value": "%@ respiri/min" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "%@ oddechów/min" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "%@ respirações/min" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "%@ дыханий/мин" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "%@次呼吸/分钟" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "%@次呼吸/分鐘" } }
+    } },
+    "State: %@ · %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Zustand: %@ · %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Estado: %@ · %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "État : %@ · %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Stato: %@ · %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Stan: %@ · %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Estado: %@ · %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Состояние: %@ · %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "状态：%@ · %@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "狀態：%@ · %@" } }
+    } },
+    "Computed: %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Berechnet: %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Calculado: %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Calculé : %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Calcolato: %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Obliczono: %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Calculado: %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Вычислено: %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "计算时间：%@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "計算時間：%@" } }
+    } },
+    "Legacy baseline · quality and evidence coverage unavailable": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Bisherige Basislinie · Qualität und Datenabdeckung nicht verfügbar" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Referencia heredada · calidad y cobertura de evidencia no disponibles" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Référence historique · qualité et couverture des données indisponibles" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Riferimento precedente · qualità e copertura dei dati non disponibili" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Starszy poziom odniesienia · jakość i pokrycie danymi niedostępne" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Referência anterior · qualidade e cobertura dos dados indisponíveis" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Прежний базовый уровень · качество и покрытие данными недоступны" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "旧版基线 · 质量和证据覆盖率不可用" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "舊版基線 · 品質和證據覆蓋率無法使用" } }
+    } },
+    "Primary statistic: median of eligible main-sleep windows": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Primärstatistik: Median der geeigneten Hauptschlaffenster" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Estadística principal: mediana de las ventanas aptas de sueño principal" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Statistique principale : médiane des fenêtres admissibles de sommeil principal" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Statistica principale: mediana delle finestre idonee del sonno principale" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Główna statystyka: mediana kwalifikujących się okien głównego snu" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Estatística principal: mediana das janelas elegíveis de sono principal" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Основная статистика: медиана подходящих окон основного сна" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "主要统计量：符合条件的主睡眠时间窗中位数" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "主要統計量：符合條件的主要睡眠時間窗中位數" } }
+    } },
+    "Mean: %@ breaths/min": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Mittelwert: %@ Atemzüge/min" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Media: %@ respiraciones/min" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Moyenne : %@ respirations/min" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Media: %@ respiri/min" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Średnia: %@ oddechów/min" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Média: %@ respirações/min" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Среднее: %@ дыханий/мин" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "平均值：%@次呼吸/分钟" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "平均值：%@次呼吸/分鐘" } }
+    } },
+    "Accepted time: %@ min · coverage: %@%%": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Akzeptierte Zeit: %@ Min. · Abdeckung: %@%%" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Tiempo aceptado: %@ min · cobertura: %@%%" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Temps retenu : %@ min · couverture : %@%%" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Tempo accettato: %@ min · copertura: %@%%" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Zaakceptowany czas: %@ min · pokrycie: %@%%" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Tempo aceite: %@ min · cobertura: %@%%" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Принятое время: %@ мин · покрытие: %@%%" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "接受的时间：%@分钟 · 覆盖率：%@%%" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "接受的時間：%@分鐘 · 覆蓋率：%@%%" } }
+    } },
+    "Accepted windows: %@ / %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Akzeptierte Fenster: %@ / %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Ventanas aceptadas: %@ / %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Fenêtres retenues : %@ / %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Finestre accettate: %@ / %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Zaakceptowane okna: %@ / %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Janelas aceites: %@ / %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Принятые окна: %@ / %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "接受的时间窗：%@ / %@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "接受的時間窗：%@ / %@" } }
+    } },
+    "Accepted-window range: %@–%@ breaths/min": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Bereich akzeptierter Fenster: %@–%@ Atemzüge/min" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Rango de ventanas aceptadas: %@–%@ respiraciones/min" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Plage des fenêtres retenues : %@–%@ respirations/min" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Intervallo delle finestre accettate: %@–%@ respiri/min" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Zakres zaakceptowanych okien: %@–%@ oddechów/min" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Intervalo das janelas aceites: %@–%@ respirações/min" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Диапазон принятых окон: %@–%@ дыханий/мин" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "接受时间窗的范围：%@–%@次呼吸/分钟" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "接受時間窗的範圍：%@–%@次呼吸/分鐘" } }
+    } },
+    "Method: %@ · %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Methode: %@ · %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Método: %@ · %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Méthode : %@ · %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Metodo: %@ · %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Metoda: %@ · %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Método: %@ · %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Метод: %@ · %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "方法：%@ · %@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "方法：%@ · %@" } }
+    } },
+    "This server result is separate from local history below.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Dieses Serverergebnis ist vom lokalen Verlauf unten getrennt." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Este resultado del servidor es independiente del historial local que aparece abajo." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Ce résultat du serveur est distinct de l’historique local ci-dessous." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Questo risultato del server è separato dalla cronologia locale sottostante." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Ten wynik serwera jest niezależny od historii lokalnej poniżej." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Este resultado do servidor é independente do histórico local abaixo." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Этот результат сервера отделён от локальной истории ниже." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "此服务器结果与下方本地历史记录分开显示。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "此伺服器結果與下方本地歷史記錄分開顯示。" } }
+    } },
+    "Server physiology": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Serverbasierte Physiologie" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Fisiología del servidor" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Physiologie côté serveur" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Fisiologia sul server" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Fizjologia na serwerze" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Fisiologia no servidor" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Физиология на сервере" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "服务器生理分析" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "伺服器生理分析" } }
+    } },
+    "No server sleep episodes available for this day.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Für diesen Tag sind keine Schlafepisoden vom Server verfügbar." } },
+      "es": { "stringUnit": { "state": "translated", "value": "No hay episodios de sueño del servidor para este día." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Aucun épisode de sommeil du serveur n’est disponible pour ce jour." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Nessun episodio di sonno del server disponibile per questo giorno." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Brak epizodów snu z serwera dla tego dnia." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Não há episódios de sono do servidor disponíveis para este dia." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "За этот день нет доступных эпизодов сна с сервера." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "此日期没有可用的服务器睡眠记录。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "此日期沒有可用的伺服器睡眠記錄。" } }
+    } },
+    "The selected server model does not support boundary corrections.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Das gewählte Servermodell unterstützt keine Korrektur der Zeitgrenzen." } },
+      "es": { "stringUnit": { "state": "translated", "value": "El modelo del servidor seleccionado no admite corregir los límites horarios." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Le modèle de serveur sélectionné ne permet pas de corriger les limites horaires." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Il modello del server selezionato non supporta correzioni dei limiti temporali." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Wybrany model serwera nie obsługuje korekt granic czasowych." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "O modelo de servidor selecionado não permite corrigir os limites horários." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Выбранная серверная модель не поддерживает изменение временных границ." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "所选服务器模型不支持修正时间边界。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "所選伺服器模型不支援修正時間邊界。" } }
+    } },
+    "Asleep %@ · %@ %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Geschlafen %@ · %@ %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Dormido %@ · %@ %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Sommeil %@ · %@ %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Sonno %@ · %@ %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Sen %@ · %@ %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "A dormir %@ · %@ %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Сон %@ · %@ %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "睡眠 %@ · %@ %@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "睡眠 %@ · %@ %@" } }
+    } },
+    "Edit boundaries or delete": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Zeitgrenzen bearbeiten oder löschen" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Editar límites horarios o eliminar" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Modifier les limites horaires ou supprimer" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Modifica i limiti temporali o elimina" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Edytuj granice czasowe lub usuń" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Editar limites horários ou eliminar" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Изменить границы или удалить" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "编辑时间边界或删除" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "編輯時間邊界或刪除" } }
+    } },
+    "%.1fm": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "%.1f Min." } },
+      "es": { "stringUnit": { "state": "translated", "value": "%.1f min" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "%.1f min" } },
+      "it": { "stringUnit": { "state": "translated", "value": "%.1f min" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "%.1f min" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "%.1f min" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "%.1f мин" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "%.1f分" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "%.1f分" } }
+    } },
+    "Actual server epochs · blank space has no epoch evidence": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Tatsächliche Serverintervalle · leere Bereiche enthalten keine Intervalldaten" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Épocas reales del servidor · los espacios en blanco no tienen datos de épocas" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Époques réelles du serveur · les espaces vides ne contiennent aucune donnée d’époque" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Epoche effettive del server · gli spazi vuoti non contengono dati di epoca" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Rzeczywiste epoki z serwera · puste miejsca nie mają danych epok" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Épocas reais do servidor · os espaços em branco não têm dados de épocas" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Реальные эпохи сервера · для пустых участков нет данных эпох" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "服务器实际时段 · 空白处没有时段证据" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "伺服器實際時段 · 空白處沒有時段證據" } }
+    } },
+    "Deleted sleep · %@ UTC": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Gelöschter Schlaf · %@ UTC" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Sueño eliminado · %@ UTC" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Sommeil supprimé · %@ UTC" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Sonno eliminato · %@ UTC" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Usunięty sen · %@ UTC" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Sono eliminado · %@ UTC" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Удалённый сон · %@ UTC" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已删除的睡眠 · %@ UTC" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已刪除的睡眠 · %@ UTC" } }
+    } },
+    "Deleted sleep · %@ – %@ UTC": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Gelöschter Schlaf · %@ – %@ UTC" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Sueño eliminado · %@ – %@ UTC" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Sommeil supprimé · %@ – %@ UTC" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Sonno eliminato · %@ – %@ UTC" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Usunięty sen · %@ – %@ UTC" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Sono eliminado · %@ – %@ UTC" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Удалённый сон · %@ – %@ UTC" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已删除的睡眠 · %@ – %@ UTC" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已刪除的睡眠 · %@ – %@ UTC" } }
+    } },
+    "Restore this sleep": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Diesen Schlaf wiederherstellen" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Restaurar este sueño" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Restaurer ce sommeil" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Ripristina questo sonno" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Przywróć ten sen" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Restaurar este sono" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Восстановить этот сон" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "恢复此睡眠" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "還原此睡眠" } }
+    } },
+    "Delete this sleep?": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Diesen Schlaf löschen?" } },
+      "es": { "stringUnit": { "state": "translated", "value": "¿Eliminar este sueño?" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Supprimer ce sommeil ?" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Eliminare questo sonno?" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Usunąć ten sen?" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Eliminar este sono?" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Удалить этот сон?" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "删除此睡眠？" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "刪除此睡眠？" } }
+    } },
+    "Suppresses this sleep window on the server. You can restore it from Deleted sleep after the change is confirmed.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Blendet dieses Schlaffenster auf dem Server aus. Nach Bestätigung der Änderung kannst du es unter „Gelöschter Schlaf“ wiederherstellen." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Oculta este intervalo de sueño en el servidor. Puedes restaurarlo desde Sueño eliminado una vez confirmado el cambio." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Masque cette période de sommeil sur le serveur. Vous pourrez la restaurer depuis Sommeil supprimé une fois le changement confirmé." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Nasconde questa finestra di sonno sul server. Puoi ripristinarla da Sonno eliminato dopo la conferma della modifica." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Ukrywa ten przedział snu na serwerze. Po potwierdzeniu zmiany możesz go przywrócić z sekcji Usunięty sen." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Oculta este intervalo de sono no servidor. Pode restaurá-lo em Sono eliminado após a confirmação da alteração." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Скрывает этот период сна на сервере. После подтверждения изменения его можно восстановить в разделе «Удалённый сон»." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "在服务器上隐藏此睡眠时间段。更改确认后，可从“已删除的睡眠”恢复。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "在伺服器上隱藏此睡眠時段。變更確認後，可從「已刪除的睡眠」還原。" } }
+    } },
+    "Edit sleep boundaries": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Schlafgrenzen bearbeiten" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Editar límites del sueño" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Modifier les limites du sommeil" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Modifica i limiti del sonno" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Edytuj granice snu" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Editar limites do sono" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Изменить границы сна" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "编辑睡眠边界" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "編輯睡眠邊界" } }
+    } },
+    "Your reported boundaries are not proof of sleep. The server recomputes from available evidence; local sleep records are unchanged.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Deine angegebenen Zeitgrenzen sind kein Schlafnachweis. Der Server berechnet anhand verfügbarer Daten neu; lokale Schlafaufzeichnungen bleiben unverändert." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Los límites que indicas no demuestran que hayas dormido. El servidor recalcula con los datos disponibles; los registros locales de sueño no cambian." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Les limites que vous indiquez ne prouvent pas que vous avez dormi. Le serveur recalcule à partir des données disponibles ; les enregistrements locaux restent inchangés." } },
+      "it": { "stringUnit": { "state": "translated", "value": "I limiti che indichi non dimostrano che tu abbia dormito. Il server ricalcola in base ai dati disponibili; i registri locali del sonno restano invariati." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Podane granice nie dowodzą snu. Serwer przelicza wyniki na podstawie dostępnych danych; lokalne zapisy snu pozostają bez zmian." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Os limites que indica não comprovam que dormiu. O servidor recalcula com os dados disponíveis; os registos locais de sono não são alterados." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Указанные вами границы не доказывают наличие сна. Сервер пересчитывает данные по доступным свидетельствам; локальные записи сна не изменяются." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "您报告的边界不能证明睡眠。服务器根据现有证据重新计算；本地睡眠记录保持不变。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "您回報的邊界不能證明睡眠。伺服器根據現有證據重新計算；本地睡眠記錄保持不變。" } }
+    } },
+    "Started": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Beginn" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Inicio" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Début" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Inizio" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Początek" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Início" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Начало" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "开始" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "開始" } }
+    } },
+    "Ended": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Ende" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Fin" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Fin" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Fine" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Koniec" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Fim" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Конец" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "结束" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "結束" } }
+    } },
+    "Started · %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Beginn · %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Inicio · %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Début · %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Inizio · %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Początek · %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Início · %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Начало · %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "开始 · %@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "開始 · %@" } }
+    } },
+    "Ended · %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Ende · %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Fin · %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Fin · %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Fine · %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Koniec · %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Fim · %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Конец · %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "结束 · %@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "結束 · %@" } }
+    } },
+    "Choose a past, ordered window no longer than 48 hours.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Wähle einen vergangenen Zeitraum mit Beginn vor Ende und höchstens 48 Stunden Dauer." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Elige un intervalo pasado, con inicio anterior al fin, de hasta 48 horas." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Choisissez une période passée, avec un début avant la fin, de 48 heures maximum." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Scegli un intervallo passato, con l’inizio prima della fine, di massimo 48 ore." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Wybierz przeszły przedział nie dłuższy niż 48 godzin, z początkiem przed końcem." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Escolha um intervalo passado, com início anterior ao fim, de até 48 horas." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Выберите прошедший период не длиннее 48 часов, с началом раньше окончания." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "请选择起止有序且不超过48小时的过去时间段。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "請選擇起訖有序且不超過48小時的過去時段。" } }
+    } },
+    "Server sleep unavailable: configure the server connection.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Server-Schlafdaten nicht verfügbar: Serververbindung einrichten." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Sueño del servidor no disponible: configura la conexión al servidor." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Sommeil du serveur indisponible : configurez la connexion au serveur." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Sonno del server non disponibile: configura la connessione al server." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Sen z serwera niedostępny: skonfiguruj połączenie z serwerem." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Sono do servidor indisponível: configure a ligação ao servidor." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Сон с сервера недоступен: настройте подключение к серверу." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "服务器睡眠不可用：请配置服务器连接。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "伺服器睡眠無法使用：請設定伺服器連線。" } }
+    } },
+    "Server sleep unavailable: sign in to your account.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Server-Schlafdaten nicht verfügbar: im Konto anmelden." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Sueño del servidor no disponible: inicia sesión en tu cuenta." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Sommeil du serveur indisponible : connectez-vous à votre compte." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Sonno del server non disponibile: accedi al tuo account." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Sen z serwera niedostępny: zaloguj się na swoje konto." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Sono do servidor indisponível: inicie sessão na sua conta." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Сон с сервера недоступен: войдите в свою учётную запись." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "服务器睡眠不可用：请登录您的账户。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "伺服器睡眠無法使用：請登入您的帳戶。" } }
+    } },
+    "Server sleep unavailable for this day.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Für diesen Tag sind keine Server-Schlafdaten verfügbar." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Sueño del servidor no disponible para este día." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Sommeil du serveur indisponible pour ce jour." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Sonno del server non disponibile per questo giorno." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Sen z serwera niedostępny dla tego dnia." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Sono do servidor indisponível para este dia." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Сон с сервера за этот день недоступен." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "此日期的服务器睡眠不可用。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "此日期的伺服器睡眠無法使用。" } }
+    } },
+    "Refresh this day before editing; the original boundary revision is unavailable.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Aktualisiere diesen Tag vor dem Bearbeiten; die ursprüngliche Version der Zeitgrenzen ist nicht verfügbar." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Actualiza este día antes de editar; la versión original de los límites no está disponible." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Actualisez ce jour avant de modifier ; la version originale des limites n’est pas disponible." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Aggiorna questo giorno prima di modificare; la versione originale dei limiti non è disponibile." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Odśwież ten dzień przed edycją; pierwotna wersja granic jest niedostępna." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Atualize este dia antes de editar; a versão original dos limites não está disponível." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Обновите этот день перед редактированием: исходная версия границ недоступна." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "编辑前请刷新此日期；原始边界版本不可用。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "編輯前請重新整理此日期；原始邊界版本無法使用。" } }
+    } },
+    "Refresh before restoring this sleep.": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Vor dem Wiederherstellen dieses Schlafs aktualisieren." } },
+      "es": { "stringUnit": { "state": "translated", "value": "Actualiza antes de restaurar este sueño." } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Actualisez avant de restaurer ce sommeil." } },
+      "it": { "stringUnit": { "state": "translated", "value": "Aggiorna prima di ripristinare questo sonno." } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Odśwież przed przywróceniem tego snu." } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Atualize antes de restaurar este sono." } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Обновите данные перед восстановлением этого сна." } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "恢复此睡眠前请刷新。" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "還原此睡眠前請重新整理。" } }
+    } },
+    "Reported sleep opportunity": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Angegebene Schlafgelegenheit" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Oportunidad de sueño indicada" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Possibilité de sommeil déclarée" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Opportunità di sonno dichiarata" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Zgłoszona możliwość snu" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Oportunidade de sono indicada" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Заявленная возможность для сна" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "报告的睡眠机会" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "回報的睡眠機會" } }
+    } },
+    "Estimated sleep opportunity": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Geschätzte Schlafgelegenheit" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Oportunidad de sueño estimada" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Possibilité de sommeil estimée" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Opportunità di sonno stimata" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Szacowana możliwość snu" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Oportunidade de sono estimada" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Оценённая возможность для сна" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "估计的睡眠机会" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "估計的睡眠機會" } }
+    } },
+    "Stale · %@": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "Veraltet · %@" } },
+      "es": { "stringUnit": { "state": "translated", "value": "Desactualizado · %@" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "Obsolète · %@" } },
+      "it": { "stringUnit": { "state": "translated", "value": "Non aggiornato · %@" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "Nieaktualne · %@" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "Desatualizado · %@" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "Устарело · %@" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "已过时 · %@" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "已過時 · %@" } }
+    } },
+    "%.0f min": { "localizations": {
+      "de": { "stringUnit": { "state": "translated", "value": "%.0f Min." } },
+      "es": { "stringUnit": { "state": "translated", "value": "%.0f min" } },
+      "fr": { "stringUnit": { "state": "translated", "value": "%.0f min" } },
+      "it": { "stringUnit": { "state": "translated", "value": "%.0f min" } },
+      "pl": { "stringUnit": { "state": "translated", "value": "%.0f min" } },
+      "pt-PT": { "stringUnit": { "state": "translated", "value": "%.0f min" } },
+      "ru": { "stringUnit": { "state": "translated", "value": "%.0f мин" } },
+      "zh-Hans": { "stringUnit": { "state": "translated", "value": "%.0f分钟" } },
+      "zh-Hant": { "stringUnit": { "state": "translated", "value": "%.0f分鐘" } }
+    } },
     "Body measurement units": { "localizations": {
       "de": { "stringUnit": { "state": "translated", "value": "Einheiten für Körpermaße" } }, "es": { "stringUnit": { "state": "translated", "value": "Unidades de medidas corporales" } }, "fr": { "stringUnit": { "state": "translated", "value": "Unités des mensurations" } }, "it": { "stringUnit": { "state": "translated", "value": "Unità delle misure corporee" } }, "pl": { "stringUnit": { "state": "translated", "value": "Jednostki pomiarów ciała" } }, "pt-PT": { "stringUnit": { "state": "translated", "value": "Unidades das medidas corporais" } }, "ru": { "stringUnit": { "state": "translated", "value": "Единицы параметров тела" } }, "zh-Hans": { "stringUnit": { "state": "translated", "value": "身体测量单位" } }, "zh-Hant": { "stringUnit": { "state": "translated", "value": "身體測量單位" } }
     } },

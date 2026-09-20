@@ -104,8 +104,8 @@ final class AnalyticsEngineTests: XCTestCase {
         XCTAssertNotNil(result.daily.totalSleepMin)
         XCTAssertGreaterThan(result.daily.totalSleepMin!, 0)
         XCTAssertEqual(result.daily.restingHr, 50)
-        XCTAssertNotNil(result.daily.avgHrv)
-        XCTAssertEqual(result.daily.avgHrv!, 10.0, accuracy: 1.0)  // RMSSD of ±5 ms oscillation
+        XCTAssertNil(result.daily.avgHrv, "coarse RR rows do not prove original-beat continuity")
+        XCTAssertTrue(result.hrvMeasurements.contains { $0.reason == "continuity_unverified" })
         // CachedSleepSession rows mirror the detected sessions and carry stage JSON.
         XCTAssertEqual(result.cachedSleep.count, 1)
         XCTAssertNotNil(result.cachedSleep[0].stagesJSON)
@@ -123,7 +123,7 @@ final class AnalyticsEngineTests: XCTestCase {
         XCTAssertNil(result.recovery)
     }
 
-    func testAnalyzeDayWithBaselinesProducesRecovery() {
+    func testBaselineCannotRescueUnverifiedCurrentHrv() {
         let day = "2021-06-17"
         let n = night(endDay: day, hours: 7)
         // Trusted HRV + RHR baselines around the values this night will produce.
@@ -134,10 +134,8 @@ final class AnalyticsEngineTests: XCTestCase {
             day: day, hr: n.hr, rr: n.rr, gravity: n.gravity,
             profile: UserProfile(age: 30),
             baselines: AnalyticsEngine.ProfileBaselines(hrv: hrvBase, restingHR: rhrBase))
-        XCTAssertNotNil(result.recovery)
+        XCTAssertNil(result.recovery, "a personal baseline cannot establish missing current beat provenance")
         XCTAssertEqual(result.daily.recovery, result.recovery)
-        XCTAssertGreaterThanOrEqual(result.recovery!, 0)
-        XCTAssertLessThanOrEqual(result.recovery!, 100)
     }
 
     func testAnalyzeDayNoMatchingNight() {

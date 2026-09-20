@@ -22,16 +22,16 @@ final class PpgWaveformSampleTests: XCTestCase {
         XCTAssertTrue(tables.contains("ppgWaveformSample"))
     }
 
-    func testPpgWaveformPrimaryKeyIsDeviceIdTs() async throws {
+    func testPpgWaveformPrimaryKeyIncludesWireRecordIdentity() async throws {
         let store = try await WhoopStore.inMemory()
         let cols = try await store.primaryKeyColumns("ppgWaveformSample")
-        XCTAssertEqual(cols, ["deviceId", "ts"])
+        XCTAssertEqual(cols, ["deviceId", "ts", "recordIndex"])
     }
 
     func testPpgWaveformTableShape() async throws {
         let store = try await WhoopStore.inMemory()
         let cols = try await store.columnNamesForTest(table: "ppgWaveformSample")
-        XCTAssertEqual(Set(cols), ["deviceId", "ts", "samples", "burstIndex"])
+        XCTAssertEqual(Set(cols), ["deviceId", "ts", "samples", "burstIndex", "recordIndex"])
     }
 
     func testPpgWaveformInsertRoundTripAndDedup() async throws {

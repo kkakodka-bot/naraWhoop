@@ -11,6 +11,8 @@ sealed interface PushTable {
 enum class PushAppendTable(override val wireName: String) : PushTable {
     HR_SAMPLE("hrSample"),
     RR_INTERVAL("rrInterval"),
+    RR_PACKET_PROVENANCE("rrPacketProvenance"),
+    STANDARD_HR_RECEIPT("standardHRReceipt"),
     EVENT("event"),
     BATTERY("battery"),
     SPO2_SAMPLE("spo2Sample"),
@@ -44,6 +46,7 @@ data class PushPpgWaveformRecord(
     val ts: Long,
     val burstIndex: Int?,
     val samples: ByteArray,
+    val recordIndex: Long? = null,
 ) {
     init {
         require(rowId > 0)
@@ -53,7 +56,7 @@ data class PushPpgWaveformRecord(
         if (this === other) return true
         if (other !is PushPpgWaveformRecord) return false
         return rowId == other.rowId && ts == other.ts && burstIndex == other.burstIndex &&
-            samples.contentEquals(other.samples)
+            samples.contentEquals(other.samples) && recordIndex == other.recordIndex
     }
 
     override fun hashCode(): Int {
@@ -61,6 +64,7 @@ data class PushPpgWaveformRecord(
         result = 31 * result + ts.hashCode()
         result = 31 * result + (burstIndex ?: 0)
         result = 31 * result + samples.contentHashCode()
+        result = 31 * result + (recordIndex?.hashCode() ?: 0)
         return result
     }
 }
@@ -371,6 +375,15 @@ data class ImuPushRecord(val ts: Long, val columns: ByteArray) {
 data class PushError(val protocolVersion: String, val code: String) {
     companion object {
         private val SAFE_CODE = Regex("[a-z][a-z0-9_]{0,63}")
+
+        /** Local stream identity wins; only allowlisted stage and UUID correlation are retained. */
+        fun httpFailure(status: Int, bytes: ByteArray, expectedVersion: String = PushProtocol.VERSION,
+                        table: PushTable? = null): PushFailure {
+            val code = parseCode(bytes, expectedVersion)
+            val obj = if (code == null) null else runCatching { org.json.JSONObject(bytes.toString(Charsets.UTF_8)) }.getOrNull()
+            return PushFailure.http(status, code, stream = table?.wireName,
+                stage = obj?.opt("stage") as? String, correlationId = obj?.opt("correlationId") as? String)
+        }
 
         fun parseCode(bytes: ByteArray, expectedVersion: String = PushProtocol.VERSION): String? {
             if (bytes.isEmpty() || bytes.size > PushProtocol.MAX_ACK_BYTES) return null

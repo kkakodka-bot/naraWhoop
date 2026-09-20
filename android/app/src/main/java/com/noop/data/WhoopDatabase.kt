@@ -27,6 +27,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DeviceRow::class,
         HrSample::class,
         RrInterval::class,
+        RrPacketProvenanceEntity::class,
+        StandardHrReceiptEntity::class,
         EventRow::class,
         BatterySample::class,
         Spo2Sample::class,
@@ -56,7 +58,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SyncJobEntity::class,
         SyncJournalEntryEntity::class,
     ],
-    version = 38,
+    version = 42,
     // #775: ON so Room's KSP processor writes the generated schema (every table's exact `CREATE TABLE`,
     // columns in declaration order with affinity/NOT NULL/default, PK and indices) as JSON. That export
     // is what lets a plain JVM test — no device, no Robolectric — read Android's REAL schema and compare
@@ -75,9 +77,10 @@ abstract class WhoopDatabase : RoomDatabase() {
 
     companion object {
         const val DB_NAME = "noop_whoop.db"
+        fun databaseName(context: Context): String = com.noop.push.EnrollmentDataScope.databaseName(context)
         /** Room schema version — MUST equal the `@Database(version = …)` above. Surfaced in the backup
          *  manifest (#1410) so an export states its schema. Bump both together on a migration. */
-        const val SCHEMA_VERSION = 38
+        const val SCHEMA_VERSION = 42
 
         @Volatile
         private var instance: WhoopDatabase? = null
@@ -1003,6 +1006,71 @@ abstract class WhoopDatabase : RoomDatabase() {
             )""",
         )
 
+        /** Covers the source-promotion cache witnesses. Twin of GRDB v46-rr-source-index. */
+        internal const val RR_SOURCE_INDEX_SQL =
+            "CREATE INDEX IF NOT EXISTS rrInterval_source_suspect ON rrInterval(srcChannel, tsSuspect)"
+
+        internal val MIGRATION_38_39 = object : Migration(38, 39) {
+            override fun migrate(db: SupportSQLiteDatabase) { db.execSQL(RR_SOURCE_INDEX_SQL) }
+        }
+
+        /** GRDB v48 twin. Keep rowid stable because raw upload cursors address these rows. */
+        internal val MIGRATION_39_40 = object : Migration(39, 40) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val key = mutableListOf<Pair<Int, String>>()
+                var hasRecordIndex = false
+                db.query("PRAGMA table_info(ppgWaveformSample)").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(cursor.getColumnIndexOrThrow("name"))
+                        val position = cursor.getInt(cursor.getColumnIndexOrThrow("pk"))
+                        if (name == "recordIndex") hasRecordIndex = true
+                        if (position > 0) key.add(position to name)
+                    }
+                }
+                val columns = key.sortedBy { it.first }.map { it.second }
+                if (hasRecordIndex) {
+                    check(columns == listOf("deviceId", "ts", "recordIndex")) {
+                        "Unsupported PPG waveform record identity key"
+                    }
+                    return
+                }
+                check(columns == listOf("deviceId", "ts")) { "Unsupported legacy PPG waveform key" }
+                PPG_RECORD_IDENTITY_MIGRATION_SQL.forEach(db::execSQL)
+            }
+        }
+
+        internal val PPG_RECORD_IDENTITY_MIGRATION_SQL = listOf(
+            "CREATE TABLE ppgWaveformSample_v40 (deviceId TEXT NOT NULL, ts INTEGER NOT NULL, " +
+                "samples BLOB NOT NULL, burstIndex INTEGER, recordIndex INTEGER NOT NULL, " +
+                "PRIMARY KEY(deviceId, ts, recordIndex))",
+            "INSERT INTO ppgWaveformSample_v40 (rowid, deviceId, ts, samples, burstIndex, recordIndex) " +
+                "SELECT rowid, deviceId, ts, samples, burstIndex, -1 FROM ppgWaveformSample",
+            "DROP TABLE ppgWaveformSample",
+            "ALTER TABLE ppgWaveformSample_v40 RENAME TO ppgWaveformSample",
+        )
+
+        internal val RR_PACKET_PROVENANCE_MIGRATION_SQL = listOf(
+            "CREATE TABLE rrPacketProvenance (deviceId TEXT NOT NULL, packetId TEXT NOT NULL, ts INTEGER NOT NULL, " +
+                "sensorTs INTEGER NOT NULL, recordIndex INTEGER NOT NULL, rawHex TEXT NOT NULL, srcChannel INTEGER NOT NULL, " +
+                "schemaVersion INTEGER NOT NULL, decoderVersion TEXT NOT NULL, clockVersion TEXT NOT NULL, " +
+                "timestampPrecisionSeconds REAL NOT NULL, clockOffsetSeconds INTEGER NOT NULL, declaredCount INTEGER NOT NULL, " +
+                "PRIMARY KEY(deviceId, packetId))",
+            "CREATE INDEX rrPacketProvenance_device_ts ON rrPacketProvenance(deviceId, ts)",
+        )
+        internal val MIGRATION_40_41 = object : Migration(40, 41) {
+            override fun migrate(db: SupportSQLiteDatabase) { RR_PACKET_PROVENANCE_MIGRATION_SQL.forEach(db::execSQL) }
+        }
+        internal val STANDARD_HR_RECEIPT_MIGRATION_SQL = listOf(
+            "CREATE TABLE standardHRReceipt (deviceId TEXT NOT NULL, receiptId TEXT NOT NULL, ts INTEGER NOT NULL, " +
+                "sessionId TEXT NOT NULL, notificationOrdinal INTEGER NOT NULL, receivedUnixMs INTEGER NOT NULL, " +
+                "receivedMonotonicNs INTEGER NOT NULL, rawHex TEXT NOT NULL, schemaVersion INTEGER NOT NULL, " +
+                "clockVersion TEXT NOT NULL, PRIMARY KEY(deviceId, receiptId))",
+            "CREATE INDEX standardHRReceipt_device_ts ON standardHRReceipt(deviceId, ts)",
+        )
+        internal val MIGRATION_41_42 = object : Migration(41, 42) {
+            override fun migrate(db: SupportSQLiteDatabase) { STANDARD_HR_RECEIPT_MIGRATION_SQL.forEach(db::execSQL) }
+        }
+
         /**
          * Every migration the builder registers, as a VALUE rather than an argument list.
          *
@@ -1031,10 +1099,14 @@ abstract class WhoopDatabase : RoomDatabase() {
             MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
             MIGRATION_36_37,
             MIGRATION_37_38,
+            MIGRATION_38_39,
+            MIGRATION_39_40,
+            MIGRATION_40_41,
+            MIGRATION_41_42,
         )
 
         private fun build(appContext: Context): WhoopDatabase =
-            Room.databaseBuilder(appContext, WhoopDatabase::class.java, DB_NAME)
+            Room.databaseBuilder(appContext, WhoopDatabase::class.java, databaseName(appContext))
                 // #1014: replace ONLY the corruption handling of the default open-helper. The
                 // platform default silently DELETES a corrupt database file (non-resendable strap
                 // history gone without a trace); this factory logs + preserves the file instead.
@@ -1060,8 +1132,34 @@ abstract class WhoopDatabase : RoomDatabase() {
                                 "('my-whoop', 'WHOOP', 'WHOOP', NULL, 'liveBLE', " +
                                 "'${WhoopLiveCapabilities.encoded("WHOOP")}', 'active', $now, $now)",
                         )
+                        if (!com.noop.BuildConfig.ENABLE_DEMO && com.noop.push.EnrollmentDataScope.scope(appContext) != null) {
+                            copyLegacyPairingMetadata(appContext, db)
+                        }
                     }
                 })
                 .build()
+
+        /** Read-only legacy access. Never copy samples, analysis, ownership, jobs, or upload cursors. */
+        private fun copyLegacyPairingMetadata(context: Context, target: SupportSQLiteDatabase) {
+            val legacy = context.getDatabasePath(DB_NAME)
+            if (!legacy.exists()) return
+            android.database.sqlite.SQLiteDatabase.openDatabase(legacy.path, null,
+                android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { source ->
+                EnrollmentPairingMetadata.copy(read = { sql ->
+                    source.rawQuery(sql, null).use { rows ->
+                        buildList {
+                            while (rows.moveToNext()) add(rows.columnNames.associateWith { name ->
+                                val i = rows.getColumnIndexOrThrow(name)
+                                when (rows.getType(i)) {
+                                    android.database.Cursor.FIELD_TYPE_NULL -> null
+                                    android.database.Cursor.FIELD_TYPE_INTEGER -> rows.getLong(i)
+                                    else -> rows.getString(i)
+                                }
+                            })
+                        }
+                    }
+                }, write = { sql, values -> target.execSQL(sql, values) })
+            }
+        }
     }
 }

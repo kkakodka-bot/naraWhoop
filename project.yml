@@ -41,6 +41,10 @@ settings:
       # Distribution builds must produce a universal binary, not just the host arch.
       ONLY_ACTIVE_ARCH: NO
 packages:
+  # App integration fixtures execute real SQLite queries; link the same pinned GRDB as WhoopStore.
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    exactVersion: 6.29.3
   # Renders the Coach's LLM replies (GitHub-flavored Markdown — bold, lists,
   # headings, tables). Pinned exactly for reproducible community builds.
   MarkdownUI:
@@ -124,6 +128,7 @@ targets:
         # Absent/blank values leave push manual-configure, exactly as before.
         NOOPPushEndpoint: $(NOOP_PUSH_ENDPOINT)
         NOOPPushToken: $(NOOP_PUSH_TOKEN)
+        NOOPSupabaseAnonKey: $(NOOP_SUPABASE_ANON_KEY)
         # Registers the noop:// URL scheme so ASWebAuthenticationSession's OAuth redirect
         # (noop://oura/callback) reaches OuraOAuthProvider instead of bouncing off the OS.
         CFBundleURLTypes:
@@ -181,6 +186,7 @@ targets:
       - target: Strand
       - package: WhoopProtocol
       - package: WhoopStore
+      - package: GRDB
       - package: OuraProtocol
     settings:
       base:
@@ -327,6 +333,7 @@ targets:
         # Absent/blank values leave push manual-configure, exactly as before.
         NOOPPushEndpoint: $(NOOP_PUSH_ENDPOINT)
         NOOPPushToken: $(NOOP_PUSH_TOKEN)
+        NOOPSupabaseAnonKey: $(NOOP_SUPABASE_ANON_KEY)
         # Registers the noop:// URL scheme so ASWebAuthenticationSession's OAuth redirect
         # (noop://oura/callback) reaches OuraOAuthProvider instead of bouncing off the OS.
         CFBundleURLTypes:

@@ -10,23 +10,53 @@ public struct BackfillInsertOutcome: Sendable {
     public var counts: (hr: Int, rr: Int, events: Int, battery: Int,
                         spo2: Int, skinTemp: Int, resp: Int, gravity: Int)
     public var markedJobs: Bool
+    /// Newly persisted sensor observations. Events and battery samples do not establish
+    /// historical-data progress; RR provenance is deliberately not counted separately because
+    /// it describes an RR observation already counted by `counts.rr`.
+    public var insertedHistoricalSensorRows: Int
 
     public init(counts: (hr: Int, rr: Int, events: Int, battery: Int,
                          spo2: Int, skinTemp: Int, resp: Int, gravity: Int),
-                markedJobs: Bool) {
+                markedJobs: Bool, insertedHistoricalSensorRows: Int? = nil) {
         self.counts = counts
         self.markedJobs = markedJobs
+        self.insertedHistoricalSensorRows = insertedHistoricalSensorRows
+            ?? (counts.hr + counts.rr + counts.spo2 + counts.skinTemp + counts.resp + counts.gravity)
     }
 }
 
-extension WhoopStore {
-    /// Backfill duplicate-replay skip (v45). Default ON; `enableBackfillRangeSkip = false` disables.
-    /// Live `insert()` passes empty `postOffloadJobKinds` and never consults the frontier.
-    private static var backfillRangeSkipEnabled: Bool {
-        if UserDefaults.standard.object(forKey: "enableBackfillRangeSkip") == nil { return true }
-        return UserDefaults.standard.bool(forKey: "enableBackfillRangeSkip")
-    }
+private struct RRBatchSecond: Hashable {
+    let ts: Int
+    let transport: Int
+}
 
+extension WhoopStore {
+    /// Original standard-HR notifications. Host receipt clocks do not establish beat-time coverage.
+    public func standardHrReceipts(deviceId: String, from: Int, to: Int) async throws -> [StandardHRReceipt] {
+        try syncRead { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM standardHRReceipt WHERE deviceId = ? AND ts >= ? AND ts < ? ORDER BY receivedUnixMs, sessionId, notificationOrdinal",
+                arguments: [deviceId, from, to]).compactMap { row in
+                guard let bytes = RRPacketProvenance.bytes(row["rawHex"]),
+                      let receipt = StandardHRReceipt.capture(bytes, sessionId: row["sessionId"],
+                        notificationOrdinal: row["notificationOrdinal"], receivedUnixMs: row["receivedUnixMs"],
+                        receivedMonotonicNs: row["receivedMonotonicNs"]),
+                      receipt.receiptId == row["receiptId"], receipt.ts == row["ts"],
+                      receipt.schemaVersion == row["schemaVersion"], receipt.clockVersion == row["clockVersion"] else { return nil }
+                return receipt
+            }
+        }
+    }
+    /// Dual-read companion: legacy RR remains unchanged and carries no inferred identity.
+    public func rrPacketProvenance(deviceId: String, from: Int, to: Int) async throws -> [RRPacketProvenance] {
+        try syncRead { db in
+            try Row.fetchAll(db, sql: "SELECT rawHex, ts, packetId FROM rrPacketProvenance WHERE deviceId = ? AND ts >= ? AND ts < ? ORDER BY ts, recordIndex, packetId",
+                arguments: [deviceId, from, to]).compactMap { row in
+                let hex: String = row["rawHex"], ts: Int = row["ts"], id: String = row["packetId"]
+                guard let bytes = RRPacketProvenance.bytes(hex), let packet = RRPacketProvenance.checked(bytes, mappedTs: ts), packet.packetId == id else { return nil }
+                return packet
+            }
+        }
+    }
     /// T2-3: multi-row INSERT batch size. 100 rows × 6 columns = 600 bind parameters (SQLite default 999).
     private static let streamInsertBatchSize = 100
 
@@ -283,43 +313,32 @@ extension WhoopStore {
         // Banked rows, accumulated across batches so the sweep does not run on every one.
         var v18Written = 0
         var ppgWaveformWritten = 0
-        let result: (counts: (Int, Int, Int, Int, Int, Int, Int, Int), markedJobs: Bool)
+        let result: (counts: (Int, Int, Int, Int, Int, Int, Int, Int), markedJobs: Bool,
+                     insertedHistoricalSensorRows: Int)
             = try syncWrite { db in
             var hr = 0, rr = 0, ev = 0, bat = 0
             var spo2 = 0, skin = 0, resp = 0, grav = 0
             var stepsInserted = 0
             var sleepStateInserted = 0
             var ppgHrInserted = 0
-            // Backfill-only: skip per-stream insert loops when this chunk's max ts is at/below the
-            // persisted frontier (one indexed read per stream). Live insert() passes empty job kinds.
-            let useRangeSkip = Self.backfillRangeSkipEnabled && !postOffloadJobKinds.isEmpty
-            var frontiers: [String: Int] = [:]
-            if useRangeSkip {
-                let rows = try Row.fetchAll(db, sql: """
-                    SELECT stream, maxTs FROM backfillFrontier WHERE deviceId = ?
-                    """, arguments: [deviceId])
-                for row in rows { frontiers[row["stream"]] = row["maxTs"] }
-            }
-            func shouldSkip(_ stream: String, timestamps: [Int]) -> Bool {
-                guard useRangeSkip, let chunkMax = timestamps.max() else { return false }
-                guard let frontier = frontiers[stream] else { return false }
-                return chunkMax <= frontier
-            }
+            var rrPacketsInserted = 0
+            var rrSourcesPromoted = 0
+            // A high timestamp proves neither complete earlier coverage nor complete same-second
+            // identities. Always attempt durable natural-key inserts before allowing the caller to ACK.
+            // Keep the installed v45 table as a diagnostic watermark; never use it to suppress input.
             func recordFrontier(_ stream: String, timestamps: [Int]) throws {
-                guard useRangeSkip, let chunkMax = timestamps.max() else { return }
-                let newMax = max(frontiers[stream] ?? Int.min, chunkMax)
-                frontiers[stream] = newMax
+                guard !postOffloadJobKinds.isEmpty, let chunkMax = timestamps.max() else { return }
                 try db.execute(sql: """
                     INSERT INTO backfillFrontier (deviceId, stream, maxTs) VALUES (?, ?, ?)
-                    ON CONFLICT(deviceId, stream) DO UPDATE SET maxTs = excluded.maxTs
-                    """, arguments: [deviceId, stream, newMax])
+                    ON CONFLICT(deviceId, stream) DO UPDATE SET maxTs = MAX(maxTs, excluded.maxTs)
+                    """, arguments: [deviceId, stream, chunkMax])
             }
             // Reuse one prepared statement per table instead of recompiling the same SQL on every
             // row. This is the hottest write path (every Collector.flush + every Backfiller chunk
             // over potentially millions of historical rows). cachedStatement persists the compiled
             // statement on the connection across insert() calls too. Each loop is guarded so empty
             // streams (the common live case) compile nothing.
-            if !streams.hr.isEmpty, !shouldSkip("hr", timestamps: streams.hr.map(\.ts)) {
+            if !streams.hr.isEmpty {
                 let rowArgs = streams.hr.map { [$0.ts, $0.bpm] as [DatabaseValueConvertible] }
                 hr += try insertStreamBatch(
                     db,
@@ -329,7 +348,34 @@ extension WhoopStore {
                     rows: rowArgs.map { [deviceId] + $0 })
                 try recordFrontier("hr", timestamps: streams.hr.map(\.ts))
             }
-            if !streams.rr.isEmpty, !shouldSkip("rr", timestamps: streams.rr.map(\.ts)) {
+            // Identity-based companion records bypass the legacy timestamp frontier. They are never
+            // synthesized from old rrInterval rows or pruned without verified archive retention.
+            if !streams.rrPackets.isEmpty {
+                let stmt = try db.cachedStatement(sql: """
+                    INSERT INTO rrPacketProvenance (deviceId, packetId, ts, sensorTs, recordIndex, rawHex,
+                        srcChannel, schemaVersion, decoderVersion, clockVersion, timestampPrecisionSeconds, clockOffsetSeconds, declaredCount)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(deviceId, packetId) DO NOTHING
+                    """)
+                for p in streams.rrPackets {
+                    guard let bytes = RRPacketProvenance.bytes(p.rawHex), RRPacketProvenance.checked(bytes, mappedTs: p.ts) == p else { continue }
+                    try stmt.execute(arguments: [deviceId, p.packetId, p.ts, p.sensorTs, p.recordIndex, p.rawHex,
+                        p.srcChannel, p.schemaVersion, p.decoderVersion, p.clockVersion, p.timestampPrecisionSeconds, p.clockOffsetSeconds, p.declaredCount])
+                    rrPacketsInserted += db.changesCount
+                }
+            }
+            if !streams.standardHrReceipts.isEmpty {
+                let stmt = try db.cachedStatement(sql: """
+                    INSERT INTO standardHRReceipt (deviceId, receiptId, ts, sessionId, notificationOrdinal,
+                        receivedUnixMs, receivedMonotonicNs, rawHex, schemaVersion, clockVersion)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(deviceId, receiptId) DO NOTHING
+                    """)
+                for p in streams.standardHrReceipts where p.isValid {
+                    try stmt.execute(arguments: [deviceId, p.receiptId, p.ts, p.sessionId, p.notificationOrdinal,
+                        p.receivedUnixMs, p.receivedMonotonicNs, p.rawHex, p.schemaVersion, p.clockVersion])
+                }
+            }
+            if !streams.rr.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
                     INSERT INTO rrInterval (deviceId, ts, rrMs, seq, ord, srcChannel)
                     VALUES (?, ?, ?, ?, ?, ?)
@@ -348,28 +394,49 @@ extension WhoopStore {
                 // DO NOTHING keeps the first row. The historical path delivers a second atomically.
                 // Twin of Kotlin assignRrSeq.
                 //
-                // v32 (#1071): `srcChannel` is the sensor channel that measured the beat, carried from the
-                // decoder that produced it. NULL for every WHOOP row (one beat source — there is no channel
-                // to name, and that is honest rather than a placeholder) and for any source that does not
-                // report one. Like `ord` it is OUTSIDE the key: two channels measuring the same beat can
+                // `srcChannel` carries Oura optical channels or WHOOP 5 transport provenance. WHOOP 4
+                // and legacy rows stay NULL. Like `ord` it is OUTSIDE the key: two observations of a beat can
                 // yield the same (ts, rrMs), and keying on the label would store both — which is precisely
-                // the double-count this fixes. `DO NOTHING` therefore keeps whichever arrived first and the
-                // second channel's copy of THAT exact beat is dropped at insert; the read filter is what
-                // separates the streams in general.
-                var seqByTsRr: [Int: [Int: Int]] = [:]
-                var ordByTs: [Int: Int] = [:]
+                // the double-count this fixes. A collision never inserts another beat. A newly observed
+                // canonical WHOOP 5 transport can promote the existing source and order below; the read
+                // filter separates sources across the full requested interval.
+                let promote = try db.cachedStatement(sql: """
+                    UPDATE rrInterval SET srcChannel = :source, ord = :ord,
+                        rowid = (SELECT COALESCE(MAX(rowid), 0) + 1 FROM rrInterval)
+                    WHERE deviceId = :device AND ts = :ts AND rrMs = :rr AND seq = :seq
+                    AND ((:source = 5 AND (srcChannel IS NULL OR srcChannel IN (6, 7)))
+                      OR (:source = 7 AND (srcChannel IS NULL OR srcChannel = 6)))
+                    """)
+                var seqByTsRr: [RRBatchSecond: [Int: Int]] = [:]
+                var ordByTs: [RRBatchSecond: Int] = [:]
                 for r in streams.rr {
-                    let seq = seqByTsRr[r.ts]?[r.rrMs] ?? 0
-                    seqByTsRr[r.ts, default: [:]][r.rrMs] = seq + 1
-                    let ord = ordByTs[r.ts] ?? 0
-                    ordByTs[r.ts] = ord + 1
+                    // A second's native historical array is atomic. A standard packet in the same
+                    // batch must not change its order or the occurrence number of an equal interval.
+                    let key = RRBatchSecond(ts: r.ts,
+                        transport: r.srcChannel?.isWhoop5Transport == true ? r.srcChannel!.rawValue : 0)
+                    let seq = seqByTsRr[key]?[r.rrMs] ?? 0
+                    seqByTsRr[key, default: [:]][r.rrMs] = seq + 1
+                    let ord = ordByTs[key] ?? 0
+                    ordByTs[key] = ord + 1
                     try stmt.execute(arguments: [deviceId, r.ts, r.rrMs, seq, ord,
                                                  r.srcChannel?.rawValue])
-                    rr += db.changesCount
+                    let inserted = db.changesCount
+                    rr += inserted
+                    if inserted == 0, let source = r.srcChannel,
+                       source == .whoop5Historical || source == .whoop5Standard {
+                        // Canonical precedence is history > standard > native/legacy. The winning
+                        // observation supplies its order; values/keys and Oura labels remain intact.
+                        // The natural beat key and all other columns remain intact. Advancing rowid
+                        // re-exports changed provenance through append cursors; a metadata-only change
+                        // must also create durable scoring debt before ACK.
+                        try promote.execute(arguments: ["source": source.rawValue, "ord": ord,
+                            "device": deviceId, "ts": r.ts, "rr": r.rrMs, "seq": seq])
+                        rrSourcesPromoted += db.changesCount
+                    }
                 }
                 try recordFrontier("rr", timestamps: streams.rr.map(\.ts))
             }
-            if !streams.events.isEmpty, !shouldSkip("event", timestamps: streams.events.map(\.ts)) {
+            if !streams.events.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
                     INSERT INTO event (deviceId, ts, kind, payloadJSON) VALUES (?, ?, ?, ?)
                     ON CONFLICT(deviceId, ts, kind) DO NOTHING
@@ -381,7 +448,7 @@ extension WhoopStore {
                 }
                 try recordFrontier("event", timestamps: streams.events.map(\.ts))
             }
-            if !streams.battery.isEmpty, !shouldSkip("battery", timestamps: streams.battery.map(\.ts)) {
+            if !streams.battery.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
                     INSERT INTO battery (deviceId, ts, soc, mv, charging) VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(deviceId, ts) DO NOTHING
@@ -392,7 +459,7 @@ extension WhoopStore {
                 }
                 try recordFrontier("battery", timestamps: streams.battery.map(\.ts))
             }
-            if !streams.spo2.isEmpty, !shouldSkip("spo2", timestamps: streams.spo2.map(\.ts)) {
+            if !streams.spo2.isEmpty {
                 spo2 += try insertStreamBatch(
                     db,
                     insertPrefix: "INSERT INTO spo2Sample (deviceId, ts, red, ir) VALUES ",
@@ -404,7 +471,7 @@ extension WhoopStore {
             // `aux1Raw`/`aux2Raw` (v31) are the two auxiliary thermal channels riding the same v18 record
             // as the primary reading. nil (a WHOOP 4.0, or a byte that failed the decoder's thermal gate)
             // stores SQL NULL, so an absent channel stays absent.
-            if !streams.skinTemp.isEmpty, !shouldSkip("skinTemp", timestamps: streams.skinTemp.map(\.ts)) {
+            if !streams.skinTemp.isEmpty {
                 skin += try insertStreamBatch(
                     db,
                     insertPrefix: "INSERT INTO skinTempSample (deviceId, ts, raw, aux1Raw, aux2Raw) VALUES ",
@@ -413,7 +480,7 @@ extension WhoopStore {
                     rows: streams.skinTemp.map { [deviceId, $0.ts, $0.raw, $0.aux1Raw, $0.aux2Raw] })
                 try recordFrontier("skinTemp", timestamps: streams.skinTemp.map(\.ts))
             }
-            if !streams.resp.isEmpty, !shouldSkip("resp", timestamps: streams.resp.map(\.ts)) {
+            if !streams.resp.isEmpty {
                 resp += try insertStreamBatch(
                     db,
                     insertPrefix: "INSERT INTO respSample (deviceId, ts, raw) VALUES ",
@@ -425,7 +492,7 @@ extension WhoopStore {
             // `dynAccel` (v31) is the strap's OWN gravity-removed motion magnitude for the same second —
             // stored BESIDE the vector, never in place of it, and read by nothing. nil (a WHOOP 4.0, or an
             // f32 outside the decoder's [0, 8] g gate) stores SQL NULL.
-            if !streams.gravity.isEmpty, !shouldSkip("gravity", timestamps: streams.gravity.map(\.ts)) {
+            if !streams.gravity.isEmpty {
                 grav += try insertStreamBatch(
                     db,
                     insertPrefix: "INSERT INTO gravitySample (deviceId, ts, x, y, z, dynAccel) VALUES ",
@@ -439,7 +506,7 @@ extension WhoopStore {
             // `activityClass` (#316, v19 column) is the @63 activity-class enum (0=still/1=walk/2=run) the
             // decoder already carries on each StepSample; it was dropped here before v19. Bound as `s.activityClass`
             //, nil (the byte was 0xFF/invalid/absent) stores SQL NULL, so an absent class stays absent.
-            if !streams.steps.isEmpty, !shouldSkip("steps", timestamps: streams.steps.map(\.ts)) {
+            if !streams.steps.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
                     INSERT INTO stepSample (deviceId, ts, counter, activityClass) VALUES (?, ?, ?, ?)
                     ON CONFLICT(deviceId, ts) DO NOTHING
@@ -460,7 +527,7 @@ extension WhoopStore {
             // idempotent. The raw 0-3 code is stored verbatim — a strap that never reports it inserts nothing.
             // `rawByte` (v31) is the WHOLE @81 byte; `state` remains exactly its high nibble, so every
             // existing #175 consumer is bit-identical. nil stores SQL NULL.
-            if !streams.sleepState.isEmpty, !shouldSkip("sleepState", timestamps: streams.sleepState.map(\.ts)) {
+            if !streams.sleepState.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
                     INSERT INTO sleepStateSample (deviceId, ts, state, rawByte) VALUES (?, ?, ?, ?)
                     ON CONFLICT(deviceId, ts) DO NOTHING
@@ -475,7 +542,7 @@ extension WhoopStore {
             // is not added to the 8-field return tuple (the Backfiller call site reads that tuple by name;
             // extending it would ripple), so it is inserted without being counted. ON CONFLICT DO NOTHING
             // keeps the FIRST estimate for a second; the measured hrSample is never touched here.
-            if !streams.ppgHr.isEmpty, !shouldSkip("ppgHr", timestamps: streams.ppgHr.map(\.ts)) {
+            if !streams.ppgHr.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
                     INSERT INTO ppgHrSample (deviceId, ts, bpm, conf) VALUES (?, ?, ?, ?)
                     ON CONFLICT(deviceId, ts) DO NOTHING
@@ -488,26 +555,27 @@ extension WhoopStore {
             }
             // RAW v26 optical PPG waveform (#156 follow-up) — the samples `ppgHr` above is derived FROM.
             // Persist-only, same as steps/sleepState/ppgHr: not added to the 8-field return tuple. ON
-            // CONFLICT DO NOTHING keeps the FIRST-seen waveform for a second, matching every other
-            // per-second stream's dedupe rule. Packed into one compact BLOB per row (see
+            // CONFLICT DO NOTHING keeps the first waveform for each wire identity. Multiple records
+            // in the same second survive. Packed into one compact BLOB per row (see
             // `packPpgSamples`) rather than 24 scalar rows, so this insert is O(records), not O(samples).
-            if !streams.ppgWaveform.isEmpty, !shouldSkip("ppgWaveform", timestamps: streams.ppgWaveform.map(\.ts)) {
+            // A timestamp frontier cannot establish that all records in a second were committed.
+            if !streams.ppgWaveform.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
-                    INSERT INTO ppgWaveformSample (deviceId, ts, samples, burstIndex) VALUES (?, ?, ?, ?)
-                    ON CONFLICT(deviceId, ts) DO NOTHING
+                    INSERT INTO ppgWaveformSample (deviceId, ts, samples, burstIndex, recordIndex)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(deviceId, ts, recordIndex) DO NOTHING
                     """)
                 for s in streams.ppgWaveform {
                     try stmt.execute(arguments: [deviceId, s.ts, WhoopStore.packPpgSamples(s.samples),
-                                                 s.burstIndex])
-                    ppgWaveformWritten += 1
+                                                 s.burstIndex, s.recordIndex ?? -1])
+                    ppgWaveformWritten += db.changesCount
                 }
-                try recordFrontier("ppgWaveform", timestamps: streams.ppgWaveform.map(\.ts))
             }
             // Every remaining v18 slot (v31), one compact blob per strap-second. Persist-only, same as
             // steps/sleepState/ppgHr/ppgWaveform: not added to the 8-field return tuple. A sample whose
             // slots are all absent packs to empty and is SKIPPED rather than banking a meaningless row —
             // which is also what keeps a WHOOP 4.0 offload from writing here at all.
-            if !streams.v18Aux.isEmpty, !shouldSkip("v18Aux", timestamps: streams.v18Aux.map(\.ts)) {
+            if !streams.v18Aux.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
                     INSERT INTO v18AuxSample (deviceId, ts, fields) VALUES (?, ?, ?)
                     ON CONFLICT(deviceId, ts) DO NOTHING
@@ -516,7 +584,8 @@ extension WhoopStore {
                     let blob = V18AuxCodec.pack(s)
                     if blob.isEmpty { continue }
                     try stmt.execute(arguments: [deviceId, s.ts, blob])
-                    v18Written += 1
+                    // A replayed historical frame must not consume retention or progress budget.
+                    v18Written += db.changesCount
                 }
                 try recordFrontier("v18Aux", timestamps: streams.v18Aux.map(\.ts))
             }
@@ -524,7 +593,7 @@ extension WhoopStore {
             // does not carry): a duplicate-only replay inserts zero rows and must neither eat the debt
             // nor refresh it. Every stream that appears in the scoring fingerprint is represented here.
             let scoringInserted = hr + rr + ev + spo2 + skin + resp + grav
-                + stepsInserted + sleepStateInserted + ppgHrInserted
+                + stepsInserted + sleepStateInserted + ppgHrInserted + rrPacketsInserted + rrSourcesPromoted
             var markedJobs = false
             if scoringInserted > 0, !postOffloadJobKinds.isEmpty {
                 let now = Int(Date().timeIntervalSince1970)
@@ -542,7 +611,13 @@ extension WhoopStore {
                 }
                 markedJobs = true
             }
-            return (counts: (hr, rr, ev, bat, spo2, skin, resp, grav), markedJobs: markedJobs)
+            // Preserve every independently stored sensor observation for historical progress.
+            // RR provenance and canonical-source rows are derived copies of the RR observation,
+            // so counting them again would falsely advance progress.
+            let historicalSensorRows = hr + rr + spo2 + skin + resp + grav
+                + stepsInserted + sleepStateInserted + ppgHrInserted + ppgWaveformWritten + v18Written
+            return (counts: (hr, rr, ev, bat, spo2, skin, resp, grav), markedJobs: markedJobs,
+                    insertedHistoricalSensorRows: historicalSensorRows)
         }
 
         // Rolling retention is amortised. The delete finds the Nth-newest row by rank, so it walks up to
@@ -587,7 +662,8 @@ extension WhoopStore {
                 ppgWaveformRowsSincePrune[deviceId] = 0
             }
         }
-        return BackfillInsertOutcome(counts: result.counts, markedJobs: result.markedJobs)
+        return BackfillInsertOutcome(counts: result.counts, markedJobs: result.markedJobs,
+                                     insertedHistoricalSensorRows: result.insertedHistoricalSensorRows)
     }
 
     // MARK: - Raw sensor CSV export (diagnostic)
@@ -855,13 +931,14 @@ extension WhoopStore {
         -> [PpgWaveformSample] {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
-                SELECT ts, samples, burstIndex FROM ppgWaveformSample
+                SELECT ts, samples, burstIndex, recordIndex FROM ppgWaveformSample
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
-                ORDER BY ts LIMIT ?
+                ORDER BY ts, recordIndex LIMIT ?
                 """, arguments: [deviceId, from, to, limit])
                 .map { PpgWaveformSample(ts: $0["ts"],
                                          samples: WhoopStore.unpackPpgSamples($0["samples"]),
-                                         burstIndex: $0["burstIndex"]) }
+                                         burstIndex: $0["burstIndex"],
+                                         recordIndex: ($0["recordIndex"] as Int) == -1 ? nil : $0["recordIndex"]) }
         }
     }
 

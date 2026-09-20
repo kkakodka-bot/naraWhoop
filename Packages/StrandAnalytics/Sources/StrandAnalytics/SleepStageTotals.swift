@@ -8,10 +8,14 @@ public enum SleepStageTotals {
 
     public struct Minutes: Equatable {
         public var awake: Double, light: Double, deep: Double, rem: Double
-        public var asleep: Double { light + deep + rem }
-        public var inBed: Double { asleep + awake }
-        public init(awake: Double = 0, light: Double = 0, deep: Double = 0, rem: Double = 0) {
+        public var sleepUnstaged: Double, stateUnknown: Double, offBody: Double
+        public var asleep: Double { light + deep + rem + sleepUnstaged }
+        public var knownState: Double { asleep + awake }
+        public var inBed: Double { knownState + stateUnknown + offBody }
+        public init(awake: Double = 0, light: Double = 0, deep: Double = 0, rem: Double = 0,
+                    sleepUnstaged: Double = 0, stateUnknown: Double = 0, offBody: Double = 0) {
             self.awake = awake; self.light = light; self.deep = deep; self.rem = rem
+            self.sleepUnstaged = sleepUnstaged; self.stateUnknown = stateUnknown; self.offBody = offBody
         }
     }
 
@@ -27,11 +31,18 @@ public enum SleepStageTotals {
                       let e = (seg["end"] as? NSNumber)?.intValue, e > s,
                       let name = seg["stage"] as? String else { continue }
                 let mins = Double(e - s) / 60.0
+                let state = seg["state"] as? String
+                if state == "off_body" { m.offBody += mins; continue }
+                if state == "state_unknown" { m.stateUnknown += mins; continue }
+                if state == "sleep_unstaged" { m.sleepUnstaged += mins; continue }
                 switch name {
                 case "wake", "awake": m.awake += mins
                 case "light": m.light += mins
                 case "deep": m.deep += mins
                 case "rem": m.rem += mins
+                case "sleep_unstaged": m.sleepUnstaged += mins
+                case "unknown", "state_unknown": m.stateUnknown += mins
+                case "off_body": m.offBody += mins
                 default: continue
                 }
             }
@@ -39,7 +50,8 @@ public enum SleepStageTotals {
         }
         if let dict = obj as? [String: Any] {                  // minute dict (imported)
             func v(_ k: String) -> Double { (dict[k] as? NSNumber)?.doubleValue ?? 0 }
-            let m = Minutes(awake: v("awake"), light: v("light"), deep: v("deep"), rem: v("rem"))
+            let m = Minutes(awake: v("awake"), light: v("light"), deep: v("deep"), rem: v("rem"),
+                            sleepUnstaged: v("sleepUnstaged"), stateUnknown: v("stateUnknown"), offBody: v("offBody"))
             return m.inBed > 0 ? m : nil
         }
         return nil
@@ -64,10 +76,10 @@ public enum SleepStageTotals {
             // exactly as the Kotlin twin's `optString("stage", "")` does.
             guard let rawS = (seg["start"] as? NSNumber)?.intValue,
                   let e = (seg["end"] as? NSNumber)?.intValue else { return stagesJSON }
-            let name = seg["stage"] as? String ?? ""
             let s = max(rawS, onsetSec)
             guard e > s else { continue }                                        // fully before the onset → drop
-            out.append(["start": s, "end": e, "stage": name])
+            var clipped = seg; clipped["start"] = s
+            out.append(clipped)
         }
         guard let outData = try? JSONSerialization.data(withJSONObject: out),
               let str = String(data: outData, encoding: .utf8) else { return stagesJSON }
@@ -82,6 +94,7 @@ public enum SleepStageTotals {
     public struct DailySleep: Equatable {
         public let totalSleepMin: Double, efficiency: Double
         public let deepMin: Double, remMin: Double, lightMin: Double
+        public let awakeMin: Double, sleepUnstagedMin: Double, stateUnknownMin: Double, offBodyMin: Double
     }
 
     public static func dailyAggregate(_ stagesJSONs: [String?]) -> DailySleep? {
@@ -104,13 +117,18 @@ public enum SleepStageTotals {
             if let m = minutes(fromStagesJSON: j) {
                 total.awake += m.awake; total.light += m.light
                 total.deep += m.deep; total.rem += m.rem
+                total.sleepUnstaged += m.sleepUnstaged
+                total.stateUnknown += m.stateUnknown; total.offBody += m.offBody
                 any = true
             }
         }
-        if interFragmentAwakeSeconds > 0 { total.awake += interFragmentAwakeSeconds / 60.0 }
-        guard any, total.inBed > 0 else { return nil }
+        // The legacy parameter name does not establish that an unobserved gap was wake.
+        if interFragmentAwakeSeconds > 0 { total.stateUnknown += interFragmentAwakeSeconds / 60.0 }
+        guard any, total.inBed > 0, total.knownState > 0 else { return nil }
         return DailySleep(totalSleepMin: total.asleep, efficiency: total.asleep / total.inBed,
-                          deepMin: total.deep, remMin: total.rem, lightMin: total.light)
+                          deepMin: total.deep, remMin: total.rem, lightMin: total.light,
+                          awakeMin: total.awake, sleepUnstagedMin: total.sleepUnstaged,
+                          stateUnknownMin: total.stateUnknown, offBodyMin: total.offBody)
     }
 
     /// The OUT-OF-BED time (seconds) BETWEEN consecutive bridged sleep fragments - the inter-fragment wake
@@ -682,12 +700,16 @@ public enum SleepStageTotals {
             if let m = minutes(fromStagesJSON: j) {
                 total.awake += m.awake; total.light += m.light
                 total.deep += m.deep; total.rem += m.rem
+                total.sleepUnstaged += m.sleepUnstaged
+                total.stateUnknown += m.stateUnknown; total.offBody += m.offBody
                 any = true
             }
         }
         guard any else { return nil }
         let dict: [String: Double] = ["awake": total.awake, "light": total.light,
-                                      "deep": total.deep, "rem": total.rem]
+                                      "deep": total.deep, "rem": total.rem,
+                                      "sleepUnstaged": total.sleepUnstaged, "stateUnknown": total.stateUnknown,
+                                      "offBody": total.offBody]
         return (try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]))
             .flatMap { String(data: $0, encoding: .utf8) }
     }

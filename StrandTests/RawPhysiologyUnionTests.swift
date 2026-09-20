@@ -65,6 +65,50 @@ final class RawPhysiologyUnionTests: XCTestCase {
     }
 
     @MainActor
+    func testHrvTimelineRejectsAmbiguousLegacyAfterWhoop5RePairing() async throws {
+        let store = try await WhoopStore.inMemory()
+        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+        try registry.add(PairedDevice(id: "new-five", brand: "WHOOP", model: "WHOOP 5.0",
+            sourceKind: .liveBLE, capabilities: [.hrv], status: .active, addedAt: 1, lastSeenAt: 1))
+        let base = 1_780_000_000
+        _ = try await store.insert(Streams(rr: (0..<600).map {
+            RRInterval(ts: base + $0, rrMs: 900 + ($0 % 2 == 0 ? 8 : -8))
+        }), deviceId: "my-whoop")
+        let repo = Repository(deviceId: "new-five")
+        repo.setStoreForTesting(store)
+        let guarded = await repo.timelineSeries(metric: .hrv, from: base, to: base + 600, targetPoints: 600)
+        XCTAssertTrue(guarded.points.isEmpty)
+        try registry.setModel("my-whoop", model: "4.0")
+        let knownFour = await repo.timelineSeries(metric: .hrv, from: base, to: base + 600, targetPoints: 600)
+        XCTAssertFalse(knownFour.points.isEmpty)
+    }
+
+    @MainActor
+    func testWhoop5SwitchKeepsOlderPhysicalOwnersAndCapturedBeatOrder() async throws {
+        let store = try await WhoopStore.inMemory()
+        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+        for (id, model) in [("my-whoop", "WHOOP"), ("old-four", "4.0"), ("old-five", "5.0"), ("new-five", "5.0")] {
+            try registry.add(PairedDevice(id: id, brand: "WHOOP", model: model,
+                sourceKind: .liveBLE, capabilities: [.hrv], status: .archived, addedAt: 1, lastSeenAt: 1))
+        }
+        _ = try await store.insert(Streams(rr: [RRInterval(ts: 90, rrMs: 1024)]), deviceId: "my-whoop")
+        _ = try await store.insert(Streams(rr: [RRInterval(ts: 100, rrMs: 810)]), deviceId: "old-four")
+        _ = try await store.insert(Streams(rr: [900, 700, 900, 800].map {
+            RRInterval(ts: 200, rrMs: $0, srcChannel: .whoop5Historical)
+        }), deviceId: "old-five")
+        _ = try await store.insert(Streams(rr: [RRInterval(ts: 300, rrMs: 850, srcChannel: .whoop5Standard)]),
+                                   deviceId: "new-five")
+        let repo = Repository(deviceId: "new-five")
+        repo.setStoreForTesting(store)
+        var rows = await repo.rrIntervals(from: 0, to: 1000)
+        XCTAssertEqual(rows.map(\.rrMs), [810, 900, 700, 900, 800, 850])
+        // A confirmed WHOOP 4 canonical history keeps its original millisecond policy.
+        try registry.setModel("my-whoop", model: "4.0")
+        rows = await repo.rrIntervals(from: 0, to: 1000)
+        XCTAssertEqual(rows.first?.rrMs, 1024)
+    }
+
+    @MainActor
     func testSessionMotionUsesHistoricalOwnerBeforeCurrentActiveComputedSource() async throws {
         let store = try await WhoopStore.inMemory()
         let session = CachedSleepSession(startTs: 1_000, endTs: 5_000, efficiency: 0.9,

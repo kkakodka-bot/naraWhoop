@@ -124,8 +124,8 @@ enum PuffinExperiment {
     static var effortMethod: StrainScorer.Method { banisterEffortEnabled ? .banister : .edwards }
 
     /// Opt-in "Continuous HRV capture": hold the dense realtime HR stream armed even with no Live screen
-    /// open, so the strap banks beat-to-beat R-R intervals 24/7 for far better overnight HRV/recovery/
-    /// sleep (vs the sparse history offload). Uses more battery (continuous HR streaming). Default OFF;
+    /// open, collecting R-R intervals whenever the strap emits them. The requested frequent-vitals
+    /// branch enables this once at launch; users can subsequently turn it off. Uses more battery;
     /// applied on launch + each (re)bond and driven by `BLEManager.setKeepRealtimeForData(_:)`. Mirrors
     /// the Android `NoopPrefs.KEY_CONTINUOUS_HRV`. Works on WHOOP 4 and 5/MG (both emit 0x2A37 R-R).
     static let keepRealtimeForDataKey = "noopContinuousHrv"
@@ -157,7 +157,8 @@ enum PuffinExperiment {
         UserDefaults.standard.object(forKey: continuousHrvOvernightOnlyKey) as? Bool ?? true
     }
 
-    /// One-time migration for the #1008 default flip. Called once at launch, BEFORE anything reads the
+    /// Launch migrations: first apply this branch's explicit all-day request once, then retain the
+    /// historical #1008 default migration. Called BEFORE anything reads the
     /// setting, and before the user can reach the toggle.
     ///
     /// The default moved from OFF to ON, so an install that predates the change has to be pinned to OFF
@@ -177,10 +178,21 @@ enum PuffinExperiment {
     /// Twin of the Android `NoopPrefs.migrateContinuousHrvOvernightDefault`.
     static func migrateContinuousHrvOvernightDefault() {
         let defaults = UserDefaults.standard
+        activateFrequentVitalsCapture(defaults: defaults)
         guard shouldPinLegacyOvernightDefault(
             hasOvernightChoice: defaults.object(forKey: continuousHrvOvernightOnlyKey) != nil,
             hasUsedContinuousHrv: defaults.object(forKey: keepRealtimeForDataKey) != nil) else { return }
         defaults.set(false, forKey: continuousHrvOvernightOnlyKey)
+    }
+
+    /// This branch implements the owner's explicit request for all-day capture. Apply that intent
+    /// once, then respect every later Settings change. Existing low-power/off-body gates still apply.
+    static func activateFrequentVitalsCapture(defaults: UserDefaults) {
+        let marker = "noopFrequentVitalsCaptureV1"
+        guard !defaults.bool(forKey: marker) else { return }
+        defaults.set(true, forKey: keepRealtimeForDataKey)
+        defaults.set(false, forKey: continuousHrvOvernightOnlyKey)
+        defaults.set(true, forKey: marker)
     }
 
     /// The migration's decision, lifted out so it is testable without touching `UserDefaults`. Twin of

@@ -505,6 +505,7 @@ fun SettingsScreen(
     onOpenTestCentre: () -> Unit = {},
     onOpenBackupSync: () -> Unit = {},
     onOpenSelfHostedPush: () -> Unit = {},
+    onOpenServerScoring: () -> Unit = {},
     onOpenStepsCalibration: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -2490,6 +2491,14 @@ fun SettingsScreen(
                 fullWidth = true,
                 onClick = onOpenSelfHostedPush,
             )
+        }
+        SettingsCard(
+            icon = Icons.Filled.CloudSync,
+            title = uiString(R.string.server_scoring_title),
+            blurb = uiString(R.string.server_scoring_description),
+        ) {
+            NoopButton(text = uiString(R.string.server_scoring_title), kind = NoopButtonKind.Secondary,
+                fullWidth = true, onClick = onOpenServerScoring)
         }
         // --- Experimental · WHOOP 5 / MG --- (hidden when the user is confidently on a 4.0, #22)
         // Developer-only 5/MG controls now live in Test Centre. Keep the implementation below during

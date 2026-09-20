@@ -113,11 +113,14 @@ final class Collector {
 
     /// Standard 0x2A37 HR/RR/contact buffer — the reliable, always-on stream, recorded continuously
     /// (independent of the custom realtime stream or which screen is open).
-    private var stdHR: [HRSample] = []
-    private var stdRR: [RRInterval] = []
-    private var stdContact: [WhoopEvent] = []
+    private var stdHR: [(owner: String, row: HRSample)] = []
+    private var stdRR: [(owner: String, row: RRInterval)] = []
+    private var stdReceipts: [(owner: String, row: StandardHRReceipt)] = []
+    private var stdReceiptSessionId = UUID().uuidString.lowercased()
+    private var stdReceiptOrdinal: Int64 = 0
+    private var stdContact: [(owner: String, row: WhoopEvent)] = []
     /// Last contact state buffered, so only transitions are recorded. See `shouldRecordContact`.
-    private var lastStdContact: StandardHRContact?
+    private var lastStdContact: [String: StandardHRContact] = [:]
     private var batchStartedAt: TimeInterval
     var bufferedCount: Int { buffer.count }
 
@@ -288,20 +291,40 @@ final class Collector {
 
     // MARK: - Standard 0x2A37 HR/RR (continuous recording)
 
+    /// Start a new receipt identity namespace on reconnect. Buffered old-session receipts keep their
+    /// original identities and can retry safely. A session is not a sensor continuity assertion.
+    func beginStandardHRReceiptSession() {
+        stdReceiptSessionId = UUID().uuidString.lowercased()
+        stdReceiptOrdinal = 0
+    }
+
+    func ingestStandardHRReceipt(_ bytes: [UInt8], receivedUnixMs: Int64, receivedMonotonicNs: Int64) {
+        if let receipt = StandardHRReceipt.capture(bytes, sessionId: stdReceiptSessionId,
+            notificationOrdinal: stdReceiptOrdinal, receivedUnixMs: receivedUnixMs,
+            receivedMonotonicNs: receivedMonotonicNs) {
+            stdReceipts.append((deviceId, receipt))
+        }
+        if stdReceiptOrdinal == Int64.max { beginStandardHRReceiptSession() }
+        else { stdReceiptOrdinal += 1 }
+        if stdReceipts.count >= 30 { Task { @MainActor in await self.flushStandardHR(reason: .cadence) } }
+    }
+
     /// Buffer one standard Heart-Rate-Measurement reading. No clock correlation needed —
     /// these carry a wall-clock `ts` directly. Auto-flushes ~every 30 readings (~30s).
-    func ingestStandardHR(hr: Int, rr: [Int], contact: StandardHRContact? = nil, at ts: Int) {
+    func ingestStandardHR(hr: Int, rr: [Int], contact: StandardHRContact? = nil,
+                          family: DeviceFamily? = nil, at ts: Int) {
         let acceptedHR = (30...220).contains(hr) ? 1 : 0
         let acceptedRR = rr.filter { (250...3000).contains($0) }
-        if acceptedHR == 1 { stdHR.append(HRSample(ts: ts, bpm: hr)) }
-        stdRR.append(contentsOf: acceptedRR.map { RRInterval(ts: ts, rrMs: $0) })
+        if acceptedHR == 1 { stdHR.append((deviceId, HRSample(ts: ts, bpm: hr))) }
+        let source: RRSourceChannel? = family == .whoop5 ? .whoop5Standard : nil
+        stdRR.append(contentsOf: acceptedRR.map { (deviceId, RRInterval(ts: ts, rrMs: $0, srcChannel: source)) })
         // Only the CHANGES. Advanced here rather than at flush because the event travels in the buffer
         // until it persists: a failed insert re-inserts it at the front, so nothing has to be unwound.
-        if let contact, StandardHRMapping.shouldRecordContact(previous: lastStdContact, current: contact) {
-            lastStdContact = contact
+        if let contact, StandardHRMapping.shouldRecordContact(previous: lastStdContact[deviceId], current: contact) {
+            lastStdContact[deviceId] = contact
             stdContact.append(contentsOf: StandardHRMapping.samples(
                 fromHR: hr, rr: [], contact: contact, at: ts
-            ).events)
+            ).events.map { (deviceId, $0) })
         }
         log?(LivePersistTrace.standardHRHostReceivedLine(
             hostUnixSeconds: ts,
@@ -315,11 +338,20 @@ final class Collector {
 
     /// Persist the buffered standard HR/RR/contact. Re-buffers on failure so nothing is lost.
     func flushStandardHR(reason: LivePersistTrace.StandardHRFlushReason = .explicit) async {
-        guard !stdHR.isEmpty || !stdRR.isEmpty || !stdContact.isEmpty else { return }
-        let hr = stdHR, rr = stdRR, contact = stdContact
+        guard !stdHR.isEmpty || !stdRR.isEmpty || !stdContact.isEmpty || !stdReceipts.isEmpty else { return }
+        let ownedHR = stdHR, ownedRR = stdRR, ownedContact = stdContact
+        let ownedReceipts = stdReceipts
         stdHR.removeAll(keepingCapacity: true)
         stdRR.removeAll(keepingCapacity: true)
         stdContact.removeAll(keepingCapacity: true)
+        stdReceipts.removeAll(keepingCapacity: true)
+        // Arrival ownership survives device switching, actor suspension, and failed-insert retries.
+        let owners = Set(ownedHR.map(\.owner) + ownedRR.map(\.owner) + ownedContact.map(\.owner) + ownedReceipts.map(\.owner))
+        for owner in owners.sorted() {
+        let hr = ownedHR.filter { $0.owner == owner }.map(\.row)
+        let rr = ownedRR.filter { $0.owner == owner }.map(\.row)
+        let contact = ownedContact.filter { $0.owner == owner }.map(\.row)
+        let receipts = ownedReceipts.filter { $0.owner == owner }.map(\.row)
         log?(LivePersistTrace.standardHRFlushAttemptLine(
             reason: reason, offeredHRRows: hr.count, offeredRRRows: rr.count))
         // #1118: census this batch BEFORE it is stored, exactly as the historical path does, so a strap
@@ -338,16 +370,17 @@ final class Collector {
             }
         }
         do {
-            let inserted = try await store.insert(Streams(hr: hr, rr: rr, events: contact), deviceId: deviceId)
+            let inserted = try await store.insert(Streams(hr: hr, rr: rr, events: contact, standardHrReceipts: receipts), deviceId: owner)
             stdInsertFailures = 0
             onBanked?(inserted)
             log?(LivePersistTrace.standardHRFlushSucceededLine(
                 reason: reason, offeredHRRows: hr.count, offeredRRRows: rr.count,
                 insertedHRRows: inserted.hr, insertedRRRows: inserted.rr))
         } catch {
-            stdHR.insert(contentsOf: hr, at: 0)
-            stdRR.insert(contentsOf: rr, at: 0)
-            stdContact.insert(contentsOf: contact, at: 0)
+            stdHR.insert(contentsOf: hr.map { (owner, $0) }, at: 0)
+            stdRR.insert(contentsOf: rr.map { (owner, $0) }, at: 0)
+            stdContact.insert(contentsOf: contact.map { (owner, $0) }, at: 0)
+            stdReceipts.insert(contentsOf: receipts.map { (owner, $0) }, at: 0)
             stdInsertFailures += 1
             log?(LivePersistTrace.standardHRRebufferedForRetryLine(
                 reason: reason, attemptedHRRows: hr.count, attemptedRRRows: rr.count,
@@ -362,6 +395,7 @@ final class Collector {
                     message: error.localizedDescription, hrFrames: hr.count, rrFrames: rr.count,
                     consecutiveFailures: stdInsertFailures))
             }
+        }
         }
     }
 

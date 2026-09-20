@@ -4,7 +4,7 @@
 import {
   OBJECT_LANE_RECORD_HZ,
   OBJECT_LANE_STREAMS,
-  looksLikePii,
+  isSafeExternalDeviceId,
   isUuid,
   noopDeviceId,
   pushArchiveSpecForStream,
@@ -16,11 +16,14 @@ import { PushProtocolError } from './registry.ts';
 import type { SupabaseRest } from './rest.ts';
 import type { S3Store } from './s3.ts';
 import type { PushFunctionConfig } from './config.ts';
+import { ingestStep } from './pushDiagnostics.ts';
+import type { UploadReceiptStore } from './receipts.ts';
+import type { UploadAuthMode } from './tokens.ts';
 
 /** Presigned PUT lifetime. Long enough for a large object on a slow link, short enough to expire. */
 export const UPLOAD_URL_TTL_SEC = 15 * 60;
 
-const SHA_RE = /^[0-9a-f]{64}$/i;
+const SHA_RE = /^[0-9a-f]{64}$/;
 const MIN_PLAUSIBLE_UNIX = 1_400_000_000;
 
 /**
@@ -48,7 +51,7 @@ export function validateObjectIntent(manifest: any) {
   if (!isUuid(m.objectId)) errors.push('objectId');
   if (!isUuid(m.batchId)) errors.push('batchId');
   if (!isUuid(m.sourceId)) errors.push('sourceId');
-  if (typeof m.deviceId !== 'string' || !m.deviceId || looksLikePii(m.deviceId)) errors.push('deviceId');
+  if (!isSafeExternalDeviceId(m.deviceId)) errors.push('deviceId');
 
   const startTs = Number(m.startTs);
   const endTs = Number(m.endTs);
@@ -127,6 +130,8 @@ export function createPushObjects({
   raw,
   upsertRows,
   ensureDevice,
+  resolveDeviceId,
+  receiptStore,
   now = () => new Date(),
   urlTtlSec = UPLOAD_URL_TTL_SEC,
 }: {
@@ -135,6 +140,8 @@ export function createPushObjects({
   raw: S3Store | null;
   upsertRows?: (table: string, rows: unknown[], opts: { onConflict: string }) => Promise<unknown>;
   ensureDevice?: (row: Record<string, unknown>) => Promise<unknown>;
+  resolveDeviceId?: (args: { userId: string; externalDeviceId: unknown; sourceId?: string | null }) => Promise<string>;
+  receiptStore?: UploadReceiptStore;
   now?: () => Date;
   urlTtlSec?: number;
 }) {
@@ -168,12 +175,22 @@ export function createPushObjects({
       interpolated_records: 0,
       compressed_bytes: row.compressed_bytes ?? null,
       uncompressed_bytes: row.uncompressed_bytes ?? null,
+      source_id: row.source_id ?? null,
+      batch_id: row.batch_id ?? null,
+      ingest_token_id: row.ingest_token_id ?? null,
+      auth_mode: row.auth_mode ?? null,
       updated_at: now().toISOString(),
     };
-    await upsertRows('noop_signal_windows', [window], {
+    await ingestStep('projection', stream, () => upsertRows!('noop_signal_windows', [window], {
       onConflict: 'user_id,device_id,stream,hour_start,object_id',
-    });
+    }));
     return window;
+  }
+
+  function writeManifestWindow(row: any) {
+    return writeSignalWindow({ userId: row.user_id, deviceId: row.device_id, row,
+      stream: row.object_kind, startTs: Math.floor(Date.parse(row.start_at) / 1000),
+      endTs: Math.floor(Date.parse(row.end_at) / 1000), sampleCount: Number(row.sample_count ?? 0) });
   }
 
   return {
@@ -181,7 +198,19 @@ export function createPushObjects({
       return Boolean(manifests && cfg?.b2KeyId && cfg?.b2ApplicationKey && cfg?.b2Bucket && raw);
     },
 
-    async createIntent({ userId, manifest }: { userId: string; manifest: any }) {
+    async createIntent({
+      userId,
+      sourceId,
+      tokenId,
+      authMode,
+      manifest,
+    }: {
+      userId: string;
+      sourceId?: string | null;
+      tokenId?: string | null;
+      authMode?: UploadAuthMode;
+      manifest: any;
+    }) {
       if (!isUuid(userId)) throw fail('unauthorized', 401);
       if (!manifests) throw fail('archive_not_configured', 503);
       if (!raw) throw fail('archive_not_configured', 503);
@@ -193,26 +222,38 @@ export function createPushObjects({
         throw err;
       }
 
-      const deviceId = noopDeviceId(userId, manifest.deviceId);
+      const manifestSourceId = String(manifest.sourceId).toLowerCase();
+      if (sourceId && manifestSourceId !== sourceId.toLowerCase()) {
+        throw fail('source_id_mismatch', 403);
+      }
+      const effectiveSourceId = sourceId ? sourceId.toLowerCase() : manifestSourceId;
+      const effectiveAuthMode = authMode || 'legacy_fleet';
       const startAt = new Date(v.startTs * 1000);
       const endAt = new Date(v.endTs * 1000);
-      const key = rawObjectKeyV3({
-        userId,
-        deviceId,
-        stream: manifest.stream,
-        startAt,
-        objectId: manifest.objectId,
-      });
 
-      const prior = await manifests.get(manifest.objectId);
+      const prior = await ingestStep('receipt_lookup', manifest.stream, () => manifests.get(manifest.objectId));
       if (prior) {
         if (prior.user_id !== userId) throw fail('forbidden', 403);
+        if (String(prior.source_id || '').toLowerCase() !== effectiveSourceId) {
+          throw fail('forbidden', 403);
+        }
+        if (prior.auth_mode && prior.auth_mode !== effectiveAuthMode) throw fail('forbidden', 403);
         // A retry must reuse the same bytes. A different digest under a committed objectId is a
         // distinct object wearing a used id, and silently re-signing would overwrite the original.
         if (prior.sha256 && prior.sha256 !== manifest.contentSha256) {
           throw fail('object_id_conflict', 409);
         }
         if (READY_STATUSES.has(prior.status)) {
+          // Older receivers marked ready before projecting the window. Repair a partially
+          // completed object before a duplicate ACK lets the phone release its local rows.
+          await writeManifestWindow(prior);
+          if (receiptStore) {
+            await receiptStore.recordAccepted({ userId, sourceId: effectiveSourceId,
+              deviceId: prior.device_id, tokenId: tokenId || null, authMode: effectiveAuthMode,
+              lane: 'object', stream: prior.object_kind, batchId: prior.batch_id,
+              objectId: prior.id, bodySha256: prior.sha256, acceptedStatus: prior.status,
+              acceptedRows: Number(prior.sample_count ?? 0) });
+          }
           return {
             objectId: prior.id,
             status: prior.status,
@@ -220,7 +261,8 @@ export function createPushObjects({
             duplicate: true,
           };
         }
-        const resumed = raw.presignPut(prior.object_key, urlTtlSec, now());
+        const resumed = await ingestStep('archive_write', manifest.stream,
+          async () => raw.presignPut(prior.object_key, urlTtlSec, now()));
         return {
           objectId: prior.id,
           status: prior.status,
@@ -232,46 +274,71 @@ export function createPushObjects({
         };
       }
 
-      if (typeof ensureDevice === 'function') {
-        await ensureDevice({
+      // batchId is the receipt/idempotency key for one accepted upload. A second object cannot
+      // wear the same batch id or its receipt would alias the first object's acceptance record.
+      const priorBatch = await manifests.byUserBatch(userId, manifest.batchId);
+      if (priorBatch) throw fail('batch_id_conflict', 409);
+
+      const deviceId = typeof resolveDeviceId === 'function'
+        ? await resolveDeviceId({ userId, externalDeviceId: manifest.deviceId, sourceId: effectiveSourceId })
+        : noopDeviceId(userId, manifest.deviceId);
+      const key = rawObjectKeyV3({
+        userId,
+        deviceId,
+        stream: manifest.stream,
+        startAt,
+        objectId: manifest.objectId,
+      });
+
+      if (typeof resolveDeviceId !== 'function' && typeof ensureDevice === 'function') {
+        await ingestStep('device', manifest.stream, () => ensureDevice!({
           id: deviceId,
           user_id: userId,
           source_kind: 'noop_push',
           external_device_id: String(manifest.deviceId || ''),
           last_seen_at: now().toISOString(),
-        });
+        }));
       }
 
       const spec = pushArchiveSpecForStream(manifest.stream);
-      await manifests.insertPending({
-        id: manifest.objectId,
-        user_id: userId,
-        device_id: deviceId,
-        object_class: 'raw',
-        object_kind: manifest.stream,
-        provider: cfg?.rawStore || 'b2',
-        bucket: cfg?.b2Bucket || null,
-        object_key: key,
-        start_at: startAt.toISOString(),
-        end_at: endAt.toISOString(),
-        period_day: startAt.toISOString().slice(0, 10),
-        sample_count: v.sampleCount,
-        compressed_bytes: v.compressedBytes,
-        uncompressed_bytes: v.uncompressedBytes,
-        content_type: spec.contentType,
-        format: spec.format,
-        compression: spec.compression,
-        schema_version: Number(manifest.schemaVersion ?? 1),
-        sha256: manifest.contentSha256,
-        sha256_source: SHA_SOURCE.claimed,
-        retention_class: spec.retentionClass,
-        expires_at: expiresAt(manifest.stream, now(), cfg as unknown as Record<string, unknown>),
-        batch_id: manifest.batchId,
-        source_id: manifest.sourceId,
-        status: 'pending',
-      });
+      try {
+        await ingestStep('archive_manifest', manifest.stream, () => manifests.insertPending({
+          id: manifest.objectId,
+          user_id: userId,
+          device_id: deviceId,
+          object_class: 'raw',
+          object_kind: manifest.stream,
+          provider: cfg?.rawStore || 'b2',
+          bucket: cfg?.b2Bucket || null,
+          object_key: key,
+          start_at: startAt.toISOString(),
+          end_at: endAt.toISOString(),
+          period_day: startAt.toISOString().slice(0, 10),
+          sample_count: v.sampleCount,
+          compressed_bytes: v.compressedBytes,
+          uncompressed_bytes: v.uncompressedBytes,
+          content_type: spec.contentType,
+          format: spec.format,
+          compression: spec.compression,
+          schema_version: Number(manifest.schemaVersion ?? 1),
+          sha256: manifest.contentSha256,
+          sha256_source: SHA_SOURCE.claimed,
+          retention_class: spec.retentionClass,
+          expires_at: expiresAt(manifest.stream, now(), cfg as unknown as Record<string, unknown>),
+          batch_id: manifest.batchId,
+          source_id: effectiveSourceId,
+          ingest_token_id: tokenId || null,
+          auth_mode: effectiveAuthMode,
+          status: 'pending',
+        }));
+      } catch (err) {
+        // The database unique index closes the check/insert race across Edge isolates.
+        const winner = await manifests.byUserBatch(userId, manifest.batchId);
+        if (winner && winner.id !== manifest.objectId) throw fail('batch_id_conflict', 409);
+        throw err;
+      }
 
-      const signed = raw.presignPut(key, urlTtlSec, now());
+      const signed = await ingestStep('archive_write', manifest.stream, async () => raw.presignPut(key, urlTtlSec, now()));
       return {
         objectId: manifest.objectId,
         status: 'pending',
@@ -287,50 +354,94 @@ export function createPushObjects({
      * Releases the device's local rows. Verifies the byte count against the value committed at
      * intent; the digest is recorded as claimed and upgraded by `verifyObjectDigest`.
      */
-    async completeObject({ userId, objectId }: { userId: string; objectId: string }) {
+    async completeObject({
+      userId,
+      sourceId,
+      tokenId,
+      authMode,
+      objectId,
+    }: {
+      userId: string;
+      sourceId?: string | null;
+      tokenId?: string | null;
+      authMode?: UploadAuthMode;
+      objectId: string;
+    }) {
       if (!isUuid(userId)) throw fail('unauthorized', 401);
       if (!isUuid(objectId)) throw fail('invalid_object_id', 400);
       if (!manifests) throw fail('archive_not_configured', 503);
       if (!raw) throw fail('archive_not_configured', 503);
 
-      const row = await manifests.get(objectId);
+      // Stream is unknown until the owner-scoped manifest has been loaded and checked.
+      const row = await ingestStep('receipt_lookup', '', () => manifests.get(objectId));
       if (!row) throw fail('missing_manifest', 404);
       if (row.user_id !== userId) throw fail('forbidden', 403);
+      if (sourceId && String(row.source_id || '').toLowerCase() !== sourceId.toLowerCase()) {
+        throw fail('forbidden', 403);
+      }
+      const effectiveAuthMode = authMode || 'legacy_fleet';
+      if (row.auth_mode && row.auth_mode !== effectiveAuthMode) throw fail('forbidden', 403);
       if (READY_STATUSES.has(row.status)) {
-        return { objectId: row.id, status: row.status, objectKey: row.object_key, duplicate: true };
+        await writeManifestWindow(row);
+        if (receiptStore) {
+          await receiptStore.recordAccepted({
+            userId,
+            sourceId: row.source_id || sourceId,
+            deviceId: row.device_id,
+            tokenId: tokenId || null,
+            authMode: effectiveAuthMode,
+            lane: 'object',
+            stream: row.object_kind,
+            batchId: row.batch_id,
+            objectId: row.id,
+            bodySha256: row.sha256,
+            acceptedStatus: row.status,
+            acceptedRows: Number(row.sample_count ?? 0),
+          });
+        }
+        return { objectId: row.id, deviceId: row.device_id, status: row.status, objectKey: row.object_key, duplicate: true };
       }
 
-      await manifests.mark(objectId, { status: 'uploading' });
-      const head = await raw.head(row.object_key);
+      await ingestStep('archive_manifest', row.object_kind, () => manifests.mark(objectId, { status: 'uploading' }));
+      const head = await ingestStep('archive_verify', row.object_kind, () => raw.head(row.object_key));
       if (!head?.exists) {
-        await manifests.mark(objectId, { status: 'failed' });
+        await ingestStep('archive_manifest', row.object_kind, () => manifests.mark(objectId, { status: 'failed' }));
         throw fail('object_missing', 409);
       }
       if (row.compressed_bytes != null && head.contentLength != null
           && Number(head.contentLength) !== Number(row.compressed_bytes)) {
-        await manifests.mark(objectId, { status: 'failed' });
+        await ingestStep('archive_manifest', row.object_kind, () => manifests.mark(objectId, { status: 'failed' }));
         throw fail('size_mismatch', 409);
       }
 
       const at = now().toISOString();
-      const updated = await manifests.mark(objectId, {
+      // Ready is an acknowledgement boundary: a failed projection must remain retryable.
+      const window = await writeManifestWindow({ ...row, compressed_bytes: head.contentLength ?? row.compressed_bytes });
+      const updated = await ingestStep('archive_manifest', row.object_kind, () => manifests.mark(objectId, {
         status: 'ready',
         compressed_bytes: head.contentLength ?? row.compressed_bytes,
         uploaded_at: at,
-      });
+      }));
       const next = (Array.isArray(updated) ? updated[0] : updated) || row;
 
-      const window = await writeSignalWindow({
-        userId,
-        deviceId: row.device_id,
-        row: next,
-        stream: row.object_kind,
-        startTs: Math.floor(Date.parse(row.start_at) / 1000),
-        endTs: Math.floor(Date.parse(row.end_at) / 1000),
-        sampleCount: Number(row.sample_count ?? 0),
-      });
+      if (receiptStore) {
+        await receiptStore.recordAccepted({
+          userId,
+          sourceId: row.source_id || sourceId,
+          deviceId: row.device_id,
+          tokenId: tokenId || null,
+          authMode: effectiveAuthMode,
+          lane: 'object',
+          stream: row.object_kind,
+          batchId: row.batch_id,
+          objectId: row.id,
+          bodySha256: row.sha256,
+          acceptedStatus: 'ready',
+          acceptedRows: Number(row.sample_count ?? 0),
+        });
+      }
 
-      return { objectId: next.id, status: 'ready', objectKey: next.object_key, window, duplicate: false };
+      return { objectId: next.id, deviceId: row.device_id, status: 'ready', objectKey: next.object_key, window, duplicate: false };
     },
   };
 }

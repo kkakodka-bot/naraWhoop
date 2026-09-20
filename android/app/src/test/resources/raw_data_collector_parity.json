@@ -99,7 +99,7 @@
     },
     "continuous_recorder_local_only_namespace": {
       "swift": ["static let continuous", "imu-continuous-windows-v1"],
-      "kotlin": ["NAMESPACE_CONTINUOUS", "\"raw-imu-$namespace\""]
+      "kotlin": ["NAMESPACE_CONTINUOUS -> \"raw-imu-continuous\"", "NAMESPACE_SESSIONS -> \"raw-imu-sessions\"", "NAMESPACE_CONTINUOUS -> \"imu-continuous-windows-v1\"", "NAMESPACE_SESSIONS -> \"imu-session-windows\"", "Unknown production IMU namespace"]
     },
     "continuous_recorder_delete_guard": {
       "swift": ["func deleteAll() -> Bool", "guard !enabled else { return false }"],

@@ -60,6 +60,17 @@ struct BackfillChunkPhaseSample: Sendable {
     var totalMs: Int = 0
     var diagnosticsMs: Int = 0
     var archiveMs: Int = 0
+    var cursorMs: Int = 0
+}
+
+/// Ordered observations for one chunk. They do not control durability or BLE acknowledgements.
+enum BackfillChunkInfo: Sendable {
+    case log(String)
+    case connectionLog(String)
+    case firmwareLayout(Int)
+    case chunk(decoded: Bool, console: Bool)
+    case banked(hr: Int, rr: Int, events: Int, battery: Int,
+                spo2: Int, skinTemp: Int, resp: Int, gravity: Int)
 }
 
 // MARK: - Backfiller
@@ -272,6 +283,13 @@ final class Backfiller {
     private let postOffloadJobKinds: [String]
     /// T2-4: invoked after three consecutive chunk persist failures; must abort the offload session.
     private let onPersistCircuitBreak: (() async -> Void)?
+    /// Idle-watchdog pause while decode + persist + IMU flush run (strap waits on our ack).
+    private let onChunkCommitBegin: (() async -> Void)?
+    /// Resume idle watchdog when a commit ends without ack (persist held).
+    private let onChunkCommitAborted: (() async -> Void)?
+    /// Production delivers ordered observations in one awaited main-actor hop. Legacy callback
+    /// injection remains available for tests and replay clients; no observations are detached.
+    private let chunkInfo: (([BackfillChunkInfo]) async -> Void)?
     /// T2-4: consecutive chunk commits that failed before ack (insert / archive / raw / imu / cursor).
     private var consecutivePersistFailures = 0
 
@@ -291,6 +309,9 @@ final class Backfiller {
          firmwareLayout: ((Int) async -> Void)? = nil,
          postOffloadJobKinds: [String] = [SyncJobKind.rescore.rawValue],
          onPersistCircuitBreak: (() async -> Void)? = nil,
+         onChunkCommitBegin: (() async -> Void)? = nil,
+         onChunkCommitAborted: (() async -> Void)? = nil,
+         chunkInfo: (([BackfillChunkInfo]) async -> Void)? = nil,
          // The default (prod) Extractor reads the opt-in HR-from-PPG sub-lag interpolation flag (Test Centre →
          // Experimental algorithms) at decode time and threads it into the pure decoder, so the pure package
          // never reaches for UserDefaults. Default OFF = byte-identical to today. Tests inject their own seam.
@@ -311,6 +332,9 @@ final class Backfiller {
         self.firmwareLayout = firmwareLayout
         self.postOffloadJobKinds = postOffloadJobKinds
         self.onPersistCircuitBreak = onPersistCircuitBreak
+        self.onChunkCommitBegin = onChunkCommitBegin
+        self.onChunkCommitAborted = onChunkCommitAborted
+        self.chunkInfo = chunkInfo
         self.extract = extract
     }
 
@@ -328,6 +352,23 @@ final class Backfiller {
 
     private func notePersistSuccess() {
         consecutivePersistFailures = 0
+    }
+
+    private func deliverChunkInfo(_ events: [BackfillChunkInfo]) async {
+        if let chunkInfo {
+            await chunkInfo(events)
+            return
+        }
+        for event in events {
+            switch event {
+            case .log(let line): await log?(line)
+            case .connectionLog(let line): await connectionLog?(line)
+            case .firmwareLayout(let version): await firmwareLayout?(version)
+            case .chunk(let decoded, let console): await onChunk?(decoded, console)
+            case .banked(let hr, let rr, let events, let battery, let spo2, let skinTemp, let resp, let gravity):
+                await onBankedOffload((hr, rr, events, battery, spo2, skinTemp, resp, gravity))
+            }
+        }
     }
 
     /// Emit one Connection & Sync test-mode line iff the mode is on. The cheap `connectionActive()` gate is
@@ -383,6 +424,12 @@ final class Backfiller {
 
     /// Feed one raw BLE frame into the state machine. May trigger async store operations.
     func ingest(_ frame: [UInt8]) async {
+        // Records are decoded at chunk commit. Only metadata can change the offload state;
+        // keep its full checksum-validated parse before acting on START, END, or COMPLETE.
+        guard frameTypeName(frame, family: family) == "METADATA" else {
+            if chunkOpen { chunk.append(frame) }
+            return
+        }
         switch classifyHistoricalMeta(parseFrame(frame, family: family)) {
         case .start:
             isBackfilling = true
@@ -419,9 +466,10 @@ final class Backfiller {
     /// records covered. Summed across a session by finishChunk to drive the success summary line.
     nonisolated static func chunkTally(
         counts: (hr: Int, rr: Int, events: Int, battery: Int, spo2: Int, skinTemp: Int, resp: Int, gravity: Int),
-        timestamps: [Int]
+        timestamps: [Int], insertedHistoricalSensorRows: Int? = nil
     ) -> (rows: Int, motion: Int, nights: Set<Int>) {
-        let rows = counts.hr + counts.rr + counts.spo2 + counts.skinTemp + counts.resp + counts.gravity
+        let rows = insertedHistoricalSensorRows
+            ?? (counts.hr + counts.rr + counts.spo2 + counts.skinTemp + counts.resp + counts.gravity)
         return (rows, counts.gravity, Set(timestamps.map { $0 / 86400 }))
     }
 
@@ -457,7 +505,8 @@ final class Backfiller {
         line += " insert p50/p99=\(p(insert, 50))/\(p(insert, 99))ms (store.insertAndMarkJobsOwed)"
         line += " raw p50/p99=\(p(raw, 50))/\(p(raw, 99))ms (enqueueRawBatch when enabled, else 0)"
         line += " imu p50/p99=\(p(imu, 50))/\(p(imu, 99))ms (persistHistoricalImu flush when routed)"
-        line += " ack p50/p99=\(p(ack, 50))/\(p(ack, 99))ms (setCursor strap_trim + ackTrim callback)"
+        line += " cursor p50/p99=\(p(samples.map(\.cursorMs), 50))/\(p(samples.map(\.cursorMs), 99))ms (setCursor strap_trim)"
+        line += " ack p50/p99=\(p(ack, 50))/\(p(ack, 99))ms (ackTrim callback, including main-actor wait; excludes ATT confirmation)"
         line += " frames/chunk p50/p99=\(p(frames, 50))/\(p(frames, 99))"
         if !gaps.isEmpty {
             line += " inter-chunk gap p50/p99=\(p(gaps, 50))/\(p(gaps, 99))ms (between HISTORY_END processing starts; includes queueing)"
@@ -470,7 +519,7 @@ final class Backfiller {
         var line = "offload chunk trim=\(trim) frames=\(sample.frameCount)"
         if let gap = sample.gapMs { line += " gapMs=\(gap)" }
         line += " decodeMs=\(sample.decodeMs) insertMs=\(sample.insertMs)"
-        line += " rawMs=\(sample.rawMs) imuMs=\(sample.imuMs) ackMs=\(sample.ackMs)"
+        line += " rawMs=\(sample.rawMs) imuMs=\(sample.imuMs) cursorMs=\(sample.cursorMs) ackMs=\(sample.ackMs)"
         line += " totalMs=\(sample.totalMs) diagnosticsMs=\(sample.diagnosticsMs) archiveMs=\(sample.archiveMs)"
         return line
     }
@@ -647,11 +696,44 @@ final class Backfiller {
     private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8]) async {
         guard let endData = Backfiller.endData(from: endFrame, family: family) else { return }
 
+        var commitWatchdogPaused = false
+        func resumeCommitWatchdogIfNeeded() async {
+            guard commitWatchdogPaused else { return }
+            commitWatchdogPaused = false
+            await onChunkCommitAborted?()
+        }
+
         let chunkArrival = CFAbsoluteTimeGetCurrent()
         let gapMs = lastChunkArrival.map { Int((chunkArrival - $0) * 1000) }
         lastChunkArrival = chunkArrival
         var decodeMs = 0, insertMs = 0, rawMs = 0, imuMs = 0, ackMs = 0
-        var diagnosticsMs = 0, archiveMs = 0
+        var diagnosticsMs = 0, archiveMs = 0, cursorMs = 0
+        var pendingInfo: [BackfillChunkInfo] = []
+        func info(_ event: BackfillChunkInfo) async {
+            if chunkInfo != nil {
+                pendingInfo.append(event)
+            } else {
+                await deliverChunkInfo([event])
+            }
+        }
+        func infoLog(_ line: String) async { await info(.log(line)) }
+        func infoConnection(_ line: @autoclosure () -> String) async {
+            guard connectionActive(), connectionLog != nil || chunkInfo != nil else { return }
+            await info(.connectionLog(line()))
+        }
+        func flushInfo() async {
+            guard !pendingInfo.isEmpty else { return }
+            let events = pendingInfo
+            pendingInfo.removeAll(keepingCapacity: true)
+            let started = CFAbsoluteTimeGetCurrent()
+            await deliverChunkInfo(events)
+            diagnosticsMs += Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+        }
+
+        // The strap waits for this chunk's ACK throughout decode, diagnostics, and persistence,
+        // including an empty END's cursor write. None of that work is radio inactivity.
+        await onChunkCommitBegin?()
+        commitWatchdogPaused = true
 
         // #773: corrupt future-RTC detection. A HISTORY_END carries the strap's own clock; a genuine offload
         // is always PAST-dated (it's banked history), so an end dated days into the future can only be a
@@ -663,7 +745,7 @@ final class Backfiller {
             let wallNow = Int(Date().timeIntervalSince1970)
             if Backfiller.isCorruptFutureRtc(endUnix: Int(unix), wallNowUnix: wallNow) {
                 loggedFutureRtc = true
-                await log?(Backfiller.futureRtcLine(endUnix: Int(unix), wallNowUnix: wallNow))
+                await infoLog(Backfiller.futureRtcLine(endUnix: Int(unix), wallNowUnix: wallNow))
             }
         }
 
@@ -676,7 +758,8 @@ final class Backfiller {
                                           decodeMs: decodeMs, insertMs: insertMs,
                                           rawMs: rawMs, imuMs: imuMs, ackMs: ackMs,
                                           totalMs: Int((CFAbsoluteTimeGetCurrent() - chunkArrival) * 1000),
-                                          diagnosticsMs: diagnosticsMs, archiveMs: archiveMs)
+                                          diagnosticsMs: diagnosticsMs, archiveMs: archiveMs,
+                                          cursorMs: cursorMs)
             chunkPhaseSamples.append(sample)
             await emitConnection(Backfiller.chunkPhaseDetailLine(trim: trim, sample: sample))
         }
@@ -696,11 +779,11 @@ final class Backfiller {
                 sessionClockWall = ref.wall
                 sessionUsedIdentityRef = (clockRef == nil)
             }
-            // PERF (2026-07-03): the heavy decode — parseFrame ×N, extractHistoricalStreams, and the
-            // reject-classifier's SECOND full parse — runs OFF the main actor so a long history offload no
-            // longer freezes the UI (was ~54K parseFrame calls on main for a 27K-row import). Pure functions
-            // only; every @Published write, the store insert, and the ack/cursor sequence below stay on the
-            // main actor in the SAME order, so the persist→archive→cursor→ack trim-safety is untouched.
+            // The heavy decode — one parseFrame per record, extractHistoricalStreams, and the
+            // reject classifier reusing that parse — runs OFF the main actor so a long history offload no
+            // longer freezes the UI (was ~54K parseFrame calls on main for a 27K-row import). Decoding
+            // and persistence remain serial in this pipeline; only BLE/UI callbacks hop to the main
+            // actor. Information batching does not change persist→archive→cursor→ack trim-safety.
             let fam = family
             let dev = ref.device, wall = ref.wall
             let oldest = sessionOldestUnix, newest = sessionNewestUnix
@@ -709,7 +792,7 @@ final class Backfiller {
             let d = await Task.detached(priority: .utility) { () -> DecodedChunk in
                 let parsed = frames.map { parseFrame($0, family: fam) }
                 let decoded = extractFn(parsed, dev, wall, oldest, newest)
-                let rejected = rejectedHistoricalRecords(frames, family: fam)
+                let rejected = rejectedHistoricalRecords(frames, family: fam, parsedFrames: parsed)
                 return DecodedChunk(parsed: parsed, decoded: decoded, rejected: rejected)
             }.value
             decodeMs = Int((CFAbsoluteTimeGetCurrent() - decodeStart) * 1000)
@@ -722,21 +805,21 @@ final class Backfiller {
                                            deviceClockRef: ref.device,
                                            wallClockRef: ref.wall,
                                            rrTimestamps: d.decoded.rr.map(\.ts)) {
-                await log?(l)
+                await infoLog(l)
             }
             // Observability (PR #241): log which layout this strap emits on a HEALTHY sync too — the
             // unmapped-version path below only fires for layouts NOOP can't decode, so a normal log
             // never revealed v18/v24/v25/v26. Once per distinct layout this session.
             if let v = parsed.lazy.compactMap({ $0.parsed["hist_version"]?.intValue }).first,
                loggedLayoutVersions.insert(v).inserted {
-                await log?("Backfill: historical records use layout v\(v)")
+                await infoLog("Backfill: historical records use layout v\(v)")
                 // UNIVERSAL clock-drift: bank the layout so the export's universal clock-drift line is
                 // firmware-aware on every export (not only Connection mode). Unconditional observability.
-                await firmwareLayout?(v)
+                await info(.firmwareLayout(v))
                 // Connection test mode: the firmware layout as a compact tagged line. A layout that decoded
                 // a signature field (heart_rate / gravity_x / ppg_waveform) is decodable; otherwise the
                 // unmapped-version path below fires too. Gated zero-cost.
-                await emitConnection({
+                await infoConnection({
                     let decodable = parsed.contains {
                         $0.parsed["heart_rate"] != nil || $0.parsed["gravity_x"] != nil
                             || $0.parsed["ppg_waveform"] != nil
@@ -753,10 +836,10 @@ final class Backfiller {
             // frames carry no record bytes to correlate. Records dump whether or not they carry SpO2
             // channels, so "nothing banked" is provable too. Never a user-facing number (never-fabricate;
             // the #194 lesson). Twin of the Android Backfiller emit.
-            if spo2Dumped < Spo2ReTrace.maxSamples, connectionActive(), let connectionLog {
+            if spo2Dumped < Spo2ReTrace.maxSamples, connectionActive(), connectionLog != nil || chunkInfo != nil {
                 for (raw, p) in zip(frames, parsed) where spo2Dumped < Spo2ReTrace.maxSamples {
                     guard let unix = p.parsed["unix"]?.intValue else { continue }
-                    await connectionLog(Spo2ReTrace.recordLine(
+                    await infoConnection(Spo2ReTrace.recordLine(
                         frame: raw,
                         version: p.parsed["hist_version"]?.intValue,
                         unix: unix,
@@ -780,7 +863,7 @@ final class Backfiller {
                       p.parsed["ppg_waveform"] == nil,
                       !loggedUnmappedVersions.contains(v) else { continue }
                 loggedUnmappedVersions.insert(v)
-                await log?("Historical records use firmware layout v\(v), which NOOP doesn't decode yet — no motion data, so sleep can't be computed from the strap. Please report this (issue #30).")
+                await infoLog("Historical records use firmware layout v\(v), which NOOP doesn't decode yet — no motion data, so sleep can't be computed from the strap. Please report this (issue #30).")
             }
             let decoded = d.decoded
             // #520: accumulate the motion-magnitude diagnostic across the session; logged once at the
@@ -804,7 +887,7 @@ final class Backfiller {
                         oldest: decoded.droppedImplausibleOldestTs,
                         newest: decoded.droppedImplausibleNewestTs,
                         now: Int(Date().timeIntervalSince1970))
-                    await log?("Backfill: dropped record(s) with an implausible timestamp (trim=\(trim))\(span) — the strap's clock is wrong (records dated far in the past or future), so those samples were skipped rather than misfiled onto the wrong day. Fully charge and reconnect the strap so its clock re-syncs.")
+                    await infoLog("Backfill: dropped record(s) with an implausible timestamp (trim=\(trim))\(span) — the strap's clock is wrong (records dated far in the past or future), so those samples were skipped rather than misfiled onto the wrong day. Fully charge and reconnect the strap so its clock re-syncs.")
                 }
             }
             // #324: the strap RTC-state events (RTC_LOST / BOOT / SET_RTC) the #547 gate dropped for a bad
@@ -812,7 +895,7 @@ final class Backfiller {
             // it appears; the bad `rawTs` is the future/past base the RTC jumped to.
             let nowForRtc = Int(Date().timeIntervalSince1970)
             for ev in decoded.droppedRtcEvents {
-                await log?("Backfill: strap reported \(ev.kind) with an implausible own-timestamp \(BadClockDiagnostics.isoDay(ev.rawTs)) (\(BadClockDiagnostics.hoursOffset(ev.rawTs, now: nowForRtc)) vs now) — the strap's RTC reset to a wrong base (#324/#928); this is the ground-truth cause of the future-dated banking, not a NOOP decode bug.")
+                await infoLog("Backfill: strap reported \(ev.kind) with an implausible own-timestamp \(BadClockDiagnostics.isoDay(ev.rawTs)) (\(BadClockDiagnostics.hoursOffset(ev.rawTs, now: nowForRtc)) vs now) — the strap's RTC reset to a wrong base (#324/#928); this is the ground-truth cause of the future-dated banking, not a NOOP decode bug.")
             }
             // #891: packet types this chunk carried that the decoder has no case for. Logged the first
             // time each type appears so a long offload stays readable. This is the only place such a
@@ -822,7 +905,7 @@ final class Backfiller {
                 let firstSighting = sessionUnhandledPacketTypes[typeName] == nil
                 sessionUnhandledPacketTypes[typeName, default: 0] += n
                 if firstSighting {
-                    await log?("Backfill: the strap sent \(n) record(s) of packet type \(typeName), which this " +
+                    await infoLog("Backfill: the strap sent \(n) record(s) of packet type \(typeName), which this " +
                          "decoder has no rows for — they are being dropped. If \(typeName) is not a name " +
                          "you recognise, this is a firmware record type NOOP has never mapped: please " +
                          "report it on #891 with the strap model and firmware build.")
@@ -841,17 +924,17 @@ final class Backfiller {
             let diagnosticsStart = CFAbsoluteTimeGetCurrent()
             // Tally this chunk's outcome so a completed-but-empty session is distinguishable from a
             // caught-up one (#77 family): did it decode sensor rows, and was it console-only?
-            await onChunk?(!decoded.isEmpty, decoded.isEmpty && rejected.isEmpty)
+            await info(.chunk(decoded: !decoded.isEmpty, console: decoded.isEmpty && rejected.isEmpty))
             // A chunk that produced no rows AND held no genuine rejects was pure console output — say
             // so calmly so it doesn't read as data loss (the "rejected frames" red herring, #77/#120).
             if decoded.isEmpty && rejected.isEmpty {
-                await log?("Backfill: \(frames.count) frame(s) this chunk carried no sensor records (strap console/diagnostic output) — normal, nothing to persist (trim=\(trim)).")
+                await infoLog("Backfill: \(frames.count) frame(s) this chunk carried no sensor records (strap console/diagnostic output) — normal, nothing to persist (trim=\(trim)).")
             }
             // Log + hex-sample the GENUINE rejects whenever there are any — INCLUDING a partially-decoded
             // chunk (some good rows alongside CRC-failed / unmapped records), which used to archive those
             // raw bytes with no log line at all (only the all-empty case was observable). (ryanbr, PR #123)
             if !rejected.isEmpty {
-                await log?("Backfill: \(rejected.count) undecodable sensor record(s) of \(frames.count) frame(s) (trim=\(trim)) — archiving raw bytes before ack (CRC/unmapped layout).")
+                await infoLog("Backfill: \(rejected.count) undecodable sensor record(s) of \(frames.count) frame(s) (trim=\(trim)) — archiving raw bytes before ack (CRC/unmapped layout).")
                 // #91 / #30: dump a hex sample of the genuine rejects so an unmapped firmware's record
                 // layout can be mapped from a user's strap log. Dump the FULL frame (not a 64-byte
                 // prefix — v25/v26 records run ~84 B and the truncated tail is exactly where the
@@ -864,17 +947,17 @@ final class Backfiller {
                     // bloat (a strap emitting these produced ~4 MB of all-00). Keep the WARNING count above.
                     if isEmptyRecordFrame(f) { emptySkipped += 1; continue }
                     let hex = f.map { String(format: "%02x", $0) }.joined()
-                    await log?("Backfill: rejected frame[\(i)] \(f.count)B: \(hex)")
+                    await infoLog("Backfill: rejected frame[\(i)] \(f.count)B: \(hex)")
                 }
                 if emptySkipped > 0 {
-                    await log?("Backfill: #1007 \(emptySkipped)/\(sample.count) sampled frame(s) all-zero (empty payload) - hex dump skipped")
+                    await infoLog("Backfill: #1007 \(emptySkipped)/\(sample.count) sampled frame(s) all-zero (empty payload) - hex dump skipped")
                 }
             }
-            diagnosticsMs = Int((CFAbsoluteTimeGetCurrent() - diagnosticsStart) * 1000)
+            diagnosticsMs += Int((CFAbsoluteTimeGetCurrent() - diagnosticsStart) * 1000)
             // Commit the decoded rows FIRST (durable). Doing this before the reject archive means a
             // rare insert failure — which returns and re-sends the whole chunk next session — can't
             // leave duplicate lines in the append-only reject archive.
-            let counts: (hr: Int, rr: Int, events: Int, battery: Int, spo2: Int, skinTemp: Int, resp: Int, gravity: Int)
+            let outcome: BackfillInsertOutcome
             // #1008/#1118: census the batch BEFORE it is stored — the only place the decoder's own
             // emission can be measured, since every existing R-R number is taken after the ON CONFLICT key
             // has already absorbed part of it.
@@ -883,28 +966,40 @@ final class Backfiller {
             do {
                 // The durable debt is part of the SAME transaction as the decoded rows (safe trim): if the
                 // job upsert fails, the insert rolls back too and this chunk stays on the strap for replay.
-                let outcome = try await store.insertAndMarkJobsOwed(
+                outcome = try await store.insertAndMarkJobsOwed(
                     decoded,
                     deviceId: deviceId,
                     postOffloadJobKinds: postOffloadJobKinds,
                     note: "historical rows committed before trim=\(trim)")
-                counts = outcome.counts
             } catch {
                 insertMs = Int((CFAbsoluteTimeGetCurrent() - insertStart) * 1000)
                 // Diag (#601): the decoded rows and/or the post-offload debt couldn't be written — we
                 // return WITHOUT acking so the strap keeps this chunk and re-sends everything next
                 // session (no data loss, and the debt is re-recorded with the rows).
+                await flushInfo()
                 await log?("Backfill: failed to persist decoded rows/debt (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk; history won't advance until the write succeeds.")
                 persistStalled = true   // #57: stall ALL further acks so an empty END can't advance past this
                 await notePersistFailure(trim: trim, reason: "decoded insert/debt failed")
                 await recordPhaseSample()
+                await resumeCommitWatchdogIfNeeded()
                 return
             }
             insertMs = Int((CFAbsoluteTimeGetCurrent() - insertStart) * 1000)
-            await onBankedOffload(counts)
+            let counts = outcome.counts
+            await info(.banked(hr: counts.hr, rr: counts.rr, events: counts.events, battery: counts.battery,
+                               spo2: counts.spo2, skinTemp: counts.skinTemp, resp: counts.resp, gravity: counts.gravity))
             // Success-side observability (#150): tally what actually persisted so the session can emit
             // "persisted N rows (M with motion) across K night(s)" — the win-rate signal a log never had.
-            let tally = Backfiller.chunkTally(counts: counts, timestamps: decoded.gravity.map(\.ts) + decoded.hr.map(\.ts))
+            let sensorTimestamps = [decoded.hr.map(\.ts), decoded.rr.map(\.ts),
+                                    decoded.spo2.map(\.ts), decoded.skinTemp.map(\.ts),
+                                    decoded.resp.map(\.ts), decoded.gravity.map(\.ts),
+                                    decoded.steps.map(\.ts), decoded.sleepState.map(\.ts),
+                                    decoded.ppgHr.map(\.ts), decoded.ppgWaveform.map(\.ts),
+                                    decoded.v18Aux.map(\.ts)].flatMap { $0 }
+            let tally = Backfiller.chunkTally(
+                counts: counts,
+                timestamps: outcome.insertedHistoricalSensorRows > 0 ? sensorTimestamps : [],
+                insertedHistoricalSensorRows: outcome.insertedHistoricalSensorRows)
             sessionRowsPersisted += tally.rows
             // #1008/#1118 census accumulation (pre-storage `offered` vs post-key `inserted`).
             sessionRrOffered += rrCensus.intervals
@@ -925,7 +1020,7 @@ final class Backfiller {
 
             // Connection test mode: per-chunk offload PROGRESS (running session totals), so a report shows
             // the offload advancing rather than only its final outcome. Gated zero-cost.
-            await emitConnection("offload progress trim=\(trim) chunkRows=\(tally.rows) "
+            await infoConnection("offload progress trim=\(trim) chunkRows=\(tally.rows) "
                 + "sessionRows=\(sessionRowsPersisted) sessionMotion=\(sessionMotionRows) nights=\(sessionNights)")
 
             // #77 / #91: any genuinely-undecodable type-47 record in this chunk must be ARCHIVED
@@ -934,6 +1029,7 @@ final class Backfiller {
             // chunk (no setCursor, no ack) so the strap re-sends it next session — no data loss
             // either way. (A full archive is reported as success by the sink; we still ack.)
             if !rejected.isEmpty, let rejectedSink {
+                await flushInfo()   // Archive warnings retain their order before the durable archive.
                 let archiveStart = CFAbsoluteTimeGetCurrent()
                 let archived = await rejectedSink(rejected, trim, family)
                 archiveMs = Int((CFAbsoluteTimeGetCurrent() - archiveStart) * 1000)
@@ -942,6 +1038,7 @@ final class Backfiller {
                     persistStalled = true   // #57
                     await notePersistFailure(trim: trim, reason: "rejected archive failed")
                     await recordPhaseSample()
+                    await resumeCommitWatchdogIfNeeded()
                     return
                 }
             }
@@ -964,10 +1061,12 @@ final class Backfiller {
                     // Diag (#601): raw-capture is ON and the raw batch couldn't be enqueued. Hold the ack
                     // (return) so the strap re-sends — the research toggle's contract is that raw is durable
                     // before the trim advances. Surface it so a stalled offload with raw-capture on is visible.
+                    await flushInfo()
                     await log?("Backfill: failed to enqueue raw batch (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk; raw capture must be durable before the trim advances.")
                     persistStalled = true   // #57
                     await notePersistFailure(trim: trim, reason: "raw enqueue failed")
                     await recordPhaseSample()
+                    await resumeCommitWatchdogIfNeeded()
                     return
                 }
                 rawMs = Int((CFAbsoluteTimeGetCurrent() - rawStart) * 1000)
@@ -989,10 +1088,12 @@ final class Backfiller {
                     let imuOk = imuSessionSink(deviceId, imuRecords)
                     imuMs = Int((CFAbsoluteTimeGetCurrent() - imuStart) * 1000)
                     if !imuOk {
+                        await flushInfo()
                         await log?("Backfill: failed to durably persist session IMU data (trim=\(trim)) — holding ack so the strap re-sends this chunk; session .imus must be on disk before the trim advances.")
                         persistStalled = true   // #57
                         await notePersistFailure(trim: trim, reason: "session IMU flush failed")
                         await recordPhaseSample()
+                        await resumeCommitWatchdogIfNeeded()
                         return
                     }
                 }
@@ -1013,10 +1114,12 @@ final class Backfiller {
         // session (loggedNoCursor) and the ack still proceeds below.
         if trim == 0xFFFFFFFF, !loggedNoCursor {
             loggedNoCursor = true
-            await log?(Backfiller.noCursorLine(rowsPersisted: sessionRowsPersisted, continuedAfterRows: continuedAfterRows))
+            await infoLog(Backfiller.noCursorLine(rowsPersisted: sessionRowsPersisted, continuedAfterRows: continuedAfterRows))
             // Connection test mode: the no-cursor sentinel as a compact tagged line (gated zero-cost).
-            await emitConnection(ConnectionTrace.noCursorLine())
+            await infoConnection(ConnectionTrace.noCursorLine())
         }
+
+        await flushInfo()   // Publish this chunk synchronously before any cursor/ACK transition.
 
         // #57: if an EARLIER chunk this session failed to persist, do NOT advance the cursor or ack — not
         // even for this (possibly empty/metadata) END. An empty END skips the insert and never throws;
@@ -1026,19 +1129,24 @@ final class Backfiller {
         if persistStalled {
             await log?("Backfill: persist stalled earlier this session — NOT acking trim=\(trim) so the strap can't trim past un-stored history. Reconnect once the store is healthy (#57).")
             await recordPhaseSample()
+            await resumeCommitWatchdogIfNeeded()
             return
         }
 
-        let ackStart = CFAbsoluteTimeGetCurrent()
+        let cursorStart = CFAbsoluteTimeGetCurrent()
         do { try await store.setCursor("strap_trim", Int(trim)) } catch {
-            ackMs = Int((CFAbsoluteTimeGetCurrent() - ackStart) * 1000)
+            cursorMs = Int((CFAbsoluteTimeGetCurrent() - cursorStart) * 1000)
             await log?("Backfill: failed to write strap_trim cursor (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk; history won't advance until the cursor write succeeds.")
             persistStalled = true   // #57
             await notePersistFailure(trim: trim, reason: "strap_trim cursor failed")
             await recordPhaseSample()
+            await resumeCommitWatchdogIfNeeded()
             return
         }
 
+        cursorMs = Int((CFAbsoluteTimeGetCurrent() - cursorStart) * 1000)
+        commitWatchdogPaused = false
+        let ackStart = CFAbsoluteTimeGetCurrent()
         await ackTrim(trim, endData)
         ackMs = Int((CFAbsoluteTimeGetCurrent() - ackStart) * 1000)
         lastAckedTrim = trim   // #364: record the advanced cursor for the auto-continue spin-detector

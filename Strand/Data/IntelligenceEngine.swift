@@ -24,6 +24,7 @@ final class IntelligenceEngine: ObservableObject {
     private let dayCycleCache = DayCycleIntelligenceIntegration.Cache()
     private let repo: Repository
     private let profile: ProfileStore
+    private let analysisStoreProvider: @MainActor () async -> WhoopStore?
     /// The CANONICAL id under whose `-noop` sibling this engine WRITES the computed daily rows, and from
     /// which it reads the imported-only baseline (`hist`). STABLE on "my-whoop", it must NOT follow the
     /// active strap, or a remove+re-add would orphan the computed history banked under the canonical id
@@ -45,6 +46,9 @@ final class IntelligenceEngine: ObservableObject {
     /// `defer` re-invokes `analyzeRecent(force: true)` ONCE when it clears. A single re-arm (the flag is
     /// cleared BEFORE the re-invoke) bounds it to one extra pass , no recompute storm.
     private var pendingForcedRescore = false
+    /// Includes the queued handoff after a pass releases `computing`, so downstream sync work cannot
+    /// settle its durable job before the forced follow-up has actually entered the analyzer.
+    var rescoreInProgress: Bool { computing || pendingForcedRescore }
     /// #899 heal bound: true while the last heal already re-armed a rescore, so a heal firing again on
     /// the very next pass cannot re-arm a second time (the Android twin is hard-bounded to exactly one
     /// re-pass; this mirrors it). Reset by any pass whose heal finds nothing, restoring the budget.
@@ -228,8 +232,10 @@ final class IntelligenceEngine: ObservableObject {
     /// optionally tagged with the TestDomain so the Sleep/Battery emitters land under their profile tag.
     var diagnosticSink: ((String, TestDomain?) -> Void)?
 
-    init(repo: Repository, profile: ProfileStore, deviceId: String) {
+    init(repo: Repository, profile: ProfileStore, deviceId: String,
+         analysisStoreProvider: (@MainActor () async -> WhoopStore?)? = nil) {
         self.repo = repo; self.profile = profile; self.deviceId = deviceId
+        self.analysisStoreProvider = analysisStoreProvider ?? { await repo.storeHandle() }
     }
 
     // NOTE (#814 union-model follow-up): the engine intentionally has NO `adoptActiveDeviceId`. Its write
@@ -519,7 +525,7 @@ final class IntelligenceEngine: ObservableObject {
         // `computing` lock). `computing` is false here once analyzeRecent's `defer` has run; a skipped
         // call returns with `note` unset by it. Use the lock state: if a concurrent run was in progress
         // the flag stays unset so the next launch retries , cheap, and correctness over a one-time cost.
-        if !computing { UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey) }
+        if !rescoreInProgress { UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey) }
     }
 
     /// UserDefaults flag guarding the one-shot #547 implausible-timestamp DB heal (below). Set once the
@@ -570,7 +576,7 @@ final class IntelligenceEngine: ObservableObject {
             await analyzeRecent(maxDays: historyDays)
             // Only mark done once the rescore actually ran (wasn't skipped by a concurrent tick holding
             // the `computing` lock), so a skipped pass retries next launch , correctness over a one-time cost.
-            guard !computing else { return }
+            guard !rescoreInProgress else { return }
         }
         UserDefaults.standard.set(true, forKey: Self.timestampHealFlagKey)
         // Clear the re-pollution request now that this re-heal has run , a future bad-clock sync re-arms it.
@@ -585,8 +591,22 @@ final class IntelligenceEngine: ObservableObject {
         // in-flight pass already covers the same window). But a FORCED call is a real update path (a
         // post-backfill rescore after a sync) , dropping it would leave a freshly-synced night unscored
         // until the next cycle. Re-arm instead: flag it so the running pass's `defer` re-invokes once.
-        guard !computing else { if force { pendingForcedRescore = true }; return }
-        guard let store = await repo.storeHandle() else { note = String(localized: "No on-device store yet."); return }
+        guard !rescoreInProgress else { if force { pendingForcedRescore = true }; return }
+        // Main-actor methods are reentrant at awaits. Reserve admission before opening the store or
+        // reading its fingerprint, or a queued force and an offload wake can both begin full passes.
+        computing = true
+        defer {
+            computing = false
+            if pendingForcedRescore {
+                // Keep the latch visible until the queued task starts: sync-job settlement must also
+                // wait through the gap between this return and the follow-up's first instruction.
+                Task {
+                    self.pendingForcedRescore = false
+                    await self.analyzeRecent(maxDays: maxDays, force: true)
+                }
+            }
+        }
+        guard let store = await analysisStoreProvider() else { note = String(localized: "No on-device store yet."); return }
         guard let hrvCfg = Baselines.metricCfg["hrv"],
               let rhrCfg = Baselines.metricCfg["resting_hr"],
               let respCfg = Baselines.metricCfg["resp"],
@@ -652,7 +672,6 @@ final class IntelligenceEngine: ObservableObject {
         // #1005: time the whole pass — the trigger line above records WHY; this records how many nights
         // and how long (the CPU cost per run), so a re-score STORM is visible in the strap log.
         let reScoreStart = Date()
-        computing = true
         // #1538: the pass is now past every gate and will do real work. Mark it started durably, so that a
         // process killed mid-pass leaves evidence a LATER process can read — the killed process itself gets
         // no chance to record anything. Cleared beside the watermark at the end; there is no early return
@@ -671,21 +690,6 @@ final class IntelligenceEngine: ObservableObject {
         // Kotlin post-offload gate makes the same point in its own words: "captured before the run,
         // written only on success".
         let owedToken = RescoreBackgroundScheduler.markRescoreOwed()
-        // #899-A re-arm: clear the lock, then if a forced rescore was dropped while this pass held it,
-        // run it ONCE. The flag is cleared BEFORE the re-invoke (a single re-arm), so a forced call landing
-        // DURING the re-invoke re-arms it again but a quiet one does not , this can never recurse unbounded.
-        // The re-invoke is launched on a fresh `Task` because `defer` is synchronous; by the time it runs
-        // `computing` is already false, so its own `guard !computing` passes and it rescores the new data.
-        defer {
-            computing = false
-            if pendingForcedRescore {
-                pendingForcedRescore = false
-                // Carry THIS pass's window into the re-pass: a heal firing during a wide one-shot pass
-                // must re-score the same width, not the default 21 days (Kotlin re-passes with the same
-                // maxDays; keep the platforms in lockstep).
-                Task { await self.analyzeRecent(maxDays: maxDays, force: true) }
-            }
-        }
 
         let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
                              age: Double(profile.age), sex: profile.sex,
@@ -953,8 +957,10 @@ final class IntelligenceEngine: ObservableObject {
             let hrWindow = SlidingStreamWindow<HRSample>(tsOf: { $0.ts }, limit: StreamReadCap.hr) { o, f, t in
                 try? await store.hrSamples(deviceId: o, from: f, to: t, limit: StreamReadCap.hr)
             }
+            let activeWhoop5RR = (try? await store.isWhoop5RRSource(deviceId: regActiveId)) ?? true
             let rrWindow = SlidingStreamWindow<RRInterval>(tsOf: { $0.ts }, limit: StreamReadCap.rr) { o, f, t in
-                try? await store.rrIntervals(deviceId: o, from: f, to: t, limit: StreamReadCap.rr)
+                try? await store.rrIntervals(deviceId: o, from: f, to: t, limit: StreamReadCap.rr,
+                                            unlabelledAliasOfWhoop5: activeWhoop5RR && o == Repository.whoopSource)
             }
             for offset in 0..<maxDays {
                 let dayStart = nowLocalMidnight - offset * 86_400
@@ -1020,7 +1026,7 @@ final class IntelligenceEngine: ObservableObject {
                             // watermark gate above, never this one. Both reads are index-only aggregates
                             // over the same `(deviceId, ts)` keys; a miss costs the 7 full stream reads
                             // this gate exists to skip.
-                            streams: streamFp,
+                            streams: streamFp + "|rrAlias5=\(activeWhoop5RR && owner == Repository.whoopSource)",
                             // #1575: `hrvTraceActive &&` matters. With the HRV trace OFF no detail
                             // line is ever produced, so the flag describes nothing — but it would still
                             // flip at midnight and invalidate yesterday, charging EVERY user an extra
@@ -1050,7 +1056,12 @@ final class IntelligenceEngine: ObservableObject {
                     skippedSleepDays.append((day: day, hrSamples: hr.count))
                     continue
                 }
-                let rr = await rrWindow.rows(owner: owner, from: from, to: to)
+                let strictWhoop5RR = (try? await store.isWhoop5RRSource(deviceId: owner,
+                    unlabelledAliasOfWhoop5: activeWhoop5RR && owner == Repository.whoopSource)) ?? true
+                let rr = await rrWindow.rows(owner: owner, from: from, to: to, allowReuse: !strictWhoop5RR)
+                let hrvObservations = strictWhoop5RR ? PhysiologyQuality.packetOrLegacy(
+                    (try? await store.rrPacketProvenance(deviceId: owner, from: from, to: to + 1)) ?? [],
+                    legacy: rr, deviceId: owner) : nil
                 // `forScoring` drops an Oura ring's respiration rows: those are the ring's OWN per-window
                 // RATE (0x6A, milli-bpm, ~1 row per 5 min), stored as instrumentation, while the stager
                 // reads this stream as a ~1 Hz raw ADC waveform. Refusing by provenance keeps the
@@ -1267,8 +1278,9 @@ final class IntelligenceEngine: ObservableObject {
                 var strainDiagLines: [String] = []
                 let res = AnalyticsEngine.analyzeDay(day: day,
                                                      strainDiag: { strainDiagLines.append($0) },
-                                                     hr: hr, rr: rr, resp: resp,
-                                                     vendorResp: vendorResp, gravity: grav,
+                                                     hr: hr, rr: rr,
+                                                     hrvObservations: hrvObservations,
+                                                     resp: resp, vendorResp: vendorResp, gravity: grav,
                                                      steps: steps, dayHr: dayHr, daySteps: daySteps,
                                                      dayGravity: dayGrav,
                                                      skinTemp: skin,

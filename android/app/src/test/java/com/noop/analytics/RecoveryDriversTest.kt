@@ -14,6 +14,11 @@ import org.junit.Test
  */
 class RecoveryDriversTest {
 
+    // With spread 0.55 the original decimal fixture produces -0.4999999999999929 on JDK 17,
+    // correctly rounding to 0 rather than exercising a half-tie. This test-only calibration makes
+    // the real scorer's marginal exactly -0.5; keep exact equality and the -1 driver assertion below.
+    private val negativeHalfTieSpread = 0.5499999999999944
+
     /** A usable baseline with a given mean and Gaussian sigma (spread is internal abs-dev units). */
     private fun baseline(mean: Double, sigma: Double, nValid: Int = 14): BaselineState =
         BaselineState(
@@ -47,7 +52,7 @@ class RecoveryDriversTest {
         }
 
         val negativeBaseline = BaselineState(
-            baseline = 30.0, spread = 0.55, nValid = 14,
+            baseline = 30.0, spread = negativeHalfTieSpread, nValid = 14,
             nightsSinceUpdate = 0, status = BaselineStatus.TRUSTED,
         )
         val negativeBelowTie = hrvMarginal(29.991177275907276, 60.0, negativeBaseline)
@@ -87,7 +92,7 @@ class RecoveryDriversTest {
 
     @Test fun issue51NegativeHalfTieUsesDefaultArg8WithoutChangingScoreOrDriverFields() {
         val hrvBaseline = BaselineState(
-            baseline = 30.0, spread = 0.55, nValid = 14,
+            baseline = 30.0, spread = negativeHalfTieSpread, nValid = 14,
             nightsSinceUpdate = 0, status = BaselineStatus.TRUSTED,
         )
         val scoreBefore = RecoveryScorer.recovery(

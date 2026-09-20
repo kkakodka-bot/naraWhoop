@@ -1,0 +1,9 @@
+[
+  {"name":"empty","segments":[],"sleepSeconds":0,"knownSeconds":0},
+  {"name":"gap","segments":[{"start":0,"end":30,"stage":"light"},{"start":90,"end":120,"stage":"rem"}],"sleepSeconds":60,"knownSeconds":60},
+  {"name":"unstaged","segments":[{"start":0,"end":120,"stage":"unknown","state":"sleep_unstaged"}],"sleepSeconds":120,"knownSeconds":120},
+  {"name":"offbody","segments":[{"start":0,"end":120,"stage":"light","state":"off_body"}],"sleepSeconds":0,"knownSeconds":0},
+  {"name":"mixed","segments":[{"start":0,"end":30,"stage":"wake"},{"start":30,"end":60,"stage":"light"},{"start":60,"end":90,"stage":"unknown","state":"state_unknown"},{"start":90,"end":120,"stage":"unknown","state":"sleep_unstaged"}],"sleepSeconds":60,"knownSeconds":90},
+  {"name":"overlap","segments":[{"start":0,"end":90,"stage":"light"},{"start":30,"end":120,"stage":"rem"}],"sleepSeconds":120,"knownSeconds":120},
+  {"name":"awake","segments":[{"start":0,"end":120,"stage":"wake"}],"sleepSeconds":0,"knownSeconds":120}
+]

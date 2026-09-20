@@ -1,9 +1,7 @@
 import Foundation
 import WhoopProtocol
 
-/// Trailing-window "current HRV" — RMSSD over the most recent strap R-R rows, refreshed after each
-/// successful sync. Separate from nightly `avgHrv` (sleep-window RMSSD fed into recovery); this is an
-/// additive live readout only.
+/// Latest completed UTC five-minute measurement. Legacy coarse rows cannot prove continuity.
 ///
 /// Swift parity twin of `android/.../analytics/CurrentHrv.kt`. Reuses `HRVAnalyzer` primitives only.
 public enum CurrentHRV {
@@ -23,34 +21,31 @@ public enum CurrentHRV {
     }
 
     /// Trailing window length (seconds) for the current HRV readout.
-    public static let windowSeconds = 30 * 60
+    public static let windowSeconds = HrvWindow.seconds
 
     /// Rows newer than this many seconds before `nowUnix` are treated as stale by the app-layer caller.
     public static let staleThresholdSeconds = 900
 
-    /// Derive a current HRV snapshot from R-R rows whose timestamps fall in
-    /// `[nowUnix - windowSeconds, nowUnix]`. Returns nil when coverage fails the nightly RMSSD honesty
-    /// gate (`successiveDiffIsTrustworthy`) or when fewer than `HRVAnalyzer.minBeats` clean beats survive.
+    /// Exact half-open query bounds used by both the collector read and the measurement.
+    public static func completedWindow(nowUnix: Int) -> Range<Int> {
+        let end = HrvWindow.alignedStart(nowUnix)
+        return (end - HrvWindow.seconds)..<end
+    }
+
+    /// Compatibility entry point: no beat identities or acquisition spans can be recovered from
+    /// this row shape. Retains null until ingestion supplies proven observations.
     public static func derive(rows: [RRInterval], nowUnix: Int,
                               windowSeconds: Int = CurrentHRV.windowSeconds) -> Snapshot? {
-        guard windowSeconds > 0 else { return nil }
-        let windowStart = nowUnix - windowSeconds
-        let seg = rows.filter { $0.ts >= windowStart && $0.ts <= nowUnix }
-        guard !seg.isEmpty else { return nil }
+        guard windowSeconds == HrvWindow.seconds else { return nil }
+        return derive(observations: PhysiologyQuality.legacy(rows, deviceId: "legacy-unscoped"), nowUnix: nowUnix)
+    }
 
-        let ts = seg.map(\.ts)
-        let rrMs = seg.map { Double($0.rrMs) }
-        let coverage = HRVAnalyzer.rrCoverage(tsSec: ts, rrMs: rrMs)
-        guard coverage > 0 else { return nil }
-
-        // Same over-count refusal as `SleepStager.sessionAvgHRV` — `collapsed` pinned to `coverage` so
-        // both over-count verdicts refuse without an extra sort (#1510).
-        let verdict = HRVAnalyzer.classifyCoverage(coverage: coverage, collapsed: coverage)
-        guard HRVAnalyzer.successiveDiffIsTrustworthy(verdict) else { return nil }
-
-        let h = HRVAnalyzer.analyze(rawRR: rrMs)
-        guard let rmssd = h.rmssd else { return nil }
-
-        return Snapshot(rmssdMs: rmssd, cleanBeats: h.nClean, coverage: coverage, computedAtUnix: nowUnix)
+    public static func derive(observations: [PhysiologyQuality.IntervalObservation], nowUnix: Int,
+                              policy: HrvWindow.Policy = .init(), inputRevision: String = "unversioned") -> Snapshot? {
+        let result = HrvWindow.measure(start: completedWindow(nowUnix: nowUnix).lowerBound,
+            observations: observations, policy: policy, inputRevision: inputRevision, computationMode: "causal")
+        guard result.measurementValid, let rmssd = result.observedRMSSD else { return nil }
+        return Snapshot(rmssdMs: rmssd, cleanBeats: Int((result.validIntervalFraction * Double(result.originalIds.count)).rounded()),
+            coverage: result.observedTimeFraction, computedAtUnix: nowUnix)
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import WhoopProtocol
 
 /// Append-only on-disk archive of HISTORICAL_DATA record frames that FAILED decode (#77 / #91).
@@ -92,6 +93,7 @@ struct RawHistoryArchive {
     }
 
     private let directory: URL
+    private let boundDeviceId: String?
     /// Effective cap/floor; default to the static constants but overridable so tests can drive the
     /// eviction path with a small archive instead of generating 5 MB of frames. (#344)
     private let maxBytes: Int
@@ -99,10 +101,11 @@ struct RawHistoryArchive {
     private let zeroPayloadFloor: Int
 
     /// Default location: `<AppSupport>/com.noopapp.noop/`, created on demand. Overridable for tests.
-    init(directory: URL? = nil,
+    init(directory: URL? = nil, boundDeviceId: String? = nil,
          maxBytes: Int = RawHistoryArchive.maxBytes,
          perVersionFloor: Int = RawHistoryArchive.perVersionFloor,
          zeroPayloadFloor: Int = RawHistoryArchive.zeroPayloadFloor) {
+        self.boundDeviceId = boundDeviceId
         if let directory {
             self.directory = directory
         } else {
@@ -124,6 +127,21 @@ struct RawHistoryArchive {
 
     /// The archive file URL (does not create anything).
     var fileURL: URL { directory.appendingPathComponent(RawHistoryArchive.fileName) }
+
+    static func owned(ownerId: String, sourceId: String, deviceId: String, physicalDeviceId: String,
+                      applicationSupport: URL? = nil) throws -> RawHistoryArchive {
+        guard UUID(uuidString: ownerId) != nil, UUID(uuidString: sourceId) != nil,
+              let physical = UUID(uuidString: physicalDeviceId), !deviceId.isEmpty else {
+            throw CloudCaptureScope.ScopeError.ownerMismatch
+        }
+        let base = try applicationSupport ?? FileManager.default.url(for: .applicationSupportDirectory,
+            in: .userDomainMask, appropriateFor: nil, create: true)
+        let identity = deviceId + "\u{0000}" + physical.uuidString.lowercased()
+        let deviceKey = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+        let component = CloudCaptureScope.component("RejectedHistory/\(deviceKey)", ownerId: ownerId, sourceId: sourceId)
+        return RawHistoryArchive(directory: base.appendingPathComponent(component, isDirectory: true),
+                                 boundDeviceId: deviceId)
+    }
 
     /// The hist_version byte distinguishing one historical layout from another: `frame[5]` on WHOOP 4,
     /// `frame[9]` on WHOOP 5/MG (the puffin envelope is 4 bytes longer). Same indices the reject filter
@@ -420,6 +438,7 @@ struct RawHistoryArchive {
     /// these records (whose only surviving copy is this archive) would never be retried. (#152)
     @discardableResult
     func replay(into store: BackfillStoreWriting, deviceId: String) async throws -> Int {
+        if let boundDeviceId, boundDeviceId != deviceId { throw CloudCaptureScope.ScopeError.ownerMismatch }
         let archived = readAll()
         var rows = 0
         for family in Set(archived.map(\.family)) {

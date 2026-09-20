@@ -4,6 +4,7 @@ import com.noop.data.HrSample
 import com.noop.data.RrInterval
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -70,7 +71,7 @@ class AnalyticsEngineHrOnlyDayTest {
         // #1884: measured, not discarded. Before the change both of these were null by construction, which
         // is what left Charge with `nilScore reason=missingInput`.
         assertNotNull("resting HR is HR-derived and must survive to the day row", res.daily.restingHr)
-        assertNotNull("the HRV measured over this night's windows must survive to the day row",
+        assertNull("HR-only context cannot repair missing original RR provenance",
             res.daily.avgHrv)
 
         // The regression guard. `sleepHrOnly` says "every session was staged from heart rate alone", and

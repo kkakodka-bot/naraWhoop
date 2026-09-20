@@ -126,6 +126,6 @@ internal object StagerCache {
     /** Deep copy of a hypnogram (StageSegment is mutable, so every cache boundary copies). */
     fun copyOf(segs: List<StageSegment>): List<StageSegment> =
         ArrayList<StageSegment>(segs.size).apply {
-            for (s in segs) add(StageSegment(start = s.start, end = s.end, stage = s.stage))
+            for (s in segs) add(s.copy())
         }
 }

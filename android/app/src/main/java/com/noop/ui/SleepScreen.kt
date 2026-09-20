@@ -3,6 +3,11 @@ package com.noop.ui
 import com.noop.R
 import androidx.compose.ui.res.stringResource
 import android.app.TimePickerDialog
+import android.app.DatePickerDialog
+import com.noop.push.ServerSleepEditTarget
+import com.noop.push.sleepMetadataLines
+import com.noop.push.stateCoverageDescription
+import com.noop.push.sleepOverrides
 import android.widget.Toast
 import com.noop.analytics.SleepMark
 import com.noop.analytics.SleepMarkType
@@ -148,32 +153,200 @@ private fun SleepFreshnessNote(status: SleepFreshnessStatus, chunks: Int) {
     }
 }
 
+/** Server-only branch; edits go through authenticated overrides, never local sleep persistence. */
+@Composable
+private fun ServerSleepScreen(vm: AppViewModel) {
+    val context = LocalContext.current
+    var offset by remember { mutableIntStateOf(0) }
+    val day = LocalDate.now().minusDays(offset.toLong()).toString()
+    val fetched by vm.serverScores.lastFetchedAtMs.collectAsStateWithLifecycle()
+    val signedIn by vm.serverScores.signedIn.collectAsStateWithLifecycle()
+    val error by vm.serverScores.lastError.collectAsStateWithLifecycle()
+    val editMessage by vm.serverScores.sleepEditMessage.collectAsStateWithLifecycle()
+    val scope=rememberCoroutineScope()
+    var editing by remember { mutableStateOf<ServerSleepEditTarget?>(null) }
+    var editError by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    val ready = com.noop.push.ServerScoringSettings.ready(context)
+    val cache = fetched.let { if (ready && signedIn) vm.serverScores.overlay(day) else null }
+    val episodes = remember(cache, day) { serverSleepEpisodes(cache, day) }
+    LaunchedEffect(day, signedIn, ready) { vm.serverScores.refreshDay(day) }
+    LaunchedEffect(signedIn) { if(!signedIn) { editing=null; editError=null } }
+    LaunchedEffect(cache?.ownerId) { if(editing?.ownerId!=cache?.ownerId) { editing=null; editError=null } }
+    val status = when {
+        !ready -> uiString(R.string.server_sleep_configure)
+        !signedIn -> uiString(R.string.server_sleep_sign_in)
+        cache == null -> error ?: uiString(R.string.server_sleep_unavailable)
+        else -> ((cache.features["sleep"]?.status ?: "unavailable") +
+            (cache.features["sleep"]?.reason?.let { " · $it" } ?: "")).let {
+                if (cache.stale) uiString(R.string.server_sleep_stale, it) else it
+            }
+    }
+    fun minutes(value: Double?) = value?.let { uiString(R.string.server_sleep_minutes, it) } ?: "—"
+    LazyScreenScaffold(title = uiString(R.string.l10n_sleep_screen_sleep_3cac34e6), subtitle = uiString(R.string.server_sleep_subtitle)) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { offset++ }) { Text(uiString(R.string.l10n_strand_components_previous_day_e2b6b0a1)) }
+                Text(day, style = NoopType.subhead)
+                TextButton(onClick = { offset = maxOf(0, offset - 1) }, enabled = offset > 0) { Text(uiString(R.string.l10n_strand_components_next_day_38f859dd)) }
+            }
+        }
+        item {
+            NoopCard(tint = Palette.restColor) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(status, style = NoopType.subhead)
+                    cache?.sleepMetadataLines?.forEach { Text(it, style = NoopType.footnote, color = Palette.textSecondary) }
+                    if (episodes.isEmpty()) Text(uiString(R.string.server_sleep_empty), style = NoopType.footnote)
+                    editMessage?.let { Text(it,style=NoopType.footnote) }
+                    (editError ?: error)?.let { Text(it,style=NoopType.footnote,color=Palette.statusCritical) }
+                    if(cache?.features?.get("sleep")?.supportsBoundaryOverrides!=true)
+                        Text(uiString(R.string.server_sleep_unsupported),style=NoopType.footnote,color=Palette.textTertiary)
+                }
+            }
+        }
+        items(episodes.size) { index ->
+            val episode = episodes[index]
+            NoopCard(tint = Palette.restColor) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(episode.episodeType.replace('_', ' ').replaceFirstChar { it.titlecase() }, style = NoopType.subhead)
+                    Text(episode.clockLabel,
+                        style = NoopType.footnote, color = Palette.textSecondary)
+                    val opportunityLabel = uiString(if (episode.opportunityKind == "user_reported_sleep_opportunity")
+                        R.string.server_sleep_reported_opportunity else R.string.server_sleep_estimated_opportunity)
+                    Text(uiString(R.string.server_sleep_summary, minutes(episode.asleepMin), opportunityLabel, minutes(episode.inBedMin)), style = NoopType.subhead)
+                    cache?.nights?.firstOrNull { it.id == episode.id }?.let {
+                        Text(it.stateCoverageDescription, style = NoopType.footnote, color = Palette.textSecondary)
+                    }
+                    if(cache!=null && cache.features["sleep"]?.supportsBoundaryOverrides==true) {
+                        TextButton(onClick={
+                            runCatching { ServerSleepEditTarget.prepare(cache,episode.id) }
+                                .onSuccess { editing=it; editError=null }
+                                .onFailure { editError=uiString(R.string.server_sleep_refresh_edit) }
+                        }) { Text(uiString(R.string.server_sleep_edit_action)) }
+                    }
+                    if (episode.reason != null) Text(episode.reason, style = NoopType.footnote)
+                    else {
+                        for (state in serverSleepStates) {
+                            val bands = episode.bands.filter { it.state == state }
+                            val total = bands.sumOf { it.end - it.start } / 60.0
+                            val color = when (state) {
+                                "wake" -> Palette.sleepAwake; "light" -> Palette.sleepLight
+                                "deep" -> Palette.sleepDeep; "rem" -> Palette.sleepREM
+                                "sleep_unstaged" -> Palette.textSecondary
+                                "off_body" -> Palette.textTertiary.copy(alpha = 0.45f)
+                                else -> Palette.textTertiary.copy(alpha = 0.25f)
+                            }
+                            val background = Palette.textTertiary.copy(alpha = 0.08f)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(serverSleepLabel(state), Modifier.width(100.dp), style = NoopType.footnote)
+                                Canvas(Modifier.weight(1f).height(10.dp)) {
+                                    drawRect(background)
+                                    for (band in bands) {
+                                        val span = (episode.end - episode.start).toFloat()
+                                        drawRect(color, Offset(size.width * (band.start - episode.start) / span, 0f),
+                                            Size(size.width * (band.end - band.start) / span, size.height))
+                                    }
+                                }
+                                Text(if (bands.isEmpty()) "—" else uiString(R.string.server_sleep_minutes_decimal, total),
+                                    Modifier.width(48.dp), style = NoopType.footnote)
+                            }
+                        }
+                        Text(uiString(R.string.server_sleep_epochs), style = NoopType.footnote, color = Palette.textTertiary)
+                    }
+                }
+            }
+        }
+        if(cache!=null && cache.features["sleep"]?.supportsBoundaryOverrides==true) {
+            for(deleted in cache.sleepOverrides.filter { it.tombstone }) {
+                item(key="deleted-${deleted.id}") {
+                    NoopCard(tint=Palette.restColor) {
+                        Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                            Text(uiString(R.string.server_sleep_deleted_date, Instant.ofEpochSecond(deleted.start).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()),style=NoopType.footnote)
+                            TextButton(enabled=!saving,onClick={
+                                val target=runCatching { ServerSleepEditTarget.prepare(cache,deleted) }.getOrNull()
+                                if(target==null) editError=uiString(R.string.server_sleep_refresh_restore)
+                                else { saving=true; scope.launch {
+                                    try { vm.serverScores.saveSleepOverride(target,target.start,target.end,false) } finally { saving=false }
+                                } }
+                            }) { Text(uiString(R.string.server_sleep_restore)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    editing?.let { target ->
+        ServerSleepBoundaryEditor(target,error,saving,onDismiss={ editing=null },onSave={ start,end,tombstone ->
+            saving=true
+            scope.launch {
+                try { if(vm.serverScores.saveSleepOverride(target,start,end,tombstone)) editing=null }
+                finally { saving=false }
+            }
+        })
+    }
+}
+
+@Composable
+private fun ServerSleepBoundaryEditor(target: ServerSleepEditTarget,error: String?,saving: Boolean,
+    onDismiss: ()->Unit,onSave: (Long,Long,Boolean)->Unit) {
+    val context=LocalContext.current
+    var start by remember(target.id) { mutableStateOf(target.start) }
+    var end by remember(target.id) { mutableStateOf(target.end) }
+    var picker by remember { mutableStateOf<Int?>(null) }
+    var deleting by remember { mutableStateOf(false) }
+    val formatter=remember { SimpleDateFormat("dd MMM yyyy HH:mm",Locale.getDefault()) }
+    val valid=end>start && end-start<=48*3600 && end<=System.currentTimeMillis()/1000
+    if(deleting) {
+        androidx.compose.material3.AlertDialog(onDismissRequest={ if(!saving) deleting=false },
+            containerColor=Palette.surfaceRaised,title={ Text(uiString(R.string.server_sleep_delete_title)) },
+            text={ Text(uiString(R.string.server_sleep_delete_message)) },
+            confirmButton={ TextButton(enabled=!saving,onClick={ deleting=false; onSave(target.start,target.end,true) }) { Text(uiString(R.string.l10n_sleep_screen_delete_f6fdbe48)) } },
+            dismissButton={ TextButton(enabled=!saving,onClick={ deleting=false }) { Text(uiString(R.string.l10n_sleep_screen_cancel_77dfd213)) } })
+    } else {
+        androidx.compose.material3.AlertDialog(onDismissRequest={ if(!saving) onDismiss() },
+            containerColor=Palette.surfaceRaised,titleContentColor=Palette.textPrimary,textContentColor=Palette.textSecondary,
+            title={ Text(uiString(R.string.server_sleep_edit_title),style=NoopType.headline) },
+            text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text(uiString(R.string.server_sleep_reported_notice),style=NoopType.footnote)
+                TextButton(enabled=!saving,onClick={ picker=0 }) { Text(uiString(R.string.server_sleep_started_at, formatter.format(Date(start*1000)))) }
+                TextButton(enabled=!saving,onClick={ picker=1 }) { Text(uiString(R.string.server_sleep_ended_at, formatter.format(Date(end*1000)))) }
+                if(!valid) Text(uiString(R.string.server_sleep_invalid_window),style=NoopType.footnote)
+                error?.let { Text(it,style=NoopType.footnote,color=Palette.statusCritical) }
+                TextButton(enabled=!saving,onClick={ deleting=true }) { Text(uiString(R.string.server_sleep_delete_action),color=Palette.statusCritical) }
+            } },
+            confirmButton={ TextButton(enabled=!saving && valid,onClick={ onSave(start,end,false) }) { Text(uiString(if(saving) R.string.server_sleep_saving else R.string.l10n_sleep_screen_save_efc007a3)) } },
+            dismissButton={ TextButton(enabled=!saving,onClick=onDismiss) { Text(uiString(R.string.l10n_sleep_screen_cancel_77dfd213)) } })
+    }
+    picker?.let { endpoint ->
+        DisposableEffect(endpoint) {
+            val cal=Calendar.getInstance().apply { timeInMillis=(if(endpoint==0) start else end)*1000 }
+            var dateChosen=false
+            var timeDialog: TimePickerDialog?=null
+            val dateDialog=DatePickerDialog(context,{ _,year,month,day ->
+                dateChosen=true
+                cal.set(Calendar.YEAR,year); cal.set(Calendar.MONTH,month); cal.set(Calendar.DAY_OF_MONTH,day)
+                timeDialog=TimePickerDialog(context,{ _,hour,minute ->
+                    cal.set(Calendar.HOUR_OF_DAY,hour); cal.set(Calendar.MINUTE,minute)
+                    cal.set(Calendar.SECOND,0); cal.set(Calendar.MILLISECOND,0)
+                    if(endpoint==0) start=cal.timeInMillis/1000 else end=cal.timeInMillis/1000
+                    picker=null
+                },cal.get(Calendar.HOUR_OF_DAY),cal.get(Calendar.MINUTE),true).apply {
+                    setOnDismissListener { picker=null }; show()
+                }
+            },cal.get(Calendar.YEAR),cal.get(Calendar.MONTH),cal.get(Calendar.DAY_OF_MONTH)).apply {
+                datePicker.maxDate=System.currentTimeMillis()
+                setOnDismissListener { if(!dateChosen) picker=null }; show()
+            }
+            onDispose { dateDialog.dismiss(); timeDialog?.dismiss() }
+        }
+    }
+}
+
 /**
- * Sleep — Whoop-sleep clarity on the locked Noop component system. Mirrors the macOS
- * SleepView (Strand/Screens/SleepView.swift) section-for-section:
- *
- *   1. HERO — the stage breakdown for the navigated night. ◀/▶ chevrons flank the
- *      header and walk EVERY recorded night (0 = last night), replacing the fixed
- *      3-day selector (#160). A Hypnogram when stage minutes are present (deep / rem /
- *      light / awake reconstructed end-to-end), with a footer of REM / Deep / Light /
- *      Awake each "Xh Ym · NN%".
- *   2. A uniform grid of fixed StatTiles, each with a sparkline + "vs typical" caption:
- *      Rest, Efficiency, Consistency, Hours vs Needed, Restorative,
- *      Respiratory, Sleep Debt.
- *   3. "Stages vs typical" — Deep / REM / Light horizontal bars showing last-night
- *      minutes with a marker at the personal typical (mean).
- *   4. A 14-day asleep-hours trend LineChart.
- *
- * Data wiring is faithful to the macOS screen: the "typical" is the mean across the
- * cached daily metrics; the per-night stage split comes from the selected night's
- * DailyMetric deep/rem/light minutes (the grid/trends window ends on that day, exactly
- * as it followed the old day selector). The hero hypnogram prefers the REAL per-epoch
- * segments the on-device stager persists into sleepSession.stagesJSON ([{start,end,stage}])
- * when the merged session is the same night — labelled approximate (on-device staging).
- * Imported nights carry minutes only, so they keep the reconstructed plausible architecture
- * (deep early, REM later, awake last). No data is fabricated: with no nights the screen
- * shows an honest empty state, and a navigated night with no usable stage data says so
- * instead of silently showing another night (#160).
+ * Local sleep overview with a navigable night, stage timeline, metrics and trends.
+ * Server mode instead renders canonical owner-scoped epochs in [ServerSleepScreen].
+ * Local stage data prefers persisted segments; imported totals retain the existing
+ * approximate reconstruction. Missing stages never borrow another night's timeline.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -181,6 +354,11 @@ fun SleepScreen(
     vm: AppViewModel,
     onOpenJournal: () -> Unit = {},
 ) {
+    val serverEnabled by vm.serverScores.enabled.collectAsStateWithLifecycle()
+    if (serverEnabled) {
+        ServerSleepScreen(vm)
+        return
+    }
     val days by vm.recentDays.collectAsStateWithLifecycle()
     // Whether the ACTIVE strap is an Oura ring, off the canonical brand table (not an "oura" literal) — so
     // the sleep surfaces name a ring-PROVIDED night's provenance "Oura" and flag its split as the ring's

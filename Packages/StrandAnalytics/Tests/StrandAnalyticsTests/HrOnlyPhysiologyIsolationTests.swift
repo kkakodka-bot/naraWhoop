@@ -50,9 +50,8 @@ final class HrOnlyPhysiologyIsolationTests: XCTestCase {
         let from = try XCTUnwrap(src.range(of: "\n", range: decl.upperBound..<src.endIndex)).upperBound
         let sdnn = try XCTUnwrap(src.range(of: "let avgSDNNDaily", range: from..<src.endIndex),
                                  "expected the SDNN index to follow the physiology set")
-        let seg = try XCTUnwrap(src.range(of: "segmentSec: 300", range: sdnn.lowerBound..<src.endIndex))
-        let close = try XCTUnwrap(src.range(of: ")", range: seg.upperBound..<src.endIndex))
-        return String(src[from..<close.upperBound])
+        let close = try XCTUnwrap(src.range(of: "// ── HRV & Autonomic nightly trace", range: sdnn.lowerBound..<src.endIndex))
+        return String(src[from..<close.lowerBound])
     }
 
     /// #1884 changed this from an exclusion to a PREFERENCE. The Kotlin twin's old assertion could not
@@ -83,7 +82,7 @@ final class HrOnlyPhysiologyIsolationTests: XCTestCase {
         }
         XCTAssertTrue(offenders.isEmpty,
                       "physiological aggregates must use physiologySessions, found: \(offenders)")
-        for needle in ["restingHRDaily", "let deep", "let pairs", "avgSDNNDaily"] {
+        for needle in ["restingHRDaily", "hrvNightSummary", "hrvMeasurements", "avgSDNNDaily"] {
             XCTAssertTrue(body.contains(needle), "\(needle) must sit inside the guarded region")
         }
     }

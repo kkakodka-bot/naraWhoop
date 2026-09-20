@@ -56,8 +56,8 @@ final class SleepStagerV2Tests: XCTestCase {
 
         let sorted = SleepStagerV2.stageSession(
             start: start, end: start + duration, grav: grav, hr: hr, rr: rr, resp: [])
-        XCTAssertEqual(sorted, [StageSegment(start: start, end: start + duration, stage: "light")],
-                       "the sorted-input output is the frozen control")
+        XCTAssertEqual(sorted.map { "\($0.start - start):\($0.end - start):\($0.stage)" },
+                       ["0:10:unknown", "10:4330:light", "4330:5400:rem"], "coarse RR contributes no RSA feature; leading partial epoch stays unknown")
 
         let shuffled = SleepStagerV2.stageSession(
             start: start, end: start + duration,
@@ -92,10 +92,10 @@ final class SleepStagerV2Tests: XCTestCase {
         }
         let base = 1_752_513_600
         let cancelledSorted = stagedShape(start: base, signalLast: false, shuffled: false)
-        let cancelledShuffled = stagedShape(start: base + 10_000_000, signalLast: false, shuffled: true)
-        let retainedSorted = stagedShape(start: base + 20_000_000, signalLast: true, shuffled: false)
+        let cancelledShuffled = stagedShape(start: base + 10_000_020, signalLast: false, shuffled: true)
+        let retainedSorted = stagedShape(start: base + 20_000_010, signalLast: true, shuffled: false)
         let retainedShuffled = stagedShape(start: base + 30_000_000, signalLast: true, shuffled: true)
-        let cancelledOracle = ["0:5400:light"]
+        let cancelledOracle = ["0:4320:light", "4320:5400:rem"]
         let retainedOracle = ["0:5400:wake"]
         XCTAssertEqual(cancelledSorted, cancelledOracle)
         XCTAssertEqual(cancelledShuffled, cancelledOracle)
@@ -133,7 +133,7 @@ final class SleepStagerV2Tests: XCTestCase {
             rr: regularRR(start: start, durationS: dur),
             resp: [])
         // V2 emits only the same 4 labels V1's StageSegment uses — "awake" is renamed to "wake".
-        let allowed: Set<String> = ["wake", "light", "deep", "rem"]
+        let allowed: Set<String> = ["wake", "light", "deep", "rem", "unknown"]
         for s in segs {
             XCTAssertTrue(allowed.contains(s.stage), "unexpected stage label \(s.stage)")
         }
@@ -141,24 +141,22 @@ final class SleepStagerV2Tests: XCTestCase {
 
     /// Degenerate input (too little gravity to grid) must fall back to a single "light" block spanning the
     /// window — exactly the shape V1's `stageSession` returns in the same case, so callers/encoders are safe.
-    func testDegenerateInputFallsBackToSingleLightBlock() {
+    func testDegenerateInputAbstains() {
         let start = 1_700_000_000
         let end = start + 3_600
         let segs = SleepStagerV2.stageSession(
             start: start, end: end,
             grav: [GravitySample(ts: start, x: 0, y: 0, z: 1.0)],  // one sample → no epochs
             hr: [], rr: [], resp: [])
-        XCTAssertEqual(segs.count, 1)
-        XCTAssertEqual(segs.first?.stage, "light")
+        XCTAssertTrue(segs.allSatisfy { $0.stage == "unknown" && $0.state == "state_unknown" })
         XCTAssertEqual(segs.first?.start, start)
-        XCTAssertEqual(segs.first?.end, end)
+        XCTAssertEqual(segs.last?.end, end)
     }
 
-    func testEmptyWindowReturnsLightFallback() {
+    func testEmptyWindowReturnsNoEpochs() {
         // end <= start → features() is empty → the single-segment fallback.
         let segs = SleepStagerV2.stageSession(start: 100, end: 100, grav: [], hr: [], rr: [], resp: [])
-        XCTAssertEqual(segs.count, 1)
-        XCTAssertEqual(segs.first?.stage, "light")
+        XCTAssertTrue(segs.isEmpty)
     }
 
     // MARK: - recipe invariants
@@ -328,8 +326,10 @@ final class SleepStagerV2Tests: XCTestCase {
         XCTAssertEqual(v2.stages.map { $0.stage }, v2Direct.map { $0.stage },
                        "flag ON must produce the V2 hypnogram")
         let v2Stages = Set(v2.stages.map { $0.stage })
-        XCTAssertTrue(v2Stages.contains("deep"), "V2 night should express deep")
+        XCTAssertFalse(v2Stages.contains("deep"), "coarse RR must not fabricate the RSA evidence that previously favored deep")
         XCTAssertTrue(v2Stages.contains("rem"), "V2 night should express REM")
+        let withoutRR = SleepStagerV2.stageSession(start: v2.start, end: v2.end, grav: grav, hr: hr, rr: [], resp: [])
+        XCTAssertEqual(v2Direct, withoutRR, "unverified RR is equivalent to missing RSA, not regular breathing")
     }
 
     // MARK: - #277: lock the V2 recipe shape + parity (golden) and the tuned deep-boundary values (directly)
@@ -373,8 +373,9 @@ final class SleepStagerV2Tests: XCTestCase {
         }
         let segs = SleepStagerV2.stageSession(start: start, end: start + dur, grav: grav, hr: hr, rr: rr, resp: [])
         let golden: [(Int, Int, String)] = [
-            (0, 5070, "deep"), (5070, 5310, "light"), (5310, 5550, "rem"),
-            (5550, 10740, "light"), (10740, 16290, "rem"), (16290, 21600, "wake")]
+            // v2 physiology quality revision removes coarse-second RSA from the feature vector.
+            (0, 5070, "deep"), (5070, 5280, "light"), (5280, 5550, "rem"),
+            (5550, 10800, "light"), (10800, 16200, "rem"), (16200, 21600, "wake")]
         XCTAssertEqual(segs.count, golden.count, "segment count")
         for k in 0..<min(segs.count, golden.count) {
             XCTAssertEqual(segs[k].start, start + golden[k].0, "seg \(k) start")

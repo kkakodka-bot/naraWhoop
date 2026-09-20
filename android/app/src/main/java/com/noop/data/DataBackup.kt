@@ -139,7 +139,7 @@ object DataBackup {
             cursor.moveToFirst()
         }
 
-        val dbFile = appContext.getDatabasePath(WhoopDatabase.DB_NAME)
+        val dbFile = appContext.getDatabasePath(WhoopDatabase.databaseName(appContext))
         if (!dbFile.exists()) {
             throw IOException("No database to export yet.")
         }
@@ -225,6 +225,9 @@ object DataBackup {
      */
     fun importFrom(context: Context, uri: Uri, allowOversize: Boolean = false): ImportResult {
         val appContext = context.applicationContext
+        if (!com.noop.BuildConfig.ENABLE_DEMO) {
+            return ImportResult.Failed("Whole-store restore is unavailable for enrolled accounts until backup ownership can be verified. Your existing data and backup are unchanged.")
+        }
         val resolver = appContext.contentResolver
 
         // 1. Peek at the first 16 bytes to distinguish ZIP from plain SQLite.
@@ -332,7 +335,7 @@ object DataBackup {
             )
         }
 
-        val dbFile = appContext.getDatabasePath(WhoopDatabase.DB_NAME)
+        val dbFile = appContext.getDatabasePath(WhoopDatabase.databaseName(appContext))
         val walFile = File(dbFile.path + "-wal")
         val shmFile = File(dbFile.path + "-shm")
         val rollbackFile = File(dbFile.path + ".import-bak")

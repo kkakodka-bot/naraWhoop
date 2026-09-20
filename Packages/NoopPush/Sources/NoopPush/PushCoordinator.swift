@@ -394,7 +394,7 @@ public struct PushCoordinator: Sendable {
         let mutableOrder: [PushMutableTable] = [.dailyMetric, .sleepSession, .workout, .journal]
         let appendOrder: [PushAppendTable] = [
             .event, .battery, .hrSample, .spo2Sample, .skinTempSample,
-            .respSample, .gravitySample, .rrInterval,
+            .respSample, .gravitySample, .rrInterval, .rrPacketProvenance, .standardHRReceipt,
         ]
 
         for deviceId in selectedDevices {
@@ -407,7 +407,7 @@ public struct PushCoordinator: Sendable {
                     case .rejected(_, let retryable, let failure):
                         rejected += 1
                         if selectedFailure == nil || (retryable && !retryableFailure) {
-                            selectedFailure = failure
+                            selectedFailure = failure?.attributed(to: table)
                         }
                         retryableFailure = retryableFailure || retryable
                     case .noData:
@@ -423,7 +423,7 @@ public struct PushCoordinator: Sendable {
                     case .rejected(_, let retryable, let failure):
                         rejected += 1
                         if selectedFailure == nil || (retryable && !retryableFailure) {
-                            selectedFailure = failure
+                            selectedFailure = failure?.attributed(to: table)
                         }
                         retryableFailure = retryableFailure || retryable
                     case .noData:
@@ -445,7 +445,7 @@ public struct PushCoordinator: Sendable {
                     case .rejected(_, let retryable, let failure):
                         rejected += 1
                         if selectedFailure == nil || (retryable && !retryableFailure) {
-                            selectedFailure = failure
+                            selectedFailure = failure?.attributed(to: table)
                         }
                         retryableFailure = retryableFailure || retryable
                     case .noData:
@@ -485,9 +485,9 @@ public struct PushCoordinator: Sendable {
             return .rejected(reason: PushFailure(code: .ackInvalid).safeCode, retryable: false, failure: PushFailure(code: .ackInvalid))
         }
         if response.statusCode < 200 || response.statusCode > 299 {
-            let failure = PushFailure.http(
+            let failure = PushError.httpFailure(
                 status: response.statusCode,
-                receiverCode: PushError.parseCode(response.body, expectedVersion: batch.protocolVersion)
+                body: response.body, expectedVersion: batch.protocolVersion, table: batch.table
             )
             return .rejected(reason: failure.safeCode, retryable: failure.retryable, failure: failure)
         }
@@ -530,12 +530,18 @@ public struct PushCoordinator: Sendable {
 
         if !uploaded {
             let intent: PushObjectIntent
+            guard destinationStillCurrent() else {
+                return .rejected(reason: "cancelled", retryable: true, failure: nil)
+            }
             do {
                 intent = try await transport.createObjectIntent(manifest, lane: lane)
             } catch let error as PushTransportException where error.failure.receiverCode == "object_id_conflict" {
                 // Same id, different bytes: the id is burned server-side. Mint a fresh one and
                 // retry exactly once; a second conflict means something is deeply wrong.
                 manifest = manifest.replacingObjectId(PushProtocol.freshObjectId())
+                guard destinationStillCurrent() else {
+                    return .rejected(reason: "cancelled", retryable: true, failure: nil)
+                }
                 do {
                     intent = try await transport.createObjectIntent(manifest, lane: lane)
                 } catch {
@@ -598,6 +604,9 @@ public struct PushCoordinator: Sendable {
         var reuploaded = false
         while true {
             let ack: PushObjectAck
+            guard destinationStillCurrent() else {
+                return .rejected(reason: "cancelled", retryable: true, failure: nil)
+            }
             do {
                 ack = try await transport.completeObject(objectId: manifest.objectId, lane: lane)
             } catch let error as PushTransportException {
@@ -606,11 +615,17 @@ public struct PushCoordinator: Sendable {
                     // The bytes at the bucket are missing or short of what the intent committed:
                     // re-sign the same objectId and re-PUT exactly once.
                     reuploaded = true
+                    guard destinationStillCurrent() else {
+                        return .rejected(reason: "cancelled", retryable: true, failure: nil)
+                    }
                     do {
                         let refreshed = try await transport.createObjectIntent(manifest, lane: lane)
                         if refreshed.duplicate { continue } // became ready meanwhile → complete again
                         guard refreshed.objectId == manifest.objectId else {
                             return .rejected(reason: PushFailure(code: .ackInvalid).safeCode, retryable: false, failure: PushFailure(code: .ackInvalid))
+                        }
+                        guard destinationStillCurrent() else {
+                            return .rejected(reason: "cancelled", retryable: true, failure: nil)
                         }
                         try await transport.uploadObject(refreshed, body: batch.payload)
                         expectedKey = refreshed.objectKey
@@ -659,9 +674,9 @@ public struct PushCoordinator: Sendable {
             return .rejected(reason: PushFailure(code: .ackInvalid).safeCode, retryable: false, failure: PushFailure(code: .ackInvalid))
         }
         if response.statusCode < 200 || response.statusCode > 299 {
-            let failure = PushFailure.http(
+            let failure = PushError.httpFailure(
                 status: response.statusCode,
-                receiverCode: PushError.parseCode(response.body, expectedVersion: batch.protocolVersion)
+                body: response.body, expectedVersion: batch.protocolVersion, table: batch.table
             )
             return .rejected(reason: failure.safeCode, retryable: failure.retryable, failure: failure)
         }

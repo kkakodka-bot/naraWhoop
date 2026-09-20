@@ -121,12 +121,26 @@ public final class LiveState: ObservableObject {
     /// Rolling buffer of `(unix-seconds, SoC%)` battery readings banked from the live link, the twin of
     /// `rrRecent` for the battery series. `setBattery` appends each reading (with a small dedupe so a
     /// repeated identical % at a near-identical time doesn't pad the buffer), and `batteryEstimate` fits
-    /// the recent discharge slope over it. Capped + bounded so it can't grow without limit; cleared on
-    /// disconnect so a stale estimate can't outlive the link.
+    /// the recent discharge slope over it. History survives a radio reconnect; a device switch clears it.
     @Published public private(set) var batterySamples: [(ts: Int, soc: Double)] = []
-    /// Cap on the SoC buffer. Battery events arrive only every ~8 minutes, so a few hundred readings
-    /// already spans a couple of days, plenty to fit a discharge slope against.
-    static let maxBatterySamples = 400
+    /// Retain up to fourteen days, including a full MG cycle at its usual battery-event cadence.
+    static let maxBatterySamples = 4096
+    static let batteryHistorySeconds = 14 * 24 * 3600
+    private(set) var batteryHistoryDeviceId: String?
+    private(set) var batteryHistoryGeneration = UUID()
+    /// Current-link evidence for diagnostics. Retained forecast history must not imply a fresh reading.
+    @Published public private(set) var freshBatterySoc: Double?
+
+    func selectBatteryDevice(_ id: String) {
+        guard batteryHistoryDeviceId != id else { return }
+        batteryHistoryDeviceId = id
+        batteryHistoryGeneration = UUID()
+        clearBatterySamples()
+        batteryPct = nil
+        freshBatterySoc = nil
+        batteryMv = nil
+        charging = nil
+    }
 
     // MARK: - Sleep & Rest test-mode live readout (Group E)
 
@@ -169,12 +183,11 @@ public final class LiveState: ObservableObject {
     /// "~X days left" runtime estimate for the connected strap, computed from the banked SoC samples and
     /// `batteryRatedHours`. nil until there's at least one reading. The Today badge reads this.
     public var batteryEstimate: BatteryEstimator.Estimate? {
-        BatteryEstimator.estimate(samples: batterySamples, ratedHours: batteryRatedHours)
+        BatteryEstimator.estimate(samples: batterySamples, ratedHours: batteryRatedHours,
+                                  currentSoc: batteryPct)
     }
 
-    /// The discharge-run / fitted-slope / gate trace for the banked SoC series (#713, Test Centre Battery
-    /// mode). Pure: delegates to BatteryEstimator.estimateTrace, which returns the SAME Estimate as
-    /// batteryEstimate plus the trace lines, so reading this never changes any displayed number.
+    /// Historical rate diagnostics. `emitBatteryTrace` adds the forecast anchored to the live gauge.
     public var batteryEstimateTraceLines: [String] {
         BatteryEstimator.estimateTrace(samples: batterySamples, ratedHours: batteryRatedHours).trace
     }
@@ -184,6 +197,9 @@ public final class LiveState: ObservableObject {
     public func emitBatteryTrace() {
         guard TestCentre.active(.battery) else { return }
         for line in batteryEstimateTraceLines { append(log: line, domain: .battery) }
+        if let estimate = batteryEstimate {
+            append(log: "forecast soc=\(estimate.currentSoc) ratedHours=\(batteryRatedHours) remainingHours=\(estimate.remainingHours) source=\(estimate.source.rawValue)", domain: .battery)
+        }
     }
 
     /// Resolve one of the Battery mode's liveReadout ids ("currentSoc" / "estimateDaysLeft" /
@@ -457,6 +473,8 @@ public final class LiveState: ObservableObject {
     /// covers a productive idle timeout and fires only after auto-continuation has decided the backlog is
     /// finished. Intermediate HISTORY_COMPLETE slices never bump it.
     @Published public var postOffloadBurstCompleted: UInt64 = 0
+    /// Refresh diagnostics after the downstream drain updates its durable jobs and journal.
+    @Published public var syncStatusRevision: UInt64 = 0
     /// True across the short false→true gaps between auto-continued sessions. Durable debts may accrue,
     /// but foreground/background wakes defer them until the terminal decision clears this flag.
     @Published public var postOffloadBurstInProgress = false
@@ -538,6 +556,8 @@ public final class LiveState: ObservableObject {
     /// Single funnel for battery readings — updates the published value AND notifies the hook,
     /// so both write sites (FrameRouter, BLEManager) drive the alert monitor identically.
     public func setBattery(_ pct: Double) {
+        guard pct.isFinite, (0...100).contains(pct) else { return }
+        freshBatterySoc = pct
         batteryPct = pct
         bankBatterySample(pct)
         onBatteryUpdate?(pct)
@@ -549,7 +569,10 @@ public final class LiveState: ObservableObject {
     /// any change in %, or enough elapsed time, banks a fresh point. The oldest readings fall off once the
     /// buffer is full. `now` is injectable so the estimate is unit-testable without a live clock.
     func bankBatterySample(_ pct: Double, now: Int = Int(Date().timeIntervalSince1970)) {
+        guard pct.isFinite, (0...100).contains(pct), now >= 0 else { return }
+        batterySamples.removeAll { $0.ts > now || $0.ts < now - Self.batteryHistorySeconds }
         if let last = batterySamples.last, last.soc == pct, now - last.ts < 600 { return }
+        batterySamples.removeAll { $0.ts == now }
         batterySamples.append((ts: now, soc: pct))
         if batterySamples.count > Self.maxBatterySamples {
             batterySamples.removeFirst(batterySamples.count - Self.maxBatterySamples)
@@ -567,18 +590,16 @@ public final class LiveState: ObservableObject {
         }
     }
 
-    /// Seed the SoC buffer from the persisted battery table on connect/bootstrap (#7). `batterySamples` is
-    /// otherwise fed ONLY by live BLE events (`bankBatterySample`), so after a reconnect the "~X days left"
-    /// estimate restarted from an empty buffer and ignored the long discharge history already on disk.
-    /// Android seeds from its persisted battery table over a 14-day window; iOS/macOS did not, so the two
-    /// platforms diverged. The BLEManager bootstrap path does one async read of the persisted series and
-    /// passes it here. De-dupes against any points already banked from live events this session (by ts) so a
-    /// seed that races a couple of live readings can't double-count them, then re-sorts and caps the buffer.
-    /// Only banks the historical points that aren't already present, so calling it twice is idempotent.
-    public func seedBatterySamples(_ seed: [(ts: Int, soc: Double)]) {
+    /// Merge stored history on bootstrap and after sync, preserving live readings at equal timestamps.
+    /// The caller fences device identity; this method bounds age, validity, duplicates, and memory use.
+    public func seedBatterySamples(_ seed: [(ts: Int, soc: Double)], now: Int = Int(Date().timeIntervalSince1970)) {
         guard !seed.isEmpty else { return }
         let existing = Set(batterySamples.map { $0.ts })
-        let fresh = seed.filter { !existing.contains($0.ts) }
+        var seen = existing
+        let fresh = seed.filter {
+            $0.ts >= now - Self.batteryHistorySeconds && $0.ts <= now && $0.ts >= 0
+                && $0.soc.isFinite && (0...100).contains($0.soc) && seen.insert($0.ts).inserted
+        }
         guard !fresh.isEmpty else { return }
         batterySamples.append(contentsOf: fresh)
         batterySamples.sort { $0.ts < $1.ts }
@@ -587,8 +608,7 @@ public final class LiveState: ObservableObject {
         }
     }
 
-    /// Drop the banked SoC buffer (called on disconnect) so a stale runtime estimate can't outlive the
-    /// link, the twin of the `charging = nil` clear on the same path.
+    /// Drop history when changing the source device. Radio disconnects retain the learned rate.
     public func clearBatterySamples() {
         batterySamples.removeAll()
     }
@@ -614,9 +634,9 @@ public final class LiveState: ObservableObject {
     /// the `charging = nil` / `encryptedBond = false` clears on the same path.
     public func clearBiometrics() {
         heartRate = nil
+        freshBatterySoc = nil
         rr.removeAll()
         rrRecent.removeAll()
-        clearBatterySamples()   // a stale runtime estimate must not outlive the link either (#713)
         recentHrSamples.removeAll()       // Sleep readout buffers must not outlive the link (Group E)
         recentGravitySamples.removeAll()
         clearStrapRange()                 // a stale clock-drift window must not outlive the link either

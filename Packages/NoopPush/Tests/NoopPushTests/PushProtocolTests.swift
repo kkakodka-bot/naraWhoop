@@ -21,6 +21,7 @@ final class PushProtocolTests: XCTestCase {
         XCTAssertEqual("batch", header["type"] as? String)
         XCTAssertEqual("1.0", header["protocolVersion"] as? String)
         XCTAssertEqual(sourceA, header["sourceId"] as? String)
+        XCTAssertEqual("strap-a", header["deviceId"] as? String)
         XCTAssertEqual("hrSample", header["stream"] as? String)
         XCTAssertEqual("append", header["delivery"] as? String)
         XCTAssertTrue(header["startCursor"] is NSNull || header["startCursor"] == nil)

@@ -1140,7 +1140,7 @@ private struct LiveLogCard: View {
             }
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
+                    LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(live.log.enumerated()), id: \.offset) { idx, line in
                             Text(line).font(StrandFont.mono)
                                 .foregroundStyle(StrandPalette.textSecondary)

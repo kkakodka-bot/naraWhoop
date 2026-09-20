@@ -3,10 +3,63 @@ package com.noop.push
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PushBinaryProtocolTest {
+    @Test fun singleSecondRawCaptureGetsHalfOpenManifestAndRetainsOriginalEvidenceOnRetry() {
+        val row = rawCapture(1_700_000_000, 1_700_000_000)
+        val decoded = PushBinaryCodec.pack(PushBinaryTable.RAW_BATCH, listOf(PushBinaryRow.RawBatch(row)))
+        assertEquals("4e5042310103070062617463682d3164000000000000005a00000000000000640000000000000000f153650000000000f153650000000002000000040000000400000001020304",
+            decoded.joinToString("") { "%02x".format(it) })
+        val first = rawObject(row)
+        val retry = rawObject(row)
+        assertEquals(1_700_000_000L, first.startTs)
+        assertEquals(1_700_000_001L, first.endTs)
+        assertEquals(2, first.sampleCount)
+        assertEquals("81e90626f5f4bfef74c2da704ec899e08eb4655d5d60624116521efef4968d42", first.contentSha256)
+        assertEquals("66e88d6c-184b-562d-a049-24e59feaf04a", first.batchId)
+        assertEquals("4b2e1680-76d5-56bd-89ae-419dae696a57", first.objectId)
+        assertArrayEquals(first.manifestJSON, retry.manifestJSON)
+        assertArrayEquals(first.payload, retry.payload)
+        assertArrayEquals(PushBinaryCompression.compressObject(decoded, "zstd"), first.payload)
+        assertNull(first.endCursor)
+        assertNull(retry.endCursor)
+        val manifest = JSONObject(first.manifestJSON.toString(Charsets.UTF_8))
+        assertEquals(1_700_000_001L, manifest.getLong("endTs"))
+        assertFalse(manifest.has("coverage"))
+    }
+
+    @Test fun multiSecondRawCaptureKeepsPackedInclusiveEnd() {
+        val row = rawCapture(100, 200)
+        val decoded = PushBinaryCodec.pack(PushBinaryTable.RAW_BATCH, listOf(PushBinaryRow.RawBatch(row)))
+        assertEquals(RAW_BATCH_PACK_HEX, decoded.joinToString("") { "%02x".format(it) })
+        val batch = rawObject(row)
+        assertEquals(100L, batch.startTs)
+        assertEquals(201L, batch.endTs)
+        assertEquals(RAW_BATCH_SHA, batch.contentSha256)
+        assertEquals(RAW_BATCH_BATCH_ID, batch.batchId)
+        assertEquals(RAW_BATCH_OBJECT_ID, batch.objectId)
+        assertNull(batch.endCursor)
+    }
+
+    @Test fun rawCaptureBoundsRejectReversalAndOverflowWithoutWrap() {
+        for (row in listOf(rawCapture(101, 100), rawCapture(100, Long.MAX_VALUE))) {
+            assertThrows(PushProtocolException::class.java) { rawObject(row) }
+        }
+    }
+
+    private fun rawCapture(start: Long, end: Long) = PushRawBatchRecord(
+        rowId = 1, batchId = "batch-1", capturedAt = 100, deviceClockRef = 90, wallClockRef = 100,
+        startTs = start, endTs = end, frameCount = 2, byteSize = 4, framesBlob = byteArrayOf(1, 2, 3, 4))
+
+    private fun rawObject(row: PushRawBatchRecord) = PushProtocol.binaryObjectBatch(
+        PushBinaryTable.RAW_BATCH, SOURCE_A, "strap-a", null, listOf(PushBinaryRow.RawBatch(row)),
+        protocolVersion = PushProtocol.OBJECT_VERSION, decodedLimit = PushProtocol.MAX_OBJECT_DECODED_BYTES)
+
     @Test
     fun ppgBinaryObjectIsDeterministic() {
         val rows = listOf(
@@ -194,7 +247,7 @@ class PushBinaryProtocolTest {
         const val RAW_BATCH_PACK_HEX =
             "4e5042310103070062617463682d3164000000000000005a0000000000000064000000000000006400000000000000c80000000000000002000000040000000400000001020304"
         const val RAW_BATCH_SHA = "cc0e6daf0ff9d5696767968a9faef4c031368bf8a5efdd490520517a34fef749"
-        const val RAW_BATCH_BATCH_ID = "50649896-7ae5-50ff-bc46-70356304df31"
-        const val RAW_BATCH_OBJECT_ID = "6b570a51-ff86-5ad1-82fc-2da881536723"
+        const val RAW_BATCH_BATCH_ID = "ed3d5ac8-09af-529d-a7a1-b6a56abef5bb"
+        const val RAW_BATCH_OBJECT_ID = "22cc7400-3e75-5ed5-bc24-3875d185de70"
     }
 }

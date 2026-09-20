@@ -6,8 +6,9 @@
 //   POST /objects                 object-lane intent → presigned B2 PUT
 //   POST /objects/:objectId/complete   byte-count check → release device rows
 //
-// Auth is our own (bearer JWT via Supabase Auth, or opaque `noop_` ingest token), so the function
-// is deployed with --no-verify-jwt: the gateway's JWT check would reject ingest tokens.
+// Auth is handled here, so the function is deployed with --no-verify-jwt. Uploads require a
+// source-bound `noop_` installation bearer plus a separate fleet credential; enrollment uses the
+// fleet bearer, and token management alone accepts a Supabase JWT.
 //
 // Differences from the Node original, all deliberate:
 //   - replacement staging is Postgres-backed (isolates are stateless), same state machine;
@@ -30,7 +31,19 @@ import { createPushReplacementStaging } from '../_shared/staging.ts';
 import { createSupabaseRest, restConfigFromEnv } from '../_shared/rest.ts';
 import { createS3 } from '../_shared/s3.ts';
 import { pushConfig, defaultReceiverStateId } from '../_shared/config.ts';
-import { IdentityError, resolvePushUser, createIngestTokenStore } from '../_shared/tokens.ts';
+import { createDeviceRegistrar } from '../_shared/devices.ts';
+import { enqueueScoringAfterIngest } from '../_shared/scoringEnqueue.ts';
+import { inlineRequestProtocol, ingestProtocolErrorResponse, unexpectedIngestDiagnostic } from '../_shared/pushDiagnostics.ts';
+import {
+  IdentityError,
+  resolveFleetAuthorization,
+  resolveJwtUser,
+  resolveUploadIdentity,
+  createIngestTokenStore,
+} from '../_shared/tokens.ts';
+import { createEnrollmentService, EnrollmentError } from '../_shared/enrollment.ts';
+import { createNoopDeviceResolver } from '../_shared/devices.ts';
+import { createUploadReceiptStore } from '../_shared/receipts.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024 + 64 * 1024;
 
@@ -43,6 +56,13 @@ const OBJECT_LANE_PATH = '/functions/v1/push/objects';
 const cfg = pushConfig();
 const rest = createSupabaseRest({ cfg: restConfigFromEnv() });
 const ingestTokenStore = createIngestTokenStore({ rest });
+const enrollmentService = createEnrollmentService({
+  rest,
+  pepper: cfg.enrollmentPepper,
+  retryWindowSeconds: cfg.enrollmentRetryWindowSeconds,
+});
+const receiptStore = createUploadReceiptStore({ rest });
+const resolveDeviceId = createNoopDeviceResolver({ rest });
 const raw = cfg.b2KeyId && cfg.b2ApplicationKey && cfg.b2Bucket && cfg.b2S3Endpoint
   ? createS3({
     endpoint: cfg.b2S3Endpoint,
@@ -61,10 +81,7 @@ const pushUpsertRows = (table: string, rows: unknown[], opts: { onConflict: stri
   if (!rest.configured) return Promise.resolve([]);
   return rest.upsert(table, rows, opts);
 };
-const pushEnsureDevice = (row: Record<string, unknown>) => {
-  if (!rest.configured) return Promise.resolve([]);
-  return rest.upsert('devices', row, { onConflict: 'id' });
-};
+const pushEnsureDevice = createDeviceRegistrar(rest);
 const pushIngest = createPushIngest({
   walStore: pushWalStore!,
   archiveObject: (args: unknown) => pushArchive.archiveObject(args),
@@ -74,7 +91,9 @@ const pushIngest = createPushIngest({
     return deleteReplacementRows(rest, table, filter);
   },
   ensureDevice: pushEnsureDevice,
+  resolveDeviceId,
   replacementStaging: pushStaging,
+  receiptStore,
 });
 const pushObjects = createPushObjects({
   cfg,
@@ -82,6 +101,8 @@ const pushObjects = createPushObjects({
   raw,
   upsertRows: pushUpsertRows,
   ensureDevice: pushEnsureDevice,
+  resolveDeviceId,
+  receiptStore,
 });
 const receiverStateId = defaultReceiverStateId(cfg);
 
@@ -92,13 +113,6 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function protocolError(err: any): Response {
-  const status = err?.status || 500;
-  const body: any = { type: 'error', protocolVersion: '1.2', code: err?.code || err?.message || 'push_failed' };
-  if (Array.isArray(err?.fields)) body.fields = err.fields;
-  return json(body, status);
-}
-
 function authError(err: any): Response {
   if (err instanceof IdentityError) {
     return json({ type: 'error', protocolVersion: '1.2', code: 'unauthorized' }, err.status || 401);
@@ -106,11 +120,22 @@ function authError(err: any): Response {
   throw err;
 }
 
-async function authenticate(req: Request) {
+async function authenticateUpload(req: Request) {
   try {
-    return await resolvePushUser({
+    return await resolveUploadIdentity({
       headers: req.headers,
       rest,
+      allowLegacyFleetUploads: cfg.allowLegacyFleetUploads,
+    });
+  } catch (err) {
+    throw authError(err);
+  }
+}
+
+async function authenticateJwt(req: Request) {
+  try {
+    return await resolveJwtUser({
+      headers: req.headers,
       supabaseUrl: cfg.supabaseUrl,
       anonKey: cfg.supabaseAnonKey,
     });
@@ -119,9 +144,17 @@ async function authenticate(req: Request) {
   }
 }
 
+async function authorizeEnrollment(req: Request) {
+  try {
+    return await resolveFleetAuthorization({ headers: req.headers, rest, fromAuthorization: true });
+  } catch (err) {
+    throw authError(err);
+  }
+}
+
 async function handleCapabilities(req: Request): Promise<Response> {
   try {
-    const user = await authenticate(req);
+    const user = await authenticateUpload(req);
     const version = negotiateProtocol(req.headers.get('noop-push-accept-version'));
     if (!version) return json({ type: 'error', protocolVersion: '1.2', code: 'unsupported_version' }, 406);
     const body = capabilitiesBody({
@@ -129,6 +162,7 @@ async function handleCapabilities(req: Request): Promise<Response> {
       receiverStateId,
       streams: advertisedStreams(version, INGEST_ENABLED_STREAMS),
       userId: user.id,
+      sourceId: user.sourceId,
       // Advertised whenever the lane can actually sign a URL. A sender that sees no `objectLane`
       // must keep its raw rows rather than assume they were taken.
       objectLane: pushObjects.configured
@@ -149,7 +183,7 @@ async function handleCapabilities(req: Request): Promise<Response> {
 
 async function handleObjectIntent(req: Request): Promise<Response> {
   try {
-    const user = await authenticate(req);
+    const user = await authenticateUpload(req);
     if (!pushObjects.configured) {
       return json({ type: 'error', protocolVersion: '1.2', code: 'object_lane_unavailable' }, 503);
     }
@@ -163,35 +197,52 @@ async function handleObjectIntent(req: Request): Promise<Response> {
     } catch {
       return json({ type: 'error', protocolVersion: '1.2', code: 'malformed_manifest' }, 400);
     }
-    const intent = await pushObjects.createIntent({ userId: user.id, manifest });
+    const intent = await pushObjects.createIntent({
+      userId: user.id,
+      sourceId: user.sourceId,
+      tokenId: user.tokenId,
+      authMode: user.authMode,
+      manifest,
+    });
     return json({ type: 'objectIntent', protocolVersion: '1.2', ...intent });
   } catch (err: any) {
     if (err instanceof Response) return err;
-    if (err instanceof PushProtocolError) return protocolError(err);
-    console.error('[push] object intent failed:', err?.stack || err);
-    return json({ type: 'error', protocolVersion: '1.2', code: 'push_failed' }, 500);
+    if (err instanceof PushProtocolError) return ingestProtocolErrorResponse(err, '1.2');
+    const diagnostic = unexpectedIngestDiagnostic(err, '1.2');
+    console.error('[push] object intent failed:', JSON.stringify(diagnostic));
+    return json(diagnostic, 500);
   }
 }
 
 async function handleObjectComplete(req: Request, objectId: string): Promise<Response> {
   try {
-    const user = await authenticate(req);
+    const user = await authenticateUpload(req);
     if (!pushObjects.configured) {
       return json({ type: 'error', protocolVersion: '1.2', code: 'object_lane_unavailable' }, 503);
     }
-    const ack = await pushObjects.completeObject({ userId: user.id, objectId });
+    const ack = await pushObjects.completeObject({
+      userId: user.id,
+      sourceId: user.sourceId,
+      tokenId: user.tokenId,
+      authMode: user.authMode,
+      objectId,
+    });
+    void enqueueScoringAfterIngest({ rest, userId: user.id, deviceId: ack?.deviceId })
+      .catch(() => console.error('[push] scoring enqueue failed'));
     return json({ type: 'objectAck', protocolVersion: '1.2', ...ack });
   } catch (err: any) {
     if (err instanceof Response) return err;
-    if (err instanceof PushProtocolError) return protocolError(err);
-    console.error('[push] object complete failed:', err?.stack || err);
-    return json({ type: 'error', protocolVersion: '1.2', code: 'push_failed' }, 500);
+    if (err instanceof PushProtocolError) return ingestProtocolErrorResponse(err, '1.2');
+    const diagnostic = unexpectedIngestDiagnostic(err, '1.2');
+    console.error('[push] object complete failed:', JSON.stringify(diagnostic));
+    return json(diagnostic, 500);
   }
 }
 
 async function handleInlineBatch(req: Request): Promise<Response> {
+  let protocolVersion: '1.0' | '1.1' = '1.1';
   try {
-    const user = await authenticate(req);
+    const user = await authenticateUpload(req);
     let body = new Uint8Array(await req.arrayBuffer());
     if (body.length > MAX_BODY_BYTES) {
       return json({ type: 'error', protocolVersion: '1.1', code: 'payload_too_large' }, 413);
@@ -207,20 +258,57 @@ async function handleInlineBatch(req: Request): Promise<Response> {
     if (body.length > 4 * 1024 * 1024) {
       return json({ type: 'error', protocolVersion: '1.1', code: 'decoded_body_too_large' }, 413);
     }
-    const ack = await pushIngest.acceptBatch({ userId: user.id, decodedBody: body });
+    protocolVersion = inlineRequestProtocol(body);
+    const ack = await pushIngest.acceptBatch({
+      userId: user.id,
+      sourceId: user.sourceId,
+      tokenId: user.tokenId,
+      authMode: user.authMode,
+      decodedBody: body,
+    });
+    void enqueueScoringAfterIngest({ rest, userId: user.id, deviceId: ack?.deviceId })
+      .catch(() => console.error('[push] scoring enqueue failed'));
     return json(ack);
   } catch (err: any) {
     if (err instanceof Response) return err;
     if (err instanceof PushProtocolError) {
-      return json({ type: 'error', protocolVersion: '1.1', code: err.message }, err.status);
+      return ingestProtocolErrorResponse(err, protocolVersion);
     }
     if (err?.message === 'batch_id_conflict') {
-      return json({ type: 'error', protocolVersion: '1.1', code: 'batch_id_conflict' }, 409);
+      return json({ type: 'error', protocolVersion, code: 'batch_id_conflict' }, 409);
     }
-    // The client can attribute every other branch from its receiver code; this one it sees as a bare
-    // 500. Log the cause here or the only record of why a batch was refused is lost.
-    console.error('[push] unexpected ingest failure:', err?.stack || err);
-    return json({ type: 'error', protocolVersion: '1.1', code: 'push_failed' }, 500);
+    // This pair identifies the failing stage without logging database messages or raw health data.
+    const diagnostic = unexpectedIngestDiagnostic(err, protocolVersion);
+    console.error('[push] unexpected ingest failure:', JSON.stringify(diagnostic));
+    return json(diagnostic, 500);
+  }
+}
+
+async function handleEnroll(req: Request): Promise<Response> {
+  try {
+    await authorizeEnrollment(req);
+    if (!enrollmentService.configured) {
+      return json({ type: 'error', protocolVersion: '1.1', code: 'enrollment_not_configured' }, 503);
+    }
+    const bytes = new Uint8Array(await req.arrayBuffer());
+    if (bytes.length > MAX_INTENT_BYTES) {
+      return json({ type: 'error', protocolVersion: '1.1', code: 'payload_too_large' }, 413);
+    }
+    let body: unknown;
+    try {
+      body = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      return json({ type: 'error', protocolVersion: '1.1', code: 'malformed_enrollment' }, 400);
+    }
+    const result = await enrollmentService.redeem(body);
+    return json(result, 201);
+  } catch (err: any) {
+    if (err instanceof Response) return err;
+    if (err instanceof EnrollmentError) {
+      return json({ type: 'error', protocolVersion: '1.1', code: err.code }, err.status);
+    }
+    console.error('[push] enrollment failed:', err?.stack || err);
+    return json({ type: 'error', protocolVersion: '1.1', code: 'enrollment_failed' }, 500);
   }
 }
 
@@ -236,6 +324,9 @@ Deno.serve(async (req: Request) => {
   }
   if (req.method === 'POST' && (sub === '/' || sub === '')) {
     return handleInlineBatch(req);
+  }
+  if (req.method === 'POST' && sub === '/enroll') {
+    return handleEnroll(req);
   }
   if (req.method === 'POST' && sub === '/objects') {
     return handleObjectIntent(req);
@@ -265,10 +356,10 @@ async function requireTokenStore() {
 }
 
 async function handleTokenMint(req: Request): Promise<Response> {
-  const user = await authenticate(req);
-  const storeError = await requireTokenStore();
-  if (storeError) return storeError;
   try {
+    const user = await authenticateJwt(req);
+    const storeError = await requireTokenStore();
+    if (storeError) return storeError;
     let label = '';
     try {
       const body = await req.json();
@@ -277,33 +368,36 @@ async function handleTokenMint(req: Request): Promise<Response> {
     const minted = await ingestTokenStore.mint({ userId: user.id, label });
     return json({ token: minted.token, ...minted.row }, 201);
   } catch (err: any) {
+    if (err instanceof Response) return err;
     console.error('[push] mint ingest token failed:', err?.stack || err);
     return json({ error: 'ingest_token_mint_failed' }, 500);
   }
 }
 
 async function handleTokenList(req: Request): Promise<Response> {
-  const user = await authenticate(req);
-  const storeError = await requireTokenStore();
-  if (storeError) return storeError;
   try {
+    const user = await authenticateJwt(req);
+    const storeError = await requireTokenStore();
+    if (storeError) return storeError;
     const tokens = await ingestTokenStore.list({ userId: user.id });
     return json({ tokens });
   } catch (err: any) {
+    if (err instanceof Response) return err;
     console.error('[push] list ingest tokens failed:', err?.stack || err);
     return json({ error: 'ingest_token_list_failed' }, 500);
   }
 }
 
 async function handleTokenRevoke(req: Request, id: string): Promise<Response> {
-  const user = await authenticate(req);
-  const storeError = await requireTokenStore();
-  if (storeError) return storeError;
   try {
+    const user = await authenticateJwt(req);
+    const storeError = await requireTokenStore();
+    if (storeError) return storeError;
     const revoked = await ingestTokenStore.revoke({ userId: user.id, id });
     if (!revoked) return json({ error: 'ingest_token_not_found' }, 404);
     return json(revoked);
   } catch (err: any) {
+    if (err instanceof Response) return err;
     console.error('[push] revoke ingest token failed:', err?.stack || err);
     return json({ error: 'ingest_token_revoke_failed' }, 500);
   }

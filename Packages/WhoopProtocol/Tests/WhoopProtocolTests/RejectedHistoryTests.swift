@@ -98,6 +98,91 @@ final class RejectedHistoryTests: XCTestCase {
         XCTAssertEqual(rejected, [bad])
     }
 
+    func testParsedFrameReusePreservesWhoop4RejectBytesAndOrder() {
+        let good = bytes(v24Hex)
+        var bad = good
+        bad[10] ^= 0xFF
+        let console = frameFromPayload([0x00], type: 50, seq: 0, cmd: 0)
+        let short: [UInt8] = [0xAA, 0x01]
+        let frames = [good, bad, console, short, bad]
+        let parsed = frames.map { parseFrame($0, family: .whoop4) }
+
+        XCTAssertEqual(rejectedHistoricalRecords(frames, family: .whoop4, parsedFrames: parsed),
+                       [bad, bad])
+        XCTAssertEqual(rejectedHistoricalRecords(frames, family: .whoop4, parsedFrames: parsed),
+                       rejectedHistoricalRecords(frames, family: .whoop4))
+    }
+
+    func testParsedFrameReusePreservesWhoop5CRCAndUnmappedLayoutDecisions() {
+        let good = bytes(whoop5V18Hex)
+        var bad = good
+        bad[20] ^= 0xFF
+        var unknown = good
+        unknown[9] = 22
+        let payloadEnd = unknown.count - 4
+        let checksum = crc32(unknown, 8, payloadEnd)
+        for i in 0..<4 { unknown[payloadEnd + i] = UInt8(truncatingIfNeeded: checksum >> (8 * i)) }
+        let frames = [good, bad, unknown, bad]
+        let parsed = frames.map { parseFrame($0, family: .whoop5) }
+        XCTAssertEqual(parsed[1].crcOK, false)
+        XCTAssertEqual(parsed[2].crcOK, true)
+
+        XCTAssertEqual(rejectedHistoricalRecords(frames, family: .whoop5, parsedFrames: parsed),
+                       [bad, unknown, bad])
+        XCTAssertEqual(rejectedHistoricalRecords(frames, family: .whoop5, parsedFrames: parsed),
+                       rejectedHistoricalRecords(frames, family: .whoop5))
+    }
+
+    func testParsedFrameReusePreservesV26ArchiveExceptionEvenWithBadCRC() {
+        let good = bytes(whoop5V26Hex)
+        var bad = good
+        bad[24] ^= 0xFF
+        let frames = [good, bad]
+        let parsed = frames.map { parseFrame($0, family: .whoop5) }
+        XCTAssertEqual(parsed[1].crcOK, false)
+        XCTAssertTrue(rejectedHistoricalRecords(frames, family: .whoop5, parsedFrames: parsed).isEmpty)
+    }
+
+    func testIncompleteParsedCacheCannotLoseARejectedRecord() {
+        let good = bytes(whoop5V18Hex)
+        var bad = good
+        bad[20] ^= 0xFF
+        let parsed = [parseFrame(good, family: .whoop5)]
+        XCTAssertEqual(rejectedHistoricalRecords([good, bad], family: .whoop5, parsedFrames: parsed),
+                       [bad])
+    }
+
+    func testParsedFrameReuseBenchmark() throws {
+        guard ProcessInfo.processInfo.environment["WHOOP_RUN_REJECTION_BENCHMARK"] == "1" else {
+            throw XCTSkip("Opt-in local throughput benchmark; no timing threshold in correctness tests")
+        }
+        let good = bytes(whoop5V18Hex)
+        var bad = good
+        bad[20] ^= 0xFF
+        let frames = (0..<2_000).map { $0.isMultiple(of: 20) ? bad : good }
+        let clock = ContinuousClock()
+        func milliseconds(_ duration: Duration) -> Double {
+            Double(duration.components.seconds) * 1_000
+                + Double(duration.components.attoseconds) / 1_000_000_000_000_000
+        }
+        func run(reuse: Bool) -> (ms: Double, rejected: [[UInt8]]) {
+            let start = clock.now
+            let parsed = frames.map { parseFrame($0, family: .whoop5) }
+            let rejected = rejectedHistoricalRecords(frames, family: .whoop5,
+                                                       parsedFrames: reuse ? parsed : nil)
+            XCTAssertEqual(parsed.count, frames.count)
+            return (milliseconds(start.duration(to: clock.now)), rejected)
+        }
+        _ = run(reuse: true)
+        for iteration in 1...5 {
+            let old = run(reuse: false)
+            let new = run(reuse: true)
+            XCTAssertEqual(old.rejected, new.rejected)
+            XCTAssertEqual(new.rejected.count, 100)
+            print("rejection-reuse iteration=\(iteration) records=\(frames.count) parse+reparseMs=\(old.ms) parse+reuseMs=\(new.ms)")
+        }
+    }
+
     func testIsEmptyRecordFrameFlagsAllZeroPayloadOnly() {
         // A 104 B frame with header + CRC bytes set but the record payload (21..<count-4) all zero -> empty.
         var empty = [UInt8](repeating: 0, count: 104)

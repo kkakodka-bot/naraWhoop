@@ -68,7 +68,98 @@ data class StageSegment(
     var end: Long,
     /** "wake" | "light" | "deep" | "rem". */
     var stage: String,
+    var state: String? = null,
+    var sleepProbability: Double? = null,
+    var pWake: Double? = null,
+    var pLight: Double? = null,
+    var pDeep: Double? = null,
+    var pRem: Double? = null,
+    var evidenceCoverage: Double? = null,
+    var abstentionReason: String? = null,
+    var computationMode: String? = null,
+    var algorithmVersion: String? = null,
+    var probabilitiesCalibrated: Boolean? = null,
 )
+
+object SleepStageSemantics {
+    fun normalized(segments: List<StageSegment>, start: Long, end: Long): List<StageSegment> {
+        if (end <= start) return emptyList()
+        val out = ArrayList<StageSegment>()
+        var cursor = start
+        for (original in segments.sortedBy { it.start }) {
+            val lo = maxOf(cursor, original.start); val hi = minOf(end, original.end)
+            if (hi <= lo) continue
+            if (lo > cursor) out.add(unknown(cursor, lo))
+            out.add(original.copy(start = lo, end = hi)); cursor = hi
+        }
+        if (cursor < end) out.add(unknown(cursor, end))
+        return out
+    }
+    fun isSleep(segment: StageSegment): Boolean {
+        if (segment.state in listOf("state_unknown", "off_body", "awake")) return false
+        return segment.stage in listOf("light", "deep", "rem", "sleep_unstaged") ||
+            (segment.stage == "unknown" && segment.state == "sleep_unstaged")
+    }
+    fun isKnownState(segment: StageSegment): Boolean = isSleep(segment) ||
+        ((segment.state == null || segment.state == "awake") && SleepStageVocabulary.isWake(segment.stage))
+    fun coalesced(segments: List<StageSegment>): List<StageSegment> {
+        val out = ArrayList<StageSegment>()
+        for (s in segments) {
+            val last = out.lastOrNull()
+            if (last != null && last.end == s.start && s.copy(start = last.start, end = last.end) == last)
+                out[out.lastIndex] = last.copy(end = s.end)
+            else out.add(s)
+        }
+        return out
+    }
+    /** Causal mode never calls the retrospective model; only independently available context qualifies. */
+    fun applyingContext(segments: List<StageSegment>, start: Long, end: Long,
+                        context: List<SleepContextSpan> = emptyList(), mode: String = "retrospective",
+                        observedThrough: Long? = null): List<StageSegment> {
+        if (end <= start) return emptyList()
+        val cutoff = minOf(end, observedThrough ?: end)
+        val base = normalized(segments, start, end)
+        val cuts = sortedSetOf(start, end, maxOf(start, cutoff))
+        base.forEach { cuts.add(it.start); cuts.add(it.end) }
+        context.filter { it.end > start && it.start < end }.forEach {
+            cuts.add(maxOf(start, it.start)); cuts.add(minOf(end, it.end))
+        }
+        if (mode == "causal") {
+            var t = Math.floorDiv(start, 30L) * 30
+            while (t < end) { if (t > start) cuts.add(t); t += 30 }
+        }
+        fun priority(c: SleepContextSpan): Int = when {
+            c.kind == "off_body" -> 3
+            c.kind in listOf("awake", "reading", "phone_use") -> 2
+            c.qualifiedBinarySleep -> 1
+            else -> 0
+        }
+        return coalesced(cuts.toList().zipWithNext().map { (lo, hi) ->
+            var s = (base.firstOrNull { it.start <= lo && it.end >= hi } ?: unknown(lo, hi)).copy(start = lo, end = hi)
+            if (lo >= cutoff) unknown(lo, hi, "not_observed_yet", mode = mode)
+            else {
+                if (mode == "causal") s = unknown(lo, hi, "causal_stage_model_unavailable", mode = mode)
+                val c = context.filter { it.start <= lo && it.end >= hi &&
+                    (mode != "causal" || (it.availableAt ?: it.end) <= hi) }.maxByOrNull(::priority)
+                if (c != null && priority(c) > 0) {
+                    val off = c.kind == "off_body"; val awake = priority(c) == 2
+                    if (off || awake || !isKnownState(s)) s = StageSegment(lo, hi,
+                        if (awake) "wake" else "unknown", state = if (off) "off_body" else if (awake) "awake" else "sleep_unstaged",
+                        evidenceCoverage = s.evidenceCoverage, abstentionReason = "context:${c.kind}:${c.provenance}",
+                        computationMode = mode, algorithmVersion = "sleep-context-v1", probabilitiesCalibrated = false)
+                }
+                s
+            }
+        })
+    }
+    fun unknown(start: Long, end: Long, reason: String = "no_epoch_observations", coverage: Double = 0.0,
+                mode: String = "retrospective") = StageSegment(start, end, "unknown", state = "state_unknown",
+        evidenceCoverage = coverage, abstentionReason = reason, computationMode = mode,
+        algorithmVersion = "sleep-evidence-v2", probabilitiesCalibrated = false)
+}
+
+data class SleepContextSpan(val start: Long, val end: Long, val kind: String, val provenance: String,
+                            val qualifiedBinarySleep: Boolean = false, val availableAt: Long? = null)
 
 /**
  * A detected sleep session (in-bed span) with APPROXIMATE staging.
@@ -97,7 +188,13 @@ data class DetectedSleep(
      * [restingHR] and [avgHRV] are left null on one rather than filtered out downstream.
      */
     val hrOnly: Boolean = false,
-)
+    val episodeType: String? = null,
+    val groupedNightId: String? = null,
+    val boundaryProvenance: String? = null,
+    val denominatorKind: String? = null,
+) {
+    val hasKnownState: Boolean get() = stages.any(SleepStageSemantics::isKnownState)
+}
 
 /**
  * AASM-style metrics from a session's stage segments.
@@ -318,4 +415,7 @@ data class DayResult(
      * the counts exist to explain. Trailing + defaulted so every existing construction site is unchanged.
      */
     val detectionFunnel: WorkoutDetector.DetectionFunnel? = null,
+    val hrvMeasurements: List<HrvWindowResult> = emptyList(),
+    val hrvBaselines: List<HrvSeries.Baseline> = emptyList(),
+    val hrvNightSummary: HrvSeries.Summary? = null,
 )

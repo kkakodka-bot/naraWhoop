@@ -1,0 +1,3 @@
+# Runtime: Python >=3.10, standard library only. No optional packages are imported.
+# Model adapters must pin their own dependencies before execution; candidate manifests
+# in ../../models/manifests are metadata-only and do not install model libraries.

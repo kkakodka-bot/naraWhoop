@@ -172,12 +172,19 @@ object AnalyticsEngine {
             sb.append('[')
             for ((i, s) in stages.withIndex()) {
                 if (i > 0) sb.append(',')
-                // Keys alphabetical: end, stage, start — matches Swift JSONEncoder.outputFormatting
-                // = .sortedKeys on StageSegment{start,end,stage}.
-                sb.append("{\"end\":").append(s.end)
-                    .append(",\"stage\":").append(JSONObject.quote(s.stage))
-                    .append(",\"start\":").append(s.start)
-                    .append('}')
+                val values = sortedMapOf<String, Any?>("start" to s.start, "end" to s.end, "stage" to s.stage,
+                    "state" to s.state, "sleepProbability" to s.sleepProbability, "pWake" to s.pWake,
+                    "pLight" to s.pLight, "pDeep" to s.pDeep, "pRem" to s.pRem,
+                    "evidenceCoverage" to s.evidenceCoverage, "abstentionReason" to s.abstentionReason,
+                    "computationMode" to s.computationMode, "algorithmVersion" to s.algorithmVersion,
+                    "probabilitiesCalibrated" to s.probabilitiesCalibrated)
+                sb.append(values.filterValues { it != null }.entries.joinToString(",", "{", "}") { (k, v) ->
+                    JSONObject.quote(k) + ":" + when (v) {
+                        is String -> JSONObject.quote(v)
+                        is Double -> JSONObject.numberToString(v)
+                        else -> v.toString()
+                    }
+                })
             }
             sb.append(']')
             sb.toString()
@@ -202,7 +209,14 @@ object AnalyticsEngine {
                 if (!o.has("start") || !o.has("end")) continue
                 val stage = o.optString("stage", "")
                 if (stage.isEmpty()) continue
-                out.add(StageSegment(o.getLong("start"), o.getLong("end"), stage))
+                fun str(key: String) = if (o.isNull(key)) null else o.optString(key).takeIf { it.isNotEmpty() }
+                fun num(key: String) = if (o.isNull(key)) null else o.optDouble(key).takeIf { it.isFinite() }
+                out.add(StageSegment(o.getLong("start"), o.getLong("end"), stage,
+                    state = str("state"), sleepProbability = num("sleepProbability"), pWake = num("pWake"),
+                    pLight = num("pLight"), pDeep = num("pDeep"), pRem = num("pRem"),
+                    evidenceCoverage = num("evidenceCoverage"), abstentionReason = str("abstentionReason"),
+                    computationMode = str("computationMode"), algorithmVersion = str("algorithmVersion"),
+                    probabilitiesCalibrated = if (o.isNull("probabilitiesCalibrated")) null else o.getBoolean("probabilitiesCalibrated")))
             }
             out
         } catch (_: Throwable) {
@@ -285,6 +299,10 @@ object AnalyticsEngine {
         strainDiag: ((String) -> Unit)? = null,
         hr: List<HrSample> = emptyList(),
         rr: List<RrInterval> = emptyList(),
+        hrvObservations: List<PhysiologyQuality.IntervalObservation>? = null,
+        hrvContext: List<PhysiologyQuality.ContextEpoch> = emptyList(),
+        hrvHistory: List<HrvWindowResult> = emptyList(),
+        inputRevision: String = "unversioned",
         resp: List<RespSample> = emptyList(),
         // The strap's OWN per-window respiratory RATE rows, when it measures one (the Oura ring's 0x6A
         // `breath`, stored in milli-bpm — see [com.noop.data.OuraRespScale]). Kept separate from [resp]
@@ -411,6 +429,14 @@ object AnalyticsEngine {
         // Threaded rather than read from a global so this stays a pure function, and defaulted so every
         // existing caller and test is byte-identical.
         effortMethod: StrainScorer.Method = StrainScorer.Method.EDWARDS,
+        localDayStart: Long? = null,
+        localDayEndExclusive: Long? = null,
+        sleepContext: List<SleepContextSpan> = emptyList(),
+        sleepComputationMode: String = "retrospective",
+        sleepObservedThrough: Long? = null,
+        useFullDaySleepOpportunities: Boolean = false,
+        localDayOwnership: List<Pair<Long,Long>>? = null,
+        measurementObservedThrough: Long? = null,
     ): DayResult {
 
         // Precompute the day's UTC bounds ONCE (#996). isoDay is a FIXED-UTC formatter, so
@@ -419,26 +445,51 @@ object AnalyticsEngine {
         // dayHr/daySteps streams (~86k 1 Hz samples each) once per analyzeDay, ×maxDays every pass — into an
         // integer range check. Byte-identical to the formatter compare (locked by AnalyticsEngineDayBoundsTest,
         // incl. fractional offsets), matching the Swift twin.
-        val dayStartUtc = dayStartUtcSeconds(day)
-        val dayEndUtc = dayStartUtc + 86_400
-        fun tsInDay(ts: Long): Boolean = (ts + tzOffsetSeconds) >= dayStartUtc && (ts + tzOffsetSeconds) < dayEndUtc
+        val dayStartUtc = localDayStart ?: (dayStartUtcSeconds(day) - tzOffsetSeconds)
+        val dayEndUtc = localDayEndExclusive ?: (dayStartUtc + 86_400)
+        fun tsInDay(ts: Long): Boolean = localDayOwnership?.any { ts>=it.first && ts<it.second }
+            ?: (ts >= dayStartUtc && ts < dayEndUtc)
 
         // ── Sleep detection + staging ─────────────────────────────────────────
-        val detectedSessions = SleepStager.detectSleep(
+        val opportunityStart=maxOf(dayEndUtc-76*3600,minOf(dayStartUtc,
+            hr.minOfOrNull { it.ts } ?: dayStartUtc,gravity.minOfOrNull { it.ts } ?: dayStartUtc))
+        val opportunityEnd=minOf(dayEndUtc,sleepObservedThrough ?: dayEndUtc)
+        var opportunityEpochs: List<StageSegment> = emptyList()
+        val detectedSessions = if (sleepComputationMode == "causal") emptyList() else if(useFullDaySleepOpportunities) {
+            if(opportunityEnd<=opportunityStart) emptyList() else SleepOpportunityDetector.detect(
+                opportunityStart,opportunityEnd,hr,gravity,steps,sleepContext+wristOff.map {
+                    SleepContextSpan(it.first,it.second,"off_body","wrist_event",availableAt=it.first)
+                }).also { opportunityEpochs=it.epochs }.episodes.map { s ->
+                // Naps have binary evidence, not a forced miniature overnight stage architecture.
+                if(s.end-s.start<3600 || !useSleepStagerV2) s else {
+                    val staged=SleepStagerV2.stageSession(s.start,s.end,gravity,hr,rr,resp).map { segment ->
+                        if(segment.state=="state_unknown") segment.copy(state="sleep_unstaged",
+                            abstentionReason="binary_sleep_stage_unavailable") else segment
+                    }
+                    s.copy(stages=staged,efficiency=SleepStager.efficiency(s.start,s.end,staged))
+                }
+            }
+        } else SleepStager.detectSleep(
             hr = hr, rr = rr, resp = resp, gravity = gravity, tzOffsetSeconds = tzOffsetSeconds,
             wristOff = wristOff, bandSleepState = bandSleepState,
             useSleepStagerV2 = useSleepStagerV2,
             traceSink = traceSink,
         )
+        val hrvStagedSessions = detectedSessions.map { s ->
+            if (useSleepStagerV2 || hrvObservations.isNullOrEmpty()) s else {
+                val stages = SleepStager.stageSession(s.start, s.end, gravity, hr, rr, resp, hrvObservations)
+                s.copy(stages = stages, efficiency = SleepStager.efficiency(s.start, s.end, stages), avgHRV = null)
+            }
+        }
         // Motion-aware wake refinement (#364 follow-up) runs AFTER V1/V2 staging, over every detected
         // session (naps included — the same eligibility gates apply). `steps` is the SAME calendar-day/
         // night-window stream the caller passed for the rest of this analysis; the pass self-gates on its
         // observed density, so an empty/sparse `steps` (e.g. a WHOOP 4.0, which never emits a step sample
         // at all) is a no-op regardless of `useMotionAwareWake`.
         val refinedSessions = if (useMotionAwareWake) {
-            detectedSessions.map { WakeMotionRefinement.refine(it, gravity, steps) }
+            hrvStagedSessions.map { s -> if (s.stages.any { it.algorithmVersion != null }) s else WakeMotionRefinement.refine(s, gravity, steps) }
         } else {
-            detectedSessions
+            hrvStagedSessions
         }
         // #804 Fix A: fold in the caller's device-provided hypnogram (see [providedSleep]). Empty = the
         // byte-identical motion-only path. Otherwise enrich each provided session's nightly restingHR/avgHRV
@@ -468,7 +519,18 @@ object AnalyticsEngine {
         }
         // Sessions attributed to `day` = those whose end falls on `day` (LOCAL day, #277). `day` is
         // the caller's local-day key; attribute by the same offset so the bucket and the key agree.
-        val matched = allSessions.filter { tsInDay(it.end) }
+        val measurementsStart = minOf(dayStartUtc, allSessions.filter { tsInDay(it.end) }.minOfOrNull { it.start } ?: dayStartUtc)
+        val hrvEnd = minOf(measurementObservedThrough ?: dayEndUtc,
+            if (sleepComputationMode == "causal") minOf(dayEndUtc, sleepObservedThrough ?: measurementsStart) else dayEndUtc)
+        var hrvMeasurements: List<HrvWindowResult> = emptyList() // populated once final binary context is available
+        val contexts = sleepContext + wristOff.map { SleepContextSpan(it.first, it.second, "off_body", "wrist_event", availableAt = it.first) }
+        var matched = allSessions.filter { tsInDay(it.end) }.map { s ->
+            val stages = SleepStageSemantics.applyingContext(s.stages, s.start, s.end, contexts, sleepComputationMode, sleepObservedThrough)
+            s.copy(stages = stages, efficiency = SleepStager.efficiency(s.start, s.end, stages),
+                avgHRV = HrvSeries.summarize(hrvMeasurements, s.start.toInt(), s.end.toInt()).meanRMSSD,
+                boundaryProvenance = s.boundaryProvenance ?: if (providedSleep.any { it.start == s.start && it.end == s.end }) "provided_boundary" else "detected_candidate",
+                denominatorKind = "estimated_sleep_opportunity")
+        }
 
         // ── The day's MAIN night (#525) ───────────────────────────────────────
         // A day can hold an overnight AND a daytime nap (both end on `day`, so both are in `matched`).
@@ -492,11 +554,50 @@ object AnalyticsEngine {
         // single block the bare [mainNightIndex] would pick. Intelligence and the Sleep headline read this
         // SAME group; the debt ledger starts with it and separately credits naps, so #525 does not regress.
         // Mirrors Swift. (#525 / #561)
-        val mainGroupIdx = SleepStageTotals.mainNightGroupIndices(
-            matched.map { SleepStageTotals.NightBlock(it.start, it.end) },
+        val knownCandidates = matched.indices.filter { matched[it].hasKnownState }
+        val candidates = knownCandidates.ifEmpty { matched.indices.toList() }
+        val mainGroupIdx = if (useFullDaySleepOpportunities) SleepOpportunityDetector.mainSleepGroupIndices(
+            matched, tzOffsetSeconds, habitualMidsleepSec) else (SleepStageTotals.mainNightGroupIndices(
+            candidates.map { SleepStageTotals.NightBlock(matched[it].start, matched[it].end) },
             tzOffsetSeconds, habitualMidsleepSec,
-        ) ?: emptyList()
+        ) ?: emptyList()).map { candidates[it] }
+        // Grouping establishes an estimated opportunity, not sleep in its interruptions. Retain
+        // observed wake/off-body epochs there; missing and sub-threshold candidate runs stay unknown.
+        // This precedes server manual overrides, whose explicit bounds must never be extended.
+        if(useFullDaySleepOpportunities) {
+            for((first,next) in mainGroupIdx.sortedBy { matched[it].start }.zipWithNext()) {
+                val session=matched[first]; val end=matched[next].start
+                if(end<=session.end || session.boundaryProvenance?.startsWith("algorithm_estimated")!=true) continue
+                if(matched.indices.any { it!=first && it!=next && matched[it].start<end && matched[it].end>session.end }) continue
+                val gap=SleepStageSemantics.applyingContext(opportunityEpochs.filter {
+                    it.start<end && it.end>session.end && !SleepStageSemantics.isSleep(it)
+                },session.end,end,contexts,sleepComputationMode,sleepObservedThrough).map {
+                    if(SleepStageSemantics.isSleep(it)) SleepStageSemantics.unknown(it.start,it.end,
+                        "gap_sleep_not_episode_qualified") else it
+                }
+                val stages=session.stages+gap
+                matched=matched.toMutableList().also { it[first]=session.copy(end=end,stages=stages,
+                    efficiency=SleepStager.efficiency(session.start,end,stages)) }
+            }
+        }
+        val groupId = mainGroupIdx.map { matched[it].start }.minOrNull()?.let { "sleep-group:$it" }
+        matched = matched.mapIndexed { i, s -> s.copy(
+            episodeType = if (!s.hasKnownState) "uncertain" else if (i in mainGroupIdx) "main_sleep" else "nap",
+            groupedNightId = if (i in mainGroupIdx) groupId else null) }
         val mainGroup: List<DetectedSleep> = mainGroupIdx.map { matched[it] }
+        val finalHrvContext = hrvContext.ifEmpty { matched.flatMap {
+            PhysiologyQuality.contextFromSleep(it.stages, it.start, it.end, it.episodeType)
+        } }
+        hrvMeasurements = HrvSeries.windows(measurementsStart.toInt(), hrvEnd.toInt(),
+            hrvObservations ?: PhysiologyQuality.legacy(rr, "legacy-unscoped"), finalHrvContext,
+            inputRevision = inputRevision, computationMode = sleepComputationMode)
+            .filter { (sleepComputationMode != "causal" && measurementObservedThrough==null) || it.end <= hrvEnd }
+            .filter { window -> localDayOwnership==null || localDayOwnership.any {
+                window.start>=it.first && window.end<=it.second
+            } || matched.any { window.start<it.end && window.end>it.start } }
+        val hrvBaselines = hrvMeasurements.map { HrvSeries.baseline(it, hrvHistory + hrvMeasurements) }
+        matched = matched.map { s -> s.copy(avgHRV = HrvSeries.summarize(hrvMeasurements, s.start.toInt(), s.end.toInt(),
+            context = if (s.episodeType == "nap") "nap" else "sleep").meanRMSSD) }
 
         // ── Daily sleep aggregates (AASM) SUMMED over the main-night GROUP (#525 / #561) ──
         var deepS = 0.0
@@ -504,7 +605,6 @@ object AnalyticsEngine {
         var lightS = 0.0
         var tstS = 0.0
         var inBedS = 0.0
-        var effWeighted = 0.0
         var disturbances = 0
         // Hypnogram COVERAGE across the group: how much of the fragments' own spans the stage segments
         // actually account for. Accumulated separately from `inBedS` because that one later absorbs the
@@ -527,28 +627,18 @@ object AnalyticsEngine {
             val m = SleepStager.hypnogramMetrics(s)
             val inBed = (s.end - s.start).toDouble()
             inBedS += inBed                       // each fragment's own in-bed span (the gap is added below)
-            effWeighted += s.efficiency * inBed   // in-bed-weighted efficiency across the group
             spanS += inBed
-            for (seg in s.stages) if (seg.end > seg.start) coveredS += (seg.end - seg.start).toDouble()
+            for (seg in SleepStageSemantics.normalized(s.stages, s.start, s.end)) if (SleepStageSemantics.isKnownState(seg)) coveredS += (seg.end - seg.start).toDouble()
             deepS += m.deepMin * 60.0
             remS += m.remMin * 60.0
             lightS += m.lightMin * 60.0
             tstS += m.tstS
             disturbances += m.disturbances
         }
-        // OUT-OF-BED time BETWEEN bridged fragments is AWAKE (#777/#705): a main night bridged from two
-        // fragments split by a 20-min wake gap was reporting that gap as nowhere (it is in no fragment's
-        // [start,end) span), so 20+ min of real awake read as ~4 min - a v7.1 regression, multi-reporter.
-        // Fold the gap into AWAKE by extending the in-bed denominator (in-bed = asleep + awake; tstS is
-        // unchanged), so efficiency and the Rest composite both reflect it. ONE shared definition with the
-        // edit/recompute seam ([SleepStageTotals.interFragmentAwakeSeconds]), so the two paths agree and the
-        // denominator is never double-counted. A bridged gap also counts as one disturbance. Mirrors Swift.
-        val gapAwakeS = SleepStageTotals.interFragmentAwakeSeconds(mainGroup.map { it.start to it.end })
-        if (gapAwakeS > 0.0) {
-            inBedS += gapAwakeS                   // the gap is fully awake: extends in-bed, adds 0 to effWeighted
-            disturbances += 1
-        }
-        val efficiency = if (inBedS > 0) effWeighted / inBedS else 0.0
+        // Bridging establishes an opportunity span, not observed wake or a disturbance.
+        inBedS += SleepStageTotals.interFragmentAwakeSeconds(mainGroup.map { it.start to it.end })
+        val efficiency = if (inBedS > 0) tstS / inBedS else 0.0
+        val hasKnownSleepState = mainGroup.any { it.hasKnownState }
 
         // #525 NOTE: the sleep-DURATION figures above are main-night-only (the headline "your night"),
         // but the physiological aggregates below (resting HR, HRV, respiration) intentionally stay over
@@ -577,39 +667,18 @@ object AnalyticsEngine {
         // call site" a scattered filter invites.
         val physiologySessions = matched.filter { !it.hrOnly }.ifEmpty { matched }
         val restingHRDaily: Int? = physiologySessions.mapNotNull { it.restingHR }.minOrNull()
-        // Daily avg HRV = in-bed-weighted mean of per-session avg HRV.
-        val avgHRVDaily: Double? = if (deepHrvWindow) {
-            // #141: WHOOP-style HRV — pool RMSSD over DEEP-stage 5-min windows only (slow-wave sleep),
-            // instead of the whole-night mean below. Reuses the SAME sessionHrvWindows the HRV trace is
-            // built from, so the displayed value equals the `deepOnly` figure the trace logs. rr is sorted
-            // (RMSSD = successive diffs). null when the night has no detected deep sleep (WHOOP-4.0 staging
-            // can be sparse) — the caller then shows calibrating, never a fabricated number.
-            val rrSorted = rr.sortedBy { it.ts }
-            val deep = physiologySessions.flatMap { s ->
-                SleepStager.sessionHrvWindows(s.start, s.end, rrSorted, s.stages)
-                    .filter { it.stage == "deep" }.mapNotNull { it.rmssd }
-            }
-            if (deep.isEmpty()) null else deep.sum() / deep.size
-        } else run {
-            val pairs = physiologySessions.mapNotNull { s ->
-                s.avgHRV?.let { it to (s.end - s.start).toDouble() }
-            }
-            if (pairs.isEmpty()) {
-                null
-            } else {
-                val total = pairs.sumOf { it.first * it.second }
-                val weight = pairs.sumOf { it.second }
-                if (weight > 0) total / weight else null
+        // Primary HRV is eligible five-minute MAIN-sleep arithmetic, not in-bed weighted pooling.
+        val hrvNightSummary = mainGroup.minOfOrNull { it.start }?.let { first ->
+            mainGroup.maxOfOrNull { it.end }?.let { last ->
+                HrvSeries.summarize(hrvMeasurements, first.toInt(), last.toInt())
             }
         }
-
-        // Five-minute SDNN index over R-R intervals inside the matched sleep sessions. This preserves the
-        // timestamps needed for segmentation and stays distinct from avgHrv (RMSSD). The half-open sleep
-        // bounds match every other in-bed aggregate; no qualifying 20-clean-beat segment means null.
-        val avgSDNNDaily = HrvAnalyzer.sdnnIndex(
-            rr.filter { sample -> physiologySessions.any { sample.ts >= it.start && sample.ts < it.end } },
-            segmentSec = 300,
-        )
+        val avgHRVDaily = hrvNightSummary?.meanRMSSD
+        val avgSDNNDaily = if (hrvNightSummary?.representative == true) {
+            val first = mainGroup.minOf { it.start }; val last = mainGroup.maxOf { it.end }
+            hrvMeasurements.filter { it.start >= first && it.end <= last && it.baselineEligible && it.context == "sleep" }
+                .mapNotNull { it.sdnn }.takeIf { it.isNotEmpty() }?.average()
+        } else null
 
         // ── HRV & Autonomic nightly trace (#141) ──────────────────────────────
         // Per-5-min-window RMSSD tagged by the sleep stage at its center, then a night summary comparing
@@ -623,7 +692,8 @@ object AnalyticsEngine {
             val rrSorted = rr.sortedBy { it.ts }
             val allWin = ArrayList<SleepStager.HrvWindow>()
             for (s in matched) {
-                val wins = SleepStager.sessionHrvWindows(s.start, s.end, rrSorted, s.stages)
+                val wins = SleepStager.sessionHrvWindows(s.start, s.end, rrSorted, s.stages,
+                    observations = hrvObservations, context = finalHrvContext, inputRevision = inputRevision)
                 if (hrvWindowDetail) {
                     for (w in wins) {
                         hrvTraceSink(
@@ -877,12 +947,12 @@ object AnalyticsEngine {
         val daily = DailyMetric(
             deviceId = "",
             day = day,
-            totalSleepMin = if (matched.isEmpty()) null else tstS / 60.0,
-            efficiency = if (matched.isEmpty()) null else efficiency,
-            deepMin = if (matched.isEmpty()) null else deepS / 60.0,
-            remMin = if (matched.isEmpty()) null else remS / 60.0,
-            lightMin = if (matched.isEmpty()) null else lightS / 60.0,
-            disturbances = if (matched.isEmpty()) null else disturbances,
+            totalSleepMin = if (hasKnownSleepState) tstS / 60.0 else null,
+            efficiency = if (hasKnownSleepState) efficiency else null,
+            deepMin = if (hasKnownSleepState) deepS / 60.0 else null,
+            remMin = if (hasKnownSleepState) remS / 60.0 else null,
+            lightMin = if (hasKnownSleepState) lightS / 60.0 else null,
+            disturbances = if (hasKnownSleepState) disturbances else null,
             restingHr = restingHRDaily,
             avgHrv = avgHRVDaily,
             // "Every session this day was staged from heart rate alone."
@@ -929,7 +999,7 @@ object AnalyticsEngine {
             restorativeSeconds = deepS + remS,
             efficiency = efficiency,
             gravitySparse = gravitySparse,
-            stageCoverage = HypnogramCoverage.fraction(coveredS, spanS),
+            stageCoverage = if (spanS > 0) minOf(1.0, coveredS / spanS) else null,
         )
 
         // ── Per-session per-epoch motion (H8) ─────────────────────────────────
@@ -972,6 +1042,7 @@ object AnalyticsEngine {
             sessionSleepStateByStart = sessionSleepStateByStart,
             gravitySparse = gravitySparse,
             detectionFunnel = detectionFunnel,
+            hrvMeasurements = hrvMeasurements, hrvBaselines = hrvBaselines, hrvNightSummary = hrvNightSummary,
         )
     }
 

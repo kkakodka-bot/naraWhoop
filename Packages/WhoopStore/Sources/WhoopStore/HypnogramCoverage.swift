@@ -67,7 +67,18 @@ public enum HypnogramCoverage {
     /// that importer, unvalidated against a Xiaomi export, and it is pinned by test rather than left to
     /// be discovered.
     public static func fraction(stagesJSON: String?, spanSeconds: Double) -> Double? {
-        fraction(coveredSeconds: coveredSeconds(stagesJSON: stagesJSON), spanSeconds: spanSeconds)
+        let covered = coveredSeconds(stagesJSON: stagesJSON)
+        if covered == 0, spanSeconds > 0, hasTimestampedSegments(stagesJSON) { return 0 }
+        return fraction(coveredSeconds: covered, spanSeconds: spanSeconds)
+    }
+
+    private static func hasTimestampedSegments(_ json: String?) -> Bool {
+        guard let data = json?.data(using: .utf8),
+              let segments = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return false }
+        return segments.contains { s in
+            guard let lo = s["start"] as? NSNumber, let hi = s["end"] as? NSNumber else { return false }
+            return hi.doubleValue > lo.doubleValue
+        }
     }
 
     /// Seconds of `stagesJSON` accounted for by timestamped segments, or 0 when the payload carries no
@@ -89,11 +100,18 @@ public enum HypnogramCoverage {
               let data = json.data(using: .utf8),
               let segs = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
         else { return 0 }
-        var covered = 0.0
+        var ranges: [(Double, Double)] = []
         for seg in segs {
             guard let s = (seg["start"] as? NSNumber)?.doubleValue,
                   let e = (seg["end"] as? NSNumber)?.doubleValue, e > s else { continue }
-            covered += e - s
+            let state = seg["state"] as? String, stage = seg["stage"] as? String
+            if state == "state_unknown" || state == "off_body" { continue }
+            if ["unknown", "state_unknown", "off_body"].contains(stage ?? ""), state != "sleep_unstaged" { continue }
+            ranges.append((s, e))
+        }
+        var covered = 0.0, cursor = -Double.infinity
+        for (s, e) in ranges.sorted(by: { $0.0 < $1.0 }) {
+            covered += max(0, e - max(s, cursor)); cursor = max(cursor, e)
         }
         return covered
     }
@@ -122,6 +140,7 @@ public enum HypnogramCoverage {
             span += f.spanSeconds
             covered += coveredSeconds(stagesJSON: f.stagesJSON)
         }
+        if covered == 0, span > 0, fragments.contains(where: { hasTimestampedSegments($0.stagesJSON) }) { return 0 }
         return fraction(coveredSeconds: covered, spanSeconds: span)
     }
 

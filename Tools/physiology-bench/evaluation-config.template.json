@@ -1,0 +1,10 @@
+{
+  "partition": "test",
+  "seed": null,
+  "bootstrap_replicates": null,
+  "reference_minimum_observed_fraction": null,
+  "reference_maximum_gap_s": null,
+  "episode_minimum_iou": null,
+  "beat_tolerance_s": null,
+  "status": "draft_requires_prespecified_reference_plan"
+}

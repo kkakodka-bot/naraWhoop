@@ -5,10 +5,43 @@ import WhoopStore
 
 @MainActor
 final class CollectorStandardHRContactTests: XCTestCase {
+    func testArrivalOwnerSurvivesDeviceSwitchAndFailedFlush() async throws {
+        let store = CaptureStore()
+        let collector = Collector(store: store, deviceId: "A")
+        collector.ingestStandardHRReceipt([0x10, 60, 0, 4], receivedUnixMs: 1000, receivedMonotonicNs: 2000)
+        collector.ingestStandardHR(hr: 60, rr: [1000], contact: .supportedDetected, at: 1)
+        store.failNextInsert = true
+        collector.deviceId = "B"
+        await collector.flushStandardHR()
+        collector.ingestStandardHRReceipt([0x10, 90, 0, 4], receivedUnixMs: 2000, receivedMonotonicNs: 3000)
+        collector.ingestStandardHR(hr: 90, rr: [667], contact: .supportedDetected, at: 2)
+        await collector.flushStandardHR()
+        XCTAssertEqual(store.owners, ["A", "B"])
+        XCTAssertEqual(store.inserted.map { $0.hr.first?.bpm }, [60, 90])
+        XCTAssertEqual(store.inserted.map { $0.standardHrReceipts.first?.receivedUnixMs }, [1000, 2000])
+        XCTAssertEqual(store.inserted.map { $0.events.count }, [1, 1])
+    }
+    func testReceiptRetryPreservesIdentityAndReconnectCreatesNewNamespace() async throws {
+        let store = CaptureStore()
+        let collector = Collector(store: store, deviceId: "whoop-5")
+        collector.ingestStandardHRReceipt([0x10, 60, 0, 4], receivedUnixMs: 1000, receivedMonotonicNs: 2000)
+        store.failNextInsert = true
+        await collector.flushStandardHR()
+        XCTAssertTrue(store.inserted.isEmpty)
+        collector.beginStandardHRReceiptSession()
+        collector.ingestStandardHRReceipt([0x10, 60, 0, 4], receivedUnixMs: 1000, receivedMonotonicNs: 3000)
+        await collector.flushStandardHR()
+        let receipts = try XCTUnwrap(store.inserted.first).standardHrReceipts
+        XCTAssertEqual(receipts.count, 2)
+        XCTAssertNotEqual(receipts[0].sessionId, receipts[1].sessionId)
+        XCTAssertEqual(receipts.map(\.notificationOrdinal), [0, 0])
+        XCTAssertEqual(receipts.map(\.rrRawTicks), [[1024], [1024]])
+    }
     private final class CaptureStore: StoreWriting {
         enum Failure: Error { case requested }
 
         var inserted: [Streams] = []
+        var owners: [String] = []
         var failNextInsert = false
 
         func insert(_ streams: Streams, deviceId: String) async throws
@@ -19,6 +52,7 @@ final class CollectorStandardHRContactTests: XCTestCase {
                 throw Failure.requested
             }
             inserted.append(streams)
+            owners.append(deviceId)
             return (streams.hr.count, streams.rr.count, streams.events.count,
                     streams.battery.count, streams.spo2.count, streams.skinTemp.count,
                     streams.resp.count, streams.gravity.count)
@@ -106,5 +140,19 @@ final class CollectorStandardHRContactTests: XCTestCase {
                 payload: ["contact": .string("supported_detected")]
             )
         ])
+    }
+
+    func testRrFamilyIsCapturedAtIngressAndSurvivesRetry() async {
+        let store = CaptureStore()
+        let collector = Collector(store: store, deviceId: "strap")
+        collector.ingestStandardHR(hr: 60, rr: [1000], family: .whoop5, at: 100)
+        collector.ingestStandardHR(hr: 60, rr: [1001], family: .whoop4, at: 101)
+        collector.ingestStandardHR(hr: 60, rr: [1002], at: 102)
+        store.failNextInsert = true
+        await collector.flushStandardHR()
+        XCTAssertTrue(store.inserted.isEmpty)
+        await collector.flushStandardHR()
+        XCTAssertEqual(store.inserted.flatMap(\.rr).map(\.srcChannel), [.whoop5Standard, nil, nil])
+        XCTAssertEqual(store.inserted.flatMap(\.rr).map(\.rrMs), [1000, 1001, 1002])
     }
 }

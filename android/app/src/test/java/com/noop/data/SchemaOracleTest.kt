@@ -194,7 +194,10 @@ class SchemaOracleTest {
                         "room ${got.default ?: "none"}"
                 }
             }
-            val wantPk = spec.getJSONArray("primaryKey").strings()
+            // An explicitly platform-absent identity column is absent from that platform's key too.
+            val wantPk = spec.getJSONArray("primaryKey").strings().filter { key ->
+                expected.any { it.name == key }
+            }
             if (wantPk != actual.primaryKey) {
                 problems += "$name: PRIMARY KEY — oracle $wantPk, room ${actual.primaryKey}"
             }

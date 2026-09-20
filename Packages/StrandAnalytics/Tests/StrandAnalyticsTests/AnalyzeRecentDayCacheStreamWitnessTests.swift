@@ -60,7 +60,8 @@ final class AnalyzeRecentDayCacheStreamWitnessTests: XCTestCase {
         let hrOnly = scan(hr: hr, rr: [])
         let withRr = scan(hr: hr, rr: rr)
         XCTAssertNil(hrOnly.daily.avgHrv, "an R-R-less night has no nightly HRV to bank")
-        XCTAssertNotNil(withRr.daily.avgHrv, "once R-R lands the night scores an HRV — the cached scan is stale")
+        XCTAssertNil(withRr.daily.avgHrv, "late coarse R-R invalidates inputs but cannot prove original-beat continuity")
+        XCTAssertTrue(withRr.hrvMeasurements.contains { $0.reason == "continuity_unverified" })
 
         // What the store reports, over the SAME two commits.
         let store = try await WhoopStore.inMemory()

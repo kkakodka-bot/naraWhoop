@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "model_id": "wav2sleep-cardiorespiratory",
+  "purpose": "retrospective four-stage raw-PPG challenger",
+  "publication_mode": "shadow",
+  "canonical_outputs_allowed": false,
+  "operational_status": "metadata_only",
+  "implementation": {
+    "path": "scoring-service/inference",
+    "evidence": "contract_adapter_checkpoint_execution_not_run",
+    "activation_status": "blocked_pending_separate_rights_inputs_and_environment_qualification",
+    "implementation_sha256": "6fb1623116d9df9589d18b1719483908db35bcadec14e79e6977b73a21e9a5fb",
+    "details": "scoring-service/inference/README.md"
+  },
+  "code": {
+    "repository": "https://github.com/joncarter1/wav2sleep",
+    "revision": "278e30463c8149c4e6899b8784da492fec695bd9",
+    "revision_checked_at": "2026-09-18",
+    "verification": "git ls-remote HEAD; wav2sleep also matches pinned specification revision"
+  },
+  "checkpoint": {
+    "repository_or_file": "https://huggingface.co/joncarter/wav2sleep/tree/8b6e46ab3ef6e3945282b81f631933c59db0b205",
+    "revision": "8b6e46ab3ef6e3945282b81f631933c59db0b205",
+    "sha256": null,
+    "status": "not_downloaded_or_verified"
+  },
+  "weights_required": true,
+  "licenses": {
+    "code": {
+      "identifier": "MIT",
+      "status": "declared_upstream",
+      "evidence_url": "https://github.com/joncarter1/wav2sleep/blob/278e30463c8149c4e6899b8784da492fec695bd9/LICENSE"
+    },
+    "weights": {
+      "identifier": null,
+      "status": "unverified",
+      "evidence_url": "https://huggingface.co/joncarter/wav2sleep/tree/8b6e46ab3ef6e3945282b81f631933c59db0b205"
+    },
+    "training_data": {
+      "identifier": null,
+      "status": "unverified",
+      "evidence_url": null
+    }
+  },
+  "input_contract": {
+    "channels": [
+      "PPG"
+    ],
+    "channel_semantics": "must be verified from original acquisition, never inferred from field names",
+    "sample_rate_hz": 34.13333333333333,
+    "samples_per_epoch": 1024,
+    "epoch_seconds": 30,
+    "mode": "retrospective",
+    "missingness": "abstain across acquisition gaps; no synthetic continuity",
+    "units": "must be frozen with the actual adapter",
+    "orientation": "aligned axes required where accelerometry is consumed"
+  },
+  "preprocessing_sha256": "2a056238751b34ae5acae2f79698ed33c55b8012f6ed876e595974e5c794ffb9",
+  "quality_policy_sha256": "e64720d20239277443f6c6e837f0f29095037e910c2e14b7a48ef48a183600ad",
+  "adapter_sha256": "6fb1623116d9df9589d18b1719483908db35bcadec14e79e6977b73a21e9a5fb",
+  "resource_limits": {
+    "maximum_concurrency": 1,
+    "threads": 1,
+    "timeout_seconds": null,
+    "maximum_rss_bytes": null,
+    "numerical_tolerance": null
+  },
+  "dataset_rights_status": "not_reviewed",
+  "reference_validation_status": "not_run",
+  "blockers": [
+    "Executable adapter work and its precise functional evidence are documented in scoring-service/inference/README.md; this inventory is not activation authorization.",
+    "Checkpoint hashes and separate applicable weight/data rights must be verified.",
+    "Synchronized target-device reference data and frozen promotion policy are absent.",
+    "Actual target resource benchmark and locked-phone overnight soak are absent."
+  ],
+  "preprocessing_source": "scoring-service/inference/physiology_inference/preprocessing.py"
+}

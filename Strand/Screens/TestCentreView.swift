@@ -812,7 +812,7 @@ private struct ConnectionReadoutPanel: View {
         let deviceClock = ConnectionReadout.clockCorrelatedDevice(logLines: live.log)
         let rtcWarning = ConnectionReadout.rtcWarning(deviceClockUnix: deviceClock,
                                                       strapNewestUnix: live.strapRange?.newestUnix,
-                                                      batteryPct: live.batterySamples.last?.soc)
+                                                      batteryPct: live.freshBatterySoc)
         VStack(alignment: .leading, spacing: 4) {
             ReadoutRow(label: String(localized: "Connection uptime"), value: uptime)
             ReadoutRow(label: String(localized: "Reconnects this run"), value: String(reconnects))

@@ -68,7 +68,7 @@ class RawCaptureExportContractTest {
     @Test fun columnsDigestMatchesSwiftTwin() {
         val columns = ShortArray(600) { (it * 7 - 300).toShort() }
         assertEquals(3_602_392_056_726_433_541L, ImuSessionFileStore.columnsDigest(columns))
-        assertEquals(0xcbf29ce484222325L, ImuSessionFileStore.columnsDigest(ShortArray(0)))
+        assertEquals(0xcbf29ce484222325UL.toLong(), ImuSessionFileStore.columnsDigest(ShortArray(0)))
     }
 
     @Test fun editedWindowOwnsPublicEventsAndImuBounds() {

@@ -9,8 +9,9 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import androidx.work.await
 import com.noop.R
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,14 +57,47 @@ object SelfHostedPushScheduler {
     internal val EXISTING_WORK_POLICY = ExistingWorkPolicy.REPLACE
     internal val CONTINUATION_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
 
+    private val lastThrottledEnqueueAt = AtomicLong(0)
+
     fun enqueueAfterSuccessfulOffload(context: Context) = enqueueExternal(context)
 
     fun enqueueLaunchCatchUp(context: Context) = enqueueExternal(context)
 
     fun enqueueManualCatchUp(context: Context) = enqueueExternal(context)
 
+    /** Foreground idle cadence when server scoring is on (spec: 30–60 s). No-op when flag is off. */
+    fun enqueueIfDue(context: Context, minIntervalMs: Long) {
+        if (!ServerScoringSettings.isEnabled(context)) return
+        val now = System.currentTimeMillis()
+        val last = lastThrottledEnqueueAt.get()
+        if (now - last < minIntervalMs) return
+        if (!lastThrottledEnqueueAt.compareAndSet(last, now)) return
+        enqueueExternal(context)
+    }
+
+    /** During offload: flush push on chunk commit, throttled to [ServerScoringSettings.SYNC_PUSH_INTERVAL_MS]. */
+    fun enqueueOnChunkCommitted(context: Context) {
+        if (!ServerScoringSettings.isEnabled(context)) return
+        enqueueIfDue(context, ServerScoringSettings.SYNC_PUSH_INTERVAL_MS)
+    }
+
+    /** One flush when the app backgrounds (server scoring on). */
+    fun flushOnBackground(context: Context) {
+        if (!ServerScoringSettings.isEnabled(context)) return
+        lastThrottledEnqueueAt.set(0)
+        enqueueExternal(context)
+    }
+
     /** Replace queued work so a changed network policy takes effect immediately. */
     fun networkPolicyChanged(context: Context) {
+        val app = context.applicationContext
+        PushRunSignal.clear(app)
+        WorkManager.getInstance(app).cancelUniqueWork(UNIQUE_WORK)
+        enqueueExternal(app)
+    }
+
+    /** Fence queued/running work after enrollment is added, rotated, or cleared. */
+    fun credentialChanged(context: Context) {
         val app = context.applicationContext
         PushRunSignal.clear(app)
         WorkManager.getInstance(app).cancelUniqueWork(UNIQUE_WORK)
@@ -77,7 +111,7 @@ object SelfHostedPushScheduler {
     ): Boolean {
         val app = context.applicationContext
         val settings = SelfHostedPushSettings.from(app)
-        if (settings.enabledEndpoint() == null) return true
+        if (settings.readyEndpoint() == null) return true
         val request = request(settings.wifiOnly())
         // Another real trigger won the release/enqueue race and now owns a queued request.
         if (!PushRunSignal.reserve(app, request.id.toString())) return true
@@ -115,9 +149,10 @@ object SelfHostedPushScheduler {
     }
 
     private fun enqueueExternal(context: Context) {
+        if (!EnrollmentDataScope.active(context)) return
         val app = context.applicationContext
         val settings = SelfHostedPushSettings.from(app)
-        if (settings.enabledEndpoint() == null) return
+        if (settings.readyEndpoint() == null) return
         val request = request(settings.wifiOnly())
         if (!PushRunSignal.reserve(app, request.id.toString())) return
         val completion = PushEnqueueCompletion(

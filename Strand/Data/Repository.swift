@@ -366,6 +366,13 @@ final class Repository: ObservableObject {
                 out.append(beat)
             }
         }
+        if out.contains(where: { $0.srcChannel?.isWhoop5Transport == true }) {
+            // Retain the selected stream's emission order within a second. Value sorting corrupts
+            // successive differences; original offsets also keep owner precedence deterministic.
+            return out.enumerated().sorted {
+                $0.element.ts != $1.element.ts ? $0.element.ts < $1.element.ts : $0.offset < $1.offset
+            }.map(\.element)
+        }
         return out.sorted {
             if $0.ts != $1.ts { return $0.ts < $1.ts }
             if $0.seq != $1.seq { return $0.seq < $1.seq }
@@ -730,6 +737,7 @@ final class Repository: ObservableObject {
             let s: WhoopStore
             do {
                 s = try await WhoopStore(path: path)
+                try await CloudCaptureScope.prepareStore(s.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
             } catch {
                 let ns = error as NSError
                 NSLog("WhoopStore: ensureStore FAILED opening store: \(ns.domain) code=\(ns.code): \(ns.localizedDescription)")
@@ -1153,13 +1161,17 @@ final class Repository: ObservableObject {
     /// active-first, while same-timestamp distinct beats remain intact.
     func rrIntervals(from: Int, to: Int, limit: Int = 8000) async -> [RRInterval] {
         guard let store = await ensureStore() else { return [] }
+        // Keep each physical strap's independently filtered history after a device switch. Only the
+        // ambiguous canonical alias inherits WHOOP 5's unit guard; a confirmed WHOOP 4 keeps its policy.
+        let activeWhoop5 = (try? await store.isWhoop5RRSource(deviceId: deviceId)) == true
         let ids = rawPhysiologyReadIds(store: store)
         guard ids.count != 1 else {
             return (try? await store.rrIntervals(deviceId: deviceId, from: from, to: to, limit: limit)) ?? []
         }
         var lists: [[RRInterval]] = []
         for id in ids {
-            lists.append((try? await store.rrIntervals(deviceId: id, from: from, to: to, limit: limit)) ?? [])
+            lists.append((try? await store.rrIntervals(deviceId: id, from: from, to: to, limit: limit,
+                unlabelledAliasOfWhoop5: activeWhoop5 && id == Self.whoopSource)) ?? [])
         }
         return Self.mergeRRByIdentity(lists)
     }
@@ -1950,7 +1962,9 @@ final class Repository: ObservableObject {
             // rather than a noisy spike. The `to - from` span chooses the window width: a 2-min rMSSD for a
             // zoomed-in look, widening with the visible span so a day-scale view stays readable. The thinning
             // stride keeps a 1 Hz R-R stream from emitting a point per beat.
-            let rr = (try? await store.rrIntervals(deviceId: source, from: from, to: to, limit: 200_000)) ?? []
+            let activeWhoop5 = (try? await store.isWhoop5RRSource(deviceId: deviceId)) ?? true
+            let rr = (try? await store.rrIntervals(deviceId: source, from: from, to: to, limit: 200_000,
+                unlabelledAliasOfWhoop5: activeWhoop5 && source == Self.whoopSource)) ?? []
             let window = Self.hrvRollingWindowSec(spanSeconds: to - from)
             // rollingRmssd + the map over its output run OFF the main actor (mirrors the HR branch's
             // Task.detached in `timelineSeries`): only the already-read Sendable `rr` rows cross in.

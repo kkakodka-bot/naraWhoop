@@ -358,6 +358,9 @@ enum DataBackup {
     static func restore(from pickedSource: URL, toDatabaseAt dbPath: String,
                         settingsDefaults: UserDefaults = .standard,
                         allowOversize: Bool = false) -> BackupResult {
+        guard !URL(fileURLWithPath: dbPath).pathComponents.contains("CloudAccounts") else {
+            return .failure(String(localized: "Whole-database restore is unavailable for cloud accounts until backup ownership can be verified. Your existing files have not been changed."))
+        }
         // If the picked file is a .noopbak ZIP, extract the SQLite entry to a temp dir first.
         // Legacy plain-SQLite files fall straight through. The extracted dir is cleaned up below.
         let fm = FileManager.default

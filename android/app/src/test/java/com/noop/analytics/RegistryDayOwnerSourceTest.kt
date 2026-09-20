@@ -59,6 +59,8 @@ class RegistryDayOwnerSourceTest {
         override suspend fun dayOwner(day: String) = owners[day]
         override suspend fun deleteHrFor(deviceId: String) {}
         override suspend fun deleteRrFor(deviceId: String) {}
+        override suspend fun deleteRrPacketsFor(deviceId: String) {}
+        override suspend fun deleteStandardHrReceiptsFor(deviceId: String) {}
         override suspend fun deleteSpo2For(deviceId: String) {}
         override suspend fun deleteSkinTempFor(deviceId: String) {}
         override suspend fun deleteRespFor(deviceId: String) {}
@@ -89,6 +91,8 @@ class RegistryDayOwnerSourceTest {
         // re-key actually mutates state.
         override suspend fun reKeyHr(from: String, to: String) {}
         override suspend fun reKeyRr(from: String, to: String) {}
+        override suspend fun reKeyRrPackets(from: String, to: String) {}
+        override suspend fun reKeyStandardHrReceipts(from: String, to: String) {}
         override suspend fun reKeySpo2(from: String, to: String) {}
         override suspend fun reKeySkinTemp(from: String, to: String) {}
         override suspend fun reKeyResp(from: String, to: String) {}

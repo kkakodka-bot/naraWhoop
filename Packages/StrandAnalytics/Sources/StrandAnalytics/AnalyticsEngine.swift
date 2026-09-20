@@ -110,6 +110,9 @@ public enum AnalyticsEngine {
         /// so the caller persists NULL there rather than a fabricated array. Feeds the H7 re-onset CONFIRM
         /// guard on the NEXT pass; never overrides the derived hypnogram. Empty on a WHOOP 4.0. (#175)
         public let sessionSleepStateByStart: [Int: [Int]]
+        public let hrvMeasurements: [HrvWindowResult]
+        public let hrvBaselines: [HrvSeries.Baseline]
+        public let hrvNightSummary: HrvSeries.Summary?
 
         public init(daily: DailyMetric, sleepSessions: [SleepSession],
                     cachedSleep: [CachedSleepSession], workouts: [ExerciseSession],
@@ -122,7 +125,9 @@ public enum AnalyticsEngine {
                     sessionSleepStateByStart: [Int: [Int]] = [:],
                     chargeDrivers: [ChargeDriver] = [],
                     skinTempRelative: SkinTempRelative? = nil,
-                    detectionFunnel: WorkoutDetector.DetectionFunnel? = nil) {
+                    detectionFunnel: WorkoutDetector.DetectionFunnel? = nil,
+                    hrvMeasurements: [HrvWindowResult] = [], hrvBaselines: [HrvSeries.Baseline] = [],
+                    hrvNightSummary: HrvSeries.Summary? = nil) {
             self.daily = daily; self.sleepSessions = sleepSessions
             self.cachedSleep = cachedSleep; self.workouts = workouts
             self.detectionFunnel = detectionFunnel
@@ -136,6 +141,7 @@ public enum AnalyticsEngine {
             self.restConfidence = restConfidence
             self.sessionMotionByStart = sessionMotionByStart
             self.sessionSleepStateByStart = sessionSleepStateByStart
+            self.hrvMeasurements = hrvMeasurements; self.hrvBaselines = hrvBaselines; self.hrvNightSummary = hrvNightSummary
         }
     }
 
@@ -306,6 +312,10 @@ public enum AnalyticsEngine {
                                   strainDiag: ((String) -> Void)? = nil,
                                   hr: [HRSample] = [],
                                   rr: [RRInterval] = [],
+                                  hrvObservations: [PhysiologyQuality.IntervalObservation]? = nil,
+                                  hrvContext: [PhysiologyQuality.ContextEpoch] = [],
+                                  hrvHistory: [HrvWindowResult] = [],
+                                  inputRevision: String = "unversioned",
                                   resp: [RespSample] = [],
                                   // The strap's OWN per-window respiratory RATE rows, when it measures one
                                   // (the Oura ring's 0x6A `breath`, stored in milli-bpm — see
@@ -476,7 +486,14 @@ public enum AnalyticsEngine {
                                   // %HRR with no floor. Threaded rather than read from a global so this
                                   // stays a pure function, and defaulted so every existing caller and
                                   // test is byte-identical.
-                                  effortMethod: StrainScorer.Method = .edwards) -> DayResult {
+                                  effortMethod: StrainScorer.Method = .edwards,
+                                  localDayStart: Int? = nil, localDayEndExclusive: Int? = nil,
+                                  sleepContext: [SleepContextSpan] = [],
+                                  sleepComputationMode: String = "retrospective",
+                                  sleepObservedThrough: Int? = nil,
+                                  useFullDaySleepOpportunities: Bool = false,
+                                  localDayOwnership: [(start: Int,end: Int)]? = nil,
+                                  measurementObservedThrough: Int? = nil) -> DayResult {
 
         // Precompute the day's UTC bounds ONCE (#996). `dayString(ts, offsetSec:)` formats the UTC
         // calendar day of (ts + offset) with a FIXED offset, so "== day" is exactly membership in
@@ -484,24 +501,62 @@ public enum AnalyticsEngine {
         // DateFormatter over the full-day dayHr/daySteps streams (~86k 1 Hz samples each) once per
         // analyzeDay, ×maxDays every pass — into an integer range check. Byte-identical to the
         // formatter compare (locked by AnalyticsEngineDayBoundsTests, incl. fractional offsets).
-        let dayStartUtc = dayStartUtcSeconds(day)
-        let dayEndUtc = dayStartUtc + 86_400
-        func tsInDay(_ ts: Int) -> Bool { (ts + tzOffsetSeconds) >= dayStartUtc && (ts + tzOffsetSeconds) < dayEndUtc }
+        let dayStartUtc = localDayStart ?? (dayStartUtcSeconds(day) - tzOffsetSeconds)
+        let dayEndUtc = localDayEndExclusive ?? (dayStartUtc + 86_400)
+        func tsInDay(_ ts: Int) -> Bool {
+            localDayOwnership?.contains { ts >= $0.start && ts < $0.end } ?? (ts >= dayStartUtc && ts < dayEndUtc)
+        }
 
         // ── Sleep detection + staging ─────────────────────────────────────────
-        let detectedSessions = SleepStager.detectSleep(hr: hr, rr: rr, resp: resp, gravity: gravity,
+        let opportunityStart = max(dayEndUtc-76*3600,min(dayStartUtc,
+            hr.map(\.ts).min() ?? dayStartUtc,gravity.map(\.ts).min() ?? dayStartUtc))
+        let opportunityEnd = min(dayEndUtc,sleepObservedThrough ?? dayEndUtc)
+        var opportunityEpochs: [StageSegment] = []
+        let detectedSessions: [SleepSession]
+        if sleepComputationMode == "causal" { detectedSessions = [] }
+        else if useFullDaySleepOpportunities {
+            let opportunities = opportunityEnd <= opportunityStart ? nil : SleepOpportunityDetector.detect(
+                start: opportunityStart, end: opportunityEnd, hr: hr, gravity: gravity, steps: steps,
+                context: sleepContext+wristOff.map { SleepContextSpan(start: $0.start, end: $0.end,
+                    kind: "off_body", provenance: "wrist_event", availableAt: $0.start) })
+            opportunityEpochs = opportunities?.epochs ?? []
+            detectedSessions = (opportunities?.episodes ?? []).map { s in
+                // Naps have binary evidence, not a forced miniature overnight stage architecture.
+                guard s.end-s.start >= 3600, useSleepStagerV2 else { return s }
+                let stages = SleepStagerV2.stageSession(start: s.start, end: s.end, grav: gravity, hr: hr, rr: rr, resp: resp).map { original in
+                    var segment = original
+                    if segment.state == "state_unknown" {
+                        segment.state = "sleep_unstaged"; segment.abstentionReason = "binary_sleep_stage_unavailable"
+                    }
+                    return segment
+                }
+                return SleepSession(start: s.start, end: s.end,
+                    efficiency: SleepStager.efficiency(start: s.start, end: s.end, stages: stages), stages: stages,
+                    restingHR: s.restingHR, avgHRV: nil, boundaryProvenance: s.boundaryProvenance,
+                    denominatorKind: s.denominatorKind)
+            }
+        } else { detectedSessions = SleepStager.detectSleep(hr: hr, rr: rr, resp: resp, gravity: gravity,
                                                   tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
                                                   bandSleepState: bandSleepState,
                                                   useSleepStagerV2: useSleepStagerV2,
-                                                  traceSink: traceSink)
+                                                  traceSink: traceSink) }
+        let hrvStagedSessions = detectedSessions.map { s -> SleepSession in
+            guard !useSleepStagerV2, let observations = hrvObservations, !observations.isEmpty else { return s }
+            let stages = SleepStager.stageSession(start: s.start, end: s.end, grav: gravity, hr: hr, rr: rr, resp: resp,
+                hrvObservations: observations)
+            return SleepSession(start: s.start, end: s.end, efficiency: SleepStager.efficiency(start: s.start, end: s.end, stages: stages),
+                stages: stages, restingHR: s.restingHR, avgHRV: nil, hrOnly: s.hrOnly,
+                episodeType: s.episodeType, groupedNightId: s.groupedNightId,
+                boundaryProvenance: s.boundaryProvenance, denominatorKind: s.denominatorKind)
+        }
         // Motion-aware wake refinement (#364 follow-up) runs AFTER V1/V2 staging, over every detected
         // session (naps included — the same eligibility gates apply). `steps` is the SAME calendar-day/
         // night-window stream the caller passed for the rest of this analysis; the pass self-gates on its
         // observed density, so an empty/sparse `steps` (e.g. a WHOOP 4.0, which never emits StepSample at
         // all) is a no-op regardless of `useMotionAwareWake`.
         let refinedSessions = useMotionAwareWake
-            ? detectedSessions.map { WakeMotionRefinement.refine($0, grav: gravity, steps: steps) }
-            : detectedSessions
+            ? hrvStagedSessions.map { s in s.stages.contains { $0.algorithmVersion != nil } ? s : WakeMotionRefinement.refine(s, grav: gravity, steps: steps) }
+            : hrvStagedSessions
         // #804 Fix A: fold in the caller's device-provided hypnogram (see `providedSleep`). Empty = the
         // byte-identical motion-only path. Otherwise enrich each provided session's nightly restingHR/avgHRV
         // from THIS day's hr/rr over its window (the stored ring row carries neither), using the SAME helpers
@@ -526,7 +581,9 @@ public enum AnalyticsEngine {
                 // that used to keep HR-only nights away from this line, so this is now the only thing
                 // standing between the flag and silent loss rather than a belt.
                 return SleepSession(start: s.start, end: s.end, efficiency: s.efficiency,
-                                    stages: s.stages, restingHR: rhr, avgHRV: hrv, hrOnly: s.hrOnly)
+                                    stages: s.stages, restingHR: rhr, avgHRV: hrv, hrOnly: s.hrOnly,
+                                    episodeType: s.episodeType, groupedNightId: s.groupedNightId,
+                                    boundaryProvenance: s.boundaryProvenance, denominatorKind: s.denominatorKind)
             }
             let keptDetected = refinedSessions.filter { d in
                 !enrichedProvided.contains { $0.start < d.end && d.start < $0.end }
@@ -535,7 +592,21 @@ public enum AnalyticsEngine {
         }
         // Sessions attributed to `day` = those whose end falls on `day` (LOCAL day, #277). `day` is
         // the caller's local-day key; attribute by the same offset so the bucket and the key agree.
-        let matched = allSessions.filter { tsInDay($0.end) }
+        let measurementsStart = min(dayStartUtc, allSessions.filter { tsInDay($0.end) }.map(\.start).min() ?? dayStartUtc)
+        let hrvEnd = min(measurementObservedThrough ?? dayEndUtc,
+            sleepComputationMode == "causal" ? min(dayEndUtc, sleepObservedThrough ?? measurementsStart) : dayEndUtc)
+        var hrvMeasurements: [HrvWindowResult] = [] // populated once final binary context is available
+        let contexts = sleepContext + wristOff.map { SleepContextSpan(start: $0.start, end: $0.end, kind: "off_body", provenance: "wrist_event", availableAt: $0.start) }
+        var matched = allSessions.filter { tsInDay($0.end) }.map { s -> SleepSession in
+            let stages = SleepStageSemantics.applyingContext(s.stages, start: s.start, end: s.end,
+                context: contexts, mode: sleepComputationMode, observedThrough: sleepObservedThrough)
+            return SleepSession(start: s.start, end: s.end,
+                efficiency: SleepStager.efficiency(start: s.start, end: s.end, stages: stages),
+                stages: stages, restingHR: s.restingHR,
+                avgHRV: HrvSeries.summarize(hrvMeasurements, start: s.start, end: s.end).meanRMSSD, hrOnly: s.hrOnly,
+                boundaryProvenance: s.boundaryProvenance ?? (providedSleep.contains { $0.start == s.start && $0.end == s.end } ? "provided_boundary" : "detected_candidate"),
+                denominatorKind: "estimated_sleep_opportunity")
+        }
 
         // ── The day's MAIN night (#525) ───────────────────────────────────────
         // A day can hold an overnight AND a daytime nap (both end on `day`, so both are in `matched`).
@@ -557,14 +628,63 @@ public enum AnalyticsEngine {
         // excluded and we do NOT invent WASO for it). A day with no bridgeable gap collapses to the single
         // block the bare `mainNightIndex` would pick. Intelligence / the Ledger / the Sleep tab all read
         // this SAME group (the seam below passes the same `gapBridgeMaxMin`), so #525 does not regress.
-        let mainGroupIdx = SleepStageTotals.mainNightGroupIndices(
-            matched.map { SleepStageTotals.NightBlock(start: $0.start, end: $0.end) },
-            offsetSec: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec) ?? []
+        let knownCandidates = matched.indices.filter { matched[$0].hasKnownState }
+        let candidates = knownCandidates.isEmpty ? Array(matched.indices) : knownCandidates
+        let mainGroupIdx = useFullDaySleepOpportunities ? SleepOpportunityDetector.mainSleepGroupIndices(
+            matched, offsetSeconds: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec) : (SleepStageTotals.mainNightGroupIndices(
+            candidates.map { SleepStageTotals.NightBlock(start: matched[$0].start, end: matched[$0].end) },
+            offsetSec: tzOffsetSeconds, habitualMidsleepSec: habitualMidsleepSec) ?? []).map { candidates[$0] }
+        // Grouping establishes an estimated opportunity, not sleep in its interruptions. Retain
+        // observed wake/off-body epochs there; missing and sub-threshold candidate runs stay unknown.
+        // This precedes server manual overrides, whose explicit bounds must never be extended.
+        if useFullDaySleepOpportunities {
+            let ordered = mainGroupIdx.sorted { matched[$0].start < matched[$1].start }
+            for (first,next) in zip(ordered,ordered.dropFirst()) {
+                let session = matched[first], end = matched[next].start
+                guard end > session.end, session.boundaryProvenance?.hasPrefix("algorithm_estimated") == true else { continue }
+                guard !matched.indices.contains(where: { $0 != first && $0 != next && matched[$0].start < end && matched[$0].end > session.end }) else { continue }
+                let gap = SleepStageSemantics.applyingContext(opportunityEpochs.filter {
+                    $0.start < end && $0.end > session.end && !SleepStageSemantics.isSleep($0)
+                }, start: session.end, end: end, context: contexts, mode: sleepComputationMode,
+                    observedThrough: sleepObservedThrough).map {
+                        SleepStageSemantics.isSleep($0) ? SleepStageSemantics.unknown(start: $0.start, end: $0.end,
+                            reason: "gap_sleep_not_episode_qualified") : $0
+                    }
+                let stages = session.stages+gap
+                matched[first] = SleepSession(start: session.start, end: end,
+                    efficiency: SleepStager.efficiency(start: session.start, end: end, stages: stages), stages: stages,
+                    restingHR: session.restingHR, avgHRV: session.avgHRV, hrOnly: session.hrOnly,
+                    episodeType: session.episodeType, groupedNightId: session.groupedNightId,
+                    boundaryProvenance: session.boundaryProvenance, denominatorKind: session.denominatorKind)
+            }
+        }
+        let groupId = mainGroupIdx.map { matched[$0].start }.min().map { "sleep-group:\($0)" }
+        for i in matched.indices {
+            matched[i].episodeType = matched[i].hasKnownState ? (mainGroupIdx.contains(i) ? "main_sleep" : "nap") : "uncertain"
+            matched[i].groupedNightId = mainGroupIdx.contains(i) ? groupId : nil
+        }
         let mainGroup: [SleepSession] = mainGroupIdx.map { matched[$0] }
+        let finalHrvContext = hrvContext.isEmpty ? matched.flatMap {
+            PhysiologyQuality.contextFromSleep(stages: $0.stages, start: $0.start, end: $0.end, episodeType: $0.episodeType)
+        } : hrvContext
+        hrvMeasurements = HrvSeries.windows(start: measurementsStart, end: hrvEnd,
+            observations: hrvObservations ?? PhysiologyQuality.legacy(rr, deviceId: "legacy-unscoped"),
+            context: finalHrvContext, inputRevision: inputRevision, computationMode: sleepComputationMode)
+            .filter { (sleepComputationMode != "causal" && measurementObservedThrough == nil) || $0.end <= hrvEnd }
+            .filter { window in localDayOwnership == nil || localDayOwnership!.contains {
+                window.start >= $0.start && window.end <= $0.end
+            } || matched.contains { window.start < $0.end && window.end > $0.start } }
+        let hrvBaselines = hrvMeasurements.map { HrvSeries.baseline(current: $0, history: hrvHistory + hrvMeasurements) }
+        matched = matched.map { s in
+            SleepSession(start: s.start, end: s.end, efficiency: s.efficiency, stages: s.stages, restingHR: s.restingHR,
+                avgHRV: HrvSeries.summarize(hrvMeasurements, start: s.start, end: s.end, context: s.episodeType == "nap" ? "nap" : "sleep").meanRMSSD,
+                hrOnly: s.hrOnly, episodeType: s.episodeType, groupedNightId: s.groupedNightId,
+                boundaryProvenance: s.boundaryProvenance, denominatorKind: s.denominatorKind)
+        }
 
         // ── Daily sleep aggregates (AASM) SUMMED over the main-night GROUP (#525 / #561) ──
         var deepS = 0.0, remS = 0.0, lightS = 0.0, tstS = 0.0
-        var inBedS = 0.0, effWeighted = 0.0
+        var inBedS = 0.0
         var disturbances = 0
         // Hypnogram COVERAGE across the group: how much of the fragments' own spans the stage segments
         // actually account for. Accumulated separately from `inBedS` because that one later absorbs the
@@ -586,29 +706,19 @@ public enum AnalyticsEngine {
             let m = SleepStager.hypnogramMetrics(s)
             let inBed = Double(s.end - s.start)
             inBedS += inBed                       // each fragment's own in-bed span (the gap is added below)
-            effWeighted += s.efficiency * inBed   // in-bed-weighted efficiency across the group
             spanS += inBed
-            for seg in s.stages where seg.end > seg.start { coveredS += Double(seg.end - seg.start) }
+            for seg in SleepStageSemantics.normalized(s.stages, start: s.start, end: s.end) where SleepStageSemantics.isKnownState(seg) { coveredS += Double(seg.end - seg.start) }
             deepS += m.deepMin * 60.0
             remS += m.remMin * 60.0
             lightS += m.lightMin * 60.0
             tstS += m.tstS
             disturbances += m.disturbances
         }
-        let stageCoverage = HypnogramCoverage.fraction(coveredSeconds: coveredS, spanSeconds: spanS)
-        // OUT-OF-BED time BETWEEN bridged fragments is AWAKE (#777/#705): a main night bridged from two
-        // fragments split by a 20-min wake gap was reporting that gap as nowhere (it is in no fragment's
-        // [start,end) span), so 20+ min of real awake read as ~4 min - a v7.1 regression, multi-reporter.
-        // Fold the gap into AWAKE by extending the in-bed denominator (in-bed = asleep + awake; tstS is
-        // unchanged), so efficiency and the Rest composite both reflect it. ONE shared definition with the
-        // edit/recompute seam (`SleepStageTotals.interFragmentAwakeSeconds`), so the two paths agree and the
-        // denominator is never double-counted. A bridged gap also counts as one disturbance.
-        let gapAwakeS = SleepStageTotals.interFragmentAwakeSeconds(mainGroup.map { (start: $0.start, end: $0.end) })
-        if gapAwakeS > 0 {
-            inBedS += gapAwakeS              // the gap is fully awake: extends in-bed, adds 0 to effWeighted
-            disturbances += 1
-        }
-        let efficiency = inBedS > 0 ? effWeighted / inBedS : 0.0
+        let stageCoverage = spanS > 0 ? min(1, coveredS / spanS) : nil
+        // Bridging establishes an opportunity span, not observed wake or a disturbance.
+        inBedS += SleepStageTotals.interFragmentAwakeSeconds(mainGroup.map { (start: $0.start, end: $0.end) })
+        let efficiency = inBedS > 0 ? tstS / inBedS : 0.0
+        let hasKnownSleepState = mainGroup.contains { $0.hasKnownState }
 
         // ── Rest composite (Charge/Effort/Rest) ───────────────────────────────
         // The 0–100 sleep score the `sleep_performance` metric key now carries:
@@ -700,40 +810,17 @@ public enum AnalyticsEngine {
         let physiologyOnly = matched.filter { !$0.hrOnly }
         let physiologySessions = physiologyOnly.isEmpty ? matched : physiologyOnly
         let restingHRDaily = physiologySessions.compactMap { $0.restingHR }.min()
-        // Daily avg HRV = in-bed-weighted mean of per-session avg HRV.
-        let avgHRVDaily: Double? = {
-            if deepHrvWindow {
-                // #141: WHOOP-style HRV — pool RMSSD over DEEP-stage 5-min windows only (slow-wave sleep),
-                // instead of the whole-night mean. Reuses the SAME sessionHrvWindows the HRV trace is built
-                // from, so the displayed value equals the `deepOnly` figure the trace logs. rr sorted (RMSSD
-                // = successive diffs). nil when no deep sleep is detected (WHOOP-4.0 staging can be sparse) —
-                // the caller shows calibrating, never a fabricated number.
-                let rrSorted = rr.sortedByTsStable()
-                let deep = physiologySessions.flatMap { s in
-                    SleepStager.sessionHrvWindows(start: s.start, end: s.end, rr: rrSorted, stages: s.stages)
-                        .filter { $0.stage == "deep" }.compactMap { $0.rmssd }
-                }
-                return deep.isEmpty ? nil : deep.reduce(0, +) / Double(deep.count)
-            }
-            let pairs = physiologySessions.compactMap { s -> (Double, Double)? in
-                s.avgHRV.map { ($0, Double(s.end - s.start)) }
-            }
-            guard !pairs.isEmpty else { return nil }
-            let total = pairs.reduce(0.0) { $0 + $1.0 * $1.1 }
-            let weight = pairs.reduce(0.0) { $0 + $1.1 }
-            return weight > 0 ? total / weight : nil
-        }()
-
-        // Daily SDNN (ms) = the 5-min SDNN INDEX (Task Force) over the in-bed R-R across matched sessions —
-        // the mean of per-5-min-segment SDNN, the BROAD autonomic-variability metric (both branches) and the
-        // slow twin of the vagal RMSSD `avgHRVDaily` above. The index (not a single whole-night SD) is used
-        // deliberately: whole-night SD is dominated by the slow HR drift across sleep stages and reads 2-3×
-        // high, which would mislabel Apple Health (its SDNN samples are short-window) and make any cross-check
-        // against a watch meaningless. The 5-min index is window-comparable to those. nil when no segment has
-        // enough clean beats (HRVAnalyzer's own gate). Keeps the R-R timestamps (segmentation needs them).
+        // Primary HRV is the arithmetic mean of eligible five-minute MAIN-sleep measurements.
+        // Deep-only, nap and daytime-rest remain separate diagnostics, never a baseline substitution.
+        let hrvNightSummary: HrvSeries.Summary? = mainGroup.map(\.start).min().flatMap { first in
+            mainGroup.map(\.end).max().map { last in HrvSeries.summarize(hrvMeasurements, start: first, end: last) }
+        }
+        let avgHRVDaily = hrvNightSummary?.meanRMSSD
         let avgSDNNDaily: Double? = {
-            let inBed = rr.filter { r in physiologySessions.contains { r.ts >= $0.start && r.ts < $0.end } }
-            return inBed.isEmpty ? nil : HRVAnalyzer.sdnnIndex(inBed, segmentSec: 300)
+            guard hrvNightSummary?.representative == true,
+                  let first = mainGroup.map(\.start).min(), let last = mainGroup.map(\.end).max() else { return nil }
+            let values = hrvMeasurements.filter { $0.start >= first && $0.end <= last && $0.baselineEligible && $0.context == "sleep" }.compactMap(\.sdnn)
+            return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
         }()
 
         // ── HRV & Autonomic nightly trace (#141) ──────────────────────────────
@@ -749,7 +836,8 @@ public enum AnalyticsEngine {
             let rrSorted = rr.sortedByTsStable()
             var allWin: [SleepStager.HrvWindow] = []
             for s in matched {
-                let wins = SleepStager.sessionHrvWindows(start: s.start, end: s.end, rr: rrSorted, stages: s.stages)
+                let wins = SleepStager.sessionHrvWindows(start: s.start, end: s.end, rr: rrSorted, stages: s.stages,
+                    observations: hrvObservations, context: finalHrvContext, inputRevision: inputRevision)
                 if hrvWindowDetail {
                     for w in wins {
                         let rm = w.rmssd.map { "\(r2($0))ms" } ?? "nil"
@@ -943,12 +1031,12 @@ public enum AnalyticsEngine {
         // ── Assemble DailyMetric ──────────────────────────────────────────────
         let daily = DailyMetric(
             day: day,
-            totalSleepMin: matched.isEmpty ? nil : tstS / 60.0,
-            efficiency: matched.isEmpty ? nil : efficiency,
-            deepMin: matched.isEmpty ? nil : deepS / 60.0,
-            remMin: matched.isEmpty ? nil : remS / 60.0,
-            lightMin: matched.isEmpty ? nil : lightS / 60.0,
-            disturbances: matched.isEmpty ? nil : disturbances,
+            totalSleepMin: hasKnownSleepState ? tstS / 60.0 : nil,
+            efficiency: hasKnownSleepState ? efficiency : nil,
+            deepMin: hasKnownSleepState ? deepS / 60.0 : nil,
+            remMin: hasKnownSleepState ? remS / 60.0 : nil,
+            lightMin: hasKnownSleepState ? lightS / 60.0 : nil,
+            disturbances: hasKnownSleepState ? disturbances : nil,
             restingHr: restingHRDaily,
             avgHrv: avgHRVDaily,
             recovery: recovery,
@@ -1043,7 +1131,8 @@ public enum AnalyticsEngine {
                          sessionSleepStateByStart: sessionSleepStateByStart,
                          chargeDrivers: chargeDrivers,
                          skinTempRelative: skinTempRelative,
-                         detectionFunnel: detectionFunnel)
+                         detectionFunnel: detectionFunnel,
+                         hrvMeasurements: hrvMeasurements, hrvBaselines: hrvBaselines, hrvNightSummary: hrvNightSummary)
     }
 
     // MARK: - Rest composite (Charge/Effort/Rest)

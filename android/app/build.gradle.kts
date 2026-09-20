@@ -51,6 +51,7 @@ android {
         // absent. Read at runtime only through SelfHostedPushSettings.
         buildConfigField("String", "NOOP_PUSH_ENDPOINT", fleetPushBuildConfig("NOOP_PUSH_ENDPOINT"))
         buildConfigField("String", "NOOP_PUSH_TOKEN", fleetPushBuildConfig("NOOP_PUSH_TOKEN"))
+        buildConfigField("String", "NOOP_SUPABASE_ANON_KEY", fleetPushBuildConfig("NOOP_SUPABASE_ANON_KEY"))
     }
 
     signingConfigs {

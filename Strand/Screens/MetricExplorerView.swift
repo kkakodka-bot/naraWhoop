@@ -131,7 +131,7 @@ enum ExploreRange: Int, CaseIterable, Identifiable, Hashable {
     /// This range plus every LARGER range, ascending — the auto-expand search order
     /// when the selected window holds zero points. ALW always terminates the chain.
     var widening: [ExploreRange] {
-        let order: [ExploreRange] = [.week, .month, .quarter, .half, .year, .all]
+        let order: [ExploreRange] = [.week, .twoWeeks, .threeWeeks, .month, .quarter, .half, .year, .all]
         guard let i = order.firstIndex(of: self) else { return [.all] }
         return Array(order[i...])
     }
@@ -147,6 +147,22 @@ enum ExploreRangeGating {
         if isUnlocked(selection) { return selection }
         return [ExploreRange.year, .half, .quarter, .month, .threeWeeks, .twoWeeks, .week]
             .first { $0.days != nil && $0.rawValue <= selection.rawValue && isUnlocked($0) } ?? .week
+    }
+
+    static func widened(selection: ExploreRange, effectiveRange: ExploreRange,
+                        isUnlocked: (ExploreRange) -> Bool) -> Bool {
+        effectiveRange != coerced(selection: selection, isUnlocked: isUnlocked)
+    }
+
+    static func readingCaption(count: Int, effectiveRange: ExploreRange, widened: Bool) -> String {
+        if widened {
+            return count == 1
+                ? String(localized: "1 reading · sparse, widened to \(effectiveRange.name)")
+                : String(localized: "\(count) readings · sparse, widened to \(effectiveRange.name)")
+        }
+        return count == 1
+            ? String(localized: "1 reading · \(effectiveRange.name)")
+            : String(localized: "\(count) readings · \(effectiveRange.name)")
     }
 }
 
@@ -760,9 +776,18 @@ struct MetricDetailView: View {
         // `windowed` (each of which re-parses + re-filters the full history).
         let effRange = effectiveRange
         let win = slice(for: effRange)
-        let fellBack = effRange != range
+        let fellBack = ExploreRangeGating.widened(selection: range, effectiveRange: effRange, isUnlocked: isUnlocked)
         return ScrollView {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                if metric.key == "rhr" { FiveMinuteHeartRateView() }
+                if ServerScoringSettings.isEnabled && (metric.key == "hrv" || metric.key == "resp_rate") {
+                    if metric.key == "hrv" {
+                        ServerHrvSeriesView(scores: app.serverScores)
+                    } else {
+                        ServerRespirationSummaryView(scores: app.serverScores)
+                    }
+                    Text("Local history").font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+                }
                 if loaded && chartSeries.isEmpty {
                     // No data in the entire history — keep the range bar for context, then the
                     // honest empty state (no scenic hero floating over nothing). Deliberately
@@ -799,6 +824,8 @@ struct MetricDetailView: View {
                                 .buttonStyle(.plain)
                             }
                         }
+                    } else if metric.key == "spo2", metric.source == "my-whoop", repo.activeStrapIsWhoop5() {
+                        ComingSoon(what: "SpO₂ is unavailable from this strap’s current data source. A verified blood-oxygen percentage is not yet available; this is an input and calibration limitation, not sparse history. Imported readings can still appear here.")
                     } else {
                         ComingSoon(what: "Import your history first. A WHOOP export in Data Sources fills every metric you can explore here in about a minute.")
                     }
@@ -1201,15 +1228,8 @@ struct MetricDetailView: View {
                               windowed: [(day: String, value: Double)],
                               windowFellBack: Bool) -> String {
         guard loaded, !chartSeries.isEmpty else { return "—" }
-        let n = windowed.count
-        if windowFellBack {
-            return n == 1
-                ? String(localized: "1 reading · sparse, widened to \(effectiveRange.name)")
-                : String(localized: "\(n) readings · sparse, widened to \(effectiveRange.name)")
-        }
-        return n == 1
-            ? String(localized: "1 reading · \(range.name)")
-            : String(localized: "\(n) readings · \(range.name)")
+        return ExploreRangeGating.readingCaption(count: windowed.count, effectiveRange: effectiveRange,
+                                                widened: windowFellBack)
     }
 
     // MARK: Hero chart
@@ -1221,7 +1241,7 @@ struct MetricDetailView: View {
         let heroValue = latest.map { fmt($0.value) } ?? "—"
         let subtitle = windowFellBack
             ? String(localized: "Sparse, widened to \(effectiveRange.name) · \(windowed.count) readings")
-            : String(localized: "\(windowed.count) readings · \(range.name)")
+            : String(localized: "\(windowed.count) readings · \(effectiveRange.name)")
         return ChartCard(
             title: "\(metric.title)",
             subtitle: subtitle,

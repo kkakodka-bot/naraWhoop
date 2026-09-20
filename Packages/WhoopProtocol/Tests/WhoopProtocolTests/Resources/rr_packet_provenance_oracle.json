@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "two_original_words",
+      "hex": "aa011800010022e12f12000000000000f153650000003c0200040002700d85e7",
+      "packetId": "8eba91d6578b30b69d03eda9544658e777a9bb27b055ea907ce4237ed9b08044",
+      "sensorTs": 1700000000,
+      "recordIndex": 0,
+      "rawTicks": [
+        1024,
+        512
+      ],
+      "wordIndices": [
+        0,
+        1
+      ],
+      "rrMs": [
+        1000,
+        500
+      ]
+    },
+    {
+      "name": "zero_slot_is_not_compacted",
+      "hex": "aa011a00010023592f12000000000000f153650000003c03000400000002c74eaa5b",
+      "packetId": "e52beecb9be542acaabce3b8e6d34e4b95e19e31b0c39c910df986da3b2b578b",
+      "sensorTs": 1700000000,
+      "recordIndex": 0,
+      "rawTicks": [
+        1024,
+        0,
+        512
+      ],
+      "wordIndices": [
+        0,
+        1,
+        2
+      ],
+      "rrMs": [
+        1000,
+        0,
+        500
+      ]
+    }
+  ]
+}

@@ -74,6 +74,15 @@ public enum PushRegistryV1 {
 /// Protocol 1.1 extends v1.0 with every shipped table in `cloud_ingestion_registry.json`.
 public enum PushRegistryV1_1 {
     public static let additionalStreams: [PushStreamSpec] = [
+        PushStreamSpec(wireName: "standardHRReceipt", delivery: .append, keyColumns: ["receiptId"],
+                       dataColumns: ["ts", "sessionId", "notificationOrdinal", "receivedUnixMs",
+                                     "receivedMonotonicNs", "rawHex", "schemaVersion", "clockVersion"]),
+        PushStreamSpec(wireName: "rrPacketProvenance", delivery: .append, keyColumns: ["packetId"],
+                       dataColumns: [
+                           "ts", "sensorTs", "recordIndex", "rawHex", "srcChannel", "schemaVersion",
+                           "decoderVersion", "clockVersion", "timestampPrecisionSeconds",
+                           "clockOffsetSeconds", "declaredCount",
+                       ]),
         PushStreamSpec(wireName: "stepSample", delivery: .append, keyColumns: ["ts"],
                        dataColumns: ["counter", "activityClass"]),
         PushStreamSpec(wireName: "sleepStateSample", delivery: .append, keyColumns: ["ts"],

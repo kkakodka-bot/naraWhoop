@@ -108,8 +108,8 @@ fun OnboardingScreen(viewModel: AppViewModel, onFinished: () -> Unit) {
     }
 
     fun complete() {
-        // Onboarding deferred the foreground promotion; do it now if a strap is live.
-        viewModel.promoteBackgroundConnectionIfActive()
+        // Root persists setup completion, then waits for the enrolled device acknowledgement.
+        // Background promotion happens after that acknowledgement; retries never repeat setup.
         onFinished()
     }
 

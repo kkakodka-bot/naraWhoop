@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-09-18",
+  "models": {
+    "wav2sleep-cardiorespiratory": {"code_revision": "278e30463c8149c4e6899b8784da492fec695bd9", "package_tree_sha256": "e1edae588d341025a78911a71f9c2b9329f4e08a0e4c174d5b4062006aa6eb7a"},
+    "rr-estimation": {"code_revision": "e429f1cc7fa25b56c2bd8d6674d7c25be25764b1", "source_sha256": "fb4b8dd9376a839fbad44fc37db57318ee2f389f6549132efdc20f15f466983a", "checkpoint_sha256": "78fbddd1dbe23a23909c438fe33efa0fb45e2fd4044715705ef912d64b95d2af"},
+    "neurokit2": {"code_revision": "ff419d983568ef492eb8d229af643c0ef0100b32", "package_tree_sha256": "33e377691501bf6721d9663defdecb5b11560a3bc9f49eaa17fe308ad9b4fc5a"},
+    "walch-sleep-classifiers": {"code_revision": "ec9704f0290563016adbe48184365ab102daf9ea", "package_tree_sha256": "2b26e52ff25f29378e8f148c135f7270f40a2d4b5ea5e9989990136c6aff1a77"},
+    "sleepecg": {"code_revision": "da5801b0b0febd5160d409936292e0b800bf7118", "package_tree_sha256": null},
+    "rrest": {"code_revision": "f5022e7029c5b6d6b8159b665dccc2c8f267976e"},
+    "correncoder": {"code_revision": "70689270bd68f10dedf41acbe7d252dcee709614"}
+  },
+  "rights_review": "not_implied_by_hash_or_pin",
+  "target_resource_validation": "not_run"
+}

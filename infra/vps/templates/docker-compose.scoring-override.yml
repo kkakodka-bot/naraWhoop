@@ -1,0 +1,25 @@
+# Standalone project installed as /opt/frwhoop/scoring/docker-compose.yml.
+# /opt/frwhoop/scoring.env holds the hosted database and PostgREST destinations.
+services:
+  scoring-physiology-v2:
+    image: frwhoop/scoring-service:${SCORING_IMAGE_TAG:?SCORING_IMAGE_TAG is required}
+    container_name: scoring-physiology-v2
+    restart: unless-stopped
+    init: true
+    cpus: "${SCORING_CPUS:-2.0}"
+    mem_limit: "${SCORING_MEMORY_LIMIT:-2g}"
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    env_file:
+      - ${SCORING_ENV_FILE:-/opt/frwhoop/scoring.env}
+      - /opt/frwhoop/b2.env
+    environment:
+      SCORING_ALGORITHM_VERSION: frwhoop-physiology-2
+    command: []
+    network_mode: bridge
+    # Container/process existence is not scoring health. The acceptance script verifies
+    # advancing hosted poll/publication timestamps; ingest-verify reports processing separately.

@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "rows": [
+    {
+      "rowId": 1,
+      "ts": 100,
+      "burstIndex": 14,
+      "recordIndex": 4294967295,
+      "samples": "0100ff7f"
+    },
+    {
+      "rowId": 2,
+      "ts": 100,
+      "burstIndex": 14,
+      "recordIndex": 0,
+      "samples": "0200"
+    },
+    {
+      "rowId": 3,
+      "ts": 101,
+      "burstIndex": null,
+      "recordIndex": null,
+      "samples": "0300"
+    }
+  ],
+  "hex": "4e50423102010300000001000000000000006400000000000000010e000000ffffffff00000000040000000100ff7f02000000000000006400000000000000010e00000000000000000000000200000002000300000000000000650000000000000000ffffffffffffffff020000000300"
+}

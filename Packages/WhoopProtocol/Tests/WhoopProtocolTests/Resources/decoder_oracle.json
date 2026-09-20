@@ -58,7 +58,7 @@
       "skin_temp_raw": 5, "sleep_state": 2, "spo2_ir": 1, "spo2_red": 1, "status_word": 1,
       "status_word_1": 2, "status_word_2": 2, "step_cadence": 1, "step_motion_counter": 1,
       "temp_aux_1_raw": 2, "temp_aux_2_raw": 2, "unix": 15, "unknown_f32_113": 1,
-      "wake_quality": 2
+      "wake_quality": 2, "rr_raw_ticks": 4, "rr_source_channel": 4
     },
     "derived_fields": ["gravity_mag"],
     "frames": [
@@ -76,7 +76,7 @@
       "whoop5_v18_high_bit_unix_survives"
     ],
     "streams": [
-      "hr", "rr", "spo2", "skin_temp", "resp", "gravity", "steps", "sleep_state", "ppg_hr",
+      "hr", "rr", "rr_packets", "standard_hr_receipts", "spo2", "skin_temp", "resp", "gravity", "steps", "sleep_state", "ppg_hr",
       "ppg_waveform", "v18_aux", "events", "battery"
     ],
     "non_stream_lists": ["dropped_rtc_events"]
@@ -166,7 +166,10 @@
         "unix": 1780916150,
         "heart_rate": 102,
         "rr_count": 2,
-        "rr_intervals": [602, 613],
+        "rr_intervals": [
+          588,
+          599
+        ],
         "skin_temp_raw": 3057,
         "step_motion_counter": 50,
         "motion_wear_quality": 0,
@@ -187,7 +190,12 @@
         "temp_aux_2_raw": 265,
         "unknown_f32_113": -5.2307,
         "gravity_mag": 1.0,
-        "dynamic_acceleration": 0.00916
+        "dynamic_acceleration": 0.00916,
+        "rr_raw_ticks": [
+          602,
+          613
+        ],
+        "rr_source_channel": 5
       }
     },
     {
@@ -200,8 +208,14 @@
         "unix": 1780916152,
         "heart_rate": 101,
         "rr_count": 1,
-        "rr_intervals": [595],
-        "dynamic_acceleration": 0.010708
+        "rr_intervals": [
+          581
+        ],
+        "dynamic_acceleration": 0.010708,
+        "rr_raw_ticks": [
+          595
+        ],
+        "rr_source_channel": 5
       }
     },
     {
@@ -304,7 +318,15 @@
         "unix": 1780916150,
         "heart_rate": 102,
         "rr_count": 2,
-        "rr_intervals": [602, 613]
+        "rr_intervals": [
+          588,
+          599
+        ],
+        "rr_raw_ticks": [
+          602,
+          613
+        ],
+        "rr_source_channel": 5
       }
     },
     {
@@ -375,7 +397,15 @@
         "record_index": 25443699,
         "heart_rate": 102,
         "rr_count": 2,
-        "rr_intervals": [602, 613]
+        "rr_intervals": [
+          588,
+          599
+        ],
+        "rr_raw_ticks": [
+          602,
+          613
+        ],
+        "rr_source_channel": 5
       }
     }
   ],
@@ -400,7 +430,7 @@
         "is_empty": true,
         "dropped_implausible": 0,
         "counts": {
-          "hr": 0, "rr": 0, "spo2": 0, "skin_temp": 0, "resp": 0, "gravity": 0,
+          "hr": 0, "rr": 0, "rr_packets": 0, "standard_hr_receipts": 0, "spo2": 0, "skin_temp": 0, "resp": 0, "gravity": 0,
           "steps": 0, "sleep_state": 0, "ppg_hr": 0, "ppg_waveform": 0, "v18_aux": 0, "events": 0, "battery": 0
         }
       }
@@ -415,7 +445,7 @@
         "is_empty": false,
         "dropped_implausible": 0,
         "counts": {
-          "hr": 1, "rr": 2, "spo2": 1, "skin_temp": 1, "resp": 1, "gravity": 1,
+          "hr": 1, "rr": 2, "rr_packets": 0, "standard_hr_receipts": 0, "spo2": 1, "skin_temp": 1, "resp": 1, "gravity": 1,
           "steps": 0, "sleep_state": 0, "ppg_hr": 0, "ppg_waveform": 0, "v18_aux": 0, "events": 0, "battery": 0
         }
       }
@@ -430,7 +460,7 @@
         "is_empty": false,
         "dropped_implausible": 0,
         "counts": {
-          "hr": 0, "rr": 0, "spo2": 0, "skin_temp": 0, "resp": 0, "gravity": 3,
+          "hr": 0, "rr": 0, "rr_packets": 0, "standard_hr_receipts": 0, "spo2": 0, "skin_temp": 0, "resp": 0, "gravity": 3,
           "steps": 0, "sleep_state": 0, "ppg_hr": 0, "ppg_waveform": 0, "v18_aux": 0, "events": 0, "battery": 0
         }
       }
@@ -445,7 +475,7 @@
         "is_empty": false,
         "dropped_implausible": 0,
         "counts": {
-          "hr": 2, "rr": 3, "spo2": 0, "skin_temp": 2, "resp": 0, "gravity": 2,
+          "hr": 2, "rr": 3, "rr_packets": 2, "standard_hr_receipts": 0, "spo2": 0, "skin_temp": 2, "resp": 0, "gravity": 2,
           "steps": 2, "sleep_state": 2, "ppg_hr": 0, "ppg_waveform": 0, "v18_aux": 2, "events": 0, "battery": 0
         }
       }
@@ -460,7 +490,7 @@
         "is_empty": false,
         "dropped_implausible": 0,
         "counts": {
-          "hr": 0, "rr": 0, "spo2": 0, "skin_temp": 1, "resp": 0, "gravity": 1,
+          "hr": 0, "rr": 0, "rr_packets": 1, "standard_hr_receipts": 0, "spo2": 0, "skin_temp": 1, "resp": 0, "gravity": 1,
           "steps": 1, "sleep_state": 1, "ppg_hr": 0, "ppg_waveform": 0, "v18_aux": 1, "events": 0, "battery": 0
         }
       }
@@ -477,7 +507,7 @@
         "is_empty": true,
         "dropped_implausible": 2,
         "counts": {
-          "hr": 0, "rr": 0, "spo2": 0, "skin_temp": 0, "resp": 0, "gravity": 0,
+          "hr": 0, "rr": 0, "rr_packets": 0, "standard_hr_receipts": 0, "spo2": 0, "skin_temp": 0, "resp": 0, "gravity": 0,
           "steps": 0, "sleep_state": 0, "ppg_hr": 0, "ppg_waveform": 0, "v18_aux": 0, "events": 0, "battery": 0
         }
       }
@@ -507,7 +537,7 @@
         "is_empty": false,
         "dropped_implausible": 0,
         "counts": {
-          "hr": 1, "rr": 2, "spo2": 1, "skin_temp": 1, "resp": 1, "gravity": 1,
+          "hr": 1, "rr": 2, "rr_packets": 0, "standard_hr_receipts": 0, "spo2": 1, "skin_temp": 1, "resp": 1, "gravity": 1,
           "steps": 0, "sleep_state": 0, "ppg_hr": 0, "ppg_waveform": 0, "v18_aux": 0, "events": 0, "battery": 0
         }
       }
@@ -523,7 +553,7 @@
         "is_empty": false,
         "dropped_implausible": 0,
         "counts": {
-          "hr": 0, "rr": 0, "spo2": 0, "skin_temp": 0, "resp": 0, "gravity": 1,
+          "hr": 0, "rr": 0, "rr_packets": 0, "standard_hr_receipts": 0, "spo2": 0, "skin_temp": 0, "resp": 0, "gravity": 1,
           "steps": 0, "sleep_state": 0, "ppg_hr": 0, "ppg_waveform": 0, "v18_aux": 0, "events": 0, "battery": 0
         }
       }
@@ -539,7 +569,7 @@
         "is_empty": false,
         "dropped_implausible": 0,
         "counts": {
-          "hr": 1, "rr": 2, "spo2": 0, "skin_temp": 1, "resp": 0, "gravity": 1,
+          "hr": 1, "rr": 2, "rr_packets": 1, "standard_hr_receipts": 0, "spo2": 0, "skin_temp": 1, "resp": 0, "gravity": 1,
           "steps": 1, "sleep_state": 1, "ppg_hr": 0, "ppg_waveform": 0, "v18_aux": 1, "events": 0, "battery": 0
         }
       }

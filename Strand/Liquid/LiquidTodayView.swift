@@ -17,6 +17,8 @@ import WhoopStore
 import StrandAnalytics
 
 struct LiquidTodayView: View {
+    @AppStorage(ServerScoringSettings.defaultsKey) private var serverScoringEnabled = true
+    @State private var serverSnapshotRevision = 0
     @AppStorage(DayCycleMode.storageKey) private var dayCycleModeRaw = DayCycleMode.sleepOnset.rawValue
     private var dayCycleMode: DayCycleMode { DayCycleMode.persisted(dayCycleModeRaw) }
     @EnvironmentObject var repo: Repository
@@ -183,6 +185,32 @@ struct LiquidTodayView: View {
         if selectedDayOffset == 0, let todayKey = repo.today?.day { return todayKey }
         return Repository.localDayKey(selectedLogicalDay)
     }
+
+    private var serverOverlay: ServerScoreDayCache? {
+        _ = serverSnapshotRevision
+        guard ServerScoringSettings.ready, app.serverScores.signedIn else { return nil }
+        return app.serverScores.overlay(for: selectedDayKey)
+    }
+
+    private func serverVital(_ metric: ServerVitalSelection.Metric, local: Double?) -> Double? {
+        ServerVitalSelection.resolve(metric, serverEnabled: serverScoringEnabled,
+                                     selectedDay: selectedDayKey, overlay: serverOverlay, localValue: local).value
+    }
+
+    private func serverVitalCaption(_ metric: ServerVitalSelection.Metric) -> String? {
+        guard serverScoringEnabled else { return nil }
+        let selection = ServerVitalSelection.resolve(metric, serverEnabled: true,
+            selectedDay: selectedDayKey, overlay: serverOverlay, localValue: nil)
+        return Self.serverVitalCaption(for: selection, includeSource: metric == .sleep)
+    }
+
+    static func serverVitalCaption(for selection: ServerVitalSelection, includeSource: Bool = false) -> String? {
+        guard selection.fromServer else { return nil }
+        let label = String(localized: "Server · \(selection.day) · \(selection.status ?? "unavailable")")
+        let source = includeSource ? [selection.deviceId, selection.algorithmVersion].compactMap { $0 }.joined(separator: " · ") : ""
+        let caption = source.isEmpty ? label : "\(label) · \(source)"
+        return selection.stale ? String(localized: "Stale · \(caption)") : caption
+    }
     /// The DailyMetric shown for the selected day — read from the cache resolved in load() (was an
     /// O(days) `.last(where:)` scan referenced ~23× per body pass; now O(1)).
     private var displayDay: DailyMetric? { cachedDisplayDay }
@@ -222,6 +250,13 @@ struct LiquidTodayView: View {
     /// vitals carry, else the freshest prior row with either. Both numbers come off the SAME row, so an
     /// absolute is never paired with another night's deviation. Twin of `TodayView.skinTempLeadReading`.
     private var skinTempLeadReading: SkinTempDisplay.Reading? {
+        let selection = ServerVitalSelection.resolve(.skinTemp, serverEnabled: serverScoringEnabled,
+                                                     selectedDay: selectedDayKey, overlay: serverOverlay, localValue: nil)
+        if selection.fromServer {
+            return SkinTempDisplay.leadReading(absC: serverOverlay?.daily?.skinTempC,
+                                               devC: serverOverlay?.daily?.skinTempDevC,
+                                               prefer: SkinTempDisplay.Kind(rawValue: skinTempDisplayRaw) ?? .absolute)
+        }
         let row = [displayDay, vitalsDay, cachedSkinTempReadingDay]
             .compactMap { $0 }
             .first { $0.skinTempC != nil || $0.skinTempDevC != nil }
@@ -447,6 +482,12 @@ struct LiquidTodayView: View {
         .task(id: "\(repo.refreshSeq)-\(selectedDayOffset)-\(repo.hydrationSeq)-\(hydrationEnabled)-\(dayCycleModeRaw)") {
             await load()
         }
+        .task(id: "\(selectedDayKey)|\(serverScoringEnabled)|\(ServerScoringSettings.ready)|\(app.serverScores.signedIn)") {
+            if serverScoringEnabled {
+                await app.serverScores.refreshVisibleDays(todayKey: selectedDayKey)
+            }
+        }
+        .onReceive(app.serverScores.objectWillChange) { _ in serverSnapshotRevision &+= 1 }
         .sheet(item: $guideSection) { section in
             NavigationStack { ScoringGuideView(initialSection: section, onClose: { guideSection = nil }) }
         }
@@ -927,16 +968,16 @@ struct LiquidTodayView: View {
             cardLink(.metric("vitality"), title: card.title, sub: card.subtitle,
                      value: intText(vitality), tint: liquidPurple, frac: frac(vitality))
         case .hrv:
-            let hrvCard = liquidCurrentHrvValue ?? displayDay?.avgHrv ?? hrvDay?.avgHrv
-            let hrvSub = liquidCurrentHrvCaption
+            let hrvCard = serverVital(.hrv, local: liquidCurrentHrvValue ?? displayDay?.avgHrv ?? hrvDay?.avgHrv)
+            let hrvSub = serverVitalCaption(.hrv) ?? liquidCurrentHrvCaption
                 ?? liquidVitalCardSubtitle(today: displayDay?.avgHrv, carryDay: hrvDay,
                                            prior: { $0.avgHrv }, fallback: card.subtitle)
             cardLink(.metric("hrv"), title: card.title, sub: hrvSub,
                      value: unitText(hrvCard, card.unit), tint: StrandPalette.metricCyan,
                      frac: fracOver(hrvCard, 120))
         case .restingHr:
-            let rhrCard = (displayDay?.restingHr ?? restingHrDay?.restingHr).map(Double.init)
-            let rhrSub = liquidVitalCardSubtitle(today: displayDay?.restingHr.map(Double.init),
+            let rhrCard = serverVital(.restingHR, local: (displayDay?.restingHr ?? restingHrDay?.restingHr).map(Double.init))
+            let rhrSub = serverVitalCaption(.restingHR) ?? liquidVitalCardSubtitle(today: displayDay?.restingHr.map(Double.init),
                                                  carryDay: restingHrDay,
                                                  prior: { $0.restingHr.map(Double.init) },
                                                  fallback: card.subtitle)
@@ -944,9 +985,10 @@ struct LiquidTodayView: View {
                      value: unitText(rhrCard, card.unit),
                      tint: StrandPalette.metricRose, frac: fracOver(rhrCard, 100))
         case .respiratory:
-            cardLink(.metric("resp_rate"), title: card.title, sub: card.subtitle,
-                     value: unitText(displayDay?.respRateBpm, card.unit, decimals: 1),
-                     tint: StrandPalette.accent, frac: fracOver(displayDay?.respRateBpm, 24))
+            let resp = serverVital(.respiratory, local: displayDay?.respRateBpm)
+            cardLink(.metric("resp_rate"), title: card.title, sub: serverVitalCaption(.respiratory) ?? card.subtitle,
+                     value: unitText(resp, card.unit, decimals: 1),
+                     tint: StrandPalette.accent, frac: fracOver(resp, 24))
         case .steps:
             // Route by the EXACT (key, source) the tile chose to display — measured my-whoop, imported
             // apple-health, or the my-whoop estimate — NOT by bare key (bare "steps" resolves to
@@ -963,7 +1005,7 @@ struct LiquidTodayView: View {
             // candidate fallback and experimental gating included — so the card and the tile cannot
             // disagree about the same day's number. The tile's key/route handling is deliberately NOT
             // copied; see below for why the two are not interchangeable.
-            let spo2Real = displayDay?.spo2Pct ?? vitalsDay?.spo2Pct ?? spo2Day?.spo2Pct
+            let spo2Real = serverVital(.spo2, local: displayDay?.spo2Pct ?? vitalsDay?.spo2Pct ?? spo2Day?.spo2Pct)
             let spo2CandidateOn = PuffinExperiment.spo2CandidateDisplayEnabled
             let spo2Candidate = spo2Real == nil && spo2CandidateOn
                 ? spo2CandidateByDay[cachedDisplayDay?.day ?? selectedDayKey]
@@ -1016,8 +1058,9 @@ struct LiquidTodayView: View {
             cardLink(.metricSourced(key: caloriesDetailKey, source: caloriesDetailSource), title: card.title, sub: card.subtitle,
                      value: intText(caloriesCount), tint: StrandPalette.metricAmber, frac: fracOver(caloriesCount, 800))
         case .sleep:
-            cardLink(.sleep, title: card.title, sub: card.subtitle,
-                     value: sleepText, tint: StrandPalette.restColor, frac: fracOver(displayDay?.totalSleepMin, 480))
+            cardLink(.sleep, title: card.title, sub: serverVitalCaption(.sleep) ?? card.subtitle,
+                     value: sleepText, tint: StrandPalette.restColor,
+                     frac: fracOver(serverVital(.sleep, local: displayDay?.totalSleepMin), 480))
         case .hydration:
             // #989: was hardcoded "–". `HydrationGoal.cardValueString` is unit-tested and byte-identical to
             // the Android twin, but classic TodayView was its only caller — so on the DEFAULT screen a
@@ -1186,16 +1229,16 @@ struct LiquidTodayView: View {
         // PER-FIELD, today-first carry: each vital reads today's own value, else falls back to the prior
         // day that recorded THAT vital (#1842 — `vitalsDay` is the freshest row with ANY of the three, so it
         // blanks one the row lacks). Coalesce ONCE so the number and its fill fraction agree.
-        let hrv = displayDay?.avgHrv ?? hrvDay?.avgHrv
-        let rhr = (displayDay?.restingHr ?? restingHrDay?.restingHr).map(Double.init)
-        let resp = displayDay?.respRateBpm ?? vitalsDay?.respRateBpm
+        let hrv = serverVital(.hrv, local: displayDay?.avgHrv ?? hrvDay?.avgHrv)
+        let rhr = serverVital(.restingHR, local: (displayDay?.restingHr ?? restingHrDay?.restingHr).map(Double.init))
+        let resp = serverVital(.respiratory, local: displayDay?.respRateBpm ?? vitalsDay?.respRateBpm)
         return card {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("RECOVERY VITALS").font(StrandFont.overline).tracking(1.6)
                         .foregroundStyle(StrandPalette.textSecondary)
                     Spacer()
-                    if let line = vitalsProvenanceLine {
+                    if !serverScoringEnabled, let line = vitalsProvenanceLine {
                         Text(line).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                     }
                 }
@@ -1205,10 +1248,19 @@ struct LiquidTodayView: View {
                 // surfaces cannot send the same vital to different trends.
                 vitalRow(String(localized: "Heart-rate variability"), unitText(hrv, "ms"),
                          StrandPalette.metricCyan, fracOver(hrv, 120), route: .metric("hrv"))
+                if let caption = serverVitalCaption(.hrv) {
+                    Text(caption).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                }
                 vitalRow(String(localized: "Resting heart rate"), unitText(rhr, "bpm"),
                          StrandPalette.metricRose, fracOver(rhr, 100), route: .metric("rhr"))
+                if let caption = serverVitalCaption(.restingHR) {
+                    Text(caption).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                }
                 vitalRow(String(localized: "Breaths per minute"), unitText(resp, "rpm", decimals: 1),
                          StrandPalette.accent, fracOver(resp, 24), route: .metric("resp_rate"))
+                if let caption = serverVitalCaption(.respiratory) {
+                    Text(caption).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                }
             }
         }
     }
@@ -1334,13 +1386,15 @@ struct LiquidTodayView: View {
         case .rest:
             ktile(String(localized: "Rest"), icon: keyMetricIcon(metric), intText(restScore), "%", StrandPalette.restColor, frac(restScore), key: "sleep_performance")
         case .hrv:
-            let hrvValue = liquidCurrentHrvValue ?? hrv
-            let hrvCaption = liquidCurrentHrvCaption
+            let hrvValue = serverVital(.hrv, local: liquidCurrentHrvValue ?? hrv)
+            let hrvCaption = serverVitalCaption(.hrv) ?? liquidCurrentHrvCaption
                 ?? liquidVitalTileCaption(today: displayDay?.avgHrv, carryDay: hrvDay, prior: { $0.avgHrv })
             ktile("HRV", icon: keyMetricIcon(metric), intText(hrvValue), "ms", StrandPalette.metricCyan,
                   fracOver(hrvValue, 120), key: "hrv", caption: hrvCaption)
         case .restingHr:
-            ktile(String(localized: "Rest HR"), icon: keyMetricIcon(metric), intText(rhr), "bpm", StrandPalette.metricRose, fracOver(rhr, 100), key: "rhr")
+            let selectedRhr = serverVital(.restingHR, local: rhr)
+            ktile(String(localized: "Rest HR"), icon: keyMetricIcon(metric), intText(selectedRhr), "bpm", StrandPalette.metricRose,
+                  fracOver(selectedRhr, 100), key: "rhr", caption: serverVitalCaption(.restingHR))
         case .bloodOxygen:
             // Queue 11a: the Liquid tile used to read `spo2Pct` only, with no candidate fallback at all
             // (unlike the classic `TodayView`/`VitalSignsSummary`), so an Oura-only or BLE-only WHOOP
@@ -1348,7 +1402,7 @@ struct LiquidTodayView: View {
             // device-conditional "spo2_candidate" mean (WHOOP: `spo2_candidate_82`; Oura: ceiling@100
             // `0x6F`, see `AnalyticsEngine.nightlySpo2CeilingMean`) only when `spo2Pct` is nil AND the
             // toggle is ON — same gating as the classic tile, never as the default.
-            let spo2Real = displayDay?.spo2Pct ?? vitalsDay?.spo2Pct ?? spo2Day?.spo2Pct
+            let spo2Real = serverVital(.spo2, local: displayDay?.spo2Pct ?? vitalsDay?.spo2Pct ?? spo2Day?.spo2Pct)
             let spo2CandidateOn = PuffinExperiment.spo2CandidateDisplayEnabled
             let spo2CandidateValue = spo2Real == nil && spo2CandidateOn
                 ? spo2CandidateByDay[cachedDisplayDay?.day ?? selectedDayKey]
@@ -1364,8 +1418,9 @@ struct LiquidTodayView: View {
             ktile(String(localized: "Blood Oxygen"), icon: keyMetricIcon(metric), intText(spo2), "%", StrandPalette.metricCyan, fracOver(spo2, 100), key: spo2CandidateValue != nil ? "spo2_candidate" : "spo2",
                   caption: spo2Caption)
         case .respiratory:
-            let resp = displayDay?.respRateBpm ?? vitalsDay?.respRateBpm ?? respDay?.respRateBpm
-            ktile(String(localized: "Respiratory"), icon: keyMetricIcon(metric), resp.map { String(format: "%.1f", locale: AppLanguage.activeLocale, $0) } ?? "—", "rpm", StrandPalette.accent, fracOver(resp, 24), key: "resp_rate")
+            let resp = serverVital(.respiratory, local: displayDay?.respRateBpm ?? vitalsDay?.respRateBpm ?? respDay?.respRateBpm)
+            ktile(String(localized: "Respiratory"), icon: keyMetricIcon(metric), resp.map { String(format: "%.1f", locale: AppLanguage.activeLocale, $0) } ?? "—", "rpm", StrandPalette.accent,
+                  fracOver(resp, 24), key: "resp_rate", caption: serverVitalCaption(.respiratory))
         case .steps:
             ktile(String(localized: "Steps"), icon: keyMetricIcon(metric), stepsText, "", StrandPalette.chargeColor,
                   fracOver(stepCount, 10000), key: stepsDetailKey, detailMetric: stepsDetailMetric)
@@ -1446,7 +1501,8 @@ struct LiquidTodayView: View {
             // windowed series keeps a clear placeholder of the same height so every tile in a detailed row
             // stays equal-height with its bars aligned.
             if keyMetricsDetailed {
-                let spark = key.map { windowedSpark($0) } ?? []
+                let selectedServerVital = serverScoringEnabled && ["hrv", "rhr", "resp_rate"].contains(key ?? "")
+                let spark = selectedServerVital ? [] : (key.map { windowedSpark($0) } ?? [])
                 if spark.count >= 2 {
                     Sparkline(values: spark,
                               gradient: Gradient(colors: [tint.opacity(0.5), tint]))
@@ -1602,7 +1658,8 @@ struct LiquidTodayView: View {
             isCalibrating: calNights != nil
         )
         cachedChargeDisplay = ChargeDisplay.resolve(
-            todayRecovery: day?.recovery,
+            todayRecovery: ServerVitalSelection.resolve(.charge, serverEnabled: serverScoringEnabled,
+                selectedDay: tkey, overlay: serverOverlay, localValue: day?.recovery).value,
             priorScored: priorScored,
             calibrationNights: calNights,
             todayKey: tkey)
@@ -1626,7 +1683,10 @@ struct LiquidTodayView: View {
         // `StrainScorer.minReadings` the scorer returns nil and the read-outs fall back to the stored row
         // — never a fabricated value. A navigated past day clears it.
         let liveStrainLocal: Double?
-        if selectedDayOffset == 0 {
+        if ServerScoringSettings.skipsSyncCoupledRescore {
+            liveStrainLocal = ServerVitalSelection.resolve(.strain, serverEnabled: true,
+                selectedDay: selectedDayKey, overlay: serverOverlay, localValue: day?.strain).value
+        } else if selectedDayOffset == 0 {
             // An EXPLICIT limit, not the 8000 default: that default is chart-sized, and this read is
             // whole-window. `hrSamples` is `ORDER BY ts ASC LIMIT`, so truncation drops the NEWEST rows —
             // at the ~18k HR rows a real day banks, the default covered roughly the first ten hours and the
@@ -1674,10 +1734,18 @@ struct LiquidTodayView: View {
         // gravity ⇒ no sleep_performance point ever written) used to pin Rest to the weeks-old series tail
         // forever while Charge advanced; freshness-gate the tail-fallback so a stale tail falls through to
         // the Rest hero's No-Data/calibrating state (same empty treatment Effort uses) instead of freezing.
-        restScore = TodayView.freshRestScore(
+        let localRest = TodayView.freshRestScore(
             todayValue: restByDay[selectedDayKey], lastDay: restSeries.last?.day,
             lastValue: restSeries.last?.value, isTodaySelected: selectedDayOffset == 0,
             todayKey: selectedDayKey)
+        if serverScoringEnabled,
+           let overlay = serverOverlay, overlay.day == selectedDayKey,
+           let status = overlay.features["sleep"]?.status, status == "available" || status == "stale",
+           let efficiency = overlay.daily?.sleepEfficiency {
+            restScore = efficiency <= 1.5 ? efficiency * 100 : efficiency
+        } else {
+            restScore = localRest
+        }
         // StressModel loops the full history to build its baseline — run it OFF the main actor so a big
         // history doesn't stutter the UI. Snapshot the inputs (value types) into the detached task.
         let storedStress = await stressA
@@ -1931,8 +1999,9 @@ struct LiquidTodayView: View {
     private var stressText: String { stress.map { String(Int($0.rounded())) } ?? String(localized: "Calibrating") }
 
     private var sleepText: String {
-        guard let m = displayDay?.totalSleepMin else { return "–" }
-        return "\(Int(m) / 60)h \(Int(m) % 60)m"
+        guard let m = serverVital(.sleep, local: displayDay?.totalSleepMin) else { return "–" }
+        let total = Int(m.rounded())
+        return "\(total / 60)h \(total % 60)m"
     }
 
     private var stepsText: String {

@@ -25,6 +25,16 @@ internal fun successorOwnsEnqueueFailure(currentRequestCouldReserve: Boolean): B
     !currentRequestCouldReserve
 internal fun shouldScheduleLatePendingSuccessor(willRetry: Boolean, settlementPending: Boolean): Boolean =
     !willRetry && settlementPending
+internal fun capabilitiesMatchEnrollment(
+    capabilities: PushCapabilities,
+    credential: PushEnrollmentCredential,
+): Boolean = capabilities.userId == credential.userId && capabilities.sourceId == credential.sourceId
+internal fun pushIdentityStillCurrent(
+    capturedEndpoint: PushEndpointPolicy.ValidEndpoint,
+    currentEndpoint: PushEndpointPolicy.ValidEndpoint?,
+    capturedCredential: PushEnrollmentCredential,
+    currentCredential: PushEnrollmentCredential?,
+): Boolean = capturedEndpoint == currentEndpoint && capturedCredential == currentCredential
 internal fun isPushNetworkAvailable(
     wifiOnly: Boolean,
     isConnected: Boolean,
@@ -74,9 +84,12 @@ class SelfHostedPushWorker(
         val settings = SelfHostedPushSettings.from(applicationContext)
         // A stale request after disable exits before lease writes, network checks, Keystore, Room, or HTTP.
         val requestId = id.toString()
-        if (settings.enabledEndpoint() == null) {
+        if (settings.readyEndpoint() == null) {
             PushRunSignal.releaseReservation(applicationContext, requestId)
             return Result.success()
+        }
+        val enrollmentStore by lazy(LazyThreadSafetyMode.NONE) {
+            PushEnrollmentStore.from(applicationContext)
         }
         var ownerFinished = false
         try {
@@ -85,21 +98,29 @@ class SelfHostedPushWorker(
             var execution = ExecutionOutcome(Execution.COMPLETE)
             var decision = try {
                 when (val outcome = PushWorkerGate.run(
-                    enabledEndpoint = settings::enabledEndpoint,
+                    enabledEndpoint = settings::readyEndpoint,
                     networkAvailable = {
                         isPushNetworkAvailable(applicationContext, wifiOnly = settings.wifiOnly())
                     },
-                    token = settings::token,
-                    execute = { endpoint, token ->
-                        execution = executeOnce(settings, endpoint, token)
+                    fleetToken = settings::fleetToken,
+                    credential = { EnrollmentDataScope.credential(applicationContext) },
+                    execute = { endpoint, fleetToken, credential ->
+                        execution = executeOnce(settings, enrollmentStore, endpoint, fleetToken, credential)
                         execution.state == Execution.RETRY_FAILURE
                     },
                 )) {
                     PushWorkerGate.Outcome.DisabledOrInvalid -> Decision(Result.success(), false)
-                    PushWorkerGate.Outcome.MissingToken -> Decision(
+                    PushWorkerGate.Outcome.MissingFleetToken -> Decision(
                         Result.failure(), false, status = Status.FAILED,
                         message = applicationContext.getString(R.string.push_error_missing_token),
                     )
+                    PushWorkerGate.Outcome.MissingEnrollment -> {
+                        if (enrollmentStore.load(settings.sourceId()) == null) runCatching { settings.clearEnrollmentBinding() }
+                        Decision(
+                            Result.failure(), false, status = Status.FAILED,
+                            message = applicationContext.getString(R.string.push_error_missing_token),
+                        )
+                    }
                     PushWorkerGate.Outcome.NetworkUnavailable -> retryOrStop(
                         applicationContext.getString(R.string.push_error_network),
                     )
@@ -173,16 +194,32 @@ class SelfHostedPushWorker(
 
     private suspend fun executeOnce(
         settings: SelfHostedPushSettings,
+        enrollmentStore: PushEnrollmentStore,
         endpoint: PushEndpointPolicy.ValidEndpoint,
-        token: String,
+        fleetToken: String,
+        credential: PushEnrollmentCredential,
     ): ExecutionOutcome {
-        val sourceId = settings.sourceId()
+        val sourceId = credential.sourceId
+        val identityStillCurrent = {
+            pushIdentityStillCurrent(
+                capturedEndpoint = endpoint,
+                currentEndpoint = settings.readyEndpoint(),
+                capturedCredential = credential,
+                currentCredential = EnrollmentDataScope.credential(applicationContext),
+            )
+        }
+        if (!identityStillCurrent()) throw CancellationException("push identity changed")
         // Derive progress from the exact endpoint captured by the stale-work gate. Re-reading prefs
         // here could otherwise pair an E1 HTTP request with E2 cursor state during a concurrent edit.
-        val transport = PushHttpTransport(endpoint, token) { batch ->
-            settings.recordCurrentStream(batch.table.wireName)
-        }
-        val capabilities = when (val result = transport.capabilities()) {
+        val transport = PushHttpTransport(
+            endpoint = endpoint,
+            uploadToken = credential.uploadToken,
+            fleetToken = fleetToken,
+            onBatchStart = { batch -> settings.recordCurrentStream(batch.table.wireName) },
+        )
+        val capabilityResult = transport.capabilities()
+        if (!identityStillCurrent()) throw CancellationException("push identity changed")
+        val capabilities = when (val result = capabilityResult) {
             is PushCapabilitiesResult.Available -> result.capabilities
             is PushCapabilitiesResult.Rejected -> {
                 return if (result.retryable) {
@@ -198,8 +235,15 @@ class SelfHostedPushWorker(
                 }
             }
         }
+        if (!capabilitiesMatchEnrollment(capabilities, credential)) {
+            return ExecutionOutcome(
+                Execution.CAPABILITY_TERMINAL_FAILURE,
+                PushFailure(PushFailureCode.CAPABILITIES_INVALID),
+            )
+        }
         runCatching { settings.recordCapabilities(endpoint, capabilities) }
         val namespace = settings.progressNamespace(
+            credential.userId,
             sourceId,
             endpoint,
             capabilities.protocolVersion,
@@ -230,7 +274,7 @@ class SelfHostedPushWorker(
             // defaults 35 test constructions could inherit without saying so (#1787).
             today = { LocalDate.now() },
             zoneId = ZoneId.systemDefault(),
-            destinationStillCurrent = { settings.enabledEndpoint() == endpoint },
+            destinationStillCurrent = identityStillCurrent,
         ).pushKnownDevices(startDeviceIndex, MAX_DEVICES_PER_RUN, capabilities, settings.binaryObjectsEnabled())
         settings.recordAcceptedBatches(
             run.acceptedBatches,

@@ -15,6 +15,11 @@ enum CloudPushPeriodicScheduler {
     /// Default cadence for research push. 5 minutes balances freshness vs battery/network.
     static let defaultInterval: TimeInterval = 5 * 60
 
+    /// Push throttle for the current server-scoring mode (5 min legacy, 30–60 s when flag on).
+    static func effectiveInterval(serverScoringEnabled: Bool = ServerScoringSettings.isEnabled) -> TimeInterval {
+        serverScoringEnabled ? ServerScoringSettings.idlePushIntervalSeconds : defaultInterval
+    }
+
     private static var lastRunAt: Date?
     private static var lastScheduledAt: Date?
     private static var pendingTask: Task<Void, Never>?
@@ -25,8 +30,9 @@ enum CloudPushPeriodicScheduler {
     ///   - db: registry writer (from `Repository.registryWriterForPush()`)
     ///   - interval: minimum seconds between runs (default 5 min)
     ///   - reason: label for diagnostics (e.g. "live-hr", "timer", "imu")
-    static func pushIfDue(db: any DatabaseWriter, interval: TimeInterval = defaultInterval, reason: String = "periodic") {
+    static func pushIfDue(db: any DatabaseWriter, interval: TimeInterval? = nil, reason: String = "periodic") {
         guard CloudPushSettings.ready else { return }
+        let interval = interval ?? effectiveInterval()
         guard interval > 0 else { return }
 
         lock.lock()

@@ -1,4 +1,5 @@
 import XCTest
+import WhoopProtocol
 @testable import Strand
 
 /// Pins `PuffinDeepBufferLog.isDeepBuffer` — the pure predicate behind the durable high-rate deep-buffer
@@ -50,7 +51,11 @@ final class PuffinDeepBufferLogTests: XCTestCase {
     /// (A ±X swing would not: squaring cancels the sign, leaving magnitude constant.)
     private func imuBuffer() -> [UInt8] {
         var f = [UInt8](repeating: 0, count: 1244)
+        f[0] = 0xAA; f[1] = 0x01; f[4] = 0x01
+        let declaredLength = f.count - 8
+        f[2] = UInt8(declaredLength & 0xFF); f[3] = UInt8(declaredLength >> 8)
         f[8] = 0x2F
+        f[9] = 21
         f[24] = 100          // countA (u16 LE) — Whoop5RawImu.decode requires == 100
         f[630] = 100         // countB (u16 LE)
         func put(_ off: Int, _ i: Int, _ v: Int16) {
@@ -61,6 +66,11 @@ final class PuffinDeepBufferLogTests: XCTestCase {
             put(28,  i, i % 2 == 0 ? 800 : 0)   // ax @28  — magnitude actually varies
             put(428, i, 4096)                    // az @428 — ~1 g
         }
+        let headerCRC = crc16Modbus(f, 0, 6)
+        f[6] = UInt8(headerCRC & 0xFF); f[7] = UInt8(headerCRC >> 8)
+        let payloadEnd = f.count - 4
+        let payloadCRC = crc32(f, 8, payloadEnd)
+        for i in 0..<4 { f[payloadEnd + i] = UInt8((payloadCRC >> (8 * i)) & 0xFF) }
         return f
     }
 
@@ -72,6 +82,8 @@ final class PuffinDeepBufferLogTests: XCTestCase {
     }
 
     func testNoImuFieldForOpticalOrUndecodableBuffers() {
+        var corrupt = imuBuffer(); corrupt[28] ^= 1
+        XCTAssertEqual(PuffinDeepBufferLog.decodedImuField(corrupt), "", "CRC-invalid waveform cannot become interpreted data")
         // The 2140-B optical buffer is a different, still-undecoded layout — no IMU summary.
         var optical = [UInt8](repeating: 0, count: 2140); optical[8] = 0x2F
         XCTAssertEqual(PuffinDeepBufferLog.decodedImuField(optical), "")

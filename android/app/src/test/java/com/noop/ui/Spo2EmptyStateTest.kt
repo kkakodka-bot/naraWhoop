@@ -51,17 +51,18 @@ class Spo2EmptyStateTest {
         }
     }
 
-    /** 5/MG with the estimate off: actionable, so name the switch rather than implying more nights. */
-    @Test fun whoop5WithTheEstimateOffPointsAtTheToggle() {
+    /** The unverified optical candidate cannot be offered as a fix for missing calibrated saturation. */
+    @Test fun whoop5WithTheEstimateOffExplainsTheInputLimitation() {
         val s = spo2EmptyState("spo2", family = DeviceFamily.WHOOP5, candidateDisplayOn = false)
-        assertEquals(R.string.l10n_health_screen_the_blood_oxygen_estimate_is_turned_4c403ab2, s.titleRes)
-        assertEquals(R.string.l10n_health_screen_your_strap_reports_a_blood_oxygen_349fe34a, s.bodyRes)
+        assertEquals(R.string.physiology_spo2_unavailable_title, s.titleRes)
+        assertEquals(R.string.physiology_spo2_unavailable_body, s.bodyRes)
     }
 
-    /** 5/MG with it on genuinely just needs nights, so the default copy is correct there. */
-    @Test fun whoop5WithTheEstimateOnKeepsTheDefaultCopy() {
+    /** Enabling a diagnostic display cannot turn an unsupported source into calibrated SpO2. */
+    @Test fun whoop5WithTheEstimateOnDoesNotPromiseThatMoreNightsWillFixIt() {
         val s = spo2EmptyState("spo2", family = DeviceFamily.WHOOP5, candidateDisplayOn = true)
-        assertEquals(notEnoughHistory, s.titleRes)
+        assertEquals(spo2EmptyState("spo2", family = DeviceFamily.WHOOP5, candidateDisplayOn = false), s)
+        assertNotEquals(notEnoughHistory, s.titleRes)
     }
 
     /** Every other vital is untouched on both strap generations — this is a Blood Oxygen carve-out. */

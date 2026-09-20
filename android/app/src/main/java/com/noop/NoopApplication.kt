@@ -14,6 +14,8 @@ import com.noop.data.WhoopDatabase
 import com.noop.data.WhoopRepository
 import com.noop.ui.NoopPrefs
 import com.noop.ui.AppLanguagePrefs
+import com.noop.push.ServerScoreRepository
+import com.noop.push.ServerScoringSettings
 import com.noop.push.SelfHostedPushScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,12 +55,14 @@ class NoopApplication : Application() {
         // Install before any app-owned startup work so even an early failure is preserved for the
         // recovery screen on the next launch.
         CrashCapture.install(this)
+        runCatching { com.noop.push.EnrollmentDataScope.initialize(this) }
         // #1008: pin the pre-change Overnight-only default for existing installs before anything
         // reads it. Idempotent; a no-op on fresh installs and on every launch after the first.
         com.noop.ui.NoopPrefs.migrateContinuousHrvOvernightDefault(this)
         // Productive history inserts mark syncJob in the same Room transaction before the strap ACK.
         // Re-open the process-level BLE owner only when debt survived a prior process, then drain it.
         applicationScope.launch {
+            if (!com.noop.push.EnrollmentDataScope.active(this@NoopApplication)) return@launch
             if (runCatching { repository.hasOwedSyncJobs() }.getOrDefault(false)) {
                 ble.resumeOwedPostBackfillWork()
             }
@@ -68,6 +72,19 @@ class NoopApplication : Application() {
     /** Process-wide Room-backed store. One instance shared by the UI and the background service. */
     val repository: WhoopRepository by lazy {
         WhoopRepository(WhoopDatabase.get(this))
+    }
+
+    /** Phase 4: authenticated server HRV/sleep readback (default on for this fork). */
+    val serverScoreRepository: ServerScoreRepository by lazy {
+        ServerScoreRepository(this, applicationScope).also { repo ->
+            if (ServerScoringSettings.isEnabled(this)) {
+                applicationScope.launch {
+                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                        .format(java.util.Date())
+                    repo.startPolling(today)
+                }
+            }
+        }
     }
 
     /** Process-wide device registry over the same Room DB — the single source of the active device id. */

@@ -1,0 +1,6 @@
+[
+  {"name":"short_morning_nap_and_shift_main","sleep_ranges":[[10800,14400],[46800,54000]],"main_indices":[1]},
+  {"name":"naps_only","sleep_ranges":[[10800,14400],[46800,51300]],"main_indices":[]},
+  {"name":"fragmented_shift_qualifies_as_group","sleep_ranges":[[10800,14400],[46800,49800],[51600,54600]],"main_indices":[1,2]},
+  {"name":"main_and_afternoon_nap","sleep_ranges":[[3600,18000],[54000,55200]],"main_indices":[0]}
+]

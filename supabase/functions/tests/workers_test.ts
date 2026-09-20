@@ -12,6 +12,60 @@ import {
 
 const USER = '7f2c9a10-4b3e-4d8a-9c11-00000000f001';
 
+async function digest(bytes: Uint8Array): Promise<string> {
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes)))].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+Deno.test('append gzip reconciliation uses the original stored-byte digest and rejects changed bytes', async () => {
+  const decoded = new TextEncoder().encode('{"fixture":"append archive"}\n');
+  const encoded = new Uint8Array(await new Response(new Blob([decoded]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  const changed = encoded.slice(); changed[changed.length - 1] ^= 1;
+  const rows = ['pending', 'uploaded', 'changed'].map(id => ({
+    id, object_key: id, status: id === 'pending' ? 'pending' : 'uploaded', user_id: USER,
+    sha256: '', object_class: 'raw', format: 'ndjson_gzip_noop_push_v1', compression: 'gzip',
+    compressed_bytes: encoded.length,
+  }));
+  for (const row of rows) row.sha256 = await digest(encoded);
+  const rest = await memRest(rows);
+  const report = await reconcileObjects({ rest: rest as any, verifyChecksums: true,
+    objectStore: { head: async () => ({ exists: true, contentLength: encoded.length }),
+      getObject: async (key: string) => ({ body: key === 'changed' ? changed : encoded }) } as any });
+  assertEquals(report.marked_ready, 2);
+  assertEquals(report.checksum_unverified, 0);
+  assertEquals(report.checksum_mismatch, 1);
+  assertEquals([...rest.manifests.values()].find((r: any) => r.id === 'changed')?.status, 'corrupt');
+});
+
+Deno.test('raw gzip checksum covers decoded NPB1 content and unsupported zstd stays unverified', async () => {
+  const decoded = new TextEncoder().encode('NPB1 synthetic raw compression contract fixture');
+  const encoded = new Uint8Array(await new Response(new Blob([decoded]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  const rest = await memRest([
+    { id: 'gzip', object_key: 'gzip', status: 'uploaded', user_id: USER, sha256: await digest(decoded),
+      object_class: 'raw', format: 'bin_gzip_noop_push_v1', compression: 'gzip', compressed_bytes: encoded.length, uncompressed_bytes: decoded.length },
+    { id: 'zstd', object_key: 'zstd', status: 'uploaded', user_id: USER, sha256: await digest(decoded),
+      object_class: 'raw', format: 'bin_zstd_noop_push_v1', compression: 'zstd', compressed_bytes: encoded.length, uncompressed_bytes: decoded.length },
+  ]);
+  const report = await reconcileObjects({ rest: rest as any, verifyChecksums: true,
+    objectStore: { head: async () => ({ exists: true, contentLength: encoded.length }), getObject: async () => ({ body: encoded }) } as any });
+  assertEquals(report.checksum_mismatch, 0); assertEquals(report.checksum_unverified, 1);
+  assertEquals([...rest.manifests.values()].find((r: any) => r.id === 'gzip')?.status, 'ready');
+  assertEquals([...rest.manifests.values()].find((r: any) => r.id === 'zstd')?.status, 'uploaded');
+});
+
+Deno.test('derived checksum covers stored bytes and unknown digest contracts do not become ready', async () => {
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+  const rest = await memRest([
+    { id: 'derived', object_key: 'derived', status: 'uploaded', user_id: USER, sha256: await digest(bytes),
+      object_class: 'derived', format: 'json_zstd_frwhoop_derived_v2', compression: 'zstd' },
+    { id: 'unknown', object_key: 'unknown', status: 'uploaded', user_id: USER, sha256: await digest(bytes), format: 'unknown' },
+  ]);
+  const report = await reconcileObjects({ rest: rest as any, verifyChecksums: true,
+    objectStore: { head: async () => ({ exists: true }), getObject: async () => ({ body: bytes }) } as any });
+  assertEquals(report.checksum_mismatch, 0); assertEquals(report.checksum_unverified, 1);
+  assertEquals([...rest.manifests.values()].find((r: any) => r.id === 'derived')?.status, 'ready');
+  assertEquals([...rest.manifests.values()].find((r: any) => r.id === 'unknown')?.status, 'uploaded');
+});
+
 async function memRest(rows: any[]) {
   const rest = makeMemRest();
   for (const row of rows) await rest.upsert('object_manifests', { ...row });
@@ -60,6 +114,62 @@ Deno.test('sweep deletes expired manifests and marks them deleted; failure marks
   const byId = Object.fromEntries([...rest.manifests.entries()].map(([id, r]: any) => [id, r]));
   assertEquals(byId.a.status, 'deleted');
   assertEquals(byId.b.status, 'failed');
+});
+
+Deno.test('reconcile marks derived ready row corrupt when B2 HEAD is missing', async () => {
+  const derivedKey = `v3/derived/users/${USER}/days/2026-06-15/frwhoop-server-1.json.zst`;
+  const rest = await memRest([
+    { id: 'd1', object_key: derivedKey, status: 'ready', user_id: USER, compressed_bytes: 100 },
+  ]);
+  const report = await reconcileObjects({
+    rest: rest as any,
+    objectStore: { head: async () => null } as any,
+    userId: USER,
+    listPrefix: async () => [],
+  });
+  assertEquals(report.ready_missing_object, 1);
+  const row = [...rest.manifests.values()].find((r: any) => r.id === 'd1');
+  assertEquals(row?.status, 'corrupt');
+});
+
+Deno.test('reconcile counts derived prefix orphans', async () => {
+  const orphanKey = `v3/derived/users/${USER}/days/2026-06-15/frwhoop-server-1.json.zst`;
+  const prefixes: string[] = [];
+  const report = await reconcileObjects({
+    rest: await memRest([]) as any,
+    objectStore: { head: async () => null } as any,
+    userId: USER,
+    listPrefix: async (p) => {
+      prefixes.push(p);
+      return p.startsWith('v3/derived/') ? [orphanKey] : [];
+    },
+  });
+  assert(prefixes.some((p) => p.startsWith('v3/derived/')));
+  assertEquals(report.orphan_objects, 1);
+});
+
+Deno.test('sweep deletes expired derived manifest', async () => {
+  const derivedKey = `v3/derived/users/${USER}/days/2026-06-15/frwhoop-server-1.json.zst`;
+  const rest = makeMemRest();
+  await rest.upsert('object_manifests', {
+    id: 'd-exp',
+    object_key: derivedKey,
+    status: 'ready',
+    expires_at: '2020-01-01T00:00:00Z',
+    user_id: USER,
+    object_kind: 'derived_scores',
+  });
+  const deleted: string[] = [];
+  const objectStore = {
+    async deleteObject(key: string) { deleted.push(key); return {}; },
+  } as any;
+  const report = await sweepExpiredManifests({
+    rest: rest as any,
+    objectStore,
+    now: () => new Date('2021-01-01T00:00:00Z'),
+  });
+  assertEquals(report.deleted, 1);
+  assertEquals(deleted[0], derivedKey);
 });
 
 Deno.test('deletion is resumable and deletes b2 before auth', async () => {

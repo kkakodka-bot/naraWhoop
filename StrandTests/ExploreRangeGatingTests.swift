@@ -30,4 +30,25 @@ final class ExploreRangeGatingTests: XCTestCase {
     func testNothingLockedKeepsSelection() {
         XCTAssertEqual(ExploreRangeGating.coerced(selection: .quarter, isUnlocked: { _ in true }), .quarter)
     }
+
+    func testShortHistoryCaptionDoesNotCallAContractedRangeSparseOrWidened() {
+        let effective = ExploreRangeGating.coerced(selection: .month, isUnlocked: wk1)
+        let widened = ExploreRangeGating.widened(selection: .month, effectiveRange: effective, isUnlocked: wk1)
+        XCTAssertFalse(widened)
+        XCTAssertEqual(ExploreRangeGating.readingCaption(count: 3, effectiveRange: effective, widened: widened),
+                       "3 readings · week")
+    }
+
+    func testGenuineWideningCaptionNamesDisplayedWindow() {
+        let widened = ExploreRangeGating.widened(selection: .week, effectiveRange: .month, isUnlocked: { _ in true })
+        XCTAssertTrue(widened)
+        XCTAssertEqual(ExploreRangeGating.readingCaption(count: 1, effectiveRange: .month, widened: widened),
+                       "1 reading · sparse, widened to month")
+    }
+
+    func testTwoAndThreeWeekWindowsDoNotJumpToAllHistory() {
+        XCTAssertEqual(ExploreRange.twoWeeks.widening.first, .twoWeeks)
+        XCTAssertEqual(ExploreRange.threeWeeks.widening.first, .threeWeeks)
+        XCTAssertEqual(ExploreRange.twoWeeks.widening.last, .all)
+    }
 }

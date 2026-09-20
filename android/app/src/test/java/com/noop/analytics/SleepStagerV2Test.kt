@@ -70,7 +70,7 @@ class SleepStagerV2Test {
         val sorted = SleepStagerV2.stageSession(start, start + duration, grav, hr, rr, emptyList())
         assertEquals(
             "the sorted-input output is the frozen control",
-            listOf(StageSegment(start, start + duration, "light")), sorted)
+            listOf("0:10:unknown", "10:4330:light", "4330:5400:rem"), sorted.map { "${it.start - start}:${it.end - start}:${it.stage}" })
 
         val shuffled = SleepStagerV2.stageSession(
             start, start + duration, oddEven(grav), oddEven(hr), oddEven(rr), emptyList())
@@ -106,11 +106,11 @@ class SleepStagerV2Test {
                 .map { "${it.start - start}:${it.end - start}:${it.stage}" }
         }
         val base = refMidnight + 3_000_000L
-        val cancelledOracle = listOf("0:5400:light")
+        val cancelledOracle = listOf("0:4320:light", "4320:5400:rem")
         val retainedOracle = listOf("0:5400:wake")
         assertEquals(cancelledOracle, stagedShape(base, signalLast = false, shuffled = false))
-        assertEquals(cancelledOracle, stagedShape(base + 10_000_000L, signalLast = false, shuffled = true))
-        assertEquals(retainedOracle, stagedShape(base + 20_000_000L, signalLast = true, shuffled = false))
+        assertEquals(cancelledOracle, stagedShape(base + 10_000_020L, signalLast = false, shuffled = true))
+        assertEquals(retainedOracle, stagedShape(base + 20_000_010L, signalLast = true, shuffled = false))
         assertEquals(retainedOracle, stagedShape(base + 30_000_000L, signalLast = true, shuffled = true))
     }
 
@@ -141,47 +141,21 @@ class SleepStagerV2Test {
             start = start, end = start + dur,
             grav = stillGravity(start, dur), hr = sleepHR(start, dur), rr = regularRR(start, dur),
             resp = emptyList())
-        val allowed = setOf("wake", "light", "deep", "rem")
+        val allowed = setOf("wake", "light", "deep", "rem", "unknown")
         for (s in segs) assertTrue("unexpected stage label ${s.stage}", s.stage in allowed)
     }
 
     @Test
-    fun degenerateInputFallsBackToSingleLightBlock() {
+    fun degenerateInputAbstains() {
         val start = refMidnight
         val end = start + 3_600L
         val segs = SleepStagerV2.stageSession(
             start = start, end = end,
             grav = listOf(GravitySample(deviceId = dev, ts = start, x = 0.0, y = 0.0, z = 1.0)),
             hr = emptyList(), rr = emptyList(), resp = emptyList())
-        assertEquals(1, segs.size)
-        assertEquals("light", segs.first().stage)
+        assertTrue(segs.all { it.stage == "unknown" && it.state == "state_unknown" })
         assertEquals(start, segs.first().start)
-        assertEquals(end, segs.first().end)
-    }
-
-    // ── the SleepStageHealer V1/V2 switch ──────────────────────────────────────────────────────────────
-
-    /** The opt-in flag routes the heal's re-stage to V2; default (false) stays on V1, byte-identical. */
-    @Test
-    fun healerSwitchSelectsV2WhenFlagOn() {
-        val start = refMidnight + 3_600L
-        val dur = 6 * 60 * 60
-        val end = start + dur - 1
-        val grav = stillGravity(start, dur)
-        val hr = sleepHR(start, dur)
-        val rr = regularRR(start, dur)
-
-        val v1 = SleepStageHealer.restageFromSamples(start, end, grav, hr, rr, emptyList())
-        val v1Default = SleepStageHealer.restageFromSamples(
-            start, end, grav, hr, rr, emptyList(), useExperimentalSleepV2 = false)
-        val v2 = SleepStageHealer.restageFromSamples(
-            start, end, grav, hr, rr, emptyList(), useExperimentalSleepV2 = true)
-
-        assertNotNull("dense raw must stage on both paths", v1)
-        assertNotNull(v2)
-        assertEquals("default flag is V1 (byte-identical to the no-flag call)", v1, v1Default)
-        assertTrue("V1 output is a segment array", v1!!.trimStart().startsWith("["))
-        assertTrue("V2 output is a segment array", v2!!.trimStart().startsWith("["))
+        assertEquals(end, segs.last().end)
     }
 
     // ── 7.0.0: the V2 flag drives the NORMAL detected-night staging path ─────────────────────────────────
@@ -225,8 +199,10 @@ class SleepStagerV2Test {
             start = v2.start, end = v2.end, grav = grav, hr = hr, rr = rr, resp = emptyList())
         assertEquals("flag ON must produce the V2 hypnogram", v2Direct, v2.stages)
         val v2Stages = v2.stages.map { it.stage }.toSet()
-        assertTrue("V2 night should express deep", "deep" in v2Stages)
+        assertFalse("coarse RR must not fabricate RSA evidence favoring deep", "deep" in v2Stages)
         assertTrue("V2 night should express REM", "rem" in v2Stages)
+        val withoutRR = SleepStagerV2.stageSession(v2.start, v2.end, grav, hr, emptyList(), emptyList())
+        assertEquals("unverified RR is equivalent to missing RSA", v2Direct, withoutRR)
     }
 
     // ── #277 frozen golden: pin the tuned V2 recipe (deepGateThresh / deep emission / transition row) ──────
@@ -275,11 +251,11 @@ class SleepStagerV2Test {
         val segs = SleepStagerV2.stageSession(start, start + dur, grav, hr, rr, emptyList())
         val golden = listOf(
             Triple(0L, 5070L, "deep"),
-            Triple(5070L, 5310L, "light"),
-            Triple(5310L, 5550L, "rem"),
-            Triple(5550L, 10740L, "light"),
-            Triple(10740L, 16290L, "rem"),
-            Triple(16290L, 21600L, "wake"))
+            Triple(5070L, 5280L, "light"),
+            Triple(5280L, 5550L, "rem"),
+            Triple(5550L, 10800L, "light"),
+            Triple(10800L, 16200L, "rem"),
+            Triple(16200L, 21600L, "wake"))
         assertEquals("segment count", golden.size, segs.size)
         for (k in golden.indices) {
             assertEquals("seg $k start", start + golden[k].first, segs[k].start)

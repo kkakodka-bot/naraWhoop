@@ -1,0 +1,5 @@
+# Publish Studio to localhost only — Caddy terminates TLS on 443.
+services:
+  studio:
+    ports:
+      - "127.0.0.1:3000:3000/tcp"

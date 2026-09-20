@@ -350,7 +350,7 @@ class PushCoordinator(
                         is PushResult.Rejected -> {
                             rejected += 1
                             if (selectedFailure == null || result.retryable && !retryableFailure) {
-                                selectedFailure = result.failure
+                                selectedFailure = result.failure?.attributedTo(table)
                             }
                             retryableFailure = retryableFailure || result.retryable
                         }
@@ -366,7 +366,7 @@ class PushCoordinator(
                         is PushResult.Rejected -> {
                             rejected += 1
                             if (selectedFailure == null || result.retryable && !retryableFailure) {
-                                selectedFailure = result.failure
+                                selectedFailure = result.failure?.attributedTo(table)
                             }
                             retryableFailure = retryableFailure || result.retryable
                         }
@@ -387,7 +387,7 @@ class PushCoordinator(
                         is PushResult.Rejected -> {
                             rejected += 1
                             if (selectedFailure == null || result.retryable && !retryableFailure) {
-                                selectedFailure = result.failure
+                                selectedFailure = result.failure?.attributedTo(table)
                             }
                             retryableFailure = retryableFailure || result.retryable
                         }
@@ -418,7 +418,7 @@ class PushCoordinator(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (transport: PushTransportException) {
-            return rejected(transport.failure)
+            return rejected(transport.failure.attributedTo(batch.table))
         } catch (_: Throwable) {
             return rejected(PushFailure(PushFailureCode.NETWORK_IO))
         }
@@ -427,7 +427,7 @@ class PushCoordinator(
         }
         if (response.statusCode !in 200..299) {
             return rejected(
-                PushFailure.http(response.statusCode, PushError.parseCode(response.body, batch.protocolVersion)),
+                PushError.httpFailure(response.statusCode, response.body, batch.protocolVersion, batch.table),
             )
         }
         val ack = try {
@@ -464,6 +464,7 @@ class PushCoordinator(
         }
         if (!uploaded) {
             val intent = try {
+                requireCurrentDestination()
                 transport.createObjectIntent(manifest, lane)
             } catch (intentFailure: PushTransportException) {
                 if (intentFailure.failure.receiverCode != "object_id_conflict") {
@@ -471,6 +472,7 @@ class PushCoordinator(
                 }
                 manifest = manifest.replacingObjectId(PushProtocol.freshObjectId())
                 try {
+                    requireCurrentDestination()
                     transport.createObjectIntent(manifest, lane)
                 } catch (retry: PushTransportException) {
                     return objectLaneFailure(retry)
@@ -529,17 +531,20 @@ class PushCoordinator(
         var reuploaded = false
         while (true) {
             val ack = try {
+                requireCurrentDestination()
                 transport.completeObject(manifest.objectId, lane)
             } catch (completeFailure: PushTransportException) {
                 val code = completeFailure.failure.receiverCode
                 if (!reuploaded && (code == "size_mismatch" || code == "object_missing")) {
                     reuploaded = true
                     try {
+                        requireCurrentDestination()
                         val refreshed = transport.createObjectIntent(manifest, lane)
                         if (refreshed.duplicate) continue
                         if (refreshed.objectId != manifest.objectId) {
                             return rejected(PushFailure(PushFailureCode.ACK_INVALID))
                         }
+                        requireCurrentDestination()
                         transport.uploadObject(refreshed, batch.payload)
                         expectedKey = refreshed.objectKey
                     } catch (failure: PushTransportException) {
@@ -571,6 +576,12 @@ class PushCoordinator(
     private fun objectLaneFailure(error: PushTransportException): PushResult =
         rejected(error.failure)
 
+    private fun requireCurrentDestination() {
+        if (!destinationStillCurrent()) {
+            throw CancellationException("push destination changed")
+        }
+    }
+
     private suspend fun deliver(batch: PushBatch): PushResult {
         if (!destinationStillCurrent()) {
             throw CancellationException("push destination changed")
@@ -580,7 +591,7 @@ class PushCoordinator(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (transport: PushTransportException) {
-            return rejected(transport.failure)
+            return rejected(transport.failure.attributedTo(batch.table))
         } catch (_: Throwable) {
             return rejected(PushFailure(PushFailureCode.NETWORK_IO))
         }
@@ -589,7 +600,7 @@ class PushCoordinator(
         }
         if (response.statusCode !in 200..299) {
             return rejected(
-                PushFailure.http(response.statusCode, PushError.parseCode(response.body, batch.protocolVersion)),
+                PushError.httpFailure(response.statusCode, response.body, batch.protocolVersion, batch.table),
             )
         }
         val ack = try {

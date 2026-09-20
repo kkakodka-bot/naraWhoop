@@ -1,0 +1,39 @@
+# Exact packages observed for the macOS arm64 Python 3.10.18 functional run.
+# This is a version lock, not a wheel-hash lock or a qualified Linux/VPS environment.
+# NeuroKit and Walch Python source-tree pins are in physiology_inference/upstream-lock.json.
+# Optional TensorFlow, SleepECG, wav2sleep and Octave environments are NOT claimed installed.
+numpy==2.2.6
+scipy==1.15.3
+pandas==2.2.3
+matplotlib==3.9.4
+scikit-learn==1.6.1
+PyWavelets==1.8.0
+torch==2.7.1
+packaging==26.3
+joblib==1.6.0
+threadpoolctl==3.7.0
+tqdm==4.67.1
+requests==2.32.4
+setuptools==80.9.0
+six==1.17.0
+python-dateutil==2.9.0.post0
+pytz==2026.3.post1
+tzdata==2026.4
+contourpy==1.3.2
+cycler==0.12.1
+fonttools==4.65.0
+kiwisolver==1.5.1
+pillow==12.3.0
+pyparsing==3.3.2
+filelock==3.18.0
+typing_extensions==4.14.0
+sympy==1.14.0
+networkx==3.4.2
+jinja2==3.1.6
+fsspec==2025.7.0
+MarkupSafe==3.0.2
+mpmath==1.3.0
+certifi==2025.6.15
+charset-normalizer==3.4.2
+idna==3.10
+urllib3==2.4.0

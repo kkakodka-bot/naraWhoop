@@ -105,10 +105,11 @@ class SleepStagerWindowEndpointTest {
         val wins = SleepStager.sessionHrvWindows(0L, 600L, beats, emptyList())
         assertEquals(listOf(0L, 300L), wins.map { it.startTs })
         assertEquals(
-            "the endpoint beats must fill the final window",
-            listOf(120, 3), wins.map { it.cleanBeats }
+            "legacy endpoint rows cannot establish clean original beats",
+            listOf(0, 0), wins.map { it.cleanBeats }
         )
-        assertEquals(listOf(0.0, 0.0), wins.map { it.rmssd })
+        assertEquals(listOf(null, null), wins.map { it.rmssd })
+        assertEquals("no_observations", wins.last().measurement?.reason)
     }
 
     @Test
@@ -120,7 +121,8 @@ class SleepStagerWindowEndpointTest {
         for (i in 0 until 3) beats.add(rr(450L, 900))
         val wins = SleepStager.sessionHrvWindows(0L, 450L, beats, emptyList())
         assertEquals(listOf(0L, 300L), wins.map { it.startTs })
-        assertEquals(listOf(120, 3), wins.map { it.cleanBeats })
+        assertEquals(listOf(0, 0), wins.map { it.cleanBeats })
+        assertEquals(listOf(null, null), wins.map { it.rmssd })
     }
 
     @Test
@@ -128,6 +130,6 @@ class SleepStagerWindowEndpointTest {
         // The value-level consequence: a zero-length window (start == end) is one closed bin, so
         // beats admitted by the prefilter produce a number instead of null.
         val beats = (0 until 3).map { rr(1000L, 900) }
-        assertEquals(0.0, SleepStager.sessionAvgHRV(1000L, 1000L, beats)!!, 1e-9)
+        org.junit.Assert.assertNull(SleepStager.sessionAvgHRV(1000L, 1000L, beats))
     }
 }

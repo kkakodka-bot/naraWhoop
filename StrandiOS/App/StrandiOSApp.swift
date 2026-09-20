@@ -302,6 +302,7 @@ struct StrandiOSApp: App {
         // safe no-op until the user opts in.
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                Task { await model.activateCloudCollection() }
                 model.drainPendingIntents(router: router)
                 // Re-arm the strap's smart alarm on foreground: the firmware alarm is a single instant
                 // and iOS can't re-arm it while suspended, so it would otherwise fire once and stop.
@@ -365,6 +366,13 @@ struct StrandiOSApp: App {
                 // into Apple Health. Gated inside writeIfEnabled on the opt-in default (OFF) — a
                 // no-op until the user turns on Shortcuts Export.
                 Task { await ShortcutHealthExport.writeIfEnabled(repo: model.repo) }
+                if ServerScoringSettings.isEnabled {
+                    Task {
+                        guard let writer = await model.repo.registryWriterForPush() else { return }
+                        CloudPushPeriodicScheduler.resetThrottle()
+                        _ = await CloudPushWorker.runOnce(db: writer, trigger: "background")
+                    }
+                }
             }
         }
     }
@@ -378,6 +386,9 @@ struct StrandiOSApp: App {
 /// excluded `RootView()` sidebar for `RootTabView()`. The shared `OnboardingWizard`, `TermsGateView`,
 /// `WhatsNewView`, `AppChangelog`, and `Terms` symbols all compile into the iOS target unchanged.
 private struct iOSRootView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var cloudScenePhase
+    @State private var cloudReady = CloudCaptureScope.ready
     @AppStorage("noop.onboarded") private var onboarded = false
     @AppStorage("noop.lastSeenChangelogVersion") private var lastSeenChangelog = ""
     @AppStorage("noop.acceptedTermsVersion") private var acceptedTerms = ""
@@ -408,9 +419,12 @@ private struct iOSRootView: View {
 
     private var shell: some View {
         ZStack {
+            if cloudReady || demoBypass {
+            CloudDeviceLinkGate(repository: model.serverScores) {
             RootTabView(homeScreenQuickActionsEnabled:
                 demoBypass || (onboarded && acceptedTerms == Terms.currentVersion
                     && automaticLaunchSheetResolved))
+            }
             if !onboarded && !demoBypass {
                 OnboardingWizard(onFinished: {
                     onboarded = true
@@ -420,6 +434,10 @@ private struct iOSRootView: View {
                 })
                 .transition(.opacity)
                 .zIndex(1)
+            }
+            } else {
+                CloudEnrollmentView()
+                    .zIndex(1)
             }
             // Terms acknowledgment gate — over EVERYTHING (before onboarding/pairing/Bluetooth) until
             // the current terms version is accepted; re-appears if the terms materially change.
@@ -461,7 +479,24 @@ private struct iOSRootView: View {
                 UpdateWatch.runIfDue(currentVersion: UpdateWatch.installedVersion, sideloadHint: true)
             }
         }
-        .onChange(of: acceptedTerms) { _, _ in showWhatsNewIfDue() }
+        .onChange(of: acceptedTerms) { _, _ in
+            showWhatsNewIfDue()
+            Task { await model.activateCloudCollection() }
+        }
+        .onChange(of: cloudScenePhase) { _, phase in
+            if phase == .active { cloudReady = CloudCaptureScope.ready }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .cloudEnrollmentDidChange)) { _ in
+            cloudReady = CloudCaptureScope.ready
+            if !cloudReady {
+                model.ble.disconnect()
+                showWhatsNew = false
+                automaticLaunchSheetResolved = false
+            } else {
+                showWhatsNewIfDue()
+                Task { await model.activateCloudCollection() }
+            }
+        }
     }
 
     /// DEBUG: launched with --demo-seed, skip the first-run gates (onboarding / terms / What's New) so the
@@ -480,7 +515,7 @@ private struct iOSRootView: View {
             return
         }
         // Existing users who updated: their last-seen version is behind the current one.
-        if onboarded && acceptedTerms == Terms.currentVersion
+        if cloudReady && onboarded && acceptedTerms == Terms.currentVersion
             && lastSeenChangelog != AppChangelog.currentVersion {
             automaticLaunchSheetResolved = false
             showWhatsNew = true

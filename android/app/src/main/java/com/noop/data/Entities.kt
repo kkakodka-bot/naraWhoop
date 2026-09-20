@@ -140,7 +140,8 @@ data class HrWindowStats(
  * as `v30-rr-ord`, and `srcChannel` as `v32-rr-src-channel`. (An earlier revision of this note said the
  * Swift widening was still pending; it had already shipped.)
  */
-@Entity(tableName = "rrInterval", primaryKeys = ["deviceId", "ts", "rrMs", "seq"])
+@Entity(tableName = "rrInterval", primaryKeys = ["deviceId", "ts", "rrMs", "seq"],
+    indices = [Index(value = ["srcChannel", "tsSuspect"], name = "rrInterval_source_suspect")])
 data class RrInterval(
     val deviceId: String,
     val ts: Long,
@@ -152,6 +153,22 @@ data class RrInterval(
     /** #1073 (Room v29): 1 when this beat's ts is in the FUTURE (corrupt ring time); NULL otherwise.
      *  Marked, never deleted; `WhoopDao.rrIntervals` filters it at READ. Twin of GRDB `tsSuspect`. */
     val tsSuspect: Int? = null,
+)
+
+@Entity(tableName = "rrPacketProvenance", primaryKeys = ["deviceId", "packetId"],
+    indices = [Index(value = ["deviceId", "ts"], name = "rrPacketProvenance_device_ts")])
+data class RrPacketProvenanceEntity(
+    val deviceId: String, val packetId: String, val ts: Long, val sensorTs: Long, val recordIndex: Long,
+    val rawHex: String, val srcChannel: Int, val schemaVersion: Int, val decoderVersion: String,
+    val clockVersion: String, val timestampPrecisionSeconds: Double, val clockOffsetSeconds: Long, val declaredCount: Int,
+)
+
+@Entity(tableName = "standardHRReceipt", primaryKeys = ["deviceId", "receiptId"],
+    indices = [Index(value = ["deviceId", "ts"], name = "standardHRReceipt_device_ts")])
+data class StandardHrReceiptEntity(
+    val deviceId: String, val receiptId: String, val ts: Long, val sessionId: String,
+    val notificationOrdinal: Long, val receivedUnixMs: Long, val receivedMonotonicNs: Long,
+    val rawHex: String, val schemaVersion: Int, val clockVersion: String,
 )
 
 /**
@@ -707,19 +724,20 @@ data class SyncJournalEntryEntity(
  * and a waveform has no aggregate that survives it. Bounding the bytes while always leaving a full working
  * set is the whole point. Swift twin: `WhoopStore.ppgWaveformRetentionRows`.
  */
-@Entity(tableName = "ppgWaveformSample", primaryKeys = ["deviceId", "ts"])
+@Entity(tableName = "ppgWaveformSample", primaryKeys = ["deviceId", "ts", "recordIndex"])
 data class PpgWaveformSampleEntity(
     val deviceId: String,
     val ts: Long,
     val samples: ByteArray,
     val burstIndex: Int? = null,
+    val recordIndex: Long = -1,
 ) {
     // ByteArray needs structural equals/hashCode (the generated identity ones break round-trip asserts).
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is PpgWaveformSampleEntity) return false
         return deviceId == other.deviceId && ts == other.ts && samples.contentEquals(other.samples) &&
-            burstIndex == other.burstIndex
+            burstIndex == other.burstIndex && recordIndex == other.recordIndex
     }
 
     override fun hashCode(): Int {
@@ -727,6 +745,7 @@ data class PpgWaveformSampleEntity(
         result = 31 * result + ts.hashCode()
         result = 31 * result + samples.contentHashCode()
         result = 31 * result + (burstIndex ?: 0)
+        result = 31 * result + recordIndex.hashCode()
         return result
     }
 }

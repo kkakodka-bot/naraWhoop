@@ -35,6 +35,14 @@ export function createManifestStore({ rest, now = () => new Date() }: { rest: Su
     return rows[0] || null;
   }
 
+  async function byUserBatch(userId: string, batchId: string) {
+    const rows = await rest.select(
+      'object_manifests',
+      `user_id=eq.${userId}&batch_id=eq.${batchId}&select=*`,
+    );
+    return rows[0] || null;
+  }
+
   async function listByUser(userId: string, extra = '') {
     const q = [`user_id=eq.${userId}`, 'select=*', extra].filter(Boolean).join('&');
     return rest.select('object_manifests', q);
@@ -54,7 +62,7 @@ export function createManifestStore({ rest, now = () => new Date() }: { rest: Su
     );
   }
 
-  return { insertPending, mark, get, byKey, listByUser, listPendingStale, listReady };
+  return { insertPending, mark, get, byKey, byUserBatch, listByUser, listPendingStale, listReady };
 }
 
 export type ManifestStore = ReturnType<typeof createManifestStore>;

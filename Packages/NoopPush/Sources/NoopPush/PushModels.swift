@@ -7,6 +7,8 @@ public protocol PushTable: Sendable {
 public enum PushAppendTable: String, CaseIterable, PushTable, Sendable {
     case hrSample
     case rrInterval
+    case rrPacketProvenance
+    case standardHRReceipt
     case event
     case battery
     case spo2Sample
@@ -47,13 +49,15 @@ public struct PushPpgWaveformRecord: Sendable {
     public let ts: Int64
     public let burstIndex: Int32?
     public let samples: Data
+    public let recordIndex: Int64?
 
-    public init(rowId: Int64, ts: Int64, burstIndex: Int32?, samples: Data) {
+    public init(rowId: Int64, ts: Int64, burstIndex: Int32?, samples: Data, recordIndex: Int64? = nil) {
         precondition(rowId > 0)
         self.rowId = rowId
         self.ts = ts
         self.burstIndex = burstIndex
         self.samples = samples
+        self.recordIndex = recordIndex
     }
 }
 

@@ -40,8 +40,9 @@ class HrOnlyPhysiologyIsolationTest {
         val from = src.indexOf("\n", decl) + 1
         val to = src.indexOf("val avgSDNNDaily", from)
         assertTrue("expected the SDNN index to follow the physiology set", to > from)
-        // Through the end of the SDNN call, which is the last of the four aggregates.
-        return src.substring(from, src.indexOf(")", src.indexOf("segmentSec = 300", to)) + 1)
+        val end = src.indexOf("// ── HRV & Autonomic nightly trace", to)
+        assertTrue("expected the HRV summary boundary after SDNN", end > to)
+        return src.substring(from, end)
     }
 
     @Test
@@ -82,7 +83,7 @@ class HrOnlyPhysiologyIsolationTest {
             "physiological aggregates must use physiologySessions, found: $offenders",
             offenders.isEmpty(),
         )
-        for (needle in listOf("restingHRDaily", "val deep", "val pairs", "avgSDNNDaily")) {
+        for (needle in listOf("restingHRDaily", "hrvNightSummary", "hrvMeasurements", "avgSDNNDaily")) {
             assertTrue("$needle must sit inside the guarded region", body.contains(needle))
         }
     }

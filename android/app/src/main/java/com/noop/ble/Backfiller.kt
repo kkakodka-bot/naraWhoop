@@ -78,6 +78,10 @@ class Backfiller(
      * (#78 fork)
      */
     private val onChunkCommitted: (StreamBatch) -> Unit = {},
+    /** Idle-watchdog pause while decode + persist run (strap waits on our ack). */
+    private val onChunkCommitBegin: () -> Unit = {},
+    /** Resume idle watchdog when a commit ends without ack (persist held). */
+    private val onChunkCommitAborted: () -> Unit = {},
     /**
      * Per-console-only chunk hook (#77 family): a chunk arrived with frames but decoded no rows and
      * held no genuine rejects — pure diagnostic/console output. Lets the client tally a completed-but-
@@ -382,6 +386,13 @@ class Backfiller(
     private suspend fun finishChunk(unix: Long, trim: Long, endFrame: ByteArray) {
         val endData = endData(endFrame, family) ?: return
 
+        var commitWatchdogPaused = false
+        fun resumeCommitWatchdogIfNeeded() {
+            if (!commitWatchdogPaused) return
+            commitWatchdogPaused = false
+            onChunkCommitAborted()
+        }
+
         // #773: corrupt future-RTC detection. A HISTORY_END carries the strap's own clock; a genuine offload
         // is always PAST-dated (it's banked history), so an end dated days into the future can only be a
         // corrupt strap RTC. Surface it ONCE per session with a recovery hint so the cause (the strap clock,
@@ -569,6 +580,8 @@ class Backfiller(
                 // #1008/#1118: census the batch BEFORE it is stored — the only place the decoder's own
                 // emission can be measured, since every existing R-R number is taken after the conflict
                 // key has already absorbed part of it.
+                onChunkCommitBegin()
+                commitWatchdogPaused = true
                 val rrCensus = com.noop.analytics.RrEmissionStats.compute(decoded.rr.map { it.ts.toInt() to it.rrMs })
                 val counts = repository.insert(decoded, deviceId, markPostBackfillDebt = true)
                 onBankedOffload(counts)
@@ -606,6 +619,7 @@ class Backfiller(
                 // Mirrors the Swift twin's log so a write-stall is falsifiable here too.
                 log("Backfill: failed to persist decoded rows (trim=$trim): $t, holding ack so the strap re-sends this chunk; history won't advance until the write succeeds.")
                 persistStalled = true   // #57: stall ALL further acks so an empty END can't advance past this
+                resumeCommitWatchdogIfNeeded()
                 return // do NOT advance/ack, chunk was never durably committed
             }
             // #77 / #91: any genuinely-undecodable record in this chunk must be ARCHIVED durably before
@@ -618,6 +632,7 @@ class Backfiller(
             if (rejected.isNotEmpty() && !rejectedSink(rejected, trim)) {
                 log("Backfill: rejected-frame archive failed (trim=$trim) — holding ack so the strap re-sends.")
                 persistStalled = true   // #57
+                resumeCommitWatchdogIfNeeded()
                 return
             }
         }
@@ -649,6 +664,7 @@ class Backfiller(
         // GOOD ack.
         if (persistStalled) {
             log("Backfill: persist stalled earlier this session — NOT acking trim=$trim so the strap can't trim past un-stored history. Reconnect once the store is healthy (a backup restore needs an app restart, #57).")
+            resumeCommitWatchdogIfNeeded()
             return
         }
 
@@ -665,9 +681,11 @@ class Backfiller(
             // nothing in the log to confirm it. Mirrors the Swift twin's log.
             log("Backfill: failed to write strap_trim cursor (trim=$trim): $t, holding ack so the strap re-sends this chunk; history won't advance until the cursor write succeeds.")
             persistStalled = true   // #57
+            resumeCommitWatchdogIfNeeded()
             return
         }
 
+        commitWatchdogPaused = false
         ackTrim(trim, endData)
         lastAckedTrim = trim   // #364: record the advanced cursor for the auto-continue spin-detector
         committed?.takeIf { !it.isEmpty }?.let(onChunkCommitted)

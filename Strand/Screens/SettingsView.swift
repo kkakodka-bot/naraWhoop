@@ -327,12 +327,15 @@ struct SettingsView: View {
 
     var body: some View {
         ScreenScaffold(title: "Settings",
-                       subtitle: "Your numbers, your strap, and how NARA works. All on \(Platform.deviceNounPhrase).",
+                       subtitle: "Your account, your strap, and how NARA works.",
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends / Devices:
                        // a fixed, full-bleed time-of-day sky behind the scroll content (it does not scroll).
                        // Settings' own frosted cards sit on the dark canvas below the sky band, unchanged.
                        topBackground: liquidScaffoldSky()) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                NavigationLink(destination: CloudAccountView()) {
+                    Label("NARA account", systemImage: "person.crop.circle")
+                }
                 // Everyday sections stay expanded (S3): the ones a first-run user actually needs.
                 profileCard.staggeredAppear(index: 0)
                 unitsCard.staggeredAppear(index: 1)
@@ -1685,6 +1688,21 @@ struct SettingsView: View {
             }
             .buttonStyle(LiquidPressStyle())
             .accessibilityLabel("Open Test Centre")
+            #if os(macOS)
+            NavigationLink(destination: ServerScoringView()) {
+                HStack {
+                    Text("Server scoring (HRV / sleep)")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(LiquidPressStyle())
+            #endif
         }
     }
 
@@ -1695,6 +1713,19 @@ struct SettingsView: View {
             title: "Self-hosted push",
             blurb: "Experimental one-way export to an endpoint you control. Off by default."
         ) {
+            NavigationLink(destination: ServerScoringView()) {
+                HStack {
+                    Text("Server scoring (HRV / sleep)")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(LiquidPressStyle())
             NavigationLink(destination: CloudPushView()) {
                 HStack {
                     Text("Configure self-hosted push")

@@ -1,0 +1,1084 @@
+diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
+index 13f5de0..07069ed 100644
+--- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
++++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
+@@ -4,7 +4,6 @@ import com.frwhoop.scoring.db.EngineIngestWriter
+ import com.frwhoop.scoring.db.PostgresClient
+ import com.frwhoop.scoring.db.ScoringWorkQueue
+ import com.frwhoop.scoring.db.SignalSampleReader
+-import com.frwhoop.scoring.derived.DerivedArtifactWriter
+ import com.frwhoop.scoring.health.HeartbeatReporter
+ import com.frwhoop.scoring.scoring.DayScorer
+ import com.frwhoop.scoring.scoring.ScoringPoller
+@@ -15,19 +14,16 @@ private val log = LoggerFactory.getLogger("ScoringApplication")
+
+ fun main(args: Array<String>) {
+     val config = ScoringConfig.fromEnv()
++    require(config.algorithmVersion == "frwhoop-server-1") { "Frozen baseline must retain its v1 identity" }
+     val db = PostgresClient(config.databaseUrl)
+     val reader = SignalSampleReader(db)
+     val queue = ScoringWorkQueue(db)
+     val scorer = DayScorer()
+     val writer = EngineIngestWriter(config.supabaseUrl, config.serviceRoleKey, config.ingestSecret)
+-    val derivedWriter = config.b2Config?.let {
+-        DerivedArtifactWriter(it, config.supabaseUrl, config.serviceRoleKey)
+-    }
+-    if (derivedWriter == null) {
+-        log.warn("B2 credentials missing — derived artifact lane disabled (scores still write to Postgres)")
+-    }
++    // Publication creates durable immutable archive debt for the shared archive worker.
++    // Never invoke the original mutable-key baseline B2 writer from this fenced worker.
+     val heartbeat = HeartbeatReporter(db, config.algorithmVersion)
+-    val poller = ScoringPoller(config, reader, queue, scorer, writer, derivedWriter, heartbeat)
++    val poller = ScoringPoller(config, reader, queue, scorer, writer, heartbeat)
+
+     if (args.contains("--replay-day") || config.replayUserId != null) {
+         val userId = UUID.fromString(config.replayUserId ?: error("REPLAY_USER_ID required for --replay-day"))
+diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt
+index eaf047c..cd95d5a 100644
+--- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt
++++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt
+@@ -10,13 +10,13 @@ import org.json.JSONArray
+ import org.json.JSONObject
+ import java.time.Instant
+
+-/** Writes scoped scores through `engine_ingest_scored` with service-role auth. */
++/** Retains frozen v1 values while publishing through the token-fenced legacy RPC. */
+ class EngineIngestWriter(
+     private val supabaseUrl: String,
+     private val serviceRoleKey: String,
+     private val ingestSecret: String,
+     private val http: OkHttpClient = OkHttpClient.Builder().build(),
+-    private val rpcPath: String = "rpc/engine_ingest_scored",
++    private val rpcPath: String = "rpc/engine_publish_legacy_fenced",
+ ) {
+     private val jsonType = "application/json".toMediaType()
+
+@@ -95,8 +95,17 @@ class EngineIngestWriter(
+         }
+     }
+
+-    fun write(bundle: ServerScoreBundle) {
++    fun write(bundle: ServerScoreBundle, item: ScoringWorkQueue.WorkItem) {
++        require(bundle.algorithmVersion == "frwhoop-server-1") { "Frozen baseline must retain its v1 identity" }
++        require(bundle.userId == item.userId && bundle.deviceId == item.deviceId.toString() && bundle.day == item.day) {
++            "Publication owner differs from the baseline claim"
++        }
+         val payload = buildPayload(bundle)
++            .put("device_id", item.deviceId.toString())
++            .put("day", item.day)
++            .put("input_revision", item.inputRevision)
++            .put("lease_token", item.leaseToken.toString())
++            .put("run_id", item.runId.toString())
+         val body = JSONObject()
+             .put("p_secret", ingestSecret)
+             .put("p_payload", payload)
+@@ -118,7 +127,7 @@ class EngineIngestWriter(
+
+         http.newCall(req).execute().use { resp ->
+             if (!resp.isSuccessful) {
+-                error("engine_ingest_scored failed: ${resp.code} ${resp.body?.string()}")
++                error("Fenced baseline publication failed: HTTP ${resp.code}")
+             }
+         }
+     }
+diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ScoringWorkQueue.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ScoringWorkQueue.kt
+index 2c88b4a..d63d124 100644
+--- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ScoringWorkQueue.kt
++++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ScoringWorkQueue.kt
+@@ -1,18 +1,16 @@
+ package com.frwhoop.scoring.db
+
+-import java.sql.Connection
+-import java.sql.Timestamp
++import java.sql.PreparedStatement
++import java.sql.ResultSet
+ import java.time.Duration
+ import java.time.Instant
+ import java.util.UUID
+
+-/** Durable score-on-arrival queue backed by scoring_work_items + scorer_state. */
++/** Frozen v1 scoring uses its own transactionally enqueued, token-fenced work lane. */
+ class ScoringWorkQueue(
+     private val db: PostgresClient,
+-    private val discoveryOverlap: Duration = Duration.ofSeconds(30),
+-    private val claimLease: Duration = Duration.ofMinutes(5),
++    val claimLease: Duration = Duration.ofMinutes(5),
+     private val maxAttempts: Int = 8,
+-    private val claimBatchSize: Int = 8,
+ ) {
+     data class WorkItem(
+         val userId: UUID,
+@@ -20,282 +18,90 @@ class ScoringWorkQueue(
+         val day: String,
+         val dirtyAt: Instant,
+         val claimedAt: Instant,
++        val inputRevision: Long,
++        val leaseToken: UUID,
++        val runId: UUID,
++        val timezoneId: String,
+     )
+
+-    fun readWatermark(): Instant =
++    /** This serial worker claims one runnable item, never a backlog whose leases age in memory. */
++    fun claimOne(userId: UUID? = null, deviceId: UUID? = null, day: String? = null): WorkItem? =
+         db.withConnection { conn ->
+-            conn.prepareStatement(
+-                "select discovery_watermark from public.scorer_state where id = 1",
+-            ).use { ps ->
+-                ps.executeQuery().use { rs ->
+-                    if (rs.next()) rs.getTimestamp("discovery_watermark").toInstant()
+-                    else Instant.EPOCH
+-                }
++            conn.prepareStatement("select * from public.scoring_legacy_claim_one(?, ?, ?, ?, ?::date)").use { ps ->
++                ps.setInt(1, claimLease.seconds.toInt())
++                ps.setInt(2, maxAttempts)
++                ps.setObject(3, userId)
++                ps.setObject(4, deviceId)
++                ps.setString(5, day)
++                ps.executeQuery().use { rs -> if (rs.next()) rs.workItem() else null }
+             }
+         }
+
+-    /**
+-     * Discover newly ingested signal rows since [since], upsert work items (bump dirty_at), then
+-     * advance the discovery watermark to [readAt] minus the overlap margin.
+-     */
+-    fun discoverAndEnqueue(since: Instant, readAt: Instant = Instant.now()): Int =
+-        db.withConnection { conn ->
+-            conn.autoCommit = false
+-            try {
+-                val discovered = discoverLocalDays(conn, since)
+-                var upserted = 0
+-                for ((userId, deviceId, day, dirtyAt) in discovered) {
+-                    upserted += upsertWorkItem(conn, userId, deviceId, day, dirtyAt)
+-                }
+-                val watermark = readAt.minus(discoveryOverlap)
+-                conn.prepareStatement(
+-                    """
+-                    update public.scorer_state
+-                    set discovery_watermark = ?, updated_at = now()
+-                    where id = 1
+-                    """.trimIndent(),
+-                ).use { ps ->
+-                    ps.setTimestamp(1, Timestamp.from(watermark))
+-                    ps.executeUpdate()
+-                }
+-                conn.commit()
+-                upserted
+-            } catch (err: Exception) {
+-                conn.rollback()
+-                throw err
+-            } finally {
+-                conn.autoCommit = true
+-            }
+-        }
+-
+-    fun claimDue(): List<WorkItem> =
+-        db.withConnection { conn ->
+-            conn.autoCommit = false
+-            try {
+-                val due = selectDue(conn)
+-                val claimed = mutableListOf<WorkItem>()
+-                for (item in due) {
+-                    val work = claimOne(conn, item.userId, item.deviceId, item.day) ?: continue
+-                    claimed.add(work)
+-                }
+-                conn.commit()
+-                claimed
+-            } catch (err: Exception) {
+-                conn.rollback()
+-                throw err
+-            } finally {
+-                conn.autoCommit = true
+-            }
+-        }
+-
+-    fun markDone(item: WorkItem, durationMs: Int, derivedArtifactError: String? = null): Boolean =
+-        db.withConnection { conn ->
+-            val updated = conn.prepareStatement(
+-                """
+-                update public.scoring_work_items
+-                set done_at = now(),
+-                    claimed_at = null,
+-                    last_duration_ms = ?,
+-                    last_error = null,
+-                    derived_artifact_error = ?,
+-                    derived_artifact_at = case when ? is null then derived_artifact_at else now() end
+-                where user_id = ? and device_id = ? and day = ?::date
+-                  and dirty_at <= ?
+-                """.trimIndent(),
+-            ).use { ps ->
+-                ps.setInt(1, durationMs)
+-                ps.setString(2, derivedArtifactError?.take(2000))
+-                ps.setString(3, derivedArtifactError?.take(2000))
+-                ps.setObject(4, item.userId)
+-                ps.setObject(5, item.deviceId)
+-                ps.setString(6, item.day)
+-                ps.setTimestamp(7, Timestamp.from(item.dirtyAt))
+-                ps.executeUpdate()
+-            }
+-            if (updated == 0) {
+-                conn.prepareStatement(
+-                    """
+-                    update public.scoring_work_items
+-                    set claimed_at = null
+-                    where user_id = ? and device_id = ? and day = ?::date
+-                    """.trimIndent(),
+-                ).use { ps ->
+-                    ps.setObject(1, item.userId)
+-                    ps.setObject(2, item.deviceId)
+-                    ps.setString(3, item.day)
+-                    ps.executeUpdate()
+-                }
+-            }
+-            updated > 0
+-        }
+-
+-    fun markFailed(item: WorkItem, error: String) {
+-        db.withConnection { conn ->
+-            conn.prepareStatement(
+-                """
+-                update public.scoring_work_items
+-                set claimed_at = null, last_error = ?
+-                where user_id = ? and device_id = ? and day = ?::date
+-                """.trimIndent(),
+-            ).use { ps ->
+-                ps.setString(1, error.take(2000))
+-                ps.setObject(2, item.userId)
+-                ps.setObject(3, item.deviceId)
+-                ps.setString(4, item.day)
+-                ps.executeUpdate()
+-            }
++    fun renew(item: WorkItem): Boolean = db.withConnection { conn ->
++        conn.prepareStatement("select public.scoring_legacy_renew_lease(?, ?, ?::date, ?, ?, ?, ?)").use { ps ->
++            ps.bindIdentity(item)
++            ps.setInt(7, claimLease.seconds.toInt())
++            ps.executeQuery().use { rs -> rs.next() && rs.getBoolean(1) }
+         }
+     }
+
+-    /** Re-enqueue a specific (user, device, day) for queue-path verification. */
+-    fun dirtyWorkItem(userId: UUID, deviceId: UUID, day: String, dirtyAt: Instant = Instant.now()): Int =
+-        db.withConnection { conn ->
+-            upsertWorkItem(conn, userId, deviceId, day, dirtyAt)
+-        }
+-
+-    private data class DueRow(val userId: UUID, val deviceId: UUID, val day: String)
+-
+-    private fun selectDue(conn: Connection): List<DueRow> =
+-        conn.prepareStatement(
+-            """
+-            select user_id, device_id, day::text as day
+-            from public.scoring_work_items
+-            where done_at is null
+-              and (claimed_at is null or claimed_at < now() - (? || ' seconds')::interval)
+-              and attempts < ?
+-            order by dirty_at asc
+-            limit ?
+-            """.trimIndent(),
+-        ).use { ps ->
+-            ps.setLong(1, claimLease.seconds)
+-            ps.setInt(2, maxAttempts)
+-            ps.setInt(3, claimBatchSize)
+-            ps.executeQuery().use { rs ->
+-                buildList {
+-                    while (rs.next()) {
+-                        add(
+-                            DueRow(
+-                                userId = UUID.fromString(rs.getString("user_id")),
+-                                deviceId = UUID.fromString(rs.getString("device_id")),
+-                                day = rs.getString("day"),
+-                            ),
+-                        )
+-                    }
+-                }
+-            }
+-        }
++    fun markDone(item: WorkItem, durationMs: Int): Boolean = finish(item, "done", durationMs, null)
+
+-    private fun claimOne(conn: Connection, userId: UUID, deviceId: UUID, day: String): WorkItem? =
+-        conn.prepareStatement(
+-            """
+-            update public.scoring_work_items
+-            set claimed_at = now(), attempts = attempts + 1
+-            where user_id = ? and device_id = ? and day = ?::date
+-              and done_at is null
+-              and (claimed_at is null or claimed_at < now() - (? || ' seconds')::interval)
+-              and attempts < ?
+-            returning user_id, device_id, day::text as day, dirty_at, claimed_at
+-            """.trimIndent(),
+-        ).use { ps ->
+-            ps.setObject(1, userId)
+-            ps.setObject(2, deviceId)
+-            ps.setString(3, day)
+-            ps.setLong(4, claimLease.seconds)
+-            ps.setInt(5, maxAttempts)
+-            ps.executeQuery().use { rs ->
+-                if (!rs.next()) return null
+-                WorkItem(
+-                    userId = UUID.fromString(rs.getString("user_id")),
+-                    deviceId = UUID.fromString(rs.getString("device_id")),
+-                    day = rs.getString("day"),
+-                    dirtyAt = rs.getTimestamp("dirty_at").toInstant(),
+-                    claimedAt = rs.getTimestamp("claimed_at").toInstant(),
+-                )
+-            }
+-        }
++    fun markWaiting(item: WorkItem, reason: String): Boolean = finish(item, "waiting", null, reason)
+
+-    private data class DiscoveredDay(
+-        val userId: UUID,
+-        val deviceId: UUID,
+-        val day: String,
+-        val dirtyAt: Instant,
+-    )
++    fun markFailed(item: WorkItem, error: String): Boolean = finish(item, "failed", null, error)
+
+-    private fun discoverLocalDays(conn: Connection, since: Instant): List<DiscoveredDay> =
+-        conn.prepareStatement(DISCOVER_LOCAL_DAYS_SQL).use { ps ->
+-            val ts = Timestamp.from(since)
+-            ps.setTimestamp(1, ts)
+-            ps.setTimestamp(2, ts)
+-            ps.setTimestamp(3, ts)
+-            ps.executeQuery().use { rs ->
+-                buildList {
+-                    while (rs.next()) {
+-                        add(
+-                            DiscoveredDay(
+-                                userId = UUID.fromString(rs.getString("user_id")),
+-                                deviceId = UUID.fromString(rs.getString("device_id")),
+-                                day = rs.getString("day"),
+-                                dirtyAt = rs.getTimestamp("dirty_at").toInstant(),
+-                            ),
+-                        )
+-                    }
+-                }
++    private fun finish(item: WorkItem, outcome: String, durationMs: Int?, error: String?): Boolean =
++        db.withConnection { conn ->
++            conn.prepareStatement("select public.scoring_legacy_finish_work(?, ?, ?::date, ?, ?, ?, ?, ?, ?)").use { ps ->
++                ps.bindIdentity(item)
++                ps.setString(7, outcome)
++                ps.setObject(8, durationMs)
++                ps.setString(9, error?.take(2000))
++                ps.executeQuery().use { rs -> rs.next() && rs.getBoolean(1) }
+             }
+         }
+
+-    private fun upsertWorkItem(
+-        conn: Connection,
+-        userId: UUID,
+-        deviceId: UUID,
+-        day: String,
+-        dirtyAt: Instant,
+-    ): Int =
++    /** Explicit replay is a new revision and uses the same publication fence as arrival work. */
++    fun dirtyWorkItem(userId: UUID, deviceId: UUID, day: String): Long = db.withConnection { conn ->
+         conn.prepareStatement(
+             """
+-            insert into public.scoring_work_items (user_id, device_id, day, dirty_at)
+-            values (?, ?, ?::date, ?)
+-            on conflict (user_id, device_id, day) do update set
+-              dirty_at = greatest(scoring_work_items.dirty_at, excluded.dirty_at),
+-              done_at = case
+-                when excluded.dirty_at > coalesce(scoring_work_items.dirty_at, '-infinity'::timestamptz)
+-                then null
+-                else scoring_work_items.done_at
+-              end
++            select public.scoring_enqueue_legacy_fenced(?, ?, ?::date,
++              coalesce((select timezone_id from public.scoring_work_items
++                where user_id=? and device_id=? and day=?::date),
++                public.scoring_timezone_at(?, ?::date::timestamp at time zone 'UTC')), 0)
+             """.trimIndent(),
+         ).use { ps ->
+             ps.setObject(1, userId)
+             ps.setObject(2, deviceId)
+             ps.setString(3, day)
+-            ps.setTimestamp(4, Timestamp.from(dirtyAt))
+-            ps.executeUpdate()
++            ps.setObject(4, userId)
++            ps.setObject(5, deviceId)
++            ps.setString(6, day)
++            ps.setObject(7, userId)
++            ps.setString(8, day)
++            ps.executeQuery().use { rs -> check(rs.next()); rs.getLong(1) }
+         }
++    }
+
+-    companion object {
+-        /** Exposed for unit tests that assert discovery shape without a live DB. */
+-        val DISCOVER_LOCAL_DAYS_SQL: String =
+-            """
+-            with touched as (
+-              select h.user_id, h.device_id, h.ts, h.ingested_at, coalesce(p.timezone, 'UTC') as tz
+-              from public.noop_hr_samples h
+-              join public.profiles p on p.id = h.user_id
+-              where h.ingested_at > ? and h.device_id is not null
+-              union all
+-              select r.user_id, r.device_id, r.ts, r.ingested_at, coalesce(p.timezone, 'UTC') as tz
+-              from public.noop_rr_intervals r
+-              join public.profiles p on p.id = r.user_id
+-              where r.ingested_at > ? and r.device_id is not null
+-              union all
+-              select w.user_id, w.device_id, w.hour_start as ts, w.updated_at as ingested_at,
+-                     coalesce(p.timezone, 'UTC') as tz
+-              from public.noop_signal_windows w
+-              join public.profiles p on p.id = w.user_id
+-              where w.updated_at > ? and w.device_id is not null
+-            )
+-            select user_id, device_id,
+-                   (to_timestamp(ts) at time zone tz)::date::text as day,
+-                   max(ingested_at) as dirty_at
+-            from touched
+-            group by user_id, device_id, (to_timestamp(ts) at time zone tz)::date
+-            """.trimIndent()
++    private fun PreparedStatement.bindIdentity(item: WorkItem) {
++        setObject(1, item.userId)
++        setObject(2, item.deviceId)
++        setString(3, item.day)
++        setLong(4, item.inputRevision)
++        setObject(5, item.leaseToken)
++        setObject(6, item.runId)
+     }
++
++    private fun ResultSet.workItem() = WorkItem(
++        userId = getObject("user_id", UUID::class.java),
++        deviceId = getObject("device_id", UUID::class.java),
++        day = getDate("day").toString(),
++        dirtyAt = getTimestamp("dirty_at").toInstant(),
++        claimedAt = getTimestamp("claimed_at").toInstant(),
++        inputRevision = getLong("input_revision"),
++        leaseToken = getObject("lease_token", UUID::class.java),
++        runId = getObject("run_id", UUID::class.java),
++        timezoneId = getString("timezone_id"),
++    )
+ }
+diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/derived/DerivedArtifactWriter.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/derived/DerivedArtifactWriter.kt
+index fb4eea6..249a89e 100644
+--- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/derived/DerivedArtifactWriter.kt
++++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/derived/DerivedArtifactWriter.kt
+@@ -24,9 +24,9 @@ class DerivedArtifactWriter(
+     private val putClient: B2ObjectStore.PutClient? = null,
+     private val http: OkHttpClient = OkHttpClient.Builder().build(),
+ ) {
+-    private val livePut: B2ObjectStore.PutClient? =
+-        if (putClient != null) putClient
+-        else b2Config?.let { B2ObjectStore(it, http) }
++    // Retired by fenced publication + immutable archive outbox. Keep injected fixture clients
++    // usable for old serializer tests, but never construct the mutable-key live B2 transport.
++    private val livePut: B2ObjectStore.PutClient? = putClient
+
+     val enabled: Boolean = livePut != null
+
+diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt
+index cc4807d..149c079 100644
+--- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt
++++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt
+@@ -4,30 +4,37 @@ import com.frwhoop.scoring.ScoringConfig
+ import com.frwhoop.scoring.db.EngineIngestWriter
+ import com.frwhoop.scoring.db.ScoreInputProvider
+ import com.frwhoop.scoring.db.ScoringWorkQueue
+-import com.frwhoop.scoring.derived.DerivedArtifactWriter
+ import com.frwhoop.scoring.health.HeartbeatReporter
+ import org.slf4j.LoggerFactory
++import java.time.Duration
+ import java.util.UUID
++import java.util.concurrent.Executors
++import java.util.concurrent.TimeUnit
++import java.util.concurrent.atomic.AtomicBoolean
+
++/** Token-fenced orchestration around the unchanged baseline scorer and result mapper. */
+ class ScoringPoller(
+     private val config: ScoringConfig,
+     private val inputs: ScoreInputProvider,
+     private val queue: ScoringWorkQueue,
+     private val scorer: DayScorer,
+     private val writer: EngineIngestWriter,
+-    private val derivedWriter: DerivedArtifactWriter?,
+     private val heartbeat: HeartbeatReporter,
+ ) {
+     private val log = LoggerFactory.getLogger(ScoringPoller::class.java)
+
++    init {
++        require(config.algorithmVersion == "frwhoop-server-1") { "Frozen baseline must retain its v1 identity" }
++    }
++
+     fun runForever() {
+-        log.info("scoring poller started (interval={}s, version={})", config.pollInterval.seconds, config.algorithmVersion)
+-        while (true) {
++        log.info("fenced baseline poller started (interval={}s)", config.pollInterval.seconds)
++        while (!Thread.currentThread().isInterrupted) {
+             try {
+                 pollOnce()
+             } catch (err: Exception) {
+-                log.error("poll cycle failed: {}", err.message, err)
+-                heartbeat.recordError(err.message ?: err.javaClass.simpleName)
++                log.error("baseline poll cycle failed: {}", err.javaClass.simpleName)
++                heartbeat.recordError(err.javaClass.simpleName)
+             }
+             Thread.sleep(config.pollInterval.toMillis())
+         }
+@@ -35,103 +42,73 @@ class ScoringPoller(
+
+     fun pollOnce() {
+         heartbeat.recordPoll()
+-        val watermark = queue.readWatermark()
+-        val readAt = java.time.Instant.now()
+-        val discovered = queue.discoverAndEnqueue(watermark, readAt)
+-        if (discovered > 0) {
+-            log.info("discovered {} work-item upsert(s) since {}", discovered, watermark)
+-        }
+-
+-        val claimed = queue.claimDue()
+-        if (claimed.isEmpty()) {
+-            log.debug("no due work items")
+-            return
+-        }
+-        log.info("claimed {} work item(s)", claimed.size)
+-        for (item in claimed) {
++        // The worker is serial: do not age a batch of unused leases while scoring the first item.
++        repeat(8) {
++            val item = queue.claimOne() ?: return
+             processWorkItem(item)
+         }
+     }
+
+     fun scoreDay(userId: UUID, deviceId: UUID, day: String) {
+-        val inputs = inputs.loadDay(userId, day, deviceId)
+-        if (inputs == null) {
+-            log.warn("skip {} {} {} — no device/inputs", userId, deviceId, day)
+-            return
+-        }
+-        if (inputs.hr.isEmpty() && inputs.rr.isEmpty()) {
+-            log.warn("skip {} {} {} — no hr/rr samples in night window", userId, deviceId, day)
+-            return
+-        }
+-        val bundle = scorer.score(inputs, config.algorithmVersion)
+-        writer.write(bundle)
+-        archiveDerived(bundle)
+-        heartbeat.recordScore(userId, day)
+-        log.info(
+-            "scored {} {} {} (hr={}, rr={}, sleeps={})",
+-            userId, deviceId, day, inputs.hr.size, inputs.rr.size, bundle.result.sleepSessions.size,
+-        )
++        queue.dirtyWorkItem(userId, deviceId, day)
++        val item = queue.claimOne(userId, deviceId, day)
++            ?: error("Baseline replay is owned by another worker")
++        check(processWorkItem(item)) { "Baseline replay did not publish; inspect its durable work status" }
+     }
+
+-    private fun processWorkItem(item: ScoringWorkQueue.WorkItem) {
++    private fun processWorkItem(item: ScoringWorkQueue.WorkItem): Boolean {
+         val started = System.nanoTime()
+-        try {
+-            val inputs = inputs.loadDay(item.userId, item.day, item.deviceId)
+-            if (inputs == null) {
+-                queue.markFailed(item, "no device/inputs")
+-                return
+-            }
+-            if (inputs.hr.isEmpty() && inputs.rr.isEmpty()) {
+-                queue.markFailed(item, "no hr/rr samples in night window")
+-                return
+-            }
+-            val bundle = scorer.score(inputs, config.algorithmVersion)
+-            writer.write(bundle)
+-            val derivedError = archiveDerived(bundle)
+-            val durationMs = ((System.nanoTime() - started) / 1_000_000).toInt()
+-            val done = queue.markDone(item, durationMs, derivedError)
+-            if (done) {
+-                heartbeat.recordScore(item.userId, item.day)
+-                log.info(
+-                    "scored {} {} {} (hr={}, rr={}, sleeps={}, {}ms)",
+-                    item.userId, item.deviceId, item.day, inputs.hr.size, inputs.rr.size,
+-                    bundle.result.sleepSessions.size, durationMs,
+-                )
+-            } else {
+-                log.info(
+-                    "re-queue {} {} {} — dirty_at moved during scoring",
+-                    item.userId, item.deviceId, item.day,
+-                )
++        RunningLegacyLease({ queue.renew(item) }, queue.claimLease.dividedBy(3)).use { lease ->
++            try {
++                val input = inputs.loadDay(item.userId, item.day, item.deviceId)
++                if (input == null || (input.hr.isEmpty() && input.rr.isEmpty())) {
++                    queue.markWaiting(item, "no device or hr/rr inputs")
++                    return false
++                }
++                val bundle = scorer.score(input, config.algorithmVersion)
++                check(lease.checkOwned()) { "Baseline lease lost before publication" }
++                // The RPC atomically validates this exact lease, publishes v1 and records archive
++                // debt. The old unfenced B2 writer must not overwrite a newer revision's object.
++                writer.write(bundle, item)
++                val durationMs = ((System.nanoTime() - started) / 1_000_000)
++                    .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
++                val done = queue.markDone(item, durationMs)
++                if (done) heartbeat.recordScore(item.userId, item.day)
++                return done
++            } catch (err: Exception) {
++                if (queue.markFailed(item, err.javaClass.simpleName)) {
++                    heartbeat.recordError(err.javaClass.simpleName)
++                    log.warn("baseline run {} failed: {}", item.runId, err.javaClass.simpleName)
++                }
++                return false
+             }
+-        } catch (err: Exception) {
+-            queue.markFailed(item, err.message ?: err.javaClass.simpleName)
+-            heartbeat.recordError(err.message ?: err.javaClass.simpleName)
+-            log.error(
+-                "score failed for {} {} {}: {}",
+-                item.userId, item.deviceId, item.day, err.message, err,
+-            )
+         }
+     }
++}
+
+-    /** Returns an error message when B2 archive fails; scores are already committed. */
+-    private fun archiveDerived(bundle: ServerScoreBundle): String? {
+-        val writer = derivedWriter ?: return null
+-        if (!writer.enabled) return null
+-        return try {
+-            val result = writer.archive(bundle)
+-            log.info(
+-                "derived archive {} {} {} ({} bytes, sha256={})",
+-                bundle.userId, bundle.deviceId, bundle.day,
+-                result.compressedBytes, result.sha256.take(12),
+-            )
+-            null
+-        } catch (err: Exception) {
+-            val msg = err.message ?: err.javaClass.simpleName
+-            log.warn(
+-                "derived archive failed for {} {} {}: {}",
+-                bundle.userId, bundle.deviceId, bundle.day, msg,
+-            )
+-            msg
+-        }
++/** A renewal failure is terminal for this run, even if a later renewal would succeed. */
++internal class RunningLegacyLease(
++    private val renew: () -> Boolean,
++    interval: Duration,
++) : AutoCloseable {
++    private val lost = AtomicBoolean(false)
++    private val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
++        Thread(runnable, "baseline-lease-renewal").apply { isDaemon = true }
++    }
++
++    init {
++        val periodMillis = interval.toMillis().coerceAtLeast(100)
++        executor.scheduleAtFixedRate({ checkOwned() }, periodMillis, periodMillis, TimeUnit.MILLISECONDS)
++    }
++
++    fun checkOwned(): Boolean {
++        if (lost.get()) return false
++        val current = try { renew() } catch (_: Exception) { false }
++        if (!current) lost.set(true)
++        return !lost.get()
++    }
++
++    override fun close() {
++        executor.shutdownNow()
+     }
+ }
+diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/DerivedArtifactWriterTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/DerivedArtifactWriterTest.kt
+index a745f34..afc8990 100644
+--- a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/DerivedArtifactWriterTest.kt
++++ b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/DerivedArtifactWriterTest.kt
+@@ -14,6 +14,10 @@ import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertFalse
+ import org.junit.Assert.assertTrue
+ import org.junit.Test
++import okhttp3.OkHttpClient
++import okhttp3.Protocol
++import okhttp3.Response
++import okhttp3.ResponseBody.Companion.toResponseBody
+ import java.time.Instant
+ import java.util.UUID
+
+@@ -99,7 +103,11 @@ class DerivedArtifactWriterTest {
+             }
+         }
+         val cfg = B2Config("k", "s", "FRWHOOP", "s3.us-west-004.backblazeb2.com", "us-west-004")
+-        val writer = DerivedArtifactWriter(cfg, "http://rest:3000", "role-key", fakePut)
++        val http = OkHttpClient.Builder().addInterceptor { chain ->
++            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(201)
++                .message("Created").body("".toResponseBody()).build()
++        }.build()
++        val writer = DerivedArtifactWriter(cfg, "http://127.0.0.1", "role-key", fakePut, http)
+         val result = writer.archive(sampleBundle())
+         assertEquals(captured!!.size, result.compressedBytes)
+         assertEquals(B2ObjectStore.sha256Hex(captured!!), result.sha256)
+diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
+new file mode 100644
+index 0000000..c85700f
+--- /dev/null
++++ b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
+@@ -0,0 +1,193 @@
++package com.frwhoop.scoring
++
++import com.frwhoop.scoring.db.PostgresClient
++import com.frwhoop.scoring.db.ScoringWorkQueue
++import com.frwhoop.scoring.db.EngineIngestWriter
++import com.frwhoop.scoring.db.ScoreInputProvider
++import com.frwhoop.scoring.db.SignalSampleReader
++import com.frwhoop.scoring.health.HeartbeatReporter
++import com.frwhoop.scoring.scoring.DayScorer
++import com.frwhoop.scoring.scoring.ScoringPoller
++import com.noop.analytics.UserProfile
++import com.noop.data.HrSample
++import com.noop.protocol.DeviceFamily
++import okhttp3.OkHttpClient
++import okhttp3.Protocol
++import okhttp3.Response
++import okhttp3.ResponseBody.Companion.toResponseBody
++import org.json.JSONObject
++import org.junit.After
++import org.junit.Assert.*
++import org.junit.Assume.assumeTrue
++import org.junit.Before
++import org.junit.Test
++import java.util.UUID
++import java.util.concurrent.CountDownLatch
++import java.util.concurrent.Executors
++import java.util.concurrent.TimeUnit
++
++/** Requires the repair branch's disposable PostgreSQL schema, including the v1 fence migration. */
++class LegacyQueueIntegrationTest {
++    private lateinit var db: PostgresClient
++    private lateinit var queue: ScoringWorkQueue
++    private val user = UUID.randomUUID()
++    private val device = UUID.randomUUID()
++    private val day = "2026-09-17"
++
++    @Before fun setup() {
++        val url = System.getenv("PHYSIOLOGY_TEST_DATABASE_URL")
++        assumeTrue("Provide the disposable physiology_queue_test cluster", url != null)
++        require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
++        db = PostgresClient(url)
++        queue = ScoringWorkQueue(db)
++        sql("insert into auth.users values ('$user')")
++        sql("insert into profiles(id,timezone) values ('$user','UTC')")
++        sql("insert into devices(id,user_id) values ('$device','$user')")
++    }
++
++    @After fun close() { if (::db.isInitialized) db.close() }
++
++    @Test fun newRevisionFencesEveryOldLeaseMutation() {
++        queue.dirtyWorkItem(user, device, day)
++        val old = claim()
++        queue.dirtyWorkItem(user, device, day)
++        val fresh = claim()
++        assertTrue(fresh.inputRevision > old.inputRevision)
++        assertNotEquals(old.leaseToken, fresh.leaseToken)
++        assertFalse(queue.renew(old))
++        assertFalse(queue.markDone(old, 1))
++        assertFalse(queue.markWaiting(old, "obsolete waiting"))
++        assertFalse(queue.markFailed(old, "obsolete failure"))
++        assertTrue(queue.renew(fresh))
++        assertEquals(fresh.leaseToken.toString(), scalarText("select lease_token::text from scoring_work_items where user_id='$user'"))
++    }
++
++    @Test fun expiredLeaseCannotReleaseSuccessor() {
++        queue.dirtyWorkItem(user, device, day)
++        val expired = claim()
++        alterQueue("update scoring_work_items set lease_expires_at=clock_timestamp()-interval '1 second' where user_id='$user'")
++        assertFalse(queue.renew(expired))
++        val successor = claim()
++        assertFalse(queue.markFailed(expired, "expired failure"))
++        assertFalse(queue.markDone(expired, 1))
++        assertTrue(queue.renew(successor))
++    }
++
++    @Test fun twoWorkersClaimOnlyOneLiveRevision() {
++        queue.dirtyWorkItem(user, device, day)
++        val start = CountDownLatch(1)
++        val pool = Executors.newFixedThreadPool(2)
++        try {
++            val results = (1..2).map { pool.submit<ScoringWorkQueue.WorkItem?> {
++                start.await(); queue.claimOne(user, device, day)
++            } }
++            start.countDown()
++            assertEquals(1, results.map { it.get(10, TimeUnit.SECONDS) }.count { it != null })
++        } finally { pool.shutdownNow() }
++    }
++
++    @Test fun waitingDoesNotExhaustFailuresAndNewDataResetsFailureBudget() {
++        queue.dirtyWorkItem(user, device, day)
++        assertTrue(queue.markWaiting(claim(), "no hr/rr inputs"))
++        assertEquals("0", scalarText("select consecutive_failures::text from scoring_work_items where user_id='$user'"))
++        assertNull(queue.claimOne(user, device, day))
++        repeat(8) {
++            alterQueue("update scoring_work_items set next_attempt_at=clock_timestamp()-interval '1 second' where user_id='$user'")
++            assertTrue(queue.markFailed(claim(), "controlled failure"))
++        }
++        alterQueue("update scoring_work_items set next_attempt_at=clock_timestamp()-interval '1 second' where user_id='$user'")
++        assertNull(queue.claimOne(user, device, day))
++        queue.dirtyWorkItem(user, device, day)
++        assertNotNull(queue.claimOne(user, device, day))
++    }
++
++    @Test fun actualFrozenReplayPublishesThroughItsFencedRpcAndCreatesImmutableArchiveDebt() {
++        val writer = rpcWriter()
++        val input = input()
++        val provider = object : ScoreInputProvider {
++            override fun loadDay(userId: UUID, day: String, deviceId: UUID) = input
++        }
++        poller(provider, writer).scoreDay(user, device, day)
++        assertEquals("done", scalarText("select status from scoring_work_items where user_id='$user'"))
++        assertEquals("1", scalarText("select count(*)::text from server_physiology_results where user_id='$user' and algorithm_version='frwhoop-server-1'"))
++        assertEquals("1", scalarText("select count(*)::text from physiology_archive_outbox where user_id='$user' and algorithm_version='frwhoop-server-1' and object_key like '%/revisions/1/%'"))
++        val stored = JSONObject(scalarText("select payload::text from server_physiology_results where user_id='$user'"))
++        val expected = EngineIngestWriter.buildPayload(DayScorer().score(input, "frwhoop-server-1"))
++            .getJSONArray("daily_metrics").getJSONObject(0)
++        for (key in listOf("hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "resp_rate_bpm", "sleep_total_min")) {
++            val actual = stored.getJSONObject("daily")
++            if (expected.isNull(key)) assertTrue(key, actual.isNull(key))
++            else assertEquals(key, expected.getDouble(key), actual.getDouble(key), 0.0)
++        }
++    }
++
++    @Test fun obsoleteReplayCannotPublishOrReleaseCurrentWorker() {
++        var successor: ScoringWorkQueue.WorkItem? = null
++        var transportCalls = 0
++        val provider = object : ScoreInputProvider {
++            override fun loadDay(userId: UUID, day: String, deviceId: UUID): SignalSampleReader.DayInputs {
++                queue.dirtyWorkItem(user, device, day)
++                successor = claim()
++                return input()
++            }
++        }
++        val http = OkHttpClient.Builder().addInterceptor { transportCalls++; error("obsolete worker sent a result") }.build()
++        try {
++            poller(provider, EngineIngestWriter("http://127.0.0.1", "fixture-role", "test", http)).scoreDay(user, device, day)
++            fail("superseded replay reported completion")
++        } catch (_: IllegalStateException) {}
++        assertEquals(0, transportCalls)
++        assertEquals(successor!!.leaseToken.toString(), scalarText("select lease_token::text from scoring_work_items where user_id='$user'"))
++        assertTrue(queue.renew(successor!!))
++    }
++
++    private fun input(): SignalSampleReader.DayInputs {
++        val start = java.time.Instant.parse("2026-09-17T00:00:00Z").epochSecond
++        return SignalSampleReader.DayInputs(user, day, device.toString(), 0L, start, start+86399,
++            UserProfile(age=35.0, sex="male"), start-43200, start+43200,
++            (0..359).map { HrSample(device.toString(), start+it*60L, 52) }, emptyList(), emptyList(),
++            emptyList(), emptyList(), DeviceFamily.WHOOP5)
++    }
++
++    private fun poller(provider: ScoreInputProvider, writer: EngineIngestWriter) = ScoringPoller(
++        ScoringConfig("unused", "test", "http://127.0.0.1", "fixture-role"), provider, queue,
++        DayScorer(), writer, HeartbeatReporter(db, "frwhoop-server-1"))
++
++    private fun rpcWriter(): EngineIngestWriter {
++        val http = OkHttpClient.Builder().addInterceptor { chain ->
++            assertEquals("/rpc/engine_publish_legacy_fenced", chain.request().url.encodedPath)
++            val buffer = okio.Buffer()
++            chain.request().body!!.writeTo(buffer)
++            val envelope = JSONObject(buffer.readUtf8())
++            val result = db.withConnection { connection ->
++                connection.prepareStatement("select engine_publish_legacy_fenced(?, ?::jsonb)::text").use { ps ->
++                    ps.setString(1, envelope.getString("p_secret"))
++                    ps.setString(2, envelope.getJSONObject("p_payload").toString())
++                    ps.executeQuery().use { rows -> check(rows.next()); rows.getString(1) }
++                }
++            }
++            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200)
++                .message("OK").body(result.toResponseBody()).build()
++        }.build()
++        return EngineIngestWriter("http://127.0.0.1", "fixture-role", "test", http)
++    }
++
++    private fun alterQueue(statement: String) = db.withConnection { connection ->
++        connection.autoCommit = false
++        try {
++            connection.createStatement().use { s ->
++                s.execute("select set_config('physiology.legacy_queue_write', txid_current()::text, true)")
++                s.execute(statement)
++            }
++            connection.commit()
++        } finally { connection.rollback(); connection.autoCommit = true }
++    }
++
++    private fun claim() = queue.claimOne(user, device, day) ?: error("baseline work was not runnable")
++    private fun sql(statement: String) = db.withConnection { connection ->
++        connection.createStatement().use { it.execute(statement) }
++    }
++    private fun scalarText(statement: String): String = db.withConnection { connection ->
++        connection.createStatement().use { s -> s.executeQuery(statement).use { r -> check(r.next()); r.getString(1) } }
++    }
++}
+diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyTransportTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyTransportTest.kt
+new file mode 100644
+index 0000000..8b8c378
+--- /dev/null
++++ b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyTransportTest.kt
+@@ -0,0 +1,110 @@
++package com.frwhoop.scoring
++
++import com.frwhoop.scoring.db.EngineIngestWriter
++import com.frwhoop.scoring.db.ScoringWorkQueue
++import com.frwhoop.scoring.scoring.RunningLegacyLease
++import com.frwhoop.scoring.scoring.ServerScoreBundle
++import com.noop.analytics.DayResult
++import com.noop.data.DailyMetric
++import okhttp3.OkHttpClient
++import okhttp3.Protocol
++import okhttp3.Response
++import okhttp3.ResponseBody.Companion.toResponseBody
++import org.json.JSONObject
++import org.junit.Assert.*
++import org.junit.Test
++import java.time.Duration
++import java.time.Instant
++import java.util.UUID
++import java.util.concurrent.CountDownLatch
++import java.util.concurrent.TimeUnit
++import java.util.concurrent.atomic.AtomicInteger
++
++class LegacyTransportTest {
++    private val user = UUID.fromString("00000000-0000-4000-8000-000000000001")
++    private val device = UUID.fromString("00000000-0000-4000-8000-000000000002")
++    private val item = ScoringWorkQueue.WorkItem(user, device, "2026-09-17", Instant.EPOCH,
++        Instant.EPOCH, 351, UUID.randomUUID(), UUID.randomUUID(), "UTC")
++    private fun bundle() = ServerScoreBundle(user, item.day, device.toString(), "frwhoop-server-1",
++        DayResult(DailyMetric(deviceId=device.toString(), day=item.day, avgHrv=42.0,
++            avgSdnn=55.0, restingHr=50, respRateBpm=14.0), emptyList(), emptyList(), null, null))
++
++    @Test fun writerSendsUnchangedBaselineMetricsWithExactClaimToFencedEndpoint() {
++        var sent: JSONObject? = null
++        val http = OkHttpClient.Builder().addInterceptor { chain ->
++            val request = chain.request()
++            assertEquals("/rpc/engine_publish_legacy_fenced", request.url.encodedPath)
++            val buffer = okio.Buffer()
++            request.body!!.writeTo(buffer)
++            sent = JSONObject(buffer.readUtf8())
++            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200)
++                .message("OK").body("{}".toResponseBody()).build()
++        }.build()
++        EngineIngestWriter("http://127.0.0.1", "fixture-role", "fixture-secret", http).write(bundle(), item)
++        val envelope = sent!!
++        assertEquals("fixture-secret", envelope.getString("p_secret"))
++        val payload = envelope.getJSONObject("p_payload")
++        assertEquals(user.toString(), payload.getString("user_id"))
++        assertEquals(device.toString(), payload.getString("device_id"))
++        assertEquals(item.day, payload.getString("day"))
++        assertEquals(351L, payload.getLong("input_revision"))
++        assertEquals(item.leaseToken.toString(), payload.getString("lease_token"))
++        assertEquals(item.runId.toString(), payload.getString("run_id"))
++        assertEquals("frwhoop-server-1", payload.getString("algorithm_version"))
++        val daily = payload.getJSONArray("daily_metrics").getJSONObject(0)
++        assertEquals(42.0, daily.getDouble("hrv_rmssd_ms"), 0.0)
++        assertEquals(55.0, daily.getDouble("hrv_sdnn_ms"), 0.0)
++        assertEquals(14.0, daily.getDouble("resp_rate_bpm"), 0.0)
++    }
++
++    @Test fun writerRejectsWrongOwnerDeviceDayOrVersionBeforeTransport() {
++        val calls = AtomicInteger()
++        val http = OkHttpClient.Builder().addInterceptor { calls.incrementAndGet(); error("must not send") }.build()
++        val writer = EngineIngestWriter("http://127.0.0.1", "fixture-role", "fixture-secret", http)
++        for (invalid in listOf(bundle().copy(userId=UUID.randomUUID()),
++            bundle().copy(deviceId=UUID.randomUUID().toString()), bundle().copy(day="2026-09-18"),
++            bundle().copy(algorithmVersion="frwhoop-physiology-2"))) {
++            try { writer.write(invalid, item); fail("claim mismatch accepted") } catch (_: IllegalArgumentException) {}
++        }
++        assertEquals(0, calls.get())
++    }
++
++    @Test fun stalePublicationIsNotRetriedThroughAnUnfencedEndpointOrLeakedToLogs() {
++        val calls = AtomicInteger()
++        val http = OkHttpClient.Builder().addInterceptor { chain ->
++            calls.incrementAndGet()
++            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(409)
++                .message("Conflict").body("private health payload canary".toResponseBody()).build()
++        }.build()
++        try {
++            EngineIngestWriter("http://127.0.0.1", "fixture-role", "fixture-secret", http).write(bundle(), item)
++            fail("stale publication accepted")
++        } catch (failure: IllegalStateException) {
++            assertEquals("Fenced baseline publication failed: HTTP 409", failure.message)
++        }
++        assertEquals(1, calls.get())
++    }
++
++    @Test fun runningWorkRenewsAndOneLostLeaseRemainsLost() {
++        val renewals = CountDownLatch(2)
++        val calls = AtomicInteger()
++        RunningLegacyLease({ calls.incrementAndGet(); renewals.countDown(); true }, Duration.ofMillis(100)).use { lease ->
++            assertTrue("running work did not renew", renewals.await(3, TimeUnit.SECONDS))
++            assertTrue(lease.checkOwned())
++        }
++        assertTrue(calls.get() >= 2)
++        val failedCalls = AtomicInteger()
++        RunningLegacyLease({ failedCalls.incrementAndGet() > 1 }, Duration.ofHours(1)).use { lease ->
++            assertFalse(lease.checkOwned())
++            assertFalse(lease.checkOwned())
++            assertEquals(1, failedCalls.get())
++        }
++    }
++
++    @Test fun renewalExceptionFencesPublication() {
++        RunningLegacyLease({ error("connection unavailable") }, Duration.ofHours(1)).use { lease ->
++            assertFalse(lease.checkOwned())
++            assertFalse(lease.checkOwned())
++        }
++    }
++}
+diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/ScoringWorkQueueSqlTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/ScoringWorkQueueSqlTest.kt
+deleted file mode 100644
+index 0bcb280..0000000
+--- a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/ScoringWorkQueueSqlTest.kt
++++ /dev/null
+@@ -1,26 +0,0 @@
+-package com.frwhoop.scoring
+-
+-import com.frwhoop.scoring.db.ScoringWorkQueue
+-import org.junit.Assert.assertTrue
+-import org.junit.Test
+-
+-/** SQL-shape assertions for device-aware discovery and queue keys (no live DB). */
+-class ScoringWorkQueueSqlTest {
+-    @Test
+-    fun discoveryGroupsByUserDeviceAndLocalDay() {
+-        val sql = ScoringWorkQueue.DISCOVER_LOCAL_DAYS_SQL
+-        assertTrue(sql.contains("h.device_id"))
+-        assertTrue(sql.contains("r.device_id"))
+-        assertTrue(sql.contains("w.device_id"))
+-        assertTrue(sql.contains("group by user_id, device_id"))
+-        assertTrue(sql.contains("(to_timestamp(ts) at time zone tz)::date"))
+-    }
+-
+-    @Test
+-    fun discoveryRequiresDeviceIdOnEachSource() {
+-        val sql = ScoringWorkQueue.DISCOVER_LOCAL_DAYS_SQL
+-        assertTrue(sql.contains("h.device_id is not null"))
+-        assertTrue(sql.contains("r.device_id is not null"))
+-        assertTrue(sql.contains("w.device_id is not null"))
+-    }
+-}
+diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/WorkItemCompletionTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/WorkItemCompletionTest.kt
+deleted file mode 100644
+index b17bb2f..0000000
+--- a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/WorkItemCompletionTest.kt
++++ /dev/null
+@@ -1,23 +0,0 @@
+-package com.frwhoop.scoring
+-
+-import org.junit.Assert.assertFalse
+-import org.junit.Assert.assertTrue
+-import org.junit.Test
+-import java.time.Instant
+-
+-/** Documents the dirty-while-running completion guard (mirrors scoring_work_items SQL). */
+-class WorkItemCompletionTest {
+-    @Test
+-    fun markDoneSucceedsWhenDirtyAtUnchanged() {
+-        val dirtyAtClaim = Instant.parse("2026-06-15T10:00:00Z")
+-        val dirtyAtNow = dirtyAtClaim
+-        assertTrue(dirtyAtNow <= dirtyAtClaim)
+-    }
+-
+-    @Test
+-    fun markDoneRefusesWhenDirtyAtMoved() {
+-        val dirtyAtClaim = Instant.parse("2026-06-15T10:00:00Z")
+-        val dirtyAtNow = Instant.parse("2026-06-15T10:05:00Z")
+-        assertFalse(dirtyAtNow <= dirtyAtClaim)
+-    }
+-}

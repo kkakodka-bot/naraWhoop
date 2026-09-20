@@ -23,6 +23,8 @@ public enum PushProtocol {
     private static let appendRegistry: [String: (keys: [String], data: [String])] = [
         "hrSample": (["ts"], ["bpm"]),
         "rrInterval": (["ts", "rrMs", "seq"], ["ord", "srcChannel", "tsSuspect"]),
+        "rrPacketProvenance": (["packetId"], ["ts", "sensorTs", "recordIndex", "rawHex", "srcChannel", "schemaVersion", "decoderVersion", "clockVersion", "timestampPrecisionSeconds", "clockOffsetSeconds", "declaredCount"]),
+        "standardHRReceipt": (["receiptId"], ["ts", "sessionId", "notificationOrdinal", "receivedUnixMs", "receivedMonotonicNs", "rawHex", "schemaVersion", "clockVersion"]),
         "event": (["ts", "kind"], ["payloadJSON"]),
         "battery": (["ts"], ["soc", "mv", "charging"]),
         "spo2Sample": (["ts"], ["red", "ir"]),
@@ -104,7 +106,7 @@ public enum PushProtocol {
         let body = concatenate(header: header, lines: selectedLines)
         precondition(body.count <= PushProtocolLimits.maxBodyBytes)
         return PushBatch(
-            protocolVersion: version,
+            protocolVersion: [.rrPacketProvenance, .standardHRReceipt].contains(table) ? "1.1" : version,
             batchId: batchId,
             sourceId: sourceId,
             table: table,
@@ -252,6 +254,7 @@ public enum PushProtocol {
         let payload: String = switch (table, row) {
         case (.ppgWaveformSample, .ppgWaveform(let record)):
             "ppgWaveformSample\n\(deviceId)\n\(record.ts)\n\(record.burstIndex.map(String.init) ?? "")"
+                + (record.recordIndex.map { "\nrecordIndex=\($0)" } ?? "")
         case (.v18AuxSample, .v18Aux(let record)):
             "v18AuxSample\n\(deviceId)\n\(record.ts)"
         case (.rawBatch, .rawBatch(let record)):
@@ -345,6 +348,7 @@ public enum PushProtocol {
 
     private static func selectBinaryRows(table: PushBinaryTable, rows: [PushBinaryRow], decodedLimit: Int) throws -> [PushBinaryRow] {
         var selected: [PushBinaryRow] = []
+        let ppgIdentity = rows.contains { if case .ppgWaveform(let r) = $0 { return r.recordIndex != nil }; return false }
         var decodedBytes = PushBinaryCodec.packedHeaderSize(for: table)
         var windowStartTs: Int64? = nil
         for row in rows.prefix(PushProtocolLimits.maxRecords) {
@@ -356,7 +360,7 @@ public enum PushProtocol {
                     break
                 }
             }
-            let rowSize = try PushBinaryCodec.packedRowSize(row)
+            let rowSize = try PushBinaryCodec.packedRowSize(row, ppgIdentity: ppgIdentity)
             if decodedBytes + rowSize > decodedLimit { break }
             selected.append(row)
             decodedBytes += rowSize
@@ -376,7 +380,15 @@ public enum PushProtocol {
             guard case .rawBatch(let record) = rows[0] else {
                 throw PushProtocolException("binary row kind mismatch")
             }
-            return (record.startTs, record.endTs, Int(record.frameCount))
+            guard record.endTs >= record.startTs else {
+                throw PushProtocolException("rawBatch capture bounds are reversed")
+            }
+            let (endExclusive, overflow) = record.endTs.addingReportingOverflow(1)
+            guard !overflow else { throw PushProtocolException("rawBatch capture end overflows") }
+            // Stored capture bounds include the last captured second. Only manifest indexing
+            // is half-open; retain the original bounds and clocks inside the packed evidence.
+            // This does not claim continuous sensor coverage within the capture interval.
+            return (record.startTs, endExclusive, Int(record.frameCount))
         case .ppgWaveformSample, .v18AuxSample, .rawImuSession:
             let timestamps: [Int64] = try rows.map { row in
                 switch row {
@@ -539,7 +551,7 @@ public enum PushProtocol {
             "delivery": .string("append"),
             "deviceId": .string(deviceId),
             "endCursor": .map(cursorJson(end)),
-            "protocolVersion": .string(version),
+            "protocolVersion": .string([.rrPacketProvenance, .standardHRReceipt].contains(table) ? "1.1" : version),
             "recordCount": .int(Int64(count)),
             "sourceId": .string(sourceId),
             "startCursor": start.map { .map(cursorJson($0)) } ?? .null,

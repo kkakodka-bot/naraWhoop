@@ -1,6 +1,7 @@
 package com.noop.testcentre
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.noop.data.StreamPersistence
 import com.noop.protocol.Whoop5RawImu
 import com.noop.push.ImuPushRecord
@@ -17,13 +18,33 @@ import java.util.zip.Inflater
 import org.json.JSONArray
 
 /** Stores decoded 100 Hz IMU in fixed UTC half-hour segments owned by one capture session. */
-class ImuSessionFileStore(private val context: Context) : ImuSessionPushSource {
+class ImuSessionFileStore internal constructor(
+    private val prefs: SharedPreferences,
+    private val directory: File,
+    namespace: String,
+) : ImuSessionPushSource {
+    constructor(context: Context, namespace: String = NAMESPACE_SESSIONS) : this(
+        context.getSharedPreferences(com.noop.push.EnrollmentDataScope.storageName(context, preferencesName(namespace)), Context.MODE_PRIVATE),
+        File(context.filesDir, com.noop.push.EnrollmentDataScope.storageName(context, directoryName(namespace))),
+        namespace,
+    )
+
     data class Stats(val bytes: Long, val coveredSeconds: Int, val firstTs: Long?)
+    data class WindowInfo(val id: String, val deviceId: String, val from: Long, val to: Long?)
+    data class SegmentInfo(val id: String, val bucket: Long, val bytes: Long)
     data class ExportSegment(val name: String, val data: ByteArray, val startTs: Long, val endTs: Long,
                              val sampleCount: Int)
     private data class Record(val ts: Long, val receivedAtMs: Long, val columns: ShortArray)
-    private val prefs = context.getSharedPreferences("imu-session-windows", Context.MODE_PRIVATE)
-    private val directory = File(context.filesDir, "raw-imu-sessions").apply { mkdirs() }
+    // Instances serving the same store share pending writes, but a continuous-local capture must
+    // never enter the bounded-session cloud-push store even when window identifiers coincide.
+    private val state = synchronized(lock) {
+        states.getOrPut("${directory.canonicalPath}\u0000$namespace") { StoreState() }
+    }
+    private val seen get() = state.seen
+    private val pending get() = state.pending
+    private val conflicts get() = state.conflicts
+
+    init { directory.mkdirs() }
 
     fun start(id: String, deviceId: String, fromMs: Long) = synchronized(lock) {
         prefs.edit().putStringSet("ids", ids() + id).putString("$id.device", deviceId)
@@ -98,6 +119,66 @@ class ImuSessionFileStore(private val context: Context) : ImuSessionPushSource {
         val pendingBytes = pending.filterKeys { it.startsWith("$id/") }.values.flatten()
             .sumOf { it.columns.size.toLong() * 2 + RECORD_HEADER_BYTES }
         Stats(disk + pendingBytes, covered.size, covered.minOrNull())
+    }
+
+    fun registeredWindows(): List<WindowInfo> = synchronized(lock) {
+        ids().mapNotNull { id ->
+            val deviceId = prefs.getString("$id.device", null) ?: return@mapNotNull null
+            WindowInfo(id, deviceId, prefs.getLong("$id.from", 0),
+                if (prefs.contains("$id.to")) prefs.getLong("$id.to", 0) else null)
+        }.sortedWith(compareBy<WindowInfo> { it.from }.thenBy { it.id })
+    }
+
+    /** Inclusive absent-second ranges; scan one bounded segment without caching weeks of data. */
+    fun missingRanges(id: String, from: Long, to: Long): List<Pair<Long, Long>> = synchronized(lock) {
+        if (from > to) return@synchronized emptyList()
+        val missing = mutableListOf<Pair<Long, Long>>()
+        var bucket = bucketStart(from)
+        while (bucket <= to) {
+            val lo = maxOf(bucket, from)
+            val hi = minOf(bucket + SEGMENT_SECONDS - 1, to)
+            val file = segmentFile(id, bucket)
+            val present = (seen[file.absolutePath]?.keys
+                ?: decodeFile(file.takeIf(File::isFile)?.readBytes() ?: byteArrayOf()).map { it.ts }).toMutableSet()
+            pending["$id/$bucket"].orEmpty().forEach { present += it.ts }
+            var cursor = lo
+            for (ts in present.filter { it in lo..hi }.sorted()) {
+                if (cursor < ts) appendMissing(missing, cursor, ts - 1)
+                cursor = ts + 1
+            }
+            if (cursor <= hi) appendMissing(missing, cursor, hi)
+            if (bucket > Long.MAX_VALUE - SEGMENT_SECONDS) break
+            bucket += SEGMENT_SECONDS
+        }
+        missing
+    }
+
+    fun segmentInventory(): List<SegmentInfo> = synchronized(lock) {
+        ids().flatMap { id -> segmentFiles(id).mapNotNull { file ->
+            segmentBucket(file)?.let { SegmentInfo(id, it, file.length()) }
+        } }.sortedWith(compareBy<SegmentInfo> { it.bucket }.thenBy { it.id })
+    }
+
+    fun totalBytes(): Long = synchronized(lock) {
+        segmentInventory().sumOf { it.bytes } + pending.values.sumOf { records ->
+            records.sumOf { it.columns.size.toLong() * 2 + RECORD_HEADER_BYTES }
+        }
+    }
+
+    /** Remove exactly one retention segment and its cache, only after a successful file removal. */
+    fun deleteSegment(id: String, bucket: Long): Boolean = synchronized(lock) {
+        require(bucketStart(bucket) == bucket)
+        val file = segmentFile(id, bucket)
+        if (file.exists() && (!file.isFile || !file.delete())) return@synchronized false
+        seen.remove(file.absolutePath)
+        pending.remove("$id/$bucket")
+        true
+    }
+
+    private fun appendMissing(ranges: MutableList<Pair<Long, Long>>, from: Long, to: Long) {
+        val last = ranges.lastOrNull()
+        if (last != null && last.second == from - 1) ranges[ranges.lastIndex] = last.first to to
+        else ranges += from to to
     }
 
     fun append(deviceId: String, frame: ByteArray, receivedAtMs: Long = System.currentTimeMillis()): Int = synchronized(lock) {
@@ -294,9 +375,25 @@ class ImuSessionFileStore(private val context: Context) : ImuSessionPushSource {
     }
 
     companion object {
-        private val lock = Any(); private val seen = mutableMapOf<String, MutableMap<Long, Long>>()
-        private val pending = mutableMapOf<String, MutableList<Record>>()
-        private val conflicts = mutableMapOf<String, MutableSet<Long>>()
+        const val NAMESPACE_SESSIONS = "sessions"
+        const val NAMESPACE_CONTINUOUS = "continuous"
+        private val lock = Any()
+        private class StoreState {
+            val seen = mutableMapOf<String, MutableMap<Long, Long>>()
+            val pending = mutableMapOf<String, MutableList<Record>>()
+            val conflicts = mutableMapOf<String, MutableSet<Long>>()
+        }
+        private val states = mutableMapOf<String, StoreState>()
+        private fun preferencesName(namespace: String): String = when (namespace) {
+            NAMESPACE_SESSIONS -> "imu-session-windows"
+            NAMESPACE_CONTINUOUS -> "imu-continuous-windows-v1"
+            else -> error("Unknown production IMU namespace")
+        }
+        private fun directoryName(namespace: String): String = when (namespace) {
+            NAMESPACE_SESSIONS -> "raw-imu-sessions"
+            NAMESPACE_CONTINUOUS -> "raw-imu-continuous"
+            else -> error("Unknown production IMU namespace")
+        }
         private val MAGIC = "NOOPIMU2".toByteArray(Charsets.US_ASCII)
         const val SAMPLE_RATE = 100; const val AXES = 6; const val BLOCK_SECONDS = 30
         const val SEGMENT_SECONDS = 30 * 60L; const val PAYLOAD_BYTES = SAMPLE_RATE * AXES * 2
@@ -315,7 +412,7 @@ class ImuSessionFileStore(private val context: Context) : ImuSessionPushSource {
          *  Kotlin `hashCode`: the digest is compared against the other platform's twin in parity
          *  tests, so it must be a stable algorithm. */
         fun columnsDigest(columns: ShortArray): Long {
-            var hash = 0xcbf29ce484222325L
+            var hash = 0xcbf29ce484222325UL.toLong()
             for (value in columns) {
                 hash = (hash xor (value.toLong() and 0xff)) * 0x100000001b3L
                 hash = (hash xor ((value.toInt() shr 8).toLong() and 0xff)) * 0x100000001b3L

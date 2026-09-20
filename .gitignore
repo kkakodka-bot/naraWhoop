@@ -49,6 +49,7 @@ NOOP.app/
 
 # ── Android (Gradle / Studio) ───────────────────────────────────
 android/.gradle/
+scoring-service/.gradle/
 android/build/
 android/app/build/
 android/captures/

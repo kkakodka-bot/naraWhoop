@@ -87,13 +87,17 @@ public func isPlausibleHistoricalUnix(_ ts: Int, wallNow: Int,
 ///
 /// Used by the Backfiller/BLEManager to archive undecodable history BEFORE acking the trim. Mirrors
 /// the Android rejectedHistoricalRecords so one mapping toolchain re-ingests both archives.
-public func rejectedHistoricalRecords(_ rawFrames: [[UInt8]], family: DeviceFamily) -> [[UInt8]] {
+/// `parsedFrames`, when supplied, must come from these exact frames in the same order and family.
+/// A count mismatch falls back to parsing so an incomplete cache cannot omit a record from archival.
+public func rejectedHistoricalRecords(_ rawFrames: [[UInt8]], family: DeviceFamily,
+                                      parsedFrames: [ParsedFrame]? = nil) -> [[UInt8]] {
     // The type byte sits at the inner-record start: frame[4] on WHOOP 4.0, frame[8] on WHOOP 5/MG
     // (the puffin envelope is 4 bytes longer). hist_version sits one byte past the type+seq+cmd
     // header — frame[5] (4.0) / frame[9] (5/MG) — same shift.
     let typeIndex = family == .whoop5 ? 8 : 4
     let versionIndex = family == .whoop5 ? 9 : 5
-    return rawFrames.filter { f in
+    let matchingParsedFrames = parsedFrames?.count == rawFrames.count ? parsedFrames : nil
+    return rawFrames.enumerated().filter { index, f in
         // Only genuine HISTORICAL_DATA records (47). Console (50) and METADATA frames have a
         // different type byte, so they never pass this gate — they are excluded by construction.
         guard f.count > typeIndex, Int(f[typeIndex]) == 47 else { return false }
@@ -112,7 +116,7 @@ public func rejectedHistoricalRecords(_ rawFrames: [[UInt8]], family: DeviceFami
         // (`RawHistoryArchive.evictLines`) evicts entirely-zero-payload frames first, so a firmware that
         // banks empty placeholder records at 1 Hz cannot push out the one informative frame either.
         if family == .whoop5, isUnmappedWhoop5HistoricalRecord(f) { return true }
-        let p = parseFrame(f, family: family)
+        let p = matchingParsedFrames?[index] ?? parseFrame(f, family: family)
         // Envelope/CRC reject: parse failed outright or the CRC32 trailer mismatched.
         if !p.ok || p.crcOK == false { return true }
         // Unmapped layout: the envelope parsed but no usable biometrics decoded. A record is genuinely
@@ -121,7 +125,7 @@ public func rejectedHistoricalRecords(_ rawFrames: [[UInt8]], family: DeviceFami
         // the sleep stager uses — keep it. Only HR-less AND gravity-less type-47 records are rejected.
         return p.parsed["unix"]?.intValue == nil
             || (p.parsed["heart_rate"]?.intValue == nil && p.parsed["gravity_x"]?.doubleValue == nil)
-    }
+    }.map(\.element)
 }
 
 /// A rejected history frame whose entire record PAYLOAD is zero — a valid header + trailing CRC wrapping
@@ -251,6 +255,7 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             // `correctedWall` returns nil for an implausible ts (covers the v26 PPG baseTs too, since the
             // v26 waveform rides this same `unix`) — skip the whole record so no garbage-ts row is banked.
             guard let rawTs = p["unix"]?.intValue, let ts = correctedWall(rawTs) else { continue }
+            if let packet = r.rrPacketProvenance?.mapped(to: ts) { out.rrPackets.append(packet) }
             // v26 PPG buffer: stash the waveform for the post-loop HR estimator AND persist the raw
             // samples themselves (issue #156 follow-up — previously ONLY the derived estimate survived,
             // the waveform that produced it was discarded here). A v26 record carries no
@@ -258,13 +263,15 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             if let samples = p["ppg_waveform"]?.intArrayValue, !samples.isEmpty {
                 ppgRecords.append((ts: ts, samples: samples))
                 out.ppgWaveform.append(PpgWaveformSample(ts: ts, samples: samples,
-                                                         burstIndex: p["burst_index"]?.intValue))
+                                                         burstIndex: p["burst_index"]?.intValue,
+                                                         recordIndex: p["record_index"]?.intValue))
             }
             if let bpm = p["heart_rate"]?.intValue, bpm != 0 {  // skip startup hr=0
                 out.hr.append(HRSample(ts: ts, bpm: bpm))
             }
             if let rrs = p["rr_intervals"]?.intArrayValue {
-                for rr in rrs { out.rr.append(RRInterval(ts: ts, rrMs: rr)) }
+                let source = p["rr_source_channel"]?.intValue.flatMap(RRSourceChannel.init(rawValue:))
+                for rr in rrs { out.rr.append(RRInterval(ts: ts, rrMs: rr, srcChannel: source)) }
             }
             if let red = p["spo2_red"]?.intValue {
                 out.spo2.append(SpO2Sample(ts: ts, red: red, ir: p["spo2_ir"]?.intValue ?? 0))

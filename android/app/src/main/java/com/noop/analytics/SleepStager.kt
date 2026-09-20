@@ -1752,11 +1752,11 @@ object SleepStager {
     }
 
     /** asleep / in-bed in [0, 1]; asleep = in-bed − wake. */
-    internal fun efficiency(start: Long, end: Long, stages: List<StageSegment>): Double {
+    fun efficiency(start: Long, end: Long, stages: List<StageSegment>): Double {
         val inBed = (end - start).toDouble()
         if (inBed <= 0) return 0.0
-        val wake = stages.filter { SleepStageVocabulary.isWake(it.stage) }.sumOf { (it.end - it.start).toDouble() }
-        val asleep = maxOf(0.0, inBed - wake)
+        val asleep = SleepStageSemantics.normalized(stages, start, end)
+            .filter { SleepStageSemantics.isSleep(it) }.sumOf { (it.end - it.start).toDouble() }
         return minOf(1.0, asleep / inBed)
     }
 
@@ -1804,10 +1804,15 @@ object SleepStager {
     internal fun stageSession(
         start: Long, end: Long, grav: List<GravitySample>,
         hr: List<HrSample>, rr: List<RrInterval>, resp: List<RespSample>,
+        hrvObservations: List<PhysiologyQuality.IntervalObservation> = emptyList(),
     ): List<StageSegment> {
-        val key = StagerCache.fingerprint(StagerCache.Version.V1, start, end, grav, hr, rr, resp)
+        val validGravity = grav.filter(SleepSignalValidity::gravity)
+        val validHr = hr.filter(SleepSignalValidity::heartRate)
+        if (hrvObservations.isNotEmpty()) return stageSessionUncached(start, end, validGravity, validHr, rr, resp,
+            HrvSeries.windows(start.toInt(), end.toInt(), hrvObservations))
+        val key = StagerCache.fingerprint(StagerCache.Version.V1, start, end, validGravity, validHr, rr, resp)
         StagerCache.get(key)?.let { return StagerCache.copyOf(it) }
-        val segments = stageSessionUncached(start, end, grav, hr, rr, resp)
+        val segments = stageSessionUncached(start, end, validGravity, validHr, rr, resp)
         StagerCache.put(key, segments)
         return StagerCache.copyOf(segments)
     }
@@ -1816,9 +1821,11 @@ object SleepStager {
     private fun stageSessionUncached(
         start: Long, end: Long, grav: List<GravitySample>,
         hr: List<HrSample>, rr: List<RrInterval>, resp: List<RespSample>,
+        hrvMeasurements: List<HrvWindowResult> = emptyList(),
     ): List<StageSegment> {
         val gSeg = rowsBetween(grav, start, end) { it.ts }
-        if (gSeg.size < 2) return listOf(StageSegment(start = start, end = end, stage = "light"))
+        if (end <= start) return emptyList()
+        if (gSeg.size < 2) return listOf(SleepStageSemantics.unknown(start, end, "insufficient_motion_for_v1"))
 
         val gDeltas = gravityDeltas(gSeg)
         val gTimes = gSeg.map { it.ts }
@@ -1832,7 +1839,7 @@ object SleepStager {
             gravTimes = gTimes, gravDeltas = gDeltas,
             hr = hrSeg, rr = rrSeg, resp = respSeg,
         )
-        if (grid.nEpochs == 0) return listOf(StageSegment(start = start, end = end, stage = "light"))
+        if (grid.nEpochs == 0) return listOf(SleepStageSemantics.unknown(start, end))
 
         val rescaled = rescaleCounts(grid.counts)
         val ckFlags = coleKripke(rescaled)
@@ -1840,7 +1847,7 @@ object SleepStager {
 
         val dogHR = dogHRVariability(grid.hr)
         val feats = extractFeatures(grid = grid, ckFlags = ckFlags, dogHR = dogHR,
-            onsetIdx = onsetIdx, finalWakeIdx = finalWakeIdx)
+            onsetIdx = onsetIdx, finalWakeIdx = finalWakeIdx, hrvMeasurements = hrvMeasurements)
 
         var labels = classifyEpochs(feats)
         labels = smoothLabels(labels)
@@ -1860,14 +1867,17 @@ object SleepStager {
 
         // Merge consecutive same-stage epochs into segments tiling [start, end].
         val segments = ArrayList<StageSegment>()
-        for ((i, stage) in mutLabels.withIndex()) {
+        val observedSeconds = gSeg.map { it.ts }.toSet() + hrSeg.map { it.ts }
+        for ((i, label) in mutLabels.withIndex()) {
             val segStart = grid.edges[i].roundToLong()
             val segEnd = grid.edges[i + 1].roundToLong()
+            val stage = if ((segStart until segEnd).none { it in observedSeconds }) "unknown" else label
             val last = segments.lastOrNull()
             if (last != null && last.stage == stage) {
                 segments[segments.size - 1].end = segEnd
             } else {
-                segments.add(StageSegment(start = segStart, end = segEnd, stage = stage))
+                segments.add(if (stage == "unknown") SleepStageSemantics.unknown(segStart, segEnd)
+                    else StageSegment(start = segStart, end = segEnd, stage = stage))
             }
         }
         if (segments.isNotEmpty()) segments[segments.size - 1].end = end
@@ -2447,6 +2457,7 @@ object SleepStager {
     internal fun extractFeatures(
         grid: EpochGrid, ckFlags: List<Boolean>, dogHR: List<Double>,
         onsetIdx: Int, finalWakeIdx: Int,
+        hrvMeasurements: List<HrvWindowResult> = emptyList(),
     ): List<EpochFeatures> {
         val n = grid.nEpochs
         val rescaled = rescaleCounts(grid.counts)
@@ -2464,13 +2475,9 @@ object SleepStager {
             val winDog = (lo until hi).map { if (dogHR.isEmpty()) 0.0 else dogHR[it] }
             val hrVar = if (winDog.size >= 2) standardDeviation(winDog) else Double.NaN
 
-            // RMSSD/SDNN over the pooled RR window (range-filtered, like the
-            // Python per-epoch hrv_from_rr which uses RAW range-filtered RR).
-            val winRR = ArrayList<Double>()
-            for (j in lo until hi) winRR.addAll(grid.rr[j])
-            val filteredRR = HrvAnalyzer.rangeFilter(winRR)
-            val rmssd = if (filteredRR.size >= 5) (HrvAnalyzer.rmssdRaw(filteredRR) ?: Double.NaN) else Double.NaN
-            val sdnn = if (filteredRR.size >= 5) (HrvAnalyzer.sdnnRaw(filteredRR) ?: Double.NaN) else Double.NaN
+            val measured = HrvSeries.feature(grid.epochMid(i).toInt(), hrvMeasurements)
+            val rmssd = measured?.observedRMSSD ?: Double.NaN
+            val sdnn = measured?.sdnn ?: Double.NaN
 
             val winResp = ArrayList<Double>()
             for (j in lo until hi) winResp.addAll(grid.resp[j])
@@ -3159,7 +3166,7 @@ object SleepStager {
      * on an aligned `end` through the prefilter and then place it in no bin — counted as data,
      * silently ignored. A zero-length window (`start == end`) is that single closed bin.
      */
-    internal fun sessionRestingHR(start: Long, end: Long, hr: List<HrSample>): Int? {
+    fun sessionRestingHR(start: Long, end: Long, hr: List<HrSample>): Int? {
         val seg = hr.filter { it.ts in start..end }
         if (seg.isEmpty()) return null
         val windowS = 5 * 60L
@@ -3181,89 +3188,33 @@ object SleepStager {
         return all.roundToInt()
     }
 
-    /** One 5-min HRV window: its start ts, the sleep stage at its center, the clean-beat count, and the
-     *  window RMSSD (null when fewer than 2 clean beats, or when every successive pair straddles a dropped
-     *  beat). Drives both [sessionAvgHRV] and the HRV test-mode trace. */
-    data class HrvWindow(val startTs: Long, val stage: String, val cleanBeats: Int, val rmssd: Double?)
-
-    /**
-     * Mean RMSSD over 5-min tumbling windows across the session (ms), or null.
-     * Uses the same range-filter + ≥2-valid-interval rule as hrv.rmssd().
-     */
-    internal fun sessionAvgHRV(start: Long, end: Long, rr: List<RrInterval>): Double? {
-        val vals = sessionHrvWindows(start, end, rr, emptyList()).mapNotNull { it.rmssd }
-        if (vals.isEmpty()) return null
-        // #1118: refuse the night outright when its own R-R banks more beat-time than the wall clock it
-        // spans. Gated HERE rather than at the caller because this is where RMSSD BECOMES the day's HRV:
-        // one seam covers the daily row, the sleep-session cache, the Health card and the baseline that
-        // later nights are scored against, so none of them can end up disagreeing about whether the night
-        // was trustworthy. See [HrvAnalyzer.successiveDiffIsTrustworthy] for why an over-count corrupts a
-        // successive-difference statistic and why a blank is the right answer.
-        //
-        // Classified over the SAME beats the value was built from, windowed [start, end] exactly as
-        // `sessionHrvWindows` does, so the verdict cannot describe a different set of beats than the number
-        // it is gating.
-        val seg = rr.filter { it.ts in start..end }
-        val segTs = seg.map { it.ts }
-        val segMs = seg.map { it.rrMs.toDouble() }
-        val coverage = HrvAnalyzer.rrCoverage(segTs, segMs)
-        // `collapsed` is deliberately the SAME figure as `coverage`, which pins every over-count here to
-        // CROSS_SECOND. That is not a claim about which kind it is. The collapsed figure exists only to
-        // choose BETWEEN the two over-count verdicts, and this gate refuses both, so the real one would
-        // change no outcome — while costing a full sort of the night's ~50-70k beats, since
-        // [HrvAnalyzer.collapsedCoverage] opens with `sortedWith`. This runs per session, per day, across
-        // ~21 days of every analyzeRecent, every 15 minutes; #1510 cut this exact path from six sorts a
-        // night to two, and buying a distinction the caller discards would hand that back. `rrCoverage` is
-        // a single O(n) pass. If a future gate ever needs the two over-count cases apart, compute it then.
-        val verdict = HrvAnalyzer.classifyCoverage(coverage, coverage)
-        if (!HrvAnalyzer.successiveDiffIsTrustworthy(verdict)) return null
-        return vals.sum() / vals.size.toDouble()
+    /** Compatibility view over the canonical UTC measurement; stage is only a secondary label. */
+    data class HrvWindow(val startTs: Long, val stage: String, val cleanBeats: Int, val rmssd: Double?,
+                         val measurement: HrvWindowResult? = null) {
+        val unavailableReason: String? get() = measurement?.reason ?: measurement?.baselineReason
     }
 
-    /**
-     * Per-5-min-window RMSSD across a session, each window tagged with the sleep stage at its CENTER (from
-     * [stages]) — the SINGLE source [sessionAvgHRV] averages, and the HRV test-mode nightly trace reads.
-     * Passing `emptyList()` for [stages] tags every window "?" (the plain-average path doesn't need stages).
-     *
-     * Windows follow the same closed-window rule as [sessionRestingHR]: `[t, t + windowS)` except the final
-     * one, which is `[t, end]`, so a beat sitting exactly on an aligned `end` lands in a window instead of
-     * being admitted by the prefilter and then dropped. Window stage tagging and [HrvWindow.startTs] are
-     * unchanged — the final window keeps its half-open center `t + windowS / 2`.
-     */
-    internal fun sessionHrvWindows(
-        start: Long, end: Long, rr: List<RrInterval>, stages: List<StageSegment>,
-    ): List<HrvWindow> {
-        // CONTRACT: `rr` MUST already be ts-sorted (RMSSD is built from SUCCESSIVE differences, so a bucket
-        // has to be chronological). The value path passes the loop's pre-sorted `rrS`; the trace caller sorts
-        // its own copy. Not sorted here on purpose — re-sorting the value path could reorder same-second RR
-        // under an unstable sort and shift the shipped avgHrv. Same contract the original sessionAvgHRV had.
-        val seg = rr.filter { it.ts in start..end }
-        if (seg.isEmpty()) return emptyList()
-        val windowS = 5 * 60L
-        val out = ArrayList<HrvWindow>()
-        var t = start
-        do {
-            // Final window closes on `end` — same closed-window rule as sessionRestingHR, so an
-            // endpoint beat counts instead of vanishing after admission. `do` runs once for a
-            // zero-length window, where that single closed window is the whole session.
-            val isFinal = t + windowS >= end
-            val bucket = seg.filter { it.ts >= t && (isFinal || it.ts < t + windowS) }.map { it.rrMs.toDouble() }
-            // Full clean (range + Malik ectopic rejection), not just range — matches the
-            // analyze() pipeline. The 0x2A37 RR on a WHOOP 5/MG is PPG-derived and noisier
-            // than a 4.0's; rMSSD is built from SUCCESSIVE differences, so an un-rejected
-            // jitter spike inflates the session HRV. Ectopic rejection drops those (#262/#235).
-            // Gap-aware: a dropped ectopic/out-of-range beat must not splice its two neighbours into a
-            // spurious successive difference, which is the exact spike the rejection above is meant to
-            // remove. See HrvAnalyzer.rmssdGapAware.
-            val cleaned = HrvAnalyzer.cleanRRGapAware(bucket)
-            val rmssd = if (cleaned.nn.size >= 2) HrvAnalyzer.rmssdGapAware(cleaned.nn, cleaned.contiguous) else null
-            val center = t + windowS / 2
-            val stage = stages.firstOrNull { center >= it.start && center < it.end }?.stage ?: "?"
-            out.add(HrvWindow(startTs = t, stage = stage, cleanBeats = cleaned.nn.size, rmssd = rmssd))
-            t += windowS
-        } while (t < end)
-        return out
+    internal fun sessionAvgHRV(start: Long, end: Long, rr: List<RrInterval>,
+                              observations: List<PhysiologyQuality.IntervalObservation>? = null,
+                              context: List<PhysiologyQuality.ContextEpoch> = emptyList(),
+                              inputRevision: String = "unversioned"): Double? {
+        val measurements = HrvSeries.windows(start.toInt(), end.toInt(),
+            observations ?: PhysiologyQuality.legacy(rr, "legacy-unscoped"), context, inputRevision = inputRevision)
+        return HrvSeries.summarize(measurements, start.toInt(), end.toInt()).meanRMSSD
     }
+
+    /** Stage labels never establish beat quality or sleep context. */
+    internal fun sessionHrvWindows(start: Long, end: Long, rr: List<RrInterval>, stages: List<StageSegment>,
+                                  observations: List<PhysiologyQuality.IntervalObservation>? = null,
+                                  context: List<PhysiologyQuality.ContextEpoch> = emptyList(),
+                                  inputRevision: String = "unversioned"): List<HrvWindow> =
+        HrvSeries.windows(start.toInt(), end.toInt(), observations ?: PhysiologyQuality.legacy(rr, "legacy-unscoped"),
+            context, inputRevision = inputRevision).map { result ->
+                val center = result.start + 150L
+                val stage = stages.firstOrNull { center >= it.start && center < it.end }?.stage ?: "?"
+                HrvWindow(result.start.toLong(), stage, Math.round(result.validIntervalFraction * result.originalIds.size).toInt(),
+                    if (result.baselineEligible && result.start >= start && result.end <= end) result.observedRMSSD else null, result)
+            }
 
     /** The LAST contiguous run of deep-stage windows in [windows] — the WHOOP-style "last slow-wave-sleep"
      *  comparator for the HRV nightly trace. Empty when no deep window is present. */
@@ -3285,15 +3236,15 @@ object SleepStager {
 
     /** AASM-style metrics from a session's stage segments. */
     fun hypnogramMetrics(session: DetectedSleep): HypnogramMetrics {
-        val segs = session.stages.sortedBy { it.start }
+        val segs = SleepStageSemantics.normalized(session.stages, session.start, session.end)
         val tib = maxOf(0.0, (session.end - session.start).toDouble())
 
         fun dur(s: StageSegment): Double = (s.end - s.start).toDouble()
-        val sleepSegs = segs.filter { it.stage == "light" || it.stage == "deep" || it.stage == "rem" }
+        val sleepSegs = segs.filter { SleepStageSemantics.isSleep(it) }
         val tst = sleepSegs.sumOf { dur(it) }
-        val deepS = segs.filter { it.stage == "deep" }.sumOf { dur(it) }
-        val remS = segs.filter { it.stage == "rem" }.sumOf { dur(it) }
-        val lightS = segs.filter { it.stage == "light" }.sumOf { dur(it) }
+        val deepS = sleepSegs.filter { it.stage == "deep" }.sumOf { dur(it) }
+        val remS = sleepSegs.filter { it.stage == "rem" }.sumOf { dur(it) }
+        val lightS = sleepSegs.filter { it.stage == "light" }.sumOf { dur(it) }
 
         val onset: Double
         val sptEnd: Double
@@ -3310,13 +3261,13 @@ object SleepStager {
             sol = tib
         }
 
-        val remSegs = segs.filter { it.stage == "rem" }
+        val remSegs = sleepSegs.filter { it.stage == "rem" }
         val remLatency = remSegs.firstOrNull()?.let { it.start.toDouble() - onset } ?: Double.NaN
 
         var waso = 0.0
         var disturbances = 0
         for (s in segs) {
-            if (!SleepStageVocabulary.isWake(s.stage)) continue
+            if (!SleepStageVocabulary.isWake(s.stage) || !SleepStageSemantics.isKnownState(s)) continue
             val w0 = maxOf(s.start.toDouble(), onset)
             val w1 = minOf(s.end.toDouble(), sptEnd)
             if (w1 > w0) {

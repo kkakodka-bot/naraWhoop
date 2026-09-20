@@ -95,7 +95,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 arguments = [deviceId, window.startTsInclusive, window.endTsExclusive]
             }
             let sql = """
-                SELECT \(spec.columns.joined(separator: ", "))
+                SELECT \(try spec.selectColumns(in: db).joined(separator: ", "))
                 FROM \(spec.sqlName)
                 WHERE \(predicate)
                 ORDER BY \(spec.keyColumns.joined(separator: ", ")) ASC
@@ -119,7 +119,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
             switch table {
             case .ppgWaveformSample:
                 let sql = """
-                    SELECT rowid AS _pushRowId, ts, burstIndex, samples
+                    SELECT rowid AS _pushRowId, ts, burstIndex, samples, recordIndex
                     FROM ppgWaveformSample
                     WHERE deviceId = ? AND rowid = ?
                     LIMIT 1
@@ -167,7 +167,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
             switch table {
             case .ppgWaveformSample:
                 let sql = """
-                    SELECT rowid AS _pushRowId, ts, burstIndex, samples
+                    SELECT rowid AS _pushRowId, ts, burstIndex, samples, recordIndex
                     FROM ppgWaveformSample
                     WHERE deviceId = ? AND rowid > ?
                     ORDER BY rowid ASC
@@ -238,7 +238,8 @@ struct CloudPushSnapshot: PushSnapshotSource {
             rowId: row["_pushRowId"],
             ts: row["ts"],
             burstIndex: burstIndex.map { Int32(clamping: $0) },
-            samples: row["samples"]
+            samples: row["samples"],
+            recordIndex: (row["recordIndex"] as Int64?).flatMap { $0 < 0 ? nil : $0 }
         )
     }
 
@@ -292,7 +293,8 @@ struct CloudPushSnapshot: PushSnapshotSource {
                     "endTs", "source", "durationS", "energyKcal", "avgHr", "maxHr", "strain",
                     "distanceM", "zonesJSON", "notes", "routePolyline", "steps",
                 ],
-                booleanColumns: []
+                booleanColumns: [],
+                optionalLocalColumns: ["routePolyline"]
             )
         case .journal:
             return TableSpec(
@@ -319,13 +321,25 @@ struct CloudPushSnapshot: PushSnapshotSource {
         let keyColumns: [String]
         let dataColumns: [String]
         let booleanColumns: Set<String>
+        var optionalLocalColumns: Set<String> = []
         var columns: [String] { keyColumns + dataColumns }
+
+        func selectColumns(in db: Database) throws -> [String] {
+            guard !optionalLocalColumns.isEmpty else { return columns }
+            let available = Set(try db.columns(in: sqlName).map(\.name))
+            // routePolyline is part of the shared wire contract but only Android currently
+            // stores it. Export an explicit null on Apple; preserve it if a future migration
+            // adds the field. Missing required columns must still fail instead of hiding damage.
+            return columns.map { optionalLocalColumns.contains($0) && !available.contains($0) ? "NULL AS \($0)" : $0 }
+        }
     }
 
     private func appendSpec(_ table: PushAppendTable) -> TableSpec {
         switch table {
         case .hrSample: return TableSpec(sqlName: "hrSample", keyColumns: ["ts"], dataColumns: ["bpm"], booleanColumns: [])
         case .rrInterval: return TableSpec(sqlName: "rrInterval", keyColumns: ["ts", "rrMs", "seq"], dataColumns: ["ord", "srcChannel", "tsSuspect"], booleanColumns: ["tsSuspect"])
+        case .rrPacketProvenance: return TableSpec(sqlName: "rrPacketProvenance", keyColumns: ["packetId"], dataColumns: ["ts", "sensorTs", "recordIndex", "rawHex", "srcChannel", "schemaVersion", "decoderVersion", "clockVersion", "timestampPrecisionSeconds", "clockOffsetSeconds", "declaredCount"], booleanColumns: [])
+        case .standardHRReceipt: return TableSpec(sqlName: "standardHRReceipt", keyColumns: ["receiptId"], dataColumns: ["ts", "sessionId", "notificationOrdinal", "receivedUnixMs", "receivedMonotonicNs", "rawHex", "schemaVersion", "clockVersion"], booleanColumns: [])
         case .event: return TableSpec(sqlName: "event", keyColumns: ["ts", "kind"], dataColumns: ["payloadJSON"], booleanColumns: [])
         case .battery: return TableSpec(sqlName: "battery", keyColumns: ["ts"], dataColumns: ["soc", "mv", "charging"], booleanColumns: ["charging"])
         case .spo2Sample: return TableSpec(sqlName: "spo2Sample", keyColumns: ["ts"], dataColumns: ["red", "ir"], booleanColumns: [])
@@ -359,6 +373,9 @@ struct CloudPushSnapshot: PushSnapshotSource {
     private func pushValue(row: Row, column: String, boolean: Bool) -> PushJSONValue {
         let dbValue: DatabaseValue = row[column]
         if dbValue.isNull { return .null }
+        // JSON numbers lose nanosecond identity after ~104 days of system uptime. The receipt
+        // wire contract uses a decimal string and the receiver stores it as an exact bigint.
+        if column == "receivedMonotonicNs", let v = Int64.fromDatabaseValue(dbValue) { return .string(String(v)) }
         if boolean, let v = Int64.fromDatabaseValue(dbValue) { return .bool(v != 0) }
         if let v = Int64.fromDatabaseValue(dbValue) { return .int(v) }
         if let v = Double.fromDatabaseValue(dbValue) { return .double(v) }

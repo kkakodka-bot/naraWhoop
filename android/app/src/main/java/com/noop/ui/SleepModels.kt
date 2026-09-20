@@ -3,6 +3,26 @@ package com.noop.ui
 import com.noop.analytics.SleepDebtLedger
 import com.noop.data.SleepSession
 
+internal data class ServerSleepBand(val start: Long, val end: Long, val state: String)
+internal data class ServerSleepEpisode(
+    val id: String, val episodeType: String, val groupId: String?,
+    val start: Long, val end: Long, val bands: List<ServerSleepBand>,
+    val asleepMin: Double?, val inBedMin: Double?, val opportunityKind: String?, val reason: String?,
+    val startTimezoneId: String? = null, val endTimezoneId: String? = null,
+) {
+    val clockLabel: String get() = "${eventClock(start,startTimezoneId)} – ${eventClock(end,endTimezoneId)}"
+    companion object {
+        fun eventClock(timestamp:Long,timezoneId:String?):String {
+            val zone=timezoneId?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() }
+            val clock=java.time.format.DateTimeFormatter.ofPattern("MMM d HH:mm XXX",java.util.Locale.getDefault())
+                .withZone(zone ?: java.time.ZoneOffset.UTC).format(java.time.Instant.ofEpochSecond(timestamp))
+            return "$clock (${zone?.id ?: "UTC; event zone unavailable"})"
+        }
+    }
+    val opportunityLabel: String get() = if (opportunityKind == "user_reported_sleep_opportunity")
+        "Reported sleep opportunity" else "Estimated sleep opportunity"
+}
+
 /** Stage minutes for a single night (mirrors the macOS Stages struct). */
 internal data class Stages(
     val awake: Double,

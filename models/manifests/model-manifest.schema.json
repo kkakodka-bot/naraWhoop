@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nara:physiology:model-manifest:1",
+  "type": "object",
+  "required": ["schema_version", "model_id", "publication_mode", "canonical_outputs_allowed", "operational_status", "code", "checkpoint", "weights_required", "licenses", "input_contract", "preprocessing_sha256", "quality_policy_sha256", "adapter_sha256", "resource_limits", "blockers"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "model_id": {"type": "string", "minLength": 1},
+    "publication_mode": {"const": "shadow"},
+    "canonical_outputs_allowed": {"const": false},
+    "operational_status": {"enum": ["metadata_only", "adapter_ready", "reference_validation_pending"]},
+    "code": {"type": "object", "required": ["repository", "revision"], "properties": {"repository": {"type": "string"}, "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}}},
+    "checkpoint": {"type": "object", "required": ["sha256", "status"], "properties": {"sha256": {"$ref": "#/$defs/nullableHash"}, "status": {"type": "string"}}},
+    "weights_required": {"type": "boolean"},
+    "licenses": {"type": "object", "required": ["code", "weights", "training_data"], "properties": {"code": {"$ref": "#/$defs/rights"}, "weights": {"$ref": "#/$defs/rights"}, "training_data": {"$ref": "#/$defs/rights"}}},
+    "input_contract": {"type": "object", "required": ["channels", "sample_rate_hz", "samples_per_epoch", "mode", "missingness", "units"]},
+    "preprocessing_sha256": {"$ref": "#/$defs/nullableHash"},
+    "preprocessing_source": {"type": "string", "minLength": 1, "description": "Repository-relative Python source path whose exact bytes are hashed by preprocessing_sha256."},
+    "quality_policy_sha256": {"$ref": "#/$defs/nullableHash"},
+    "adapter_sha256": {"$ref": "#/$defs/nullableHash"},
+    "resource_limits": {"type": "object", "required": ["maximum_concurrency", "threads", "timeout_seconds", "maximum_rss_bytes", "numerical_tolerance"]},
+    "blockers": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "nullableHash": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "rights": {"type": "object", "required": ["identifier", "status", "evidence_url"], "properties": {"identifier": {"type": ["string", "null"]}, "status": {"enum": ["declared_upstream", "unverified", "reviewed", "not_applicable"]}, "evidence_url": {"type": ["string", "null"]}}}
+  }
+}

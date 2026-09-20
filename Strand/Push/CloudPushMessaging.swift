@@ -72,8 +72,11 @@ enum CloudPushMessaging {
         case .localDatabase:
             String(localized: "The local database or push progress could not be read or saved.")
         }
-        if let receiver = failure.receiverCode { return "\(base) (\(receiver))" }
-        return base
+        let details = [failure.receiverCode, failure.safeDiagnosticSummary].compactMap { $0 }
+        guard !details.isEmpty else { return String(base.prefix(300)) }
+        let suffix = " (\(details.joined(separator: "; ")))"
+        // Settings retain at most 300 characters; preserve the safe request identity for diagnosis.
+        return String(base.prefix(max(0, 300 - suffix.count))) + String(suffix.prefix(300))
     }
 
     private static func defaultStatus(for code: PushFailureCode) -> Int {

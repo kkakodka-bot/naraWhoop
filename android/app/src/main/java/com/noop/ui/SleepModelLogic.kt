@@ -14,6 +14,36 @@ import org.json.JSONObject
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+internal val serverSleepStates = listOf("wake", "rem", "light", "deep", "sleep_unstaged", "unknown", "off_body")
+internal fun serverSleepLabel(state: String) = when (state) {
+    "wake" -> "Awake"; "rem" -> "REM"; "light" -> "Light"; "deep" -> "Deep"
+    "sleep_unstaged" -> "Unstaged sleep"; "off_body" -> "Off body"; else -> "Unknown"
+}
+internal fun serverSleepState(stage: String, state: String): String = when (state) {
+    "off_body" -> "off_body"; "unknown", "state_unknown" -> "unknown"; "wake", "awake" -> "wake"
+    "sleep", "sleep_unstaged" -> if (stage in listOf("light", "deep", "rem")) stage else "sleep_unstaged"
+    else -> "unknown"
+}
+/** Identity and ownership are supplied by the canonical snapshot, never a fixed overnight heuristic. */
+internal fun serverSleepEpisodes(cache: com.noop.push.ServerScoreDayCache?, day: String): List<ServerSleepEpisode> {
+    if (cache?.day != day || cache.features["sleep"]?.status in listOf(null, "unavailable")) return emptyList()
+    return cache.nights.mapNotNull { night ->
+        val start = runCatching { java.time.Instant.parse(night.startAt).epochSecond }.getOrNull() ?: return@mapNotNull null
+        val end = runCatching { java.time.Instant.parse(night.endAt).epochSecond }.getOrNull() ?: return@mapNotNull null
+        if (end <= start) return@mapNotNull null
+        val bands = night.stages.mapNotNull { row ->
+            val a = maxOf(start, row.start); val b = minOf(end, row.end)
+            if (b > a) ServerSleepBand(a, b, serverSleepState(row.stage, row.state)) else null
+        }.sortedWith(compareBy({ it.start }, { it.end }))
+        val overlap = bands.zipWithNext().any { (a, b) -> a.end > b.start }
+        ServerSleepEpisode(night.id, night.episodeType ?: if (night.isNap) "nap" else "unclassified",
+            night.mainSleepGroupId, start, end, if (overlap) emptyList() else bands,
+            night.asleepMin.takeIf { night.measurementAvailable == true }, night.inBedMin, night.opportunityKind,
+            if (overlap) "Conflicting server epochs" else if (bands.isEmpty()) "No server epochs available" else null,
+            night.startTimezoneId,night.endTimezoneId)
+    }.sortedBy { it.start }
+}
+
 /**
  * Resolve what the hero shows: the day-metric model when it resolved for the selected
  * night; else the session's own persisted segments (the day row can miss while the

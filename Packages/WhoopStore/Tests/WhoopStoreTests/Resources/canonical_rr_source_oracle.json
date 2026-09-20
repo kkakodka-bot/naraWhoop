@@ -1,0 +1,28 @@
+{
+  "version": "whoop-canonical-rr-2",
+  "columns": ["ts", "rrMs", "seq", "ord", "srcChannel", "tsSuspect"],
+  "cases": [
+    {"name": "historical_precedence", "family": "WHOOP5",
+     "rows": [[100,800,0,0,7,null],[101,810,0,0,5,null],[102,820,0,0,6,null],[103,1024,0,0,null,null]],
+     "expected": [1]},
+    {"name": "suspect_history_does_not_hide_standard", "family": "WHOOP5",
+     "rows": [[100,800,0,0,5,1],[101,810,0,0,7,null],[102,820,0,0,7,1]],
+     "expected": [1]},
+    {"name": "unsupported_and_legacy_unavailable", "family": "WHOOP5",
+     "rows": [[100,1024,0,null,null,null],[101,800,0,0,6,null],[102,820,0,0,99,null]],
+     "expected": []},
+    {"name": "equal_values_are_distinct_beats", "family": "WHOOP5",
+     "rows": [[100,800,1,1,5,null],[100,800,0,0,5,null],[101,800,0,0,5,null]],
+     "expected": [1,0,2]},
+    {"name": "arrival_order_is_not_beat_order", "family": "WHOOP5",
+     "rows": [[101,790,0,0,7,null],[100,810,0,1,7,null],[100,800,0,0,7,null]],
+     "expected": [2,1,0]},
+    {"name": "whoop4_preserves_milliseconds", "family": "WHOOP4",
+     "rows": [[100,1024,0,null,null,null],[101,800,0,0,null,1],[102,820,0,0,2,null]],
+     "expected": [0]},
+    {"name": "null_order_matches_native", "family": "WHOOP4",
+     "rows": [[100,790,0,0,null,null],[100,800,0,null,null,null],[100,810,0,null,null,null]],
+     "expected": [1,2,0]},
+    {"name": "empty", "family": "WHOOP5", "rows": [], "expected": []}
+  ]
+}

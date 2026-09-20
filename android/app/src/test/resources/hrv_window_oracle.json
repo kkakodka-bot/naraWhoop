@@ -1,0 +1,226 @@
+{
+  "version": "hrv-window-goldens-v1",
+  "cases": [
+    {
+      "id": "equal_intervals_true_zero",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "pairs": 299,
+      "coverage": 1,
+      "gap": 0,
+      "rmssd": 0,
+      "baseline": true
+    },
+    {
+      "id": "clean_high_variability",
+      "count": 300,
+      "pattern": [
+        600,
+        1400
+      ],
+      "pairs": 299,
+      "coverage": 1,
+      "gap": 0,
+      "rmssd": 800,
+      "baseline": true
+    },
+    {
+      "id": "duplicate_replay",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "mode": "duplicate",
+      "pairs": 299,
+      "coverage": 1,
+      "gap": 0,
+      "rmssd": 0,
+      "baseline": true
+    },
+    {
+      "id": "missing_original_interval",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "mode": "hole",
+      "pairs": 297,
+      "coverage": 0.9966666666666667,
+      "gap": 1,
+      "rmssd": 0,
+      "baseline": true
+    },
+    {
+      "id": "rejected_shared_beat",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "mode": "rejected_beat",
+      "pairs": 296,
+      "coverage": 1,
+      "gap": 0,
+      "rmssd": 0,
+      "baseline": true
+    },
+    {
+      "id": "cumulative_corrections",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "mode": "corrected",
+      "pairs": 299,
+      "coverage": 1,
+      "gap": 0,
+      "rmssd": 0,
+      "corrected": 16.357216402190616,
+      "baseline": true
+    },
+    {
+      "id": "correction_burden",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "mode": "many_corrections",
+      "pairs": 299,
+      "coverage": 1,
+      "gap": 0,
+      "reason": "correction_burden",
+      "baseline": false
+    },
+    {
+      "id": "sparse_center_island",
+      "count": 30,
+      "pattern": [
+        1000
+      ],
+      "offset": 135,
+      "pairs": 29,
+      "coverage": 0.1,
+      "gap": 135,
+      "reason": "insufficient_observed_time",
+      "baseline": false
+    },
+    {
+      "id": "trailing_edge_gap",
+      "count": 240,
+      "pattern": [
+        1000
+      ],
+      "pairs": 239,
+      "coverage": 0.8,
+      "gap": 60,
+      "reason": "insufficient_observed_time",
+      "baseline": false
+    },
+    {
+      "id": "source_switch",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "mode": "source_switch",
+      "pairs": 298,
+      "coverage": 1,
+      "gap": 0,
+      "reason": "source_switch",
+      "baseline": false
+    },
+    {
+      "id": "legacy_no_identity",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "mode": "legacy",
+      "pairs": 0,
+      "coverage": 0,
+      "gap": 300,
+      "reason": "continuity_unverified",
+      "baseline": false
+    },
+    {
+      "id": "packet_identity_without_clock_support",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "mode": "packet",
+      "pairs": 299,
+      "coverage": 0,
+      "gap": 300,
+      "reason": "timing_coverage_unverified",
+      "baseline": false
+    },
+    {
+      "id": "active_valid_not_baseline",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "context": "active",
+      "pairs": 299,
+      "coverage": 1,
+      "gap": 0,
+      "rmssd": 0,
+      "baseline": false
+    },
+    {
+      "id": "transition_mixed_context",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "context": "mixed",
+      "pairs": 299,
+      "coverage": 1,
+      "gap": 0,
+      "rmssd": 0,
+      "baseline": false
+    },
+    {
+      "id": "apple_sdnn_is_not_rmssd",
+      "count": 300,
+      "pattern": [
+        1000
+      ],
+      "mode": "sdnn",
+      "pairs": 299,
+      "coverage": 1,
+      "gap": 0,
+      "reason": "unsupported_modality",
+      "baseline": false
+    },
+    {
+      "id": "exclusive_right_endpoint",
+      "count": 301,
+      "pattern": [
+        1000
+      ],
+      "pairs": 299,
+      "coverage": 1,
+      "gap": 0,
+      "rmssd": 0,
+      "baseline": true
+    },
+    {
+      "id": "boundary_intervals_excluded_from_sdnn",
+      "count": 301,
+      "pattern": [
+        1000
+      ],
+      "offset": -1.5,
+      "mode": "boundary",
+      "pairs": 298,
+      "coverage": 1,
+      "gap": 0,
+      "rmssd": 0,
+      "sdnn": 0,
+      "baseline": true
+    }
+  ]
+}

@@ -14,6 +14,6 @@ object PushRegistryV1_1 {
         "hrSample", "rrInterval", "event", "battery", "spo2Sample", "skinTempSample", "respSample",
         "gravitySample", "dailyMetric", "sleepSession", "workout", "journal", "stepSample",
         "sleepStateSample", "ppgHrSample", "appleStepHour", "ouraRaw", "coachMessage", "metricSeries",
-        "appleDaily", "scoreInputProvenance", "labMarker", "liveSession",
+        "appleDaily", "scoreInputProvenance", "labMarker", "liveSession", "rrPacketProvenance", "standardHRReceipt",
     ) + binaryStreams
 }

@@ -118,7 +118,7 @@ public struct DeviceRegistryStore: Sendable {
     /// `Database.swift`. The `pairedDevice` registry row itself is NOT here (a delete-data operation
     /// empties the device's recordings; archiving/removing the registry entry is a separate op).
     static let deviceScopedTables = [
-        "hrSample", "rrInterval", "spo2Sample", "skinTempSample", "respSample", "gravitySample",
+        "hrSample", "rrInterval", "rrPacketProvenance", "standardHRReceipt", "spo2Sample", "skinTempSample", "respSample", "gravitySample",
         "stepSample", "ppgHrSample", "event", "battery", "dailyMetric", "sleepSession",
         "journal", "workout", "appleDaily", "metricSeries", "dayOwnership",
         "scoreInputProvenance",

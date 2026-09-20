@@ -39,6 +39,8 @@ public enum SleepStagerV2 {
     /// WHOOP 4 and 5. The recipe stages "wake" naturally (no separate pre-onset / post-wake forcing).
     public static func stageSession(start: Int, end: Int, grav: [GravitySample],
                                     hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
+        let grav = grav.filter(SleepSignalValidity.gravity)
+        let hr = hr.filter(SleepSignalValidity.heartRate)
         // v7.0.2 perf (#707): stage each night AT MOST ONCE per (window, input-fingerprint). The post-sync
         // scoring loop and the self-heal restage call this with byte-identical streams across passes; without
         // the cache each call re-allocates the large per-second HR/gravity dictionaries below before
@@ -132,26 +134,39 @@ public enum SleepStagerV2 {
     private static func stageSessionUncached(start: Int, end: Int, grav: [GravitySample],
                                              hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
         // The public veneer has already established stable timestamp order before clipping.
+        if end <= start { return [] }
         let feats = features(start: start, end: end, grav: grav, hr: hr, rr: rr)
-        if feats.isEmpty { return [StageSegment(start: start, end: end, stage: "light")] }
-        let labels = stageEpochs(feats)
-
-        // Tile [start, end] with one segment per staged epoch. The first segment back-fills [start, firstEpoch)
-        // and the last extends to `end`; an interior coverage gap is carried by the preceding label. "awake"
-        // is renamed to the canonical "wake" used by V1 / StageSegment.
-        var segments: [StageSegment] = []
-        for (i, f) in feats.enumerated() {
-            let stage = labels[i] == "awake" ? "wake" : labels[i]
-            let segStart = i == 0 ? start : f.start
-            let segEnd = i == feats.count - 1 ? end : feats[i + 1].start
-            if let last = segments.last, last.stage == stage {
-                segments[segments.count - 1].end = segEnd
-            } else {
-                segments.append(StageSegment(start: segStart, end: segEnd, stage: stage))
-            }
+        if feats.isEmpty { return [SleepStageSemantics.unknown(start: start, end: end)] }
+        // Missing epochs break temporal inference as well as the displayed timeline.
+        var labels: [Int: String] = [:], run: [Epoch] = []
+        func finishRun() {
+            for (f, label) in zip(run, stageEpochs(run)) { labels[f.start] = label }
+            run.removeAll(keepingCapacity: true)
         }
-        return segments
+        for f in feats {
+            if f.evidenceCoverage < minimumEpochCoverage { finishRun(); continue }
+            if let last = run.last, f.start != last.start + 30 { finishRun() }
+            run.append(f)
+        }
+        finishRun()
+        var segments: [StageSegment] = []
+        for f in feats {
+            let lo = max(start, f.start), hi = min(end, f.start + 30)
+            guard hi > lo else { continue }
+            if let label = labels[f.start] {
+                let stage = label == "awake" ? "wake" : label
+                segments.append(StageSegment(start: lo, end: hi, stage: stage,
+                    state: stage == "wake" ? "awake" : "sleep", evidenceCoverage: f.evidenceCoverage,
+                    computationMode: "retrospective", algorithmVersion: "sleep-v2-evidence-1",
+                    probabilitiesCalibrated: false))
+            } else { segments.append(SleepStageSemantics.unknown(start: lo, end: hi,
+                reason: "insufficient_epoch_coverage", coverage: f.evidenceCoverage)) }
+        }
+        return SleepStageSemantics.coalesced(SleepStageSemantics.normalized(segments, start: start, end: end))
     }
+
+    /// Engineering abstention policy, not a WHOOP/PSG-validated accuracy threshold.
+    static let minimumEpochCoverage = 0.5
 
     // MARK: - Recipe constants (all fixed a-priori — NOT fit to labels)
 
@@ -240,6 +255,7 @@ public enum SleepStagerV2 {
         /// guard reads it — the deep term and the REM ramp stay fractions of the session, which is what they
         /// are (see `cyclePrior`).
         let minutesSinceOnset: Double
+        var evidenceCoverage: Double = 1
     }
 
     // MARK: - Feature extraction
@@ -266,10 +282,6 @@ public enum SleepStagerV2 {
         }
         var secG = [Int: (Double, Double, Double)](); secG.reserveCapacity(gCnt.count)
         for (k, c) in gCnt { let d = Double(c); secG[k] = (gxSum[k]! / d, gySum[k]! / d, gzSum[k]! / d) }
-
-        // R-R values bucketed by second (for the RSA respiration window).
-        var rrBy = [Int: [Double]]()
-        for r in rr { rrBy[r.ts, default: []].append(Double(r.rrMs)) }
 
         // PREFIX SUMS over the per-second HR grid (#707). Every epoch evaluates a 5-min AND an 11-min centred
         // std window; the old `stdOfSeconds` re-scanned and re-allocated a `vals` array of up to ~660 entries
@@ -319,24 +331,27 @@ public enum SleepStagerV2 {
         struct Raw {
             let start: Int; let hr: Double?; let hrVar: Double?; let hrFlat11: Double?
             let jerks: [Double]; let gapSec: Int; let jerkMax: Double; let respReg: Double?; let clock: Double
-            let minutes: Double
+            let minutes: Double; let evidenceCoverage: Double
         }
         var raws: [Raw] = []
         var allJerks: [Double] = []
-        let firstE = ((start + 29) / 30) * 30
+        let firstE = Int(floor(Double(start + 29) / 30)) * 30
         var e = firstE
         while e < end {
             var hrs: [Double] = []
             var gseq: [(Double, Double, Double)] = []
-            for s in e..<(e + 30) {
+            var gtimes: [Int] = [], observed = 0
+            for s in max(start, e)..<min(end, e + 30) {
                 if let h = secHR[s] { hrs.append(h) }
-                if let g = secG[s] { gseq.append(g) }
+                if let g = secG[s] { gseq.append(g); gtimes.append(s) }
+                if secHR[s] != nil || secG[s] != nil { observed += 1 }
             }
             if hrs.isEmpty && gseq.isEmpty { e += 30; continue }   // no coverage → skip the epoch
 
             // Movement: consecutive per-second gravity jerks within the epoch.
             var jerks: [Double] = []
             for i in 1..<max(1, gseq.count) {
+                if gtimes[i] != gtimes[i - 1] + 1 { continue }
                 let a = gseq[i - 1], b = gseq[i]
                 let dx = a.0 - b.0, dy = a.1 - b.1, dz = a.2 - b.2
                 jerks.append((dx * dx + dy * dy + dz * dz).squareRoot())
@@ -348,18 +363,16 @@ public enum SleepStagerV2 {
             let hrVar = stdOfSeconds(e - 150, e + 30 + 150)     // 5-min centred window
             let hrFlat11 = stdOfSeconds(e - 330, e + 30 + 360)  // 11-min centred window
 
-            // RSA respiration over a wider beat window [e-90, e+120).
-            var beats: [(Double, Double)] = []
-            for s in (e - 90)..<(e + 120) {
-                if let vs = rrBy[s] { for v in vs { beats.append((Double(s), min(max(v, 300), 2000))) } }
-            }
-            beats.sort { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1 < $1.1 }
-            let respReg = respRegularity(beats)
+            // This legacy input carries coarse seconds, not verified original beat timing.
+            // A standalone RespirationEstimator.fromIntervals path accepts proven timing; do not
+            // let sorting or clamping these values manufacture an RSA feature for sleep staging.
+            let respReg: Double? = nil
 
             raws.append(Raw(start: e, hr: hrMean, hrVar: hrVar, hrFlat11: hrFlat11,
                             jerks: jerks, gapSec: max(1, gseq.count - 1), jerkMax: jerkMax,
                             respReg: respReg, clock: Double(e + 15 - start) / span,
-                            minutes: Double(e + 15 - start) / 60.0))
+                            minutes: Double(e + 15 - start) / 60.0,
+                            evidenceCoverage: Double(observed) / Double(min(end, e + 30) - max(start, e))))
             e += 30
         }
 
@@ -382,7 +395,8 @@ public enum SleepStagerV2 {
             feats.append(Epoch(
                 start: r.start, hr: r.hr, hrVar: r.hrVar, hrFlat11: r.hrFlat11,
                 moveFrac: Double(moves) / Double(r.gapSec), jerkMax: r.jerkMax, respReg: r.respReg,
-                clock: r.clock, jerkScale: jerkScale, minutesSinceOnset: r.minutes))
+                clock: r.clock, jerkScale: jerkScale, minutesSinceOnset: r.minutes,
+                evidenceCoverage: r.evidenceCoverage))
         }
         return feats
     }

@@ -32,7 +32,7 @@ import com.noop.R
  * `Terms.currentVersion`. The full text ships in TERMS.md.
  */
 object Terms {
-    const val CURRENT_VERSION = "2.0"
+    const val CURRENT_VERSION = "3.0"
 
     /**
      * Plain-English summary of TERMS.md §1–§6 — kept identical to the macOS `Terms.points`. Each is
@@ -47,6 +47,7 @@ object Terms {
         R.string.terms_point_experimental_head to R.string.terms_point_experimental_body,
         R.string.terms_point_medical_head to R.string.terms_point_medical_body,
         R.string.terms_point_warranty_head to R.string.terms_point_warranty_body,
+        R.string.terms_point_cloud_head to R.string.terms_point_cloud_body,
     )
 
     /**
@@ -61,6 +62,7 @@ object Terms {
         R.string.terms_attest_own_device,
         R.string.terms_attest_asis,
         R.string.terms_attest_liability,
+        R.string.terms_attest_cloud,
     )
 }
 

@@ -2,23 +2,28 @@ import Foundation
 import zlib
 import NoopPush
 
-/// Minimal HTTP adapter for FRWHOOP `/api/push`: no redirects, bounded ack reads, gzip with identity fallback.
+/// Minimal HTTP adapter for the push receiver: no redirects, bounded ack reads, and no
+/// receiver credentials on direct-to-bucket uploads.
 struct CloudPushTransport: PushTransport {
     static let acceptVersionHeader = "NOOP-Push-Accept-Version"
+    static let fleetTokenHeader = "X-NOOP-Fleet-Token"
 
     private let endpoint: PushValidEndpoint
-    private let bearerToken: String
+    private let uploadToken: String
+    private let fleetToken: String
     private let session: URLSession
     private let uploadSession: URLSession
 
     init(
         endpoint: PushValidEndpoint,
-        bearerToken: String,
+        uploadToken: String,
+        fleetToken: String,
         session: URLSession = CloudPushTransport.makeSession(),
         uploadSession: URLSession = CloudPushTransport.makeUploadSession()
     ) {
         self.endpoint = endpoint
-        self.bearerToken = bearerToken
+        self.uploadToken = uploadToken
+        self.fleetToken = fleetToken
         self.session = session
         self.uploadSession = uploadSession
     }
@@ -26,7 +31,7 @@ struct CloudPushTransport: PushTransport {
     func capabilities() async throws -> PushCapabilitiesResult {
         var request = URLRequest(url: URL(string: endpoint.url)!)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        authorizeReceiverRequest(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(PushProtocol.capabilitiesAcceptVersions, forHTTPHeaderField: Self.acceptVersionHeader)
         do {
@@ -74,15 +79,15 @@ struct CloudPushTransport: PushTransport {
         var request = URLRequest(url: try laneURL(lane.endpoint))
         request.httpMethod = "POST"
         request.httpBody = body
-        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        authorizeReceiverRequest(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status >= 200, status <= 299 else {
-            throw PushTransportException(PushFailure.http(
-                status: status,
-                receiverCode: PushError.parseCode(data, expectedVersion: PushProtocol.objectVersion)
+            throw PushTransportException(PushError.httpFailure(
+                status: status, body: data, expectedVersion: PushProtocol.objectVersion,
+                table: PushBinaryTable(rawValue: manifest.stream)
             ))
         }
         do {
@@ -99,8 +104,8 @@ struct CloudPushTransport: PushTransport {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.httpBody = body
-        // Exactly the signed headers and nothing else: extras break the SigV4 signature, and the
-        // bearer token must never leak to the bucket host.
+        // Exactly the signed headers and nothing else: extras break the SigV4 signature, and
+        // receiver credentials must never leak to the bucket host.
         for (name, value) in intent.requiredHeaders {
             request.setValue(value, forHTTPHeaderField: name)
         }
@@ -115,14 +120,13 @@ struct CloudPushTransport: PushTransport {
         var request = URLRequest(url: try laneURL("\(lane.endpoint)/\(objectId)/complete"))
         request.httpMethod = "POST"
         request.httpBody = Data()
-        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        authorizeReceiverRequest(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status >= 200, status <= 299 else {
-            throw PushTransportException(PushFailure.http(
-                status: status,
-                receiverCode: PushError.parseCode(data, expectedVersion: PushProtocol.objectVersion)
+            throw PushTransportException(PushError.httpFailure(
+                status: status, body: data, expectedVersion: PushProtocol.objectVersion
             ))
         }
         do {
@@ -157,7 +161,7 @@ struct CloudPushTransport: PushTransport {
         var request = URLRequest(url: URL(string: endpoint.url)!)
         request.httpMethod = "POST"
         request.httpBody = body
-        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        authorizeReceiverRequest(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         if binaryObject {
@@ -171,6 +175,11 @@ struct CloudPushTransport: PushTransport {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let bounded = data.prefix(PushProtocolLimits.maxAckBytes + 1)
         return PushTransportResponse(statusCode: status, body: Data(bounded))
+    }
+
+    private func authorizeReceiverRequest(_ request: inout URLRequest) {
+        request.setValue("Bearer \(uploadToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(fleetToken, forHTTPHeaderField: Self.fleetTokenHeader)
     }
 
     static func makeSession() -> URLSession {

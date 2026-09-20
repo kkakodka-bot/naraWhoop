@@ -2,11 +2,14 @@ import Foundation
 enum StorePaths {
     /// `<AppSupport>/OpenWhoop/whoop.sqlite`, creating the directory if needed.
     static func defaultDatabasePath() throws -> String {
+        guard CloudCaptureScope.processOwnerId != nil else {
+            throw CloudCaptureScope.ScopeError.enrollmentRequired
+        }
         let fm = FileManager.default
         let appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                     appropriateFor: nil, create: true)
         let containerAppSupport = macOSProductionContainerAppSupport(defaultingTo: appSupport)
-        let base = containerAppSupport.appendingPathComponent("OpenWhoop", isDirectory: true)
+        let base = containerAppSupport.appendingPathComponent(CloudCaptureScope.component("OpenWhoop"), isDirectory: true)
         try fm.createDirectory(at: base, withIntermediateDirectories: true)
         let dbURL = base.appendingPathComponent("whoop.sqlite")
 
@@ -30,24 +33,14 @@ enum StorePaths {
         }
         #endif
 
-        #if os(macOS)
-        // If we redirected into the sandbox container but the container store is
-        // absent/empty while a legacy non-container store exists, migrate the old
-        // data in once so existing macOS users don't appear to lose everything.
-        if containerAppSupport != appSupport {
-            migrateLegacyStoreIfNeeded(from: appSupport.appendingPathComponent("OpenWhoop", isDirectory: true),
-                                       to: base, dbURL: dbURL)
-        } else {
-            // Fork ".staging" build: it installs BESIDE the official app, so its store lives at the plain
-            // ~/Library/Application Support/OpenWhoop, NOT the official app's sandbox container. The first
-            // launch (our store still empty) COPIES the official com.noopapp.noop container store in, so a
-            // user coming from official NOOP keeps their history (#39). (Prod/sandboxed builds took the
-            // branch above and never reach here.)
-            importOfficialContainerStoreIfNeeded(into: base, dbURL: dbURL)
-        }
-        #endif
-
         return dbURL.path
+    }
+
+    static func legacyDatabasePath() throws -> String {
+        let appSupport = try FileManager.default.url(for: .applicationSupportDirectory,
+            in: .userDomainMask, appropriateFor: nil, create: true)
+        return macOSProductionContainerAppSupport(defaultingTo: appSupport)
+            .appendingPathComponent("OpenWhoop/whoop.sqlite").path
     }
 
     /// On signed/production macOS builds the app runs sandboxed, so the real

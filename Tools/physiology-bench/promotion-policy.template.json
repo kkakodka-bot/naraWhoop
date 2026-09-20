@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "policy_id": "unfrozen-requires-reference-team",
+  "status": "draft",
+  "metric_family": null,
+  "frozen_at": null,
+  "dataset_sha256": null,
+  "split_sha256": null,
+  "config_sha256": null,
+  "model_manifest_sha256": null,
+  "fit_audit_sha256": null,
+  "minimum_participants": null,
+  "minimum_subgroup_participants": null,
+  "required_subgroups": [],
+  "requires_locked_phone_soak": true,
+  "requires_actual_target_resources": true,
+  "memory_resource_metric": "maximum_rss_bytes",
+  "criteria": [
+    {"role": "primary_improvement", "path": null, "operator": "<=", "limit": null},
+    {"role": "wake_noninferiority", "path": null, "operator": ">=", "limit": null},
+    {"role": "coverage_noninferiority", "path": null, "operator": ">=", "limit": null},
+    {"role": "subgroup_regression", "path": null, "operator": "<=", "limit": null},
+    {"role": "end_to_end_detection", "path": "report/detection/candidate/recall", "operator": ">=", "limit": null},
+    {"role": "end_to_end_detection", "path": "report/detection/candidate/false_episodes_per_24h", "operator": "<=", "limit": null},
+    {"role": "resource_budget", "path": "resources/p95_latency_ms", "operator": "<=", "limit": null},
+    {"role": "resource_budget", "path": "resources/maximum_rss_bytes", "operator": "<=", "limit": null},
+    {"role": "resource_budget", "path": "resources/cpu_seconds_per_record", "operator": "<=", "limit": null},
+    {"role": "resource_budget", "path": "resources/records_per_hour", "operator": ">=", "limit": null}
+  ],
+  "reason": "Accuracy, subgroup and resource budgets require a prospective reference plan and power analysis. No validated WHOOP-specific cutoffs have been invented."
+}
