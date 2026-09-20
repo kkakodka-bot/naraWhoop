@@ -611,7 +611,9 @@ private struct DevicesContent: View {
         // #78: actually RELEASE the BLE link, not just archive the registry row — otherwise NARA keeps
         // re-grabbing the strap (reconnect timer + targeted-connect pin + iOS state restoration), holding
         // it connected so it can never enter pairing mode to be re-paired.
-        model.ble.forgetDevice(device.peripheralId)
+        // Pass the logical registry id as well as the BLE id. Two rows can temporarily share a
+        // peripheralId during repair; removing the stale row must not release the active strap.
+        model.ble.forgetDevice(device.peripheralId, deviceId: device.id)
         registry.archive(device.id)
         removeTarget = nil
         if wasActive {

@@ -17,7 +17,7 @@ struct ImuRecorderView: View {
     var body: some View {
         ScreenScaffold(
             title: "IMU Recorder",
-            subtitle: "Continuous 100 Hz motion recording on this device."
+            subtitle: "Live-only 100 Hz motion recording on this device."
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 switchCard
@@ -55,7 +55,7 @@ struct ImuRecorderView: View {
                     Text("Record 100 Hz IMU locally").font(StrandFont.body)
                 }
                 .toggleStyle(.switch).tint(StrandPalette.accent)
-                Text("Continuously record the strap's 100 Hz six-axis motion sensor until you turn this off. Separate from raw-frame retention and bounded sessions. Off by default.")
+                Text("Record live 100 Hz six-axis motion until you turn this off. Disconnect gaps remain gaps: historical packets are excluded. Enabled by default for the enrolled research strap; your saved switch setting is preserved.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                 Divider().overlay(StrandPalette.hairline)

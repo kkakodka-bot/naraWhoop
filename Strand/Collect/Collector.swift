@@ -378,8 +378,11 @@ final class Collector {
         // `rawColumns` requires a complete WHOOP5 envelope, valid header/payload CRCs,
         // an evidenced carrier type, and the complete 100 x 6 shape. Corrupt or
         // unknown frames remain wire evidence but never enter interpreted storage.
-        ImuSessionFileStore.shared.append(
-            deviceId: explicitDeviceId ?? deviceId,
+        let id = explicitDeviceId ?? deviceId
+        guard ImuContinuousRecorder.isFreshLiveFrame(frame, isOffload: false,
+            receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000)) else { return 0 }
+        return ImuSessionFileStore.shared.append(
+            deviceId: id,
             frame: frame,
             receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000)
         )

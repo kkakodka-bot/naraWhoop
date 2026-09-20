@@ -1,7 +1,7 @@
 # Cloud push protocol
 
 This document specifies the wire contract for NOOP's authenticated export to the FRWHOOP cloud
-durability pipeline. Protocol version **1.1** is the FRWHOOP fork registry (full `WhoopStore`
+durability pipeline. Protocol version **1.2** is the FRWHOOP fork registry (full `WhoopStore`
 coverage per [`CLOUD_INGESTION.md`](CLOUD_INGESTION.md)). Version **1.0** remains documented below for
 the upstream Experimental self-hosted export subset.
 
@@ -21,13 +21,13 @@ does not open the health database or send a batch.
 GET /the/user-configured-path HTTP/1.1
 Accept: application/json
 Authorization: Bearer <user-supplied-token>
-NOOP-Push-Accept-Version: 1.1,1.0
+NOOP-Push-Accept-Version: 1.2,1.1,1.0
 ```
 
 A successful capability response has these required members:
 
 ```json
-{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"5fc7b9a0-8055-4e49-a308-3a290f98d81a","streams":["hrSample","rrInterval","dailyMetric","labMarker"]}
+{"type":"capabilities","protocolVersion":"1.2","receiverStateId":"5fc7b9a0-8055-4e49-a308-3a290f98d81a","streams":["hrSample","rrInterval","dailyMetric","labMarker","eventLabel"]}
 ```
 
 `NOOP-Push-Accept-Version` is a comma-separated, sender-preferred list of exact versions it can emit.
@@ -39,7 +39,7 @@ therefore requires the operator to rotate this ID. Rotation starts a new idempot
 receiver retains health records but atomically discards old batch acknowledgements, replacement staging,
 and generation fences so deterministic baseline batch IDs are applied again rather than short-circuited.
 
-`streams` is a duplicate-free subset of the names in the negotiated registry (v1.0 or v1.1); array order has
+`streams` is a duplicate-free subset of the names in the negotiated registry (v1.0, v1.1, or v1.2); array order has
 no semantic meaning. An empty array is valid. Unknown names, duplicate names, a missing required member,
 an unsupported version, malformed JSON, or a response over 16 KiB fail closed before Room is opened or
 health data is encoded. Unknown optional object members are ignored within a supported major version. The
@@ -47,7 +47,7 @@ receiver cannot add tables or fields: the effective registry is always the inter
 and the client's compiled registry for the selected version. Android performs no snapshot read and no
 batch `POST` for an unadvertised stream.
 
-Optional v1.1 capability members (ignored by v1.0 senders):
+Optional v1.1+ capability members (ignored by v1.0 senders):
 
 | Member | Meaning |
 |---|---|
@@ -270,6 +270,14 @@ succeeds. Retrying any part is harmless. Conflicting reuse of a `replacementId`,
 rule makes edits and deletions within the rolling window converge to NOOP's local state; v1 carries no
 tombstone for a row that has already aged out of that window.
 
+Protocol 1.2's file-backed `eventLabel` stream is the intentional exception to
+the 14-day mutable horizon. Apple senders retain canonical hashes for every UTC
+day containing labels and replace changed day windows no matter how old they are.
+A formerly populated day is sent as an empty replacement when its final label is
+deleted. These bounded partitions let old labels be renamed or deleted without
+tombstones or a whole-history size ceiling. The same 1,000-record / 2-MiB mutable
+snapshot limits apply to each UTC day.
+
 A sender must have at most one incomplete replacement generation per `(sourceId, deviceId, stream)`.
 Observing the first part of a different generation supersedes every older incomplete generation in that
 scope, even when its exact window bounds differ. A receiver rejects late parts of a superseded
@@ -311,6 +319,20 @@ B2 keys follow FRWHOOP `supabase/functions/_shared/keys.ts`:
 | `ppgWaveformSample` | `bin.gz` | `ppg` |
 | `v18AuxSample` | `bin.gz` | `diag` |
 | `rawBatch` | `pb.zst` | `core` |
+
+## Version 1.2 stream registry (FRWHOOP fork)
+
+v1.2 retains every v1.1 stream and adds the Apple event recorder's file-backed
+mutable stream:
+
+| `stream` | Key | Window selector | `data` members |
+|---|---|---|---|
+| `eventLabel` | `id`, `startTs` | `startTs` | `label`, `endTs` (nullable), `notes` (nullable), `timeZoneIdentifier`, `source` |
+
+`id` is the recorder's stable string UUID. Timestamps are integer Unix seconds on
+the wire; the local JSON sidecar retains fractional precision. The receiver maps
+the batch-scoped device identity and installation `sourceId` into provenance
+columns in `noop_event_labels`.
 
 ## Version 1.1 stream registry (FRWHOOP fork)
 

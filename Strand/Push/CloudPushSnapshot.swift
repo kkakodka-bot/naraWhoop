@@ -9,10 +9,16 @@ import NoopPush
 struct CloudPushSnapshot: PushSnapshotSource {
     private let db: any DatabaseWriter
     private let imuPushSource: (any ImuSessionPushSource)?
+    private let eventPushSource: (any ExperimentEventPushSource)?
 
-    init(db: any DatabaseWriter, imuPushSource: (any ImuSessionPushSource)? = nil) {
+    init(
+        db: any DatabaseWriter,
+        imuPushSource: (any ImuSessionPushSource)? = nil,
+        eventPushSource: (any ExperimentEventPushSource)? = nil
+    ) {
         self.db = db
         self.imuPushSource = imuPushSource
+        self.eventPushSource = eventPushSource
     }
 
     func knownDeviceIds(capabilities: PushCapabilities) async throws -> [String] {
@@ -24,7 +30,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 let sql = "SELECT DISTINCT deviceId FROM \(sqlTable(table)) WHERE deviceId <> ''"
                 try String.fetchAll(db, sql: sql).forEach { ids.insert($0) }
             }
-            for table in capabilities.mutableTables {
+            for table in capabilities.mutableTables where table != .eventLabel {
                 let sql = "SELECT DISTINCT deviceId FROM \(sqlTable(table)) WHERE deviceId <> ''"
                 try String.fetchAll(db, sql: sql).forEach { ids.insert($0) }
             }
@@ -36,6 +42,9 @@ struct CloudPushSnapshot: PushSnapshotSource {
         }
         if capabilities.binaryTables.contains(.rawImuSession), let imuPushSource {
             ids.formUnion(await imuPushSource.pushDeviceIds())
+        }
+        if capabilities.mutableTables.contains(.eventLabel), let eventPushSource {
+            ids.formUnion(await eventPushSource.eventDeviceIds())
         }
         return Array(ids).sorted()
     }
@@ -83,6 +92,29 @@ struct CloudPushSnapshot: PushSnapshotSource {
         limit: Int
     ) async throws -> [PushMutableRecord] {
         precondition(limit >= 1 && limit <= PushProtocolLimits.maxMutableSnapshotRecords + 1)
+        if table == .eventLabel {
+            guard let eventPushSource else { return [] }
+            return await eventPushSource.eventSnapshot(
+                deviceId: deviceId,
+                from: window.startTsInclusive,
+                to: window.endTsExclusive,
+                limit: limit
+            ).map { event in
+                PushMutableRecord(
+                    key: [
+                        "id": .string(event.id.uuidString.lowercased()),
+                        "startTs": .int(Int64(event.startUnixSeconds.rounded(.down))),
+                    ],
+                    data: [
+                        "label": .string(event.label),
+                        "endTs": event.endUnixSeconds.map { .int(Int64($0.rounded(.down))) } ?? .null,
+                        "notes": event.note.map(PushJSONValue.string) ?? .null,
+                        "timeZoneIdentifier": .string(event.timeZoneIdentifier),
+                        "source": .string(event.source),
+                    ]
+                )
+            }
+        }
         return try await db.read { db in
             let spec = mutableSpec(table)
             let (predicate, arguments): (String, [DatabaseValueConvertible?])
@@ -90,7 +122,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
             case .dailyMetric, .journal:
                 predicate = "deviceId = ? AND day >= ? AND day <= ?"
                 arguments = [deviceId, window.fromDay, window.toDay]
-            case .sleepSession, .workout:
+            case .sleepSession, .workout, .eventLabel:
                 predicate = "deviceId = ? AND startTs >= ? AND startTs < ?"
                 arguments = [deviceId, window.startTsInclusive, window.endTsExclusive]
             }
@@ -105,6 +137,11 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 mutableRecord(row: $0, spec: spec)
             }
         }
+    }
+
+    func mutablePartitionKeys(table: PushMutableTable, deviceId: String) async throws -> [String] {
+        guard table == .eventLabel, let eventPushSource else { return [] }
+        return await eventPushSource.eventDayKeys(deviceId: deviceId)
     }
 
     func binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Int64) async throws -> PushBinaryRow? {
@@ -301,6 +338,8 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 dataColumns: ["answeredYes", "notes", "numericValue"],
                 booleanColumns: ["answeredYes"]
             )
+        case .eventLabel:
+            preconditionFailure("event labels are file-backed")
         }
     }
 
@@ -342,6 +381,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
         case .sleepSession: return "sleepSession"
         case .workout: return "workout"
         case .journal: return "journal"
+        case .eventLabel: preconditionFailure("event labels are file-backed")
         }
     }
 

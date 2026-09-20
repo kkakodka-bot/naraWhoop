@@ -120,4 +120,35 @@ final class BackfillerImuSessionTests: XCTestCase {
         XCTAssertFalse(acked)
         XCTAssertFalse(store.operations.contains("cursor"))
     }
+
+    func testOpticalDurabilityRunsBeforeTrimAck() async {
+        let store = SpyStore()
+        var operations: [String] = []
+        let backfiller = Backfiller(store: store, deviceId: "devA",
+            ackTrim: { _, _ in operations.append("ack") },
+            opticalSink: { _, frames in
+                XCTAssertFalse(frames.isEmpty)
+                operations.append("optical-durable")
+                return true
+            })
+        backfiller.begin(family: .whoop5)
+        await backfiller.ingest(makeValidImuFrame(unix: 1_500))
+        await backfiller.ingest(hexBytes(whoop5HistoryEndHex))
+        XCTAssertEqual(operations, ["optical-durable", "ack"])
+        XCTAssertTrue(store.operations.contains("cursor"))
+    }
+
+    func testOpticalWriteFailureHoldsCursorAndAck() async {
+        let store = SpyStore()
+        var acked = false
+        let backfiller = Backfiller(store: store, deviceId: "devA",
+            ackTrim: { _, _ in acked = true }, opticalSink: { _, _ in false })
+        backfiller.begin(family: .whoop5)
+        await backfiller.ingest(makeValidImuFrame(unix: 1_500))
+        await backfiller.ingest(hexBytes(whoop5HistoryEndHex))
+        XCTAssertTrue(backfiller.persistStalled)
+        XCTAssertFalse(acked)
+        XCTAssertFalse(store.operations.contains("cursor"))
+    }
+
 }

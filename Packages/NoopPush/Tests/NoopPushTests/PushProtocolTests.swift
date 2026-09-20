@@ -125,6 +125,42 @@ final class PushProtocolTests: XCTestCase {
             try PushProtocol.mutableSnapshotHash(table: .journal, records: [])
         )
     }
+
+    func testEventLabelSnapshotUsesStableIdentityAndStartWindow() throws {
+        let window = testWindow()
+        let event = PushMutableRecord(
+            key: [
+                "id": .string("8e13e903-3ba2-4bbc-8b77-e3f61a68bf8e"),
+                "startTs": .int(1_789_763_348),
+            ],
+            data: [
+                "label": .string("Outdoor walk"),
+                "endTs": .int(1_789_763_438),
+                "notes": .string("sunny"),
+                "timeZoneIdentifier": .string("America/Los_Angeles"),
+                "source": .string("manual_experiment"),
+            ]
+        )
+
+        let first = try PushProtocol.mutableBatch(
+            table: .eventLabel, sourceId: sourceA, deviceId: "strap-a", window: window, records: [event],
+            protocolVersion: PushProtocol.objectVersion
+        )
+        let retry = try PushProtocol.mutableBatch(
+            table: .eventLabel, sourceId: sourceA, deviceId: "strap-a", window: window, records: [event],
+            protocolVersion: PushProtocol.objectVersion
+        )
+
+        XCTAssertEqual(first.batchId, retry.batchId)
+        XCTAssertEqual("eventLabel", first.table.wireName)
+        let headerLine = String(data: first.body, encoding: .utf8)!.split(separator: "\n")[0]
+        let header = try JSONSerialization.jsonObject(with: Data(headerLine.utf8)) as! [String: Any]
+        XCTAssertEqual("1.2", header["protocolVersion"] as? String)
+        let wireWindow = header["window"] as! [String: Any]
+        XCTAssertEqual("startTs", wireWindow["selector"] as? String)
+        XCTAssertEqual(window.startTsInclusive, wireWindow["startInclusive"] as? Int64)
+        XCTAssertEqual(window.endTsExclusive, wireWindow["endExclusive"] as? Int64)
+    }
 }
 
 private func testWindow() -> PushWindow {

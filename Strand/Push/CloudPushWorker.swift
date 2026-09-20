@@ -92,7 +92,14 @@ enum CloudPushWorker {
         )
 
         let imuPushSource = ImuSessionFileStore.shared as ImuSessionPushSource
-        let snapshot = CloudPushSnapshot(db: db, imuPushSource: imuPushSource)
+        let eventPushSource = await MainActor.run {
+            ExperimentEventLog.shared as any ExperimentEventPushSource
+        }
+        let snapshot = CloudPushSnapshot(
+            db: db,
+            imuPushSource: imuPushSource,
+            eventPushSource: eventPushSource
+        )
         let progress = CloudPushProgressStore(namespace: namespace)
         let startIndex = CloudPushSettings.nextDeviceIndex(namespace: namespace)
         let coordinator = PushCoordinator(
