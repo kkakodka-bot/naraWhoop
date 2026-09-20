@@ -84,11 +84,12 @@ object BackgroundImageStore {
     /** The custom image is the ACTIVE backdrop (top of the precedence: enabled AND actually decoded). */
     val isActive: Boolean get() = enabled && bitmap != null
 
-    private fun file(app: Context, id: String): File = File(app.applicationContext.filesDir, id)
+    private fun file(app: Context, id: String): File = File(com.noop.account.AccountStorageContext.capture(app).filesDir, id)
 
     /** Load the toggles + the recent list (migrating a pre-recents single `background.jpg`). */
-    fun load(ctx: Context) {
-        val app = ctx.applicationContext
+    @Synchronized fun load(ctx: Context) {
+        val app = com.noop.account.AccountStorageContext.capture(ctx)
+        if (!app.isCurrent()) return
         enabled = NoopPrefs.backgroundImageEnabled(app)
         var list = parseRecents(NoopPrefs.backgroundRecents(app)).filter { file(app, it.id).exists() }
         // Migration: pre-recents installs stored ONE `background.jpg`; adopt it as the sole recent so an
@@ -106,14 +107,16 @@ object BackgroundImageStore {
         persist(app)
     }
 
-    fun setEnabled(ctx: Context, on: Boolean) {
+    @Synchronized fun setEnabled(ctx: Context, on: Boolean) {
+        if (!com.noop.account.AccountStorageContext.capture(ctx).isCurrent()) return
         enabled = on
-        NoopPrefs.setBackgroundImageEnabled(ctx.applicationContext, on)
+        NoopPrefs.setBackgroundImageEnabled(com.noop.account.AccountStorageContext.capture(ctx), on)
     }
 
     /** Change the ACTIVE image's fill mode (recents[0]). */
-    fun setFillMode(ctx: Context, mode: BackgroundFillMode) {
-        val app = ctx.applicationContext
+    @Synchronized fun setFillMode(ctx: Context, mode: BackgroundFillMode) {
+        val app = com.noop.account.AccountStorageContext.capture(ctx)
+        if (!app.isCurrent()) return
         recents = if (recents.isEmpty()) recents
         else recents.mapIndexed { i, r -> if (i == 0) r.copy(fillMode = mode) else r }
         persist(app)
@@ -124,8 +127,9 @@ object BackgroundImageStore {
      * recent list (dropping + deleting the oldest beyond [MAX_RECENTS]). Returns true on success. Call off
      * the main thread for a large source (bitmap decode + file IO).
      */
-    fun setImageFromUri(ctx: Context, uri: Uri): Boolean {
-        val app = ctx.applicationContext
+    @Synchronized fun setImageFromUri(ctx: Context, uri: Uri): Boolean {
+        val app = com.noop.account.AccountStorageContext.capture(ctx)
+        if (!app.isCurrent()) return false
         val scaled = runCatching { decodeDownscaled(app, uri) }.getOrNull() ?: return false
         val id = "bg-${System.currentTimeMillis()}.jpg"
         val wrote = runCatching {
@@ -138,6 +142,7 @@ object BackgroundImageStore {
             runCatching { file(app, id).delete() }
             return false
         }
+        if (!app.isCurrent()) return false
         // A fresh pick inherits the current fill mode. Prepend, cap at MAX_RECENTS, delete any dropped file.
         val next = (listOf(Recent(id, fillMode)) + recents).take(MAX_RECENTS)
         recents.filter { it !in next }.forEach { runCatching { file(app, it.id).delete() } }
@@ -151,8 +156,9 @@ object BackgroundImageStore {
     }
 
     /** Re-apply a recent preset: move it to the front (so it becomes the ACTIVE image + its fill mode). */
-    fun applyRecent(ctx: Context, index: Int) {
-        val app = ctx.applicationContext
+    @Synchronized fun applyRecent(ctx: Context, index: Int) {
+        val app = com.noop.account.AccountStorageContext.capture(ctx)
+        if (!app.isCurrent()) return
         if (index !in recents.indices || index == 0) return
         val chosen = recents[index]
         recents = listOf(chosen) + recents.filterIndexed { i, _ -> i != index }
@@ -162,8 +168,9 @@ object BackgroundImageStore {
     }
 
     /** Remove the ACTIVE image (recents[0]); the next recent becomes active, or the background clears. */
-    fun clearImage(ctx: Context) {
-        val app = ctx.applicationContext
+    @Synchronized fun clearImage(ctx: Context) {
+        val app = com.noop.account.AccountStorageContext.capture(ctx)
+        if (!app.isCurrent()) return
         val removed = recents.firstOrNull() ?: return
         runCatching { file(app, removed.id).delete() }
         recents = recents.drop(1)
@@ -173,6 +180,7 @@ object BackgroundImageStore {
 
     /** Decode the active image full-size + every recent as a small thumbnail. */
     private fun refreshDecoded(app: Context) {
+        if (!com.noop.account.AccountStorageContext.capture(app).isCurrent()) return
         bitmap = recents.firstOrNull()?.let { r ->
             runCatching { BitmapFactory.decodeFile(file(app, r.id).absolutePath)?.asImageBitmap() }.getOrNull()
         }

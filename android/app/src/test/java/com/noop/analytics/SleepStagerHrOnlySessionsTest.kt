@@ -55,31 +55,23 @@ class SleepStagerHrOnlySessionsTest {
     }
 
     /**
-     * #1884 reversed the null contract this used to pin, so the reasoning is worth keeping beside it.
-     *
-     * #1801 withheld restingHR and avgHRV here on the grounds that a baseline is the one thing a false
-     * positive cannot be unwound from. What the field logs showed is that the withholding was the more
-     * damaging error: the values are MEASURED, not inferred. The bounds are what heart rate infers —
-     * which is why the session still marks itself `hrOnly` — but each RMSSD is computed over its own
-     * 5-minute window, so fuzzy bounds change WHICH windows are included, not whether any one of them
-     * is valid. Resting HR is HR-derived, and an HR-only night is precisely the night with plenty of HR.
-     *
-     * The marker travels with the session, so a consumer that wants to weigh these down still can.
+     * Inferred session bounds do not invalidate measured resting HR. Legacy per-second R-R rows,
+     * however, supply neither original-beat continuity nor verified acquisition spans: their presence
+     * alone cannot qualify HRV. The proven-observation path is covered separately by HrvIntegrationTest.
      */
     @Test
-    fun `an HR-only session reports measured resting HR and HRV and still marks itself`() {
+    fun `an HR-only session reports resting HR but legacy RR cannot qualify HRV`() {
         val (hr, rr) = window()
+        assertTrue("legacy R-R input remains present", rr.isNotEmpty())
         val s = SleepStager.hrOnlySessions(hr, rr, emptyList()).first()
         assertTrue("must still be flagged hrOnly", s.hrOnly)
         assertNotNull("restingHR is HR-derived and must be reported", s.restingHR)
-        assertNotNull("avgHRV must be reported when R-R is present", s.avgHRV)
+        assertNull("coarse R-R presence is not original-beat continuity proof", s.avgHRV)
     }
 
     /**
-     * The honest boundary of the change: reporting is driven by whether the INPUT exists, not by the
-     * `hrOnly` flag. With no R-R there is nothing to compute an RMSSD from, so HRV is still absent —
-     * and resting HR, which needs only HR, is still reported. A regression that re-blanked HRV wholesale
-     * would pass the test above if it also happened to blank on missing R-R; this separates them.
+     * With no R-R there is also nothing to compute an RMSSD from. Resting HR needs only HR and remains
+     * available; neither missing nor unverified R-R should suppress that independent measurement.
      */
     @Test
     fun `an HR-only session without R-R still reports resting HR`() {

@@ -20,7 +20,7 @@ object PushObjectIntentParser {
         if (actual.any { it in PushProtocol.FORBIDDEN_REMOTE_CONTROL_MEMBERS }) {
             throw PushProtocolException("object intent contains forbidden remote-control metadata")
         }
-        if (obj.opt("type") != "objectIntent" || obj.opt("protocolVersion") != PushProtocol.OBJECT_VERSION) {
+        if (obj.opt("type") != "objectIntent" || obj.opt("protocolVersion") !in setOf(PushProtocol.OBJECT_VERSION, "1.3", "1.4")) {
             throw PushProtocolException("unsupported object intent document")
         }
         val objectId = (obj.opt("objectId") as? String)?.takeIf(::isCanonicalObjectUuid)
@@ -94,7 +94,7 @@ object PushObjectAckParser {
         if (actual.any { it in PushProtocol.FORBIDDEN_REMOTE_CONTROL_MEMBERS }) {
             throw PushProtocolException("object ack contains forbidden remote-control metadata")
         }
-        if (obj.opt("type") != "objectAck" || obj.opt("protocolVersion") != PushProtocol.OBJECT_VERSION) {
+        if (obj.opt("type") != "objectAck" || obj.opt("protocolVersion") !in setOf(PushProtocol.OBJECT_VERSION, "1.3", "1.4")) {
             throw PushProtocolException("unsupported object ack document")
         }
         val objectId = (obj.opt("objectId") as? String)?.takeIf(::isCanonicalObjectUuid)

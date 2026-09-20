@@ -3,6 +3,7 @@
 // migration 20260907150000_noop_push_wal.sql — identical to the Node production path.
 import { PushProtocolError } from './registry.ts';
 import type { SupabaseRest } from './rest.ts';
+import { intakeError } from './durability.ts';
 
 export interface QuotaConfig {
   maxBatches: number;
@@ -33,16 +34,12 @@ export function createPushWalStore({ rest, quota = {} }: {
 
   return {
     async appendWal(userId: string, entry: any) {
-      await rest.upsert('noop_push_wal', {
-        user_id: userId,
-        batch_id: entry.batchId,
-        source_id: entry.sourceId || null,
-        stream: entry.stream,
-        device_id: String(entry.deviceId || ''),
-        record_count: entry.recordCount ?? 0,
-        body_sha256: entry.bodySha256,
-        received_at: entry.receivedAt,
-      }, { onConflict: 'user_id,batch_id', prefer: 'resolution=ignore-duplicates' });
+      try {
+        return await rest.rpc('noop_reserve_push_batch', {
+          p_user_id: userId, p_batch_id: entry.batchId, p_device_id: entry.canonicalDeviceId,
+          p_body_sha256: entry.bodySha256, p_entry: entry,
+        });
+      } catch (err) { intakeError(err); }
     },
     async trimWal(userId: string, batchId: string) {
       await rest.delete('noop_push_wal', `user_id=eq.${userId}&batch_id=eq.${batchId}`);

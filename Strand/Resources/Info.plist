@@ -37,6 +37,8 @@
 	<string>$(NOOP_PUSH_ENDPOINT)</string>
 	<key>NOOPPushToken</key>
 	<string>$(NOOP_PUSH_TOKEN)</string>
+	<key>NOOPSupabaseAnonKey</key>
+	<string>$(NOOP_SUPABASE_ANON_KEY)</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

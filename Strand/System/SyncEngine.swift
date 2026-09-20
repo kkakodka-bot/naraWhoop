@@ -16,14 +16,62 @@ final class SyncEngine {
 
     private weak var host: AppModel?
     /// Async actor methods are reentrant. Coalesce overlapping foreground/BG/offload wakes into one
-    /// serial drain plus at most one trailing pass, so stage tokens cannot be churned by parallel loops.
+    /// serial drain. A trailing request gets a later eligible wake, not another page budget here.
     private var draining = false
     private var trailingDrainRequested = false
+
+    /// Captures one complete evaluation and one export token. This is a revocable admission
+    /// check, not an external-write receipt or an ordinary SQLite transaction fence.
+    @MainActor
+    final class DependentStageAdmission {
+        private let current: () -> Bool
+        private let revalidate: () async -> Bool
+        private let settleCaptured: () async -> Bool
+        private nonisolated let boundaryCheck: @Sendable () throws -> Void
+
+        /// Production uses captureAdmission's captured Engine authority. Transport/queue tests may
+        /// supply fixture-owned closures; this initializer does not confer Store or delivery proof.
+        init(current: @escaping () -> Bool, revalidate: @escaping () async -> Bool,
+             boundaryCheck: @escaping @Sendable () throws -> Void,
+             settleCaptured: @escaping () async -> Bool) {
+            self.current = current
+            self.revalidate = revalidate
+            self.boundaryCheck = boundaryCheck
+            self.settleCaptured = settleCaptured
+        }
+
+        var isCurrent: Bool { !Task.isCancelled && current() }
+
+        func validate() async -> Bool {
+            guard isCurrent, await revalidate() else { return false }
+            return isCurrent
+        }
+
+        nonisolated func checkBoundary() throws { try boundaryCheck() }
+
+        fileprivate func settle() async -> Bool {
+            guard await validate() else { return false }
+            return await settleCaptured()
+        }
+    }
+
+    /// A per-instance stage implementation; nil keeps the platform's live implementation.
+    /// Synthetic sinks use the same attempt/admission/settlement path on macOS.
+    struct DependentStageDriver {
+        var afterAttempt: ((SyncJobKind) async -> Void)? = nil
+        var perform: (SyncJobKind, DependentStageAdmission) async -> Bool
+    }
+    var dependentStageDriver: DependentStageDriver?
 
     init() {}
 
     func bind(_ host: AppModel) {
         self.host = host
+    }
+
+    func shutdownForAccountChange() {
+        host = nil
+        trailingDrainRequested = false
     }
 
     /// Mark [kind] owed in the store. Returns the fresh token (#1681).
@@ -45,6 +93,19 @@ final class SyncEngine {
         await currentOwedKinds().isEmpty == false
     }
 
+    /// Held jobs stay visible in owedJobs, but their presence is not an automatic retry request.
+    func hasRunnableWork() async -> Bool {
+        guard let host, host.isAccountRuntimeActive,
+              let store = await host.repo.storeHandle(), host.isAccountRuntimeActive else { return false }
+        do {
+            let rows = try await store.owedJobs()
+            guard !rows.isEmpty else { return false }
+            let state = await host.intelligence.preparePreferenceProjection()
+            guard host.isAccountRuntimeActive else { return false }
+            return state == .complete || state.hasRunnableWork(at: Int64(Date().timeIntervalSince1970))
+        } catch { return false }
+    }
+
     /// The single entry point every wake calls.
     func drain(reason: SyncDrainPolicy.WakeReason) async {
         guard !draining else {
@@ -52,17 +113,20 @@ final class SyncEngine {
             return
         }
         draining = true
-        var passReason = reason
-        repeat {
-            trailingDrainRequested = false
-            await drainOnce(reason: passReason)
-            passReason = .bleEvent
-        } while trailingDrainRequested
+        trailingDrainRequested = false
+        await drainOnce(reason: reason)
         draining = false
+        if trailingDrainRequested {
+            trailingDrainRequested = false
+            #if os(iOS)
+            SyncMaintenanceBackgroundScheduler.scheduleIfNeeded()
+            #endif
+        }
     }
 
     private func drainOnce(reason: SyncDrainPolicy.WakeReason) async {
-        guard let host else { return }
+        guard ResourceBudget.shared.permits(.bulk) else { return }
+        guard let host, host.isAccountRuntimeActive else { return }
         // Durable jobs may be visible after the first productive chunk, but export surfaces must describe
         // the terminal backlog, not an intermediate oldest-first slice. A disconnect clears this process-
         // local flag; the jobs remain in SQLite and the next wake resumes them.
@@ -72,39 +136,79 @@ final class SyncEngine {
 
         await mirrorRescoreDebt(store: store)
 
-        let owedRows = (try? await store.owedJobs()) ?? []
+        guard let owedRows = try? await store.owedJobs(), host.isAccountRuntimeActive,
+              !Task.isCancelled else { return }
         let owedKinds = Set(owedRows.compactMap { SyncJobKind(rawValue: $0.kind) })
         let capturedTokens = Dictionary(uniqueKeysWithValues: owedRows.map { ($0.kind, $0.token) })
 
         let started = Date()
         var stagesRun: [SyncJobKind] = []
         var stagesFailed: [SyncJobKind] = []
+        var stagesHeld: [SyncJobKind] = []
+        var prerequisiteInvoked = false
 
         for stage in SyncDrainPolicy.stageOrder {
+            guard ResourceBudget.shared.permits(.bulk) else { break }
+            guard host.isAccountRuntimeActive, !Task.isCancelled else { return }
             guard SyncDrainPolicy.shouldRun(stage: stage, owedKinds: owedKinds, reason: reason),
                   let token = capturedTokens[stage.rawValue] else { continue }
             #if !os(iOS)
-            if stage == .cloudPush || stage == .healthWriteback || stage == .widgetPublish { continue }
+            if stage != .rescore && dependentStageDriver == nil { continue }
             #endif
 
-            try? await store.recordJobAttempt(kind: stage.rawValue, token: token)
-            let ok = await runStage(stage, token: token, reason: reason, host: host)
-            if ok { stagesRun.append(stage) } else { stagesFailed.append(stage) }
+            var admission: DependentStageAdmission?
+            if stage != .rescore {
+                var state = await host.intelligence.preparePreferenceProjection()
+                guard host.isAccountRuntimeActive, !Task.isCancelled else { return }
+                if !owedKinds.contains(.rescore), !prerequisiteInvoked,
+                   state.hasRunnableWork(at: Int64(Date().timeIntervalSince1970)) {
+                    prerequisiteInvoked = true
+                    await RescoreBackgroundScheduler.run(projection: state,
+                        log: { [live = host.live] in live.append(log: $0) }) {
+                        state = await host.intelligence.runPreferenceProjection()
+                    }
+                }
+                // The barrier also applies when no rescore row was present in the captured list.
+                guard state == .complete else { stagesHeld.append(stage); break }
+                guard let captured = await captureAdmission(stage: stage, token: token, store: store, host: host) else {
+                    stagesHeld.append(stage); break
+                }
+                do { try await store.recordJobAttempt(kind: stage.rawValue, token: token) }
+                catch { stagesFailed.append(stage); break }
+                await dependentStageDriver?.afterAttempt?(stage)
+                guard await captured.validate() else { stagesHeld.append(stage); break }
+                admission = captured
+            } else {
+                prerequisiteInvoked = true
+            }
+            let outcome = await runStage(stage, token: token, reason: reason, host: host,
+                                         admission: admission)
+            let ok = outcome == .completed
+            switch outcome {
+            case .completed: stagesRun.append(stage)
+            case .held: stagesHeld.append(stage)
+            case .deferred: break
+            case .failed: stagesFailed.append(stage)
+            }
 
-            let rescoreStillOwed = ((try? await store.owedJobs()) ?? [])
-                .contains { $0.kind == SyncJobKind.rescore.rawValue }
+            guard let remaining = try? await store.owedJobs(), host.isAccountRuntimeActive,
+                  !Task.isCancelled else { return }
+            let rescoreStillOwed = remaining.contains { $0.kind == SyncJobKind.rescore.rawValue }
             guard SyncDrainPolicy.shouldContinue(
                 after: stage, succeeded: ok, rescoreStillOwed: rescoreStillOwed) else {
                 break
             }
         }
 
-        let stillOwed = (try? await store.owedJobs()) ?? []
+        guard let stillOwed = try? await store.owedJobs(), host.isAccountRuntimeActive,
+              !Task.isCancelled else { return }
         let stillOwedKinds = stillOwed.map(\.kind)
         let durationMs = Int(Date().timeIntervalSince(started) * 1000)
-        let note = stagesFailed.isEmpty
-            ? nil
-            : "failed: \(stagesFailed.map(\.rawValue).joined(separator: ","))"
+        let messages = [
+            stagesFailed.isEmpty ? nil : "failed: \(stagesFailed.map(\.rawValue).joined(separator: ","))",
+            stagesHeld.isEmpty ? nil : "held: \(stagesHeld.map(\.rawValue).joined(separator: ",")); dependent exports retained"
+        ].compactMap { $0 }
+        let note = messages.isEmpty ? nil : messages.joined(separator: "; ")
         try? await store.appendSyncJournal(
             wakeReason: reason.rawValue,
             stagesRun: stagesRun.map(\.rawValue),
@@ -112,97 +216,141 @@ final class SyncEngine {
             durationMs: durationMs,
             note: note
         )
+        host.live.syncStatusRevision &+= 1
     }
 
     // MARK: - Stage runners
 
+    private enum StageOutcome { case completed, held, deferred, failed }
+
+    private func captureAdmission(stage: SyncJobKind, token: String, store: WhoopStore,
+                                  host: AppModel) async -> DependentStageAdmission? {
+        guard let captured = await host.intelligence.capturePreferenceExportAdmission(expectedStore: store),
+              host.isAccountRuntimeActive, !Task.isCancelled else { return nil }
+        let admission = DependentStageAdmission(current: { [weak host] in
+            guard let host, host.isAccountRuntimeActive else { return false }
+            return host.intelligence.isPreferenceExportAdmissionCurrent(captured)
+        }, revalidate: { [weak host] in
+            guard let host, host.isAccountRuntimeActive,
+                  await host.intelligence.validatePreferenceExportAdmission(captured),
+                  let rows = try? await store.owedJobs() else { return false }
+            return !rows.contains { $0.kind == SyncJobKind.rescore.rawValue }
+                && rows.contains { $0.kind == stage.rawValue && $0.token == token }
+        }, boundaryCheck: host.intelligence.preferenceExportBoundaryCheck(captured),
+           settleCaptured: { [weak host] in
+            guard let host, host.isAccountRuntimeActive else { return false }
+            return await host.intelligence.settlePreferenceDependentJob(kind: stage,
+                capturedToken: token, admission: captured)
+        })
+        return await admission.validate() ? admission : nil
+    }
+
     private func runStage(_ stage: SyncJobKind, token: String,
                           reason: SyncDrainPolicy.WakeReason,
-                          host: AppModel) async -> Bool {
+                          host: AppModel,
+                          admission: DependentStageAdmission?) async -> StageOutcome {
+        if stage != .rescore {
+            guard let admission, await admission.validate() else { return .held }
+            if let driver = dependentStageDriver {
+                guard await driver.perform(stage, admission) else { return .failed }
+                return await admission.settle() ? .completed : .held
+            }
+        }
         switch stage {
         case .rescore:
             return await runRescore(token: token, reason: reason, host: host)
         case .cloudPush:
-            return await runCloudPush(token: token, host: host)
+            guard let admission else { return .held }
+            return await runCloudPush(host: host, admission: admission) ? .completed : .failed
         case .healthWriteback:
-            return await runHealthWriteback(token: token, host: host)
+            guard let admission else { return .held }
+            return await runHealthWriteback(host: host, admission: admission) ? .completed : .failed
         case .widgetPublish:
-            return await runWidgetPublish(token: token, host: host)
+            guard let admission else { return .held }
+            return await runWidgetPublish(host: host, admission: admission) ? .completed : .failed
         }
     }
 
     private func runRescore(token: String, reason: SyncDrainPolicy.WakeReason,
-                            host: AppModel) async -> Bool {
-        switch reason {
-        case .offloadComplete, .bleEvent, .stateRestoration:
-            // CoreBluetooth may restore us for a short background wake. An owed
-            // re-score can take minutes, so let the background policy defer it
-            // instead of restarting the same pass on every restored launch.
-            await RescoreBackgroundScheduler.run(log: { [live = host.live] line in
-                live.append(log: line)
-            }) {
-                if RescoreBackgroundScheduler.isRescoreOwed {
-                    await host.runDeferredRescoreIfOwed()
-                } else {
-                    await host.intelligence.analyzeRecent(skipIfUnchanged: true)
-                }
-            }
-        default:
-            if RescoreBackgroundScheduler.isRescoreOwed {
-                await host.runDeferredRescoreIfOwed()
-            } else {
-                await RescoreBackgroundScheduler.run(log: { [live = host.live] line in
-                    live.append(log: line)
-                }) {
-                    await host.intelligence.analyzeRecent(skipIfUnchanged: true)
-                }
+                            host: AppModel) async -> StageOutcome {
+        if ServerScoringSettings.skipsSyncCoupledRescore {
+            ServerScoringSettings.settleSkippedLocalRescoreDebt()
+            return await settle(.rescore, token: token) ? .completed : .held
+        }
+        var state = await host.intelligence.preparePreferenceProjection()
+        guard host.isAccountRuntimeActive else { return .deferred }
+        if state.hasRunnableWork(at: Int64(Date().timeIntervalSince1970)) {
+            guard let store = await host.repo.storeHandle(), host.isAccountRuntimeActive else { return .deferred }
+            do { try await store.recordJobAttempt(kind: SyncJobKind.rescore.rawValue, token: token) }
+            catch { return .failed }
+            await RescoreBackgroundScheduler.run(projection: state, log: { [live = host.live] in live.append(log: $0) }) {
+                state = await host.intelligence.runPreferenceProjection()
             }
         }
-
-        guard !RescoreBackgroundScheduler.isRescoreOwed else { return false }
-        // A productive chunk can re-mark rescore while this pass is running. Compare-token settle then
-        // fails and blocks exports, leaving the newer generation for the trailing/next wake.
-        return await settle(.rescore, token: token)
+        guard host.isAccountRuntimeActive else { return .deferred }
+        if state == .complete {
+            return await host.intelligence.settlePreferenceRescoreJob(capturedToken: token) ? .completed : .deferred
+        }
+        switch state {
+        case .evaluatedPartial, .held: return .held
+        default: return .deferred
+        }
     }
 
-    private func runCloudPush(token: String, host: AppModel) async -> Bool {
+    /// Admission starts before a pass has read its fingerprint or stamped legacy debt. A busy caller
+    /// and a queued forced handoff must retain the SQLite job even while that legacy mark is absent.
+    static func settleRescoreWhenReady(intelligence: IntelligenceEngine,
+                                      settle: @MainActor () async -> Bool) async -> Bool {
+        guard !intelligence.rescoreInProgress,
+              await intelligence.preparePreferenceProjection() == .complete else { return false }
+        return await settle()
+    }
+
+    private func runCloudPush(host: AppModel,
+                              admission: DependentStageAdmission) async -> Bool {
         guard CloudPushSettings.ready else {
-            return await settle(.cloudPush, token: token)
+            return await admission.settle()
         }
         guard let writer = await host.repo.registryWriterForPush() else { return false }
+        guard await admission.validate() else { return false }
         let outcome = await CloudPushWorker.runOnce(
             db: writer,
             trigger: "sync-engine",
-            markOwed: { [weak self] in await self?.markOwed(.cloudPush) }
+            markOwed: { [weak self] in await self?.markOwed(.cloudPush) },
+            dependentAdmission: admission
         )
         switch outcome {
         case .completed:
-            return await settle(.cloudPush, token: token)
+            return await admission.settle()
         case .deferred:
             return false
         case .terminalFailure:
             // The error is already persisted for the UI. Retrying an unrecoverable response on every wake
             // would create a zombie job, so settle exactly the generation that produced this attempt.
-            _ = await settle(.cloudPush, token: token)
+            _ = await admission.settle()
             return false
         }
     }
 
-    private func runHealthWriteback(token: String, host: AppModel) async -> Bool {
+    private func runHealthWriteback(host: AppModel,
+                                    admission: DependentStageAdmission) async -> Bool {
         #if os(iOS)
         guard let healthWriteBack = host.healthWriteBack else { return false }
-        let ok = await healthWriteBack()
+        guard await admission.validate() else { return false }
+        let ok = await healthWriteBack(admission)
         guard ok else { return false }
-        return await settle(.healthWriteback, token: token)
+        return await admission.settle()
         #else
         return true
         #endif
     }
 
-    private func runWidgetPublish(token: String, host: AppModel) async -> Bool {
+    private func runWidgetPublish(host: AppModel,
+                                 admission: DependentStageAdmission) async -> Bool {
         #if os(iOS)
-        await WidgetSnapshot.publish(from: host)
-        return await settle(.widgetPublish, token: token)
+        guard await admission.validate() else { return false }
+        guard await WidgetSnapshot.publish(from: host, dependentAdmission: admission) else { return false }
+        return await admission.settle()
         #else
         return true
         #endif
@@ -214,6 +362,8 @@ final class SyncEngine {
     /// must not clear a row stamped by a productive history chunk; the database row is now the earlier,
     /// durable source of truth for work that has not started yet.
     private func mirrorRescoreDebt(store: WhoopStore) async {
+        // Account-scoped WPE uses the real SQLite token; a stale global legacy token cannot replace it.
+        guard host?.accountContext == nil else { return }
         if RescoreBackgroundScheduler.isRescoreOwed,
            let token = RescoreBackgroundScheduler.currentOwedToken {
             try? await store.mirrorRescoreJob(token: token)
@@ -246,7 +396,7 @@ enum SyncMaintenanceBackgroundScheduler {
                 if await SyncMaintenanceBackgroundScheduler.shouldRearm() {
                     schedule()
                 }
-                let stillOwed = await SyncMaintenanceBackgroundScheduler.shouldRearm()
+                let stillOwed = await AppModel.shared?.syncEngine.hasOwedWork() ?? true
                 completion.finish(success: !stillOwed)
             }
             task.expirationHandler = {
@@ -267,10 +417,20 @@ enum SyncMaintenanceBackgroundScheduler {
     @MainActor
     private static func shouldRearm() async -> Bool {
         guard let model = AppModel.shared else { return false }
-        return await model.syncEngine.hasOwedWork()
+        // Pressure holds are not settled debt. Keep an OS-owned opportunity without starting
+        // projection preparation during the very backlog/cooldown that deferred it.
+        if !ResourceBudget.shared.permits(.bulk) { return await model.syncEngine.hasOwedWork() }
+        return await model.syncEngine.hasRunnableWork()
     }
 
     static func schedule() {
+        Task { @MainActor in
+            guard await shouldRearm() else { return }
+            submit()
+        }
+    }
+
+    private static func submit() {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskIdentifier)
         let request = BGProcessingTaskRequest(identifier: taskIdentifier)
         request.requiresNetworkConnectivity = false

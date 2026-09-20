@@ -12,6 +12,12 @@ Capability `GET` may report per-stream durability state; that metadata is not a 
 
 ## Transport and authentication
 
+The generic self-hosted profile below accepts one user-supplied bearer. The FRWHOOP hosted profile
+adds the enrollment rules in [`TESTER_ENROLLMENT.md`](TESTER_ENROLLMENT.md): `Authorization` carries
+the per-installation upload token and `X-NOOP-Fleet-Token` carries the fleet authorization token.
+The receiver derives the user from the upload token and requires its bound source to match every
+batch or object. Neither credential is forwarded to a presigned object-store URL.
+
 The configured endpoint serves authenticated capabilities on `GET` and accepts one `POST` per batch
 (or one binary-object upload per object — see [Binary object delivery](#binary-object-delivery)).
 The settings screen may issue this `GET` alone when the user selects **Test connection**; that action
@@ -27,7 +33,7 @@ NOOP-Push-Accept-Version: 1.1,1.0
 A successful capability response has these required members:
 
 ```json
-{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"5fc7b9a0-8055-4e49-a308-3a290f98d81a","streams":["hrSample","rrInterval","dailyMetric","labMarker"]}
+{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"5fc7b9a0-8055-4e49-a308-3a290f98d81a","streams":["hrSample","rrInterval","dailyMetric","labMarker"],"userId":"3ab0c13e-842f-4d22-b25c-4ef9c730897d","sourceId":"3a3486dd-5030-4e17-a00d-a781399890f9"}
 ```
 
 `NOOP-Push-Accept-Version` is a comma-separated, sender-preferred list of exact versions it can emit.
@@ -52,7 +58,8 @@ Optional v1.1 capability members (ignored by v1.0 senders):
 | Member | Meaning |
 |---|---|
 | `streamDurability` | Map of `stream` → `pending` \| `ready` \| `verified` last-known server state for UI diagnostics. Not a client cursor. |
-| `userId` | Canonical FRWHOOP user UUID when the bearer resolves to an account. |
+| `userId` | Canonical FRWHOOP user UUID when the bearer resolves to an account. Required by the enrolled hosted profile and checked against the local credential before reading health data. |
+| `sourceId` | Server-bound installation UUID. Required by the enrolled hosted profile and checked against the current installation before reading health data. |
 
 Capability changes affect future attempts only. A client retains progress for an unadvertised
 stream, so advertising it again resumes from the existing cursor. Removing a stream from the list
@@ -121,11 +128,14 @@ Two installations that happen to use the same strap identifier must therefore no
 another. Reinstalling NOOP may create a new `sourceId`; reconciliation between installations is
 deliberately outside v1.
 
-Local progress is scoped by `(sourceId, normalized endpoint, selected protocolVersion,
-receiverStateId)`. A changed endpoint, negotiated version, or receiver state ID forces a fresh
-baseline. Rotating only the bearer token preserves progress. This prevents a newly initialized
-receiver at the same URL from silently missing data and lets a protocol upgrade replay older append
-records when their representation gains fields.
+Local progress is scoped by `(userId, sourceId, normalized endpoint, selected protocolVersion,
+receiverStateId)` in the enrolled hosted profile, and by `(sourceId, normalized endpoint,
+selected protocolVersion, receiverStateId)` in the generic profile. A changed user, source,
+endpoint, negotiated version, or receiver state ID forces a fresh baseline. Rotating only the
+per-installation bearer for the same user and source preserves progress. This prevents progress from
+crossing tester identities, prevents a newly initialized receiver at the same URL from silently
+missing data, and lets a protocol upgrade replay older append records when their representation gains
+fields.
 
 ## NDJSON request
 
@@ -322,6 +332,7 @@ semantics; v1.1 only adds streams and optional `dailyMetric` data members.
 
 | `stream` | Natural key | `data` members |
 |---|---|---|
+| `standardHRReceipt` | `receiptId` | `ts`, `sessionId`, `notificationOrdinal`, `receivedUnixMs`, `receivedMonotonicNs`, `rawHex`, `schemaVersion`, `clockVersion` |
 | `stepSample` | `ts` | `counter`, `activityClass` (nullable) |
 | `sleepStateSample` | `ts` | `state`, `rawByte` |
 | `ppgHrSample` | `ts` | `bpm`, `conf` (nullable) |
@@ -331,6 +342,17 @@ semantics; v1.1 only adds streams and optional `dailyMetric` data members.
 
 `coachMessage.id` is a string UUID. `ouraRaw` natural key excludes `deviceId` (batch-scoped). Integer
 and boolean rules match v1.0.
+
+`standardHRReceipt` retains the original standard BLE HR notification, including repeated equal
+interval words. `receiptId` is the lowercase connection-session UUID followed by `:` and the
+nonnegative notification ordinal. `ts` is the floor of the host receipt milliseconds divided by
+1000; neither host clock is a verified sensor beat clock. `schemaVersion` is `1` and `clockVersion`
+is `host-arrival-unmapped`. `receivedMonotonicNs` is an exact nonnegative Int64 **decimal string**
+on the wire because JavaScript numbers cannot represent every nanosecond count after roughly
+104 days of host uptime. `rawHex` is lowercase hex for 1–512 original notification bytes.
+The receiver preserves the first receipt's evidence and origin source. An identical replay may
+refresh batch/ingestion metadata; conflicting packet or clock evidence under the same identity is
+rejected. This stream is capability-negotiated and never silently substituted for verified beat timing.
 
 ### v1.1 replace-window streams (new in 1.1)
 
@@ -435,15 +457,48 @@ or mismatched acknowledgements retain progress and surface a visible configurati
 they are retried only after a later trigger or configuration change. Responses are never consumed as
 health data.
 
+Before an append batch can write its WAL, archive, or projection chunks, the receiver validates the
+entire projected conflict-key set. Two records mapping to the same database identity are rejected
+with `422 duplicate_record_key`, including identical records and numeric string/number aliases.
+The receiver does not deduplicate them or count overwritten rows as accepted. Composite R-R keys
+retain `seq`, so equal interval values with distinct sequence identities survive. Invalid mapped
+records and inexact/non-integral integer keys return `422 invalid_record` or `invalid_record_key`.
+Projection chunks remain bounded, while the original batch ID, record count and final ACK stay
+unchanged; a transient partial write has no ACK and is repaired by retrying the same batch.
+
 A receiver should return a bounded machine-readable body for non-2xx responses:
 
 ```json
 {"type":"error","protocolVersion":"1.0","code":"registry_mismatch"}
 ```
 
-`code` contains 1–64 lowercase ASCII letters, digits, or underscores and starts with a letter. Android
-may display and persist only this validated code alongside the HTTP status; it never retains arbitrary
-response text. Unknown error members are ignored.
+`code` contains 1–64 lowercase ASCII letters, digits, or underscores and starts with a letter.
+Clients may display and persist this validated code alongside the HTTP status and the bounded
+diagnostics below; they never retain arbitrary response text. Unknown error members are ignored.
+
+The hosted receiver may add optional diagnostics to an unexpected `500` response. Inline responses
+retain the validated request version (`1.0` or `1.1`); object-lane responses use `1.2`:
+
+```json
+{"type":"error","protocolVersion":"1.1","code":"push_failed","stream":"rrPacketProvenance","stage":"projection","correlationId":"65ae1df8-84ca-4d30-978d-e92c6c2647ed"}
+```
+
+- `stream` is a compiled registry stream name. Clients attribute the failure to their local request
+  stream, including responses from older receivers; a receiver cannot override that attribution.
+- `stage` is one of `receipt_lookup`, `quota`, `wal`, `device`, `archive`, `archive_manifest`,
+  `archive_write`, `archive_verify`, `projection`, `replacement`, `ack`, or `wal_cleanup`.
+- `correlationId` is a random UUID generated by the receiver for the failed request and included in
+  its safe structured log. It is independent of user/device/batch identity. Clients accept only
+  UUID-shaped values; malformed or unknown diagnostics are omitted.
+
+These fields contain no health records, tenant identifiers, credentials, object keys, or SQL text.
+They do not alter batch identity, ACK matching, or retry/cursor rules. They identify where a request
+failed, without asserting the underlying cause. An old receiver can still produce an error without
+stage or correlation information.
+
+If an inline or object-lane projection transaction cannot enter the bounded scoring input gate, the hosted receiver returns
+`503` with code `scoring_input_gate_busy` and `Retry-After: 2`. This is a failed delivery: no ACK is
+saved and clients retain their cursor and retry the identical batch under their existing retry policy.
 
 The Android client reports a safe, structured cause for self-hosting diagnostics: DNS resolution,
 TLS certificate or handshake, connection timeout/refused/unreachable/reset, numeric HTTP status,

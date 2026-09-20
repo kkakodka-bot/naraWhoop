@@ -26,7 +26,7 @@ final class HrvOverCountGateTests: XCTestCase {
             rr.append(RRInterval(ts: start + i, rrMs: 900))
             rr.append(RRInterval(ts: start + i, rrMs: 905))
         }
-        XCTAssertTrue(windowsYieldRMSSD(start, end, rr), "precondition: these beats DO yield an RMSSD")
+        XCTAssertFalse(windowsYieldRMSSD(start, end, rr), "legacy rows have no proven original adjacency")
         XCTAssertNil(SleepStager.sessionAvgHRV(start: start, end: end, rr: rr),
                      "an over-counted night must report no HRV")
     }
@@ -39,26 +39,26 @@ final class HrvOverCountGateTests: XCTestCase {
             rr.append(RRInterval(ts: start + i, rrMs: 880))
             rr.append(RRInterval(ts: start + i, rrMs: 960))
         }
-        XCTAssertTrue(windowsYieldRMSSD(start, end, rr), "precondition: these beats DO yield an RMSSD")
+        XCTAssertFalse(windowsYieldRMSSD(start, end, rr), "legacy rows have no proven original adjacency")
         XCTAssertNil(SleepStager.sessionAvgHRV(start: start, end: end, rr: rr),
                      "an over-counted night must report no HRV")
     }
 
     /// The gate must not touch an ordinary night: one beat per second, coverage ~1.0.
     func testAPlausibleNightStillReportsItsHRV() {
-        let start = 1_000, end = 1_600
-        let rr = (0..<600).map { RRInterval(ts: start + $0, rrMs: $0 % 2 == 0 ? 980 : 1_020) }
-        let hrv = SleepStager.sessionAvgHRV(start: start, end: end, rr: rr)
+        let start = 900, end = 1800
+        let hrv = SleepStager.sessionAvgHRV(start: start, end: end, rr: [],
+            observations: hrvEvidence(start: start, count: 900, pattern: [980, 1020]),
+            context: [.init(start: Double(start), end: Double(end), state: "sleep", qualified: true)])
         XCTAssertNotNil(hrv, "a plausible night must keep its HRV")
         XCTAssertGreaterThan(hrv ?? 0, 0, "and it must be a real reading, not zero")
     }
 
-    /// A sparse night is underCovered, which is honest data and stays trusted.
-    func testAnUnderCoveredNightIsNotGated() {
+    /// A sparse legacy night cannot establish an observed five-minute window.
+    func testAnUnderCoveredNightIsUnavailable() {
         let start = 1_000, end = 1_600
         let rr = (0..<300).map { RRInterval(ts: start + $0 * 2, rrMs: $0 % 2 == 0 ? 980 : 1_020) }
-        XCTAssertNotNil(SleepStager.sessionAvgHRV(start: start, end: end, rr: rr),
-                        "sparse is not the same as over-counted")
+        XCTAssertNil(SleepStager.sessionAvgHRV(start: start, end: end, rr: rr), "sparse legacy timing is unverified")
     }
 
     /// The verdict mapping itself, so the seam above and the rule stay pinned separately.

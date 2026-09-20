@@ -217,7 +217,6 @@ class AnalyticsTest {
             RrInterval(deviceId = "d", ts = start + i, rrMs = if (i % 15 == 0) 1500 else 900)
         }
         val hrv = SleepStager.sessionAvgHRV(start, end, rr)
-        assertNotNull(hrv)
-        assertTrue("ectopic spikes must be rejected before rMSSD", hrv!! < 50.0)
+        assertNull("coarse rows cannot prove continuity regardless of a filter result", hrv)
     }
 }

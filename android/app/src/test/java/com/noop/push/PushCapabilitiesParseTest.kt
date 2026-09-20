@@ -11,6 +11,15 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 class PushCapabilitiesParseTest {
+    @Test fun scalarCapabilitiesRequireAtLeast11And14IsAccepted() {
+        val names = listOf("stepSample", "sleepStateSample", "ppgHrSample")
+        assertTrue(PushCapabilities.parse(document("1.0", names)).appendTables.isEmpty())
+        for (version in listOf("1.1", "1.2", "1.3", "1.4")) {
+            assertEquals(setOf(PushAppendTable.STEP_SAMPLE, PushAppendTable.SLEEP_STATE_SAMPLE, PushAppendTable.PPG_HR_SAMPLE),
+                PushCapabilities.parse(document(version, names)).appendTables)
+        }
+        assertTrue(runCatching { PushCapabilities.parse(document("1.5", names)) }.exceptionOrNull() is PushProtocolException)
+    }
     /**
      * Verbatim stdout of `Tools/push_capabilities_oracle.swift` — the Swift twin of this parser.
      * Format: `label|OK|protocolVersion|appendCsv|mutableCsv|isEmpty` or `label|ERR|message`.
@@ -38,6 +47,8 @@ class PushCapabilitiesParseTest {
                     val parsed = PushCapabilities.parse(fixtureBytes(label))
                     assertEquals("$label: protocolVersion", parts[2], parsed.protocolVersion)
                     assertEquals("$label: receiverStateId", RECEIVER_ID, parsed.receiverStateId)
+                    assertEquals("$label: userId", USER_ID, parsed.userId)
+                    assertEquals("$label: sourceId", SOURCE_ID, parsed.sourceId)
                     assertEquals(
                         "$label: append",
                         if (parts[3].isEmpty()) emptyList() else parts[3].split(","),
@@ -67,6 +78,8 @@ class PushCapabilitiesParseTest {
                 .put("type", "capabilities")
                 .put("protocolVersion", PushProtocol.OBJECT_VERSION)
                 .put("receiverStateId", RECEIVER_ID)
+                .put("userId", USER_ID)
+                .put("sourceId", SOURCE_ID)
                 .put("streams", JSONArray(listOf("rawImuSession", "ppgWaveformSample")))
                 .put(
                     "objectLane",
@@ -91,6 +104,8 @@ class PushCapabilitiesParseTest {
                 .put("type", "capabilities")
                 .put("protocolVersion", PushProtocol.OBJECT_VERSION)
                 .put("receiverStateId", RECEIVER_ID)
+                .put("userId", USER_ID)
+                .put("sourceId", SOURCE_ID)
                 .put("streams", JSONArray(listOf("rawImuSession")))
                 .put(
                     "objectLane",
@@ -103,6 +118,17 @@ class PushCapabilitiesParseTest {
                 .toByteArray(),
         )
         assertEquals(null, parsed.objectLane)
+    }
+
+    @Test
+    fun accountAndInstallationIdentityAreRequiredAndCanonical() {
+        val missingUser = JSONObject(document("1.1", emptyList()).toString(Charsets.UTF_8))
+            .apply { remove("userId") }
+        val invalidSource = JSONObject(document("1.1", emptyList()).toString(Charsets.UTF_8))
+            .put("sourceId", "not-a-uuid")
+
+        assertTrue(runCatching { PushCapabilities.parse(missingUser.toString().toByteArray()) }.exceptionOrNull() is PushProtocolException)
+        assertTrue(runCatching { PushCapabilities.parse(invalidSource.toString().toByteArray()) }.exceptionOrNull() is PushProtocolException)
     }
 
     @Test
@@ -150,19 +176,23 @@ class PushCapabilitiesParseTest {
         "allKnownV10" -> document("1.0", listOf("hrSample", "journal", "dailyMetric"))
         "allKnownV11" -> document("1.1", listOf("hrSample", "journal", "dailyMetric"))
         "someUnknown" -> document("1.0", listOf("hrSample", "stepSample", "futureStream"))
-        "allUnknown" -> document("1.1", listOf("stepSample", "futureStream"))
+        "allUnknown" -> document("1.1", listOf("futureScalarStream", "futureStream"))
         "emptyStreams" -> document("1.0", emptyList())
         "duplicate" -> document("1.0", listOf("hrSample", "hrSample"))
         "nonString" -> JSONObject()
             .put("type", "capabilities")
             .put("protocolVersion", "1.0")
             .put("receiverStateId", RECEIVER_ID)
+            .put("userId", USER_ID)
+            .put("sourceId", SOURCE_ID)
             .put("streams", JSONArray().put("hrSample").put(1))
             .toString()
             .toByteArray()
         "missingReceiver" -> JSONObject()
             .put("type", "capabilities")
             .put("protocolVersion", "1.0")
+            .put("userId", USER_ID)
+            .put("sourceId", SOURCE_ID)
             .put("streams", JSONArray().put("hrSample"))
             .toString()
             .toByteArray()
@@ -170,6 +200,8 @@ class PushCapabilitiesParseTest {
             .put("type", "capabilities")
             .put("protocolVersion", "1.0")
             .put("receiverStateId", RECEIVER_ID)
+            .put("userId", USER_ID)
+            .put("sourceId", SOURCE_ID)
             .put("streams", JSONArray().put("hrSample"))
             .put("command", "sync-now")
             .toString()
@@ -182,11 +214,15 @@ class PushCapabilitiesParseTest {
         .put("type", "capabilities")
         .put("protocolVersion", version)
         .put("receiverStateId", RECEIVER_ID)
+        .put("userId", USER_ID)
+        .put("sourceId", SOURCE_ID)
         .put("streams", JSONArray(streams))
         .toString()
         .toByteArray()
 
     private companion object {
         const val RECEIVER_ID = "00000000-0000-4000-8000-000000000099"
+        const val USER_ID = "00000000-0000-4000-8000-000000000098"
+        const val SOURCE_ID = "00000000-0000-4000-8000-000000000097"
     }
 }

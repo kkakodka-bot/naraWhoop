@@ -776,7 +776,8 @@ object IntelligenceEngine {
         // ~86k and ~54k rows a night against thousands for the other eight streams, so this is nearly all
         // of the win for two call sites of blast radius.
         val hrWindow = hrReadWindow(repo)
-        val rrWindow = rrReadWindow(repo)
+        val activeWhoop5RR = activeWhoop5RrPolicy(repo, candidatePriorities, importedDeviceId)
+        val rrWindow = rrReadWindow(repo, activeWhoop5RR)
 
         // #1005: memoise the UN-coalesced registered WHOOP family per owner (null = non-WHOOP → never
         // cached). Kept separate from [skinFamilyByOwner] (which coalesces unknown → WHOOP5 for the skin
@@ -839,16 +840,9 @@ object IntelligenceEngine {
                     Whoop4SkinTemp.deviceAnchorRaw(windowSkin.map { it.raw })?.let { skinAnchorByOwner[owner] = it }
                     skinAnchorResolvedOwners.add(owner)
                 }
-                val (fpCount, fpMaxTs) = repo.hrFingerprintWindow(owner, from, to)
-                val key = AnalyzeRecentDayCache.cacheKey(
-                    owner, fpCount, fpMaxTs, skinAnchorByOwner[owner],
-                    // #29: the OTHER scored streams for this night. Without it a night whose R-R (or
-                    // resp/SpO2) landed after its HR keys identically to the HR-only scan it was scored
-                    // from, and the HRV-less result is re-served for the rest of the process — a
-                    // user-initiated refresh included, since that only bypasses the whole-pass watermark
-                    // gate, never this one. Both reads are index-only aggregates over the same
-                    // (deviceId, ts) keys; a miss costs the full stream reads this gate exists to skip.
-                    streams = repo.dayStreamFingerprint(owner, from, to),
+                val key = rrAwareDayCacheKey(
+                    repo, owner, from, to, skinAnchorByOwner[owner],
+                    unlabelledAliasOfWhoop5 = activeWhoop5RR && owner == com.noop.data.WhoopRepository.WHOOP_SOURCE,
                     // #1575: `&& hrvTraceSink != null` matters. With the HRV trace OFF no detail line
                     // is ever produced, so the flag describes nothing — but it would still flip at
                     // midnight and invalidate yesterday, charging EVERY user an extra day's re-score to
@@ -915,7 +909,8 @@ object IntelligenceEngine {
                 skippedSleepDays.add(day, hr.size)
                 continue
             }
-            val rr = rrWindow.rows(owner, from, to)
+            val rr = readRrWindow(rrWindow, repo, owner, from, to,
+                activeWhoop5RR && owner == com.noop.data.WhoopRepository.WHOOP_SOURCE)
             // ONE read, TWO consumers, and they must not be confused for each other. `forScoring` strips
             // an Oura ring's rows from the STAGER's input: the stager reads this stream as a ~1 Hz raw ADC
             // waveform and peak-detects it, and the ring's rows are a per-window RATE — the wrong shape,
@@ -1052,6 +1047,7 @@ object IntelligenceEngine {
                 hr = hr,
                 rr = rr,
                 resp = resp,
+                hrvObservations = rr.observations,
                 vendorResp = vendorResp,
                 gravity = grav,
                 steps = steps,
@@ -2721,11 +2717,46 @@ object IntelligenceEngine {
             repo.hrSamplesForDevice(o, f, t, StreamReadCap.HR)
         }
 
+    /** Resolve the active source outside the bytecode-constrained scoring method. */
+    private suspend fun activeWhoop5RrPolicy(
+        repo: com.noop.data.WhoopRepository, candidates: List<Pair<String, Int>>, fallback: String,
+    ): Boolean = repo.isWhoop5RrSource(candidates.firstOrNull { it.second == 0 }?.first ?: fallback)
+
+    /** Keep both stream witnesses and the R-R alias policy in the nightly cache key (#29).
+     * The two database awaits live here to preserve the scoring method's instrumentation budget. */
+    private suspend fun rrAwareDayCacheKey(
+        repo: com.noop.data.WhoopRepository, owner: String, from: Long, to: Long,
+        skinAnchor: Double?, unlabelledAliasOfWhoop5: Boolean, hrvWindowDetail: Boolean,
+    ): String {
+        val (count, maxTs) = repo.hrFingerprintWindow(owner, from, to)
+        val streams = repo.dayStreamFingerprint(owner, from, to)
+        return AnalyzeRecentDayCache.cacheKey(owner, count, maxTs, skinAnchor,
+            streams = streams + "|rrAlias5=$unlabelledAliasOfWhoop5", hrvWindowDetail = hrvWindowDetail)
+    }
+
     /** The pass-1 R-R sliding read window. Same reason as [hrReadWindow] for living out here. */
-    private fun rrReadWindow(repo: com.noop.data.WhoopRepository) =
+    private fun rrReadWindow(repo: com.noop.data.WhoopRepository, activeWhoop5: Boolean) =
         SlidingStreamWindow<com.noop.data.RrInterval>({ it.ts }, StreamReadCap.RR) { o, f, t ->
-            repo.rrIntervalsForDevice(o, f, t, StreamReadCap.RR)
+            repo.rrIntervalsForDevice(o, f, t, StreamReadCap.RR,
+                unlabelledAliasOfWhoop5 = activeWhoop5 && o == com.noop.data.WhoopRepository.WHOOP_SOURCE)
         }
+
+    /** Keep owner-policy lookup out of the bytecode-constrained main scoring method. */
+    private class RrWindowInputs(
+        rows: List<com.noop.data.RrInterval>,
+        val observations: List<PhysiologyQuality.IntervalObservation>?,
+    ) : List<com.noop.data.RrInterval> by rows
+
+    private suspend fun readRrWindow(
+        window: SlidingStreamWindow<com.noop.data.RrInterval>, repo: com.noop.data.WhoopRepository,
+        owner: String, from: Long, to: Long, unlabelledAliasOfWhoop5: Boolean,
+    ): RrWindowInputs {
+        val historical = repo.isWhoop5RrSource(owner, unlabelledAliasOfWhoop5)
+        val rows = window.rows(owner, from, to, allowReuse = !historical)
+        val observations = if (historical) PhysiologyQuality.packetOrLegacy(
+            repo.rrPacketProvenance(owner, from, to + 1), rows, owner) else null
+        return RrWindowInputs(rows, observations)
+    }
 
 
     /**

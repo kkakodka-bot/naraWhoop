@@ -126,7 +126,8 @@ final class SyncJobStoreTests: XCTestCase {
         XCTAssertTrue(first.markedJobs)
         let tokens = Dictionary(uniqueKeysWithValues:
             (try await s.owedJobs()).map { ($0.kind, $0.token) })
-        XCTAssertEqual(tokens.count, 2)
+        XCTAssertEqual(tokens.count, 3)
+        XCTAssertNotNil(tokens[SyncJobKind.cloudPush.rawValue])
         XCTAssertNotNil(tokens[SyncJobKind.rescore.rawValue])
 
         // Duplicate-only replay: rows dedupe to zero, debt must neither refresh nor disappear.

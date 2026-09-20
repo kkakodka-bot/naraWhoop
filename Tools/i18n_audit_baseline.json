@@ -450,10 +450,6 @@
     ],
     [
       "android/app/src/main/java/com/noop/ui/LiveWorkoutScreen.kt",
-      "%d:%02d"
-    ],
-    [
-      "android/app/src/main/java/com/noop/ui/LiveWorkoutScreen.kt",
       "Below Zone 1"
     ],
     [
@@ -713,20 +709,12 @@
       "Share recap"
     ],
     [
-      "android/app/src/main/java/com/noop/ui/UpdateStore.kt",
-      "What's new in NOOP $version"
-    ],
-    [
       "android/app/src/main/java/com/noop/ui/UpdatesInboxScreen.kt",
       "${item.title}. ${item.message}"
     ],
     [
       "android/app/src/main/java/com/noop/ui/UpdatesInboxScreen.kt",
       "Unread. ${item.title}. ${item.message}"
-    ],
-    [
-      "android/app/src/main/java/com/noop/ui/WorkoutStart.kt",
-      "%d:%02d"
     ],
     [
       "android/app/src/main/java/com/noop/ui/WorkoutsScreen.kt",
@@ -870,10 +858,6 @@
     ],
     [
       "android/app/src/main/java/com/noop/widget/NoopCompactGlanceWidget.kt",
-      "Open NOOP to connect"
-    ],
-    [
-      "android/app/src/main/java/com/noop/widget/NoopCompactGlanceWidget.kt",
       "♥ $it"
     ],
     [
@@ -883,10 +867,6 @@
     [
       "android/app/src/main/java/com/noop/widget/NoopGlanceWidget.kt",
       "Connected"
-    ],
-    [
-      "android/app/src/main/java/com/noop/widget/NoopGlanceWidget.kt",
-      "Open NOOP to connect"
     ],
     [
       "android/app/src/main/java/com/noop/widget/NoopGlanceWidget.kt",
@@ -909,10 +889,6 @@
     [
       "Strand/Liquid/LiquidPrimitives.swift",
       "%.\\(decimals)f"
-    ],
-    [
-      "Strand/Screens/AddDeviceWizard.swift",
-      "The most common cause is the ring was not fully reset in the Oura app, or the Oura app is still running. Reset the ring again, force-quit Oura, then try once more. If it keeps failing, your ring may be a generation NOOP cannot adopt yet. The ring is not bricked: re-pair it in the Oura app to recover it. You can still use file import."
     ],
     [
       "Strand/Screens/BreathingView.swift",
@@ -1024,10 +1000,6 @@
     ],
     [
       "Strand/Screens/SettingsView.swift",
-      "NOOP estimates your steps from your WHOOP's motion, calibrated to your phone's step count. It's an estimate, not a step counter — a WHOOP 5.0 / MG streams motion (not a step count) only with deep data on."
-    ],
-    [
-      "Strand/Screens/SettingsView.swift",
       "Scores your hour-by-hour stress timeline against YOUR own cross-day baseline (how your days usually run, Oura-style) instead of the day's own calm hours. Needs a few worn days; until then it stays on the default. The high-stress cutoff is tuned from a single-subject reference so far, so it's an alternative lens rather than the default. HR-only, and it never feeds recovery or illness scoring. Off by default."
     ],
     [
@@ -1045,10 +1017,6 @@
     [
       "Strand/Screens/SettingsView.swift",
       "Your WHOOP 5.0/MG sends a strap-computed SpO₂ percentage (the @82 candidate byte) every second — an 8-night independent validation tracked it at corr +0.99 against the WHOOP app, but two nights on the original test device moved the OPPOSITE direction, so device/firmware variance is unresolved. An Oura ring's own SpO₂ reading runs high on the wire (over 100% on a fifth to a half of samples on a clean night); this instead surfaces the ring's mean with each sample capped at 100% first, which has matched the Oura app's own displayed value on every full night checked against it so far, though only a few nights. Turning this on surfaces whichever applies to your device as \\\"strap estimate (unverified)\\\" in the Blood Oxygen tile when no calibrated import exists. It never feeds recovery or illness scoring. WHOOP 4.0 has no @82 stream, so this does nothing there."
-    ],
-    [
-      "Strand/Screens/SleepView.swift",
-      "Removes this recorded sleep and recomputes the day without it. NOOP won't re-detect sleep in this window. You can undo for a few seconds after."
     ],
     [
       "Strand/Screens/SleepView.swift",
@@ -1085,10 +1053,6 @@
     [
       "Strand/Screens/TestCentreView.swift",
       "Polar debug logging"
-    ],
-    [
-      "Strand/Screens/TestCentreView.swift",
-      "\\(identity). Logs this to the strap log on each connect, so a Polar bug report shows the model NOOP resolved your strap to."
     ],
     [
       "Strand/Screens/TrendsView.swift",

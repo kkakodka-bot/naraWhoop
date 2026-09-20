@@ -50,9 +50,9 @@ object SecurePrefs {
      * once per process, and the function never re-enters the map, so the worst case is one thread briefly
      * serialising behind another. It would not be acceptable if this map grew keys at runtime.
      */
-    fun of(ctx: Context, fileName: String): SharedPreferences =
-        cache.computeIfAbsent(fileName) {
-            val app = ctx.applicationContext
+    fun of(ctx: Context, fileName: String): SharedPreferences {
+        val app = com.noop.account.AccountStorageContext.capture(ctx)
+        return cache.computeIfAbsent("${app.namespace}.$fileName") {
             val masterKey = MasterKey.Builder(app)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
@@ -64,4 +64,5 @@ object SecurePrefs {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
         }
+    }
 }

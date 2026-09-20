@@ -1,0 +1,98 @@
+{
+  "fixture_type": "synthetic_engineering_not_reference",
+  "version": 1,
+  "cases": [
+    {
+      "id": "sine12",
+      "rate": 12,
+      "amplitude": 1,
+      "duration": 120,
+      "expected_rate": 12
+    },
+    {
+      "id": "sine30",
+      "rate": 30,
+      "amplitude": 1,
+      "duration": 120,
+      "expected_rate": 30
+    },
+    {
+      "id": "slow6",
+      "rate": 6,
+      "amplitude": 1,
+      "duration": 120,
+      "expected_rate": 6
+    },
+    {
+      "id": "weak_rsa",
+      "rate": 12,
+      "amplitude": 0.001,
+      "duration": 120,
+      "reason": "weak_modulation"
+    },
+    {
+      "id": "outside48",
+      "rate": 48,
+      "amplitude": 1,
+      "duration": 120,
+      "reason": "out_of_supported_range"
+    },
+    {
+      "id": "harmonic",
+      "rate": 12,
+      "amplitude": 1,
+      "harmonic": 1.2,
+      "duration": 120,
+      "reason": "harmonic_ambiguity"
+    },
+    {
+      "id": "gap",
+      "rate": 12,
+      "amplitude": 1,
+      "duration": 120,
+      "gap_start": 40,
+      "gap_end": 46,
+      "reason": "acquisition_gap"
+    },
+    {
+      "id": "edge_gap",
+      "rate": 12,
+      "amplitude": 1,
+      "duration": 120,
+      "gap_start": 0,
+      "gap_end": 8,
+      "reason": "acquisition_gap"
+    },
+    {
+      "id": "sparse",
+      "rate": 12,
+      "amplitude": 1,
+      "duration": 120,
+      "gap_start": 20,
+      "gap_end": 80,
+      "reason": "insufficient_observed_time"
+    },
+    {
+      "id": "few_cycles",
+      "rate": 4,
+      "amplitude": 1,
+      "duration": 60,
+      "reason": "insufficient_cycles"
+    },
+    {
+      "id": "sub_bin_above_supported_maximum",
+      "rate": 40.2,
+      "amplitude": 1,
+      "duration": 120,
+      "reason": "out_of_supported_range"
+    },
+    {
+      "id": "sub_bin_above_acquisition_bandwidth",
+      "rate": 24.2,
+      "amplitude": 1,
+      "duration": 120,
+      "maximum_supported_rate": 24,
+      "reason": "out_of_supported_range"
+    }
+  ]
+}

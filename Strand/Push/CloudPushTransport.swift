@@ -2,31 +2,60 @@ import Foundation
 import zlib
 import NoopPush
 
-/// Minimal HTTP adapter for FRWHOOP `/api/push`: no redirects, bounded ack reads, gzip with identity fallback.
+/// Control requests block redirects. Account payloads use the captured account's durable file-backed
+/// lane. Enrollment/verify callers without a session context keep the direct HTTP adapter, including
+/// fleet-token headers and no receiver credentials on bucket PUTs.
 struct CloudPushTransport: PushTransport {
     static let acceptVersionHeader = "NOOP-Push-Accept-Version"
+    static let fleetTokenHeader = "X-NOOP-Fleet-Token"
 
     private let endpoint: PushValidEndpoint
     private let bearerToken: String
+    private let fleetToken: String?
     private let session: URLSession
     private let uploadSession: URLSession
+    private let context: AccountSessionContext?
+    private let dependentAdmission: SyncEngine.DependentStageAdmission?
+    private let destination = CloudPushReceiverBinding()
 
+    /// Enrollment and capability-verify path: upload token + fleet token, no durable journal.
     init(
         endpoint: PushValidEndpoint,
-        bearerToken: String,
+        uploadToken: String,
+        fleetToken: String,
         session: URLSession = CloudPushTransport.makeSession(),
         uploadSession: URLSession = CloudPushTransport.makeUploadSession()
     ) {
         self.endpoint = endpoint
-        self.bearerToken = bearerToken
+        self.bearerToken = uploadToken
+        self.fleetToken = fleetToken
         self.session = session
         self.uploadSession = uploadSession
+        self.context = nil
+        self.dependentAdmission = nil
+    }
+
+    init(
+        endpoint: PushValidEndpoint,
+        bearerToken: String,
+        context: AccountSessionContext? = nil,
+        session: URLSession = CloudPushTransport.makeSession(),
+        dependentAdmission: SyncEngine.DependentStageAdmission? = nil
+    ) {
+        self.endpoint = endpoint
+        self.bearerToken = bearerToken
+        self.fleetToken = CloudPushSettings.resolvedFleetToken()
+        self.session = session
+        self.uploadSession = CloudPushTransport.makeUploadSession()
+        self.context = context
+        self.dependentAdmission = dependentAdmission
+        if dependentAdmission != nil { destination.requirePrepared() }
     }
 
     func capabilities() async throws -> PushCapabilitiesResult {
         var request = URLRequest(url: URL(string: endpoint.url)!)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        authorizeReceiverRequest(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(PushProtocol.capabilitiesAcceptVersions, forHTTPHeaderField: Self.acceptVersionHeader)
         do {
@@ -37,6 +66,7 @@ struct CloudPushTransport: PushTransport {
                 return .rejected(reason: failure.safeCode, retryable: failure.retryable, failure: failure)
             }
             let capabilities = try PushCapabilities.parse(data)
+            if context != nil { try bindReceiverState(capabilities.receiverStateId) }
             return .available(capabilities)
         } catch let error as PushTransportException {
             return .rejected(reason: error.failure.safeCode, retryable: error.failure.retryable, failure: error.failure)
@@ -47,6 +77,20 @@ struct CloudPushTransport: PushTransport {
     }
 
     func post(_ batch: PushBatch) async throws -> PushTransportResponse {
+        if context != nil {
+            let (queue, captured, state) = try durableQueue()
+            let saved = destination.requiresPrepared ? try await queue.preparedInline(batch, endpoint: endpoint.url,
+                receiverStateID: state, captured: captured) : nil
+            let compressed = try saved?.gzip ?? Self.gzip(batch.body)
+            let compressedResponse = try await execute(body: compressed, batchID: batch.batchId, contentEncoding: "gzip", contentType: "application/x-ndjson; charset=utf-8", selectionID: saved?.selectionID)
+            let response = compressedResponse.statusCode == 415
+                ? try await execute(body: batch.body, batchID: batch.batchId, contentEncoding: nil, contentType: "application/x-ndjson; charset=utf-8", selectionID: saved?.selectionID)
+                : compressedResponse
+            if (200...299).contains(response.statusCode) {
+                try await queue.validateResponse(batch: batch, response: response, captured: captured, receiverStateID: state, selectionID: saved?.selectionID)
+            }
+            return response
+        }
         let compressed = try Self.gzip(batch.body)
         let compressedResponse = try await execute(body: compressed, contentEncoding: "gzip", contentType: "application/x-ndjson; charset=utf-8")
         if compressedResponse.statusCode != 415 { return compressedResponse }
@@ -54,9 +98,11 @@ struct CloudPushTransport: PushTransport {
     }
 
     func postBinary(_ batch: PushBinaryBatch) async throws -> PushTransportResponse {
+        guard dependentAdmission == nil else { throw CloudUploadError.invalidRequest }
         let manifestHeader = batch.manifestJSON.base64EncodedString()
         return try await execute(
             body: batch.payload,
+            batchID: batch.batchId,
             contentEncoding: batch.contentEncoding,
             contentType: "application/octet-stream",
             binaryObject: true,
@@ -64,9 +110,46 @@ struct CloudPushTransport: PushTransport {
         )
     }
 
-    // MARK: - Object lane (protocol 1.2)
-
     func createObjectIntent(_ manifest: PushObjectManifest, lane: PushObjectLane) async throws -> PushObjectIntent {
+        if context != nil {
+            let (queue, captured, state) = try durableQueue()
+            if destination.requiresPrepared {
+                try await queue.admitPreparedIntent(manifest, endpoint: endpoint.url, receiverStateID: state, captured: captured)
+                if let saved = try await queue.savedPreparedIntent(manifest, endpoint: endpoint.url, receiverStateID: state, captured: captured) { return saved }
+                try await queue.checkIntentAdmission(captured: captured)
+            }
+            let body = destination.requiresPrepared
+                ? try await queue.preparedIntentBody(manifest, endpoint: endpoint.url, receiverStateID: state, captured: captured)
+                : try manifest.encode()
+            guard body.count <= 8 * 1024 else {
+                throw PushTransportException(PushFailure(code: .localData))
+            }
+            var request = URLRequest(url: try laneURL(lane.endpoint))
+            request.httpMethod = "POST"
+            request.httpBody = body
+            authorizeReceiverRequest(&request)
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let (data, response) = try await session.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard status >= 200, status <= 299 else {
+                if destination.requiresPrepared, PushError.parseCode(data, expectedVersion: manifest.protocolVersion) == "object_id_conflict" {
+                    try await queue.recordPreparedConflict(manifest, endpoint: endpoint.url, receiverStateID: state, captured: captured)
+                }
+                throw PushTransportException(PushFailure.http(
+                    status: status,
+                    receiverCode: PushError.parseCode(data, expectedVersion: manifest.protocolVersion)
+                ))
+            }
+            let intent: PushObjectIntent
+            do { intent = try PushObjectIntent.parse(data, expectedObjectId: manifest.objectId, expectedVersion: manifest.protocolVersion) }
+            catch {
+                throw PushTransportException(PushFailure(code: .ackInvalid))
+            }
+            try await queue.recordIntent(manifest, lane: lane, intent: intent, endpoint: endpoint.url, captured: captured, receiverStateID: state)
+            return intent
+        }
+
         let body = try manifest.encode()
         guard body.count <= 8 * 1024 else {
             throw PushTransportException(PushFailure(code: .localData))
@@ -74,15 +157,15 @@ struct CloudPushTransport: PushTransport {
         var request = URLRequest(url: try laneURL(lane.endpoint))
         request.httpMethod = "POST"
         request.httpBody = body
-        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        authorizeReceiverRequest(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status >= 200, status <= 299 else {
-            throw PushTransportException(PushFailure.http(
-                status: status,
-                receiverCode: PushError.parseCode(data, expectedVersion: PushProtocol.objectVersion)
+            throw PushTransportException(PushError.httpFailure(
+                status: status, body: data, expectedVersion: PushProtocol.objectVersion,
+                table: PushBinaryTable(rawValue: manifest.stream)
             ))
         }
         do {
@@ -93,14 +176,17 @@ struct CloudPushTransport: PushTransport {
     }
 
     func uploadObject(_ intent: PushObjectIntent, body: Data) async throws {
+        if context != nil {
+            let (queue, captured, state) = try durableQueue()
+            try await queue.uploadObject(endpoint: endpoint.url, objectID: intent.objectId, body: body, captured: captured, receiverStateID: state)
+            return
+        }
         guard let uploadUrl = intent.uploadUrl, let url = URL(string: uploadUrl) else {
             throw PushTransportException(PushFailure(code: .ackInvalid))
         }
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.httpBody = body
-        // Exactly the signed headers and nothing else: extras break the SigV4 signature, and the
-        // bearer token must never leak to the bucket host.
         for (name, value) in intent.requiredHeaders {
             request.setValue(value, forHTTPHeaderField: name)
         }
@@ -112,17 +198,20 @@ struct CloudPushTransport: PushTransport {
     }
 
     func completeObject(objectId: String, lane: PushObjectLane) async throws -> PushObjectAck {
+        if context != nil {
+            let (queue, captured, state) = try durableQueue()
+            return try await queue.completeObject(endpoint: endpoint.url, objectID: objectId, captured: captured, receiverStateID: state)
+        }
         var request = URLRequest(url: try laneURL("\(lane.endpoint)/\(objectId)/complete"))
         request.httpMethod = "POST"
         request.httpBody = Data()
-        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        authorizeReceiverRequest(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status >= 200, status <= 299 else {
-            throw PushTransportException(PushFailure.http(
-                status: status,
-                receiverCode: PushError.parseCode(data, expectedVersion: PushProtocol.objectVersion)
+            throw PushTransportException(PushError.httpFailure(
+                status: status, body: data, expectedVersion: PushProtocol.objectVersion
             ))
         }
         do {
@@ -132,8 +221,6 @@ struct CloudPushTransport: PushTransport {
         }
     }
 
-    /// The lane endpoint is an absolute path minted by the receiver; resolve it against the
-    /// configured origin so the scheme/host policy of the validated endpoint is preserved.
     private func laneURL(_ path: String) throws -> URL {
         guard var components = URLComponents(string: endpoint.url) else {
             throw PushTransportException(PushFailure(code: .localData))
@@ -149,15 +236,30 @@ struct CloudPushTransport: PushTransport {
 
     private func execute(
         body: Data,
+        batchID: String = "",
         contentEncoding: String?,
         contentType: String,
         binaryObject: Bool = false,
-        manifestHeader: String? = nil
+        manifestHeader: String? = nil,
+        selectionID: String? = nil
     ) async throws -> PushTransportResponse {
+        if context != nil {
+            let (queue, captured, state) = try durableQueue()
+            var headers = ["Content-Type": contentType]
+            if binaryObject {
+                headers["NOOP-Push-Binary-Object"] = "1"
+            }
+            if let manifestHeader {
+                headers["NOOP-Push-Manifest"] = manifestHeader
+            }
+            if let contentEncoding { headers["Content-Encoding"] = contentEncoding }
+            if let fleetToken { headers[Self.fleetTokenHeader] = fleetToken }
+            return try await queue.request(endpoint: endpoint.url, body: body, headers: headers, captured: captured, receiverStateID: state, batchID: batchID, selectionID: selectionID)
+        }
         var request = URLRequest(url: URL(string: endpoint.url)!)
         request.httpMethod = "POST"
         request.httpBody = body
-        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        authorizeReceiverRequest(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         if binaryObject {
@@ -173,6 +275,57 @@ struct CloudPushTransport: PushTransport {
         return PushTransportResponse(statusCode: status, body: Data(bounded))
     }
 
+    private func authorizeReceiverRequest(_ request: inout URLRequest) {
+        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        if let fleetToken {
+            request.setValue(fleetToken, forHTTPHeaderField: Self.fleetTokenHeader)
+        }
+    }
+
+    func requirePreparedSelections() { destination.requirePrepared() }
+
+    func prepareSelection(_ selection: PushPreparedSelection, progressVersion: String) async throws {
+        guard ResourceBudget.shared.permits(.bulk) else { throw CloudUploadError.retryScheduled }
+        requirePreparedSelections()
+        let (queue, captured, state) = try durableQueue()
+        let value = try CloudPushPreparedSelection(context: captured, endpoint: endpoint.url,
+            receiverStateID: state, progressVersion: progressVersion, selection: selection,
+            inlineGzip: selection.restoredInlineBatches().map { try Self.gzip($0.body) })
+        let validated = await dependentAdmission?.validate() ?? true
+        let capturedAdmission = dependentAdmission
+        try await queue.prepareSelection(value, captured: captured, beforeFreshAdmission: {
+            guard validated else { throw CancellationError() }
+            try capturedAdmission?.checkBoundary()
+        })
+    }
+
+    func preparedSelectionID(batchID: String, sourceID: String) async throws -> String {
+        let (queue, captured, state) = try durableQueue()
+        return try await queue.selectionID(batchID: batchID, sourceID: sourceID, endpoint: endpoint.url,
+            receiverStateID: state, captured: captured)
+    }
+
+    func preparedSourceCommitted(_ id: String) async throws {
+        let (queue, captured, _) = try durableQueue()
+        try await queue.preparedSourceCommitted(selectionID: id, captured: captured)
+    }
+    func retireSelection(_ id: String) async throws {
+        let (queue, captured, _) = try durableQueue()
+        try await queue.retireSelection(id, captured: captured)
+    }
+
+    func bindReceiverState(_ receiverStateID: String) throws { try destination.bind(receiverStateID) }
+
+    func sourceCommitted(batchID: String) async throws {
+        let (queue, captured, state) = try durableQueue()
+        try await queue.sourceCommitted(batchID: batchID, receiverStateID: state, captured: captured)
+    }
+
+    private func durableQueue() throws -> (CloudUploadQueue, AccountSessionContext, String) {
+        guard let context else { throw CloudUploadError.staleOwner }
+        return (try CloudPushBackgroundRuntime.current(for: context).queue, context, try destination.value())
+    }
+
     static func makeSession() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 15
@@ -181,8 +334,6 @@ struct CloudPushTransport: PushTransport {
         return URLSession(configuration: config, delegate: RedirectBlockingDelegate.shared, delegateQueue: nil)
     }
 
-    /// Direct-to-bucket PUTs move up to 256 MiB on whatever uplink the patient has; the 15 s API
-    /// session would abort every large object, so uploads get their own long-resource session.
     static func makeUploadSession() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 60
@@ -192,7 +343,9 @@ struct CloudPushTransport: PushTransport {
     }
 
     static func gzip(_ decoded: Data) throws -> Data {
-        precondition(decoded.count <= PushProtocolLimits.maxBodyBytes)
+        guard decoded.count <= PushProtocolLimits.maxBodyBytes else {
+            throw PushTransportException(PushFailure(code: .localData))
+        }
         var stream = z_stream()
         var status = deflateInit2_(
             &stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, MAX_WBITS + 16, MAX_MEM_LEVEL, Z_DEFAULT_STRATEGY,
@@ -202,24 +355,44 @@ struct CloudPushTransport: PushTransport {
         defer { deflateEnd(&stream) }
 
         var output = Data(capacity: decoded.count)
-        try decoded.withUnsafeBytes { input in
-            stream.next_in = UnsafeMutablePointer<Bytef>(mutating: input.bindMemory(to: Bytef.self).baseAddress!)
+        decoded.withUnsafeBytes { input in
+            stream.next_in = UnsafeMutablePointer<Bytef>(mutating: input.bindMemory(to: Bytef.self).baseAddress)
             stream.avail_in = uInt(decoded.count)
             let chunk = 64 * 1024
             var buffer = [UInt8](repeating: 0, count: chunk)
-            repeat {
-                stream.next_out = UnsafeMutablePointer<Bytef>(&buffer)
-                stream.avail_out = uInt(chunk)
-                status = deflate(&stream, Z_FINISH)
-                let produced = chunk - Int(stream.avail_out)
-                if produced > 0 { output.append(buffer, count: produced) }
-            } while status == Z_OK
+            buffer.withUnsafeMutableBufferPointer { bytes in
+                repeat {
+                    stream.next_out = bytes.baseAddress
+                    stream.avail_out = uInt(chunk)
+                    status = deflate(&stream, Z_FINISH)
+                    let produced = chunk - Int(stream.avail_out)
+                    if produced > 0, let base = bytes.baseAddress { output.append(base, count: produced) }
+                } while status == Z_OK
+            }
         }
         guard status == Z_STREAM_END else { throw PushTransportException(PushFailure(code: .localData)) }
         guard output.count <= PushProtocolLimits.maxWireBodyBytes else {
             throw PushTransportException(PushFailure(code: .localData))
         }
         return output
+    }
+}
+
+private final class CloudPushReceiverBinding: @unchecked Sendable {
+    private let lock = NSLock()
+    private var state: String?
+    private var prepared = false
+    var requiresPrepared: Bool { lock.lock(); defer { lock.unlock() }; return prepared }
+    func requirePrepared() { lock.lock(); defer { lock.unlock() }; prepared = true }
+    func bind(_ value: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !value.isEmpty, state == nil || state == value else { throw CloudUploadError.invalidReceipt }
+        state = value
+    }
+    func value() throws -> String {
+        lock.lock(); defer { lock.unlock() }
+        guard let state else { throw CloudUploadError.invalidRequest }
+        return state
     }
 }
 

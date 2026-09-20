@@ -11,6 +11,7 @@ public struct DecodedField: Codable, Equatable {
 }
 
 public struct ParsedFrame: Codable, Equatable {
+    public var rrPacketProvenance: RRPacketProvenance? = nil
     public let ok: Bool
     public let typeName: String
     public let seq: Int?
@@ -20,6 +21,15 @@ public struct ParsedFrame: Codable, Equatable {
     public let rawHex: String
     public let fields: [DecodedField]
     public let parsed: [String: ParsedValue]
+    /// Only v18 capture needs this digest. Raw hex remains disabled on the fast path.
+    public let frameSHA256: String?
+
+    public init(ok: Bool, typeName: String, seq: Int?, cmdName: String?, crcOK: Bool?, lenBytes: Int,
+                rawHex: String, fields: [DecodedField], parsed: [String: ParsedValue], frameSHA256: String? = nil) {
+        self.ok = ok; self.typeName = typeName; self.seq = seq; self.cmdName = cmdName; self.crcOK = crcOK
+        self.lenBytes = lenBytes; self.rawHex = rawHex; self.fields = fields; self.parsed = parsed
+        self.frameSHA256 = frameSHA256
+    }
 }
 
 // MARK: - low-level readers (LE), nil when out of range (mirrors interpreter._read)
@@ -187,7 +197,8 @@ public func parseFrame(_ frame: [UInt8], collectFields: Bool = false) -> ParsedF
 
     return ParsedFrame(ok: true, typeName: typeName, seq: seq, cmdName: cmdName,
                        crcOK: crcOK, lenBytes: frame.count, rawHex: rawHex,
-                       fields: fb.fields, parsed: fb.parsed)
+                       fields: fb.fields, parsed: fb.parsed,
+                       frameSHA256: fb.parsed["hist_version"]?.intValue == 18 ? ScalarProvenance.digest(Data(frame)) : nil)
 }
 
 /// #47: the packet type NAME only — NO CRC verify, NO FieldBuilder — for hot-path pre-filters that just
@@ -289,14 +300,20 @@ private func parseFrameWhoop5(_ frame: [UInt8], collectFields: Bool) -> ParsedFr
             // intervals @14+delta…), the same shape as 4.0 shifted by +4.
             let rrn = readDType(frame, 13 + delta, "u8") ?? 0
             var rrs: [Int] = []
+            var rawTicks: [Int] = []
             for i in 0..<rrn {
                 let off = 14 + delta + i * 2
+                guard off + 2 <= (payloadEnd ?? 0) else { break }
                 if let v = readDType(frame, off, "u16"), v > 0 {
-                    fb.add(off, 2, "rr[\(i)]", "rr", value: .int(v), note: "ms")
-                    rrs.append(v)
+                    let ms = Whoop5RR.milliseconds(ticks: UInt16(v))
+                    fb.add(off, 2, "rr[\(i)]", "rr", value: .int(ms), note: "ms from 1/1024 s ticks")
+                    rawTicks.append(v)
+                    rrs.append(ms)
                 }
             }
             fb.parsed["rr_intervals"] = .intArray(rrs)
+            fb.parsed["rr_raw_ticks"] = .intArray(rawTicks)
+            fb.parsed["rr_source_channel"] = .int(RRSourceChannel.whoop5Realtime.rawValue)
         } else if spec!.post == "historical_data" {
             decodeWhoop5Historical(frame, fb: fb, payloadEnd: payloadEnd)
         } else if spec!.post == "metadata" {
@@ -326,9 +343,12 @@ private func parseFrameWhoop5(_ frame: [UInt8], collectFields: Bool) -> ParsedFr
     let cmdName = (t == 35 || t == 36 || t == PuffinPacketType.puffinCommandResponse)
         ? schema.enumName("CommandNumber", cmdByte) : nil
 
-    return ParsedFrame(ok: true, typeName: typeName, seq: seq, cmdName: cmdName,
-                       crcOK: crcOK, lenBytes: frame.count, rawHex: rawHex,
-                       fields: fb.fields, parsed: fb.parsed)
+    var result = ParsedFrame(ok: true, typeName: typeName, seq: seq, cmdName: cmdName,
+                             crcOK: crcOK, lenBytes: frame.count, rawHex: rawHex,
+                             fields: fb.fields, parsed: fb.parsed,
+                             frameSHA256: fb.parsed["hist_version"]?.intValue == 18 ? ScalarProvenance.digest(Data(frame)) : nil)
+    result.rrPacketProvenance = RRPacketProvenance.checked(frame)
+    return result
 }
 
 /// The WHOOP 5/MG type-47 `hist_version` values `decodeWhoop5Historical` has a REAL field map for.
@@ -405,14 +425,20 @@ private func decodeWhoop5Historical(_ frame: [UInt8], fb: FieldBuilder, payloadE
     let rrn = readDType(frame, 23, "u8") ?? 0
     fb.add(23, 1, "rr_count", "rr", value: .int(rrn))
     var rrs: [Int] = []
+    var rawTicks: [Int] = []
     for i in 0..<min(rrn, 4) {
         let off = 24 + i * 2
+        guard off + 2 <= (payloadEnd ?? 0) else { break }
         if let v = readDType(frame, off, "u16"), v > 0 {
-            fb.add(off, 2, "rr[\(i)]", "rr", value: .int(v), note: "ms")
-            rrs.append(v)
+            let ms = Whoop5RR.milliseconds(ticks: UInt16(v))
+            fb.add(off, 2, "rr[\(i)]", "rr", value: .int(ms), note: "ms from 1/1024 s ticks")
+            rawTicks.append(v)
+            rrs.append(ms)
         }
     }
     fb.parsed["rr_intervals"] = .intArray(rrs)
+    fb.parsed["rr_raw_ticks"] = .intArray(rawTicks)
+    fb.parsed["rr_source_channel"] = .int(RRSourceChannel.whoop5Historical.rawValue)
     // Bytes adjacent to the HR/R-R fields, read off real frames: @36 is a FLAG byte and @37 a duplicate
     // heart rate — not the two halves of one fixed-point HR (see below); the others are raw.
     if let v = readDType(frame, 33, "u8") {

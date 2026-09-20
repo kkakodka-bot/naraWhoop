@@ -194,13 +194,16 @@ class SchemaOracleTest {
                         "room ${got.default ?: "none"}"
                 }
             }
-            val wantPk = spec.getJSONArray("primaryKey").strings()
+            // An explicitly platform-absent identity column is absent from that platform's key too.
+            val wantPk = spec.getJSONArray("primaryKey").strings().filter { key ->
+                expected.any { it.name == key }
+            }
             if (wantPk != actual.primaryKey) {
                 problems += "$name: PRIMARY KEY — oracle $wantPk, room ${actual.primaryKey}"
             }
             val wantIdx = spec.getJSONArray("indices").let { arr ->
-                (0 until arr.length()).map { i ->
-                    val o = arr.getJSONObject(i)
+                (0 until arr.length()).map { arr.getJSONObject(it) }
+                    .filterNot { it.optBoolean("androidAbsent", false) }.map { o ->
                     Idx(o.getString("name"), o.getBoolean("unique"), o.getJSONArray("columns").strings())
                 }.sortedBy { it.name }
             }
@@ -244,12 +247,16 @@ class SchemaOracleTest {
         val oracle = loadOracle()
         val grdb = oracle.getJSONArray("grdbMigrations").strings()
         assertEquals("duplicate GRDB migration identifier in schema_oracle.json", grdb.size, grdb.toSet().size)
+        assertTrue("integrated deployed GRDB history is incomplete", grdb.size >= 48)
+        assertEquals("preserve both deployed feature-line identifiers",
+            listOf("v46-rr-source-index", "v47-server-score-cache", "v46-ppg-record-identity"),
+            grdb.subList(45, 48))
         grdb.forEachIndexed { i, id ->
             val n = id.removePrefix("v").takeWhile { it.isDigit() }.toIntOrNull()
+            val expected = if (i == 47) 46 else i + 1 - (if (i > 47) 1 else 0)
             assertEquals(
-                "GRDB migration '$id' claims v$n but is #${i + 1} in registration order — two migrations " +
-                    "claiming the same vN, or a gap, makes the GRDB-name <-> Room-version mapping ambiguous.",
-                i + 1,
+                "Unexpected GRDB prefix at registration #${i + 1}: '$id'. Deployed migration names must not be renumbered.",
+                expected,
                 n,
             )
         }
@@ -281,6 +288,33 @@ class SchemaOracleTest {
             "schema_oracle.json copies differ — keep the Android and Swift copies in lockstep",
             androidBytes.contentEquals(swiftFile!!.readBytes()),
         )
+    }
+
+    @Test
+    fun absentIndexOverridesAreDocumentedAndStillAbsent() {
+        val oracle = loadOracle()
+        val reasons = oracle.getJSONObject("divergenceReasons")
+        val tables = oracle.getJSONObject("tables")
+        val room = roomTables(loadRoomSchema(oracle.getInt("roomVersion")))
+        for (name in tables.keys()) {
+            val table = tables.getJSONObject(name)
+            val indices = table.getJSONArray("indices")
+            for (i in 0 until indices.length()) {
+                val index = indices.getJSONObject(i)
+                if (!index.has("androidAbsent")) {
+                    assertTrue("index reason without an override", !index.has("divergence"))
+                    continue
+                }
+                assertTrue("false absence override changes nothing", index.getBoolean("androidAbsent"))
+                assertEquals("absence override requires a shared table", "both", table.getString("platform"))
+                val reason = index.getString("divergence")
+                assertTrue("missing reason for $name index", reasons.has(reason))
+                assertTrue("empty divergence reason", reasons.getString(reason).isNotBlank())
+                val actual = room.getValue(name)
+                assertTrue("$name index gained an Android twin; remove the override",
+                    actual.indices.none { it.name == index.getString("name") })
+            }
+        }
     }
 }
 

@@ -15,7 +15,7 @@ class PushCoordinator(
     private val zoneId: ZoneId,
     private val destinationStillCurrent: () -> Boolean = { true },
 ) {
-    suspend fun pushAppend(table: PushAppendTable, deviceId: String): PushResult {
+    suspend fun pushAppend(table: PushAppendTable, deviceId: String, protocolVersion: String = PushProtocol.VERSION): PushResult {
         val stored = try {
             progress.cursor(table, deviceId)
         } catch (cancelled: CancellationException) {
@@ -49,7 +49,7 @@ class PushCoordinator(
         }
         if (rows.isEmpty()) return PushResult.NoData
         val batch = try {
-            PushProtocol.appendBatch(table, sourceId, deviceId, effective, rows)
+            PushProtocol.appendBatch(table, sourceId, deviceId, effective, rows, protocolVersion)
         } catch (t: PushProtocolException) {
             return rejected(PushFailure(PushFailureCode.LOCAL_DATA))
         }
@@ -215,14 +215,32 @@ class PushCoordinator(
         }
     }
 
-    suspend fun pushObjects(table: PushBinaryTable, deviceId: String, lane: PushObjectLane): PushResult {
+    suspend fun pushObjects(table: PushBinaryTable, deviceId: String, lane: PushObjectLane,
+                            protocolVersion: String = PushProtocol.OBJECT_VERSION): PushResult {
+        val freezePrefix = table == PushBinaryTable.V18_AUX_SAMPLE && protocolVersion == "1.4"
+        val progressDevice = if (freezePrefix)
+            "$deviceId:v18AuxSample.identity-v2" else deviceId
+        var prepared: PushPreparedBoundary? = null
         val stored = try {
-            progress.binaryCursor(table, deviceId)
+            val cursor = progress.binaryCursor(table, progressDevice)
+            if (freezePrefix) {
+                prepared = progress.preparedBoundary(table, progressDevice)
+                if (prepared != null && cursor == prepared!!.endCursor) {
+                    // Crash after accepted cursor commit, before pending cleanup. Never replay old rows.
+                    progress.saveInFlightObject(table, progressDevice, null)
+                    progress.savePreparedBoundary(table, progressDevice, null)
+                    check(progress.preparedBoundary(table, progressDevice) == null)
+                    prepared = null
+                }
+            }
+            cursor
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
             return rejected(PushFailure(PushFailureCode.LOCAL_DATABASE))
         }
+        if (prepared != null && stored != prepared!!.startCursor)
+            return rejected(PushFailure(PushFailureCode.LOCAL_DATA))
         val effective = if (table == PushBinaryTable.RAW_BATCH) {
             null
         } else if (stored == null || stored.rowId <= 0) {
@@ -237,10 +255,12 @@ class PushCoordinator(
             } catch (_: Throwable) {
                 return rejected(PushFailure(PushFailureCode.LOCAL_DATABASE))
             }
-            val fingerprint = atCursor?.let { PushProtocol.binaryKeyFingerprint(table, deviceId, it) }
+            val fingerprint = atCursor?.let { PushProtocol.binaryKeyFingerprint(table, deviceId, it, protocolVersion == "1.4") }
             if (fingerprint == stored.naturalKeyFingerprint) stored else null
         }
-        val limit = if (table == PushBinaryTable.RAW_BATCH) 1 else PushProtocol.MAX_RECORDS + 1
+        if (prepared != null && effective != prepared!!.startCursor)
+            return rejected(PushFailure(PushFailureCode.LOCAL_DATA))
+        val limit = if (table == PushBinaryTable.RAW_BATCH) 1 else (prepared?.sampleCount ?: PushProtocol.MAX_RECORDS) + 1
         val rows = try {
             source.binaryRows(table, deviceId, effective?.rowId ?: 0L, limit)
         } catch (cancelled: CancellationException) {
@@ -250,11 +270,11 @@ class PushCoordinator(
         } catch (_: Throwable) {
             return rejected(PushFailure(PushFailureCode.LOCAL_DATABASE))
         }
-        if (rows.isEmpty()) return PushResult.NoData
+        if (rows.isEmpty()) return if (prepared == null) PushResult.NoData else rejected(PushFailure(PushFailureCode.LOCAL_DATA))
         val batch = try {
             PushProtocol.binaryObjectBatch(
-                table, sourceId, deviceId, effective, rows,
-                protocolVersion = PushProtocol.OBJECT_VERSION,
+                table, sourceId, deviceId, effective, prepared?.let { rows.take(it.sampleCount) } ?: rows,
+                protocolVersion = protocolVersion,
                 decodedLimit = PushProtocol.MAX_OBJECT_DECODED_BYTES,
             )
         } catch (_: PushProtocolException) {
@@ -263,11 +283,26 @@ class PushCoordinator(
         if (batch.payload.size.toLong() > lane.maxObjectBytes) {
             return rejected(PushFailure(PushFailureCode.LOCAL_DATA))
         }
-        val accepted = deliverObject(batch, lane)
+        if (freezePrefix) {
+            val captured = PushPreparedBoundary.capture(effective, batch)
+            if (prepared != null && prepared != captured) return rejected(PushFailure(PushFailureCode.LOCAL_DATA))
+            try {
+                if (prepared == null) progress.savePreparedBoundary(table, progressDevice, captured)
+                check(progress.preparedBoundary(table, progressDevice) == captured)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Throwable) { return rejected(PushFailure(PushFailureCode.LOCAL_DATABASE)) }
+        }
+        val accepted = deliverObject(batch, lane, progressDevice, freezePrefix)
         if (accepted !is PushResult.Accepted) return accepted
         return try {
-            batch.endCursor?.let { progress.saveBinaryCursor(table, deviceId, it) }
-            source.acknowledgeBinary(table, deviceId, rows)
+            batch.endCursor?.let { progress.saveBinaryCursor(table, progressDevice, it) }
+            source.acknowledgeBinary(table, deviceId, rows.take(batch.sampleCount))
+            if (freezePrefix) {
+                check(progress.binaryCursor(table, progressDevice) == batch.endCursor)
+                progress.saveInFlightObject(table, progressDevice, null)
+                progress.savePreparedBoundary(table, progressDevice, null)
+                check(progress.preparedBoundary(table, progressDevice) == null)
+            }
             val hasMore = table != PushBinaryTable.RAW_BATCH && rows.size > batch.sampleCount
             accepted.copy(hasMore = hasMore)
         } catch (cancelled: CancellationException) {
@@ -341,7 +376,8 @@ class PushCoordinator(
         for (deviceId in selectedDevices) {
             if (ndjsonEnabled) {
                 for (table in PushAppendTable.entries.filter { it in capabilities.appendTables }) {
-                    when (val result = pushAppend(table, deviceId)) {
+                    if (table.isScalarExtension && capabilities.protocolVersion == PushProtocol.VERSION) continue
+                    when (val result = pushAppend(table, deviceId, capabilities.protocolVersion)) {
                         is PushResult.Accepted -> {
                             accepted += result.batchCount
                             acceptedRecords += result.recordCount
@@ -350,7 +386,7 @@ class PushCoordinator(
                         is PushResult.Rejected -> {
                             rejected += 1
                             if (selectedFailure == null || result.retryable && !retryableFailure) {
-                                selectedFailure = result.failure
+                                selectedFailure = result.failure?.attributedTo(table)
                             }
                             retryableFailure = retryableFailure || result.retryable
                         }
@@ -366,7 +402,7 @@ class PushCoordinator(
                         is PushResult.Rejected -> {
                             rejected += 1
                             if (selectedFailure == null || result.retryable && !retryableFailure) {
-                                selectedFailure = result.failure
+                                selectedFailure = result.failure?.attributedTo(table)
                             }
                             retryableFailure = retryableFailure || result.retryable
                         }
@@ -378,7 +414,7 @@ class PushCoordinator(
                 for (table in PushBinaryTable.entries.filter { it in capabilities.binaryTables }) {
                     val lane = capabilities.objectLane
                     if (lane == null || table !in lane.streams) continue
-                    when (val result = pushObjects(table, deviceId, lane)) {
+                    when (val result = pushObjects(table, deviceId, lane, capabilities.protocolVersion)) {
                         is PushResult.Accepted -> {
                             accepted += result.batchCount
                             acceptedRecords += result.recordCount
@@ -387,7 +423,7 @@ class PushCoordinator(
                         is PushResult.Rejected -> {
                             rejected += 1
                             if (selectedFailure == null || result.retryable && !retryableFailure) {
-                                selectedFailure = result.failure
+                                selectedFailure = result.failure?.attributedTo(table)
                             }
                             retryableFailure = retryableFailure || result.retryable
                         }
@@ -418,7 +454,7 @@ class PushCoordinator(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (transport: PushTransportException) {
-            return rejected(transport.failure)
+            return rejected(transport.failure.attributedTo(batch.table))
         } catch (_: Throwable) {
             return rejected(PushFailure(PushFailureCode.NETWORK_IO))
         }
@@ -427,7 +463,7 @@ class PushCoordinator(
         }
         if (response.statusCode !in 200..299) {
             return rejected(
-                PushFailure.http(response.statusCode, PushError.parseCode(response.body, batch.protocolVersion)),
+                PushError.httpFailure(response.statusCode, response.body, batch.protocolVersion, batch.table),
             )
         }
         val ack = try {
@@ -441,7 +477,8 @@ class PushCoordinator(
         return PushResult.Accepted(batch.batchId, batch.sampleCount, hasMore = false)
     }
 
-    private suspend fun deliverObject(batch: PushBinaryBatch, lane: PushObjectLane): PushResult {
+    private suspend fun deliverObject(batch: PushBinaryBatch, lane: PushObjectLane, progressDevice: String = batch.deviceId,
+                                      frozenIdentity: Boolean = false): PushResult {
         if (!destinationStillCurrent()) {
             throw CancellationException("push destination changed")
         }
@@ -449,12 +486,12 @@ class PushCoordinator(
         var uploaded = false
         var expectedKey: String? = null
         try {
-            progress.inFlightObject(batch.table, batch.deviceId)?.let { inFlight ->
+            progress.inFlightObject(batch.table, progressDevice)?.let { inFlight ->
                 if (inFlight.objectId == manifest.objectId && inFlight.contentSha256 == manifest.contentSha256) {
                     uploaded = inFlight.uploaded
                     expectedKey = inFlight.objectKey
                 } else {
-                    progress.saveInFlightObject(batch.table, batch.deviceId, null)
+                    return rejected(PushFailure(PushFailureCode.LOCAL_DATA))
                 }
             }
         } catch (cancelled: CancellationException) {
@@ -464,13 +501,15 @@ class PushCoordinator(
         }
         if (!uploaded) {
             val intent = try {
+                requireCurrentDestination()
                 transport.createObjectIntent(manifest, lane)
             } catch (intentFailure: PushTransportException) {
-                if (intentFailure.failure.receiverCode != "object_id_conflict") {
+                if (frozenIdentity || intentFailure.failure.receiverCode != "object_id_conflict") {
                     return objectLaneFailure(intentFailure)
                 }
                 manifest = manifest.replacingObjectId(PushProtocol.freshObjectId())
                 try {
+                    requireCurrentDestination()
                     transport.createObjectIntent(manifest, lane)
                 } catch (retry: PushTransportException) {
                     return objectLaneFailure(retry)
@@ -484,7 +523,7 @@ class PushCoordinator(
                 return rejected(PushFailure(PushFailureCode.ACK_INVALID))
             }
             if (intent.duplicate) {
-                runCatching { progress.saveInFlightObject(batch.table, batch.deviceId, null) }
+                if (!frozenIdentity) runCatching { progress.saveInFlightObject(batch.table, progressDevice, null) }
                 return PushResult.Accepted(batch.batchId, batch.sampleCount, hasMore = false)
             }
             if (expectedKey != null && intent.objectKey != expectedKey) {
@@ -494,7 +533,7 @@ class PushCoordinator(
             try {
                 progress.saveInFlightObject(
                     batch.table,
-                    batch.deviceId,
+                    progressDevice,
                     PushInFlightObject(manifest.objectId, intent.objectKey, manifest.contentSha256, uploaded = false),
                 )
             } catch (cancelled: CancellationException) {
@@ -517,7 +556,7 @@ class PushCoordinator(
             try {
                 progress.saveInFlightObject(
                     batch.table,
-                    batch.deviceId,
+                    progressDevice,
                     PushInFlightObject(manifest.objectId, intent.objectKey, manifest.contentSha256, uploaded = true),
                 )
             } catch (cancelled: CancellationException) {
@@ -529,17 +568,20 @@ class PushCoordinator(
         var reuploaded = false
         while (true) {
             val ack = try {
+                requireCurrentDestination()
                 transport.completeObject(manifest.objectId, lane)
             } catch (completeFailure: PushTransportException) {
                 val code = completeFailure.failure.receiverCode
                 if (!reuploaded && (code == "size_mismatch" || code == "object_missing")) {
                     reuploaded = true
                     try {
+                        requireCurrentDestination()
                         val refreshed = transport.createObjectIntent(manifest, lane)
                         if (refreshed.duplicate) continue
                         if (refreshed.objectId != manifest.objectId) {
                             return rejected(PushFailure(PushFailureCode.ACK_INVALID))
                         }
+                        requireCurrentDestination()
                         transport.uploadObject(refreshed, batch.payload)
                         expectedKey = refreshed.objectKey
                     } catch (failure: PushTransportException) {
@@ -563,13 +605,19 @@ class PushCoordinator(
             if (expectedKey != null && ack.objectKey != expectedKey) {
                 return rejected(PushFailure(PushFailureCode.ACK_INVALID))
             }
-            runCatching { progress.saveInFlightObject(batch.table, batch.deviceId, null) }
+            if (!frozenIdentity) runCatching { progress.saveInFlightObject(batch.table, progressDevice, null) }
             return PushResult.Accepted(batch.batchId, batch.sampleCount, hasMore = false)
         }
     }
 
     private fun objectLaneFailure(error: PushTransportException): PushResult =
         rejected(error.failure)
+
+    private fun requireCurrentDestination() {
+        if (!destinationStillCurrent()) {
+            throw CancellationException("push destination changed")
+        }
+    }
 
     private suspend fun deliver(batch: PushBatch): PushResult {
         if (!destinationStillCurrent()) {
@@ -580,7 +628,7 @@ class PushCoordinator(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (transport: PushTransportException) {
-            return rejected(transport.failure)
+            return rejected(transport.failure.attributedTo(batch.table))
         } catch (_: Throwable) {
             return rejected(PushFailure(PushFailureCode.NETWORK_IO))
         }
@@ -589,7 +637,7 @@ class PushCoordinator(
         }
         if (response.statusCode !in 200..299) {
             return rejected(
-                PushFailure.http(response.statusCode, PushError.parseCode(response.body, batch.protocolVersion)),
+                PushError.httpFailure(response.statusCode, response.body, batch.protocolVersion, batch.table),
             )
         }
         val ack = try {

@@ -57,6 +57,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  * dark-only, so we draw edge-to-edge over the near-black [Palette.surfaceBase].
  */
 class MainActivity : ComponentActivity() {
+    private var runtimeObserver: AutoCloseable? = null
+    private var runtimeEpoch by mutableStateOf(0L)
 
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLanguagePrefs.wrap(newBase))
@@ -109,7 +111,7 @@ class MainActivity : ComponentActivity() {
         // requests each permission at the step that explains it, Bluetooth when the Connect step
         // appears, notifications when it enables the background keep-alive, so the OS prompt never
         // lands before the screen that justifies it.
-        if (NoopPrefs.of(this).getBoolean(NoopPrefs.KEY_ONBOARDED, false)) {
+        if (com.noop.push.EnrollmentDataScope.active(this) && NoopPrefs.of(this).getBoolean(NoopPrefs.KEY_ONBOARDED, false)) {
             requestBlePermissions()
         }
 
@@ -152,10 +154,31 @@ class MainActivity : ComponentActivity() {
         BottomBarStyleStore.load(this)   // #1836: bottom-bar layout choice, default the shipped slot
 
         setContent {
-            NoopTheme {
-                NoopRoot()
+            androidx.compose.runtime.key(runtimeEpoch) {
+                val runtime = (application as NoopApplication).accountRuntime
+                val scopedContext = androidx.compose.runtime.remember(runtime) {
+                    com.noop.account.AccountStorageContext(this, runtime.identity).also { it.runtime = runtime }
+                }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.ui.platform.LocalContext provides scopedContext,
+                ) {
+                    NoopTheme {
+                        NoopRoot()
+                    }
+                }
             }
         }
+        runtimeObserver = (application as NoopApplication).observeRuntime {
+            viewModelStore.clear()
+            runtimeEpoch++
+            ProfileAvatarStore.load(com.noop.account.AccountStorageContext.capture(this))
+            BackgroundImageStore.load(com.noop.account.AccountStorageContext.capture(this))
+        }
+    }
+
+    override fun onDestroy() {
+        runtimeObserver?.close()
+        super.onDestroy()
     }
 
     /** Request the BLE permissions appropriate to the running OS version. */
@@ -249,6 +272,7 @@ internal fun appLaunchIntent(context: Context): Intent =
 object NoopPrefs {
     const val NAME = "noop_prefs"
     const val KEY_ONBOARDED = "noop.onboarded"
+    const val KEY_SETUP_FINISHED = "noop.setupFinishedAwaitingDeviceLink"
     const val KEY_LAST_SEEN_CHANGELOG = "noop.lastSeenChangelogVersion"
     /** Terms-of-use version the user last accepted. Empty until the first-run gate is accepted; a
      *  material terms change bumps [Terms.CURRENT_VERSION] and re-prompts. Mirrors macOS @AppStorage. */
@@ -385,7 +409,7 @@ object NoopPrefs {
     const val KEY_PAUSE_HRV_ON_POWER_SAVE = "noop.pauseHrvOnPowerSave"
 
     fun of(context: Context): SharedPreferences =
-        context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+        com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(NAME, Context.MODE_PRIVATE)
 
     /** "Power saving" master (battery-adaptive sync cadence). Default off. */
     fun powerSaving(context: Context): Boolean =
@@ -550,6 +574,7 @@ object NoopPrefs {
      */
     fun migrateContinuousHrvOvernightDefault(context: Context) {
         val prefs = of(context)
+        activateFrequentVitalsCapture(prefs)
         if (shouldPinLegacyOvernightDefault(
                 hasOvernightChoice = prefs.contains(KEY_CONTINUOUS_HRV_OVERNIGHT),
                 hasUsedContinuousHrv = prefs.contains(KEY_CONTINUOUS_HRV),
@@ -557,6 +582,14 @@ object NoopPrefs {
         ) {
             prefs.edit().putBoolean(KEY_CONTINUOUS_HRV_OVERNIGHT, false).apply()
         }
+    }
+
+    /** Owner-requested all-day capture once for this branch; later Settings choices are preserved. */
+    internal fun activateFrequentVitalsCapture(prefs: android.content.SharedPreferences) {
+        val marker = "noop.frequentVitalsCaptureV1"
+        if (prefs.getBoolean(marker, false)) return
+        prefs.edit().putBoolean(KEY_CONTINUOUS_HRV, true)
+            .putBoolean(KEY_CONTINUOUS_HRV_OVERNIGHT, false).putBoolean(marker, true).apply()
     }
 
     /**
@@ -1460,6 +1493,24 @@ object NoopPrefs {
 fun NoopRoot() {
     val context = LocalContext.current
     val prefs = remember { NoopPrefs.of(context) }
+    // Terms acknowledgment gate, over EVERYTHING (before onboarding/pairing/Bluetooth) until the
+    // current terms version is accepted; re-appears if the terms materially change. (clickwrap)
+    var acceptedTerms by remember {
+        mutableStateOf(prefs.getString(NoopPrefs.KEY_ACCEPTED_TERMS_VERSION, "") ?: "")
+    }
+    if (acceptedTerms != Terms.CURRENT_VERSION) {
+        TermsGateScreen(onAccept = {
+            prefs.edit()
+                .putString(NoopPrefs.KEY_ACCEPTED_TERMS_VERSION, Terms.CURRENT_VERSION)
+                .putString(NoopPrefs.KEY_ACCEPTED_TERMS_AT, java.time.Instant.now().toString())
+                .apply()
+            acceptedTerms = Terms.CURRENT_VERSION
+        })
+        return
+    }
+
+
+    if (!com.noop.push.EnrollmentGate()) return
     val appViewModel: AppViewModel = viewModel()
 
     // #267: app-wide "came to foreground" hook, mirrors the iOS/macOS scenePhase == .active trigger.
@@ -1478,6 +1529,9 @@ fun NoopRoot() {
 
     var onboarded by remember {
         mutableStateOf(prefs.getBoolean(NoopPrefs.KEY_ONBOARDED, false))
+    }
+    var setupFinished by remember {
+        mutableStateOf(prefs.getBoolean(NoopPrefs.KEY_SETUP_FINISHED, false))
     }
     var lastSeenChangelog by remember {
         mutableStateOf(prefs.getString(NoopPrefs.KEY_LAST_SEEN_CHANGELOG, "") ?: "")
@@ -1509,36 +1563,28 @@ fun NoopRoot() {
         }
     }
 
-    // Terms acknowledgment gate, over EVERYTHING (before onboarding/pairing/Bluetooth) until the
-    // current terms version is accepted; re-appears if the terms materially change. (clickwrap)
-    var acceptedTerms by remember {
-        mutableStateOf(prefs.getString(NoopPrefs.KEY_ACCEPTED_TERMS_VERSION, "") ?: "")
-    }
-    if (acceptedTerms != Terms.CURRENT_VERSION) {
-        TermsGateScreen(onAccept = {
-            prefs.edit()
-                .putString(NoopPrefs.KEY_ACCEPTED_TERMS_VERSION, Terms.CURRENT_VERSION)
-                .putString(NoopPrefs.KEY_ACCEPTED_TERMS_AT, java.time.Instant.now().toString())
-                .apply()
-            acceptedTerms = Terms.CURRENT_VERSION
-        })
-        return
-    }
-
-    if (!onboarded) {
+    if (!onboarded && !setupFinished) {
         OnboardingScreen(
             viewModel = appViewModel,
             onFinished = {
-                // A brand-new user just saw the expectations in onboarding, don't also pop the
-                // changelog at them; mark them current (mirrors macOS ContentView onFinished).
-                prefs.edit()
-                    .putBoolean(NoopPrefs.KEY_ONBOARDED, true)
-                    .putString(NoopPrefs.KEY_LAST_SEEN_CHANGELOG, AppChangelog.CURRENT_VERSION)
-                    .apply()
-                lastSeenChangelog = AppChangelog.CURRENT_VERSION
-                onboarded = true
+                check(prefs.edit().putBoolean(NoopPrefs.KEY_SETUP_FINISHED, true).commit())
+                setupFinished = true
             },
         )
+        return
+    }
+
+    if (!com.noop.push.DeviceLinkGate()) return
+    if (!onboarded) {
+        LaunchedEffect(Unit) {
+            if (OnboardingCompletion.record(prefs,
+                    BuildConfig.ENABLE_DEMO || com.noop.push.DeviceLinkStore.currentConfirmed(context),
+                    AppChangelog.CURRENT_VERSION)) {
+                appViewModel.promoteBackgroundConnectionIfActive()
+                lastSeenChangelog = AppChangelog.CURRENT_VERSION
+                onboarded = true
+            }
+        }
         return
     }
 

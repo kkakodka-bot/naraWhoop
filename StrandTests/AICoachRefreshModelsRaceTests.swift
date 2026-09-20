@@ -32,7 +32,11 @@ final class AICoachRefreshModelsRaceTests: XCTestCase {
     /// Build an engine whose key gate is already satisfied without the Keychain: the Custom provider
     /// resolves to an empty (but non-nil) key, so `refreshModels()` reaches its await.
     private func makeEngine(deviceId: String) -> AICoachEngine {
-        let engine = AICoachEngine(repo: Repository(deviceId: deviceId))
+        let suite = "test.ai.models." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        let engine = AICoachEngine(repo: Repository(deviceId: deviceId), defaults: defaults,
+                                   accountNamespace: String(repeating: "b", count: 64), keychain: AITestKeychain())
         engine.provider = .custom
         return engine
     }

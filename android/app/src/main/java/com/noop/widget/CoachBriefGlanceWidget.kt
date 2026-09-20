@@ -43,11 +43,12 @@ import java.util.Date
 class CoachBriefGlanceWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val prefs = context.getSharedPreferences("noop_widget", Context.MODE_PRIVATE)
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        val prefs = account.getSharedPreferences("noop_widget", Context.MODE_PRIVATE)
         val briefText = prefs.getString("coachBriefText", null)
         val briefDateMs = prefs.getLong("coachBriefDateMs", 0L)
         val dark = runCatching {
-            when (context.getSharedPreferences("noop_prefs", Context.MODE_PRIVATE)
+            when (com.noop.account.AccountStorageContext.capture(context).getSharedPreferences("noop_prefs", Context.MODE_PRIVATE)
                 .getString("theme.appearance", "system")) {
                 "light" -> false
                 "dark" -> true
@@ -56,7 +57,7 @@ class CoachBriefGlanceWidget : GlanceAppWidget() {
                     android.content.res.Configuration.UI_MODE_NIGHT_YES
             }
         }.getOrDefault(true)
-        provideContent { CoachBriefWidgetContent(briefText, briefDateMs, dark) }
+        provideContent { CoachBriefWidgetContent(briefText.takeIf { account.isCurrent() }, briefDateMs, dark) }
     }
 }
 

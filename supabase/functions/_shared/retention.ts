@@ -38,6 +38,7 @@ export function retentionFor(kind: string, cfg: Record<string, unknown> = {}): R
     return { class: 'diagnostic', defaultDays: ((kind === 'ble' ? cfg.retentionBleDays : cfg.retentionDiagDays) as number) ?? 7 };
   }
   if (kind === 'export') return { class: 'export', defaultDays: 7 };
+  if (kind === 'derived_scores') return { class: 'derived', defaultDays: 90 };
   if (kind === 'derived' || kind === 'sleep_summary' || kind === 'daily_metrics') return { class: 'derived', defaultDays: null };
   return { class: 'core', defaultDays: null };
 }

@@ -5,6 +5,26 @@ final class BatteryEstimatorTests: XCTestCase {
 
     private let h = 3600
 
+    func testFlatPeakRetainsElapsedDischargeTime() {
+        let e = BatteryEstimator.estimate(samples: [(0, 50), (10 * h, 50), (20 * h, 40)], ratedHours: 288)!
+        XCTAssertEqual(e.remainingHours, 80, accuracy: 0.0001)
+    }
+
+    func testForecastUsesLiveChargeWithHistoricalRate() {
+        let e = BatteryEstimator.estimate(samples: [(0, 84), (60 * h, 60)], ratedHours: 288, currentSoc: 40)!
+        XCTAssertEqual(e.currentSoc, 40)
+        XCTAssertEqual(e.remainingHours, 100, accuracy: 0.0001)
+    }
+
+    func testInvalidReadingsAndRatedLifeCannotPoisonForecast() {
+        let clean = BatteryEstimator.estimate(samples: [(0, 50), (20 * h, 40)], ratedHours: 288)
+        let noisy = BatteryEstimator.estimate(samples: [(0, 50), (h, .nan), (2 * h, 255),
+                                                        (3 * h, -.infinity), (20 * h, 40)], ratedHours: 288)
+        XCTAssertEqual(noisy, clean)
+        XCTAssertNil(BatteryEstimator.estimate(samples: [(0, 40)], ratedHours: .nan))
+        XCTAssertNil(BatteryEstimator.estimate(samples: [(0, 40)], ratedHours: 288, currentSoc: 120))
+    }
+
     func testNilWhenNoSamples() {
         XCTAssertNil(BatteryEstimator.estimate(samples: [], ratedHours: BatteryEstimator.ratedLifeHoursWhoop5))
     }

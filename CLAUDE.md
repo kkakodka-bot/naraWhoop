@@ -1,7 +1,7 @@
 # CLAUDE.md — working on FRWHOOP_v2
 
 Read [`docs/SCOPE.md`](docs/SCOPE.md) first. This fork **differs from upstream NOOP**: it ships a
-hosted Supabase/B2 push receiver (`supabase/functions/`) for the owner's devices. The `supabase/` tree
+account-scoped Supabase/B2 push receiver (`supabase/functions/`) and a JVM scorer. The `supabase/` tree
 and Edge workers are **in scope** — not an upstream violation.
 
 For upstream app architecture (Swift packages, Android parity, BLE safety, CI), the parent project's

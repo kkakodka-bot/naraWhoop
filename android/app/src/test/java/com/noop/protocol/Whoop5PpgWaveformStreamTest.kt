@@ -46,7 +46,7 @@ class Whoop5PpgWaveformStreamTest {
             family = DeviceFamily.WHOOP5,
         )
         assertEquals(
-            listOf(PpgWaveformRow(ts = 1_780_917_232L, samples = expectedWaveform, burstIndex = 1)),
+            listOf(PpgWaveformRow(ts = 1_780_917_232L, samples = expectedWaveform, burstIndex = 1, recordIndex = 25_444_781L)),
             streams.ppgWaveform,
         )
         assertTrue("a lone 1 s record is too short for a confident HR estimate", streams.ppgHr.isEmpty())

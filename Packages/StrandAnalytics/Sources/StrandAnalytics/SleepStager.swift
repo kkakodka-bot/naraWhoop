@@ -33,9 +33,137 @@ import WhoopProtocol
 public struct StageSegment: Equatable, Sendable, Codable {
     public var start: Int
     public var end: Int
-    public var stage: String  // "wake" | "light" | "deep" | "rem"
-    public init(start: Int, end: Int, stage: String) {
+    public var stage: String  // wake | light | deep | rem | unknown
+    public var state: String?
+    public var sleepProbability: Double?
+    public var pWake: Double?, pLight: Double?, pDeep: Double?, pRem: Double?
+    public var evidenceCoverage: Double?
+    public var abstentionReason: String?
+    public var computationMode: String?
+    public var algorithmVersion: String?
+    public var probabilitiesCalibrated: Bool?
+    public var contextKind: String?
+    public var contextProvenance: String?
+    public init(start: Int, end: Int, stage: String, state: String? = nil,
+                sleepProbability: Double? = nil, pWake: Double? = nil, pLight: Double? = nil,
+                pDeep: Double? = nil, pRem: Double? = nil, evidenceCoverage: Double? = nil,
+                abstentionReason: String? = nil, computationMode: String? = nil,
+                algorithmVersion: String? = nil, probabilitiesCalibrated: Bool? = nil,
+                contextKind: String? = nil, contextProvenance: String? = nil) {
         self.start = start; self.end = end; self.stage = stage
+        self.state = state; self.sleepProbability = sleepProbability
+        self.pWake = pWake; self.pLight = pLight; self.pDeep = pDeep; self.pRem = pRem
+        self.evidenceCoverage = evidenceCoverage; self.abstentionReason = abstentionReason
+        self.computationMode = computationMode; self.algorithmVersion = algorithmVersion
+        self.probabilitiesCalibrated = probabilitiesCalibrated
+        self.contextKind = contextKind; self.contextProvenance = contextProvenance
+    }
+}
+
+public enum SleepStageSemantics {
+    public static func normalized(_ segments: [StageSegment], start: Int, end: Int) -> [StageSegment] {
+        guard end > start else { return [] }
+        var out: [StageSegment] = [], cursor = start
+        for (_, original) in segments.enumerated().sorted(by: {
+            $0.element.start == $1.element.start ? $0.offset < $1.offset : $0.element.start < $1.element.start
+        }) {
+            let lo = max(cursor, original.start), hi = min(end, original.end)
+            if hi <= lo { continue }
+            if lo > cursor { out.append(unknown(start: cursor, end: lo)) }
+            var segment = original; segment.start = lo; segment.end = hi
+            out.append(segment); cursor = hi
+        }
+        if cursor < end { out.append(unknown(start: cursor, end: end)) }
+        return out
+    }
+    public static func isSleep(_ segment: StageSegment) -> Bool {
+        if segment.state == "state_unknown" || segment.state == "off_body" || segment.state == "awake" { return false }
+        if segment.state == "sleep" || segment.state == "sleep_unstaged" { return true }
+        return ["light", "deep", "rem", "sleep_unstaged"].contains(segment.stage)
+    }
+    public static func isKnownState(_ segment: StageSegment) -> Bool {
+        isSleep(segment) || segment.state == "awake" || ((segment.state == nil || segment.state == "awake")
+            && SleepStageVocabulary.isWake(segment.stage))
+    }
+    public static func coalesced(_ segments: [StageSegment]) -> [StageSegment] {
+        var out: [StageSegment] = []
+        for segment in segments {
+            if var last = out.last, last.end == segment.start {
+                var sameBounds = segment; sameBounds.start = last.start; sameBounds.end = last.end
+                if sameBounds == last { last.end = segment.end; out[out.count - 1] = last; continue }
+            }
+            out.append(segment)
+        }
+        return out
+    }
+    /// Context changes state, not the certainty of a four-stage label. The causal path deliberately
+    /// abstains from the retrospective model and uses only context available by each epoch's end.
+    public static func applyingContext(_ segments: [StageSegment], start: Int, end: Int,
+                                      context: [SleepContextSpan] = [], mode: String = "retrospective",
+                                      observedThrough: Int? = nil) -> [StageSegment] {
+        guard end > start else { return [] }
+        let cutoff = min(end, observedThrough ?? end)
+        let base = normalized(segments, start: start, end: end)
+        var cuts = Set([start, end, max(start, cutoff)])
+        for s in base { cuts.insert(s.start); cuts.insert(s.end) }
+        for c in context where c.end > start && c.start < end {
+            cuts.insert(max(start, c.start)); cuts.insert(min(end, c.end))
+        }
+        if mode == "causal" { for t in stride(from: (start / 30) * 30, to: end, by: 30) where t > start { cuts.insert(t) } }
+        let times = cuts.sorted()
+        var result: [StageSegment] = []
+        for i in 0..<(times.count - 1) {
+            let lo = times[i], hi = times[i + 1]
+            var s = base.first { $0.start <= lo && $0.end >= hi } ?? unknown(start: lo, end: hi)
+            s.start = lo; s.end = hi
+            if lo >= cutoff { result.append(unknown(start: lo, end: hi, reason: "not_observed_yet", mode: mode)); continue }
+            if mode == "causal" { s = unknown(start: lo, end: hi, reason: "causal_stage_model_unavailable", mode: mode) }
+            let eligible = context.filter { c in
+                c.start <= lo && c.end >= hi && (mode != "causal" || (c.availableAt ?? c.end) <= hi)
+            }
+            func priority(_ c: SleepContextSpan) -> Int {
+                if c.kind == "off_body" { return 3 }
+                if ["awake", "reading", "phone_use", "quiet_rest"].contains(c.kind) { return 2 }
+                return c.qualifiedBinarySleep ? 1 : 0
+            }
+            if let c = eligible.max(by: { priority($0) < priority($1) }) {
+                let off = c.kind == "off_body", quiet = c.kind == "quiet_rest"
+                let awake = priority(c) == 2 && !quiet
+                if priority(c) > 0 && (off || awake || quiet || !isKnownState(s)) {
+                    s = StageSegment(start: lo, end: hi, stage: awake ? "wake" : "unknown",
+                        state: off ? "off_body" : awake ? "awake" : quiet ? "state_unknown" : "sleep_unstaged",
+                        evidenceCoverage: s.evidenceCoverage,
+                        abstentionReason: "context:\(c.kind):\(c.provenance)", computationMode: mode,
+                        algorithmVersion: "sleep-context-v2", probabilitiesCalibrated: false,
+                        contextKind: c.kind, contextProvenance: c.provenance)
+                }
+                // Bed/opportunity reports are context, not binary sleep evidence.
+                s.contextKind = c.kind; s.contextProvenance = c.provenance
+            }
+            result.append(s)
+        }
+        return coalesced(result)
+    }
+    public static func unknown(start: Int, end: Int, reason: String = "no_epoch_observations",
+                               coverage: Double = 0, mode: String = "retrospective") -> StageSegment {
+        StageSegment(start: start, end: end, stage: "unknown", state: "state_unknown",
+                     evidenceCoverage: coverage, abstentionReason: reason, computationMode: mode,
+                     algorithmVersion: "sleep-evidence-v2", probabilitiesCalibrated: false)
+    }
+}
+
+/// Optional independently supplied context. User reports retain their provenance and are not PSG truth.
+public struct SleepContextSpan: Equatable, Sendable {
+    public let start: Int, end: Int
+    public let kind: String
+    public let provenance: String
+    public let qualifiedBinarySleep: Bool
+    public let availableAt: Int?
+    public init(start: Int, end: Int, kind: String, provenance: String,
+                qualifiedBinarySleep: Bool = false, availableAt: Int? = nil) {
+        self.start = start; self.end = end; self.kind = kind; self.provenance = provenance
+        self.qualifiedBinarySleep = qualifiedBinarySleep
+        self.availableAt = availableAt
     }
 }
 
@@ -60,12 +188,21 @@ public struct SleepSession: Equatable, Sendable {
     ///
     /// Kotlin twin: `DetectedSleep.hrOnly` (the model names diverge, `DetectedSleep`/`SleepSession`).
     public let hrOnly: Bool
+    public var episodeType: String?
+    public var groupedNightId: String?
+    public var boundaryProvenance: String?
+    public var denominatorKind: String?
+    public var hasKnownState: Bool { stages.contains(where: SleepStageSemantics.isKnownState) }
 
     public init(start: Int, end: Int, efficiency: Double, stages: [StageSegment],
-                restingHR: Int?, avgHRV: Double?, hrOnly: Bool = false) {
+                restingHR: Int?, avgHRV: Double?, hrOnly: Bool = false, episodeType: String? = nil,
+                groupedNightId: String? = nil, boundaryProvenance: String? = nil,
+                denominatorKind: String? = nil) {
         self.start = start; self.end = end; self.efficiency = efficiency
         self.stages = stages; self.restingHR = restingHR; self.avgHRV = avgHRV
         self.hrOnly = hrOnly
+        self.episodeType = episodeType; self.groupedNightId = groupedNightId
+        self.boundaryProvenance = boundaryProvenance; self.denominatorKind = denominatorKind
     }
 }
 
@@ -992,15 +1129,16 @@ public enum SleepStager {
         return max(adaptiveBaselineFloor, HRVAnalyzer.median(vals))
     }
 
-    /// True when the run's CENTER, shifted to LOCAL time by tzOffsetSeconds, lands in the
+    /// True when the run's CENTER, placed on the local clock, lands in the
     /// daytime band [daytimeBandStartHour, daytimeBandEndHour). The center (not the edges)
     /// is used so a window straddling a band edge is classified once, by where it mostly is.
     /// `((x % d) + d) % d` is a floored modulo so a negative local-shifted time still maps
     /// into [0, secondsPerDay).
-    static func isDaytimeCenter(_ p: Period, tzOffsetSeconds: Int) -> Bool {
+    static func isDaytimeCenter(_ p: Period, tzOffsetSeconds: Int, timezone: TimeZone? = nil) -> Bool {
         // Int overflow-safe: starts/ends are unix seconds; midpoint via average of the two.
         let center = p.start + (p.end - p.start) / 2
-        let local = center + tzOffsetSeconds
+        let offset = timezone?.secondsFromGMT(for: Date(timeIntervalSince1970: Double(center))) ?? tzOffsetSeconds
+        let local = center + offset
         let secOfDay = ((local % secondsPerDay) + secondsPerDay) % secondsPerDay
         let hour = secOfDay / 3_600
         return hour >= daytimeBandStartHour && hour < daytimeBandEndHour
@@ -1009,8 +1147,9 @@ public enum SleepStager {
     /// True when a run's ONSET (start), in LOCAL time, falls OUTSIDE the daytime band — i.e.
     /// the sleep began at night, not during the day. Anchors a continuous-sleep chain: only a
     /// chain that began overnight may carry its tail past the daytime-band start (a late wake).
-    static func isOvernightOnset(_ start: Int, tzOffsetSeconds: Int) -> Bool {
-        let local = start + tzOffsetSeconds
+    static func isOvernightOnset(_ start: Int, tzOffsetSeconds: Int, timezone: TimeZone? = nil) -> Bool {
+        let offset = timezone?.secondsFromGMT(for: Date(timeIntervalSince1970: Double(start))) ?? tzOffsetSeconds
+        let local = start + offset
         let secOfDay = ((local % secondsPerDay) + secondsPerDay) % secondsPerDay
         let hour = secOfDay / 3_600
         return !(hour >= daytimeBandStartHour && hour < daytimeBandEndHour)
@@ -1256,10 +1395,9 @@ public enum SleepStager {
     /// Detect sleep sessions from biometric streams. Empty/absent gravity → [].
     /// Gravity-only input degrades gracefully (HR/RR/resp refinements skipped).
     ///
-    /// `tzOffsetSeconds` is the wall-clock UTC offset (TimeZone.current.secondsFromGMT)
-    /// used ONLY to place each window's center on a LOCAL clock for the daytime
-    /// false-sleep guard (#90). It defaults to 0 so the pure function and its tests stay
-    /// UTC; the live call site (IntelligenceEngine) passes the device's real offset.
+    /// `timezone` resolves the local clock separately at each run's center and onset for the
+    /// daytime guard and overnight chain. Nil preserves the fixed `tzOffsetSeconds` behavior;
+    /// that fallback defaults to 0, keeping existing pure-function calls and tests in UTC.
     /// `wristOff` is an optional list of off-wrist `[start, end)` intervals (unix seconds), paired from
     /// the strap's WRIST_OFF/WRIST_ON events by `AnalyticsEngine.offWristIntervals`. When the call site
     /// has them (IntelligenceEngine reads `store.events`), they sharpen the always-on HR-gap off-wrist
@@ -1295,24 +1433,25 @@ public enum SleepStager {
                                    bandSleepState: [(ts: Int, state: Int)] = [],
                                    useSleepStagerV2: Bool = false,
                                    sleepHRBaseline: Double? = nil,
+                                   timezone: TimeZone? = nil,
                                    traceSink: ((String) -> Void)? = nil) -> [SleepSession] {
         // Sleep & Rest test mode only: when a trace is requested we MUST run the live ladder, not a
         // memoized result, so each gate verdict is emitted for THIS night. The trace is side-effect-
         // only and never changes the sessions, so a traced and an untraced call return the identical
         // array. With no sink (the default, every existing call site) the path below is byte-identical
-        // to before: same memo key, same compute.
+        // to before when timezone is nil: same fixed-offset decisions and staging.
         if let traceSink {
             return detectSleepUncached(hr: hr, rr: rr, resp: resp, gravity: gravity,
                                        tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
                                        bandSleepState: bandSleepState, useSleepStagerV2: useSleepStagerV2,
-                                       sleepHRBaseline: sleepHRBaseline, traceSink: traceSink)
+                                       sleepHRBaseline: sleepHRBaseline, timezone: timezone, traceSink: traceSink)
         }
         // v7.0.2 perf (#707): the single heaviest analytics call — it sorts the dense full-day gravity
         // stream (~tens of thousands of samples for a worn day), builds the gravity-delta/still spine, and
         // stages every accepted run. The post-sync scoring loop calls it once PER DAY across the window, and
         // a re-run with the SAME raw (an idempotent re-pass, or a later sync that didn't touch this day's
         // streams) re-does all of it for an identical `[SleepSession]`. Memoize on a FULL key: every input
-        // that steers detection or staging — the four streams, the tz offset (daytime-guard + onset band),
+        // that steers detection or staging — the four streams, the tz offset and optional zone,
         // the off-wrist intervals (#500 backstop), the persisted band state (#531 H8), and the V2 toggle (an
         // edit to any re-keys to a fresh compute). Result-only + bounded; the raw arrays are never retained.
         // Match Android's raw-axis semantics: mix x/y/z IEEE-754 bits in order, never their lossy sum.
@@ -1323,7 +1462,7 @@ public enum SleepStager {
             hr: StreamFingerprint.of(hr, ts: { $0.ts }, quant: { Int($0.bpm) }),
             rr: StreamFingerprint.of(rr, ts: { $0.ts }, quant: { Int($0.rrMs) }),
             resp: StreamFingerprint.of(resp, ts: { $0.ts }, quant: { $0.raw }),
-            tz: tzOffsetSeconds,
+            tz: tzOffsetSeconds, timezone: timezone,
             wristOff: StreamFingerprint.of(wristOff, ts: { $0.start }, quant: { $0.end }),
             band: StreamFingerprint.of(bandSleepState, ts: { $0.ts }, quant: { $0.state }),
             v2: useSleepStagerV2,
@@ -1332,7 +1471,7 @@ public enum SleepStager {
             detectSleepUncached(hr: hr, rr: rr, resp: resp, gravity: gravity,
                                 tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
                                 bandSleepState: bandSleepState, useSleepStagerV2: useSleepStagerV2,
-                                sleepHRBaseline: sleepHRBaseline, traceSink: nil)
+                                sleepHRBaseline: sleepHRBaseline, timezone: timezone, traceSink: nil)
         }
     }
 
@@ -1340,6 +1479,7 @@ public enum SleepStager {
         let grav: StreamFingerprint; let hr: StreamFingerprint
         let rr: StreamFingerprint; let resp: StreamFingerprint
         let tz: Int
+        let timezone: TimeZone?
         let wristOff: StreamFingerprint; let band: StreamFingerprint
         let v2: Bool
         let sleepHRBaseline: Double?
@@ -1357,6 +1497,7 @@ public enum SleepStager {
                                             bandSleepState: [(ts: Int, state: Int)],
                                             useSleepStagerV2: Bool,
                                             sleepHRBaseline: Double? = nil,
+                                            timezone: TimeZone?,
                                             traceSink: ((String) -> Void)? = nil) -> [SleepSession] {
         let grav = gravity.sorted { $0.ts < $1.ts }
         if grav.count < 2 { return [] }
@@ -1497,7 +1638,7 @@ public enum SleepStager {
             // clear the STRONGER re-onset bar — killing the 9 am phantom nap of residual post-wake stillness
             // while keeping a genuine second sleep. Outside the window the guard is the ordinary daytime bar.
             let morningWakeEnd = chainFromOvernight ? chainPrevEnd : nil
-            let isDaytime = isDaytimeCenter(p, tzOffsetSeconds: tzOffsetSeconds)
+            let isDaytime = isDaytimeCenter(p, tzOffsetSeconds: tzOffsetSeconds, timezone: timezone)
             // Evaluate the morning-stillness guard ONLY when the run is daytime-centered, preserving the
             // original short-circuit (overnight runs never call it). The boolean used to `continue` below
             // is identical to the original combined condition.
@@ -1551,7 +1692,7 @@ public enum SleepStager {
                 }
             }
             // A run that does NOT continue the chain re-anchors it on this run's onset.
-            if !continuesChain { chainFromOvernight = isOvernightOnset(p.start, tzOffsetSeconds: tzOffsetSeconds) }
+            if !continuesChain { chainFromOvernight = isOvernightOnset(p.start, tzOffsetSeconds: tzOffsetSeconds, timezone: timezone) }
             chainPrevEnd = p.end
         }
         sessions.sort { $0.start < $1.start }
@@ -1573,8 +1714,10 @@ public enum SleepStager {
     static func efficiency(start: Int, end: Int, stages: [StageSegment]) -> Double {
         let inBed = Double(end - start)
         if inBed <= 0 { return 0 }
-        let wake = stages.filter { SleepStageVocabulary.isWake($0.stage) }.reduce(0.0) { $0 + Double($1.end - $1.start) }
-        let asleep = max(0.0, inBed - wake)
+        let asleep = SleepStageSemantics.normalized(stages, start: start, end: end)
+            .filter { SleepStageSemantics.isSleep($0) }.reduce(0.0) {
+            $0 + Double(max(0, min(end, $1.end) - max(start, $1.start)))
+        }
         return min(1.0, asleep / inBed)
     }
 
@@ -1604,7 +1747,15 @@ public enum SleepStager {
     /// re-derive real stages for a hand-corrected window — so extending a boundary recovers genuine
     /// stages from the sensor data instead of a fabricated "awake" block. (#318)
     public static func stageSession(start: Int, end: Int, grav: [GravitySample],
-                                    hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
+                                    hr: [HRSample], rr: [RRInterval], resp: [RespSample],
+                                    hrvObservations: [PhysiologyQuality.IntervalObservation] = []) -> [StageSegment] {
+        let grav = grav.filter(SleepSignalValidity.gravity)
+        let hr = hr.filter(SleepSignalValidity.heartRate)
+        // Existing cache fingerprints lack original provenance. Never reuse them for proven input.
+        if !hrvObservations.isEmpty {
+            return stageSessionUncached(start: start, end: end, grav: grav, hr: hr, rr: rr, resp: resp,
+                hrvMeasurements: HrvSeries.windows(start: start, end: end, observations: hrvObservations))
+        }
         // v7.0.2 perf (#707): stage each window AT MOST ONCE per (window, input-fingerprint). Both
         // `detectSleep` (per accepted run) and the sleep-edit restage call this with byte-identical streams
         // across post-sync passes / `body` re-evaluations; each call builds a fresh 30 s epoch grid +
@@ -1633,9 +1784,11 @@ public enum SleepStager {
 
     /// Unchanged V1 staging recipe; split verbatim so the public entry memoizes in front of it.
     private static func stageSessionUncached(start: Int, end: Int, grav: [GravitySample],
-                                             hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
+                                             hr: [HRSample], rr: [RRInterval], resp: [RespSample],
+                                             hrvMeasurements: [HrvWindowResult] = []) -> [StageSegment] {
         let gSeg = rowsBetween(grav, start: start, end: end) { $0.ts }
-        if gSeg.count < 2 { return [StageSegment(start: start, end: end, stage: "light")] }
+        if end <= start { return [] }
+        if gSeg.count < 2 { return [SleepStageSemantics.unknown(start: start, end: end, reason: "insufficient_motion_for_v1")] }
 
         let gDeltas = gravityDeltas(gSeg)
         let gTimes = gSeg.map { $0.ts }
@@ -1647,7 +1800,7 @@ public enum SleepStager {
         let grid = buildEpochGrid(start: Double(start), end: Double(end),
                                   gravTimes: gTimes, gravDeltas: gDeltas,
                                   hr: hrSeg, rr: rrSeg, resp: respSeg)
-        if grid.nEpochs == 0 { return [StageSegment(start: start, end: end, stage: "light")] }
+        if grid.nEpochs == 0 { return [SleepStageSemantics.unknown(start: start, end: end)] }
 
         let rescaled = rescaleCounts(grid.counts)
         let ckFlags = coleKripke(rescaled)
@@ -1655,7 +1808,7 @@ public enum SleepStager {
 
         let dogHR = dogHRVariability(grid.hr)
         let feats = extractFeatures(grid: grid, ckFlags: ckFlags, dogHR: dogHR,
-                                    onsetIdx: onsetIdx, finalWakeIdx: finalWakeIdx)
+                                    onsetIdx: onsetIdx, finalWakeIdx: finalWakeIdx, hrvMeasurements: hrvMeasurements)
 
         var labels = classifyEpochs(feats)
         labels = smoothLabels(labels)
@@ -1672,13 +1825,18 @@ public enum SleepStager {
 
         // Merge consecutive same-stage epochs into segments tiling [start, end].
         var segments: [StageSegment] = []
-        for (i, stage) in labels.enumerated() {
+        let observedSeconds = Set(gSeg.map(\.ts)).union(hrSeg.map(\.ts))
+        for (i, label) in labels.enumerated() {
             let segStart = Int(grid.edges[i].rounded())
             let segEnd = Int(grid.edges[i + 1].rounded())
+            let covered = (segStart..<segEnd).reduce(0) { $0 + (observedSeconds.contains($1) ? 1 : 0) }
+            let stage = covered == 0 ? "unknown" : label
             if let last = segments.last, last.stage == stage {
                 segments[segments.count - 1].end = segEnd
             } else {
-                segments.append(StageSegment(start: segStart, end: segEnd, stage: stage))
+                segments.append(stage == "unknown"
+                    ? SleepStageSemantics.unknown(start: segStart, end: segEnd)
+                    : StageSegment(start: segStart, end: segEnd, stage: stage))
             }
         }
         if !segments.isEmpty { segments[segments.count - 1].end = end }
@@ -2193,7 +2351,7 @@ public enum SleepStager {
     }
 
     static func extractFeatures(grid: EpochGrid, ckFlags: [Bool], dogHR: [Double],
-                                onsetIdx: Int, finalWakeIdx: Int) -> [EpochFeatures] {
+                                onsetIdx: Int, finalWakeIdx: Int, hrvMeasurements: [HrvWindowResult] = []) -> [EpochFeatures] {
         let n = grid.nEpochs
         let rescaled = rescaleCounts(grid.counts)
         let halfW = Int((featureWindowS / epochS / 2).rounded())
@@ -2211,13 +2369,9 @@ public enum SleepStager {
             let winDog = (lo..<hi).map { dogHR.isEmpty ? 0.0 : dogHR[$0] }
             let hrVar = winDog.count >= 2 ? standardDeviation(winDog) : Double.nan
 
-            // RMSSD/SDNN over the pooled RR window (range-filtered, like the
-            // Python per-epoch hrv_from_rr which uses RAW range-filtered RR).
-            var winRR: [Double] = []
-            for j in lo..<hi { winRR.append(contentsOf: grid.rr[j]) }
-            let filteredRR = HRVAnalyzer.rangeFilter(winRR)
-            let rmssd = filteredRR.count >= 5 ? (HRVAnalyzer.rmssdRaw(filteredRR) ?? Double.nan) : Double.nan
-            let sdnn = filteredRR.count >= 5 ? (HRVAnalyzer.sdnnRaw(filteredRR) ?? Double.nan) : Double.nan
+            let measured = HrvSeries.feature(at: Int(grid.epochMid(i)), measurements: hrvMeasurements)
+            let rmssd = measured?.observedRMSSD ?? .nan
+            let sdnn = measured?.sdnn ?? .nan
 
             var winResp: [Double] = []
             for j in lo..<hi { winResp.append(contentsOf: grid.resp[j]) }
@@ -2837,7 +2991,7 @@ public enum SleepStager {
             + "wouldChange=\(changes) (measure-only; nothing is gated yet)"
     }
 
-    static func sessionRestingHR(start: Int, end: Int, hr: [HRSample]) -> Int? {
+    public static func sessionRestingHR(start: Int, end: Int, hr: [HRSample]) -> Int? {
         let seg = hr.filter { $0.ts >= start && $0.ts <= end }
         guard !seg.isEmpty else { return nil }
         let windowS = 5 * 60
@@ -2858,85 +3012,45 @@ public enum SleepStager {
         return Int(all.rounded())
     }
 
-    /// One 5-min HRV window: its start ts, the sleep stage at its center, the clean-beat count, and the
-    /// window RMSSD (nil when <2 clean beats). Drives both `sessionAvgHRV` and the HRV test-mode trace. (#141)
+    /// Compatibility view over the canonical UTC measurement, with stage retained only as a label.
     public struct HrvWindow: Sendable {
         public let startTs: Int
         public let stage: String
         public let cleanBeats: Int
         public let rmssd: Double?
+        public let measurement: HrvWindowResult?
+        public var unavailableReason: String? { measurement?.reason ?? measurement?.baselineReason }
+        public init(startTs: Int, stage: String, cleanBeats: Int, rmssd: Double?, measurement: HrvWindowResult? = nil) {
+            self.startTs = startTs; self.stage = stage; self.cleanBeats = cleanBeats
+            self.rmssd = rmssd; self.measurement = measurement
+        }
     }
 
-    /// Mean RMSSD over 5-min tumbling windows across the session (ms), or nil.
-    /// Uses the same range-filter + ≥2-valid-interval rule as hrv.rmssd().
-    static func sessionAvgHRV(start: Int, end: Int, rr: [RRInterval]) -> Double? {
-        let vals = sessionHrvWindows(start: start, end: end, rr: rr, stages: []).compactMap { $0.rmssd }
-        if vals.isEmpty { return nil }
-        // #1118: refuse the night outright when its own R-R banks more beat-time than the wall clock it
-        // spans. Gated HERE rather than at the caller because this is where RMSSD BECOMES the day's HRV:
-        // one seam covers the daily row, the sleep-session cache, the Health card and the baseline that
-        // later nights are scored against, so none of them can end up disagreeing about whether the night
-        // was trustworthy. See `HRVAnalyzer.successiveDiffIsTrustworthy` for why an over-count corrupts a
-        // successive-difference statistic and why a blank is the right answer.
-        //
-        // Classified over the SAME beats the value was built from, windowed [start, end] exactly as
-        // `sessionHrvWindows` does, so the verdict cannot describe a different set of beats than the number
-        // it is gating.
-        let seg = rr.filter { $0.ts >= start && $0.ts <= end }
-        let segTs = seg.map { $0.ts }
-        let segMs = seg.map { Double($0.rrMs) }
-        let coverage = HRVAnalyzer.rrCoverage(tsSec: segTs, rrMs: segMs)
-        // `collapsed` is deliberately the SAME figure as `coverage`, which pins every over-count here to
-        // crossSecondOverCount. That is not a claim about which kind it is. The collapsed figure exists only
-        // to choose BETWEEN the two over-count verdicts, and this gate refuses both, so the real one would
-        // change no outcome — while costing a full sort of the night's ~50-70k beats, since
-        // `collapsedCoverage` opens with a sort. This runs per session, per day, across ~21 days of every
-        // analyzeRecent, every 15 minutes; #1510 cut this exact path from six sorts a night to two, and
-        // buying a distinction the caller discards would hand that back. `rrCoverage` is a single O(n)
-        // pass. If a future gate ever needs the two over-count cases apart, compute it then.
-        let verdict = HRVAnalyzer.classifyCoverage(coverage: coverage, collapsed: coverage)
-        guard HRVAnalyzer.successiveDiffIsTrustworthy(verdict) else { return nil }
-        return vals.reduce(0, +) / Double(vals.count)
+    static func sessionAvgHRV(start: Int, end: Int, rr: [RRInterval],
+                              observations: [PhysiologyQuality.IntervalObservation]? = nil,
+                              context: [PhysiologyQuality.ContextEpoch] = [],
+                              inputRevision: String = "unversioned") -> Double? {
+        let measurements = HrvSeries.windows(start: start, end: end,
+            observations: observations ?? PhysiologyQuality.legacy(rr, deviceId: "legacy-unscoped"),
+            context: context, inputRevision: inputRevision)
+        return HrvSeries.summarize(measurements, start: start, end: end).meanRMSSD
     }
 
-    /// Per-5-min-window RMSSD across a session, each window tagged with the sleep stage at its CENTER
-    /// (from `stages`) — the SINGLE source `sessionAvgHRV` averages, and the HRV nightly trace reads.
-    /// Passing `[]` for `stages` tags every window "?" (the plain-average path needs no stages). (#141)
-    ///
-    /// Windows follow the same closed-window rule as `sessionRestingHR`: `[t, t + windowS)` except
-    /// the final one, which is `[t, end]`, so a beat sitting exactly on an aligned `end` lands in a
-    /// window instead of being admitted by the prefilter and then dropped. Window stage tagging and
-    /// `startTs` are unchanged — the final window keeps its half-open center `t + windowS / 2`.
-    static func sessionHrvWindows(start: Int, end: Int, rr: [RRInterval], stages: [StageSegment]) -> [HrvWindow] {
-        // CONTRACT: `rr` MUST already be ts-sorted (RMSSD is built from SUCCESSIVE differences, so a bucket
-        // has to be chronological). The value path passes the loop's pre-sorted `rrS`; the trace caller sorts
-        // its own copy. Not sorted here on purpose — re-sorting the value path could reorder same-second RR
-        // under Swift's unstable sort and shift the shipped avgHrv. Same contract the original sessionAvgHRV had.
-        let seg = rr.filter { $0.ts >= start && $0.ts <= end }
-        guard !seg.isEmpty else { return [] }
-        let windowS = 5 * 60
-        var out: [HrvWindow] = []
-        var t = start
-        repeat {
-            // Final window closes on `end` — same closed-window rule as sessionRestingHR, so an
-            // endpoint beat counts instead of vanishing after admission. `repeat` runs once for a
-            // zero-length window, where that single closed window is the whole session.
-            let isFinal = t + windowS >= end
-            let bucket = seg.filter { $0.ts >= t && (isFinal || $0.ts < t + windowS) }.map { Double($0.rrMs) }
-            // Full clean (range + Malik ectopic rejection), not just range — matches the
-            // analyze() pipeline. The 0x2A37 RR on a WHOOP 5/MG is PPG-derived and noisier
-            // than a 4.0's; rMSSD is built from SUCCESSIVE differences, so an un-rejected
-            // jitter spike inflates the session HRV. Ectopic rejection drops those (#262/#235).
-            // #204/#195: gap-aware — a successive difference straddling a dropped beat is skipped so a
-            // removed out-of-range/ectopic beat can't splice its neighbours into a spurious delta.
-            let cleaned = HRVAnalyzer.cleanRRGapAware(bucket)
-            let rmssd: Double? = (cleaned.nn.count >= 2) ? HRVAnalyzer.rmssdGapAware(cleaned.nn, cleaned.contiguous) : nil
-            let center = t + windowS / 2
-            let stage = stages.first { center >= $0.start && center < $0.end }?.stage ?? "?"
-            out.append(HrvWindow(startTs: t, stage: stage, cleanBeats: cleaned.nn.count, rmssd: rmssd))
-            t += windowS
-        } while t < end
-        return out
+    /// Missing provenance stays explicit; stage labels neither establish beat quality nor sleep context.
+    static func sessionHrvWindows(start: Int, end: Int, rr: [RRInterval], stages: [StageSegment],
+                                  observations: [PhysiologyQuality.IntervalObservation]? = nil,
+                                  context: [PhysiologyQuality.ContextEpoch] = [],
+                                  inputRevision: String = "unversioned") -> [HrvWindow] {
+        HrvSeries.windows(start: start, end: end,
+            observations: observations ?? PhysiologyQuality.legacy(rr, deviceId: "legacy-unscoped"),
+            context: context, inputRevision: inputRevision).map { result in
+                let center = result.start + 150
+                let stage = stages.first { center >= $0.start && center < $0.end }?.stage ?? "?"
+                return HrvWindow(startTs: result.start, stage: stage,
+                    cleanBeats: Int((result.validIntervalFraction * Double(result.originalIds.count)).rounded()),
+                    rmssd: result.baselineEligible && result.start >= start && result.end <= end ? result.observedRMSSD : nil,
+                    measurement: result)
+            }
     }
 
     /// The LAST contiguous run of deep-stage windows in `windows` — the WHOOP-style "last slow-wave-sleep"
@@ -2972,15 +3086,15 @@ public enum SleepStager {
     }
 
     public static func hypnogramMetrics(_ session: SleepSession) -> HypnogramMetrics {
-        let segs = session.stages.sorted { $0.start < $1.start }
+        let segs = SleepStageSemantics.normalized(session.stages, start: session.start, end: session.end)
         let tib = max(0.0, Double(session.end - session.start))
 
         func dur(_ s: StageSegment) -> Double { Double(s.end - s.start) }
-        let sleepSegs = segs.filter { $0.stage == "light" || $0.stage == "deep" || $0.stage == "rem" }
+        let sleepSegs = segs.filter { SleepStageSemantics.isSleep($0) }
         let tst = sleepSegs.reduce(0.0) { $0 + dur($1) }
-        let deepS = segs.filter { $0.stage == "deep" }.reduce(0.0) { $0 + dur($1) }
-        let remS = segs.filter { $0.stage == "rem" }.reduce(0.0) { $0 + dur($1) }
-        let lightS = segs.filter { $0.stage == "light" }.reduce(0.0) { $0 + dur($1) }
+        let deepS = sleepSegs.filter { $0.stage == "deep" }.reduce(0.0) { $0 + dur($1) }
+        let remS = sleepSegs.filter { $0.stage == "rem" }.reduce(0.0) { $0 + dur($1) }
+        let lightS = sleepSegs.filter { $0.stage == "light" }.reduce(0.0) { $0 + dur($1) }
 
         let onset: Double, sptEnd: Double, sol: Double
         if let first = sleepSegs.first, let last = sleepSegs.last {
@@ -2993,12 +3107,12 @@ public enum SleepStager {
             sol = tib
         }
 
-        let remSegs = segs.filter { $0.stage == "rem" }
+        let remSegs = sleepSegs.filter { $0.stage == "rem" }
         let remLatency = remSegs.first.map { Double($0.start) - onset } ?? Double.nan
 
         var waso = 0.0
         var disturbances = 0
-        for s in segs where SleepStageVocabulary.isWake(s.stage) {
+        for s in segs where SleepStageVocabulary.isWake(s.stage) && SleepStageSemantics.isKnownState(s) {
             let w0 = max(Double(s.start), onset)
             let w1 = min(Double(s.end), sptEnd)
             if w1 > w0 { waso += (w1 - w0); disturbances += 1 }

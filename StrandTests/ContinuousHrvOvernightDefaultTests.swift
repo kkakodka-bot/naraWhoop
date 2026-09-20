@@ -14,6 +14,23 @@ import XCTest
 /// Note: `StrandTests` runs only under `xcodebuild` on macOS, and `app-build.yml` is disabled — so this
 /// suite is not executed by CI today. The Kotlin twin is, under `testFullDebugUnitTest`.
 final class ContinuousHrvOvernightDefaultTests: XCTestCase {
+    func testFrequentVitalsActivationIsOneTimeAndPreservesBatterySettings() throws {
+        let suite = "frequent-vitals-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(25, forKey: PuffinExperiment.powerSavingBatteryPctKey)
+        defaults.set(true, forKey: PuffinExperiment.powerSavingKey)
+        PuffinExperiment.activateFrequentVitalsCapture(defaults: defaults)
+        XCTAssertTrue(defaults.bool(forKey: PuffinExperiment.keepRealtimeForDataKey))
+        XCTAssertFalse(defaults.bool(forKey: PuffinExperiment.continuousHrvOvernightOnlyKey))
+        defaults.set(false, forKey: PuffinExperiment.keepRealtimeForDataKey)
+        defaults.set(true, forKey: PuffinExperiment.continuousHrvOvernightOnlyKey)
+        PuffinExperiment.activateFrequentVitalsCapture(defaults: defaults)
+        XCTAssertFalse(defaults.bool(forKey: PuffinExperiment.keepRealtimeForDataKey))
+        XCTAssertTrue(defaults.bool(forKey: PuffinExperiment.continuousHrvOvernightOnlyKey))
+        XCTAssertEqual(defaults.integer(forKey: PuffinExperiment.powerSavingBatteryPctKey), 25)
+        XCTAssertTrue(defaults.bool(forKey: PuffinExperiment.powerSavingKey))
+    }
 
     /// The case the migration exists for: used the feature, never chose — pin the old default.
     func testAnExistingContinuousHrvUserIsPinnedToAlwaysOn() {

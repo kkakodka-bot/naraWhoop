@@ -855,8 +855,7 @@ final class SleepStagerTests: XCTestCase {
             rr.append(RRInterval(ts: start + i, rrMs: (i % 15 == 0) ? 1500 : 900))
         }
         let hrv = SleepStager.sessionAvgHRV(start: start, end: end, rr: rr)
-        XCTAssertNotNil(hrv)
-        XCTAssertLessThan(hrv!, 50, "ectopic spikes must be rejected before rMSSD")
+        XCTAssertNil(hrv, "coarse rows cannot prove continuity regardless of a filter result")
     }
 
     // MARK: - Session window endpoint: the closed [start, end] window has a closed FINAL bin
@@ -932,9 +931,9 @@ final class SleepStagerTests: XCTestCase {
         rr.append(contentsOf: (0..<3).map { _ in RRInterval(ts: 600, rrMs: 900) })
         let wins = SleepStager.sessionHrvWindows(start: 0, end: 600, rr: rr, stages: [])
         XCTAssertEqual(wins.map { $0.startTs }, [0, 300])
-        XCTAssertEqual(wins.map { $0.cleanBeats }, [120, 3],
-                       "the endpoint beats must fill the final window")
-        XCTAssertEqual(wins.map { $0.rmssd }, [0.0, 0.0])
+        XCTAssertEqual(wins.map { $0.cleanBeats }, [0, 0], "legacy endpoint rows cannot establish clean original beats")
+        XCTAssertTrue(wins.allSatisfy { $0.rmssd == nil })
+        XCTAssertEqual(wins.last?.measurement?.reason, "no_observations", "right endpoint belongs to the next UTC window")
     }
 
     func testSessionHrvWindowsNonAlignedEndpointUnchanged() {
@@ -944,14 +943,15 @@ final class SleepStagerTests: XCTestCase {
         rr.append(contentsOf: (0..<3).map { _ in RRInterval(ts: 450, rrMs: 900) })
         let wins = SleepStager.sessionHrvWindows(start: 0, end: 450, rr: rr, stages: [])
         XCTAssertEqual(wins.map { $0.startTs }, [0, 300])
-        XCTAssertEqual(wins.map { $0.cleanBeats }, [120, 3])
+        XCTAssertEqual(wins.map { $0.cleanBeats }, [0, 0])
+        XCTAssertTrue(wins.allSatisfy { $0.rmssd == nil })
     }
 
     func testSessionAvgHRVZeroLengthWindowUsesTheEndpointBeats() {
         // The value-level consequence: a zero-length window (start == end) is one closed bin, so
         // beats admitted by the prefilter produce a number instead of nil.
         let rr = (0..<3).map { _ in RRInterval(ts: 1000, rrMs: 900) }
-        XCTAssertEqual(SleepStager.sessionAvgHRV(start: 1000, end: 1000, rr: rr), 0.0)
+        XCTAssertNil(SleepStager.sessionAvgHRV(start: 1000, end: 1000, rr: rr))
     }
 
     // MARK: - Helper robustness

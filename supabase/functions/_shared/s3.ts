@@ -42,6 +42,13 @@ function requestHost(endpoint: string, bucket: string, style: string): string {
   return style === 'virtual' ? `${bucket}.${host}` : host;
 }
 
+function endpointScheme(endpoint: string): string {
+  if (!endpoint.startsWith('http://')) return 'https';
+  const host = new URL(endpoint).hostname;
+  if (!['127.0.0.1', 'localhost', '[::1]'].includes(host)) throw new Error('insecure_object_endpoint');
+  return 'http'; // Disposable local HTTP fixture only; remote storage always uses TLS.
+}
+
 function canonicalUri(bucket: string, key: string, style: string): string {
   const encodedKey = key ? String(key).split('/').map(encodeRfc3986).join('/') : '';
   if (style === 'virtual') return encodedKey ? `/${encodedKey}` : '/';
@@ -52,7 +59,7 @@ function canonicalUri(bucket: string, key: string, style: string): string {
 export function objectUrl(endpoint: string, bucket: string, key: string, style = 'path'): string {
   const host = requestHost(endpoint, bucket, style);
   const uri = canonicalUri(bucket, key, style);
-  return `https://${host}${uri}`;
+  return `${endpointScheme(endpoint)}://${host}${uri}`;
 }
 
 export function presign({
@@ -110,7 +117,7 @@ export function presign({
   const sig = createHmac('sha256', signingKey(secretAccessKey, dateStamp, region, 's3') as any)
     .update(stringToSign)
     .digest('hex');
-  const url = `https://${host}${uri}?${canonicalQuery(query)}&X-Amz-Signature=${sig}`;
+  const url = `${endpointScheme(endpoint)}://${host}${uri}?${canonicalQuery(query)}&X-Amz-Signature=${sig}`;
   return { url, expiresAt: new Date(now.getTime() + expiresSec * 1000).toISOString(), headers };
 }
 
@@ -164,7 +171,7 @@ function signedRequest({
     .update(stringToSign)
     .digest('hex');
   headers.authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signed.join(';')}, Signature=${sig}`;
-  const url = `https://${host}${uri}${q ? `?${q}` : ''}`;
+  const url = `${endpointScheme(endpoint)}://${host}${uri}${q ? `?${q}` : ''}`;
   return { url, headers };
 }
 
@@ -247,6 +254,23 @@ export function createS3({
         contentLength: Number(res.headers.get('content-length') || 0),
       };
     },
+    async getObjectStream(key: string) {
+      const { url, headers } = signedRequest({ method: 'GET', ...base, key, now: new Date() });
+      const res = await fetchImpl(url, { method: 'GET', headers, signal: AbortSignal.timeout(120_000) });
+      if (res.status === 404) { await res.body?.cancel(); return null; }
+      if (!res.ok) { await res.body?.cancel(); throw new Error('object get failed'); }
+      return res;
+    },
+    async copyObject(sourceKey: string, destinationKey: string) {
+      const { url, headers } = signedRequest({
+        method: 'PUT', ...base, key: destinationKey, now: new Date(),
+        extraHeaders: { 'x-amz-copy-source': canonicalUri(bucket, sourceKey, 'path') },
+      });
+      const res = await fetchImpl(url, { method: 'PUT', headers, signal: AbortSignal.timeout(120_000) });
+      const xml = await res.text();
+      // S3 can return an Error XML envelope even with HTTP 200.
+      if (!res.ok || !/<CopyObjectResult[\s>]/.test(xml) || /<Error[\s>]/.test(xml)) throw new Error('object copy failed');
+    },
     async putObject(key: string, body: unknown, { contentType = 'application/octet-stream' }: { contentType?: string } = {}) {
       const buf = asBytes(body);
       const payloadHash = sha256Hex(buf);
@@ -266,6 +290,7 @@ export function createS3({
         const text = await res.text().catch(() => '');
         throw new Error(`object put failed (${res.status}) ${text.slice(0, 180)}`);
       }
+      await res.body?.cancel();
       return { etag: res.headers.get('etag'), bytes: buf.length };
     },
 
@@ -274,6 +299,7 @@ export function createS3({
         method: 'DELETE', ...base, key, now: new Date(),
       });
       const res = await fetchImpl(url, { method: 'DELETE', headers });
+      await res.body?.cancel();
       if (res.status === 404) return { deleted: true, missing: true };
       if (!res.ok) throw new Error('object delete failed');
       return { deleted: true, missing: false };

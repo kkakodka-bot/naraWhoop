@@ -4,9 +4,9 @@
 // same window land on different isolates. The observable state machine (error codes, completion
 // semantics) is identical to the Node original.
 //
-// Concurrency note: the NOOP client sends the parts of one window sequentially per device, so
-// the read-modify-write below is single-writer in practice. A concurrent same-scope writer would
-// be serialized by the primary key on (user_id, scope, replacement_id, part).
+// The protocol requires each sender to serialize generations per source/device/stream. Protocol
+// version is deliberately absent: a version change is still a new generation in the same
+// authoritative replacement scope and must supersede older incomplete work.
 import { PushProtocolError } from './registry.ts';
 import type { SupabaseRest } from './rest.ts';
 
@@ -84,15 +84,45 @@ export function createPushReplacementStaging({ rest }: { rest: SupabaseRest }) {
       let rows = await loadRows(userId, scope);
 
       // A different replacementId under the same scope is a new generation. A superseded
-      // incomplete generation is abandoned; a superseded COMPLETE one is a conflict.
+      // incomplete generation is abandoned. A complete generation may be the residue of a
+      // projection/clear/ACK failure; return its records so the caller can idempotently apply and
+      // clear it before staging the newer authoritative snapshot.
       const priorIds = new Set(rows.map((r) => r.replacement_id));
       if (priorIds.size && !priorIds.has(window.replacementId)) {
-        const priorComplete = [...priorIds].some((id) => {
+        const priorCompleteId = [...priorIds].find((id) => {
           const parts = rows.filter((r) => r.replacement_id === id);
           return parts.length > 0 && parts.length >= parts[0].parts_total;
         });
-        if (priorComplete) throw new PushProtocolError('replacement_superseded', 409);
-        await deleteScope(userId, scope);
+        if (priorCompleteId) {
+          const parts = rows.filter((r) => r.replacement_id === priorCompleteId);
+          let priorWindow: any;
+          try {
+            priorWindow = JSON.parse(parts[0].window_identity);
+          } catch {
+            throw new PushProtocolError('replacement_staging_corrupt', 500);
+          }
+          if (!priorWindow || priorWindow.replacementId !== priorCompleteId ||
+              !Number.isInteger(priorWindow.parts) || priorWindow.parts !== parts[0].parts_total) {
+            throw new PushProtocolError('replacement_staging_corrupt', 500);
+          }
+          return {
+            complete: false,
+            isCompletingPart: false,
+            records: [],
+            window,
+            header,
+            alreadyStaged: false,
+            supersededComplete: {
+              header: {
+                ...header,
+                batchId: parts[parts.length - 1].batch_id,
+                window: { ...priorWindow, part: priorWindow.parts },
+              },
+              records: collectRecords(parts),
+            },
+          };
+        }
+        for (const priorId of priorIds) await deleteScope(userId, scope, priorId);
         rows = [];
       }
 
@@ -112,7 +142,10 @@ export function createPushReplacementStaging({ rest }: { rest: SupabaseRest }) {
         const complete = generation.length >= window.parts;
         return {
           complete,
-          isCompletingPart: window.part === window.parts && !complete,
+          // A prior projection or generation-clear may have failed after the final part was
+          // staged. Re-applying the complete replacement is idempotent and gives the caller a
+          // chance to clear that generation; skipping it leaves a permanent supersede conflict.
+          isCompletingPart: complete,
           records: collectRecords(generation),
           window,
           header,
@@ -154,7 +187,8 @@ export function createPushReplacementStaging({ rest }: { rest: SupabaseRest }) {
     },
 
     async clearGeneration({ userId, header }: { userId: string; header: any }) {
-      await deleteScope(userId, scopeKey(userId, header));
+      const replacementId = validateWindow(header).replacementId;
+      await deleteScope(userId, scopeKey(userId, header), String(replacementId));
     },
   };
 }

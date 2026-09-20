@@ -16,7 +16,6 @@ export function uuidFromParts(parts: unknown[]): string {
  * keys stop lining up with its row projections.
  */
 export function noopDeviceId(userId: string, deviceId: unknown): string {
-  if (isUuid(deviceId)) return String(deviceId);
   return uuidFromParts([userId, 'noop', String(deviceId || 'strap')]);
 }
 
@@ -35,6 +34,8 @@ const STREAM_EXT: Record<string, string> = {
   hr_rr: 'ndjson.gz',
   hrSample: 'ndjson.gz',
   rrInterval: 'ndjson.gz',
+  rrPacketProvenance: 'ndjson.gz',
+  standardHRReceipt: 'ndjson.gz',
   event: 'ndjson.gz',
   battery: 'ndjson.gz',
   spo2Sample: 'ndjson.gz',
@@ -95,6 +96,8 @@ export const RETENTION_CLASS: Record<string, string> = {
   whoop5_optical_v20: 'core',
   hrSample: 'core',
   rrInterval: 'core',
+  rrPacketProvenance: 'core',
+  standardHRReceipt: 'core',
   event: 'core',
   battery: 'core',
   spo2Sample: 'core',
@@ -141,7 +144,8 @@ export const OBJECT_LANE_STREAMS: ReadonlySet<string> = Object.freeze(new Set([
 
 /** Nominal records per second for an object-lane stream, or null when the stream has no fixed rate. */
 export const OBJECT_LANE_RECORD_HZ: Record<string, number | null> = Object.freeze({
-  ppgWaveformSample: 1,
+  // A decoded second can contain multiple distinct optical records. Counter density is not time coverage.
+  ppgWaveformSample: null,
   rawImuSession: 1,
   v18AuxSample: 1,
   rawBatch: null,
@@ -270,6 +274,12 @@ export function looksLikePii(value: unknown): boolean {
   return false;
 }
 
+/** Bounded opaque wearable id safe to persist and use as deterministic key material. */
+export function isSafeExternalDeviceId(value: unknown): boolean {
+  if (typeof value !== 'string' || !/^[\x20-\x7e]{1,255}$/.test(value)) return false;
+  return !looksLikePii(value);
+}
+
 export function periodParts(isoDay: unknown) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDay));
   return m ? { yyyy: m[1], mm: m[2], dd: m[3] } : null;
@@ -292,12 +302,21 @@ export function userPrefixV2(userId: string): string {
  * retention class that is not listed here leaves objects behind that no delete request can reach.
  * RETENTION_CLASS is the source of truth; v3 entries are derived from it.
  */
+/** Canonical B2 key for one JVM-scored day archive (json.zst). */
+export function derivedScoresObjectKey(userId: string, day: string, algorithmVersion: string): string {
+  if (!isUuid(userId)) throw new Error('user id must be a uuid');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day))) throw new Error('day must be YYYY-MM-DD');
+  const ver = String(algorithmVersion || 'frwhoop-server-1');
+  return `v3/derived/users/${userId}/days/${day}/${ver}.json.zst`;
+}
+
 export function allUserPrefixes(userId: string): string[] {
   if (!isUuid(userId)) throw new Error('user id must be a uuid');
   const classes = [...new Set(Object.values(RETENTION_CLASS))].sort();
   return [
     userPrefix(userId),
     userPrefixV2(userId),
+    `v3/derived/users/${userId}/`,
     ...classes.map((cls) => `v3/${cls}/users/${userId}/`),
   ];
 }

@@ -36,4 +36,20 @@ final class PushRegistryTests: XCTestCase {
     func testV1IsSubsetOfV1_1() {
         XCTAssertTrue(PushRegistryV1.streamNames.isSubset(of: PushRegistryV1_1.streamNames))
     }
+
+    func testAllThreeRegistryCopiesAreByteIdentical() throws {
+        let bundledURL = try XCTUnwrap(Bundle.module.url(forResource: "cloud_ingestion_registry", withExtension: "json"))
+        let bundled = try Data(contentsOf: bundledURL)
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        for path in [
+            "Packages/NoopPush/Tests/NoopPushTests/Resources/cloud_ingestion_registry.json",
+            "Packages/WhoopStore/Tests/WhoopStoreTests/Resources/cloud_ingestion_registry.json",
+            "android/app/src/test/resources/cloud_ingestion_registry.json"
+        ] {
+            XCTAssertEqual(bundled, try Data(contentsOf: repository.appendingPathComponent(path)),
+                           "Registry copies must agree on local-only entries as well as shipped streams: \(path)")
+        }
+    }
 }

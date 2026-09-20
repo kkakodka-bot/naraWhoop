@@ -15,15 +15,17 @@ import WhoopProtocol
 //      (Malik-style filter).
 //   3. Require >= MIN_BEATS (20) valid intervals before a trustworthy result.
 //
-// NOTE: the Python source runs neurokit2's Kubios / Lipponen–Tarvainen (2019)
-// artifact classifier, which is unavailable on-device. We substitute the
-// classical Malik 20% local-median rule (Malik et al. 1989), the most widely
-// cited ectopic-rejection heuristic. This is a simpler, fully-deterministic
-// approximation of the same intent — remove physiologically impossible
-// beat-to-beat jumps before computing HRV — at the cost of not modelling the
-// missed/extra-beat insertion that Kubios does.
+// Legacy array primitives remain for reference comparisons. The current five-minute measurement
+// path is HrvWindow, with original-beat identity, observed-time support, and separate context gates.
+// A local-median filter is not a Lipponen–Tarvainen classifier or a diagnosis of ectopic beats.
 
 public enum HRVAnalyzer {
+
+    public static func measureFiveMinute(start: Int, observations: [PhysiologyQuality.IntervalObservation],
+                                        context: [PhysiologyQuality.ContextEpoch] = [],
+                                        policy: HrvWindow.Policy = .init(), inputRevision: String = "unversioned") -> HrvWindow.Result {
+        HrvWindow.measure(start: start, observations: observations, context: context, policy: policy, inputRevision: inputRevision)
+    }
 
     /// Minimum plausible RR interval (ms) — 300 ms ≈ 200 bpm.
     public static let rrMinMs: Double = 300

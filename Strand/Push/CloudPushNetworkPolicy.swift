@@ -24,22 +24,9 @@ enum CloudPushNetworkPolicy {
     }
 
     #if os(iOS)
+    private static let path = CloudPushPathObserver()
     static func isNetworkAvailable(wifiOnly: Bool) -> Bool {
-        let monitor = NWPathMonitor()
-        let semaphore = DispatchSemaphore(value: 0)
-        var snapshot = (connected: false, wifi: false, unmetered: false)
-        monitor.pathUpdateHandler = { path in
-            snapshot = (
-                connected: path.status == .satisfied,
-                wifi: path.usesInterfaceType(.wifi),
-                unmetered: !path.isExpensive
-            )
-            semaphore.signal()
-        }
-        let queue = DispatchQueue(label: "com.noop.cloudpush.network")
-        monitor.start(queue: queue)
-        _ = semaphore.wait(timeout: .now() + 0.5)
-        monitor.cancel()
+        let snapshot = path.snapshot
         return isPushNetworkAvailable(
             wifiOnly: wifiOnly,
             isConnected: snapshot.connected,
@@ -49,3 +36,25 @@ enum CloudPushNetworkPolicy {
     }
     #endif
 }
+
+#if os(iOS)
+private final class CloudPushPathObserver: @unchecked Sendable {
+    private let monitor = NWPathMonitor()
+    private let lock = NSLock()
+    private var value = (connected: false, wifi: false, unmetered: false)
+    var snapshot: (connected: Bool, wifi: Bool, unmetered: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+    init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            self.lock.lock()
+            self.value = (path.status == .satisfied, path.usesInterfaceType(.wifi), !path.isExpensive && !path.isConstrained)
+            self.lock.unlock()
+            NotificationCenter.default.post(name: ResourceBudget.changed, object: nil)
+        }
+        monitor.start(queue: DispatchQueue(label: "com.noop.cloudpush.network"))
+    }
+}
+#endif

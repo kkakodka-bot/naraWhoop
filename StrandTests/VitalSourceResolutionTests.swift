@@ -160,16 +160,13 @@ final class VitalSourceResolutionTests: XCTestCase {
     /// When the toggle is ON and no calibrated `spo2Pct` exists, the Blood O₂ tile falls back to the
     /// `spo2_candidate` mean from metricSeries, labelled "strap estimate (unverified)".
     func testSpo2CandidateFallsBackWhenNoCalibratedSpo2Pct() {
-        UserDefaults.standard.set(true, forKey: PuffinExperiment.spo2CandidateDisplayKey)
-        defer { UserDefaults.standard.set(false, forKey: PuffinExperiment.spo2CandidateDisplayKey) }
-
         let readings = BodyVitalSigns.readings(
             sourceRows: [
                 SourcedDailyMetric(metric: daily(day: "2026-06-12", spo2Pct: nil), source: .noopComputed)
             ],
             temperatureUnit: .celsius,
             now: localNoon(day: "2026-06-13"),
-            spo2CandidateByDay: ["2026-06-12": 96.0]
+            spo2CandidateByDay: ["2026-06-12": 96.0], spo2CandidateDisplayEnabled: true
         )
 
         let spo2 = readings.first { $0.key == "spo2" }
@@ -180,15 +177,13 @@ final class VitalSourceResolutionTests: XCTestCase {
 
     /// When the toggle is OFF, the candidate is never surfaced even if data exists.
     func testSpo2CandidateNotSurfacedWhenToggleOff() {
-        UserDefaults.standard.set(false, forKey: PuffinExperiment.spo2CandidateDisplayKey)
-
         let readings = BodyVitalSigns.readings(
             sourceRows: [
                 SourcedDailyMetric(metric: daily(day: "2026-06-12", spo2Pct: nil), source: .noopComputed)
             ],
             temperatureUnit: .celsius,
             now: localNoon(day: "2026-06-13"),
-            spo2CandidateByDay: ["2026-06-12": 96.0]
+            spo2CandidateByDay: ["2026-06-12": 96.0], spo2CandidateDisplayEnabled: false
         )
 
         let spo2 = readings.first { $0.key == "spo2" }
@@ -199,16 +194,13 @@ final class VitalSourceResolutionTests: XCTestCase {
     /// A calibrated `spo2Pct` always wins over the candidate — the candidate is a fallback, not a
     /// replacement.
     func testCalibratedSpo2PctWinsOverCandidate() {
-        UserDefaults.standard.set(true, forKey: PuffinExperiment.spo2CandidateDisplayKey)
-        defer { UserDefaults.standard.set(false, forKey: PuffinExperiment.spo2CandidateDisplayKey) }
-
         let readings = BodyVitalSigns.readings(
             sourceRows: [
                 SourcedDailyMetric(metric: daily(day: "2026-06-12", spo2Pct: 98), source: .whoopImport)
             ],
             temperatureUnit: .celsius,
             now: localNoon(day: "2026-06-13"),
-            spo2CandidateByDay: ["2026-06-12": 95.0]
+            spo2CandidateByDay: ["2026-06-12": 95.0], spo2CandidateDisplayEnabled: true
         )
 
         let spo2 = readings.first { $0.key == "spo2" }

@@ -15,6 +15,11 @@ import WhoopStore
 /// (`latestSkinAbsoluteC` / `skinTempSecondaryNote`) because Android's builder resolves resources and
 /// cannot run in a JVM test.
 final class SkinTempAbsoluteDisplayTests: XCTestCase {
+    func testCalendarDayCaptionDoesNotShiftTheSourceDay() {
+        XCTAssertEqual(BodyVitalReading.dayLabel("2026-08-25"), "25 Aug")
+        XCTAssertEqual(BodyVitalReading.dayLabel("2026-03-08"), "8 Mar")
+        XCTAssertEqual(BodyVitalSigns.dayFormatter.timeZone.secondsFromGMT(), 0)
+    }
 
     private func reading(secondary: String?, caveat: String? = nil) -> BodyVitalReading {
         BodyVitalReading(

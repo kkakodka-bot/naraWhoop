@@ -77,8 +77,23 @@ object HypnogramCoverage {
      * that importer, unvalidated against a Xiaomi export, and it is pinned by test rather than left to
      * be discovered.
      */
-    fun fraction(stagesJson: String?, spanSeconds: Double): Double? =
-        fraction(coveredSeconds(stagesJson), spanSeconds)
+    fun fraction(stagesJson: String?, spanSeconds: Double): Double? {
+        val covered = coveredSeconds(stagesJson)
+        if (covered == 0.0 && spanSeconds > 0 && hasTimestampedSegments(stagesJson)) return 0.0
+        return fraction(covered, spanSeconds)
+    }
+
+    private fun hasTimestampedSegments(json: String?): Boolean {
+        val arr = try { JSONArray(json ?: return false) } catch (_: Throwable) { return false }
+        var any = false
+        for (i in 0 until arr.length()) {
+            val s = arr.optJSONObject(i) ?: return false
+            val lo = num(s.opt("start")) ?: continue
+            val hi = num(s.opt("end")) ?: continue
+            if (hi > lo) any = true
+        }
+        return any
+    }
 
     /**
      * A JSON scalar read the way Swift's `(seg["start"] as? NSNumber)?.doubleValue` reads it.
@@ -131,7 +146,7 @@ object HypnogramCoverage {
         // segment is skipped for want of bounds, so it exits with zero cover — unmeasurable by the same
         // rule, along a different path. Both are pinned in the oracle.
         val arr = try { JSONArray(json) } catch (_: Throwable) { return 0.0 }
-        var covered = 0.0
+        val ranges = ArrayList<Pair<Double, Double>>()
         for (i in 0 until arr.length()) {
             // The Swift twin decodes the array as a WHOLE (`as? [[String: Any]]`), so ONE non-object
             // element makes the entire payload unmeasurable there. Bail identically — DISCARDING the
@@ -144,7 +159,14 @@ object HypnogramCoverage {
             val s = num(seg.opt("start")) ?: continue
             val e = num(seg.opt("end")) ?: continue
             if (e <= s) continue
-            covered += e - s
+            val state = seg.optString("state"); val stage = seg.optString("stage")
+            if (state == "state_unknown" || state == "off_body") continue
+            if (stage in listOf("unknown", "state_unknown", "off_body") && state != "sleep_unstaged") continue
+            ranges.add(s to e)
+        }
+        var covered = 0.0; var cursor = Double.NEGATIVE_INFINITY
+        for ((s, e) in ranges.sortedBy { it.first }) {
+            covered += maxOf(0.0, e - maxOf(s, cursor)); cursor = maxOf(cursor, e)
         }
         return covered
     }
@@ -175,6 +197,7 @@ object HypnogramCoverage {
             span += f.spanSeconds
             covered += coveredSeconds(f.stagesJson)
         }
+        if (covered == 0.0 && span > 0 && fragments.any { hasTimestampedSegments(it.stagesJson) }) return 0.0
         return fraction(covered, span)
     }
 

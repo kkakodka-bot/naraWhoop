@@ -11,12 +11,19 @@ sealed interface PushTable {
 enum class PushAppendTable(override val wireName: String) : PushTable {
     HR_SAMPLE("hrSample"),
     RR_INTERVAL("rrInterval"),
+    RR_PACKET_PROVENANCE("rrPacketProvenance"),
+    STANDARD_HR_RECEIPT("standardHRReceipt"),
     EVENT("event"),
     BATTERY("battery"),
     SPO2_SAMPLE("spo2Sample"),
     SKIN_TEMP_SAMPLE("skinTempSample"),
     RESP_SAMPLE("respSample"),
-    GRAVITY_SAMPLE("gravitySample");
+    GRAVITY_SAMPLE("gravitySample"),
+    STEP_SAMPLE("stepSample"),
+    SLEEP_STATE_SAMPLE("sleepStateSample"),
+    PPG_HR_SAMPLE("ppgHrSample");
+
+    val isScalarExtension: Boolean get() = this in setOf(STEP_SAMPLE, SLEEP_STATE_SAMPLE, PPG_HR_SAMPLE)
 }
 
 enum class PushMutableTable(override val wireName: String) : PushTable {
@@ -44,6 +51,7 @@ data class PushPpgWaveformRecord(
     val ts: Long,
     val burstIndex: Int?,
     val samples: ByteArray,
+    val recordIndex: Long? = null,
 ) {
     init {
         require(rowId > 0)
@@ -52,7 +60,7 @@ data class PushPpgWaveformRecord(
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is PushPpgWaveformRecord) return false
-        return rowId == other.rowId && ts == other.ts && burstIndex == other.burstIndex &&
+        return rowId == other.rowId && ts == other.ts && burstIndex == other.burstIndex && recordIndex == other.recordIndex &&
             samples.contentEquals(other.samples)
     }
 
@@ -61,6 +69,7 @@ data class PushPpgWaveformRecord(
         result = 31 * result + ts.hashCode()
         result = 31 * result + (burstIndex ?: 0)
         result = 31 * result + samples.contentHashCode()
+        result = 31 * result + (recordIndex?.hashCode() ?: 0)
         return result
     }
 }
@@ -69,6 +78,8 @@ data class PushV18AuxRecord(
     val rowId: Long,
     val ts: Long,
     val fields: ByteArray,
+    val recordIndex: Long? = null,
+    val resourceKey: String = if (recordIndex == null) ts.toString() else "$ts:$recordIndex",
 ) {
     init {
         require(rowId > 0)
@@ -77,13 +88,16 @@ data class PushV18AuxRecord(
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is PushV18AuxRecord) return false
-        return rowId == other.rowId && ts == other.ts && fields.contentEquals(other.fields)
+        return rowId == other.rowId && ts == other.ts && recordIndex == other.recordIndex &&
+            resourceKey == other.resourceKey && fields.contentEquals(other.fields)
     }
 
     override fun hashCode(): Int {
         var result = rowId.hashCode()
         result = 31 * result + ts.hashCode()
         result = 31 * result + fields.contentHashCode()
+        result = 31 * result + (recordIndex?.hashCode() ?: 0)
+        result = 31 * result + resourceKey.hashCode()
         return result
     }
 }
@@ -347,6 +361,30 @@ data class PushInFlightObject(
     val uploaded: Boolean,
 )
 
+/** Durable auxiliary-v2 prefix. Retries reproduce this exact manifest and compressed payload. */
+data class PushPreparedBoundary(
+    val startCursor: PushCursor?,
+    val endCursor: PushCursor,
+    val sampleCount: Int,
+    val contentSha256: String,
+    val payloadSha256: String,
+    val manifestJSON: String,
+) {
+    init {
+        require(sampleCount in 1..PushProtocol.MAX_RECORDS)
+        require(endCursor.rowId > (startCursor?.rowId ?: 0L))
+        require(listOfNotNull(contentSha256, payloadSha256, endCursor.naturalKeyFingerprint,
+            startCursor?.naturalKeyFingerprint).all { it.matches(Regex("[0-9a-f]{64}")) })
+        require(manifestJSON.toByteArray(Charsets.UTF_8).size <= PushProtocol.MAX_ACK_BYTES)
+    }
+
+    companion object {
+        fun capture(start: PushCursor?, batch: PushBinaryBatch) = PushPreparedBoundary(start,
+            requireNotNull(batch.endCursor), batch.sampleCount, batch.contentSha256,
+            PushBinaryCodec.sha256Hex(batch.payload), batch.manifestJSON.toString(Charsets.UTF_8))
+    }
+}
+
 /** File-backed IMU records for rawImuSession (not a Room table). */
 interface ImuSessionPushSource {
     fun pushDeviceIds(): Set<String>
@@ -371,6 +409,15 @@ data class ImuPushRecord(val ts: Long, val columns: ByteArray) {
 data class PushError(val protocolVersion: String, val code: String) {
     companion object {
         private val SAFE_CODE = Regex("[a-z][a-z0-9_]{0,63}")
+
+        /** Local stream identity wins; only allowlisted stage and UUID correlation are retained. */
+        fun httpFailure(status: Int, bytes: ByteArray, expectedVersion: String = PushProtocol.VERSION,
+                        table: PushTable? = null): PushFailure {
+            val code = parseCode(bytes, expectedVersion)
+            val obj = if (code == null) null else runCatching { org.json.JSONObject(bytes.toString(Charsets.UTF_8)) }.getOrNull()
+            return PushFailure.http(status, code, stream = table?.wireName,
+                stage = obj?.opt("stage") as? String, correlationId = obj?.opt("correlationId") as? String)
+        }
 
         fun parseCode(bytes: ByteArray, expectedVersion: String = PushProtocol.VERSION): String? {
             if (bytes.isEmpty() || bytes.size > PushProtocol.MAX_ACK_BYTES) return null
@@ -411,6 +458,10 @@ interface PushProgressStore {
     suspend fun saveWindow(table: PushMutableTable, deviceId: String, progress: PushWindowProgress)
     suspend fun inFlightObject(table: PushBinaryTable, deviceId: String): PushInFlightObject? = null
     suspend fun saveInFlightObject(table: PushBinaryTable, deviceId: String, inFlight: PushInFlightObject?) {}
+    suspend fun preparedBoundary(table: PushBinaryTable, deviceId: String): PushPreparedBoundary? = null
+    suspend fun savePreparedBoundary(table: PushBinaryTable, deviceId: String, prepared: PushPreparedBoundary?) {
+        throw UnsupportedOperationException("Durable prepared boundaries are required for auxiliary v2")
+    }
 }
 
 /** All methods return bounded snapshots and close their database transaction before returning. */

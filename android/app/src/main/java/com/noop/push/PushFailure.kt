@@ -43,7 +43,26 @@ data class PushFailure(
     val code: PushFailureCode,
     val httpStatus: Int? = null,
     val receiverCode: String? = null,
+    val stream: String? = null,
+    val stage: String? = null,
+    val correlationId: String? = null,
 ) {
+    val safeDiagnosticSummary: String? get() = listOfNotNull(
+        stream?.takeIf { it in STREAMS }?.let { "stream=$it" },
+        stage?.takeIf { it in STAGES }?.let { "stage=$it" },
+        correlationId?.takeIf { UUID_PATTERN.matches(it) }?.let { "request=${it.lowercase()}" },
+    ).takeIf { it.isNotEmpty() }?.joinToString("; ")
+
+    fun attributedTo(table: PushTable): PushFailure = copy(stream = table.wireName)
+
+    /** Keep the safe request identity intact within the settings store's 300-character limit. */
+    internal fun messageWithDiagnostics(base: String): String {
+        val details = listOfNotNull(receiverCode, safeDiagnosticSummary)
+        if (details.isEmpty()) return base.take(300)
+        val suffix = " (${details.joinToString("; ")})"
+        return base.take(maxOf(0, 300 - suffix.length)) + suffix.take(300)
+    }
+
     val safeCode: String get() = buildString {
         append(code.name.lowercase())
         httpStatus?.let { append(":http_").append(it) }
@@ -67,7 +86,17 @@ data class PushFailure(
     }
 
     companion object {
-        fun http(status: Int, receiverCode: String? = null): PushFailure = PushFailure(
+        private val STREAMS = buildSet {
+            PushAppendTable.entries.forEach { add(it.wireName) }
+            PushMutableTable.entries.forEach { add(it.wireName) }
+            PushBinaryTable.entries.forEach { add(it.wireName) }
+        }
+        private val STAGES = setOf("receipt_lookup", "quota", "wal", "device", "archive", "archive_manifest",
+            "archive_write", "archive_verify", "projection", "replacement", "ack", "wal_cleanup")
+        private val UUID_PATTERN = Regex("[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}")
+
+        fun http(status: Int, receiverCode: String? = null, stream: String? = null,
+                 stage: String? = null, correlationId: String? = null): PushFailure = PushFailure(
             code = when (status) {
                 401, 403 -> PushFailureCode.HTTP_AUTH
                 404 -> PushFailureCode.HTTP_NOT_FOUND
@@ -81,6 +110,9 @@ data class PushFailure(
             },
             httpStatus = status,
             receiverCode = receiverCode,
+            stream = stream?.takeIf { it in STREAMS },
+            stage = stage?.takeIf { it in STAGES },
+            correlationId = correlationId?.takeIf { UUID_PATTERN.matches(it) }?.lowercase(),
         )
     }
 }
@@ -168,5 +200,5 @@ internal fun pushFailureMessage(context: Context, failure: PushFailure): String 
         PushFailureCode.LOCAL_DATA -> context.getString(R.string.push_error_local_data)
         PushFailureCode.LOCAL_DATABASE -> context.getString(R.string.push_error_local_database)
     }
-    return failure.receiverCode?.let { "$base ($it)" } ?: base
+    return failure.messageWithDiagnostics(base)
 }

@@ -11,6 +11,7 @@ import okio.GzipSource
 import okio.buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -21,7 +22,7 @@ class PushHttpTransportPolicyTest {
             .build()
         val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
 
-        val result = PushHttpTransport(endpoint, "bearer-canary", client).capabilities()
+        val result = PushHttpTransport(endpoint, UPLOAD_TOKEN, "fleet-canary", client).capabilities()
 
         assertTrue(result is PushCapabilitiesResult.Rejected)
         val rejected = result as PushCapabilitiesResult.Rejected
@@ -31,10 +32,11 @@ class PushHttpTransportPolicyTest {
     }
 
     @Test fun explicitConnectionTestIsGatedByNetworkPolicyBeforeAnyTransportIsCreated() {
-        assertFalse(canStartPushConnectionTest(networkAvailable = false, endpointValid = true, tokenAvailable = true))
-        assertFalse(canStartPushConnectionTest(networkAvailable = true, endpointValid = false, tokenAvailable = true))
-        assertFalse(canStartPushConnectionTest(networkAvailable = true, endpointValid = true, tokenAvailable = false))
-        assertTrue(canStartPushConnectionTest(networkAvailable = true, endpointValid = true, tokenAvailable = true))
+        assertFalse(canStartPushConnectionTest(false, true, true, true))
+        assertFalse(canStartPushConnectionTest(true, false, true, true))
+        assertFalse(canStartPushConnectionTest(true, true, false, true))
+        assertFalse(canStartPushConnectionTest(true, true, true, false))
+        assertTrue(canStartPushConnectionTest(true, true, true, true))
     }
 
     @Test fun explicitConnectionTestOnlyReadsCapabilitiesAndNeverPostsHealthData() = runBlocking {
@@ -44,9 +46,10 @@ class PushHttpTransportPolicyTest {
             PushCapabilities(setOf(PushAppendTable.HR_SAMPLE), emptySet()),
         )
         val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
-        val tester = PushConnectionTester { capturedEndpoint, capturedToken ->
+        val tester = PushConnectionTester { capturedEndpoint, capturedUploadToken, capturedFleetToken ->
             assertEquals(endpoint, capturedEndpoint)
-            assertEquals("secret", capturedToken)
+            assertEquals(UPLOAD_TOKEN, capturedUploadToken)
+            assertEquals("fleet-secret", capturedFleetToken)
             object : PushTransport {
                 override suspend fun capabilities(): PushCapabilitiesResult {
                     capabilityCalls++
@@ -60,7 +63,7 @@ class PushHttpTransportPolicyTest {
             }
         }
 
-        assertEquals(expected, tester.test(endpoint, "secret"))
+        assertEquals(expected, tester.test(endpoint, UPLOAD_TOKEN, "fleet-secret"))
         assertEquals(1, capabilityCalls)
         assertEquals(0, postCalls)
     }
@@ -68,10 +71,12 @@ class PushHttpTransportPolicyTest {
     @Test fun authenticatedCapabilitiesStrictlyNarrowTheFixedV1Registry() = runBlocking {
         var method = ""
         var authorization: String? = null
+        var fleetToken: String? = null
         var acceptedVersions: String? = null
         val client = OkHttpClient.Builder().addInterceptor { chain ->
             method = chain.request().method
             authorization = chain.request().header("Authorization")
+            fleetToken = chain.request().header(PushHttpTransport.FLEET_TOKEN_HEADER)
             acceptedVersions = chain.request().header("NOOP-Push-Accept-Version")
             Response.Builder()
                 .request(chain.request())
@@ -79,18 +84,19 @@ class PushHttpTransportPolicyTest {
                 .code(200)
                 .message("ok")
                 .body(
-                    """{"type":"capabilities","protocolVersion":"1.0","receiverStateId":"00000000-0000-4000-8000-000000000099","streams":["hrSample","journal"],"futureOptional":true}"""
+                    """{"type":"capabilities","protocolVersion":"1.0","receiverStateId":"00000000-0000-4000-8000-000000000099","userId":"$USER_ID","sourceId":"$SOURCE_ID","streams":["hrSample","journal"],"futureOptional":true}"""
                         .toResponseBody(),
                 )
                 .build()
         }.build()
         val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
 
-        val result = PushHttpTransport(endpoint, "secret", client).capabilities()
+        val result = transport(endpoint, client).capabilities()
 
         assertEquals("GET", method)
-        assertEquals("Bearer secret", authorization)
-        assertEquals("1.2,1.1,1.0", acceptedVersions)
+        assertEquals("Bearer $UPLOAD_TOKEN", authorization)
+        assertEquals("fleet-secret", fleetToken)
+        assertEquals("1.4,1.3,1.2,1.1,1.0", acceptedVersions)
         assertEquals(
             PushCapabilitiesResult.Available(
                 PushCapabilities(
@@ -110,7 +116,7 @@ class PushHttpTransportPolicyTest {
         }.build()
         val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
 
-        val result = PushHttpTransport(endpoint, "secret", client).capabilities()
+        val result = transport(endpoint, client).capabilities()
 
         assertTrue(result is PushCapabilitiesResult.Rejected)
         assertEquals(PushFailureCode.HTTP_CLIENT, (result as PushCapabilitiesResult.Rejected).failure?.code)
@@ -124,14 +130,14 @@ class PushHttpTransportPolicyTest {
                 .code(200)
                 .message("ok")
                 .body(
-                    """{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"00000000-0000-4000-8000-000000000099","streams":["stepSample","futureStream"]}"""
+                    """{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"00000000-0000-4000-8000-000000000099","userId":"$USER_ID","sourceId":"$SOURCE_ID","streams":["stepSample","futureStream"]}"""
                         .toResponseBody(),
                 )
                 .build()
         }.build()
         val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
 
-        val result = PushHttpTransport(endpoint, "secret", client).capabilities()
+        val result = transport(endpoint, client).capabilities()
 
         assertEquals(
             PushCapabilitiesResult.Available(
@@ -149,8 +155,8 @@ class PushHttpTransportPolicyTest {
     @Test fun malformedOrExpandingCapabilitiesFailClosed() = runBlocking {
         val bodies = listOf(
             """{"type":"capabilities","protocolVersion":"1.0","streams":["hrSample"]}""",
-            """{"type":"capabilities","protocolVersion":"1.0","receiverStateId":"00000000-0000-4000-8000-000000000099","streams":["hrSample","hrSample"]}""",
-            """{"type":"capabilities","protocolVersion":"1.0","receiverStateId":"00000000-0000-4000-8000-000000000099","streams":"hrSample"}""",
+            """{"type":"capabilities","protocolVersion":"1.0","receiverStateId":"00000000-0000-4000-8000-000000000099","userId":"$USER_ID","sourceId":"$SOURCE_ID","streams":["hrSample","hrSample"]}""",
+            """{"type":"capabilities","protocolVersion":"1.0","receiverStateId":"00000000-0000-4000-8000-000000000099","userId":"$USER_ID","sourceId":"$SOURCE_ID","streams":"hrSample"}""",
         )
         val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
         for (body in bodies) {
@@ -158,7 +164,7 @@ class PushHttpTransportPolicyTest {
                 Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
                     .code(200).message("ok").body(body.toResponseBody()).build()
             }.build()
-            val result = PushHttpTransport(endpoint, "secret", client).capabilities()
+            val result = transport(endpoint, client).capabilities()
             assertTrue(result is PushCapabilitiesResult.Rejected && !result.retryable)
         }
     }
@@ -171,7 +177,7 @@ class PushHttpTransportPolicyTest {
                     .code(status).message("response").body(ByteArray(0).toResponseBody()).build()
             }.build()
 
-            val result = PushHttpTransport(endpoint, "secret", client).capabilities()
+            val result = transport(endpoint, client).capabilities()
 
             assertTrue(result is PushCapabilitiesResult.Rejected)
             assertEquals(expectedRetryable, (result as PushCapabilitiesResult.Rejected).retryable)
@@ -216,7 +222,7 @@ class PushHttpTransportPolicyTest {
         }.build()
         val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
 
-        val response = PushHttpTransport(endpoint, "secret", client).post(batch())
+        val response = transport(endpoint, client).post(batch())
 
         assertEquals(200, response.statusCode)
         assertEquals(listOf("gzip", null), encodings)
@@ -238,7 +244,7 @@ class PushHttpTransportPolicyTest {
         }.build()
         val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
 
-        val response = PushHttpTransport(endpoint, "secret", client).post(batch())
+        val response = transport(endpoint, client).post(batch())
 
         assertEquals(500, response.statusCode)
         assertEquals(1, calls)
@@ -247,6 +253,7 @@ class PushHttpTransportPolicyTest {
     @Test fun redirectIsReturnedWithoutFollowingAndAuthorizationIsHeaderOnly() = runBlocking {
         var calls = 0
         var authorization: String? = null
+        var fleetToken: String? = null
         var contentEncoding: String? = null
         var contentType: String? = null
         var contentLength: Long? = null
@@ -254,6 +261,7 @@ class PushHttpTransportPolicyTest {
         val client = OkHttpClient.Builder().addInterceptor { chain ->
             calls++
             authorization = chain.request().header("Authorization")
+            fleetToken = chain.request().header(PushHttpTransport.FLEET_TOKEN_HEADER)
             contentEncoding = chain.request().header("Content-Encoding")
             contentType = chain.request().body!!.contentType().toString()
             contentLength = chain.request().body!!.contentLength()
@@ -272,16 +280,73 @@ class PushHttpTransportPolicyTest {
                 .build()
         }.build()
         val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
-        val response = PushHttpTransport(endpoint, "top-secret", client).post(batch())
+        val response = PushHttpTransport(endpoint, UPLOAD_TOKEN, "fleet-top-secret", client).post(batch())
 
         assertEquals(307, response.statusCode)
         assertEquals(1, calls)
-        assertEquals("Bearer top-secret", authorization)
+        assertEquals("Bearer $UPLOAD_TOKEN", authorization)
+        assertEquals("fleet-top-secret", fleetToken)
         assertEquals("gzip", contentEncoding)
         assertEquals("application/x-ndjson; charset=utf-8", contentType)
         assertTrue(contentLength!! > 0L)
         assertEquals("{}\n", sentBody)
-        assertFalse(sentBody.contains("top-secret"))
+        assertFalse(sentBody.contains(UPLOAD_TOKEN))
+        assertFalse(sentBody.contains("fleet-top-secret"))
+    }
+
+    @Test fun objectEdgeCallsCarryBothCredentialsButPresignedPutCarriesNeither() = runBlocking {
+        val edgeAuthorization = mutableListOf<String?>()
+        val edgeFleetTokens = mutableListOf<String?>()
+        val objectId = "00000000-0000-4000-8000-000000000020"
+        val edgeClient = OkHttpClient.Builder().addInterceptor { chain ->
+            edgeAuthorization += chain.request().header("Authorization")
+            edgeFleetTokens += chain.request().header(PushHttpTransport.FLEET_TOKEN_HEADER)
+            val body = if (chain.request().url.encodedPath.endsWith("/complete")) {
+                """{"type":"objectAck","protocolVersion":"1.2","objectId":"$objectId","status":"ready","objectKey":"objects/key","duplicate":false}"""
+            } else {
+                """{"type":"objectIntent","protocolVersion":"1.2","objectId":"$objectId","objectKey":"objects/key","duplicate":false,"uploadUrl":"https://b2.example/upload","requiredHeaders":{"X-Bz-Signed":"signed-value","Authorization":"must-not-forward","X-NOOP-Fleet-Token":"must-not-forward"}}"""
+            }
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("ok").body(body.toResponseBody()).build()
+        }.build()
+        var uploadAuthorization: String? = "unset"
+        var uploadFleetToken: String? = "unset"
+        var signedHeader: String? = null
+        val uploadClient = OkHttpClient.Builder().addInterceptor { chain ->
+            uploadAuthorization = chain.request().header("Authorization")
+            uploadFleetToken = chain.request().header(PushHttpTransport.FLEET_TOKEN_HEADER)
+            signedHeader = chain.request().header("X-Bz-Signed")
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("ok").body(ByteArray(0).toResponseBody()).build()
+        }.build()
+        val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
+        val transport = PushHttpTransport(endpoint, UPLOAD_TOKEN, "fleet-secret", edgeClient, uploadClient)
+        val manifest = PushObjectManifest(
+            protocolVersion = PushProtocol.OBJECT_VERSION,
+            batchId = "00000000-0000-4000-8000-000000000021",
+            sourceId = SOURCE_ID,
+            deviceId = "strap",
+            stream = "rawImuSession",
+            objectId = objectId,
+            startTs = 1,
+            endTs = 2,
+            sampleCount = 1,
+            uncompressedBytes = 4,
+            compressedBytes = 4,
+            contentSha256 = "a".repeat(64),
+            contentEncoding = "gzip",
+        )
+        val lane = PushObjectLane("/objects", 1024, 60, setOf(PushBinaryTable.RAW_IMU_SESSION))
+
+        val intent = transport.createObjectIntent(manifest, lane)
+        transport.uploadObject(intent, byteArrayOf(1, 2, 3, 4))
+        transport.completeObject(objectId, lane)
+
+        assertEquals(listOf("Bearer $UPLOAD_TOKEN", "Bearer $UPLOAD_TOKEN"), edgeAuthorization)
+        assertEquals(listOf("fleet-secret", "fleet-secret"), edgeFleetTokens)
+        assertNull(uploadAuthorization)
+        assertNull(uploadFleetToken)
+        assertEquals("signed-value", signedHeader)
     }
 
     @Test fun responseReadIsBoundedForAckAndErrorBodies() = runBlocking {
@@ -296,7 +361,7 @@ class PushHttpTransportPolicyTest {
                 .build()
         }.build()
         val endpoint = (PushEndpointPolicy.validate("https://receiver.example/push") as PushEndpointPolicy.Result.Valid).endpoint
-        val response = PushHttpTransport(endpoint, "secret", client).post(batch())
+        val response = transport(endpoint, client).post(batch())
 
         assertEquals(PushProtocol.MAX_ACK_BYTES + 1, response.body.size)
         assertTrue(response.body.size < oversized.size)
@@ -315,4 +380,15 @@ class PushHttpTransportPolicyTest {
         window = null,
         body = "{}\n".toByteArray(),
     )
+
+    private fun transport(
+        endpoint: PushEndpointPolicy.ValidEndpoint,
+        client: OkHttpClient,
+    ) = PushHttpTransport(endpoint, UPLOAD_TOKEN, "fleet-secret", client)
+
+    private companion object {
+        const val USER_ID = PushCapabilities.UNSCOPED_USER_ID
+        const val SOURCE_ID = PushCapabilities.UNSCOPED_SOURCE_ID
+        const val UPLOAD_TOKEN = "noop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
 }

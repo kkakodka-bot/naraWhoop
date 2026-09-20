@@ -43,7 +43,19 @@ class SelfHostedPushSettingsTest {
             bundleToken = "   ",
         )
 
-        assertNull(settings.token())
+        assertNull(settings.fleetToken())
+        assertFalse(settings.snapshot().ready)
+        assertFalse(settings.setEnabled(true))
+    }
+
+    @Test fun fleetConfigurationAloneIsNotReadyWithoutEnrollment() {
+        val settings = SelfHostedPushSettings.forTest(
+            FakePushPrefs(),
+            bundleEndpoint = "https://example.com/push",
+            bundleToken = "fleet-secret",
+        )
+
+        assertFalse(settings.snapshot().hasEnrollment)
         assertFalse(settings.snapshot().ready)
         assertFalse(settings.setEnabled(true))
     }
@@ -53,19 +65,20 @@ class SelfHostedPushSettingsTest {
         val first = (PushEndpointPolicy.validate("https://one.example/push") as PushEndpointPolicy.Result.Valid).endpoint
         val second = (PushEndpointPolicy.validate("https://two.example/push") as PushEndpointPolicy.Result.Valid).endpoint
 
-        val firstNamespace = settings.progressNamespace(SOURCE_A, first)
+        val firstNamespace = settings.progressNamespace(USER_A, SOURCE_A, first)
 
-        assertNotEquals(firstNamespace, settings.progressNamespace(SOURCE_A, second))
-        assertTrue(firstNamespace == settings.progressNamespace(SOURCE_A, first))
+        assertNotEquals(firstNamespace, settings.progressNamespace(USER_A, SOURCE_A, second))
+        assertNotEquals(firstNamespace, settings.progressNamespace(USER_B, SOURCE_A, first))
+        assertTrue(firstNamespace == settings.progressNamespace(USER_A, SOURCE_A, first))
     }
 
     @Test fun receiverStateAndNegotiatedVersionFenceProgressAtTheSameEndpoint() {
         val settings = SelfHostedPushSettings.forTest(FakePushPrefs())
         val endpoint = (PushEndpointPolicy.validate("https://one.example/push") as PushEndpointPolicy.Result.Valid).endpoint
 
-        val first = settings.progressNamespace(SOURCE_A, endpoint, "1.0", "00000000-0000-4000-8000-000000000001")
-        val resetReceiver = settings.progressNamespace(SOURCE_A, endpoint, "1.0", "00000000-0000-4000-8000-000000000002")
-        val upgradedProtocol = settings.progressNamespace(SOURCE_A, endpoint, "1.1", "00000000-0000-4000-8000-000000000001")
+        val first = settings.progressNamespace(USER_A, SOURCE_A, endpoint, "1.0", "00000000-0000-4000-8000-000000000001")
+        val resetReceiver = settings.progressNamespace(USER_A, SOURCE_A, endpoint, "1.0", "00000000-0000-4000-8000-000000000002")
+        val upgradedProtocol = settings.progressNamespace(USER_A, SOURCE_A, endpoint, "1.1", "00000000-0000-4000-8000-000000000001")
 
         assertNotEquals(first, resetReceiver)
         assertNotEquals(first, upgradedProtocol)
@@ -77,6 +90,7 @@ class SelfHostedPushSettingsTest {
             bundleEndpoint = "https://example.com/push",
             bundleToken = "secret",
         )
+        enroll(settings)
         assertTrue(settings.setEnabled(true))
 
         settings.recordPushStarted()
@@ -105,6 +119,7 @@ class SelfHostedPushSettingsTest {
             bundleEndpoint = "https://example.com/push",
             bundleToken = "secret",
         )
+        enroll(settings)
         assertTrue(settings.setEnabled(true))
         settings.recordPushStarted()
         settings.recordRunning()
@@ -154,6 +169,7 @@ class SelfHostedPushSettingsTest {
             bundleEndpoint = "https://example.com/push",
             bundleToken = "secret",
         )
+        enroll(settings)
         assertTrue(settings.setEnabled(true))
         settings.recordRunning()
 
@@ -186,6 +202,21 @@ class SelfHostedPushSettingsTest {
 
         assertEquals(failure, settings.cycleFailure("receiver-a"))
         assertFalse(plain.all.values.any { it.toString().contains("response body") })
+    }
+
+    private fun enroll(settings: SelfHostedPushSettings) {
+        val sourceId = settings.sourceId()
+        settings.recordEnrollmentBinding(
+            PushEnrollmentCredential(USER_A, sourceId, TOKEN_ID, UPLOAD_TOKEN),
+        )
+    }
+
+    private companion object {
+        const val USER_A = "00000000-0000-4000-8000-000000000010"
+        const val USER_B = "00000000-0000-4000-8000-000000000011"
+        const val SOURCE_A = "00000000-0000-4000-8000-000000000012"
+        const val TOKEN_ID = "00000000-0000-4000-8000-000000000013"
+        const val UPLOAD_TOKEN = "noop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
 
     internal class FakePushPrefs : SharedPreferences {

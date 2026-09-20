@@ -1,6 +1,8 @@
 package com.noop.ui
 
 import android.content.Context
+import com.noop.account.AccountStorageContext
+import com.noop.account.AccountWorkContext
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.work.CoroutineWorker
@@ -205,10 +207,13 @@ object BackupSync {
 
     /** Run one backup into the persisted folder, prune to [BackupSyncPrefs.keepCount], stamp last-backup. */
     fun backupNow(context: Context): Boolean {
-        val treeUri = BackupSyncPrefs.treeUri(context) ?: return false
-        writeSnapshot(context, treeUri) ?: return false
-        BackupSyncPrefs.setLastBackupMs(context, System.currentTimeMillis())
-        prune(context, treeUri)
+        val account = AccountStorageContext.capture(context)
+        if (account.identity.scope == null || !account.isCurrent()) return false
+        val treeUri = BackupSyncPrefs.treeUri(account) ?: return false
+        writeSnapshot(account, treeUri) ?: return false
+        if (!account.isCurrent()) return false
+        BackupSyncPrefs.setLastBackupMs(account, System.currentTimeMillis())
+        prune(account, treeUri)
         return true
     }
 
@@ -279,9 +284,13 @@ object BackupSync {
      * reboot doesn't stack duplicate daily jobs. Wrap call sites so a WorkManager hiccup never throws.
      */
     fun reschedule(context: Context) {
-        val wm = WorkManager.getInstance(context.applicationContext)
-        if (!BackupSyncPrefs.autoEnabled(context) || BackupSyncPrefs.treeUri(context) == null) {
-            wm.cancelUniqueWork(WORK)
+        val account = AccountStorageContext.capture(context)
+        val wm = WorkManager.getInstance(AccountStorageContext.platform(account))
+        wm.cancelUniqueWork(WORK)
+        if (account.identity.scope == null || !account.isCurrent()) return
+        val workName = AccountWorkContext.name(WORK, account)
+        if (!BackupSyncPrefs.autoEnabled(account) || BackupSyncPrefs.treeUri(account) == null) {
+            wm.cancelUniqueWork(workName)
             return
         }
         // Anchor the first run to the next chosen time-of-day, then repeat daily. KEEP so an already-
@@ -289,15 +298,19 @@ object BackupSync {
         // DebugExportScheduler); toggling auto off/on OR changing the time via [applyTimeChange]
         // re-anchors. On-launch [catchUpIfDue] still covers any missed day regardless of timing.
         val req = PeriodicWorkRequestBuilder<BackupSyncWorker>(1, TimeUnit.DAYS)
-            .setInitialDelay(delayToNextBackupMs(minuteOfDay = BackupSyncPrefs.backupMinute(context)), TimeUnit.MILLISECONDS)
+            .setInitialDelay(delayToNextBackupMs(minuteOfDay = BackupSyncPrefs.backupMinute(account)), TimeUnit.MILLISECONDS)
+            .setInputData(AccountWorkContext.input(account))
+            .addTag(AccountWorkContext.tag(account))
             .build()
-        wm.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.KEEP, req)
+        wm.enqueueUniquePeriodicWork(workName, ExistingPeriodicWorkPolicy.KEEP, req)
     }
 
     /** Re-anchor the daily backup to the (just-changed) [BackupSyncPrefs.backupMinute] immediately —
      *  cancel then reschedule, since KEEP would otherwise leave the old time in place. */
     fun applyTimeChange(context: Context) {
-        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WORK)
+        val account = AccountStorageContext.capture(context)
+        WorkManager.getInstance(AccountStorageContext.platform(account))
+            .cancelUniqueWork(AccountWorkContext.name(WORK, account))
         reschedule(context)
     }
 
@@ -324,8 +337,9 @@ object BackupSync {
 class BackupSyncWorker(appContext: Context, params: WorkerParameters) :
     CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        if (!BackupSyncPrefs.autoEnabled(applicationContext)) return Result.success()
-        return if (BackupSync.backupNow(applicationContext)) Result.success() else Result.retry()
+        val account = AccountWorkContext.resolve(applicationContext, inputData) ?: return Result.success()
+        if (!BackupSyncPrefs.autoEnabled(account)) return Result.success()
+        return if (BackupSync.backupNow(account)) Result.success() else Result.retry()
     }
 }
 
@@ -336,7 +350,7 @@ class BackupSyncWorker(appContext: Context, params: WorkerParameters) :
  */
 object BackupSyncPrefs {
     private const val FILE = "backup_sync"
-    private fun p(c: Context) = c.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+    private fun p(c: Context) = com.noop.account.AccountStorageContext.capture(c).getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     fun treeUri(c: Context): Uri? = p(c).getString("tree_uri", null)?.let(Uri::parse)
     fun setTreeUri(c: Context, uri: Uri?) = p(c).edit().apply {

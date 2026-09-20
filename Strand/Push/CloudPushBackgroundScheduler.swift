@@ -18,12 +18,15 @@ enum CloudPushBackgroundScheduler {
                 task.setTaskCompleted(success: false)
                 return
             }
-            refresh.expirationHandler = { refresh.setTaskCompleted(success: false) }
-            Task {
+            let completion = CloudPushRefreshCompletion { success in refresh.setTaskCompleted(success: success) }
+            refresh.expirationHandler = { completion.finish(success: false) }
+            let work = Task {
+                await CloudPushBackgroundRuntime.reconcileActive()
                 await runHandler?()
                 scheduleIfNeeded()
-                refresh.setTaskCompleted(success: true)
+                completion.finish(success: !Task.isCancelled)
             }
+            completion.attach(work)
         }
     }
 

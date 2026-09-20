@@ -558,6 +558,32 @@ class PushCoordinatorTest {
         assertEquals("registry_mismatch", result.failure?.receiverCode)
         assertFalse(result.hasRetryableFailure)
     }
+
+    @Test
+    fun receiverDiagnosticDoesNotAdvanceTheCursorAndRetryKeepsBatchIdentity() = runBlocking {
+        val source = FakePushSource(append = mutableMapOf(key(PushAppendTable.HR_SAMPLE, "a") to mutableListOf(hr(1, 10))))
+        val progress = MemoryProgress()
+        val sent = mutableListOf<String>()
+        val request = "11111111-2222-3333-4444-555555555555"
+        val transport = object : PushTransport {
+            override suspend fun post(batch: PushBatch): PushTransportResponse {
+                sent += batch.batchId
+                return if (sent.size == 1) PushTransportResponse(500,
+                    """{"type":"error","protocolVersion":"1.0","code":"receiver_failed","stage":"projection","stream":"spo2Sample","correlationId":"$request"}""".toByteArray())
+                else PushTransportResponse(200, PushAck.fromBatch(batch).encode())
+            }
+        }
+        val coordinator = PushCoordinator(source, transport, progress, SOURCE_A, pinnedToday, ZoneId.of("UTC"))
+        val rejected = coordinator.pushAppend(PushAppendTable.HR_SAMPLE, "a") as PushResult.Rejected
+        assertTrue(progress.cursors.isEmpty())
+        assertTrue(rejected.retryable)
+        assertEquals("hrSample", rejected.failure?.stream)
+        assertEquals("projection", rejected.failure?.stage)
+        assertEquals(request, rejected.failure?.correlationId)
+        assertTrue(coordinator.pushAppend(PushAppendTable.HR_SAMPLE, "a") is PushResult.Accepted)
+        assertEquals(sent.first(), sent.last())
+        assertEquals(1, progress.cursors.size)
+    }
 }
 
 internal fun key(table: PushTable, deviceId: String) = "${table.wireName}|$deviceId"

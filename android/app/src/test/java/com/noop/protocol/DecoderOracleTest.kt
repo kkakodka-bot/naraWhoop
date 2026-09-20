@@ -192,7 +192,7 @@ class DecoderOracleTest {
 
     /** Row count per stream, keyed by the oracle's (and Swift `Streams.CodingKeys`') wire names. */
     private fun streamCounts(b: StreamBatch): Map<String, Int> = mapOf(
-        "hr" to b.hr.size, "rr" to b.rr.size, "spo2" to b.spo2.size, "skin_temp" to b.skinTemp.size,
+        "hr" to b.hr.size, "rr" to b.rr.size, "rr_packets" to b.rrPackets.size, "standard_hr_receipts" to b.standardHrReceipts.size, "spo2" to b.spo2.size, "skin_temp" to b.skinTemp.size,
         "resp" to b.resp.size, "gravity" to b.gravity.size, "steps" to b.steps.size,
         "sleep_state" to b.sleepState.size, "ppg_hr" to b.ppgHr.size,
         "ppg_waveform" to b.ppgWaveform.size, "v18_aux" to b.v18Aux.size,
@@ -213,6 +213,8 @@ class DecoderOracleTest {
         val oneOf = mapOf(
             "hr" to StreamBatch(hr = listOf(HrRow(1L, 60))),
             "rr" to StreamBatch(rr = listOf(RrRow(1L, 900))),
+            "rr_packets" to StreamBatch(rrPackets = listOf(RrPacketProvenance.checked(hexToBytes("aa011800010022e12f12000000000000f153650000003c0200040002700d85e7"))!!)),
+            "standard_hr_receipts" to StreamBatch(standardHrReceipts = listOf(StandardHrReceipt.capture(byteArrayOf(0x10,60,0,4), "11111111-2222-3333-4444-555555555555", 0, 1000, 1000)!!)),
             "spo2" to StreamBatch(spo2 = listOf(Spo2Row(1L, 1, 1))),
             "skin_temp" to StreamBatch(skinTemp = listOf(SkinTempRow(1L, 3000))),
             "resp" to StreamBatch(resp = listOf(RespRow(1L, 3000))),

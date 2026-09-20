@@ -203,6 +203,7 @@ final class BackfillerSessionTallyTests: XCTestCase {
     /// landed (the v25 record frames below each decode to one gravity sample).
     private final class TallyStore: BackfillStoreWriting {
         var operations: [String] = []
+        var cursorDelayNanoseconds: UInt64 = 0
 
         @discardableResult
         func insert(_ streams: Streams, deviceId: String) async throws
@@ -213,7 +214,10 @@ final class BackfillerSessionTallyTests: XCTestCase {
                     streams.spo2.count, streams.skinTemp.count, streams.resp.count, streams.gravity.count)
         }
         func enqueueRawBatch(_ meta: RawBatchMeta, frames: [[UInt8]]) async throws {}
-        func setCursor(_ name: String, _ value: Int) async throws { operations.append("cursor") }
+        func setCursor(_ name: String, _ value: Int) async throws {
+            operations.append("cursor")
+            if cursorDelayNanoseconds > 0 { try await Task.sleep(nanoseconds: cursorDelayNanoseconds) }
+        }
         func cursor(_ name: String) async throws -> Int? { nil }
         func markJobsOwed(kinds: [String], note: String?) async throws -> [String: String] {
             operations.append("debt")
@@ -259,7 +263,8 @@ final class BackfillerSessionTallyTests: XCTestCase {
             store: TallyStore(),
             deviceId: "test",
             ackTrim: { _, _ in },
-            log: { lines.append($0) })
+            log: { lines.append($0) },
+            rejectedSink: { frames, _, _ in !frames.isEmpty })
         backfiller.begin(family: .whoop4)
         for f in v25RecordFrames { await backfiller.ingest(f) }     // records arrive on the open chunk
         await backfiller.ingest(historyEndFrame(trim: 0xFFFFFFFF))  // ...then a no-cursor END carrying them
@@ -290,12 +295,17 @@ final class BackfillerSessionTallyTests: XCTestCase {
             store: store,
             deviceId: "test",
             ackTrim: { _, _ in store.operations.append("ack") },
+            rejectedSink: { frames, _, _ in
+                XCTAssertFalse(frames.isEmpty)
+                store.operations.append("archive")
+                return true
+            },
             postOffloadJobKinds: SyncJobKind.allCases.map(\.rawValue))
         backfiller.begin(family: .whoop4)
         for frame in v25RecordFrames { await backfiller.ingest(frame) }
         await backfiller.ingest(historyEndFrame(trim: 123))
 
-        XCTAssertEqual(Array(store.operations.prefix(4)), ["insert", "debt", "cursor", "ack"])
+        XCTAssertEqual(store.operations, ["insert", "debt", "archive", "cursor", "ack"])
     }
 
     /// #1 (the critical other half): a genuinely empty session (a 0xFFFFFFFF END with no accumulated
@@ -394,9 +404,39 @@ final class BackfillerSessionTallyTests: XCTestCase {
         XCTAssertTrue(line!.contains("total p50/p99="), line ?? "")
         XCTAssertTrue(line!.contains("diagnostics p50/p99="), line ?? "")
         XCTAssertTrue(line!.contains("archive p50/p99="), line ?? "")
+        XCTAssertTrue(line!.contains("cursor p50/p99="), line ?? "")
+        XCTAssertTrue(line!.contains("ackTrim callback, including main-actor wait; excludes ATT confirmation"), line ?? "")
         XCTAssertTrue(line!.contains("insertAndMarkJobsOwed"), line ?? "")
         XCTAssertTrue(line!.contains("enqueueRawBatch"), line ?? "")
         XCTAssertTrue(line!.contains("persistHistoricalImu"), line ?? "")
         XCTAssertTrue(line!.contains("inter-chunk gap"), line ?? "")
+    }
+
+    func testEmptyEndMeasuresAwaitedInfoDeliveryCursorAndAckSeparately() async throws {
+        let store = TallyStore()
+        store.cursorDelayNanoseconds = 60_000_000
+        var observed: [String] = []
+        let backfiller = Backfiller(store: store, deviceId: "test", ackTrim: { _, _ in
+            observed.append("ack")
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }, chunkInfo: { events in
+            observed.append("info")
+            XCTAssertEqual(events.count, 1)
+            if case .log(let line) = events[0] {
+                XCTAssertTrue(line.contains("no banked history"))
+            } else { XCTFail("the empty END must retain its no-cursor explanation") }
+            try? await Task.sleep(nanoseconds: 40_000_000)
+        })
+        backfiller.begin(family: .whoop4)
+        await backfiller.ingest(historyEndFrame(trim: .max))
+        let sample = try XCTUnwrap(backfiller.sessionPhaseTimingSamples().first)
+        XCTAssertEqual(observed, ["ack", "info"])
+        XCTAssertEqual(store.operations, ["cursor"])
+        XCTAssertGreaterThanOrEqual(sample.diagnosticsMs, 30, "awaited batch delivery must remain measured")
+        XCTAssertGreaterThanOrEqual(sample.cursorMs, 50)
+        XCTAssertGreaterThanOrEqual(sample.ackMs, 10)
+        XCTAssertGreaterThanOrEqual(sample.postAckPresentationMs, 30)
+        XCTAssertNil(sample.ackSubmissionMs, "a callback returning is not transport submission evidence")
+        XCTAssertGreaterThanOrEqual(sample.totalMs, sample.diagnosticsMs + sample.cursorMs + sample.ackMs)
     }
 }

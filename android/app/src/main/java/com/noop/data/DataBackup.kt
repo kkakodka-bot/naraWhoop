@@ -131,7 +131,7 @@ object DataBackup {
      */
     @Throws(IOException::class)
     fun exportTo(context: Context, uri: Uri): ExportOutcome {
-        val appContext = context.applicationContext
+        val appContext = com.noop.account.AccountStorageContext.capture(context)
 
         // Fold the WAL back into the main file so the snapshot is complete.
         val db = WhoopDatabase.get(appContext)
@@ -224,7 +224,7 @@ object DataBackup {
      * MUST instruct the user to fully restart the app.
      */
     fun importFrom(context: Context, uri: Uri, allowOversize: Boolean = false): ImportResult {
-        val appContext = context.applicationContext
+        val appContext = com.noop.account.AccountStorageContext.capture(context)
         val resolver = appContext.contentResolver
 
         // 1. Peek at the first 16 bytes to distinguish ZIP from plain SQLite.
@@ -243,8 +243,9 @@ object DataBackup {
         //    function) so it can be exercised under real file I/O in unit tests without Room/Context.
         //    A `settings.json` entry (#1000) is staged alongside when present; the stale-delete first
         //    matters, or a leftover from an earlier import could masquerade as THIS backup's settings.
-        val tempSqlite = File(appContext.cacheDir, "import-extract.sqlite")
-        val tempSettings = File(appContext.cacheDir, "import-settings.json")
+        // Concurrent generations share an account cache, never a staging filename.
+        val tempSqlite = File(appContext.cacheDir, "import-extract-${java.util.UUID.randomUUID()}.sqlite")
+        val tempSettings = File(tempSqlite.path + ".settings.json")
         tempSettings.delete()
         try {
             when (stageBackupSqlite(resolver.openInputStream(uri), header, tempSqlite, tempSettings,
@@ -332,13 +333,46 @@ object DataBackup {
             )
         }
 
+        return installStagedBackup(appContext, tempSqlite, tempSettings)
+    }
+
+    internal fun installStagedBackup(
+        appContext: com.noop.account.AccountStorageContext,
+        tempSqlite: File,
+        tempSettings: File,
+        afterQuiesce: () -> Unit = {},
+    ): ImportResult {
+        // A restore is not authorization to move another account's captures into this namespace.
+        if (!appContext.isCurrent() || appContext.identity.scope == null ||
+            runCatching { WhoopDatabase.verifyExistingOwner(appContext, tempSqlite.path) }.isFailure) {
+            tempSqlite.delete()
+            tempSettings.delete()
+            return ImportResult.Failed("This backup is not bound to the active account. Your current data is untouched.")
+        }
+        return try {
+            WhoopDatabase.withRestoreLease(appContext, afterQuiesce) {
+                installQuiescedBackup(appContext, tempSqlite, tempSettings)
+            }
+        } catch (_: com.noop.account.AccountWriteRevokedException) {
+            tempSqlite.delete()
+            tempSettings.delete()
+            ImportResult.Failed("This backup is not bound to the active account. Your current data is untouched.")
+        } catch (_: com.noop.account.AccountStorageBusyException) {
+            tempSqlite.delete()
+            tempSettings.delete()
+            ImportResult.Failed("Could not pause the current database safely. No backup was installed. Restart the app before retrying.")
+        }
+    }
+
+    private fun installQuiescedBackup(
+        appContext: com.noop.account.AccountStorageContext,
+        tempSqlite: File,
+        tempSettings: File,
+    ): ImportResult {
         val dbFile = appContext.getDatabasePath(WhoopDatabase.DB_NAME)
         val walFile = File(dbFile.path + "-wal")
         val shmFile = File(dbFile.path + "-shm")
         val rollbackFile = File(dbFile.path + ".import-bak")
-
-        // 4. Close the live Room singleton so the file handles are released.
-        WhoopDatabase.close()
 
         // 5. Snapshot the current db so a failed copy can be rolled back.
         try {

@@ -51,11 +51,11 @@ final class AnalyticsEngineProvidedSleepTests: XCTestCase {
         XCTAssertEqual(res.daily.totalSleepMin ?? 0, 560, accuracy: 1)   // light 320 + deep 120 + rem 120
         XCTAssertEqual(res.daily.deepMin ?? 0, 120, accuracy: 1)
         XCTAssertEqual(res.daily.remMin ?? 0, 120, accuracy: 1)
-        XCTAssertEqual(res.daily.efficiency ?? 0, 0.75, accuracy: 0.001)
+        XCTAssertEqual(res.daily.efficiency ?? 0, 560.0 / 600, accuracy: 0.001) // recomputed from stage durations
         XCTAssertFalse(res.cachedSleep.isEmpty)
         // HRV & resting HR are re-derived from THIS day's rr/hr over the provided window (the ring row
         // carried neither) — the whole point of #804 (avgHrv was nil despite 36 k rr present).
-        XCTAssertNotNil(res.daily.avgHrv, "avgHrv must be derived from rr over the provided sleep window")
+        XCTAssertNil(res.daily.avgHrv, "coarse stored RR has no original-beat continuity evidence")
         XCTAssertNotNil(res.daily.restingHr)
     }
 
@@ -86,7 +86,7 @@ final class AnalyticsEngineProvidedSleepTests: XCTestCase {
         let res = AnalyticsEngine.analyzeDay(day: day, hr: s.hr, rr: s.rr, profile: profile,
                                              providedSleep: provided)
         XCTAssertEqual(res.daily.restingHr, 48)
-        XCTAssertEqual(res.daily.avgHrv ?? 0, 65, accuracy: 0.001)
+        XCTAssertNil(res.daily.avgHrv, "vendor scalar HRV must not enter the canonical RMSSD series")
     }
 
     /// Keep the public analyzeDay seam fully named and mirrored by the Kotlin twin.

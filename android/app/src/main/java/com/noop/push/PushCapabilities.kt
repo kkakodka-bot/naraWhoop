@@ -11,6 +11,8 @@ data class PushCapabilities(
     val protocolVersion: String = PushProtocol.VERSION,
     val receiverStateId: String = UNSCOPED_RECEIVER_STATE_ID,
     val objectLane: PushObjectLane? = null,
+    val userId: String = UNSCOPED_USER_ID,
+    val sourceId: String = UNSCOPED_SOURCE_ID,
 ) {
     val isEmpty: Boolean get() = appendTables.isEmpty() && mutableTables.isEmpty() && binaryTables.isEmpty()
     val wireNames: List<String> get() =
@@ -21,6 +23,8 @@ data class PushCapabilities(
     companion object {
         /** Test/local default. Network capability documents must always provide a real receiver state id. */
         const val UNSCOPED_RECEIVER_STATE_ID = "00000000-0000-4000-8000-000000000000"
+        const val UNSCOPED_USER_ID = "00000000-0000-4000-8000-000000000001"
+        const val UNSCOPED_SOURCE_ID = "00000000-0000-4000-8000-000000000002"
         val ALL = PushCapabilities(
             PushAppendTable.entries.toSet(),
             PushMutableTable.entries.toSet(),
@@ -36,7 +40,7 @@ data class PushCapabilities(
             } catch (_: Throwable) {
                 throw PushProtocolException("capabilities are not valid JSON")
             }
-            val required = setOf("type", "protocolVersion", "receiverStateId", "streams")
+            val required = setOf("type", "protocolVersion", "receiverStateId", "userId", "sourceId", "streams")
             val actualMembers = obj.keys().asSequence().toSet()
             if (!actualMembers.containsAll(required)) {
                 throw PushProtocolException("capabilities are missing required protocol 1.0 members")
@@ -46,12 +50,16 @@ data class PushCapabilities(
             }
             val version = obj.opt("protocolVersion") as? String ?: ""
             if (obj.opt("type") != "capabilities" ||
-                (version != PushProtocol.VERSION && version != "1.1" && version != PushProtocol.OBJECT_VERSION)
+                version !in setOf(PushProtocol.VERSION, "1.1", PushProtocol.OBJECT_VERSION, "1.3", "1.4")
             ) {
                 throw PushProtocolException("unsupported capability document")
             }
             val receiverStateId = (obj.opt("receiverStateId") as? String)?.takeIf(::isCanonicalUuid)
                 ?: throw PushProtocolException("capabilities.receiverStateId must be a canonical UUID")
+            val userId = (obj.opt("userId") as? String)?.takeIf(::isCanonicalUuid)
+                ?: throw PushProtocolException("capabilities.userId must be a canonical UUID")
+            val sourceId = (obj.opt("sourceId") as? String)?.takeIf(::isCanonicalUuid)
+                ?: throw PushProtocolException("capabilities.sourceId must be a canonical UUID")
             val array = obj.opt("streams") as? JSONArray
                 ?: throw PushProtocolException("capabilities.streams must be an array")
             val appendByName = PushAppendTable.entries.associateBy { it.wireName }
@@ -65,16 +73,25 @@ data class PushCapabilities(
                 val name = array.opt(index) as? String
                     ?: throw PushProtocolException("capability stream names must be strings")
                 if (!seen.add(name)) throw PushProtocolException("duplicate capability stream")
-                appendByName[name]?.let { append += it }
+                appendByName[name]?.let { if (!it.isScalarExtension || version != PushProtocol.VERSION) append += it }
                     ?: mutableByName[name]?.let { mutable += it }
                     ?: binaryByName[name]?.let { binary += it }
             }
-            val objectLane = if (version == PushProtocol.OBJECT_VERSION && obj.opt("objectLane") is JSONObject) {
+            val objectLane = if (version in setOf(PushProtocol.OBJECT_VERSION, "1.3", "1.4") && obj.opt("objectLane") is JSONObject) {
                 parseObjectLane(obj.getJSONObject("objectLane"), binaryByName)
             } else {
                 null
             }
-            return PushCapabilities(append, mutable, binary, version, receiverStateId, objectLane)
+            return PushCapabilities(
+                appendTables = append,
+                mutableTables = mutable,
+                binaryTables = binary,
+                protocolVersion = version,
+                receiverStateId = receiverStateId,
+                objectLane = objectLane,
+                userId = userId,
+                sourceId = sourceId,
+            )
         }
 
         private fun parseObjectLane(
@@ -119,14 +136,15 @@ data class PushCapabilities(
 }
 
 internal class PushConnectionTester(
-    private val transportFactory: (PushEndpointPolicy.ValidEndpoint, String) -> PushTransport =
-        { endpoint, token -> PushHttpTransport(endpoint, token) },
+    private val transportFactory: (PushEndpointPolicy.ValidEndpoint, String, String) -> PushTransport =
+        { endpoint, uploadToken, fleetToken -> PushHttpTransport(endpoint, uploadToken, fleetToken) },
 ) {
     suspend fun test(
         endpoint: PushEndpointPolicy.ValidEndpoint,
-        token: String,
+        uploadToken: String,
+        fleetToken: String,
     ): PushCapabilitiesResult = try {
-        transportFactory(endpoint, token).capabilities()
+        transportFactory(endpoint, uploadToken, fleetToken).capabilities()
     } catch (cancelled: kotlinx.coroutines.CancellationException) {
         throw cancelled
     } catch (_: Throwable) {
@@ -138,8 +156,9 @@ internal class PushConnectionTester(
 internal fun canStartPushConnectionTest(
     networkAvailable: Boolean,
     endpointValid: Boolean,
-    tokenAvailable: Boolean,
-): Boolean = networkAvailable && endpointValid && tokenAvailable
+    uploadTokenAvailable: Boolean,
+    fleetTokenAvailable: Boolean,
+): Boolean = networkAvailable && endpointValid && uploadTokenAvailable && fleetTokenAvailable
 
 sealed interface PushCapabilitiesResult {
     data class Available(val capabilities: PushCapabilities) : PushCapabilitiesResult

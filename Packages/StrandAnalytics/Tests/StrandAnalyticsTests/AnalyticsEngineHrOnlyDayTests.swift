@@ -60,8 +60,7 @@ final class AnalyticsEngineHrOnlyDayTests: XCTestCase {
         // #1884: measured, not discarded. Before the change both of these were nil by construction, which
         // is what left Charge with `nilScore reason=missingInput`.
         XCTAssertNotNil(res.daily.restingHr, "resting HR is HR-derived and must survive to the day row")
-        XCTAssertNotNil(res.daily.avgHrv,
-                        "the HRV measured over this night's windows must survive to the day row")
+        XCTAssertNil(res.daily.avgHrv, "HR-only context cannot repair missing original RR provenance")
 
         // The regression guard. `sleepHrOnly` says "every session was staged from heart rate alone", and
         // that remains TRUE of this day — the change made the vitals available, not the staging better.

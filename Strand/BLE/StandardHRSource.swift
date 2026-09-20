@@ -11,9 +11,9 @@ import WhoopStore
 ///
 /// WHOOP-FIRST ISOLATION: this class runs its OWN `CBCentralManager` and never imports, calls, or
 /// shares state with `BLEManager`. The WHOOP path cannot regress because of anything here — the two
-/// CoreBluetooth flows are fully independent. The only shared surfaces are `LiveState` (so the
-/// existing Live UI shows the strap's HR) and the `persist` closure (wired by the app to
-/// `StreamStore.insert`). The pure HR→Streams mapping lives in `WhoopStore.StandardHRMapping` so it
+/// CoreBluetooth flows are fully independent. The shared surfaces are `LiveState` and the captured
+/// durable sink (or the explicit legacy `persist` initializer). The pure HR→Streams mapping lives
+/// in `WhoopStore.StandardHRMapping` so it
 /// can be unit-tested away from CoreBluetooth.
 @MainActor
 public final class StandardHRSource: NSObject, ObservableObject {
@@ -89,7 +89,8 @@ public final class StandardHRSource: NSObject, ObservableObject {
     // MARK: - Dependencies (injected — no BLEManager reference)
 
     private let live: LiveState
-    private let persist: (Streams) -> Void
+    private let persist: (Streams) -> Bool
+    private var durableCapture: StandardHRCaptureSink?
     private let deviceId: String
     /// Optional hook fired with the strap's battery percent (0–100) whenever it's read off 0x2A19.
     /// Wired (via `SourceCoordinator`) into `LiveState.setBattery` so a generic strap surfaces its
@@ -126,13 +127,16 @@ public final class StandardHRSource: NSObject, ObservableObject {
 
     // MARK: - Sample buffer
 
-    /// Buffered (hr, rr, contact, ts) readings, flushed to `persist` in batches to keep the write path off
-    /// the per-notification hot loop.
+    /// Legacy-only decoded buffer. Durable intake reserves the original bytes immediately instead.
     private var buffer: [(hr: Int, rr: [Int], contact: StandardHRContact, ts: Int)] = []
     private var lastFlush: Date = .init()
     /// Flush thresholds — whichever trips first.
     private let flushCount = 30
     private let flushInterval: TimeInterval = 30
+    private var acceptsCapture = true
+    private var persistenceHeld = false
+    var pendingCaptureCount: Int { buffer.count + (durableCapture?.pendingCaptureCount ?? 0) }
+    private var canReceiveCallbacks: Bool { acceptsCapture && (durableCapture?.isOpen ?? true) }
 
     // MARK: - Init
 
@@ -148,28 +152,47 @@ public final class StandardHRSource: NSObject, ObservableObject {
                 persist: @escaping (Streams) -> Void,
                 log: @escaping (String) -> Void = { _ in },
                 onBattery: @escaping (Int) -> Void = { _ in },
-                polarDebug: @escaping () -> Bool = { false }) {
+                polarDebug: @escaping () -> Bool = { false },
+                admit: ((Streams) -> Bool)? = nil,
+                startCentral: Bool = true) {
         self.live = live
         self.deviceId = deviceId
-        self.persist = persist
+        self.persist = admit ?? { streams in persist(streams); return true }
         self.log = log
         self.onBattery = onBattery
         self.polarDebug = polarDebug
         super.init()
         // Dedicated queue-less central → callbacks arrive on the main queue, matching @MainActor.
-        self.central = CBCentralManager(delegate: self, queue: nil)
+        if startCentral { self.central = CBCentralManager(delegate: self, queue: nil) }
+    }
+
+    /// Production StandardHR intake requires an already-prepared, device-bound durable sink.
+    /// Nil/failure is not a request to use the legacy RAM-only initializer.
+    convenience init(live: LiveState, deviceId: String, durableCapture: StandardHRCaptureSink?,
+                     log: @escaping (String) -> Void = { _ in },
+                     onBattery: @escaping (Int) -> Void = { _ in },
+                     polarDebug: @escaping () -> Bool = { false }, startCentral: Bool = true) throws {
+        guard let durableCapture, durableCapture.isOpen, durableCapture.deviceID == deviceId else {
+            throw StandardHRCaptureError.closedSession
+        }
+        self.init(live: live, deviceId: deviceId, persist: { _ in }, log: log,
+                  onBattery: onBattery, polarDebug: polarDebug, admit: { _ in false }, startCentral: false)
+        self.durableCapture = durableCapture
+        if startCentral { self.central = CBCentralManager(delegate: self, queue: nil) }
     }
 
     // MARK: - Scanning
 
     /// Begin scanning for generic HR straps advertising the 0x180D service.
     public func scan() {
+        guard !persistenceHeld, durableCapture?.isOpen != false else { return }
+        acceptsCapture = true
         discovered.removeAll()
         seenPeripherals.removeAll()
         scanning = true
         log("HR-strap: scanning for standard heart-rate straps (0x180D)…")
-        guard central.state == .poweredOn else {
-            log("HR-strap: Bluetooth not powered on (state=\(central.state.rawValue)) — scan deferred until ready")
+        guard central?.state == .poweredOn else {
+            log("HR-strap: Bluetooth not powered on (state=\(central?.state.rawValue ?? -1)) — scan deferred until ready")
             return   // deferred until poweredOn
         }
         central.scanForPeripherals(withServices: [Self.heartRateService],
@@ -179,19 +202,21 @@ public final class StandardHRSource: NSObject, ObservableObject {
     /// Stop an in-progress scan.
     public func stopScan() {
         scanning = false
-        if central.state == .poweredOn { central.stopScan() }
+        if central?.state == .poweredOn { central.stopScan() }
     }
 
     // MARK: - Connecting
 
     /// Connect to the chosen discovered strap and start streaming its HR.
     public func connect(_ id: UUID) {
+        guard !persistenceHeld, durableCapture?.isOpen != false else { return }
+        acceptsCapture = true
         stopScan()
         // Reach the peripheral directly: use the freshly-discovered handle if we have it, else ask
         // CoreBluetooth for the cached peripheral by identifier (a strap we've connected before). This is
         // what lets the active-strap switch CONNECT without depending on a fresh scan — the switchToStrap
         // path only ever scanned before, so a Polar etc. was discovered but never connected (#421).
-        let p = seenPeripherals[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first
+        let p = seenPeripherals[id] ?? central?.retrievePeripherals(withIdentifiers: [id]).first
         guard let p else {
             // Never seen by this Mac/iPhone yet → remember it and scan; didDiscover connects it on sight.
             pendingConnectID = id
@@ -202,7 +227,7 @@ public final class StandardHRSource: NSObject, ObservableObject {
         seenPeripherals[id] = p
         peripheral = p
         p.delegate = self
-        guard central.state == .poweredOn else {
+        guard central?.state == .poweredOn else {
             pendingConnectID = id
             log("HR-strap: Bluetooth not powered on — connect to \(id) deferred until ready")
             return
@@ -213,16 +238,23 @@ public final class StandardHRSource: NSObject, ObservableObject {
 
     /// Tear down: cancel the peripheral connection and stop scanning. Idempotent.
     public func stop() {
+        durableCapture?.sealIntake()
+        acceptsCapture = false
+        stopTransport()
+        _ = flush()                   // retain the unadmitted suffix on backpressure
+    }
+
+    private func stopTransport() {
         stopScan()
         pendingConnectID = nil
         if let p = peripheral {
-            central.cancelPeripheralConnection(p)
+            central?.cancelPeripheralConnection(p)
         }
         peripheral = nil
         loggedFirstHR = false         // a later reconnect should log its first sample again
+        loggedPolarIdentity = false
         loggedFirstSensor = false
         batteryPct = nil              // a stale charge must not outlive the link
-        flush()                       // persist anything still buffered
         live.clearSensorMetrics()     // a stale speed/cadence/power panel must not outlive the link
         rateComputer.reset()          // next CSC/CPS packet is a first packet again (no carry-over)
         live.connected = false
@@ -230,21 +262,67 @@ public final class StandardHRSource: NSObject, ObservableObject {
 
     // MARK: - Buffer / persistence
 
-    private func enqueue(hr: Int, rr: [Int], contact: StandardHRContact) {
-        buffer.append((hr: hr, rr: rr, contact: contact, ts: Int(Date().timeIntervalSince1970)))
+    private func enqueue(hr: Int, rr: [Int], contact: StandardHRContact, at timestamp: Int) {
+        buffer.append((hr: hr, rr: rr, contact: contact, ts: timestamp))
         if buffer.count >= flushCount || Date().timeIntervalSince(lastFlush) >= flushInterval {
-            flush()
+            if !flush() { acceptsCapture = false; stopTransport() }
         }
     }
 
-    private func flush() {
-        guard !buffer.isEmpty else { lastFlush = Date(); return }
+    @discardableResult
+    func retryBufferedPersistence() -> Bool { flush() }
+
+    private func flush() -> Bool {
+        if let durableCapture { return durableCapture.retryHeldOffer() }
+        guard !buffer.isEmpty else { lastFlush = Date(); return true }
+        var admitted = 0
         for sample in buffer {
-            persist(StandardHRMapping.samples(fromHR: sample.hr, rr: sample.rr,
-                                               contact: sample.contact, at: sample.ts))
+            guard persist(StandardHRMapping.samples(fromHR: sample.hr, rr: sample.rr,
+                                                    contact: sample.contact, at: sample.ts)) else {
+                buffer.removeFirst(admitted)
+                persistenceHeld = true
+                return false
+            }
+            admitted += 1
         }
         buffer.removeAll()
         lastFlush = Date()
+        return true
+    }
+
+    /// Shared by the real notification callback and host lifecycle regressions; no radio needed.
+    @discardableResult
+    func ingestHeartRateMeasurement(_ bytes: [UInt8], at timestamp: Int) -> Bool {
+        guard canReceiveCallbacks, !persistenceHeld, buffer.count < flushCount, bytes.count <= 512,
+              let parsed = StandardHeartRate.parse(bytes) else { return false }
+        var held = false
+        if let durableCapture {
+            switch durableCapture.offer(rawBytes: Data(bytes), hostTimestampSeconds: Int64(timestamp),
+                                        hr: parsed.hr, rrMs: parsed.rr, contact: parsed.contact) {
+            case .queued: break
+            case .held: held = true
+            case .rejected:
+                persistenceHeld = true
+                acceptsCapture = false
+                stopTransport()
+                return false
+            }
+        }
+        if !loggedFirstHR {
+            loggedFirstHR = true
+            log("HR-strap: receiving data — first sample \(parsed.hr) bpm (rr beats: \(parsed.rr.count))")
+        }
+        live.heartRate = parsed.hr
+        live.setRRIntervals(parsed.rr)
+        live.connected = true
+        if durableCapture == nil {
+            enqueue(hr: parsed.hr, rr: parsed.rr, contact: parsed.contact, at: timestamp)
+        } else if held {
+            persistenceHeld = true
+            acceptsCapture = false
+            stopTransport()
+        }
+        return true
     }
 
     // MARK: - Fitness-sensor ingest (additive — never touches HR / scoring)
@@ -280,6 +358,7 @@ public final class StandardHRSource: NSObject, ObservableObject {
 
 extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        guard canReceiveCallbacks else { return }
         switch central.state {
         case .poweredOn:
             // Replay any intent that arrived before the radio was ready.
@@ -300,6 +379,7 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
                                didDiscover peripheral: CBPeripheral,
                                advertisementData: [String: Any],
                                rssi RSSI: NSNumber) {
+        guard canReceiveCallbacks else { return }
         let id = peripheral.identifier
         let firstSight = seenPeripherals[id] == nil   // not seen before this scan
         seenPeripherals[id] = peripheral
@@ -328,6 +408,7 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard canReceiveCallbacks else { central.cancelPeripheralConnection(peripheral); return }
         log("HR-strap: connected — discovering services")
         logPolarIdentityOnce(peripheral)
         peripheral.delegate = self
@@ -341,12 +422,14 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager,
                                didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        guard canReceiveCallbacks else { return }
         log("HR-strap: WARNING failed to connect — \(error?.localizedDescription ?? "unknown error")")
         live.connected = false
     }
 
     public func centralManager(_ central: CBCentralManager,
                                didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        guard canReceiveCallbacks else { return } // stop already flushed; retired callbacks cannot publish
         if let error = error {
             log("HR-strap: disconnected — \(error.localizedDescription)")
         } else {
@@ -356,7 +439,7 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
         loggedPolarIdentity = false
         loggedFirstSensor = false
         batteryPct = nil        // a stale charge must not outlive the link
-        flush()
+        _ = flush()
         live.clearSensorMetrics()
         rateComputer.reset()
         live.connected = false
@@ -370,6 +453,7 @@ extension StandardHRSource: @preconcurrency CBCentralManagerDelegate {
 
 extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        guard canReceiveCallbacks else { return }
         if let error = error {
             log("HR-strap: WARNING service discovery failed — \(error.localizedDescription)")
             return
@@ -410,6 +494,7 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
 
     public func peripheral(_ peripheral: CBPeripheral,
                            didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard canReceiveCallbacks else { return }
         if let error = error {
             log("HR-strap: WARNING characteristic discovery failed — \(error.localizedDescription)")
             return
@@ -443,6 +528,7 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateNotificationStateFor characteristic: CBCharacteristic,
                            error: Error?) {
+        guard canReceiveCallbacks else { return }
         guard characteristic.uuid == Self.heartRateMeasurement else { return }
         if let error = error {
             log("HR-strap: WARNING enabling notifications FAILED — \(error.localizedDescription) — strap will send no HR data")
@@ -453,7 +539,7 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
 
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard error == nil, let value = characteristic.value else { return }
+        guard canReceiveCallbacks, error == nil, let value = characteristic.value else { return }
         // Battery Level (0x2A19): a single u8 percent. Surface it and notify the wired hook.
         if characteristic.uuid == Self.batteryLevel {
             if let pct = StandardBattery.parse([UInt8](value)) {
@@ -470,15 +556,6 @@ extension StandardHRSource: @preconcurrency CBPeripheralDelegate {
             return
         }
         guard characteristic.uuid == Self.heartRateMeasurement else { return }
-        guard let parsed = StandardHeartRate.parse([UInt8](value)) else { return }
-        // Log the FIRST sample of a connection only — proof that data is flowing — never every sample.
-        if !loggedFirstHR {
-            loggedFirstHR = true
-            log("HR-strap: receiving data — first sample \(parsed.hr) bpm (rr beats: \(parsed.rr.count))")
-        }
-        live.heartRate = parsed.hr
-        live.setRRIntervals(parsed.rr)
-        live.connected = true
-        enqueue(hr: parsed.hr, rr: parsed.rr, contact: parsed.contact)
+        ingestHeartRateMeasurement([UInt8](value), at: Int(Date().timeIntervalSince1970))
     }
 }

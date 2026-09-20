@@ -3,8 +3,9 @@
 // CloudPushSecrets.xcconfig is gitignored and user-created (template:
 // CloudPushSecrets.example.xcconfig). It carries the FRWHOOP fleet push defaults baked into the
 // app at build time:
-//   NOOP_PUSH_ENDPOINT — the Supabase Edge Function base (…/functions/v1/push)
-//   NOOP_PUSH_TOKEN    — the fleet ingest token (opaque `noop_…`, NOT a JWT, NOT a B2 key)
+//   NOOP_PUSH_ENDPOINT      — the Supabase Edge Function base (…/functions/v1/push)
+//   NOOP_PUSH_TOKEN           — the fleet ingest token (opaque `noop_…`, NOT a JWT, NOT a B2 key)
+//   NOOP_SUPABASE_ANON_KEY    — Supabase anon key for authenticated score reads (JWT session only)
 // When the file is absent the $(NOOP_PUSH_*) Info.plist keys resolve to empty strings and the
 // build simply has no export destination: cloud push stays off and cannot be enabled.
 //
@@ -13,4 +14,5 @@
 // accepted property of the consented-research-fleet model — do not put any other secret here.
 NOOP_PUSH_ENDPOINT =
 NOOP_PUSH_TOKEN =
+NOOP_SUPABASE_ANON_KEY =
 #include? "CloudPushSecrets.xcconfig"

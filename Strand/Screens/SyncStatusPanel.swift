@@ -30,7 +30,7 @@ struct SyncStatusPanel: View {
                 value: lastPushLabel
             )
             ReadoutRow(
-                label: String(localized: "Owed jobs"),
+                label: String(localized: "Pending now"),
                 value: owedJobs.isEmpty
                     ? String(localized: "none")
                     : owedJobs.map(\.kind).joined(separator: ", ")
@@ -57,6 +57,7 @@ struct SyncStatusPanel: View {
         }
         .task(id: refreshToken) { await reload() }
         .onAppear { refreshToken &+= 1 }
+        .onChangeCompat(of: live.syncStatusRevision) { _ in refreshToken &+= 1 }
     }
 
     private var lastOffloadLabel: String {
@@ -85,12 +86,16 @@ struct SyncStatusPanel: View {
             .formatted(date: .omitted, time: .shortened)
         let ran = entry.stagesRun.isEmpty ? "—" : entry.stagesRun
         let owed = entry.stagesOwed.isEmpty ? "—" : entry.stagesOwed
-        return "\(when) · \(entry.wakeReason) · ran \(ran) · still owed \(owed) · \(entry.durationMs)ms"
+        return "\(when) · \(entry.wakeReason) · ran \(ran) · pending after pass \(owed) · \(entry.durationMs)ms"
     }
 
     private func reload() async {
+        let revision = live.syncStatusRevision
         guard let store = await model.repo.storeHandle() else { return }
-        owedJobs = (try? await store.owedJobs()) ?? []
-        journal = (try? await store.recentSyncJournal(limit: 8)) ?? []
+        let jobs = (try? await store.owedJobs()) ?? []
+        let entries = (try? await store.recentSyncJournal(limit: 8)) ?? []
+        guard !Task.isCancelled, revision == live.syncStatusRevision else { return }
+        owedJobs = jobs
+        journal = entries
     }
 }

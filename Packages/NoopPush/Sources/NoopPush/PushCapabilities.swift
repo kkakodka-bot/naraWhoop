@@ -6,7 +6,11 @@ public struct PushCapabilities: Sendable {
     public let binaryTables: Set<PushBinaryTable>
     public let protocolVersion: String
     public let receiverStateId: String
-    /// Direct-to-bucket lane advertised at protocol 1.2. `nil` disables binary upload for the run:
+    /// Server-resolved enrollment identity. Generic protocol fixtures may omit these, but enrolled
+    /// clients must pin both before opening local storage or uploading records.
+    public let userId: String?
+    public let sourceId: String?
+    /// Direct-to-bucket lane advertised at protocol 1.2 and later. `nil` disables binary upload:
     /// raw rows stay local rather than posting inline into a `use_object_lane` refusal.
     public let objectLane: PushObjectLane?
 
@@ -21,7 +25,7 @@ public struct PushCapabilities: Sendable {
     public static let unscopedReceiverStateId = "00000000-0000-4000-8000-000000000000"
 
     public static let all = PushCapabilities(
-        appendTables: Set(PushAppendTable.allCases),
+        appendTables: Set(PushAppendTable.allCases.filter { !$0.isScalarExtension }),
         mutableTables: Set(PushMutableTable.allCases),
         binaryTables: Set(PushBinaryTable.allCases)
     )
@@ -32,7 +36,9 @@ public struct PushCapabilities: Sendable {
         binaryTables: Set<PushBinaryTable> = [],
         protocolVersion: String = PushProtocol.version,
         receiverStateId: String = unscopedReceiverStateId,
-        objectLane: PushObjectLane? = nil
+        objectLane: PushObjectLane? = nil,
+        userId: String? = nil,
+        sourceId: String? = nil
     ) {
         self.appendTables = appendTables
         self.mutableTables = mutableTables
@@ -40,6 +46,8 @@ public struct PushCapabilities: Sendable {
         self.protocolVersion = protocolVersion
         self.receiverStateId = receiverStateId
         self.objectLane = objectLane
+        self.userId = userId
+        self.sourceId = sourceId
     }
 
     public static func parse(_ bytes: Data) throws -> PushCapabilities {
@@ -61,12 +69,14 @@ public struct PushCapabilities: Sendable {
             throw PushProtocolException("unsupported capability document")
         }
         let version = obj["protocolVersion"] as? String ?? ""
-        guard version == PushProtocol.version || version == "1.1" || version == PushProtocol.objectVersion else {
+        guard version == PushProtocol.version || version == PushProtocol.binaryVersion || PushProtocol.isObjectVersion(version) else {
             throw PushProtocolException("unsupported capability document")
         }
         guard let receiverStateId = obj["receiverStateId"] as? String, isCanonicalUuid(receiverStateId) else {
             throw PushProtocolException("capabilities.receiverStateId must be a canonical UUID")
         }
+        let userId = try optionalCanonicalUuid(obj, key: "userId")
+        let sourceId = try optionalCanonicalUuid(obj, key: "sourceId")
         guard let streams = obj["streams"] as? [Any] else {
             throw PushProtocolException("capabilities.streams must be an array")
         }
@@ -85,17 +95,17 @@ public struct PushCapabilities: Sendable {
                 throw PushProtocolException("duplicate capability stream")
             }
             if let table = appendByName[name] {
-                append.insert(table)
+                if !table.isScalarExtension || version != PushProtocol.version { append.insert(table) }
             } else if let table = mutableByName[name] {
                 mutable.insert(table)
             } else if let table = binaryByName[name] {
                 binary.insert(table)
             }
         }
-        // The object lane is advertised only at 1.2. A malformed block disables the lane (rows are
+        // A malformed object-lane block disables the lane (rows are
         // retained) rather than failing the whole capability negotiation.
         let objectLane: PushObjectLane?
-        if version == PushProtocol.objectVersion, let laneObject = obj["objectLane"] as? [String: Any] {
+        if PushProtocol.isObjectVersion(version), let laneObject = obj["objectLane"] as? [String: Any] {
             objectLane = parseObjectLane(laneObject, binaryByName: binaryByName)
         } else {
             objectLane = nil
@@ -106,7 +116,9 @@ public struct PushCapabilities: Sendable {
             binaryTables: binary,
             protocolVersion: version,
             receiverStateId: receiverStateId,
-            objectLane: objectLane
+            objectLane: objectLane,
+            userId: userId,
+            sourceId: sourceId
         )
     }
 
@@ -153,6 +165,14 @@ public struct PushCapabilities: Sendable {
     private static func isCanonicalUuid(_ value: String) -> Bool {
         guard let uuid = UUID(uuidString: value) else { return false }
         return uuid.uuidString.lowercased() == value
+    }
+
+    private static func optionalCanonicalUuid(_ object: [String: Any], key: String) throws -> String? {
+        guard let raw = object[key] else { return nil }
+        guard let value = raw as? String, isCanonicalUuid(value) else {
+            throw PushProtocolException("capabilities.\(key) must be a canonical UUID")
+        }
+        return value
     }
 }
 

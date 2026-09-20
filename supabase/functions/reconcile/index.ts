@@ -6,6 +6,8 @@ import { pushConfig } from '../_shared/config.ts';
 import { createS3 } from '../_shared/s3.ts';
 import { reconcileObjects } from '../_shared/workers.ts';
 import { authorizeWorkerRequest, unauthorizedWorkerResponse } from '../_shared/workerAuth.ts';
+import { reconcileIntake } from '../_shared/durability.ts';
+import { reconcileProjections } from '../_shared/projections.ts';
 
 const cfg = pushConfig();
 const rest = createSupabaseRest({ cfg: restConfigFromEnv() });
@@ -20,10 +22,12 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const userId = url.searchParams.get('user_id') || undefined;
   try {
-    const report = await reconcileObjects({ rest, objectStore: raw, userId, listPrefix: (p) => raw!.listPrefix(p) });
-    return Response.json({ ok: true, report });
+    const intake = await reconcileIntake(rest, raw);
+    const projections = await reconcileProjections(rest, raw);
+    const report = await reconcileObjects({ rest, objectStore: raw, userId });
+    return Response.json({ ok: true, report, intake, projections });
   } catch (err: any) {
-    console.error('[reconcile] failed:', err?.stack || err);
-    return Response.json({ ok: false, error: String(err?.message || err).slice(0, 300) }, { status: 500 });
+    console.error('[reconcile] intake_reconcile_failed');
+    return Response.json({ ok: false, error: 'reconcile_failed' }, { status: 500 });
   }
 });

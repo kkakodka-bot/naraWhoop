@@ -7,6 +7,158 @@ import WhoopStore
 import UIKit
 #endif
 
+/// Server-only branch: boundary edits use the authenticated override RPC, never local sleep rows.
+private struct ServerSleepScreen: View {
+    @ObservedObject var scores: ServerScoreRepository
+    @State private var dayOffset = 0
+    @State private var editing: ServerSleepEditTarget?
+    @State private var editError: String?
+    @State private var restoring = false
+    private var day: String {
+        Repository.dayString(Calendar.current.date(byAdding: .day, value: -dayOffset, to: Date()) ?? Date())
+    }
+    var body: some View {
+        let cache = ServerScoringSettings.ready && (scores.signedIn || CloudScoreIdentity.hasIngestToken) ? scores.overlay(for: day) : nil
+        let episodes = ServerSleepEpisode.episodes(cache, day: day)
+        ScreenScaffold(title: "Sleep", subtitle: "Server physiology", onRefresh: {
+            await scores.refreshVisibleDays(todayKey: day)
+        }, lazy: true) {
+            HStack {
+                Button { dayOffset += 1 } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Previous day")
+                Spacer()
+                Text(day).font(StrandFont.subhead)
+                Spacer()
+                Button { dayOffset = max(0, dayOffset - 1) } label: { Image(systemName: "chevron.right") }
+                    .disabled(dayOffset == 0).accessibilityLabel("Next day")
+            }
+            NoopCard(tint: StrandPalette.restColor) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(status(cache)).font(StrandFont.subhead)
+                    if let cache {
+                        ForEach(cache.sleepMetadataLines, id: \.self) { line in
+                            Text(line).font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                        }
+                    }
+                    if episodes.isEmpty { Text("No server sleep episodes available for this day.").font(StrandFont.footnote) }
+                    if let message = scores.sleepEditMessage { Text(message).font(StrandFont.footnote) }
+                    if let error = editError ?? scores.lastError { Text(error).font(StrandFont.footnote).foregroundStyle(StrandPalette.statusCritical) }
+                    if cache?.features["sleep"]?.supportsBoundaryOverrides != true {
+                        Text("The selected server model does not support boundary corrections.")
+                            .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    }
+                }
+            }
+            ForEach(episodes) { episode in
+                episodeCard(episode, cache: cache)
+            }
+            if let cache, cache.features["sleep"]?.supportsBoundaryOverrides == true {
+                ForEach(cache.sleepOverrides.filter(\.tombstone)) { deleted in
+                    NoopCard(tint: StrandPalette.restColor) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Deleted sleep · \(utcClock(deleted.start)) – \(utcClock(deleted.end)) UTC").font(StrandFont.footnote)
+                            Button("Restore this sleep") {
+                                guard let target = try? ServerSleepEditTarget.prepare(cache: cache, existing: deleted) else {
+                                    editError = String(localized: "Refresh before restoring this sleep."); return
+                                }
+                                restoring = true
+                                Task { _ = await scores.saveSleepOverride(target, start: target.start, end: target.end, tombstone: false); restoring = false }
+                            }.buttonStyle(.noopGhost).disabled(restoring)
+                        }
+                    }
+                }
+            }
+        }.task(id: day) { await scores.refreshVisibleDays(todayKey: day) }
+            .onChangeCompat(of: scores.signedIn) { signedIn in if !signedIn { editing = nil; editError = nil } }
+            .onChangeCompat(of: cache?.ownerId) { owner in if editing?.ownerId != owner { editing = nil; editError = nil } }
+            .sheet(item: $editing) { target in
+                SleepTimeEditor(bedTs: target.start, wakeTs: target.end,
+                    title: "Edit sleep boundaries",
+                    blurb: "Your reported boundaries are not proof of sleep. The server recomputes from available evidence; local sleep records are unchanged.",
+                    bedLabel: "Started", wakeLabel: "Ended", coverage: target.originalStart...target.originalEnd,
+                    automaticallyDismiss: false, statusMessage: scores.lastError,
+                    deleteMessage: "Suppresses this sleep window on the server. You can restore it from Deleted sleep after the change is confirmed.",
+                    onSave: { start, end in
+                        if await scores.saveSleepOverride(target, start: start, end: end, tombstone: false) { editing = nil }
+                    }, onDelete: {
+                        if await scores.saveSleepOverride(target, start: target.start, end: target.end, tombstone: true) { editing = nil }
+                    })
+            }
+    }
+    private func episodeCard(_ episode: ServerSleepEpisode, cache: ServerScoreDayCache?) -> some View {
+        NoopCard(tint: StrandPalette.restColor) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(episode.episodeType.replacingOccurrences(of: "_", with: " ").capitalized)
+                    .font(StrandFont.subhead)
+                Text(episode.clockLabel)
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                Text("Asleep \(minutes(episode.asleepMin)) · \(String(localized: String.LocalizationValue(episode.opportunityLabel))) \(minutes(episode.inBedMin))")
+                    .font(StrandFont.subhead)
+                if let night = cache?.nights.first(where: { $0.id == episode.id }) {
+                    Text(night.stateCoverageDescription).font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                }
+                if let cache, cache.features["sleep"]?.supportsBoundaryOverrides == true {
+                    Button("Edit boundaries or delete") {
+                        do { editing = try ServerSleepEditTarget.prepare(cache: cache, nightId: episode.id); editError = nil }
+                        catch { editError = String(localized: "Refresh this day before editing; the original boundary revision is unavailable.") }
+                    }.buttonStyle(.noopGhost)
+                }
+                if let reason = episode.reason {
+                    Text(reason).font(StrandFont.footnote)
+                } else {
+                    ForEach(ServerSleepEpisode.states, id: \.self) { state in
+                        let bands = episode.bands.filter { $0.state == state }
+                        let total = bands.reduce(0) { $0 + $1.end - $1.start }
+                        HStack(spacing: 8) {
+                            Text(ServerSleepEpisode.label(state)).font(StrandFont.footnote).frame(width: 100, alignment: .leading)
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Rectangle().fill(StrandPalette.textTertiary.opacity(0.08))
+                                    ForEach(Array(bands.enumerated()), id: \.offset) { _, band in
+                                        Rectangle().fill(color(state))
+                                            .frame(width: geo.size.width * Double(band.end - band.start) / Double(episode.end - episode.start))
+                                            .offset(x: geo.size.width * Double(band.start - episode.start) / Double(episode.end - episode.start))
+                                    }
+                                }
+                            }.frame(height: 10)
+                            Text(bands.isEmpty ? "—" : String(format: String(localized: "%.1fm"), locale: .current, Double(total) / 60)).font(StrandFont.footnote).frame(width: 48, alignment: .trailing)
+                        }
+                    }
+                    Text("Actual server epochs · blank space has no epoch evidence")
+                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+        }
+    }
+
+    private func status(_ cache: ServerScoreDayCache?) -> String {
+        if !ServerScoringSettings.ready { return String(localized: "Server sleep unavailable: configure the server connection.") }
+        if !scores.signedIn && !CloudScoreIdentity.hasIngestToken { return String(localized: "Server sleep unavailable: sign in to your account.") }
+        guard let cache else { return scores.lastError ?? String(localized: "Server sleep unavailable for this day.") }
+        let feature = cache.features["sleep"]
+        let value = "\(feature?.status ?? "unavailable")\(feature?.reason.map { " · \($0)" } ?? "")"
+        return cache.stale ? String(localized: "Stale · \(value)") : value
+    }
+    private func minutes(_ value: Double?) -> String {
+        value.map { String(format: String(localized: "%.0f min"), locale: .current, $0) } ?? "—"
+    }
+    private func utcClock(_ value: Int) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short; formatter.dateStyle = .none; formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: Date(timeIntervalSince1970: Double(value)))
+    }
+    private func color(_ state: String) -> Color {
+        switch state {
+        case "wake": return StrandPalette.sleepAwake
+        case "light": return StrandPalette.sleepLight
+        case "deep": return StrandPalette.sleepDeep
+        case "rem": return StrandPalette.sleepREM
+        case "sleep_unstaged": return StrandPalette.textSecondary
+        case "off_body": return StrandPalette.textTertiary.opacity(0.45)
+        default: return StrandPalette.textTertiary.opacity(0.25)
+        }
+    }
+}
+
 // MARK: - SleepView
 //
 // Whoop-sleep clarity on the locked Noop component system. Scannable in two seconds:
@@ -27,10 +179,15 @@ import UIKit
 // minutes for light/deep/rem/awake; typical = mean of repo.days).
 
 struct SleepView: View {
+    @EnvironmentObject private var serverScores: ServerScoreRepository
+    @State private var serverModel: SleepModel?
+    @State private var serverModelDay: String?
+    private var serverDay: String {
+        ServerScoreDate.offsetDay(serverScores.currentDay, by: -nightOffset,
+                                 timeZone: TimeZone(identifier: serverScores.state.timezone) ?? .current)
+    }
+    private var serverOwned: Bool { serverScores.state.owns(.sleepSessions) }
     @EnvironmentObject var repo: Repository
-    /// For `circadianPhase` only (the body-clock dial). Named `appModel` because `model` on this screen is
-    /// already the built `SleepModel`.
-    @EnvironmentObject var appModel: AppModel
     // NOTE: SleepView itself deliberately does NOT observe `LiveState`. A connected strap publishes
     // at ~1 Hz; observing here would re-evaluate this heavy body on every tick. The only two live
     // dependencies — the "going to sleep / awake" mark card (it appends to the strap log) and the
@@ -66,6 +223,7 @@ struct SleepView: View {
     /// merges each day into one Night, so a split day reads as one correctly-totalled night with the
     /// gaps preserved. Oldest→newest. Falls back to `repo.sleeps` until loaded. (#170)
     @State private var allSessions: [CachedSleepSession] = []
+    @State private var localAuxiliaryRevision: Int?
 
     /// The user's LEARNED habitual midsleep (local time-of-day seconds), or nil under the cold-start
     /// threshold. Loaded from `repo.habitualMidsleepSec()` — the SAME value `AnalyticsEngine.analyzeDay`
@@ -133,7 +291,9 @@ struct SleepView: View {
         // 1Hz HR ticks pay nothing. When it differs (or on first render) we build once, here,
         // synchronously, so the very first frame already shows content (no empty-state flash).
         let key = dataKey
-        let resolved: SleepModel? = (key == modelKey) ? model : buildModel()
+        let localResolved: SleepModel? = (key == modelKey) ? model : buildModel()
+        let resolved: SleepModel? = serverScores.state.hasSleepPresentationOwnership
+            ? (serverModelDay == serverDay ? serverModel : nil) : localResolved
         // Title lives inside the immersive night hero (Bevel-style composition). Omit the scaffold
         // header + generic sky so the Rest world owns the upper band and everything below returns to
         // the normal Sleep canvas. Empty state still gets a plain scaffold title for orientation.
@@ -146,10 +306,28 @@ struct SleepView: View {
                        // with dropping the top-level LiveState observation (the sleep-mark card + the
                        // syncing note now own `live` in their own leaves), so a 1 Hz HR tick no longer
                        // re-evaluates this heavy body.
-                       onRefresh: { await repo.refresh() },
+                       onRefresh: {
+                           let scores = serverScores, day = serverDay
+                           async let cloudRefresh: Void = scores.refreshVisibleDays(todayKey: day, reason: .userInitiated)
+                           await repo.refresh()
+                           await cloudRefresh
+                       },
                        lazy: true,
                        topBackground: resolved == nil ? nil : AnyView(sleepNightTopBackground)) {
             Group {
+                ServerScoreStatusNote(state: serverScores.state, day: serverDay)
+                ServerScoreInputStatusNote(pending: repo.serverInputPending, hasError: repo.serverInputError != nil)
+                if serverOwned {
+                    Text("Server sleep edits are not available yet. Unmigrated sleep scores still use local history.")
+                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                    HStack {
+                        Button("Previous day") { nightOffset = min(nightOffset + 1, 13) }.disabled(nightOffset >= 13)
+                        Spacer()
+                        Text(serverDay).font(StrandFont.footnote)
+                        Spacer()
+                        Button("Next day") { nightOffset = max(0, nightOffset - 1) }.disabled(nightOffset == 0)
+                    }
+                }
                 if let resolved {
                     // Each top-level section fades + rises in sequence on first appear (Reduce-Motion safe).
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
@@ -178,22 +356,22 @@ struct SleepView: View {
             // `resolved` already drives THIS frame, so there is no flash and no extra rebuild.
             .onChangeCompat(of: key) { newKey in
                 modelKey = newKey
-                model = buildModel()
+                model = localResolved
                 // New data invalidates a navigated offset — the same offset would silently
                 // point at a different session. Snap back to last night. (#160)
-                nightOffset = 0
+                if !serverOwned { nightOffset = 0 }
                 navNight = nil
             }
             // The navigated night is decoded once per ◀/▶ press, never per body pass —
             // `decodedNight` JSON-decodes and body re-evaluates at 1Hz while HR streams. (#160)
             .onChangeCompat(of: nightOffset) { newOffset in
-                navNight = newOffset == 0 ? nil : decodedNight(at: newOffset)
+                navNight = serverOwned ? nil : (newOffset == 0 ? nil : decodedNight(at: newOffset))
             }
             .onAppear {
                 if modelKey != key {
                     modelKey = key
-                    model = resolved
-                    nightOffset = 0
+                    model = localResolved
+                    if !serverOwned { nightOffset = 0 }
                     navNight = nil
                 }
             }
@@ -203,17 +381,45 @@ struct SleepView: View {
             // refreshSeq; snaps back to the newest day and rebuilds the model so offset 0 reflects
             // the freshly-loaded blocks. (#170)
             .task(id: repo.refreshSeq) {
-                allSessions = await repo.allSleepSessions()
+                let inputs = SleepModelInputs.captureLocal(from: repo)
+                let inputRevision = repo.refreshSeq
+                let compute = ServerScoreLocalComputePolicy(state: serverScores.state)
+                let sessions = compute.requiresLocalSleepModel ? await repo.localAllSleepSessions() : []
                 // Load the learned habitual midsleep the engine used, so the main-night pick aligns to it
                 // (a shift/late sleeper) instead of only the cold-start band. nil under threshold. (#547)
-                habitualMidsleepSec = await repo.habitualMidsleepSec()
+                let habitual = compute.requiresLocalSleepModel ? await repo.habitualMidsleepSec() : nil
                 // Per-epoch motion for every block (#407), keyed by detected start. mergeDay reads only the
                 // already-resolved group's entries — this just pre-fetches them all so the model build is sync.
-                motionByStart = await repo.sessionMotions(sessions: allSessions)
-                nightOffset = 0
+                let motion = compute.requiresLocalSleepMotion ? await repo.sessionMotions(sessions: sessions) : [:]
+                guard !Task.isCancelled, repo.writeFence.isValid, inputRevision == repo.refreshSeq,
+                      compute == ServerScoreLocalComputePolicy(state: serverScores.state) else { return }
+                allSessions = sessions
+                habitualMidsleepSec = habitual
+                motionByStart = motion
+                localAuxiliaryRevision = inputRevision
+                if !serverOwned { nightOffset = 0 }
                 navNight = nil
                 modelKey = dataKey
-                model = buildModel()
+                model = compute.requiresLocalSleepModel ? SleepModel.build(inputs.withLocalSessions(sessions, habitualMidsleepSec: habitual,
+                    motionByStart: motion), compute: compute) : nil
+            }
+            .task(id: serverDay) { await serverScores.refreshVisibleDays(todayKey: serverDay) }
+            .serverScoreContentReady(state: serverScores.state, day: serverDay,
+                ready: serverScores.state.hasSleepPresentationOwnership && resolved != nil
+                    && (serverScores.state.hasScalarContent(day: serverDay)
+                        || (serverOwned && serverScores.state.days[serverDay]?.snapshot?.sleep.isEmpty == false)))
+            .task { await serverScores.refreshRecentDays() }
+            .task(id: "\(serverScores.state.revision)-\(serverDay)-\(repo.refreshSeq)-\(localAuxiliaryRevision ?? -1)") {
+                let state = serverScores.state
+                let day = serverDay
+                let local = localResolved
+                let built = await Task.detached(priority: .userInitiated) {
+                    ServerScoreSleepPresentation.model(day: day, state: state, local: local)
+                }.value
+                guard !Task.isCancelled else { return }
+                serverModelDay = day
+                serverModel = built
+                if serverOwned { nightHR = ServerScoreSleepPresentation.heartRate(day: day, state: state) }
             }
             .sheet(item: $wakeEdit) { edit in
                 // The night's RECORDED coverage for the #940 guards: from the immutable detected
@@ -231,7 +437,10 @@ struct SleepView: View {
                                               newStartTs: newBedTs, newEndTs: newWakeTs)
                     // Re-score the day so the dashboard aggregates (Rest / recovery) honor the corrected
                     // sleep window, not just the Sleep tab's session view; then refresh the read cache.
-                    await intelligence.analyzeRecent()
+                    if !ServerScoringSettings.isEnabled && !ServerScoringSettings.skipsSyncCoupledRescore {
+                        await intelligence.analyzeRecent()
+                    }
+                    // serverScoring on: edits persist; VPS rescores HRV/sleep — local analyzeRecent deferred.
                     await repo.refresh()
                 }, onDelete: {
                     // Delete = the edit path minus the re-insert: drop this session so every metric
@@ -241,7 +450,9 @@ struct SleepView: View {
                     // deleted row into its ORIGINAL namespace and lifts the tombstone.
                     let snapshot = await repo.deleteSleepSession(detectedStartTs: edit.detectedStartTs,
                                                                  endTs: edit.wakeTs)
-                    await intelligence.analyzeRecent()
+                    if !ServerScoringSettings.isEnabled && !ServerScoringSettings.skipsSyncCoupledRescore {
+                        await intelligence.analyzeRecent()
+                    }
                     await repo.refresh()
                     // `edit.bedTs` is the effective (displayed) onset, so the banner shows the same clock
                     // time the user saw for this night.
@@ -263,8 +474,9 @@ struct SleepView: View {
                                 blurb: "Pick when the nap started and ended. NARA stages it from your data as its own session, separate from the night's sleep.",
                                 bedLabel: "Nap started", wakeLabel: "Nap ended") { startTs, endTs in
                     await repo.addManualNap(startTs: startTs, endTs: endTs)
-                    // Re-score so the day's aggregates pick up the new session, exactly like an edit.
-                    await intelligence.analyzeRecent()
+                    if !ServerScoringSettings.isEnabled && !ServerScoringSettings.skipsSyncCoupledRescore {
+                        await intelligence.analyzeRecent()
+                    }
                     await repo.refresh()
                 }
             }
@@ -302,7 +514,9 @@ struct SleepView: View {
     private func undoSleepDelete(_ banner: SleepUndoBanner) async {
         sleepUndoTask?.cancel()
         await repo.undoDeleteSleepSession(banner.snapshot)
-        await intelligence.analyzeRecent()
+        if !ServerScoringSettings.isEnabled && !ServerScoringSettings.skipsSyncCoupledRescore {
+            await intelligence.analyzeRecent()
+        }
         await repo.refresh()
         await MainActor.run { withAnimation(.easeOut(duration: 0.2)) { sleepUndo = nil } }
     }
@@ -357,6 +571,7 @@ struct SleepView: View {
     /// ◀/▶-navigated night. Shared by the Rest hero overline and the hypnogram nav header so both
     /// name the SAME night the hero's score is now resolved for.
     private var nightRelativeLabel: LocalizedStringKey {
+        if serverOwned { return "\(serverDay)" }
         let n = nightsAgo(nightOffset)
         return n == 0 ? "Last night" : (n == 1 ? "1 night ago" : "\(n) nights ago")
     }
@@ -394,8 +609,11 @@ struct SleepView: View {
     /// a navigated past night reads ITS OWN score, never last night's. nil when that day has no score.
     private func performanceScore(for night: Night) -> Double? {
         let wakeDay = Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(night.session.endTs)))
+        if serverScores.state.owns(.sleepPerformance) {
+            return serverScores.state.days[serverOwned ? serverDay : wakeDay]?.snapshot?.value(.sleepPerformance)
+        }
         if let p = repo.importedSleep[wakeDay]?.performancePct { return p }
-        guard let daily = repo.days.last(where: { $0.day == wakeDay }) else { return nil }
+        guard let daily = repo.localSleepModelDays.last(where: { $0.day == wakeDay }) else { return nil }
         return AnalyticsEngine.Rest.composite(daily: daily)
     }
 
@@ -420,13 +638,9 @@ struct SleepView: View {
     /// night against, and an empty ring would read as a broken chart rather than as "not enough data". The
     /// card is a reorderable Sleep section, so anyone who does not want it hides it in Arrange — the same
     /// affordance every other card on this screen already has, rather than a new setting of its own.
-    @ViewBuilder
     private func bodyClockDial(_ model: SleepModel) -> some View {
-        if let phase = appModel.circadianPhase, phase.confidence != .unreadable {
-            BodyClockDialCard(estimate: phase,
-                              actualBedHour: Self.localClockHour(model.night.session.effectiveStartTs),
-                              actualWakeHour: Self.localClockHour(model.night.session.endTs))
-        }
+        SleepBodyClockDial(actualBedHour: Self.localClockHour(model.night.session.effectiveStartTs),
+                           actualWakeHour: Self.localClockHour(model.night.session.endTs))
     }
 
     /// A unix second as a fractional local clock hour — the dial's only input beyond the phase estimate.
@@ -559,6 +773,7 @@ struct SleepView: View {
     /// night reads its OWN provenance, not last night's. Honest: never a blanket "on-device". Apple Health
     /// carries no sleep into `importedSleep`, so the sleep merge winner is only ever Whoop vs on-device. (C4)
     private func nightSource(_ night: Night) -> String {
+        if !night.serverSessionIDs.isEmpty { return "Server" }
         let wakeDay = Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(night.session.endTs)))
         if repo.importedSleep[wakeDay] != nil { return String(localized: "Whoop") }
         // An Oura ring PROVIDES the night's stages (its own SleepNet hypnogram, banked as the imported
@@ -589,7 +804,7 @@ struct SleepView: View {
             // #940: when the NEWEST day failed to merge (model.isStubNight), offset 0 falls through
             // to the same honest stage-less stub path the navigated browse uses, instead of drawing
             // a zeroed stage card. History stays browsable and the edit pencil stays reachable.
-            if nightOffset == 0, !model.isStubNight {
+            if (serverOwned || nightOffset == 0), !model.isStubNight {
                 nightNavHeader(trailing: model.night.spanLabel)
                 sleepWindowRow(model.night)
                 stageCard(model.night, intervals: model.intervals)
@@ -650,6 +865,7 @@ struct SleepView: View {
                     }
                     .buttonStyle(LiquidPressStyle())
                     .accessibilityLabel("Add a nap")
+                    .disabled(serverOwned)
                 }
                 // Daily split (#518): only meaningful once the day has a nap; a single-night day reads
                 // exactly as before. Total = main + naps, the time that drives the day's Rest.
@@ -747,6 +963,7 @@ struct SleepView: View {
             .buttonStyle(LiquidPressStyle())
             .help("Edit nap times")
             .accessibilityLabel(isEdited ? "Edit nap times (edited)" : "Edit nap times")
+            .disabled(serverOwned)
         }
     }
 
@@ -839,9 +1056,11 @@ struct SleepView: View {
         // WHOOP top-chart data (ryanAtriumAi #988): 1-min sleeping-HR buckets for THIS night, reloaded
         // only when the displayed night changes (same `.task(id:)` pattern the other per-night loads use).
         .task(id: night.session.startTs) {
-            nightHR = await repo.hrBuckets(from: night.session.startTs,
-                                           to: night.session.endTs,
-                                           bucketSeconds: 60)
+            if serverOwned {
+                nightHR = ServerScoreSleepPresentation.heartRate(day: serverDay, state: serverScores.state)
+            } else {
+                nightHR = await repo.hrBuckets(from: night.session.startTs, to: night.session.endTs, bucketSeconds: 60)
+            }
         }
     }
 
@@ -911,13 +1130,17 @@ struct SleepView: View {
     /// empty note rather than a fabricated flat zero trace.
     @ViewBuilder
     private func motionStrip(_ night: Night) -> some View {
+        let serverRuns = night.serverMotion.map(ServerScoreDisplay.motionRuns) ?? []
         // Label above the trace, plot inset 10pt to line up with the stage-timeline rows' strips
         // (the old 44+12 gutter matched the removed Hypnogram's y-axis column). (ryanAtriumAi #988)
         VStack(alignment: .leading, spacing: 2) {
             Text("Move")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
-            if night.motionEpochs.count >= 2 {
+            if !serverRuns.isEmpty {
+                ServerScoreMotionTrace(runs: serverRuns, start: night.session.startTs, end: night.session.endTs)
+                    .padding(.horizontal, 10)
+            } else if night.serverMotion == nil && night.motionEpochs.count >= 2 {
                 MotionTrace(epochs: night.motionEpochs, height: 40, tint: StrandPalette.restColor)
                     .padding(.horizontal, 10)
             } else {
@@ -951,7 +1174,7 @@ struct SleepView: View {
     /// day's REAL stored blocks (each carries the day's value), never the synthetic merged `session`; a nil
     /// flag (imported / pre-migration night) is never flagged. Mirror in Kotlin.
     private func stageStagingIsSparse(_ night: Night) -> Bool {
-        night.sourceBlocks.contains { $0.stagingSparse == true }
+        night.hasSparseMainStaging
     }
 
     /// How much of this night's window its stage timeline actually accounts for, or nil when coverage is
@@ -960,9 +1183,7 @@ struct SleepView: View {
     /// group resolves identically to the hero's — a per-row answer would be the wrong question for a
     /// fragmented night. Mirror in Kotlin.
     private func stageCoverage(_ night: Night) -> Double? {
-        let group = SleepView.mainNightGroup(night.sourceBlocks,
-                                             habitualMidsleepSec: night.habitualMidsleepSec)
-        return HypnogramCoverage.groupFraction(group.isEmpty ? night.sourceBlocks : group)
+        night.stageCoverageFraction
     }
 
     /// Pure H9 gate (unit-testable without a live view) — true when a night's staging is low-confidence:
@@ -1192,7 +1413,7 @@ struct SleepView: View {
         // Resolve the real stored block by identity (the night's main block), never by re-scanning
         // `allSessions` for a wake-time match — that guess could pick the wrong source/night and, when
         // it missed, fall back to the synthetic effective onset (not a real key) so the edit no-oped.
-        if let target = night.editTarget {
+        if !serverOwned, let target = night.editTarget {
             let isEdited = target.userEdited
             Button {
                 wakeEdit = WakeEdit(detectedStartTs: target.startTs,
@@ -1473,7 +1694,16 @@ struct SleepView: View {
     /// plus the mean — WHOOP's "typical range". Pass nil for total asleep. Returns nil below 5
     /// scored nights (honest cold-start: no fabricated range from a few days).
     private func stageTypical(_ stage: SleepStage?) -> (lo: Double, hi: Double, mean: Double)? {
-        let values: [Double] = repo.days.suffix(30).compactMap { d in
+        let metric: ServerScoreMetric
+        switch stage {
+        case nil: metric = .sleepTotal
+        case .light?: metric = .sleepLight
+        case .deep?: metric = .sleepDeep
+        case .rem?: metric = .sleepREM
+        case .awake?: metric = .sleepAwake
+        }
+        guard !serverScores.state.owns(metric) else { return nil }
+        let values: [Double] = repo.localSleepModelDays.suffix(30).compactMap { d in
             switch stage {
             case nil:     return d.totalSleepMin
             case .light?: return d.lightMin
@@ -1500,7 +1730,8 @@ struct SleepView: View {
 
     /// 30-day mean restorative minutes (deep + REM per scored night).
     private func restorativeTypical() -> Double? {
-        let values: [Double] = repo.days.suffix(30).compactMap { d in
+        guard !serverScores.state.owns(.restorativeMinutes) else { return nil }
+        let values: [Double] = repo.localSleepModelDays.suffix(30).compactMap { d in
             guard let deep = d.deepMin, let rem = d.remMin else { return nil }
             let v = deep + rem
             return v > 0 ? v : nil
@@ -1733,18 +1964,22 @@ struct SleepView: View {
 
     /// A cheap fingerprint of the repo inputs this screen derives from. Recomputed every
     /// render but only contains counts + the identity of the newest/oldest rows, so equality
-    /// is fast. When it changes we know `repo.days`/`repo.sleeps` actually changed and the
+    /// is fast. When it changes we know the retained local rows actually changed and the
     /// memoized `model` must be rebuilt; otherwise hover/animation/1Hz HR re-renders are free.
     private var dataKey: SleepInputKey {
-        SleepInputKey(
+        let days = repo.localSleepModelDays
+        let sleeps = repo.localSleepModelSleeps
+        return SleepInputKey(
             loaded: repo.loaded,
-            daysCount: repo.days.count,
-            sleepsCount: repo.sleeps.count,
-            firstDay: repo.days.first?.day,
-            lastDay: repo.days.last?.day,
-            lastDayUpdated: repo.days.last,
-            lastSleep: repo.sleeps.last,
-            refreshSeq: repo.refreshSeq)
+            daysCount: days.count,
+            sleepsCount: sleeps.count,
+            firstDay: days.first?.day,
+            lastDay: days.last?.day,
+            lastDayUpdated: days.last,
+            lastSleep: sleeps.last,
+            refreshSeq: repo.refreshSeq,
+            computePolicy: .init(state: serverScores.state),
+            auxiliaryRevision: localAuxiliaryRevision)
     }
 
     /// Build every expensive derivation exactly once. Called only when `dataKey` changes, so each
@@ -1753,22 +1988,20 @@ struct SleepView: View {
     /// the pure `SleepModel.build(_:)` (SleepModel.swift), which the Today host also calls. Returns
     /// nil when there is no usable latest night (renders empty state).
     private func buildModel() -> SleepModel? {
-        SleepModel.build(SleepModelInputs(
-            days: repo.days,
-            sleeps: repo.sleeps,
-            allSessions: allSessions,
-            importedSleep: repo.importedSleep,
-            habitualMidsleepSec: habitualMidsleepSec,
-            motionByStart: motionByStart))
+        let auxiliaryCurrent = localAuxiliaryRevision == repo.refreshSeq
+        return SleepModel.build(SleepModelInputs.captureLocal(from: repo,
+            allSessions: auxiliaryCurrent ? allSessions : [],
+            habitualMidsleepSec: auxiliaryCurrent ? habitualMidsleepSec : nil,
+            motionByStart: auxiliaryCurrent ? motionByStart : [:]), compute: .init(state: serverScores.state))
     }
 
     // MARK: - Derived model
 
     /// The browsable block list: every sleep session un-deduplicated (incl. same-day naps / split
-    /// sleep). Falls back to `repo.sleeps` (one-per-night) until the fuller list loads, so the hero
+    /// sleep). Falls back to retained local one-per-night rows until the fuller list loads, so the hero
     /// is never empty during the first frame. (#170)
     private var navSessions: [CachedSleepSession] {
-        allSessions.isEmpty ? repo.sleeps : allSessions
+        localAuxiliaryRevision == repo.refreshSeq && !allSessions.isEmpty ? allSessions : repo.localSleepModelSleeps
     }
 
     /// The browsable DAY list — a thin wrapper over the shared `SleepModel.navDays`, which is the
@@ -1940,6 +2173,7 @@ struct SleepView: View {
     /// The real stored blocks composing the day at `offset` (for the stage-less stub Night, so its edit
     /// affordance still targets a real row). Empty when out of range.
     private func dayBlocks(at offset: Int) -> [CachedSleepSession] {
+        if serverOwned { return serverModel?.night.sourceBlocks ?? [] }
         let days = navDays
         return offset >= 0 && offset < days.count ? days[offset] : []
     }
@@ -1958,7 +2192,8 @@ struct SleepView: View {
     /// stages. Using the main block (#518) keeps the stub header on the real night rather than a
     /// 1 AM→5 PM overnight+nap span. (#160, #170)
     private func sessionRow(at offset: Int) -> CachedSleepSession? {
-        SleepView.stubDaySession(dayBlocks(at: offset), habitualMidsleepSec: habitualMidsleepSec)
+        if serverOwned { return serverModel?.night.session }
+        return SleepView.stubDaySession(dayBlocks(at: offset), habitualMidsleepSec: habitualMidsleepSec)
     }
 
     /// The stage-less stub SESSION for a day whose blocks decode to no usable sleep: the MAIN
@@ -1980,7 +2215,7 @@ struct SleepView: View {
     /// hierarchy so the hero reads like every other section. (#160)
     @ViewBuilder
     private func nightNavHeader(trailing: String) -> some View {
-        let lastIndex = max(navDays.count - 1, 0)
+        let lastIndex = serverOwned ? 13 : max(navDays.count - 1, 0)
         let title = nightRelativeLabel
         VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
             HStack(spacing: NoopMetrics.cardInnerSpacing) {
@@ -2188,6 +2423,18 @@ struct SleepView: View {
     }()
 }
 
+private struct SleepBodyClockDial: View {
+    @EnvironmentObject private var appModel: AppModel
+    let actualBedHour: Double
+    let actualWakeHour: Double
+
+    var body: some View {
+        if let phase = appModel.circadianPhase, phase.confidence != .unreadable {
+            BodyClockDialCard(estimate: phase, actualBedHour: actualBedHour, actualWakeHour: actualWakeHour)
+        }
+    }
+}
+
 /// Original atmospheric night hero — photographic moonlit lake plus lightweight static depth layers.
 /// Drawn as ScreenScaffold.topBackground (fixed under the status bar / overscroll); bottom fades into
 /// `surfaceBase` before the first card. No TimelineView, no animation loops.
@@ -2241,13 +2488,18 @@ private struct SleepPerformanceNightScene: View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
+            let photo = resolvedNightHeroImage
             ZStack(alignment: .bottom) {
-                // Guaranteed atmospheric base (lake / hills / sky) if the photo asset is missing.
+                // UIKit validates the opaque bundled photo; an unvalidated Image handle doesn't.
+                #if canImport(UIKit)
+                if photo == nil { proceduralNightBase(width: w, height: h) }
+                #else
                 proceduralNightBase(width: w, height: h)
+                #endif
 
                 // Photographic original (moonlit lake). Ships in StrandiOS Assets.xcassets.
                 Group {
-                    if let img = resolvedNightHeroImage {
+                    if let img = photo {
                         img
                             .resizable()
                             .scaledToFill()
@@ -2642,6 +2894,8 @@ private struct SleepInputKey: Equatable {
     /// Bumped on every Repository.refresh — catches a re-import that changes only the
     /// imported metricSeries figures (importedSleep) without touching days/sleeps.
     let refreshSeq: Int
+    let computePolicy: ServerScoreLocalComputePolicy
+    let auxiliaryRevision: Int?
 }
 
 // SleepModel / Night / Stages and the pure `SleepModel.build(_:)` derivation pipeline now live in
@@ -2712,6 +2966,9 @@ private struct SleepTimeEditor: View {
     /// userEdited/nap row, which is never re-detected, so the delete-confirm copy drops the suppression
     /// promise for it, matching the undo banner. (#65 confirm honesty.)
     private let suppressesReDetection: Bool
+    private let automaticallyDismiss: Bool
+    private let statusMessage: String?
+    private let deleteMessage: LocalizedStringKey?
 
     @Environment(\.dismiss) private var dismiss
     @State private var bed: Date
@@ -2736,6 +2993,9 @@ private struct SleepTimeEditor: View {
          deleteLabel: LocalizedStringKey = "Delete this sleep",
          coverage: ClosedRange<Int>? = nil,
          suppressesReDetection: Bool = true,
+         automaticallyDismiss: Bool = true,
+         statusMessage: String? = nil,
+         deleteMessage: LocalizedStringKey? = nil,
          onSave: @escaping (Int, Int) async -> Void,
          onDelete: (() async -> Void)? = nil) {
         self.onSave = onSave
@@ -2745,6 +3005,9 @@ private struct SleepTimeEditor: View {
         self.deleteLabel = deleteLabel
         self.coverage = coverage
         self.suppressesReDetection = suppressesReDetection
+        self.automaticallyDismiss = automaticallyDismiss
+        self.statusMessage = statusMessage
+        self.deleteMessage = deleteMessage
         // A bed can never be seeded in the future (#940): the "Add a nap" anchor is wake+1h, which is
         // ahead of the clock right after a morning sync; clamp so the picker opens inside its bound.
         let seedBed = min(bedTs, Int(Date().timeIntervalSince1970))
@@ -2766,7 +3029,8 @@ private struct SleepTimeEditor: View {
         saving = true
         Task {
             await onSave(start, end)
-            dismiss()
+            saving = false
+            if automaticallyDismiss { dismiss() }
         }
     }
 
@@ -2778,6 +3042,7 @@ private struct SleepTimeEditor: View {
             Text(blurb)
                 .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let statusMessage { Text(statusMessage).font(StrandFont.footnote).foregroundStyle(StrandPalette.statusCritical) }
 
             NoopCard(padding: NoopMetrics.cardPadding, tint: StrandPalette.restColor) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -2873,15 +3138,16 @@ private struct SleepTimeEditor: View {
                 saving = true
                 Task {
                     await onDelete?()
-                    dismiss()
+                    saving = false
+                    if automaticallyDismiss { dismiss() }
                 }
             }
         } message: {
             // A detected night is tombstoned so it won't re-detect; a userEdited/nap row writes no
             // tombstone, so its copy drops that (false) promise. Mirrors the undo banner. (#65)
-            Text(suppressesReDetection
+            Text(deleteMessage ?? (suppressesReDetection
                  ? "Removes this recorded sleep and recomputes the day without it. NARA won't re-detect sleep in this window. You can undo for a few seconds after."
-                 : "Removes this sleep and recomputes the day without it. You can undo for a few seconds after.")
+                 : "Removes this sleep and recomputes the day without it. You can undo for a few seconds after."))
         }
     }
 }

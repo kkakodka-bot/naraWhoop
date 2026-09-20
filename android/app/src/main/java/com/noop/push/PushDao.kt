@@ -216,10 +216,16 @@ class PushDao internal constructor(
     private fun Cursor.appendRecord(spec: TableSpec): PushAppendRecord {
         val values = values(spec)
         val rowId = getLong(getColumnIndexOrThrow("_pushRowId"))
+        val data = spec.dataColumns.associateTo(linkedMapOf()) { name ->
+            if (name == "provenanceJSON") "provenance" to values[name]?.let {
+                try { com.noop.data.ScalarProvenance.validated(it as String) }
+                catch (_: Exception) { throw PushProtocolException("Invalid scalar provenance") }
+            } else name to values[name]
+        }
         return PushAppendRecord(
             rowId,
             spec.keyColumns.associateWith(values::get),
-            spec.dataColumns.associateWith(values::get),
+            data,
         )
     }
 
@@ -243,12 +249,19 @@ class PushDao internal constructor(
                 }
                 val samples = getBlob(getColumnIndexOrThrow("samples"))
                     ?: throw PushProtocolException("ppgWaveformSample.samples must not be null")
-                PushBinaryRow.PpgWaveform(PushPpgWaveformRecord(rowId, ts, burstIndex, samples))
+                val recordIndex = getLong(getColumnIndexOrThrow("recordIndex")).takeIf { it >= 0 }
+                PushBinaryRow.PpgWaveform(PushPpgWaveformRecord(rowId, ts, burstIndex, samples, recordIndex))
             }
             PushBinaryTable.V18_AUX_SAMPLE -> {
                 val fields = getBlob(getColumnIndexOrThrow("fields"))
                     ?: throw PushProtocolException("v18AuxSample.fields must not be null")
-                PushBinaryRow.V18Aux(PushV18AuxRecord(rowId, ts, fields))
+                val index = getLong(getColumnIndexOrThrow("recordIndex"))
+                if (index !in -1L..4294967295L) throw PushProtocolException("Invalid auxiliary identity")
+                val complete = com.noop.data.V18AuxIdentity.complete(fields)
+                    ?: throw PushProtocolException("Auxiliary fields require raw-archive validation")
+                if (complete.recordIndex != index.takeIf { it >= 0 }) throw PushProtocolException("Auxiliary identity mismatch")
+                PushBinaryRow.V18Aux(PushV18AuxRecord(rowId, ts, fields, index.takeIf { it >= 0 },
+                    getString(getColumnIndexOrThrow("resourceKey"))))
             }
             PushBinaryTable.RAW_BATCH -> throw PushProtocolException("rawBatch is not available on Android")
             PushBinaryTable.RAW_IMU_SESSION -> throw PushProtocolException("rawImuSession is file-backed")
@@ -260,7 +273,11 @@ class PushDao internal constructor(
             val index = getColumnIndexOrThrow(name)
             val value: Any? = when (getType(index)) {
                 Cursor.FIELD_TYPE_NULL -> null
-                Cursor.FIELD_TYPE_INTEGER -> if (name in spec.booleanColumns) getLong(index) != 0L else getLong(index)
+                Cursor.FIELD_TYPE_INTEGER -> when {
+                    name == "receivedMonotonicNs" -> getLong(index).toString() // exact across JSON/JavaScript
+                    name in spec.booleanColumns -> getLong(index) != 0L
+                    else -> getLong(index)
+                }
                 Cursor.FIELD_TYPE_FLOAT -> getDouble(index)
                 Cursor.FIELD_TYPE_STRING -> getString(index)
                 Cursor.FIELD_TYPE_BLOB -> getBlob(index)
@@ -283,12 +300,19 @@ class PushDao internal constructor(
     private fun appendSpec(table: PushAppendTable): TableSpec = when (table) {
         PushAppendTable.HR_SAMPLE -> HR
         PushAppendTable.RR_INTERVAL -> RR
+        PushAppendTable.RR_PACKET_PROVENANCE -> TableSpec("rrPacketProvenance", listOf("packetId"),
+            listOf("ts", "sensorTs", "recordIndex", "rawHex", "srcChannel", "schemaVersion", "decoderVersion", "clockVersion", "timestampPrecisionSeconds", "clockOffsetSeconds", "declaredCount"))
+        PushAppendTable.STANDARD_HR_RECEIPT -> TableSpec("standardHRReceipt", listOf("receiptId"),
+            listOf("ts", "sessionId", "notificationOrdinal", "receivedUnixMs", "receivedMonotonicNs", "rawHex", "schemaVersion", "clockVersion"))
         PushAppendTable.EVENT -> EVENT
         PushAppendTable.BATTERY -> BATTERY
         PushAppendTable.SPO2_SAMPLE -> SPO2
         PushAppendTable.SKIN_TEMP_SAMPLE -> SKIN_TEMP
         PushAppendTable.RESP_SAMPLE -> RESP
         PushAppendTable.GRAVITY_SAMPLE -> GRAVITY
+        PushAppendTable.STEP_SAMPLE -> STEP
+        PushAppendTable.SLEEP_STATE_SAMPLE -> SLEEP_STATE
+        PushAppendTable.PPG_HR_SAMPLE -> PPG_HR
     }
 
     private fun mutableSpec(table: PushMutableTable): TableSpec = when (table) {
@@ -328,6 +352,9 @@ class PushDao internal constructor(
         val GRAVITY = TableSpec(
             "gravitySample", listOf("ts"), listOf("x", "y", "z", "dynAccel"),
         )
+        val STEP = TableSpec("stepSample", listOf("ts"), listOf("counter", "activityClass", "provenanceJSON"))
+        val SLEEP_STATE = TableSpec("sleepStateSample", listOf("ts"), listOf("state", "rawByte", "provenanceJSON"))
+        val PPG_HR = TableSpec("ppgHrSample", listOf("ts"), listOf("bpm", "conf", "provenanceJSON"))
         val DAILY = TableSpec(
             "dailyMetric",
             listOf("day"),
@@ -361,12 +388,12 @@ class PushDao internal constructor(
         val PPG_WAVEFORM = TableSpec(
             "ppgWaveformSample",
             keyColumns = emptyList(),
-            dataColumns = listOf("ts", "burstIndex", "samples"),
+            dataColumns = listOf("ts", "burstIndex", "samples", "recordIndex"),
         )
         val V18_AUX = TableSpec(
             "v18AuxSample",
             keyColumns = emptyList(),
-            dataColumns = listOf("ts", "fields"),
+            dataColumns = listOf("ts", "fields", "recordIndex", "resourceKey"),
         )
     }
 }

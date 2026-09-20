@@ -6,11 +6,19 @@ import {
   workoutSessionRow,
 } from './structuredSync.ts';
 import { OBJECT_LANE_STREAMS } from './keys.ts';
+import { isDeepStrictEqual } from 'node:util';
+import { scalarProvenance } from './scalarProvenance.ts';
 
-export const PUSH_PROTOCOL_VERSIONS = ['1.2', '1.1', '1.0'];
+export const PUSH_PROTOCOL_VERSIONS = ['1.3', '1.2', '1.1', '1.0'];
+// Receiver support precedes advertisement. Add1.4 above only after the cross-stack golden gate.
+export function schemaVersionFor(stream: string, protocolVersion: string): number {
+  if (stream === 'ppgWaveformSample' && ['1.3', '1.4'].includes(protocolVersion)) return 2;
+  if (protocolVersion === '1.4' && ['v18AuxSample', 'stepSample', 'sleepStateSample', 'ppgHrSample'].includes(stream)) return 2;
+  return 1;
+}
 
 export const APPEND_STREAMS = new Set([
-  'hrSample', 'rrInterval', 'event', 'battery', 'spo2Sample', 'skinTempSample',
+  'hrSample', 'rrInterval', 'rrPacketProvenance', 'standardHRReceipt', 'event', 'battery', 'spo2Sample', 'skinTempSample',
   'respSample', 'gravitySample', 'stepSample', 'sleepStateSample', 'ppgHrSample',
   'appleStepHour', 'ouraRaw', 'coachMessage',
 ]);
@@ -38,6 +46,7 @@ const PROTOCOL_1_2_ONLY = new Set(OBJECT_LANE_STREAMS);
 
 /** Streams added in protocol 1.1 — excluded from the 1.0 capability set. */
 const PROTOCOL_1_1_ONLY_APPEND = new Set([
+  'rrPacketProvenance', 'standardHRReceipt',
   'stepSample', 'sleepStateSample', 'ppgHrSample', 'appleStepHour', 'ouraRaw', 'coachMessage',
 ]);
 const PROTOCOL_1_1_ONLY_REPLACE = new Set([
@@ -55,15 +64,61 @@ type AppendMapRowArgs = {
   sourceId: unknown;
   batchId: unknown;
   record: any;
+  protocolVersion?: string;
 };
 
-/** v1.0 append streams with Supabase projection tables (P1.1). */
+/** Validate the existing scalar contract without converting absent measurements to zero. */
+export function scalarAppendFields(stream: string, record: any, protocolVersion = '1.1'): Record<string, unknown> | null {
+  if (!['stepSample', 'sleepStateSample', 'ppgHrSample'].includes(stream)) return null;
+  const invalid = (): never => { throw new PushProtocolError('invalid_scalar_record', 422); };
+  const ts = record?.key?.ts;
+  if (!Number.isSafeInteger(ts) || !Number.isFinite(new Date(ts * 1000).getTime())) invalid();
+  const integer = (value: unknown, optional = false): number | null => {
+    if (optional && value == null) return null;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < -2147483648 || value > 2147483647) invalid();
+    return value as number;
+  };
+  const data = record?.data;
+  const provenance = scalarProvenance(data?.provenance, protocolVersion);
+  const extension = protocolVersion === '1.4' ? { provenance } : {};
+  if (stream === 'stepSample') {
+    const counter = integer(data?.counter)!;
+    const activity = integer(data?.activityClass, true);
+    if (counter < 0 || counter > 65535 || (activity != null && (activity < 0 || activity > 2))) invalid();
+    return { ts, counter, activity_class: activity, ...extension };
+  }
+  if (stream === 'sleepStateSample') {
+    const state = integer(data?.state)!;
+    const raw = integer(data?.rawByte, true);
+    if (state < 0 || state > 3 || (raw != null && (raw < 0 || raw > 255 || ((raw >> 4) & 3) !== state))) invalid();
+    return { ts, state, raw_byte: raw, ...extension };
+  }
+  const bpm = integer(data?.bpm)!;
+  const conf = data?.conf;
+  if (bpm <= 0 || (conf != null && (typeof conf !== 'number' || !Number.isFinite(conf) || conf < 0 || conf > 1))) invalid();
+  return { ts, bpm, conf: conf ?? null, ...extension };
+}
+
+function scalarProjection(table: string, stream: string) {
+  return {
+    table, onConflict: 'user_id,device_id,ts', tsKey: 'ts',
+    mapRow: ({ userId, deviceId, sourceId, batchId, record, protocolVersion }: AppendMapRowArgs) => ({
+      user_id: userId, device_id: deviceId, source_id: sourceId, batch_id: batchId,
+      ...scalarAppendFields(stream, record, protocolVersion),
+    }),
+  };
+}
+
+/** Supported append streams with queryable Supabase projections. */
 export const APPEND_STREAM_PROJECTIONS: Record<string, {
   table: string;
   onConflict: string;
   tsKey: string;
   mapRow: (args: AppendMapRowArgs) => Record<string, unknown> | null;
 }> = {
+  stepSample: scalarProjection('noop_step_samples', 'stepSample'),
+  sleepStateSample: scalarProjection('noop_sleep_state_samples', 'sleepStateSample'),
+  ppgHrSample: scalarProjection('noop_ppg_hr_samples', 'ppgHrSample'),
   hrSample: {
     table: 'noop_hr_samples',
     onConflict: 'user_id,device_id,ts',
@@ -100,12 +155,88 @@ export const APPEND_STREAM_PROJECTIONS: Record<string, {
         seq,
         batch_id: batchId,
       };
-      const ord = Number(record.data?.ord);
-      if (Number.isFinite(ord)) row.ord = ord;
-      const srcChannel = Number(record.data?.srcChannel);
-      if (Number.isFinite(srcChannel)) row.srcChannel = srcChannel;
-      const tsSuspect = Number(record.data?.tsSuspect);
-      if (Number.isFinite(tsSuspect)) row.tsSuspect = tsSuspect;
+      // An absent order/channel/clock flag is unknown, not numeric zero.
+      for (const field of ['ord', 'srcChannel', 'tsSuspect']) {
+        const value = record.data?.[field];
+        if (value === null) row[field] = null;
+        else if (value !== undefined && Number.isFinite(Number(value))) row[field] = Number(value);
+      }
+      return row;
+    },
+  },
+  rrPacketProvenance: {
+    table: 'noop_rr_packet_provenance',
+    onConflict: 'user_id,device_id,packetId',
+    tsKey: 'ts',
+    mapRow: ({ userId, deviceId, sourceId, batchId, record }) => {
+      const d = record.data ?? {};
+      const packetId = record.key?.packetId;
+      if (typeof packetId !== 'string' || !/^[a-f0-9]{64}$/.test(packetId) ||
+          typeof d.rawHex !== 'string' || !/^[a-f0-9]+$/.test(d.rawHex) ||
+          d.rawHex.length % 2 !== 0 || d.rawHex.length < 56 || d.rawHex.length > 131086 ||
+          d.schemaVersion !== 1 || d.srcChannel !== 5 || d.decoderVersion !== 'whoop5-v18-original-words-v1' ||
+          !['sensor-second-unmapped', 'legacy-stale-clock-snap300-v1'].includes(String(d.clockVersion))) return null;
+      for (const name of ['ts', 'sensorTs', 'recordIndex', 'clockOffsetSeconds', 'declaredCount']) {
+        if (!Number.isSafeInteger(d[name])) return null;
+      }
+      if (Number(d.recordIndex) < 0 || Number(d.recordIndex) > 4294967295 ||
+          Number(d.declaredCount) < 0 || Number(d.declaredCount) > 255 ||
+          ![1, 300].includes(Number(d.timestampPrecisionSeconds)) ||
+          Number(d.ts) - Number(d.sensorTs) !== Number(d.clockOffsetSeconds)) return null;
+      // These are raw claimed receipt fields, not server-verified timing. The reader recomputes
+      // CRC, sensor-record SHA256, word positions and all metadata before creating observations.
+      return { user_id: userId, device_id: deviceId, source_id: sourceId, batch_id: batchId, packetId,
+        ts: d.ts, sensorTs: d.sensorTs, recordIndex: d.recordIndex, rawHex: d.rawHex, srcChannel: d.srcChannel,
+        schemaVersion: d.schemaVersion, decoderVersion: d.decoderVersion, clockVersion: d.clockVersion,
+        timestampPrecisionSeconds: d.timestampPrecisionSeconds, clockOffsetSeconds: d.clockOffsetSeconds,
+        declaredCount: d.declaredCount };
+    },
+  },
+  standardHRReceipt: {
+    table: 'noop_standard_hr_receipts',
+    onConflict: 'user_id,device_id,receiptId',
+    tsKey: 'ts',
+    mapRow: ({ userId, deviceId, sourceId, batchId, record }) => {
+      const d = record.data ?? {};
+      const receiptId = record.key?.receiptId;
+      if (typeof d.sessionId !== 'string' ||
+          !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(d.sessionId) ||
+          typeof d.rawHex !== 'string' || !/^[a-f0-9]{2,1024}$/.test(d.rawHex) || d.rawHex.length % 2 !== 0 ||
+          d.schemaVersion !== 1 || d.clockVersion !== 'host-arrival-unmapped') return null;
+      for (const field of ['ts', 'notificationOrdinal', 'receivedUnixMs']) {
+        if (!Number.isSafeInteger(d[field]) || d[field] < 0) return null;
+      }
+      // Nanosecond host uptime crosses JavaScript's safe-integer boundary after ~104 days.
+      // Require a decimal string on the wire, retain it exactly for PostgreSQL bigint parsing.
+      if (typeof d.receivedMonotonicNs !== 'string' || !/^(0|[1-9][0-9]{0,18})$/.test(d.receivedMonotonicNs) ||
+          BigInt(d.receivedMonotonicNs) > 9223372036854775807n ||
+          receiptId !== `${d.sessionId}:${d.notificationOrdinal}` ||
+          d.ts !== Math.floor(d.receivedUnixMs / 1000)) return null;
+      // Arrival clocks and consecutive notifications do not assert sensor beat timing/continuity.
+      return { user_id: userId, device_id: deviceId, source_id: sourceId, batch_id: batchId, receiptId,
+        ts: d.ts, sessionId: d.sessionId, notificationOrdinal: d.notificationOrdinal,
+        receivedUnixMs: d.receivedUnixMs, receivedMonotonicNs: d.receivedMonotonicNs,
+        rawHex: d.rawHex, schemaVersion: d.schemaVersion, clockVersion: d.clockVersion };
+    },
+  },
+  stepSample: {
+    table: 'noop_step_samples',
+    onConflict: 'user_id,device_id,ts',
+    tsKey: 'ts',
+    mapRow: ({ userId, deviceId, sourceId, batchId, record }) => {
+      const ts = record.key?.ts;
+      const counter = record.data?.counter;
+      if (ts == null || counter == null || !Number.isSafeInteger(Number(ts)) ||
+          !Number.isSafeInteger(Number(counter)) || Number(counter) < 0) return null;
+      const row: Record<string, unknown> = {
+        user_id: userId, device_id: deviceId, source_id: sourceId,
+        ts: Number(ts), counter: Number(counter), batch_id: batchId,
+      };
+      const activityClass = record.data?.activityClass;
+      if (activityClass === null) row.activityClass = null;
+      else if (activityClass !== undefined && Number.isSafeInteger(Number(activityClass))) {
+        row.activityClass = Number(activityClass);
+      }
       return row;
     },
   },
@@ -217,11 +348,12 @@ export const APPEND_STREAM_PROJECTIONS: Record<string, {
     onConflict: 'user_id,device_id,ts',
     tsKey: 'ts',
     mapRow: ({ userId, deviceId, sourceId, batchId, record }) => {
-      const ts = Number(record.key?.ts);
-      const x = Number(record.data?.x);
-      const y = Number(record.data?.y);
-      const z = Number(record.data?.z);
-      if (!Number.isFinite(ts) || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+      const ts = record.key?.ts;
+      const x = record.data?.x;
+      const y = record.data?.y;
+      const z = record.data?.z;
+      if (typeof ts !== 'number' || !Number.isSafeInteger(ts) ||
+          [x, y, z].some((value) => typeof value !== 'number' || !Number.isFinite(value))) return null;
       const row: Record<string, unknown> = {
         user_id: userId,
         device_id: deviceId,
@@ -230,10 +362,16 @@ export const APPEND_STREAM_PROJECTIONS: Record<string, {
         x,
         y,
         z,
+        dynAccel: null,
+        orientation_evidence_version: 'projected-gravity-g-1',
+        motion_evidence_version: null,
         batch_id: batchId,
       };
-      const dynAccel = Number(record.data?.dynAccel);
-      if (Number.isFinite(dynAccel)) row.dynAccel = dynAccel;
+      const dynAccel = record.data?.dynAccel;
+      if (typeof dynAccel === 'number' && Number.isFinite(dynAccel) && dynAccel >= 0 && dynAccel <= 8) {
+        row.dynAccel = dynAccel;
+        row.motion_evidence_version = 'projected-dynamic-acceleration-g-1';
+      }
       return row;
     },
   },
@@ -428,7 +566,7 @@ export const INGEST_ENABLED_STREAMS = new Set([
 export function recordTimestamp(stream: string, record: any): number | null {
   const tsKey = APPEND_STREAM_PROJECTIONS[stream]?.tsKey;
   if (!tsKey) return null;
-  const ts = Number(record?.key?.[tsKey]);
+  const ts = Number(['rrPacketProvenance', 'standardHRReceipt'].includes(stream) ? record?.data?.[tsKey] : record?.key?.[tsKey]);
   return Number.isFinite(ts) ? ts : null;
 }
 
@@ -498,7 +636,7 @@ export function windowBounds(header: any) {
 }
 
 export function streamsForVersion(version: string): Set<string> {
-  if (version === '1.2') return ALL_STREAMS;
+  if (['1.4', '1.3', '1.2'].includes(version)) return ALL_STREAMS;
   if (version === '1.1') return new Set([...ALL_STREAMS].filter((s) => !PROTOCOL_1_2_ONLY.has(s)));
   if (version === '1.0') return PROTOCOL_1_0_STREAMS;
   return new Set();
@@ -528,12 +666,14 @@ export function capabilitiesBody({
   receiverStateId,
   streams,
   userId,
+  sourceId,
   protocolVersion = '1.2',
   objectLane = null,
 }: {
   receiverStateId: string;
   streams: string[];
   userId?: string;
+  sourceId?: string | null;
   protocolVersion?: string;
   objectLane?: { endpoint: string; maxObjectBytes: number; urlTtlSec: number } | null;
 }) {
@@ -544,8 +684,9 @@ export function capabilitiesBody({
     receiverStateId,
     streams: advertised,
     userId: userId || undefined,
+    sourceId: sourceId || undefined,
   };
-  if (protocolVersion === '1.2' && objectLane) {
+  if (['1.4', '1.3', '1.2'].includes(protocolVersion) && objectLane) {
     body.objectLane = {
       ...objectLane,
       streams: advertised.filter((s) => OBJECT_LANE_STREAMS.has(s)),
@@ -599,7 +740,7 @@ export function ackMatchesBatch(ack: any, header: any): boolean {
     && ack?.batchId === header.batchId
     && ack?.stream === header.stream
     && ack?.deviceId === header.deviceId
-    && JSON.stringify(ack?.endCursor ?? null) === JSON.stringify(header.endCursor ?? null)
+    && isDeepStrictEqual(ack?.endCursor ?? null, header.endCursor ?? null)
     && ack?.acceptedRows === header.recordCount
     && ack?.status === 'accepted';
 }

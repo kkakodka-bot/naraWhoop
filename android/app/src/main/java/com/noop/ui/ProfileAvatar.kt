@@ -63,10 +63,10 @@ object ProfileAvatarStore {
     private const val JPEG_QUALITY = 85
 
     private fun prefs(ctx: Context): SharedPreferences =
-        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        com.noop.account.AccountStorageContext.capture(ctx).getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     private fun avatarFile(ctx: Context): File =
-        File(ctx.applicationContext.filesDir, FILE_NAME)
+        File(com.noop.account.AccountStorageContext.capture(ctx).filesDir, FILE_NAME)
 
     /** The decoded avatar for composition; null = no photo set (fall back to the person icon). */
     var bitmap by mutableStateOf<ImageBitmap?>(null)
@@ -76,7 +76,8 @@ object ProfileAvatarStore {
     val hasAvatar: Boolean get() = bitmap != null
 
     /** Decode the persisted avatar (if any) into [bitmap]. Safe to call before first composition. */
-    fun load(ctx: Context) {
+    @Synchronized fun load(ctx: Context) {
+        if (!com.noop.account.AccountStorageContext.capture(ctx).isCurrent()) return
         val file = avatarFile(ctx)
         bitmap = if (prefs(ctx).getBoolean(KEY_HAS_AVATAR, false) && file.exists()) {
             runCatching { BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }.getOrNull()
@@ -91,8 +92,9 @@ object ProfileAvatarStore {
      * success. All decode/IO is wrapped — a bad pick just returns false and leaves the current avatar.
      * Call off the main thread for a large source image (it does bitmap decode + file IO).
      */
-    fun setAvatarFromUri(ctx: Context, uri: Uri): Boolean {
-        val app = ctx.applicationContext
+    @Synchronized fun setAvatarFromUri(ctx: Context, uri: Uri): Boolean {
+        val app = com.noop.account.AccountStorageContext.capture(ctx)
+        if (!app.isCurrent()) return false
         val scaled = runCatching { decodeDownscaled(app, uri) }.getOrNull() ?: return false
         val file = avatarFile(app)
         val wrote = runCatching {
@@ -105,13 +107,14 @@ object ProfileAvatarStore {
             return false
         }
         prefs(app).edit().putBoolean(KEY_HAS_AVATAR, true).apply()
-        bitmap = scaled.asImageBitmap()
+        if (app.isCurrent()) bitmap = scaled.asImageBitmap()
         return true
     }
 
     /** Remove the photo: delete the file, clear the flag, and drop the live [bitmap] back to null. */
-    fun clearAvatar(ctx: Context) {
-        val app = ctx.applicationContext
+    @Synchronized fun clearAvatar(ctx: Context) {
+        val app = com.noop.account.AccountStorageContext.capture(ctx)
+        if (!app.isCurrent()) return
         runCatching { avatarFile(app).delete() }
         prefs(app).edit().putBoolean(KEY_HAS_AVATAR, false).apply()
         bitmap = null

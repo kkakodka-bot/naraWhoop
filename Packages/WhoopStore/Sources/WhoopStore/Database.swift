@@ -950,6 +950,151 @@ extension WhoopStore {
                 t.primaryKey(["deviceId", "stream"])
             }
         }
+        // Source promotions change scoring without adding rows. Cover their cache witnesses so
+        // legacy/non-WHOOP installs do not scan the entire R-R table on every analysis tick.
+        migrator.registerMigration("v46-rr-source-index") { db in
+            try db.create(index: "rrInterval_source_suspect", on: "rrInterval", columns: ["srcChannel", "tsSuspect"])
+        }
+        // Phase 4: last-known server HRV/sleep scores (authenticated readback cache).
+        migrator.registerMigration("v47-server-score-cache") { db in
+            try db.create(table: "serverScoreCache", options: [.ifNotExists]) { t in
+                t.column("day", .text).primaryKey()
+                t.column("algorithmVersion", .text).notNull()
+                t.column("dailyJson", .text)
+                t.column("nightsJson", .text).notNull()
+                t.column("computedAt", .text)
+                t.column("stale", .boolean).notNull().defaults(to: true)
+                t.column("fetchedAt", .integer).notNull()
+            }
+        }
+        // PR22 deployed PPG identity as v46-ppg-record-identity immediately after v47. Keep that
+        // identifier at this registration slot so installed PR22 databases and SchemaOracleTests match.
+        migrator.registerMigration("v46-ppg-record-identity") { db in
+            let columns = try db.columns(in: "ppgWaveformSample").map(\.name)
+            let key = try db.primaryKey("ppgWaveformSample").columns
+            if columns.contains("recordIndex") {
+                guard key == ["deviceId", "ts", "recordIndex"] else {
+                    throw DatabaseError(resultCode: .SQLITE_SCHEMA,
+                                        message: "Unsupported PPG waveform record identity key")
+                }
+                return
+            }
+            guard key == ["deviceId", "ts"] else {
+                throw DatabaseError(resultCode: .SQLITE_SCHEMA,
+                                    message: "Unsupported legacy PPG waveform key")
+            }
+            try db.create(table: "ppgWaveformSample_v46") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("ts", .integer).notNull()
+                t.column("samples", .blob).notNull()
+                t.column("burstIndex", .integer)
+                t.column("recordIndex", .integer).notNull()
+                t.primaryKey(["deviceId", "ts", "recordIndex"])
+            }
+            // Unknown historical identities keep their own sentinel; no wire counter is invented.
+            try db.execute(sql: """
+                INSERT INTO ppgWaveformSample_v46 (rowid, deviceId, ts, samples, burstIndex, recordIndex)
+                SELECT rowid, deviceId, ts, samples, burstIndex, -1 FROM ppgWaveformSample
+                """)
+            try db.drop(table: "ppgWaveformSample")
+            try db.rename(table: "ppgWaveformSample_v46", to: "ppgWaveformSample")
+        }
+        ServerScoreCacheMigration.register(in: &migrator)
+        migrator.registerMigration("v49-durable-ingest-receipts") { db in
+            try WhoopStore.createDurableIngestSchema(db)
+        }
+        migrator.registerMigration("v50-account-store-owner") { db in
+            try WhoopStore.installAccountOwnershipSchema(db)
+        }
+        migrator.registerMigration("v51-v18-aux-record-identity") { db in
+            try WhoopStore.installV18AuxIdentitySchema(db)
+        }
+        migrator.registerMigration("v52-scalar-provenance") { db in
+            try WhoopStore.installScalarProvenanceSchema(db)
+        }
+        migrator.registerMigration("v53-standard-hr-capture-journal") { db in
+            try WhoopStore.installStandardHRCaptureSchema(db)
+        }
+        migrator.registerMigration("v54-workout-preference-evaluation") { db in
+            try WhoopStore.installWorkoutPreferenceEvaluationSchema(db)
+        }
+        // HEAD identifiers stay registered so existing physiology-v2 databases skip them and
+        // migrate(upTo:) tests keep resolving. PPG identity is a no-op once v46-ppg has run.
+        migrator.registerMigration("v48-ppg-record-identity") { db in
+            let columns = try db.columns(in: "ppgWaveformSample").map(\.name)
+            let key = try db.primaryKey("ppgWaveformSample").columns
+            if columns.contains("recordIndex") {
+                guard key == ["deviceId", "ts", "recordIndex"] else {
+                    throw DatabaseError(resultCode: .SQLITE_SCHEMA,
+                                        message: "Unsupported PPG waveform record identity key")
+                }
+                return
+            }
+            guard key == ["deviceId", "ts"] else {
+                throw DatabaseError(resultCode: .SQLITE_SCHEMA,
+                                    message: "Unsupported legacy PPG waveform key")
+            }
+            try db.create(table: "ppgWaveformSample_v48") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("ts", .integer).notNull()
+                t.column("samples", .blob).notNull()
+                t.column("burstIndex", .integer)
+                t.column("recordIndex", .integer).notNull()
+                t.primaryKey(["deviceId", "ts", "recordIndex"])
+            }
+            try db.execute(sql: """
+                INSERT INTO ppgWaveformSample_v48 (rowid, deviceId, ts, samples, burstIndex, recordIndex)
+                SELECT rowid, deviceId, ts, samples, burstIndex, -1 FROM ppgWaveformSample
+                """)
+            try db.drop(table: "ppgWaveformSample")
+            try db.rename(table: "ppgWaveformSample_v48", to: "ppgWaveformSample")
+        }
+        migrator.registerMigration("v49-owner-scoped-physiology-cache") { db in
+            try db.create(table: "serverPhysiologyCacheV2") { t in
+                t.column("ownerId", .text).notNull()
+                t.column("day", .text).notNull()
+                t.column("scopeKey", .text).notNull()
+                t.column("schemaVersion", .integer).notNull()
+                t.column("payloadJson", .text).notNull()
+                t.column("fetchedAt", .double).notNull()
+                t.primaryKey(["ownerId", "day", "scopeKey"])
+            }
+        }
+        migrator.registerMigration("v50-rr-packet-provenance") { db in
+            try db.create(table: "rrPacketProvenance") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("packetId", .text).notNull()
+                t.column("ts", .integer).notNull()
+                t.column("sensorTs", .integer).notNull()
+                t.column("recordIndex", .integer).notNull()
+                t.column("rawHex", .text).notNull()
+                t.column("srcChannel", .integer).notNull()
+                t.column("schemaVersion", .integer).notNull()
+                t.column("decoderVersion", .text).notNull()
+                t.column("clockVersion", .text).notNull()
+                t.column("timestampPrecisionSeconds", .double).notNull()
+                t.column("clockOffsetSeconds", .integer).notNull()
+                t.column("declaredCount", .integer).notNull()
+                t.primaryKey(["deviceId", "packetId"])
+            }
+            try db.create(index: "rrPacketProvenance_device_ts", on: "rrPacketProvenance", columns: ["deviceId", "ts"])
+        }
+        migrator.registerMigration("v51-standard-hr-receipts") { db in
+            try db.create(table: "standardHRReceipt") { t in
+                t.column("deviceId", .text).notNull()
+                t.column("receiptId", .text).notNull()
+                t.column("ts", .integer).notNull()
+                t.column("sessionId", .text).notNull()
+                t.column("notificationOrdinal", .integer).notNull()
+                t.column("receivedUnixMs", .integer).notNull()
+                t.column("receivedMonotonicNs", .integer).notNull()
+                t.column("rawHex", .text).notNull()
+                t.column("schemaVersion", .integer).notNull()
+                t.column("clockVersion", .text).notNull()
+                t.primaryKey(["deviceId", "receiptId"])
+            }
+            try db.create(index: "standardHRReceipt_device_ts", on: "standardHRReceipt", columns: ["deviceId", "ts"])
+        }
         return migrator
     }
 }

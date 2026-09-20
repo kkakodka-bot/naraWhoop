@@ -33,6 +33,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -172,6 +173,14 @@ fun HealthScreen(
         // down (Today / Trends / Sleep / metric-detail parity - same two prefs, same two behaviours).
         fullBleedBackground = screenBackdropFullBleed(showDayCycleBackground, skyBehindCards),
     ) {
+        if (com.noop.push.ServerScoringSettings.isEnabled(context)) {
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = { onVitalClick("hrv") }) { Text(uiString(R.string.physiology_hrv_title)) }
+                    TextButton(onClick = { onVitalClick("resp") }) { Text(uiString(R.string.server_resp_title)) }
+                }
+            }
+        }
         if (today == null && !hasLiveHr) {
             // Even with no history yet, a freshly-connected strap can be told to sync now (#364) — the
             // manual "Sync now" + honest status sits above the empty state so it's always reachable.
@@ -1575,6 +1584,9 @@ private fun VitalsSection(
     // Display-only — banding still runs on the stored °C value.
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
         SectionHeader(title = title, overline = overline, trailing = trailing)
+        if (com.noop.push.ServerScoringSettings.isEnabled(LocalContext.current)) {
+            Text(uiString(R.string.server_vitals_local_history), style = NoopType.footnote, color = Palette.textSecondary)
+        }
 
         // A uniform 2-column grid of fixed-height tiles. The macOS LazyVGrid is
         // adaptive(min: 168); on phones two columns is the faithful equivalent.
@@ -1801,9 +1813,8 @@ private val SERIES_BACKED_VITAL_KEYS = setOf("fitness_age", "vitality", "steps_e
  *    sensor and NOT missing arithmetic. The strap-computed `@82` percentage that does exist is gated to
  *    `hist_version == 18`, a 5/MG layout. This bounds the record type examined, not the hardware: a live
  *    stream or another record type remains untested (#1617).
- *  - **5/MG with the estimate off.** The candidate exists but ships default-off and unverified, so the
- *    screen stays empty until the user turns it on. Naming the switch beats implying more nights.
- *  - **5/MG with it on.** Genuinely just needs nights, so the default copy is right.
+ *  - **5/MG.** The optical candidate is unverified and is not a calibrated percentage. Its display
+ *    toggle does not resolve that input limitation; neither setting promises readings after more nights.
  *
  * [family] must come from the REGISTRY (`DeviceFamily.forRegistryDevice`), never a live-connection
  * flag: such a flag reads false for a 4.0, for an Oura ring and for nothing-connected alike, and an
@@ -1832,9 +1843,9 @@ internal fun spo2EmptyState(
             R.string.l10n_health_screen_no_blood_oxygen_percentage_from_a_1d3d383e,
             R.string.l10n_health_screen_your_strap_banks_the_raw_optical_b52a0f80,
         )
-        family == com.noop.protocol.DeviceFamily.WHOOP5 && !candidateDisplayOn -> VitalEmptyState(
-            R.string.l10n_health_screen_the_blood_oxygen_estimate_is_turned_4c403ab2,
-            R.string.l10n_health_screen_your_strap_reports_a_blood_oxygen_349fe34a,
+        family == com.noop.protocol.DeviceFamily.WHOOP5 -> VitalEmptyState(
+            R.string.physiology_spo2_unavailable_title,
+            R.string.physiology_spo2_unavailable_body,
         )
         else -> default
     }
@@ -1936,6 +1947,11 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
         // offset left the lower cards on plain canvas (tester report).
         fullBleedBackground = screenBackdropFullBleed(showDayCycleBackground, skyBehindCards),
     ) {
+        if (key == "rhr") FiveMinuteHeartRateCard(vm)
+        if (com.noop.push.ServerScoringSettings.isEnabled(context) && (key == "hrv" || key == "resp")) {
+            if (key == "hrv") ServerHrvSeriesCard(vm) else ServerRespirationSummaryCard(vm)
+            Text(uiString(R.string.physiology_hrv_local_history), style = NoopType.subhead, color = Palette.textSecondary)
+        }
         if (isSeriesBacked && !seriesLoaded) {
             DataPendingNote(
                 title = uiString(R.string.l10n_health_screen_loading_33ce4174),

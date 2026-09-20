@@ -4,6 +4,7 @@ import WhoopProtocol
 import WhoopStore
 import StrandAnalytics
 import StrandImport
+import NoopPush
 #if os(iOS)
 import UserNotifications
 #endif
@@ -24,6 +25,36 @@ final class AppModel: ObservableObject {
     /// up a dead second AppModel (which would start a duplicate BLE engine and never buzz). Set in
     /// init(); `weak` so an intent fired while NOOP is closed sees nil and asks the user to open it. (#42)
     static weak var shared: AppModel?
+    private(set) var isForeground = false
+
+    func setForeground(_ foreground: Bool) {
+        isForeground = foreground
+        guard isAccountRuntimeActive else { return }
+        if serverScoreCacheBootstrapFinished { serverScores.setForeground(foreground) }
+        if foreground {
+            resumePostOffloadRefreshIfNeeded()
+            schedulePreferenceRecompute()
+            scheduleScoringProfileInputs()
+            scoringInputs?.reconcile()
+            Task { await CloudPushBackgroundRuntime.reconcileActive() }
+            if captureAdmissionEnabled {
+                Task { [weak self] in await self?.retryCaptureForForeground() }
+            }
+        } else {
+            postOffloadRefreshTask?.cancel()
+            postOffloadRefreshTask = nil
+            postOffloadRefreshTaskID = nil
+        }
+    }
+
+    func retryCaptureForForeground() async {
+        guard isForeground, captureAdmissionEnabled, isAccountRuntimeActive, !Task.isCancelled else { return }
+        if let coordinator = sourceCoordinator {
+            await coordinator.retryCapturePersistence()
+        } else {
+            await wireSourceCoordinator()
+        }
+    }
 
     /// Timestamp formatter for the generic-HR strap-log lines routed through `straplog` into the shared
     /// log (issue #421). Mirrors `BLEManager.logTimeFormatter`'s `HH:mm:ss` so WHOOP and HR-strap lines
@@ -50,9 +81,10 @@ final class AppModel: ObservableObject {
     /// Read model over the on-device store (dashboard + detail screens).
     let repo: Repository
     /// User profile (age/sex/body/HR-max) for zones, calories, baselines.
-    let profile = ProfileStore()
+    let profile: ProfileStore
     /// Behaviour settings: double-tap action, wear automation, zone coaching, smart alarm, illness watch.
-    let behavior = BehaviorStore()
+    let behavior: BehaviorStore
+    let caffeineLog: CaffeineLogStore
     /// On-device WHOOP-style recovery/strain/sleep computation from raw strap streams.
     let intelligence: IntelligenceEngine
 
@@ -61,6 +93,9 @@ final class AppModel: ObservableObject {
 
     /// Post-offload orchestrator (#1538): re-score, cloud push, Health write-back, widget publish.
     let syncEngine = SyncEngine()
+
+    /// Phase 4: authenticated server HRV/sleep readback (default on for this fork).
+    let serverScores = ServerScoreRepository()
 
     /// Observable cache over the paired-device registry; `activeDeviceId` drives the source coordinator.
     /// Built lazily once the store opens (see `wireSourceCoordinator`). nil until then , with no generic
@@ -156,6 +191,7 @@ final class AppModel: ObservableObject {
     @Published var cycleCurve: [Double] = []
     /// Body-clock phase estimate (circadian). nil until a usable activity profile exists.
     @Published var circadianPhase: CircadianEngine.PhaseEstimate?
+    private var publishedServerContext: Set<ServerScoreMetric> = []
 
     /// The L3 passive-nudge surface (haptic biofeedback "stress check-in"). The detector fires onto this
     /// from `evaluateStress`; both app roots inject it into the environment so the Breathe screen's card
@@ -217,17 +253,299 @@ final class AppModel: ObservableObject {
     /// Daily re-arm timer for the single-instant firmware smart alarm (see scheduleDailySmartAlarmRearm).
     private var smartAlarmRearmTimer: Timer?
 
-    init() {
-        let live = LiveState()
+    let accountStorage: AccountStorageLayout?
+    let accountDefaults: UserDefaults
+    let accountPreferences: AccountPreferences
+    let accountContext: AccountSessionContext?
+    private let currentAccountCheck: (AccountSessionContext?) -> Bool
+    private let nativePreferenceCurrent: @Sendable (AccountSessionContext) -> Bool
+    private let preferenceScoringEnabled: () -> Bool
+    private let postIllnessNotification: (String) -> Void
+    private let accountCompositionValid: Bool
+    /// Account presentation can proceed while a retired writer still needs storage recovery.
+    let captureAdmissionEnabled: Bool
+    private var runtimeActive = true
+    var isAccountRuntimeActive: Bool {
+        runtimeActive && accountCompositionValid && currentAccountCheck(accountContext)
+    }
+    private var startupTask: Task<Void, Never>?
+    private var pushCadenceTask: Task<Void, Never>?
+    private var postOffloadRefreshPending = false
+    private var postOffloadRefreshRequest: UInt64 = 0
+    private var postOffloadRefreshTask: Task<Void, Never>?
+    private var postOffloadRefreshTaskID: UUID?
+    private let resourceBudget: ResourceBudget
+    private var serverPresentationCancellable: AnyCancellable?
+    private var serverScoreCacheBootstrapFinished = false
+    private var preferencePreparation: Task<Void, Error>?
+    private var preferenceRefreshTask: Task<Void, Never>?
+    private var sourceCoordinatorPreparationInFlight = false
+    private var genericCapturePreparation: GenericCaptureOwnership?
+    private let capturePreparationHooks: CapturePreparationHooks
+    private var preferenceRecomputeRequested = false
+    private let preferenceRecomputeEnabled: Bool
+    private(set) var scoringInputs: ScoringInputCoordinator?
+    private(set) var scoringContextConsent: ScoringContextConsent?
+    private(set) var scoringPreferences: ScoringPreferenceRuntime?
+    @Published private(set) var preferenceActionError: String?
+
+    struct CapturePreparationHooks {
+        var journal = StandardHRJournalHooks()
+        var didOpen: (WhoopStore) -> Void = { _ in }
+        var startCoordinator = true
+        var beforeClose: @Sendable () async throws -> Void = {}
+    }
+
+    /// Retirement owns preparation too: the account can change before a coordinator exists.
+    /// This object captures only its writer task, never the AppModel or replacement account.
+    @MainActor
+    final class GenericCaptureOwnership {
+        struct Prepared: Sendable {
+            let journal: GenericCaptureJournal
+            let close: (@Sendable () async throws -> Void)?
+        }
+        struct PreparationFailure: Error {
+            let underlying: any Error
+            let close: @Sendable () async throws -> Void
+        }
+        private let preparation: Task<Prepared, Error>
+        private var journal: GenericCaptureJournal?
+        private var retirement: Task<Bool, Never>?
+        private var closed = false
+        private(set) var isRetired = false
+
+        init(prepare: @escaping @MainActor () async throws -> GenericCaptureJournal) {
+            preparation = Task { Prepared(journal: try await prepare(), close: nil) }
+        }
+
+        init(prepareResource: @escaping @MainActor () async throws -> Prepared) {
+            preparation = Task { try await prepareResource() }
+        }
+
+        init(journal: GenericCaptureJournal) {
+            self.journal = journal
+            preparation = Task { Prepared(journal: journal, close: nil) }
+        }
+
+        func prepared() async throws -> GenericCaptureJournal {
+            let value: GenericCaptureJournal
+            do { value = try await preparation.value.journal }
+            catch let failure as PreparationFailure { throw failure.underlying }
+            journal = value
+            if isRetired { value.sealCapture() }
+            return value
+        }
+
+        func retire() {
+            isRetired = true
+            journal?.sealCapture()
+        }
+
+        func drain() async -> Bool {
+            retire()
+            if closed { return true }
+            if let retirement { return await retirement.value }
+            let task = Task { [self] in
+                let resource: Prepared
+                do { resource = try await preparation.value }
+                catch let failure as PreparationFailure {
+                    // The task retains this exact failed factory's writer until close succeeds.
+                    do { try await failure.close() }
+                    catch { return false }
+                    closed = true
+                    return true
+                }
+                catch {
+                    // Opening failed before a writer was acquired; no source was admitted.
+                    closed = true
+                    return true
+                }
+                journal = resource.journal
+                resource.journal.sealCapture()
+                guard await resource.journal.drain() else { return false }
+                do { try await resource.close?() }
+                catch { return false }
+                closed = true
+                return true
+            }
+            retirement = task
+            let result = await task.value
+            retirement = nil
+            return result
+        }
+    }
+
+    convenience init() {
+        let context = CloudAuthClient.currentContext()
+        self.init(storageLayout: try? StorePaths.accountLayout(scope: context?.scope), context: context)
+    }
+
+    init(storageLayout: AccountStorageLayout?, context: AccountSessionContext?, presentationAllowed: Bool = true,
+         captureAllowed: Bool = true,
+         capturePreparationHooks: CapturePreparationHooks = .init(),
+         openStore: (@Sendable () async throws -> WhoopStore)? = nil,
+         guestPreferenceDefaults: UserDefaults? = nil,
+         postIllnessNotification: @escaping (String) -> Void = { IllnessNotifier.post($0) },
+         scoringInputDependencies: ScoringInputCoordinator.Dependencies? = nil,
+         nativePreferenceCurrent: @escaping @Sendable (AccountSessionContext) -> Bool = { CloudAuthClient.isCurrent($0) },
+         preferenceScoringEnabled: @escaping () -> Bool = { ServerScoringSettings.isEnabled },
+         preferenceRecomputeDriver: IntelligenceEngine.PreferenceRecomputeDriver? = nil,
+         resourceBudget: ResourceBudget = .shared,
+         isCurrent: @escaping (AccountSessionContext?) -> Bool = { $0 == CloudAuthClient.currentContext() }) {
+        _ = CloudCaptureScope.processOwnerId
+        self.accountContext = context
+        self.resourceBudget = resourceBudget
+        self.capturePreparationHooks = capturePreparationHooks
+        self.currentAccountCheck = isCurrent
+        self.nativePreferenceCurrent = nativePreferenceCurrent
+        self.preferenceScoringEnabled = preferenceScoringEnabled
+        self.preferenceRecomputeEnabled = preferenceRecomputeDriver != nil || !AppRuntimeMode.isUnitTesting
+        self.postIllnessNotification = postIllnessNotification
+        let consistent = storageLayout?.scope == context?.scope && isCurrent(context)
+        let layout = consistent ? storageLayout : (try? StorePaths.accountLayout(scope: nil))
+        self.accountCompositionValid = consistent
+        let presentationAllowed = presentationAllowed && consistent && context != nil
+        self.captureAdmissionEnabled = captureAllowed && presentationAllowed
+        self.accountStorage = layout
+        // Guest fixtures must not initialize the real signed-out profile domain. Real account
+        // construction and production guest behavior never accept a defaults override.
+        let testGuestDefaults = AppRuntimeMode.isUnitTesting && context == nil ? guestPreferenceDefaults : nil
+        let defaults = testGuestDefaults ?? layout.flatMap { UserDefaults(suiteName: $0.preferencesSuite) }
+            ?? UserDefaults(suiteName: "com.frwhoop.account.unavailable")!
+        self.accountDefaults = defaults
+        let preferences = AccountPreferences(defaults: defaults,
+            domainName: layout?.preferencesSuite ?? "com.frwhoop.account.unavailable",
+            isCurrent: { presentationAllowed && isCurrent(context) })
+        self.accountPreferences = preferences
+        self.profile = ProfileStore(defaults: defaults, domainName: context == nil ? nil : layout?.preferencesSuite)
+        self.behavior = BehaviorStore(defaults: defaults)
+        self.caffeineLog = CaffeineLogStore(defaults: defaults)
+        let live = LiveState(defaults: defaults, logNamespace: layout?.preferencesSuite ?? "unavailable")
         self.live = live
         // SEED every subsystem with the same id (`deviceId`, "my-whoop" at launch). The store/registry
         // aren't open yet here, so the registry's active id can't be read synchronously; `bootstrapStore`
         // (write side) and `wireSourceCoordinator → adoptActiveDevice` (read spine, #814) re-point them to
         // the registry active id once the store opens. Single-device install keeps "my-whoop" throughout.
-        self.ble = BLEManager(state: live, deviceId: deviceId)
-        self.repo = Repository(deviceId: deviceId)
-        self.coach = AICoachEngine(repo: repo)
-        self.intelligence = IntelligenceEngine(repo: repo, profile: profile, deviceId: deviceId)
+        self.ble = BLEManager(state: live, deviceId: deviceId,
+                              startCentral: layout?.scope != nil && captureAdmissionEnabled && !AppRuntimeMode.isUnitTesting,
+                              databasePath: layout?.databaseURL.path,
+                              storageDirectory: layout?.directory,
+                              accountScope: layout?.scope, defaults: defaults)
+        // The closures stay unavailable until the account runtime is constructed and hydrated.
+        // A nil account keeps the separate legacy reader path; an account never falls through to it.
+        var preferenceRuntime: ScoringPreferenceRuntime?
+        let readPreferences: (() -> ScoringPreferenceSnapshot?)? = context == nil ? nil : { preferenceRuntime?.accepted }
+        self.repo = Repository(deviceId: deviceId, storageLayout: layout,
+                               presentationAllowed: presentationAllowed, openStore: openStore,
+                               scoringPreferences: readPreferences)
+        let capturedAccount = accountContext
+        self.coach = AICoachEngine(repo: repo, defaults: defaults,
+            accountNamespace: layout?.scope?.namespace,
+            isCurrent: { capturedAccount != nil && CloudAuthClient.currentContext() == capturedAccount })
+        self.intelligence = IntelligenceEngine(repo: repo, profile: profile, deviceId: deviceId, defaults: defaults,
+            hrvWindow: { HrvWindow(rawValue: preferences.hrvWindowRaw) ?? .whole },
+            scoringPreferences: readPreferences, preferenceRecomputeDriver: preferenceRecomputeDriver)
+        if consistent, let context = accountContext, let layout {
+            let consent = ScoringContextConsent(layout: layout)
+            scoringContextConsent = consent
+            let inputs: ScoringInputCoordinator
+            if var dependencies = scoringInputDependencies {
+                let priorAdmission = dependencies.allowsChange
+                dependencies.allowsChange = { [gate = consent.gate] in priorAdmission($0) && gate.allows($0) }
+                inputs = ScoringInputCoordinator(context: context, layout: layout, dependencies: dependencies)
+            } else {
+                inputs = ScoringInputCoordinator(context: context, layout: layout, dependencies: .live(context: context,
+                    allowsChange: { [gate = consent.gate] in gate.allows($0) },
+                    nativePreferenceCurrent: nativePreferenceCurrent))
+            }
+            scoringInputs = inputs
+            do {
+                let runtime = try ScoringPreferenceRuntime(context: context, inputs: inputs,
+                    seed: .seed(context: context, domain: defaults.persistentDomain(forName: layout.preferencesSuite) ?? [:]),
+                    defaults: defaults, isCurrent: nativePreferenceCurrent)
+                scoringPreferences = runtime
+                preferenceRuntime = runtime
+                profile.bindScoringPreferences(runtime)
+                preferences.bindScoringPreferences(runtime)
+                behavior.bindScoringPreferences(runtime)
+                runtime.willAccept = { [weak self] in
+                    self?.intelligence.invalidatePreferenceEvaluationPermit()
+                }
+                runtime.onAccepted = { [weak self] snapshot, publication in
+                    self?.didAcceptScoringPreferences(snapshot, publication: publication)
+                }
+            } catch {
+                profile.retire()
+                preferences.retire()
+                preferenceActionError = "Account preferences could not be opened. Changes are paused."
+            }
+            consent.configuration = { [weak self] purpose, enabled, now in
+                guard let self, self.isAccountRuntimeActive else { throw AccountAuthError.staleOperation }
+                let zone = TimeZone.current
+                let changes = try self.scoringProfileChanges(now: now, zone: zone,
+                    consentOverride: (purpose, enabled))
+                guard let config = changes.first(where: { $0.kind == .config }) else { throw ScoringInputJournal.Failure.invalidInput }
+                return ScoringConsentConfiguration(change: config, timezone: zone.identifier)
+            }
+            consent.willChange = { [weak self] in
+                self?.refreshServerContextPresentation()
+            }
+            inputs.prepareAdmission = { [weak consent, weak inputs] in
+                guard let consent, let inputs else { throw ScoringInputJournal.Failure.retired }
+                try await consent.relay(to: inputs)
+            }
+            repo.scoringInputWriter = { [weak inputs] change in
+                guard let inputs else { throw ScoringInputJournal.Failure.retired }
+                try await inputs.enqueue(change)
+            }
+            inputs.$status.sink { [weak repo] status in
+                repo?.serverInputPending = status.pending
+            }.store(in: &hrCancellables)
+            inputs.$lastError.sink { [weak repo] error in
+                repo?.serverInputError = error
+            }.store(in: &hrCancellables)
+            consent.didChange = { [weak self] in
+                guard let self, self.isAccountRuntimeActive else { return }
+                self.refreshServerContextPresentation()
+                self.scheduleScoringProfileInputs()
+                self.scoringInputs?.policyChanged()
+            }
+        }
+        serverPresentationCancellable = serverScores.$state.sink { [weak self] state in
+            guard let self, self.isAccountRuntimeActive else { return }
+            #if os(iOS)
+            let changedResult = state.days.contains { day, entry in
+                guard let next = entry.snapshot else { return false }
+                let old = self.repo.serverPresentation.days[day]?.snapshot
+                return old?.resultRevision != next.resultRevision || old?.algorithmVersion != next.algorithmVersion
+                    || old?.sourceDeviceId != next.sourceDeviceId
+            }
+            #endif
+            self.applyServerScorePresentation(state)
+            #if os(iOS)
+            if changedResult {
+                Task { [weak self] in
+                    guard let self, self.isAccountRuntimeActive else { return }
+                    _ = await self.healthWriteBack?(nil)
+                }
+            }
+            #endif
+        }
+        accountPreferences.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }.store(in: &hrCancellables)
+        // AccountAppRuntime can foreground this model before its startup task opens the cache.
+        // Hold network readback until that bounded cache attempt finishes, including view requests.
+        serverScores.setForeground(false)
+        guard !AppRuntimeMode.isUnitTesting, consistent, context != nil else { return }
+        Task { [weak self] in
+            guard let self, self.isAccountRuntimeActive else { return }
+            do { try await self.prepareScoringPreferences() }
+            catch { self.reportPreferenceFailure() }
+        }
+        NotificationCenter.default.publisher(for: ServerScoreRepository.refreshRequested)
+            .receive(on: DispatchQueue.main).sink { [weak self] _ in self?.scoringInputs?.reconcile() }
+            .store(in: &hrCancellables)
         // Route the engine's per-day scoring diagnostic into the SAME shareable strap log every other
         // subsystem writes to (PII-scrubbed by `live.append(log:)`), so a bug report ships proof of what
         // was computed per day. `live` is captured strongly (created just above) , the engine outlives the
@@ -246,8 +564,9 @@ final class AppModel: ObservableObject {
         // next reconcile reads `strainProfile`). Display-only; the score itself is unchanged.
         self.repo.strainProfile = Repository.StrainProfile(hrMax: Double(profile.hrMax), sex: profile.sex)
         profile.objectWillChange.sink { [weak self] in
-            guard let self else { return }
+            guard let self, self.isAccountRuntimeActive else { return }
             DispatchQueue.main.async {
+                guard self.isAccountRuntimeActive else { return }
                 self.repo.strainProfile = Repository.StrainProfile(
                     hrMax: Double(self.profile.hrMax), sex: self.profile.sex)
             }
@@ -364,13 +683,19 @@ final class AppModel: ObservableObject {
         live.$postOffloadBurstCompleted
             .dropFirst()
             .sink { [weak self] _ in
-                Task { [weak self] in await self?.refreshAfterCompletedBackfill() }
+                guard let self, self.isAccountRuntimeActive else { return }
+                self.postOffloadRefreshRequest &+= 1
+                self.postOffloadRefreshPending = true
+                self.resumePostOffloadRefreshIfNeeded()
+                #if os(iOS)
+                SyncMaintenanceBackgroundScheduler.scheduleIfNeeded()
+                #endif
             }
             .store(in: &hrCancellables)
 
-        moments = (UserDefaults.standard.array(forKey: "moments") as? [Double] ?? [])
+        moments = (defaults.array(forKey: "moments") as? [Double] ?? [])
             .map { Date(timeIntervalSince1970: $0) }
-        sleepMarks = (UserDefaults.standard.array(forKey: "sleepMarks") as? [Double] ?? [])
+        sleepMarks = (defaults.array(forKey: "sleepMarks") as? [Double] ?? [])
             .map { Date(timeIntervalSince1970: $0) }
         // Rehydrate a manual workout that was in flight when iOS killed the app, so it can still be ended
         // + saved on relaunch (#529). Restored here alongside the other UserDefaults-backed state.
@@ -378,6 +703,27 @@ final class AppModel: ObservableObject {
 
         AppModel.shared = self   // publish for App Intents (Shortcuts) , see the static above (#42)
         syncEngine.bind(self)
+        NotificationCenter.default.publisher(for: ResourceBudget.changed)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.resumePostOffloadRefreshIfNeeded() }
+            .store(in: &hrCancellables)
+        NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.isAccountRuntimeActive else { return }
+                self.applyResourceConstraints()
+                Task { await CloudPushBackgroundRuntime.reconcileActive() }
+            }.store(in: &hrCancellables)
+        #if os(iOS)
+        NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.isAccountRuntimeActive else { return }
+                self.applyResourceConstraints()
+                Task { await CloudPushBackgroundRuntime.reconcileActive() }
+            }.store(in: &hrCancellables)
+        #endif
+        applyResourceConstraints()
 
         // Seed the BLE client with the persisted "Continuous HRV capture" intent so `wantsRealtime`
         // reflects it from launch , the reconciler then arms the dense stream as soon as the strap bonds
@@ -398,8 +744,21 @@ final class AppModel: ObservableObject {
         // yields to UI rendering instead of contending at the inherited user-initiated QoS. The reads are
         // already off the main actor (analyzeRecent , FIX 1), and at `.utility` the scheduler keeps the
         // main thread free for SwiftUI during the deep-history pass right after an import / first launch.
-        Task(priority: .utility) { [weak self] in
+        startupTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
+            // Cached cloud content is a launch dependency; archive preparation and debt drains aren't.
+            if let store = await self.repo.storeHandle() {
+                guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
+                await self.serverScores.wireAndHydrate(store: store)
+                guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
+                self.serverScores.selectDevice(localDeviceId: self.repo.deviceId)
+                if ServerScoringSettings.isEnabled {
+                    self.serverScores.startPolling(todayKey: self.repo.today?.day ?? Repository.dayString(Date()))
+                }
+            }
+            guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
+            self.serverScoreCacheBootstrapFinished = true
+            self.serverScores.setForeground(self.isForeground)
             #if DEBUG
             // DEBUG-only: when launched with `--demo-seed`, populate a deterministic synthetic
             // dataset so an empty simulator/dev build can walk every screen (verification + marketing
@@ -411,13 +770,47 @@ final class AppModel: ObservableObject {
                 self.live.batteryPct = 68
             }
             #endif
+            if let scope = self.accountStorage?.scope, let store = await self.repo.storeHandle() {
+                guard self.isAccountRuntimeActive else { return }
+                do {
+                    let imuSource = try await self.ble.prepareImuPushSource()
+                    guard self.isAccountRuntimeActive else { return }
+                    try CloudPushCaptureBindings.bind(db: store.registryWriter, scope: scope,
+                        sourceID: CloudPushSettings.sourceId(scope: scope), imuSource: imuSource)
+                } catch {
+                    self.live.append(log: "Cloud capture owner binding failed; local data retained.")
+                }
+            }
             await self.repo.refresh()                          // surface any imported data at once
+            do { try await self.prepareScoringPreferences() }
+            catch { self.reportPreferenceFailure() }
+            self.scheduleScoringProfileInputs()
+            self.scoringInputs?.reconcile()
             // A link can drop after a productive chunk stamped syncJob debt but before the terminal-burst
             // event. Resume that durable handoff on launch; this is a no-op when no job is owed.
             await self.syncEngine.drain(reason: .stateRestoration)
             await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
             await self.recordAppVersionChangeIfNeeded()        // #1410: stamp an update transition once
+            if ServerScoringSettings.isEnabled {
+                self.pushCadenceTask = Task(priority: .utility) { [weak self] in
+                    while !Task.isCancelled {
+                        guard let self,
+                              self.isAccountRuntimeActive,
+                              self.isForeground,
+                              ServerScoringSettings.isEnabled,
+                              let writer = await self.repo.registryWriterForPush() else {
+                            try? await Task.sleep(nanoseconds: 5_000_000_000)
+                            continue
+                        }
+                        CloudPushPeriodicScheduler.pushIfDue(db: writer, reason: "server-scoring-idle")
+                        self.scoringInputs?.reconcile()
+                        try? await Task.sleep(
+                            nanoseconds: UInt64(ServerScoringSettings.idlePushIntervalSeconds * 1_000_000_000))
+                    }
+                }
+            }
             try? await Task.sleep(nanoseconds: 6_000_000_000)  // give the first offload a moment
+            guard !Task.isCancelled, self.isAccountRuntimeActive else { return }
             // FIX 2(a): DEFER the heavy one-shot 4000-day heal/rescore while an import is in flight. A
             // large Apple Health import is the worst-case launch overlap , running a 4000-iteration heal
             // + rescore concurrently with the import's parse+writes is what produced the ~1-minute app-wide
@@ -438,6 +831,7 @@ final class AppModel: ObservableObject {
             // (far-past / bogus-2027 / FUTURE) from an older build, then rescore the real days. Runs
             // BEFORE the Effort rescore + analyzeRecent loop so both operate on a cleaned DB. Persisted
             // flag → no-op on every subsequent launch; idempotent on a clean DB.
+            guard self.scoringPreferences?.isReady == true else { return }
             await self.intelligence.runTimestampHealIfNeeded()
             // One-shot on-upgrade Effort rescore (#313): recompute strain from source across the FULL
             // history once, so any deep-history rows an older build left on the 0–21 axis regenerate on
@@ -446,11 +840,11 @@ final class AppModel: ObservableObject {
             // One-shot on-upgrade: the SpO₂ strap-estimate toggle now defaults ON for installs that never
             // chose. The engine only writes `spo2_candidate` while the toggle is ON, so pin the default and
             // re-score once so the Blood Oxygen tile fills immediately instead of waiting for the backstop.
-            if PuffinExperiment.migrateSpo2CandidateDisplayDefault() {
+            if self.accountContext == nil && PuffinExperiment.migrateSpo2CandidateDisplayDefault() {
                 await self.intelligence.analyzeRecent()
                 await self.repo.refresh()
             }
-            while !Task.isCancelled {
+            while !Task.isCancelled && self.isAccountRuntimeActive {
                 // #547 RE-POLLUTION: a sync since the last tick may have armed a re-heal (its ingest gate
                 // dropped bad-clock records). `runTimestampHealIfNeeded` honours the pending flag even after
                 // the one-shot done flag is set, purges any pollution, and rescores the affected days , so a
@@ -463,7 +857,7 @@ final class AppModel: ObservableObject {
                 // sample (the heal above, or a sync) moves the fingerprint and the tick rescores as before.
                 // #1538: the backstop is subject to the same background reality as the post-offload pass,
                 // and it was the LAST way the livelock could survive. This loop lives as long as the
-                // process, so it keeps ticking while backgrounded as a bluetooth-central, and its own
+                // process and may tick during a Bluetooth wake; suspension pauses it. Its own
                 // `force: false` watermark gate cannot save it: a killed pass never advances the
                 // watermark, so the tick still reads the data as new and starts another full pass. The
                 // comment above says the gate also can't skip while the strap streams live HR. Wrapping
@@ -476,11 +870,13 @@ final class AppModel: ObservableObject {
                 // `live = self.live` spelled out: this is nested inside the cadence `Task`, which
                 // requires explicit `self`, so the bare-name capture shorthand used elsewhere in this
                 // type would not resolve here.
-                await RescoreBackgroundScheduler.run(owesOnDefer: false,
-                                                     log: { [live = self.live] line in
-                                                         live.append(log: line)
-                                                     }) {
-                    await self.intelligence.analyzeRecent(force: false)
+                if !ServerScoringSettings.skipsSyncCoupledRescore {
+                    await RescoreBackgroundScheduler.run(owesOnDefer: false,
+                                                         log: { [live = self.live] line in
+                                                             live.append(log: line)
+                                                         }) {
+                        await self.intelligence.analyzeRecent(force: false)
+                    }
                 }
                 // v5: recompute the skin-temp suite snapshots (cycle phase + body clock) from the
                 // freshly-scored history so the Health hub cards read a ready result.
@@ -496,6 +892,281 @@ final class AppModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func shutdownForAccountChange() -> GenericCaptureOwnership? {
+        let capturedJournal = sourceCoordinator?.captureDrainForAccountChange()
+        let capturedGeneric = genericCapturePreparation ?? capturedJournal.map { GenericCaptureOwnership(journal: $0) }
+        capturedGeneric?.retire()
+        runtimeActive = false
+        scoringPreferences?.retire()
+        accountPreferences.retire()
+        healthAlert = nil; illnessSignal = nil; illnessDistance = nil
+        cyclePhase = nil; cycleCurve = []; circadianPhase = nil; publishedServerContext = []
+        startupTask?.cancel()
+        preferencePreparation?.cancel()
+        preferenceRefreshTask?.cancel()
+        scoringInputs?.retire()
+        scoringContextConsent?.retire()
+        serverPresentationCancellable = nil
+        pushCadenceTask?.cancel()
+        postOffloadRefreshTask?.cancel()
+        postOffloadRefreshTask = nil
+        postOffloadRefreshTaskID = nil
+        postOffloadRefreshPending = false
+        smartAlarmRearmTimer?.invalidate()
+        smartAlarmRearmTimer = nil
+        hrCancellables.removeAll()
+        ouraAdoptCancellables.removeAll()
+        readSpineCancellable = nil
+        ble.shutdownForAccountChange()
+        live.invalidateAccountRuntime()
+        serverScores.invalidate()
+        intelligence.shutdownForAccountChange()
+        caffeineLog.invalidate()
+        coach.shutdownForAccountChange()
+        profile.retire()
+        repo.shutdownForAccountChange()
+        syncEngine.shutdownForAccountChange()
+        gpsRecorder.stop()
+        #if os(iOS)
+        healthWriteBack = nil
+        #endif
+        if AppModel.shared === self { AppModel.shared = nil }
+        return capturedGeneric
+    }
+
+    var scoringConfigurationKey: String {
+        [String(preferenceScoringEnabled()), scoringAlgorithmChoices.effortMethod,
+         hrvWindowRaw,
+         String(scoringAlgorithmChoices.useSleepStagerV2), String(scoringAlgorithmChoices.useMotionAwareWake),
+         String(acceptedScoringPreferences?.hrvBaselineEpoch ?? 0), String(acceptedScoringPreferences?.recoveryBaselineEpoch ?? 0),
+         String(scoringContextConsent?.enabled(.journal) == true), String(scoringContextConsent?.enabled(.cycle) == true),
+         String(scoringAlgorithmChoices.daytimePersonalBaselineEnabled), String(scoringAlgorithmChoices.spo2CandidateDisplayEnabled),
+         String(profile.stepsManualCoefficient), profile.hrZoneThresholds.map(String.init).joined(separator: ",")]
+            .joined(separator: ":")
+    }
+
+    var acceptedScoringPreferences: ScoringPreferenceSnapshot? {
+        isAccountRuntimeActive ? scoringPreferences?.accepted : nil
+    }
+
+    var scoringAlgorithmChoices: ScoringAlgorithmChoices {
+        guard accountContext == nil else { return accountPreferences.algorithmChoices }
+        return .init(banisterEffortEnabled: PuffinExperiment.effortMethod == .banister,
+            useSleepStagerV2: PuffinExperiment.experimentalSleepV2Enabled,
+            useMotionAwareWake: PuffinExperiment.motionAwareWakeEnabled,
+            daytimePersonalBaselineEnabled: PuffinExperiment.stressPersonalBaselineEnabled,
+            spo2CandidateDisplayEnabled: PuffinExperiment.spo2CandidateDisplayEnabled)
+    }
+
+    var scoringEffortMethod: StrainScorer.Method {
+        scoringAlgorithmChoices.banisterEffortEnabled ? .banister : .edwards
+    }
+
+    var scoringHrvBaselineEpoch: Double {
+        accountContext == nil ? Baselines.hrvBaselineEpoch() : acceptedScoringPreferences?.hrvBaselineEpoch ?? 0
+    }
+
+    /// Lifecycle/defaults observers may retry transport, never synthesize a completed settings action.
+    func scheduleScoringProfileInputs() {
+        guard isAccountRuntimeActive else { return }
+        scoringInputs?.reconcile()
+    }
+
+    func prepareScoringPreferences() async throws {
+        guard isAccountRuntimeActive, let preferences = scoringPreferences,
+              let consent = scoringContextConsent, let inputs = scoringInputs else {
+            throw ScoringInputJournal.Failure.retired
+        }
+        if let preferencePreparation {
+            try await preferencePreparation.value
+            guard isAccountRuntimeActive, !Task.isCancelled else { throw ScoringInputJournal.Failure.retired }
+            return
+        }
+        let task = Task {
+            try await preferences.hydrate()
+            if !consent.loaded { await consent.load() }
+            guard consent.loaded else { throw ScoringInputJournal.Failure.held }
+            try await consent.relay(to: inputs)
+        }
+        preferencePreparation = task
+        defer { preferencePreparation = nil }
+        try await task.value
+        guard isAccountRuntimeActive, !Task.isCancelled else { throw ScoringInputJournal.Failure.retired }
+    }
+
+    /// Capture absence as well as presence. A later device discovery cannot fill an older action.
+    var resolvedScoringPreferenceSource: String? {
+        guard isAccountRuntimeActive, let context = accountContext, let registry = deviceRegistry,
+              registry.activeDeviceId == repo.deviceId,
+              registry.devices.contains(where: { $0.id == registry.activeDeviceId && $0.status == .active }) else { return nil }
+        return PushDurabilityReceipt.canonicalDevice(owner: context.scope.userID, device: registry.activeDeviceId)
+    }
+
+    @discardableResult
+    func completePreferenceAction(_ patch: [ScoringPreferenceIntent.Patch], now: Date = Date(),
+                                  zone: TimeZone = .current) throws -> ScoringPreferenceTicket {
+        guard isAccountRuntimeActive, let context = accountContext, let preferences = scoringPreferences else {
+            throw ScoringInputJournal.Failure.retired
+        }
+        let coupled = preferenceScoringEnabled()
+        let permit: (@Sendable () -> Bool)?
+        let consent: ScoringPreferenceSnapshot.Consent?
+        if coupled {
+            permit = try? scoringContextConsent?.gate.captureAdmission()
+            consent = scoringContextConsent?.loaded == true
+                ? .init(journalEnabled: scoringContextConsent?.enabled(.journal) == true,
+                        cycleEnabled: scoringContextConsent?.enabled(.cycle) == true) : nil
+        } else {
+            let nativeCurrent = nativePreferenceCurrent
+            permit = { nativeCurrent(context) }
+            consent = nil
+        }
+        let action = ScoringPreferenceAction(patch: patch, capture: .init(context: context,
+            occurredAt: now, timezone: zone.identifier, sourceDeviceID: resolvedScoringPreferenceSource,
+            disposition: coupled ? .serverCoupled : .localOnly, consent: consent, allowing: permit))
+        return preferences.complete(action)
+    }
+
+    private func reportPreferenceFailure() {
+        guard isAccountRuntimeActive else { return }
+        preferenceActionError = "The preference change is not saved. Review or retry it before continuing."
+    }
+
+    private func didAcceptScoringPreferences(_ snapshot: ScoringPreferenceSnapshot,
+                                             publication: ScoringPreferenceRuntime.Publication) {
+        guard isAccountRuntimeActive, snapshot.context == accountContext else { return }
+        preferenceActionError = nil
+        repo.strainProfile = Repository.StrainProfile(hrMax: Double(profile.hrMax), sex: profile.sex)
+        repo.noteScoringPreferencesChanged()
+        // Hydration is also a retry trigger: a crash may have followed the durable acceptance but
+        // preceded this callback. The accepted projection, not a second "owed" write, is the debt.
+        if case .hydrated = publication, preferenceRefreshTask != nil { return }
+        schedulePreferenceRecompute()
+    }
+
+    /// Retry the accepted projection only. This never captures or admits a preference action.
+    func retryScoringPreferenceRecompute() async {
+        if let existing = preferenceRefreshTask { await existing.value }
+        guard isAccountRuntimeActive, !Task.isCancelled else { return }
+        schedulePreferenceRecompute(explicitRetry: true)
+        await preferenceRefreshTask?.value
+    }
+
+    private func schedulePreferenceRecompute(explicitRetry: Bool = false) {
+        guard isAccountRuntimeActive, preferenceRecomputeEnabled else { return }
+        if preferenceRefreshTask != nil {
+            preferenceRecomputeRequested = true
+            return
+        }
+        preferenceRefreshTask = Task { [weak self] in
+            guard let self, self.isAccountRuntimeActive, !Task.isCancelled else { return }
+            var admittedPosition: ScoringPreferencePosition?
+            defer {
+                self.preferenceRefreshTask = nil
+                let requested = self.preferenceRecomputeRequested
+                self.preferenceRecomputeRequested = false
+                if requested, self.isAccountRuntimeActive, !Task.isCancelled,
+                   let admittedPosition, let current = self.acceptedScoringPreferences?.position,
+                   current != admittedPosition, self.intelligence.hasRunnablePreferenceWork {
+                    self.schedulePreferenceRecompute()
+                }
+            }
+            do { try await self.prepareScoringPreferences() }
+            catch { self.reportPreferenceFailure(); return }
+            guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
+            admittedPosition = self.acceptedScoringPreferences?.position
+            let admittedContext = self.accountContext
+            let admittedDeviceID = self.repo.deviceId
+            let work = await self.intelligence.preparePreferenceProjection()
+            guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
+            if (explicitRetry || work.hasRunnableWork(at: Int64(Date().timeIntervalSince1970))),
+               !ServerScoringSettings.skipsSyncCoupledRescore {
+                _ = await self.intelligence.runPreferenceProjection(mode: explicitRetry ? .explicitRetry : .automatic)
+            }
+            guard self.isAccountRuntimeActive, !Task.isCancelled,
+                  self.accountContext == admittedContext,
+                  self.acceptedScoringPreferences?.position == admittedPosition,
+                  self.repo.deviceId == admittedDeviceID else { return }
+            await self.repo.refresh()
+        }
+    }
+
+    /// The exclusive consent lane reads accepted settings; it never creates an ordinary intent.
+    func scoringProfileChanges(now: Date = Date(), zone: TimeZone = .current,
+                               consentOverride: (ScoringContextPurpose, Bool)? = nil) throws -> [ScoringInputChange] {
+        guard isAccountRuntimeActive, let context = accountContext else { throw AccountAuthError.staleOperation }
+        guard let snapshot = acceptedScoringPreferences else { throw ScoringInputJournal.Failure.held }
+        let source = PushDurabilityReceipt.canonicalDevice(owner: context.scope.userID, device: repo.deviceId)
+        let day = ServerScoreDate.day(now, timeZone: zone)
+        func contextEnabled(_ purpose: ScoringContextPurpose) -> Bool {
+            if let consentOverride, consentOverride.0 == purpose { return consentOverride.1 }
+            return scoringContextConsent?.enabled(purpose) == true
+        }
+        let payloads = try snapshot.payloads(at: now, timezone: zone.identifier,
+            consent: .init(journalEnabled: contextEnabled(.journal), cycleEnabled: contextEnabled(.cycle)))
+        return try [(ScoringInputChange.Kind.profile, payloads.profile), (.config, payloads.config)].map { kind, payload in
+            try ScoringInputChange(device: source, kind: kind, entity: "primary", effectiveDay: day,
+                payload: payload)
+        }
+    }
+
+    /// Called only by an explicit sharing action; enabling a purpose does not scan old local entries.
+    func scoringJournalContextChange(day: String, flags: ScoringContextInput.Flags,
+                                     zone: TimeZone = .current) throws -> ScoringInputChange {
+        let (device, decision) = try scoringContextAdmission(.journal)
+        return try ScoringContextInput.context(device: device, day: day, timezone: zone.identifier,
+                                               flags: flags, decision: decision)
+    }
+
+    func scoringPeriodStartChange(day: String, eventID: UUID,
+                                  zone: TimeZone = .current) throws -> ScoringInputChange {
+        let (device, decision) = try scoringContextAdmission(.cycle)
+        return try ScoringContextInput.periodStart(device: device, day: day, timezone: zone.identifier,
+                                                  eventID: eventID, decision: decision)
+    }
+
+    private func scoringContextAdmission(_ purpose: ScoringContextPurpose) throws -> (String, ScoringContextDecision) {
+        guard isAccountRuntimeActive, let context = accountContext else { throw AccountAuthError.staleOperation }
+        guard let consent = scoringContextConsent, consent.loaded, consent.enabled(purpose),
+              let decision = consent.decisions[purpose] else { throw ScoringInputJournal.Failure.held }
+        return (PushDurabilityReceipt.canonicalDevice(owner: context.scope.userID, device: repo.deviceId), decision)
+    }
+
+    func submitScoringContext(_ change: ScoringInputChange) async throws {
+        guard isAccountRuntimeActive, let context = accountContext, let inputs = scoringInputs,
+              [.context, .period].contains(change.kind),
+              change.device == PushDurabilityReceipt.canonicalDevice(owner: context.scope.userID, device: repo.deviceId),
+              let consent = scoringContextConsent, consent.gate.allows(change) else {
+            throw ScoringInputJournal.Failure.held
+        }
+        // Coordinator repeats owner/consent checks after opening and inside the durable transaction.
+        try await inputs.enqueue(change)
+        guard isAccountRuntimeActive else { throw AccountAuthError.staleOperation }
+    }
+
+    @discardableResult
+    func recalibrateChargeBaseline(now: Double = Date().timeIntervalSince1970) -> ScoringPreferenceTicket? {
+        guard isAccountRuntimeActive else { return nil }
+        if accountContext != nil {
+            do {
+                return try completePreferenceAction([
+                    .init(key: .hrvBaselineEpoch, value: .number(now)),
+                    .init(key: .recoveryBaselineEpoch, value: .number(now))
+                ], now: Date(timeIntervalSince1970: now))
+            } catch { reportPreferenceFailure(); return nil }
+        }
+        behavior.recalibrateChargeBaseline(now: now)
+        guard !AppRuntimeMode.isUnitTesting else { return nil }
+        Task { [weak self] in
+            guard let self, self.isAccountRuntimeActive else { return }
+            if !self.repo.serverPresentation.owns(.recovery) { await self.intelligence.analyzeRecent() }
+            guard self.isAccountRuntimeActive else { return }
+            await self.repo.refresh()
+        }
+        return nil
+    }
+
     /// Build the device registry + source coordinator once the store is open, then start observing.
     /// #477: push the persisted Power-saving prefs to the BLE manager (parity with Android
     /// `AppViewModel.applyPowerSaving`). Offload-cadence stretch uses the battery-% threshold (0 = off
@@ -509,6 +1180,14 @@ final class AppModel: ObservableObject {
         // HRV pause is battery-%-aware like the offload lever — pass the same threshold.
         ble.setPauseCaptureOnPowerSave(on && PuffinExperiment.pauseHrvOnPowerSaveEnabled,
                                        thresholdPct: PuffinExperiment.powerSavingBatteryPct)
+    }
+
+    /// Pause optional high-rate research capture without changing the user's persisted choice.
+    /// Essential historical buffering and ACK durability are unaffected.
+    private func applyResourceConstraints() {
+        let info = ProcessInfo.processInfo
+        let constrained = info.isLowPowerModeEnabled || info.thermalState == .serious || info.thermalState == .critical
+        ble.imuRecorder.setResourceConstrained(constrained)
     }
 
     /// Tiny and guarded: with no generic strap paired the active id is "my-whoop", so the coordinator
@@ -541,8 +1220,63 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func wireSourceCoordinator() async {
-        guard sourceCoordinator == nil, let store = await repo.storeHandle() else { return }
+    func wireSourceCoordinator() async {
+        guard captureAdmissionEnabled, isAccountRuntimeActive, sourceCoordinator == nil,
+              !sourceCoordinatorPreparationInFlight else { return }
+        sourceCoordinatorPreparationInFlight = true
+        defer { sourceCoordinatorPreparationInFlight = false }
+        guard let store = await repo.storeHandle(),
+              isAccountRuntimeActive, !Task.isCancelled,
+              let layout = accountStorage, let scope = layout.scope,
+              let context = accountContext, context.scope == scope else { return }
+        // Repository revokes its presentation writer on retirement. Accepted capture needs its own
+        // connection to this exact old-owner database until the final stopped-source drain commits.
+        if let previous = genericCapturePreparation, previous.isRetired {
+            guard await previous.drain(), isAccountRuntimeActive, !Task.isCancelled else { return }
+            if genericCapturePreparation === previous { genericCapturePreparation = nil }
+        }
+        if genericCapturePreparation == nil {
+            let path = layout.databaseURL.path
+            let hooks = capturePreparationHooks
+            genericCapturePreparation = GenericCaptureOwnership(prepareResource: {
+                let captureStore = try await WhoopStore(path: path)
+                hooks.didOpen(captureStore)
+                let writer = captureStore.registryWriter
+                let beforeClose = hooks.beforeClose
+                let close: @Sendable () async throws -> Void = {
+                    try await beforeClose()
+                    try await Task.detached(priority: .utility) { try writer.close() }.value
+                }
+                do {
+                    try await captureStore.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+                    let owner = try StandardHRCaptureOwner(projectURL: scope.projectURL, userID: scope.userID)
+                    let journal = try await GenericCaptureJournal.prepareStandardHR(
+                        store: captureStore, owner: owner, runtimeGeneration: context.generation, hooks: hooks.journal)
+                    return GenericCaptureOwnership.Prepared(journal: journal, close: close)
+                } catch {
+                    throw GenericCaptureOwnership.PreparationFailure(underlying: error, close: close)
+                }
+            })
+        }
+        guard let preparation = genericCapturePreparation else { return }
+        let captureJournal: GenericCaptureJournal
+        do {
+            captureJournal = try await preparation.prepared()
+        } catch {
+            if await preparation.drain(), genericCapturePreparation === preparation {
+                genericCapturePreparation = nil
+            }
+            if isAccountRuntimeActive { live.append(log: "Generic capture is waiting for its account storage.") }
+            return
+        }
+        guard isAccountRuntimeActive, accountContext == context, !Task.isCancelled,
+              !preparation.isRetired, sourceCoordinator == nil else {
+            preparation.retire()
+            if await preparation.drain(), genericCapturePreparation === preparation {
+                genericCapturePreparation = nil
+            }
+            return
+        }
         let registry = DeviceRegistry(store: DeviceRegistryStore(dbQueue: store.registryWriter))
         registry.reload()
         let coordinator = SourceCoordinator(
@@ -568,8 +1302,9 @@ final class AppModel: ObservableObject {
             // path. Timestamp matches BLEManager.log()'s "HH:mm:ss" so the lines read consistently.
             straplog: { [weak self] line in
                 self?.live.append(log: "[\(AppModel.logTimeFormatter.string(from: Date()))] \(line)")
-            })
-        coordinator.start()
+            },
+            genericCapture: captureJournal)
+        if capturePreparationHooks.startCoordinator { coordinator.start() }
         self.deviceRegistry = registry
         // #1303: adoption re-points the strap onto its stable `whoop-<serial>` id inside BLEManager (which
         // holds only the non-observable store), so mirror it onto the OBSERVABLE registry here or the
@@ -607,19 +1342,46 @@ final class AppModel: ObservableObject {
     /// already resolves the active strap per day via the registry's own active id (`resolveDayOwner`), so it
     /// reads + scores the re-added strap's raw and writes the computed result to the STABLE canonical
     /// `-noop` sibling, no engine re-point needed.
+    func activateCloudCollection() async {
+        guard isAccountRuntimeActive, CloudCaptureScope.ready, CloudPushSettings.termsAccepted else { return }
+        RawDataSessionStore.shared.reload()
+        await ble.bootstrapStore()
+        await wireSourceCoordinator()
+        guard isAccountRuntimeActive, let store = await repo.storeHandle() else { return }
+        await serverScores.wireAndHydrate(store: store)
+        if let active = deviceRegistry?.activeDeviceId {
+            _ = repo.adoptActiveDeviceId(active)
+        }
+        serverScores.selectDevice(localDeviceId: repo.deviceId)
+        serverScores.startPolling(todayKey: Repository.dayString(Date()))
+        serverScores.setForeground(isForeground)
+        await repo.refresh()
+        ble.connectFromSystem()
+    }
+
     private func adoptActiveDevice(_ activeId: String) async {
+        guard isAccountRuntimeActive else { return }
         let trimmed = activeId.trimmingCharacters(in: .whitespaces)
+        serverScores.selectDevice(localDeviceId: trimmed)
+        if !trimmed.isEmpty, trimmed != repo.deviceId {
+            intelligence.invalidatePreferenceEvaluationContext()
+        }
         let repoMoved = repo.adoptActiveDeviceId(trimmed)
         guard repoMoved else { return }
+        scheduleScoringProfileInputs()
         live.append(log: "Read spine re-pointed to active device after registry change (#814).")
         await repo.refresh()
         // This also runs on a CoreBluetooth-restored launch. Scoring the full
         // history there can outlive the short background wake and restart on
         // every restoration, starving the offload. Keep the score owed instead.
-        await RescoreBackgroundScheduler.run(log: { [live] line in
-            live.append(log: line)
-        }) {
-            await intelligence.analyzeRecent()
+        if ServerScoringSettings.skipsSyncCoupledRescore {
+            ServerScoringSettings.settleSkippedLocalRescoreDebt()
+        } else {
+            await RescoreBackgroundScheduler.run(log: { [live] line in
+                live.append(log: line)
+            }) {
+                await intelligence.analyzeRecent()
+            }
         }
     }
 
@@ -628,7 +1390,7 @@ final class AppModel: ObservableObject {
     ///
     /// A closure rather than a direct reference because `HealthKitBridge` owns iOS-only HealthKit state
     /// while this type is shared with macOS, and the bridge is a `@StateObject` the app scene owns.
-    var healthWriteBack: (() async -> Bool)?
+    var healthWriteBack: ((SyncEngine.DependentStageAdmission?) async -> Bool)?
     #endif
 
     /// Settle a re-score that is owed (#1538) — one an earlier attempt started and was killed partway
@@ -638,49 +1400,106 @@ final class AppModel: ObservableObject {
     /// bluetooth-central background wake is worth, and from foreground entry, whichever comes first. A
     /// no-op unless something is actually owed, so both callers are safe to invoke unconditionally.
     ///
-    /// Forced rather than `skipIfUnchanged`: an interrupted pass never advanced the watermark — by design,
-    /// so that it cannot mark unscored data as scored — so gating on the fingerprint here would be asking
-    /// a question whose answer is already known to be "yes, there is work".
+    /// Account-bound work uses durable evaluation admission, including quiet holds and backoff.
+    /// The legacy lane still resumes an interrupted pass from its existing defaults flag.
     func runDeferredRescoreIfOwed() async {
+        guard isAccountRuntimeActive, !Task.isCancelled else { return }
+        if ServerScoringSettings.skipsSyncCoupledRescore {
+            ServerScoringSettings.settleSkippedLocalRescoreDebt()
+            return
+        }
+        if accountContext != nil {
+            do { try await prepareScoringPreferences() }
+            catch { reportPreferenceFailure(); return }
+            let work = await intelligence.preparePreferenceProjection()
+            guard isAccountRuntimeActive, !Task.isCancelled,
+                  work.hasRunnableWork(at: Int64(Date().timeIntervalSince1970)) else { return }
+            _ = await intelligence.runPreferenceProjection()
+            return
+        }
         guard RescoreBackgroundScheduler.isRescoreOwed else { return }
         live.append(log: "re-score: resuming a pass an earlier attempt could not finish (#1538)")
         await intelligence.analyzeRecent()
         // Export surfaces remain owed in SyncEngine and run only after the captured rescore token settles.
     }
 
-    private func refreshAfterCompletedBackfill() async {
+    private func resumePostOffloadRefreshIfNeeded() {
+        guard postOffloadRefreshPending, postOffloadRefreshTask == nil,
+              isAccountRuntimeActive, isForeground,
+              let delay = resourceBudget.bulkResumeDelay() else { return }
+        let id = UUID()
+        postOffloadRefreshTaskID = id
+        postOffloadRefreshTask = Task { [weak self] in
+            if delay > 0 {
+                do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+                catch { return }
+            }
+            guard let self, !Task.isCancelled, self.isAccountRuntimeActive, self.isForeground,
+                  self.postOffloadRefreshTaskID == id, self.postOffloadRefreshPending else { return }
+            defer {
+                if self.postOffloadRefreshTaskID == id {
+                    self.postOffloadRefreshTask = nil
+                    self.postOffloadRefreshTaskID = nil
+                    self.resumePostOffloadRefreshIfNeeded()
+                }
+            }
+            let request = self.postOffloadRefreshRequest
+            let completed = await self.refreshAfterCompletedBackfill()
+            if completed, !Task.isCancelled, self.postOffloadRefreshRequest == request {
+                self.postOffloadRefreshPending = false
+            }
+        }
+    }
+
+    private func refreshAfterCompletedBackfill() async -> Bool {
+        guard isAccountRuntimeActive, !Task.isCancelled,
+              resourceBudget.permits(.bulk) else { return false }
         // Terminal empty/duplicate sessions still publish the BLE boundary so an earlier durable burst can
         // flush. If no job is owed, there is no earlier productive work: avoid a 120-day refresh and the
         // rest of the expensive tail for a phantom/console-only completion.
-        guard await syncEngine.hasOwedWork() else {
+        let owed = await syncEngine.hasOwedWork()
+        guard isAccountRuntimeActive, !Task.isCancelled else { return false }
+        guard owed else {
             live.append(log: "Backfill: burst terminal with no new durable rows; downstream drain skipped")
-            return
+            return true
         }
+        guard resourceBudget.permits(.bulk) else { return false }
         live.append(log: "Backfill: refreshing dashboard cache from completed sync")
         await repo.refresh(days: 120)
+        guard isAccountRuntimeActive, !Task.isCancelled,
+              resourceBudget.permits(.bulk) else { return false }
         await deriveCurrentHRV()
         // Post-offload pipeline: re-score (#1538 deferral still inside RescoreBackgroundScheduler.run),
         // cloud push, Apple Health write-back (#1021), and widget publish (#980) all drain through one
         // orchestrator so owed work survives suspension and every wake can settle every stage.
         await syncEngine.drain(reason: .offloadComplete)
         await refreshV5Signals()
+        return isAccountRuntimeActive && !Task.isCancelled && resourceBudget.permits(.bulk)
     }
 
     /// Lightweight trailing-window HRV readout — one small R-R window, not the 21-day rescore. Runs off
     /// the main actor; publishes on success only. No-ops when the newest R-R row is older than the
     /// backfill interval (stale strap / app was asleep).
     private func deriveCurrentHRV() async {
-        guard let store = await repo.storeHandle() else { return }
+        guard isAccountRuntimeActive, !Task.isCancelled,
+              let store = await repo.storeHandle(), isAccountRuntimeActive else { return }
         let now = Int(Date().timeIntervalSince1970)
-        let from = now - CurrentHRV.windowSeconds
+        let bounds = CurrentHRV.completedWindow(nowUnix: now)
         let deviceId = repo.deviceId
-        guard let rows = try? await store.rrIntervals(deviceId: deviceId, from: from, to: now, limit: 10_000),
+        guard let rows = try? await store.rrPhysiologyInputs(deviceId: deviceId, from: bounds.lowerBound, to: bounds.upperBound - 1, limit: 10_000),
               let newest = rows.map(\.ts).max(),
               now - newest <= CurrentHRV.staleThresholdSeconds else { return }
+        guard isAccountRuntimeActive, !Task.isCancelled, repo.deviceId == deviceId,
+              resourceBudget.permits(.bulk) else { return }
+        let packets = (try? await store.rrPacketProvenance(deviceId: deviceId,
+            from: bounds.lowerBound, to: bounds.upperBound)) ?? []
+        let observations = PhysiologyQuality.packetOrLegacy(packets, legacy: rows, deviceId: deviceId)
+            ?? PhysiologyQuality.legacy(rows, deviceId: deviceId)
 
         let snapshot = await Task.detached(priority: .utility) {
-            CurrentHRV.derive(rows: rows, nowUnix: now)
+            CurrentHRV.derive(observations: observations, nowUnix: now)
         }.value
+        guard isAccountRuntimeActive, !Task.isCancelled, repo.deviceId == deviceId else { return }
         if let snapshot { currentHrv = snapshot }
     }
 
@@ -799,7 +1618,7 @@ final class AppModel: ObservableObject {
                 peakHr: w.peakHr,
                 liveStrain: w.liveStrain,
                 pausedAtSec: w.pausedAt.map { Int($0.timeIntervalSince1970) },
-                pausedDurationSec: Int(w.pausedDuration)))
+                pausedDurationSec: Int(w.pausedDuration)), into: accountDefaults)
     }
 
     /// If a manual workout was in flight when iOS killed the app, rebuild `activeWorkout` from the durable
@@ -807,7 +1626,7 @@ final class AppModel: ObservableObject {
     /// analogue of Android's `rehydrateActiveNonGpsWorkout`. No-op when a workout is already live (a live
     /// session wins over a stale snapshot) or nothing is stored. Called once from `init`.
     private func rehydrateActiveWorkout() {
-        guard activeWorkout == nil, let snap = ActiveWorkoutPersistence.load() else { return }
+        guard activeWorkout == nil, let snap = ActiveWorkoutPersistence.load(from: accountDefaults) else { return }
         var w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
                               sport: snap.sport)
         w.samples = snap.samples
@@ -853,7 +1672,7 @@ final class AppModel: ObservableObject {
         activeWorkout = nil
         if activeWorkoutIsGps { gpsRecorder.stop() }
         activeWorkoutIsGps = false
-        ActiveWorkoutPersistence.clear()
+        ActiveWorkoutPersistence.clear(from: accountDefaults)
         lastWorkout = nil
     }
 
@@ -867,7 +1686,7 @@ final class AppModel: ObservableObject {
         activeWorkoutIsGps = false
         // Drop the durable snapshot the instant the session ends , whether it saves below or is discarded
         // as too-short , so a relaunch never rehydrates an already-finished session (#529).
-        ActiveWorkoutPersistence.clear()
+        ActiveWorkoutPersistence.clear(from: accountDefaults)
         // #524: finalize the GPS route. Stop the recorder and take its captured route , it kept
         // accumulating from CoreLocation independently of the HR window. `capturedRoute()` is nil unless
         // ≥2 points actually landed (honest: no route, no distance, when nothing was captured , e.g. a
@@ -902,7 +1721,7 @@ final class AppModel: ObservableObject {
         let strain = samples.count >= 2
             ? StrainScorer.strain(samples, maxHR: Double(profile.hrMax),
                                   restingHR: restingHR,
-                                  method: PuffinExperiment.effortMethod, sex: profile.sex) : nil
+                                  method: scoringEffortMethod, sex: profile.sex) : nil
         // Estimate calories from the captured HR window (same Keytel/Harris–Benedict model the
         // auto-detector uses) so a manual session shows energy too, not just duration/strain. (#117)
         let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
@@ -955,7 +1774,7 @@ final class AppModel: ObservableObject {
         w.peakHr = max(w.peakHr, hr)
         w.avgHr = Int((Double(w.samples.map(\.bpm).reduce(0, +)) / Double(w.samples.count)).rounded())
         w.liveStrain = StrainScorer.strain(w.samples, maxHR: Double(profile.hrMax),
-                                              method: PuffinExperiment.effortMethod, sex: profile.sex) ?? 0
+                                              method: scoringEffortMethod, sex: profile.sex) ?? 0
         activeWorkout = w
         // Re-snapshot the durable session so a kill keeps the latest accumulated HR window (#529).
         persistActiveWorkout()
@@ -1011,6 +1830,7 @@ final class AppModel: ObservableObject {
     /// picked (persisted under "selectedWhoopModel"), so every scan entry point ,
     /// Live, onboarding, the menu bar, Settings , honours the same choice.
     func scan(model: WhoopModel? = nil) {
+        guard captureAdmissionEnabled, isAccountRuntimeActive else { return }
         let chosen = model
             ?? UserDefaults.standard.string(forKey: "selectedWhoopModel").flatMap(WhoopModel.init(rawValue:))
             ?? .whoop4
@@ -1622,9 +2442,14 @@ final class AppModel: ObservableObject {
     func markMoment(at date: Date) {
         moments.append(date)
         if moments.count > 500 { moments.removeFirst(moments.count - 500) }
-        UserDefaults.standard.set(moments.map(\.timeIntervalSince1970), forKey: "moments")
+        accountDefaults.set(moments.map(\.timeIntervalSince1970), forKey: "moments")
         buzz(loops: 1)
         live.append(log: "Moment marked")
+    }
+
+    func clearMoments() {
+        guard isAccountRuntimeActive, accountPreferences.clearMoments() else { return }
+        moments.removeAll()
     }
 
     /// #461: record a "sleep mark" , a bedtime / wake / mid-night tap. Stored like moments (survives
@@ -1635,7 +2460,7 @@ final class AppModel: ObservableObject {
     func markSleep(at date: Date) {
         sleepMarks.append(date)
         if sleepMarks.count > 500 { sleepMarks.removeFirst(sleepMarks.count - 500) }
-        UserDefaults.standard.set(sleepMarks.map(\.timeIntervalSince1970), forKey: "sleepMarks")
+        accountDefaults.set(sleepMarks.map(\.timeIntervalSince1970), forKey: "sleepMarks")
         buzz(loops: 1)
         let hhmm = DateFormatter()
         hhmm.locale = Locale(identifier: "en_US_POSIX")
@@ -1655,6 +2480,7 @@ final class AppModel: ObservableObject {
     }
 
     private func handleWristChange(_ worn: Bool) {
+        ble.wristStateDidChange()
         if worn {
             if !behavior.wristOnShortcut.isEmpty { MacActions.runShortcut(behavior.wristOnShortcut) }
         } else {
@@ -1717,12 +2543,20 @@ final class AppModel: ObservableObject {
         return (c.hour ?? 0) * 3600 + (c.minute ?? 0) * 60 + (c.second ?? 0)
     }
 
-    private func evaluateIllness(_ days: [DailyMetric]) {
+    @discardableResult
+    private func evaluateIllness(_ days: [DailyMetric]) -> Task<Void, Never>? {
+        guard isAccountRuntimeActive else { return nil }
+        refreshServerContextPresentation()
+        let ownsScore = repo.serverPresentation.owns(.illnessScore)
+        let ownsDistance = repo.serverPresentation.owns(.illnessDistance)
+        guard !ownsScore || !ownsDistance else { return nil }
         guard behavior.illnessWatch, days.count >= 14 else {
-            healthAlert = nil; illnessSignal = nil; illnessDistance = nil; return
+            if !ownsScore { healthAlert = nil; illnessSignal = nil }
+            if !ownsDistance { illnessDistance = nil }
+            return nil
         }
-        Task { [weak self] in
-            guard let self else { return }
+        return Task { [weak self] in
+            guard let self, self.isAccountRuntimeActive else { return }
             // Confounder tags from the recent journal (within the last ~2 days). Read once, off the
             // engine's hot path , the engine only needs presence flags, not the rows.
             let recentDays = Set(days.suffix(2).map(\.day))
@@ -1754,6 +2588,17 @@ final class AppModel: ObservableObject {
     /// publish the result + the semantic `healthAlert` banner payload.
     private func applyIllnessSignal(_ days: [DailyMetric], alcohol: Bool,
                                     hardOrLateWorkout: Bool, alreadyUnwell: Bool) {
+        guard isAccountRuntimeActive else { return }
+        refreshServerContextPresentation()
+        let ownsScore = repo.serverPresentation.owns(.illnessScore)
+        let ownsDistance = repo.serverPresentation.owns(.illnessDistance)
+        guard !ownsScore || !ownsDistance else { return }
+        // The input read can outlive a local opt-out. Clear only locally owned outputs.
+        guard behavior.illnessWatch else {
+            if !ownsScore { healthAlert = nil; illnessSignal = nil }
+            if !ownsDistance { illnessDistance = nil }
+            return
+        }
         let previous = healthAlert
         let recent = Array(days.suffix(2))
         let base = Array(days.suffix(31).dropLast(3))    // ~28 days ending 3 days ago
@@ -1801,7 +2646,8 @@ final class AppModel: ObservableObject {
             rmssd: zIfPresent(hrv),       // hrv.zIllnessward is already the NEGATED HRV z
             skinTemp: zIfPresent(skin),
             respiration: zIfPresent(resp))
-        illnessDistance = IllnessDistance.evaluate(features: distanceFeatures, correlation: nil)
+        if !ownsDistance { illnessDistance = IllnessDistance.evaluate(features: distanceFeatures, correlation: nil) }
+        guard !ownsScore else { return }
 
         // baselineTrusted: require the HRV/RHR baselines to be trusted before the engine may raise.
         let trusted = (rhr?.1 ?? false) || (hrv?.1 ?? false)
@@ -1856,7 +2702,7 @@ final class AppModel: ObservableObject {
         }
         if healthAlert != nil, previous == nil {
             // Notifications retain their established copy contract; Home renders the semantic result.
-            IllnessNotifier.post(result.copy)
+            postIllnessNotification(result.copy)
         }
     }
 
@@ -1878,7 +2724,8 @@ final class AppModel: ObservableObject {
     /// Re-run the illness watch over the cached history. Called when the Automations toggle
     /// flips , the repo.$days sink only fires on data changes, so a flip would otherwise wait
     /// for the next refresh.
-    func reevaluateIllness() {
+    @discardableResult
+    func reevaluateIllness() -> Task<Void, Never>? {
         evaluateIllness(repo.days)
     }
 
@@ -1891,20 +2738,36 @@ final class AppModel: ObservableObject {
 
     /// UserDefaults key for the cycle-awareness opt-in (default OFF , the most sensitive health category,
     /// manual-first). The Settings toggle + the card's opt-in CTA both write this single key.
-    static let cycleAwarenessKey = "noopCycleAwareness"
+    static let cycleAwarenessKey = AccountPreferences.cycleAwarenessKey
+    var hrvWindowRaw: String {
+        get { accountPreferences.hrvWindowRaw }
+        set {
+            guard isAccountRuntimeActive else { return }
+            if accountContext == nil { accountPreferences.hrvWindowRaw = newValue; return }
+            do { try completePreferenceAction([.init(key: .hrvWindow, value: .text(newValue))]) }
+            catch { reportPreferenceFailure() }
+        }
+    }
+
     var cycleAwarenessEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.cycleAwarenessKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.cycleAwarenessKey) }
+        get { accountPreferences.cycleAwarenessEnabled }
+        set {
+            guard isAccountRuntimeActive else { return }
+            accountPreferences.cycleAwarenessEnabled = newValue
+        }
     }
 
     /// The user's "not for me" opt-out of cycle awareness — a respectful, USER-controlled hide, never
     /// age-based (menopause age varies too widely to infer). When true, the cycle-awareness OFFER is
     /// suppressed on Today and Health; the Automations toggle stays visible so it's reversible. Default
     /// false. Distinct from `cycleAwarenessEnabled` (active tracking): this hides the invitation itself.
-    static let cycleAwarenessHiddenKey = "noopCycleAwarenessHidden"
+    static let cycleAwarenessHiddenKey = AccountPreferences.cycleAwarenessHiddenKey
     var cycleAwarenessHidden: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.cycleAwarenessHiddenKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.cycleAwarenessHiddenKey) }
+        get { accountPreferences.cycleAwarenessHidden }
+        set {
+            guard isAccountRuntimeActive else { return }
+            accountPreferences.cycleAwarenessHidden = newValue
+        }
     }
 
     /// #polar-debug: whether a connecting Polar strap logs the model NOOP identifies it as (+ its PMD/HRV
@@ -1932,14 +2795,65 @@ final class AppModel: ObservableObject {
     /// Called from the analytics pass and when the cycle opt-in flips. Honest-nil throughout: cycle is
     /// nil unless opted in; circadian is nil unless a usable activity profile exists.
     func refreshV5Signals() async {
+        guard isAccountRuntimeActive else { return }
+        refreshServerContextPresentation()
+        guard resourceBudget.permits(.bulk), !Task.isCancelled else { return }
         await computeCyclePhase()
+        guard isAccountRuntimeActive, resourceBudget.permits(.bulk), !Task.isCancelled else { return }
         await computeCircadianPhase()
+    }
+
+    /// Shared publication boundary for the repository and existing context-result consumers.
+    /// Ownership suppresses local fallback even when this revision has no usable value.
+    func applyServerScorePresentation(_ state: ServerScoreViewState) {
+        guard isAccountRuntimeActive,
+              state.generation == accountContext?.generation ||
+                (state.generation == nil && !state.configured && !state.authenticated && state.days.isEmpty) else { return }
+        guard state.days.values.allSatisfy({ entry in
+            entry.snapshot.map { $0.userId == accountContext?.scope.userID } ?? true
+        }) else { return }
+        if repo.applyServerScores(state) {
+            refreshServerContextPresentation()
+        }
+    }
+
+    private func refreshServerContextPresentation() {
+        guard isAccountRuntimeActive else { return }
+        let state = repo.serverPresentation, day = state.currentDay
+        let fields: Set<ServerScoreMetric> = [.cyclePhase, .circadianPhase, .circadianOffset, .illnessScore, .illnessDistance]
+        let owned = Set(fields.filter(state.owns))
+        let changingConsent = scoringContextConsent?.saving != false
+        if owned.contains(.cyclePhase) {
+            cyclePhase = !changingConsent && scoringContextConsent?.enabled(.cycle) == true
+                ? ServerScoreContextPresentation.cycle(day: day, state: state) : nil
+            // The legacy sparkline cannot represent the dated/null-aware server chart yet.
+            cycleCurve = []
+        } else if publishedServerContext.contains(.cyclePhase) {
+            cyclePhase = nil; cycleCurve = []
+        }
+        let circadian: Set<ServerScoreMetric> = [.circadianPhase, .circadianOffset]
+        if !owned.isDisjoint(with: circadian) {
+            circadianPhase = ServerScoreContextPresentation.circadian(day: day, state: state)
+        } else if !publishedServerContext.isDisjoint(with: circadian) { circadianPhase = nil }
+        if owned.contains(.illnessScore) {
+            illnessSignal = behavior.illnessWatch && !changingConsent && scoringContextConsent?.enabled(.journal) == true
+                ? ServerScoreContextPresentation.illness(day: day, state: state) : nil
+            // A cached result is not a new alert event; the wire has no semantic alert contract.
+            healthAlert = nil
+        } else if publishedServerContext.contains(.illnessScore) { illnessSignal = nil; healthAlert = nil }
+        if owned.contains(.illnessDistance) {
+            illnessDistance = behavior.illnessWatch && !changingConsent && scoringContextConsent?.enabled(.journal) == true
+                ? ServerScoreContextPresentation.illnessDistance(day: day, state: state) : nil
+        } else if publishedServerContext.contains(.illnessDistance) { illnessDistance = nil }
+        publishedServerContext = owned
     }
 
     /// Cycle-phase awareness from the nightly skin-temperature shift (+ luteal RHR rise / HRV drop). Each
     /// night is z-scored against the personal baseline, then `CyclePhaseEngine.classify` reads the run.
     /// Gated behind the opt-in flag; clears the published result the moment it's turned off.
     private func computeCyclePhase() async {
+        guard isAccountRuntimeActive else { return }
+        if repo.serverPresentation.owns(.cyclePhase) { refreshServerContextPresentation(); return }
         guard cycleAwarenessEnabled else { cyclePhase = nil; cycleCurve = []; return }
         let days = repo.days
         guard let tempCfg = Baselines.metricCfg["skin_temp"],
@@ -1967,6 +2881,9 @@ final class AppModel: ObservableObject {
         // The pure engine cross-validates them against the temperature shift rather than trusting a
         // mistimed log blindly.
         let loggedPeriodStarts = await repo.periodStarts()
+        guard isAccountRuntimeActive else { return }
+        if repo.serverPresentation.owns(.cyclePhase) { refreshServerContextPresentation(); return }
+        guard cycleAwarenessEnabled else { cyclePhase = nil; cycleCurve = []; return }
         cyclePhase = CyclePhaseEngine.classify(nights,
                                                baselineUsable: skinState.usable,
                                                loggedPeriodStarts: loggedPeriodStarts)
@@ -1977,9 +2894,17 @@ final class AppModel: ObservableObject {
     /// downsampled HR buckets (HR amplitude is a usable rest/activity rhythm proxy when raw motion isn't
     /// to hand), then fits the cosinor. nil when there isn't enough to read.
     private func computeCircadianPhase() async {
+        guard isAccountRuntimeActive else { return }
+        if repo.serverPresentation.owns(.circadianPhase) || repo.serverPresentation.owns(.circadianOffset) {
+            refreshServerContextPresentation(); return
+        }
         let now = Int(Date().timeIntervalSince1970)
         let from = now - 14 * 86_400
         let buckets = await repo.hrBuckets(from: from, to: now, bucketSeconds: 3_600)
+        guard isAccountRuntimeActive else { return }
+        if repo.serverPresentation.owns(.circadianPhase) || repo.serverPresentation.owns(.circadianOffset) {
+            refreshServerContextPresentation(); return
+        }
         guard buckets.count >= 24 else { circadianPhase = nil; return }
         let tz = TimeZone.current.secondsFromGMT()
         // Pool HR by LOCAL hour-of-day → mean bpm per hour as the activity proxy (higher HR ≈ more active).

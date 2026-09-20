@@ -121,12 +121,26 @@ public final class LiveState: ObservableObject {
     /// Rolling buffer of `(unix-seconds, SoC%)` battery readings banked from the live link, the twin of
     /// `rrRecent` for the battery series. `setBattery` appends each reading (with a small dedupe so a
     /// repeated identical % at a near-identical time doesn't pad the buffer), and `batteryEstimate` fits
-    /// the recent discharge slope over it. Capped + bounded so it can't grow without limit; cleared on
-    /// disconnect so a stale estimate can't outlive the link.
+    /// the recent discharge slope over it. History survives a radio reconnect; a device switch clears it.
     @Published public private(set) var batterySamples: [(ts: Int, soc: Double)] = []
-    /// Cap on the SoC buffer. Battery events arrive only every ~8 minutes, so a few hundred readings
-    /// already spans a couple of days, plenty to fit a discharge slope against.
-    static let maxBatterySamples = 400
+    /// Retain up to fourteen days, including a full MG cycle at its usual battery-event cadence.
+    static let maxBatterySamples = 4096
+    static let batteryHistorySeconds = 14 * 24 * 3600
+    private(set) var batteryHistoryDeviceId: String?
+    private(set) var batteryHistoryGeneration = UUID()
+    /// Current-link evidence for diagnostics. Retained forecast history must not imply a fresh reading.
+    @Published public private(set) var freshBatterySoc: Double?
+
+    func selectBatteryDevice(_ id: String) {
+        guard batteryHistoryDeviceId != id else { return }
+        batteryHistoryDeviceId = id
+        batteryHistoryGeneration = UUID()
+        clearBatterySamples()
+        batteryPct = nil
+        freshBatterySoc = nil
+        batteryMv = nil
+        charging = nil
+    }
 
     // MARK: - Sleep & Rest test-mode live readout (Group E)
 
@@ -169,12 +183,11 @@ public final class LiveState: ObservableObject {
     /// "~X days left" runtime estimate for the connected strap, computed from the banked SoC samples and
     /// `batteryRatedHours`. nil until there's at least one reading. The Today badge reads this.
     public var batteryEstimate: BatteryEstimator.Estimate? {
-        BatteryEstimator.estimate(samples: batterySamples, ratedHours: batteryRatedHours)
+        BatteryEstimator.estimate(samples: batterySamples, ratedHours: batteryRatedHours,
+                                  currentSoc: batteryPct)
     }
 
-    /// The discharge-run / fitted-slope / gate trace for the banked SoC series (#713, Test Centre Battery
-    /// mode). Pure: delegates to BatteryEstimator.estimateTrace, which returns the SAME Estimate as
-    /// batteryEstimate plus the trace lines, so reading this never changes any displayed number.
+    /// Historical rate diagnostics. `emitBatteryTrace` adds the forecast anchored to the live gauge.
     public var batteryEstimateTraceLines: [String] {
         BatteryEstimator.estimateTrace(samples: batterySamples, ratedHours: batteryRatedHours).trace
     }
@@ -184,6 +197,9 @@ public final class LiveState: ObservableObject {
     public func emitBatteryTrace() {
         guard TestCentre.active(.battery) else { return }
         for line in batteryEstimateTraceLines { append(log: line, domain: .battery) }
+        if let estimate = batteryEstimate {
+            append(log: "forecast soc=\(estimate.currentSoc) ratedHours=\(batteryRatedHours) remainingHours=\(estimate.remainingHours) source=\(estimate.source.rawValue)", domain: .battery)
+        }
     }
 
     /// Resolve one of the Battery mode's liveReadout ids ("currentSoc" / "estimateDaysLeft" /
@@ -226,7 +242,8 @@ public final class LiveState: ObservableObject {
         let oldest = oldestUnix ?? strapRange?.oldestUnix
         strapRange = StrapRange(newestUnix: newestUnix, oldestUnix: oldest, firmwareLayout: firmware)
         // #34: persist the strap's newest banked record so the debug export can flag a reset/stale clock.
-        UserDefaults.standard.set(newestUnix, forKey: "strap.newestRecordTs")
+        guard accountRuntimeActive else { return }
+        defaults.set(newestUnix, forKey: "strap.newestRecordTs")
     }
 
     /// Bank the historical record-layout version (hist_version: 18/24/25/26) the strap emits, so the
@@ -422,6 +439,18 @@ public final class LiveState: ObservableObject {
     /// gates buzz, alarms, double-tap and history sync. LiveView has drawn this line since #69; this
     /// shared label (sidebar + Settings) had not, so the two screens disagreed about the same link.
     public var connectionStatusLabel: String {
+        switch connectionPhase {
+        case "restoring": return "Restoring connection"
+        case "pendingConnection", "reconnecting": return "Reconnecting · pending"
+        case "connecting": return "Connecting"
+        case "discovering": return "Discovering services"
+        case "subscribing": return "Subscribing"
+        case "bluetoothUnavailable": return "Bluetooth unavailable"
+        case "failed": return "Recovering connection"
+        case "intentionallyDisconnected": return "Disconnected by request"
+        default: break
+        }
+        if backfilling { return "Catching up" }
         if connected && encryptedBond { return "Bonded · streaming" }
         if connected && bonded { return "Live HR (not fully paired)" }
         if connected { return "Connected" }
@@ -429,6 +458,8 @@ public final class LiveState: ObservableObject {
         // No `bonded`-only idle arm: without an encrypted bond there was never a pairing to be idle from.
         return "Disconnected"
     }
+    /// Projection of the connection owner; contains no peripheral or account identity.
+    @Published public var connectionPhase = "idle"
     /// True when the link is up with a REAL encrypted bond → status reads green. A live-HR-only link is
     /// amber via [connectionStatusIsIdle]: it works, but every pairing-gated feature is unavailable.
     public var connectionStatusIsActive: Bool { connected && encryptedBond }
@@ -457,6 +488,8 @@ public final class LiveState: ObservableObject {
     /// covers a productive idle timeout and fires only after auto-continuation has decided the backlog is
     /// finished. Intermediate HISTORY_COMPLETE slices never bump it.
     @Published public var postOffloadBurstCompleted: UInt64 = 0
+    /// Refresh diagnostics after the downstream drain updates its durable jobs and journal.
+    @Published public var syncStatusRevision: UInt64 = 0
     /// True across the short false→true gaps between auto-continued sessions. Durable debts may accrue,
     /// but foreground/background wakes defer them until the terminal decision clears this flag.
     @Published public var postOffloadBurstInProgress = false
@@ -533,11 +566,28 @@ public final class LiveState: ObservableObject {
     /// looped forever. Informational note for the Live screen; cleared on a clean reconnect or Live re-open.
     @Published public var standardHRMode: String? = nil
 
-    public init() {}
+    private let defaults: UserDefaults
+    private let logNamespace: String
+    private var accountRuntimeActive = true
+
+    public init(defaults: UserDefaults = .standard, logNamespace: String = "legacy") {
+        self.defaults = defaults
+        self.logNamespace = logNamespace
+    }
+
+    func invalidateAccountRuntime() {
+        guard accountRuntimeActive else { return }
+        Self.persistTail(log, defaults: defaults)
+        accountRuntimeActive = false
+        log.removeAll()
+        clearBiometrics()
+    }
 
     /// Single funnel for battery readings — updates the published value AND notifies the hook,
     /// so both write sites (FrameRouter, BLEManager) drive the alert monitor identically.
     public func setBattery(_ pct: Double) {
+        guard pct.isFinite, (0...100).contains(pct) else { return }
+        freshBatterySoc = pct
         batteryPct = pct
         bankBatterySample(pct)
         onBatteryUpdate?(pct)
@@ -549,7 +599,10 @@ public final class LiveState: ObservableObject {
     /// any change in %, or enough elapsed time, banks a fresh point. The oldest readings fall off once the
     /// buffer is full. `now` is injectable so the estimate is unit-testable without a live clock.
     func bankBatterySample(_ pct: Double, now: Int = Int(Date().timeIntervalSince1970)) {
+        guard pct.isFinite, (0...100).contains(pct), now >= 0 else { return }
+        batterySamples.removeAll { $0.ts > now || $0.ts < now - Self.batteryHistorySeconds }
         if let last = batterySamples.last, last.soc == pct, now - last.ts < 600 { return }
+        batterySamples.removeAll { $0.ts == now }
         batterySamples.append((ts: now, soc: pct))
         if batterySamples.count > Self.maxBatterySamples {
             batterySamples.removeFirst(batterySamples.count - Self.maxBatterySamples)
@@ -567,18 +620,16 @@ public final class LiveState: ObservableObject {
         }
     }
 
-    /// Seed the SoC buffer from the persisted battery table on connect/bootstrap (#7). `batterySamples` is
-    /// otherwise fed ONLY by live BLE events (`bankBatterySample`), so after a reconnect the "~X days left"
-    /// estimate restarted from an empty buffer and ignored the long discharge history already on disk.
-    /// Android seeds from its persisted battery table over a 14-day window; iOS/macOS did not, so the two
-    /// platforms diverged. The BLEManager bootstrap path does one async read of the persisted series and
-    /// passes it here. De-dupes against any points already banked from live events this session (by ts) so a
-    /// seed that races a couple of live readings can't double-count them, then re-sorts and caps the buffer.
-    /// Only banks the historical points that aren't already present, so calling it twice is idempotent.
-    public func seedBatterySamples(_ seed: [(ts: Int, soc: Double)]) {
+    /// Merge stored history on bootstrap and after sync, preserving live readings at equal timestamps.
+    /// The caller fences device identity; this method bounds age, validity, duplicates, and memory use.
+    public func seedBatterySamples(_ seed: [(ts: Int, soc: Double)], now: Int = Int(Date().timeIntervalSince1970)) {
         guard !seed.isEmpty else { return }
         let existing = Set(batterySamples.map { $0.ts })
-        let fresh = seed.filter { !existing.contains($0.ts) }
+        var seen = existing
+        let fresh = seed.filter {
+            $0.ts >= now - Self.batteryHistorySeconds && $0.ts <= now && $0.ts >= 0
+                && $0.soc.isFinite && (0...100).contains($0.soc) && seen.insert($0.ts).inserted
+        }
         guard !fresh.isEmpty else { return }
         batterySamples.append(contentsOf: fresh)
         batterySamples.sort { $0.ts < $1.ts }
@@ -587,8 +638,7 @@ public final class LiveState: ObservableObject {
         }
     }
 
-    /// Drop the banked SoC buffer (called on disconnect) so a stale runtime estimate can't outlive the
-    /// link, the twin of the `charging = nil` clear on the same path.
+    /// Drop history when changing the source device. Radio disconnects retain the learned rate.
     public func clearBatterySamples() {
         batterySamples.removeAll()
     }
@@ -614,9 +664,9 @@ public final class LiveState: ObservableObject {
     /// the `charging = nil` / `encryptedBond = false` clears on the same path.
     public func clearBiometrics() {
         heartRate = nil
+        freshBatterySoc = nil
         rr.removeAll()
         rrRecent.removeAll()
-        clearBatterySamples()   // a stale runtime estimate must not outlive the link either (#713)
         recentHrSamples.removeAll()       // Sleep readout buffers must not outlive the link (Group E)
         recentGravitySamples.removeAll()
         clearStrapRange()                 // a stale clock-drift window must not outlive the link either
@@ -624,7 +674,7 @@ public final class LiveState: ObservableObject {
         ouraWearState = nil               // a stale worn/charging badge must not outlive the link either
         // Perf: flush the durable log tail on disconnect (mirroring is batched in `append`), so a completed
         // session's tail is always persisted for a later scheduled export despite the per-line throttle.
-        Self.persistTail(log)
+        if accountRuntimeActive { Self.persistTail(log, defaults: defaults) }
         logsSincePersist = 0
     }
 
@@ -650,10 +700,11 @@ public final class LiveState: ObservableObject {
     private static let trimSlack = 256
 
     public func append(log line: String, domain: TestDomain? = nil) {
+        guard accountRuntimeActive else { return }
         // FIRST append of this process: rescue the previous process's durable tail into the generation ring
         // before this process's own `persistTail` overwrites it (see `rollLogGenerationsIfNeeded`). Latched,
         // so this is one Bool test per line after the first.
-        Self.rollLogGenerationsIfNeeded()
+        Self.rollLogGenerationsIfNeeded(defaults: defaults, namespace: logNamespace)
         // Tag inert when nil (today's behaviour, byte-identical). When tagged, prefix a compact,
         // parseable marker the export filters on. Redaction is STILL the only scrub point
         // (redactPii below); tagging happens BEFORE redaction so the scrub covers the whole line.
@@ -666,7 +717,7 @@ public final class LiveState: ObservableObject {
         logsSincePersist += 1
         if logsSincePersist >= Self.persistEveryNLines {
             logsSincePersist = 0
-            Self.persistTail(log)
+            Self.persistTail(log, defaults: defaults)
         }
         // #990: fold the Backfiller's per-session "session persisted N rows" summary into the persisted
         // ALL-TIME drained-rows tally, right here at the single log sink (no new BLE seam). The summary
@@ -702,16 +753,16 @@ public final class LiveState: ObservableObject {
     /// Mirror the most recent `tailLimit` lines to UserDefaults (called from `append`). Synchronous and
     /// cheap (a single small array write); UserDefaults coalesces the disk flush. `nonisolated` (touches
     /// only UserDefaults, no actor state) so the background/static export path can read the twin getter.
-    nonisolated private static func persistTail(_ lines: [String]) {
+    nonisolated private static func persistTail(_ lines: [String], defaults: UserDefaults) {
         let tail = lines.count > tailLimit ? Array(lines.suffix(tailLimit)) : lines
-        UserDefaults.standard.set(tail, forKey: tailKey)
+        defaults.set(tail, forKey: tailKey)
     }
 
     /// The persisted log tail, newest-last — what a scheduled export reads when no live session is open.
     /// Empty if nothing has ever been logged on this device. `nonisolated` so a background task with no
     /// main-actor instance can read it.
-    nonisolated public static func persistedLogTail() -> [String] {
-        (UserDefaults.standard.array(forKey: tailKey) as? [String]) ?? []
+    nonisolated public static func persistedLogTail(defaults: UserDefaults = .standard) -> [String] {
+        (defaults.array(forKey: tailKey) as? [String]) ?? []
     }
 
     // MARK: - Previous-process log generations (the "why did the app stop" record)
@@ -740,15 +791,19 @@ public final class LiveState: ObservableObject {
     static let generationTailLimit = 1_000
     /// Once-per-process latch: the roll must happen BEFORE the first `persistTail` of this process, and
     /// exactly once, or a second roll would push this process's own partial tail in as a "previous" one.
-    nonisolated(unsafe) private static var didRollGenerations = false
+    nonisolated private static let generationLock = NSLock()
+    nonisolated(unsafe) private static var rolledNamespaces: Set<String> = []
 
     /// Roll the surviving durable tail into the generation ring. Idempotent per process, and a NO-OP when
     /// the tail is empty — so a launch that logs nothing (or a run right after a roll) never pushes an
     /// empty generation and never evicts a real one.
-    nonisolated static func rollLogGenerationsIfNeeded(now: Date = Date()) {
-        if didRollGenerations { return }
-        didRollGenerations = true
-        let tail = persistedLogTail()
+    nonisolated static func rollLogGenerationsIfNeeded(now: Date = Date(),
+                                                      defaults: UserDefaults = .standard,
+                                                      namespace: String = "legacy") {
+        generationLock.lock()
+        defer { generationLock.unlock() }
+        guard rolledNamespaces.insert(namespace).inserted else { return }
+        let tail = persistedLogTail(defaults: defaults)
         guard !tail.isEmpty else { return }
         let iso = ISO8601DateFormatter()
         iso.timeZone = TimeZone(identifier: "UTC")
@@ -765,42 +820,46 @@ public final class LiveState: ObservableObject {
             : "\(clipped.count) of \(tail.count) line(s), head clipped"
         let header = "===== previous app session, \(count), rolled at "
             + iso.string(from: now) + " (this launch) ====="
-        var gens = persistedLogGenerations()
+        var gens = persistedLogGenerations(defaults: defaults)
         gens.append([header] + clipped)
         if gens.count > maxLogGenerations { gens.removeFirst(gens.count - maxLogGenerations) }
-        UserDefaults.standard.set(gens, forKey: generationsKey)
+        defaults.set(gens, forKey: generationsKey)
         // Clear the live slot: this tail now belongs to a generation, and leaving it would duplicate it in
         // every export until 32 fresh lines happen to overwrite it.
-        UserDefaults.standard.set([String](), forKey: tailKey)
+        defaults.set([String](), forKey: tailKey)
     }
 
     /// The stored generations, oldest-first. Each element's first line is its own separator header.
-    nonisolated static func persistedLogGenerations() -> [[String]] {
-        (UserDefaults.standard.array(forKey: generationsKey) as? [[String]]) ?? []
+    nonisolated static func persistedLogGenerations(defaults: UserDefaults = .standard) -> [[String]] {
+        (defaults.array(forKey: generationsKey) as? [[String]]) ?? []
     }
 
     /// The previous processes' lines, oldest-first, ready to sit AHEAD of the current session in an export.
     /// Empty string when there are none, so a caller can concatenate unconditionally.
-    nonisolated static func previousSessionsText() -> String {
-        let gens = persistedLogGenerations()
+    nonisolated static func previousSessionsText(defaults: UserDefaults = .standard) -> String {
+        let gens = persistedLogGenerations(defaults: defaults)
         guard !gens.isEmpty else { return "" }
         return gens.map { $0.joined(separator: "\n") }.joined(separator: "\n") + "\n"
             + "===== current app session =====\n"
     }
 
     /// Drop every stored generation (Settings → the same place the log is cleared from).
-    nonisolated static func clearLogGenerations() {
-        UserDefaults.standard.removeObject(forKey: generationsKey)
+    nonisolated static func clearLogGenerations(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: generationsKey)
     }
 
     /// Tests only: clear the once-per-process latch so a test can stand in for a fresh app launch.
-    nonisolated static func resetGenerationRollLatchForTesting() { didRollGenerations = false }
+    nonisolated static func resetGenerationRollLatchForTesting() {
+        generationLock.lock(); defer { generationLock.unlock() }
+        rolledNamespaces.removeAll()
+    }
 
     /// A shareable strap-log body sourced from the DURABLE tail, for a background / scheduled export that
     /// runs with no live `LiveState` instance. Mirrors `exportableLogText()`'s header so a scheduled drop
     /// reads the same as a manual share; falls back to the live `log` is not available here by design
     /// (this is a `static` so a background task needs no main-actor instance).
-    nonisolated public static func scheduledExportText(extraHeaderLines: [String] = []) -> String {
+    nonisolated public static func scheduledExportText(extraHeaderLines: [String] = [],
+                                                      defaults: UserDefaults = .standard) -> String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         #if os(iOS)
         let osName = "iOS"
@@ -818,7 +877,8 @@ public final class LiveState: ObservableObject {
         header += String(repeating: "-", count: 40) + "\n"
         // Same generations-then-current shape as `exportableLogText()`: a scheduled drop that fires after a
         // restart must not report only the (possibly empty) current tail.
-        return header + previousSessionsText() + persistedLogTail().joined(separator: "\n")
+        return header + previousSessionsText(defaults: defaults)
+            + persistedLogTail(defaults: defaults).joined(separator: "\n")
     }
 
     /// Scrub personal identifiers from a strap-log line so it's safe to share publicly (#445): BLE MAC
@@ -1019,7 +1079,8 @@ public final class LiveState: ObservableObject {
         // line — at which point the previous session is still in `tailKey` (unrolled) and the in-memory
         // `log` is empty, so `previousSessionsText()` below would miss it. The roll is latched + a no-op on
         // an empty tail, so this is harmless when `append` already ran.
-        Self.rollLogGenerationsIfNeeded()
+        guard accountRuntimeActive else { return "" }
+        Self.rollLogGenerationsIfNeeded(defaults: defaults, namespace: logNamespace)
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         #if os(iOS)
         let osName = "iOS"
@@ -1045,6 +1106,6 @@ public final class LiveState: ObservableObject {
         header += String(repeating: "-", count: 40) + "\n"
         // Previous processes first, so the body stays in chronological order and the log-parsing tools read
         // it unchanged — they just get the night that a wake-time restart used to erase.
-        return header + Self.previousSessionsText() + log.joined(separator: "\n")
+        return header + Self.previousSessionsText(defaults: defaults) + log.joined(separator: "\n")
     }
 }

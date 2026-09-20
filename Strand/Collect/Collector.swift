@@ -30,7 +30,7 @@ extension WhoopStore: StoreWriting {}
 struct CollectorPolicy {
     var maxFrames: Int
     var maxInterval: TimeInterval
-    /// Defensive cap on the PRE-CLOCK buffer only (see `ingest`). Generous default —
+    /// Defensive cap on accepted frames, including pending failed writes. Generous default —
     /// ~4096 frames at ~60 bytes/frame is ~240KB, far beyond the handful seen pre-clock
     /// normally. Custom init keeps `.init(maxFrames:maxInterval:)` call sites compiling.
     var maxPreClockFrames: Int
@@ -45,20 +45,21 @@ struct CollectorPolicy {
 /// Buffers complete (reassembled) frames and periodically persists them:
 /// parse → extractStreams(clockRef) → store.insert (DECODED FIRST, durable) →
 /// store.enqueueRawBatch (raw, transient outbox) → clear buffer.
-/// Because decoded is committed before raw is queued, pruning raw never loses a metric.
+/// Requested raw data remains pending until its outbox write also commits. Retention is receipt-gated.
 @MainActor
 final class Collector {
     private let store: StoreWriting
     /// Concrete store for prune + stats (the StoreWriting seam covers the hot insert/enqueue path;
     /// prune/stats are infrequent so a direct reference is clearer than widening the protocol).
     private let concreteStore: WhoopStore?
+    private let imuStore: ImuSessionFileStore
+    private let captureScope: DurableIngestScope?
     /// Device id new samples persist under. MUTABLE so a WHOOP↔WHOOP switch (BLEManager.setActiveDeviceId)
     /// re-attributes the next flush/standard-HR persist immediately, rather than freezing the id captured
     /// at construction. Single-WHOOP never switches, so this stays "my-whoop" exactly as a `let` would have.
     var deviceId: String
     private let policy: CollectorPolicy
-    /// Research toggle. When false (DEFAULT) no raw frames are persisted at all — the app is
-    /// decoded-only. Injected for tests; backed by UserDefaults in the production init site.
+    /// Research toggle. Missing-clock recovery still retains raw bytes even when this is off.
     private let enableRawCapture: Bool
     private let now: () -> Int
     private let monotonic: () -> TimeInterval
@@ -75,7 +76,31 @@ final class Collector {
     private var rawCapture = RawCaptureWindow()
     /// #47: buffer the (raw frame, pre-parsed) pair. The raw bytes are still needed for the raw-capture
     /// outbox; the parse is the one the BLE seam already did, so `flush` doesn't re-decode the batch.
-    private var buffer: [(frame: [UInt8], parsed: ParsedFrame)] = []
+    private struct BufferedFrame {
+        let frame: [UInt8]
+        let parsed: ParsedFrame
+        let deviceID: String
+        let family: DeviceFamily
+        let clock: ClockRef?
+        let capturedAt: Int
+        let wantsRaw: Bool
+    }
+    private struct PendingLive {
+        let batch: [BufferedFrame]
+        let streams: Streams
+        let meta: RawBatchMeta?
+        let correlation: UUID
+        var decodedCommitted = false
+    }
+    private var buffer: [BufferedFrame] = []
+    private var bufferedWireBytes = 0
+    private let maximumBufferedWireBytes = 8 * 1_048_576
+    private var pendingLive: PendingLive?
+    private var liveDrain: Task<Bool, Never>?
+    private var standardDrain: Task<Bool, Never>?
+    private(set) var acceptingCapture = true
+    private(set) var lastDrainSucceeded = true
+    private let onDurabilityFailure: (() -> Void)?
     /// #1118: strap-log sink for the per-transport R-R census. Optional and defaulted to nil so the
     /// test fakes that construct a Collector are untouched; `BLEManager` wires its own `log`.
     private let log: ((String) -> Void)?
@@ -113,13 +138,16 @@ final class Collector {
 
     /// Standard 0x2A37 HR/RR/contact buffer — the reliable, always-on stream, recorded continuously
     /// (independent of the custom realtime stream or which screen is open).
-    private var stdHR: [HRSample] = []
-    private var stdRR: [RRInterval] = []
-    private var stdContact: [WhoopEvent] = []
+    private var stdHR: [(deviceID: String, sample: HRSample)] = []
+    private var stdRR: [(deviceID: String, sample: RRInterval)] = []
+    private var stdReceipts: [(deviceID: String, row: StandardHRReceipt)] = []
+    private var stdReceiptSessionId = UUID().uuidString.lowercased()
+    private var stdReceiptOrdinal: Int64 = 0
+    private var stdContact: [(deviceID: String, sample: WhoopEvent)] = []
     /// Last contact state buffered, so only transitions are recorded. See `shouldRecordContact`.
-    private var lastStdContact: StandardHRContact?
+    private var lastStdContact: [String: StandardHRContact] = [:]
     private var batchStartedAt: TimeInterval
-    var bufferedCount: Int { buffer.count }
+    var bufferedCount: Int { buffer.count + (pendingLive?.batch.count ?? 0) }
 
     /// The per-stream accepted-row counts `StreamStore.insert` returns, named so the closure that carries
     /// them is readable at both ends.
@@ -132,8 +160,13 @@ final class Collector {
          log: ((String) -> Void)? = nil,
          onBanked: ((BankedCounts) -> Void)? = nil,
          now: @escaping () -> Int = { Int(Date().timeIntervalSince1970) },
-         monotonic: @escaping () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }) {
+         monotonic: @escaping () -> TimeInterval = { Date().timeIntervalSinceReferenceDate },
+         imuStore: ImuSessionFileStore = .shared, captureScope: DurableIngestScope? = nil,
+         onDurabilityFailure: (() -> Void)? = nil) {
         self.store = store; self.deviceId = deviceId; self.policy = policy
+        self.imuStore = imuStore
+        self.captureScope = captureScope
+        self.onDurabilityFailure = onDurabilityFailure
         self.enableRawCapture = enableRawCapture
         self.log = log
         self.onBanked = onBanked
@@ -190,52 +223,117 @@ final class Collector {
     @discardableResult
     func prune() async -> Int {
         guard let s = concreteStore else { return 0 }
-        return (try? await s.pruneRaw(now: now(),
+        let quarantine = (try? await s.pruneSensorQuarantine(now: now())) ?? 0
+        return quarantine + ((try? await s.pruneRaw(now: now(),
                                 keepWindowSeconds: PrunePolicy.keepWindowSeconds,
-                                maxUnsyncedBytes: PrunePolicy.maxUnsyncedBytes)) ?? 0
+                                maxUnsyncedBytes: PrunePolicy.maxUnsyncedBytes)) ?? 0)
     }
 
     /// Parse-then-buffer shim (#47). Kept for callers/tests that pass raw bytes; the live seam calls
     /// `ingest(frame:parsed:)` with the parse it already did.
-    func ingest(_ frame: [UInt8]) {
-        ingest(frame: frame, parsed: parseFrame(frame, family: family))
+    @discardableResult
+    func ingest(_ frame: [UInt8]) -> Bool {
+        guard acceptingCapture else { return false }
+        return ingest(frame: frame, parsed: parseFrame(frame, family: family))
     }
 
     /// Buffer one complete frame + its pre-parsed decode (synchronous: preserves delegate arrival order).
     /// Auto-flushes via a detached Task when the cadence threshold is hit (flush is async). (#47)
-    func ingest(frame: [UInt8], parsed: ParsedFrame) {
+    @discardableResult
+    func ingest(frame: [UInt8], parsed: ParsedFrame) -> Bool {
+        guard acceptingCapture else { return false }
+        guard bufferedCount < max(1, policy.maxPreClockFrames),
+              frame.count <= maximumBufferedWireBytes - bufferedWireBytes else {
+            lastDrainSucceeded = false
+            onDurabilityFailure?()
+            return false
+        }
         #if DEBUG
         assert(parsed == parseFrame(frame, family: family),
                "Collector.ingest: threaded ParsedFrame != fresh parse (#47 parse-once invariant)")
         #endif
         recordGroundTruthImu(frame)
-        buffer.append((frame, parsed))
-        // Pre-clock only: bound memory if GET_CLOCK never lands while data keeps flowing.
-        // Drop OLDEST beyond the cap (keep most recent). Post-clock this branch is skipped —
-        // the cadence flush below bounds the buffer instead.
-        if clockRef == nil && buffer.count > policy.maxPreClockFrames {
-            buffer.removeFirst(buffer.count - policy.maxPreClockFrames)
-        }
-        guard clockRef != nil else { return }   // can't correlate ts yet → keep buffering
+        buffer.append(BufferedFrame(frame: frame, parsed: parsed, deviceID: deviceId,
+            family: family, clock: clockRef, capturedAt: now(),
+            wantsRaw: enableRawCapture || rawCapture.isActive(at: monotonic())))
+        bufferedWireBytes += frame.count
+        // Missing clock is not permission to drop accepted frames: flush archives exact bytes
+        // without inventing decoded timestamps. Memory pressure rejects NEW intake visibly.
         if buffer.count >= policy.maxFrames || (monotonic() - batchStartedAt) >= policy.maxInterval {
             Task { @MainActor in await self.flush() }
         }
+        return true
+    }
+
+    /// Synchronous fence. Existing tasks retain this collector and its immutable old store.
+    func shutdownForAccountChange() { acceptingCapture = false }
+
+    /// May be retried after failure; false means retained work still needs durable storage.
+    @discardableResult
+    func drainForShutdown() async -> Bool {
+        shutdownForAccountChange()
+        let live = await flush()
+        let standard = await flushStandardHR()
+        lastDrainSucceeded = live && standard
+        return lastDrainSucceeded
     }
 
 
-    /// Persist + queue everything buffered. No-op when empty or before a clock ref exists.
-    /// Buffer is snapshotted and cleared SYNCHRONOUSLY before the first await so that any
-    /// concurrent ingest() calls during persistence accumulate into the NEXT batch cleanly.
-    func flush() async {
-        guard let ref = clockRef, !buffer.isEmpty else { return }
+    /// Join the single active drain, or start one. Accepted frames leave memory only after all
+    /// required writes commit. New arrivals accumulate behind the immutable pending batch.
+    @discardableResult
+    func flush() async -> Bool {
+        if let liveDrain { return await liveDrain.value }
+        let task = Task { @MainActor in
+            while self.pendingLive != nil || !self.buffer.isEmpty {
+                guard await self.flushLiveBatch() else { return false }
+            }
+            return true
+        }
+        liveDrain = task
+        let result = await task.value
+        liveDrain = nil
+        lastDrainSucceeded = result
+        return result
+    }
+
+    private func flushLiveBatch() async -> Bool {
+        if pendingLive == nil {
+            guard let first = buffer.first else { return true }
+            let batch = Array(buffer.prefix {
+                $0.deviceID == first.deviceID && $0.family == first.family && $0.wantsRaw == first.wantsRaw
+                    && $0.clock?.device == first.clock?.device && $0.clock?.wall == first.clock?.wall
+            }.prefix(max(1, policy.maxFrames)))
+            let ref = first.clock ?? (first.deviceID == deviceId && first.family == family ? clockRef : nil)
+            let streams = ref.map { extractStreams(batch.map(\.parsed), deviceClockRef: $0.device, wallClockRef: $0.wall) } ?? Streams()
+            let correlation = UUID()
+            let frames = batch.map(\.frame)
+            let meta: RawBatchMeta?
+            do {
+                if first.wantsRaw || ref == nil {
+                    let bounds = try RawBatchMeta.captureBounds(streams: streams, fallbackTimestamp: first.capturedAt)
+                    meta = RawBatchMeta(batchId: correlation.uuidString, deviceId: first.deviceID,
+                        clockRef: ref ?? ClockRef(device: first.capturedAt, wall: first.capturedAt),
+                        capturedAt: first.capturedAt, startTs: bounds.startTs, endTs: bounds.endTs,
+                        frameCount: batch.count, byteSize: frames.reduce(0) { $0 + $1.count },
+                        captureScope: captureScope?.forDevice(first.deviceID))
+                } else { meta = nil }
+            } catch {
+                onDurabilityFailure?()
+                return false
+            }
+            pendingLive = PendingLive(batch: batch, streams: streams, meta: meta, correlation: correlation)
+            buffer.removeFirst(batch.count)
+        }
+        guard let pending = pendingLive else { return true }
+        let interval = SyncPipelineTrace.begin(.chunkPersistence, correlation: pending.correlation)
+        var outcome: SyncPipelineTrace.Outcome = .failed
+        defer { SyncPipelineTrace.end(interval, outcome: outcome) }
         // SNAPSHOT + CLEAR before any await: decoded-before-raw ordering AND the
         // buffer-snapshot-before-await invariant are both satisfied here.
-        let batch = buffer
-        buffer.removeAll(keepingCapacity: true)
-
-        let frames = batch.map(\.frame)         // still needed for the raw-capture outbox
-        let parsed = batch.map(\.parsed)        // #47: the seam already decoded these — don't re-parse
-        let streams = extractStreams(parsed, deviceClockRef: ref.device, wallClockRef: ref.wall)
+        let deviceId = pending.batch[0].deviceID
+        let frames = pending.batch.map(\.frame)
+        let streams = pending.streams
         // #1118: the SECOND live transport. `flushStandardHR` stamps a beat at the second it arrived over
         // 0x2A37; this one stamps it from the strap's own record clock. The same beat reaching both lands
         // on two different seconds, which no same-second de-dup can collapse — the signature every
@@ -250,12 +348,29 @@ final class Collector {
             }
         }
         do {
-            let inserted = try await store.insert(streams, deviceId: deviceId)   // DECODED FIRST (durable)
-            realtimeInsertFailures = 0
-            onBanked?(inserted)
+            if !pending.decodedCommitted {
+                let inserted: BankedCounts
+                if let concreteStore, let captureScope {
+                    inserted = try await concreteStore.insertAndMarkJobsOwed(
+                        streams, deviceId: deviceId, postOffloadJobKinds: ["cloudPush"],
+                        note: "live rows committed", captureScope: captureScope.forDevice(deviceId)).counts
+                } else {
+                    inserted = try await store.insert(streams, deviceId: deviceId)
+                }
+                realtimeInsertFailures = 0
+                pendingLive?.decodedCommitted = true
+                if acceptingCapture { onBanked?(inserted) }
+            }
+            if let meta = pending.meta {
+                let assembly = SyncPipelineTrace.begin(.uploadPreparation, correlation: pending.correlation)
+                var assemblyOutcome: SyncPipelineTrace.Outcome = .failed
+                defer { SyncPipelineTrace.end(assembly, outcome: assemblyOutcome) }
+                try await store.enqueueRawBatch(meta, frames: frames)
+                assemblyOutcome = .succeeded
+            }
         } catch {
-            // Re-buffer at the front so these frames (and their parses) are retried on the next cadence.
-            buffer.insert(contentsOf: batch, at: 0)
+            // Retain the exact pending batch, metadata and decoded-commit state. A raw retry must
+            // neither replay decoded inserts nor change its UUID/time bounds when the clock moves.
             // Swallowing this made the census above read like success: a store rejecting everything still
             // reported what was OFFERED, with nothing to say none of it landed.
             realtimeInsertFailures += 1
@@ -268,40 +383,60 @@ final class Collector {
                     message: error.localizedDescription, hrFrames: streams.hr.count,
                     rrFrames: streams.rr.count, consecutiveFailures: realtimeInsertFailures))
             }
-            return
+            onDurabilityFailure?()
+            return false
         }
         // Reset only after a successful insert so the interval trigger keeps firing if
         // inserts fail (batchStartedAt must NOT advance on a failed drain).
         batchStartedAt = monotonic()
-        // RAW SECOND (transient outbox), only when the research toggle is ON. Default OFF →
-        // decoded-only, no raw is stored. Failure is non-fatal — decoded is already durable.
-        guard enableRawCapture || rawCapture.isActive(at: monotonic()) else { return }
-        let wall = now()
-        let tsValues = streams.hr.map(\.ts) + streams.rr.map(\.ts)
-            + streams.events.map(\.ts) + streams.battery.map(\.ts)
-        let meta = RawBatchMeta(
-            batchId: UUID().uuidString, deviceId: deviceId, clockRef: ref, capturedAt: wall,
-            startTs: tsValues.min() ?? wall, endTs: tsValues.max() ?? wall,
-            frameCount: frames.count, byteSize: frames.reduce(0) { $0 + $1.count })
-        try? await store.enqueueRawBatch(meta, frames: frames)
+        bufferedWireBytes -= frames.reduce(0) { $0 + $1.count }
+        pendingLive = nil
+        outcome = .succeeded
+        return true
     }
 
     // MARK: - Standard 0x2A37 HR/RR (continuous recording)
 
+    /// Start a new receipt identity namespace on reconnect. Buffered old-session receipts keep their
+    /// original identities and can retry safely. A session is not a sensor continuity assertion.
+    func beginStandardHRReceiptSession() {
+        stdReceiptSessionId = UUID().uuidString.lowercased()
+        stdReceiptOrdinal = 0
+    }
+
+    func ingestStandardHRReceipt(_ bytes: [UInt8], receivedUnixMs: Int64, receivedMonotonicNs: Int64) {
+        if let receipt = StandardHRReceipt.capture(bytes, sessionId: stdReceiptSessionId,
+            notificationOrdinal: stdReceiptOrdinal, receivedUnixMs: receivedUnixMs,
+            receivedMonotonicNs: receivedMonotonicNs) {
+            stdReceipts.append((deviceId, receipt))
+        }
+        if stdReceiptOrdinal == Int64.max { beginStandardHRReceiptSession() }
+        else { stdReceiptOrdinal += 1 }
+        if stdReceipts.count >= 30 { Task { @MainActor in await self.flushStandardHR(reason: .cadence) } }
+    }
+
     /// Buffer one standard Heart-Rate-Measurement reading. No clock correlation needed —
     /// these carry a wall-clock `ts` directly. Auto-flushes ~every 30 readings (~30s).
-    func ingestStandardHR(hr: Int, rr: [Int], contact: StandardHRContact? = nil, at ts: Int) {
+    func ingestStandardHR(hr: Int, rr: [Int], contact: StandardHRContact? = nil,
+                          family: DeviceFamily? = nil, at ts: Int) {
+        guard acceptingCapture else { return }
+        guard stdHR.count + stdRR.count + stdContact.count + stdReceipts.count + rr.count + 3 <= max(30, policy.maxPreClockFrames) else {
+            lastDrainSucceeded = false
+            onDurabilityFailure?()
+            return
+        }
         let acceptedHR = (30...220).contains(hr) ? 1 : 0
         let acceptedRR = rr.filter { (250...3000).contains($0) }
-        if acceptedHR == 1 { stdHR.append(HRSample(ts: ts, bpm: hr)) }
-        stdRR.append(contentsOf: acceptedRR.map { RRInterval(ts: ts, rrMs: $0) })
+        if acceptedHR == 1 { stdHR.append((deviceId, HRSample(ts: ts, bpm: hr))) }
+        let source: RRSourceChannel? = family == .whoop5 ? .whoop5Standard : nil
+        stdRR.append(contentsOf: acceptedRR.map { (deviceId, RRInterval(ts: ts, rrMs: $0, srcChannel: source)) })
         // Only the CHANGES. Advanced here rather than at flush because the event travels in the buffer
         // until it persists: a failed insert re-inserts it at the front, so nothing has to be unwound.
-        if let contact, StandardHRMapping.shouldRecordContact(previous: lastStdContact, current: contact) {
-            lastStdContact = contact
+        if let contact, StandardHRMapping.shouldRecordContact(previous: lastStdContact[deviceId], current: contact) {
+            lastStdContact[deviceId] = contact
             stdContact.append(contentsOf: StandardHRMapping.samples(
                 fromHR: hr, rr: [], contact: contact, at: ts
-            ).events)
+            ).events.map { (deviceId, $0) })
         }
         log?(LivePersistTrace.standardHRHostReceivedLine(
             hostUnixSeconds: ts,
@@ -314,12 +449,36 @@ final class Collector {
     }
 
     /// Persist the buffered standard HR/RR/contact. Re-buffers on failure so nothing is lost.
-    func flushStandardHR(reason: LivePersistTrace.StandardHRFlushReason = .explicit) async {
-        guard !stdHR.isEmpty || !stdRR.isEmpty || !stdContact.isEmpty else { return }
-        let hr = stdHR, rr = stdRR, contact = stdContact
-        stdHR.removeAll(keepingCapacity: true)
-        stdRR.removeAll(keepingCapacity: true)
-        stdContact.removeAll(keepingCapacity: true)
+    @discardableResult
+    func flushStandardHR(reason: LivePersistTrace.StandardHRFlushReason = .explicit) async -> Bool {
+        if let standardDrain { return await standardDrain.value }
+        let task = Task { @MainActor in
+            while !self.stdHR.isEmpty || !self.stdRR.isEmpty || !self.stdContact.isEmpty || !self.stdReceipts.isEmpty {
+                guard await self.flushStandardBatch(reason: reason) else { return false }
+            }
+            return true
+        }
+        standardDrain = task
+        let result = await task.value
+        standardDrain = nil
+        lastDrainSucceeded = result
+        return result
+    }
+
+    private func flushStandardBatch(reason: LivePersistTrace.StandardHRFlushReason) async -> Bool {
+        guard let deviceId = stdHR.first?.deviceID ?? stdRR.first?.deviceID
+                ?? stdContact.first?.deviceID ?? stdReceipts.first?.deviceID else { return true }
+        let interval = SyncPipelineTrace.begin(.chunkPersistence)
+        var outcome: SyncPipelineTrace.Outcome = .failed
+        defer { SyncPipelineTrace.end(interval, outcome: outcome) }
+        let hr = stdHR.filter { $0.deviceID == deviceId }.map(\.sample)
+        let rr = stdRR.filter { $0.deviceID == deviceId }.map(\.sample)
+        let contact = stdContact.filter { $0.deviceID == deviceId }.map(\.sample)
+        let receipts = stdReceipts.filter { $0.deviceID == deviceId }.map(\.row)
+        stdHR.removeAll { $0.deviceID == deviceId }
+        stdRR.removeAll { $0.deviceID == deviceId }
+        stdContact.removeAll { $0.deviceID == deviceId }
+        stdReceipts.removeAll { $0.deviceID == deviceId }
         log?(LivePersistTrace.standardHRFlushAttemptLine(
             reason: reason, offeredHRRows: hr.count, offeredRRRows: rr.count))
         // #1118: census this batch BEFORE it is stored, exactly as the historical path does, so a strap
@@ -338,16 +497,25 @@ final class Collector {
             }
         }
         do {
-            let inserted = try await store.insert(Streams(hr: hr, rr: rr, events: contact), deviceId: deviceId)
+            let streams = Streams(hr: hr, rr: rr, events: contact, standardHrReceipts: receipts)
+            let inserted: BankedCounts
+            if let concreteStore, let captureScope {
+                inserted = try await concreteStore.insertAndMarkJobsOwed(streams, deviceId: deviceId,
+                    postOffloadJobKinds: ["cloudPush"], note: "standard HR rows committed",
+                    captureScope: captureScope.forDevice(deviceId)).counts
+            } else { inserted = try await store.insert(streams, deviceId: deviceId) }
             stdInsertFailures = 0
-            onBanked?(inserted)
+            if acceptingCapture { onBanked?(inserted) }
             log?(LivePersistTrace.standardHRFlushSucceededLine(
                 reason: reason, offeredHRRows: hr.count, offeredRRRows: rr.count,
                 insertedHRRows: inserted.hr, insertedRRRows: inserted.rr))
+            outcome = .succeeded
+            return true
         } catch {
-            stdHR.insert(contentsOf: hr, at: 0)
-            stdRR.insert(contentsOf: rr, at: 0)
-            stdContact.insert(contentsOf: contact, at: 0)
+            stdHR.insert(contentsOf: hr.map { (deviceId, $0) }, at: 0)
+            stdRR.insert(contentsOf: rr.map { (deviceId, $0) }, at: 0)
+            stdContact.insert(contentsOf: contact.map { (deviceId, $0) }, at: 0)
+            stdReceipts.insert(contentsOf: receipts.map { (deviceId, $0) }, at: 0)
             stdInsertFailures += 1
             log?(LivePersistTrace.standardHRRebufferedForRetryLine(
                 reason: reason, attemptedHRRows: hr.count, attemptedRRRows: rr.count,
@@ -362,6 +530,8 @@ final class Collector {
                     message: error.localizedDescription, hrFrames: hr.count, rrFrames: rr.count,
                     consecutiveFailures: stdInsertFailures))
             }
+            onDurabilityFailure?()
+            return false
         }
     }
 
@@ -370,15 +540,17 @@ final class Collector {
     /// Open a bounded raw-capture window so the next flushes persist raw even with the global
     /// research toggle off. Auto-expires at the (clamped) monotonic deadline.
     func beginRawCapture(seconds: TimeInterval) {
+        guard acceptingCapture else { return }
         rawCapture.open(at: monotonic(), duration: seconds)
     }
 
     @discardableResult
     func recordValidatedWhoop5Imu(_ frame: [UInt8], deviceId explicitDeviceId: String? = nil) -> Int {
+        guard acceptingCapture else { return 0 }
         // `rawColumns` requires a complete WHOOP5 envelope, valid header/payload CRCs,
         // an evidenced carrier type, and the complete 100 x 6 shape. Corrupt or
         // unknown frames remain wire evidence but never enter interpreted storage.
-        ImuSessionFileStore.shared.append(
+        return imuStore.append(
             deviceId: explicitDeviceId ?? deviceId,
             frame: frame,
             receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000)
@@ -397,7 +569,8 @@ final class Collector {
     /// the repair runs are simply absent. The scan ignores each batch's meta startTs/endTs — those are
     /// capture-time wall-clock values, not the contained frames' strap timestamps.
     @discardableResult
-    func repairImuSessionsFromRawArchive(imuStore: ImuSessionFileStore = .shared) async -> Int {
+    func repairImuSessionsFromRawArchive(imuStore override: ImuSessionFileStore? = nil) async -> Int {
+        let imuStore = override ?? self.imuStore
         guard let store = concreteStore, imuStore.hasWindows(deviceId: deviceId) else { return 0 }
         var repaired = 0
         var cursor: RawBatchMeta?

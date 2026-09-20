@@ -33,7 +33,12 @@ object DayCycleResolver {
     const val ABSOLUTE_MAX_OPEN_SECONDS = 40 * 3_600L
 
     /** Midnight is always available and is also the honest cold-start/failure fallback. */
-    fun calendarWindow(now: Long, tzOffsetSeconds: Long): DayCycleWindow {
+    fun calendarWindow(now: Long, tzOffsetSeconds: Long, timezone: java.time.ZoneId? = null): DayCycleWindow {
+        if (timezone != null) {
+            val day = java.time.Instant.ofEpochSecond(now).atZone(timezone).toLocalDate()
+            return DayCycleWindow("calendar:$day", day.atStartOfDay(timezone).toEpochSecond(), now,
+                day.toString(), DayCycleWindow.Source.CALENDAR)
+        }
         val local = now + tzOffsetSeconds
         val dayNumber = Math.floorDiv(local, SleepStageTotals.SECONDS_PER_DAY)
         val start = dayNumber * SleepStageTotals.SECONDS_PER_DAY - tzOffsetSeconds
@@ -42,8 +47,13 @@ object DayCycleResolver {
     }
 
     /** First local midnight that does not truncate a freshly-started sleep cycle. */
-    fun fallbackMidnightAfter(start: Long, tzOffsetSeconds: Long): Long {
+    fun fallbackMidnightAfter(start: Long, tzOffsetSeconds: Long, timezone: java.time.ZoneId? = null): Long {
         val minimum = start + MIN_SYNTHETIC_MIDNIGHT_AGE_SECONDS
+        if (timezone != null) {
+            val day = java.time.Instant.ofEpochSecond(minimum).atZone(timezone).toLocalDate()
+            val atMidnight = day.atStartOfDay(timezone).toEpochSecond()
+            return if (atMidnight >= minimum) atMidnight else day.plusDays(1).atStartOfDay(timezone).toEpochSecond()
+        }
         val local = minimum + tzOffsetSeconds
         val dayNumber = Math.floorDiv(local, SleepStageTotals.SECONDS_PER_DAY)
         val atMidnight = dayNumber * SleepStageTotals.SECONDS_PER_DAY - tzOffsetSeconds
@@ -65,15 +75,17 @@ object DayCycleResolver {
         latestSleep: DayCycleWindow?,
         now: Long,
         tzOffsetSeconds: Long,
+        timezone: java.time.ZoneId? = null,
     ): DayCycleWindow {
         if (mode == DayCycleMode.MIDNIGHT || latestSleep == null) {
-            return calendarWindow(now, tzOffsetSeconds)
+            return calendarWindow(now, tzOffsetSeconds, timezone)
         }
         val age = now - latestSleep.startInclusive
         val mustFallback = age >= ABSOLUTE_MAX_OPEN_SECONDS
         if (!mustFallback) return latestSleep.copy(endExclusive = now)
-        val boundary = fallbackMidnightAfter(latestSleep.startInclusive, tzOffsetSeconds)
-        val day = AnalyticsEngine.dayString(boundary, tzOffsetSeconds)
+        val boundary = fallbackMidnightAfter(latestSleep.startInclusive, tzOffsetSeconds, timezone)
+        val day = timezone?.let { java.time.Instant.ofEpochSecond(boundary).atZone(it).toLocalDate().toString() }
+            ?: AnalyticsEngine.dayString(boundary, tzOffsetSeconds)
         return DayCycleWindow(
             id = "synthetic:$day",
             startInclusive = boundary,

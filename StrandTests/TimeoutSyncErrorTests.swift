@@ -1,4 +1,5 @@
 import XCTest
+import WhoopProtocol
 @testable import Strand
 
 /// #1466: a WHOOP 4.0 routinely ends a full, successful night on the idle timeout rather than
@@ -48,5 +49,62 @@ final class TimeoutSyncErrorTests: XCTestCase {
     func testFutureClockBannerSurvivesAProductiveTimeout() {
         XCTAssertEqual(BLEManager.timeoutSyncError(futureClockBanner: "clock is ahead",
                                                    bankedThisOffload: true), "clock is ahead")
+    }
+
+    @MainActor
+    func testWhoop5StorageFailureSurvivesTimeoutWithoutClaimingASync() {
+        let state = LiveState()
+        let priorSync = Date().timeIntervalSince1970 - 15 * 3600
+        state.lastSyncedAt = priorSync
+        state.historySyncExperimental = true
+        let manager = BLEManager(state: state, startCentral: false)
+
+        manager.applyBackfillTimeoutOutcome(family: .whoop5, persistStalled: true,
+                                            bankedThisOffload: false, futureClockBanner: nil)
+
+        XCTAssertEqual(state.lastSyncError, "History sync stopped because records could not be saved on this device. The unacknowledged chunk remains on the strap. See Test Centre for the storage error.")
+        XCTAssertFalse(state.historySyncExperimental)
+        XCTAssertEqual(state.lastSyncedAt, priorSync)
+    }
+
+    @MainActor
+    func testEarlierProgressDoesNotHideLaterStorageFailureForEitherFamily() {
+        for family in [WhoopProtocol.DeviceFamily.whoop4, .whoop5] {
+            let state = LiveState()
+            let manager = BLEManager(state: state, startCentral: false)
+            manager.applyBackfillTimeoutOutcome(family: family, persistStalled: true,
+                                                bankedThisOffload: true, futureClockBanner: "clock is ahead")
+            XCTAssertTrue(state.lastSyncError?.contains("could not be saved") == true)
+            XCTAssertFalse(state.historySyncExperimental)
+            XCTAssertNil(state.lastSyncedAt)
+        }
+    }
+
+    @MainActor
+    func testWhoop5StorageFailuresDoNotAccumulateAnExperimentalEmptyStreak() {
+        let state = LiveState()
+        let manager = BLEManager(state: state, startCentral: false)
+        for _ in 0..<4 {
+            manager.applyBackfillTimeoutOutcome(family: .whoop5, persistStalled: true,
+                                                bankedThisOffload: false, futureClockBanner: nil)
+            XCTAssertNotNil(state.lastSyncError)
+            XCTAssertFalse(state.historySyncExperimental)
+        }
+        manager.applyBackfillTimeoutOutcome(family: .whoop5, persistStalled: false,
+                                            bankedThisOffload: false, futureClockBanner: nil)
+        XCTAssertNil(state.lastSyncError)
+        XCTAssertFalse(state.historySyncExperimental)
+    }
+
+    @MainActor
+    func testProductiveWhoop5TimeoutWithoutStorageFailureRemainsBannerFree() {
+        let state = LiveState()
+        state.historySyncExperimental = true
+        let manager = BLEManager(state: state, startCentral: false)
+        manager.applyBackfillTimeoutOutcome(family: .whoop5, persistStalled: false,
+                                            bankedThisOffload: true, futureClockBanner: nil)
+        XCTAssertNil(state.lastSyncError)
+        XCTAssertFalse(state.historySyncExperimental)
+        XCTAssertNil(state.lastSyncedAt)
     }
 }

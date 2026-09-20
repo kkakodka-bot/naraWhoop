@@ -117,6 +117,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.noop.push.SelfHostedPushScreen
+import com.noop.push.ServerScoringScreen
 
 // MARK: - Navigation model
 //
@@ -186,6 +187,7 @@ private enum class Destination(
     Settings("settings", R.string.nav_settings, Icons.Filled.Settings),
     // Experimental and intentionally absent from More: reachable only through Settings > Advanced.
     SelfHostedPush("self_hosted_push", R.string.nav_self_hosted_push, Icons.Filled.CloudSync),
+    ServerScoring("server_scoring", R.string.server_scoring_title, Icons.Filled.CloudSync),
     // Nested Settings destination shared by the Settings row and a blank WHOOP 4.0 Steps tile (#1515).
     // Deliberately absent from [drawerGroups]: it is contextual, not another top-level More item.
     StepsCalibration(
@@ -717,6 +719,7 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                         onOpenTestCentre = { nav.navigate(Destination.TestCentre.route) },
                         onOpenBackupSync = { nav.navigate(Destination.BackupSync.route) },
                         onOpenSelfHostedPush = { nav.navigate(Destination.SelfHostedPush.route) },
+                        onOpenServerScoring = { nav.navigate(Destination.ServerScoring.route) },
                         onOpenStepsCalibration = { nav.navigate(Destination.StepsCalibration.route) },
                     )
                 }
@@ -734,6 +737,7 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                     )
                 }
                 composable(Destination.SelfHostedPush.route) { SelfHostedPushScreen() }
+                composable(Destination.ServerScoring.route) { ServerScoringScreen(viewModel.serverScores) }
                 composable(Destination.TestCentre.route) {
                     TestCentreScreen(viewModel, onOpenGroundTruthCollector = {
                         nav.navigate(Destination.GroundTruthCollector.route)

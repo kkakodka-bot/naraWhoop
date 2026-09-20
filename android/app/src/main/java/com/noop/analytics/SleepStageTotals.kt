@@ -27,9 +27,13 @@ object SleepStageTotals {
         var light: Double = 0.0,
         var deep: Double = 0.0,
         var rem: Double = 0.0,
+        var sleepUnstaged: Double = 0.0,
+        var stateUnknown: Double = 0.0,
+        var offBody: Double = 0.0,
     ) {
-        val asleep: Double get() = light + deep + rem
-        val inBed: Double get() = asleep + awake
+        val asleep: Double get() = light + deep + rem + sleepUnstaged
+        val knownState: Double get() = asleep + awake
+        val inBed: Double get() = knownState + stateUnknown + offBody
     }
 
     /**
@@ -44,6 +48,10 @@ object SleepStageTotals {
         val deepMin: Double,
         val remMin: Double,
         val lightMin: Double,
+        val awakeMin: Double = 0.0,
+        val sleepUnstagedMin: Double = 0.0,
+        val stateUnknownMin: Double = 0.0,
+        val offBodyMin: Double = 0.0,
     )
 
     /**
@@ -65,6 +73,9 @@ object SleepStageTotals {
             md.light = dict.optDouble("light", 0.0)
             md.deep = dict.optDouble("deep", 0.0)
             md.rem = dict.optDouble("rem", 0.0)
+            md.sleepUnstaged = dict.optDouble("sleepUnstaged", 0.0)
+            md.stateUnknown = dict.optDouble("stateUnknown", 0.0)
+            md.offBody = dict.optDouble("offBody", 0.0)
             return if (md.inBed > 0.0) md else null
         }
         val m = Minutes()
@@ -82,11 +93,19 @@ object SleepStageTotals {
                 else -> continue
             }
             if (mins <= 0.0) continue
+            when (seg.optString("state")) {
+                "off_body" -> { m.offBody += mins; continue }
+                "state_unknown" -> { m.stateUnknown += mins; continue }
+                "sleep_unstaged" -> { m.sleepUnstaged += mins; continue }
+            }
             when (name) {
                 "wake", "awake" -> m.awake += mins
                 "light" -> m.light += mins
                 "deep" -> m.deep += mins
                 "rem" -> m.rem += mins
+                "sleep_unstaged" -> m.sleepUnstaged += mins
+                "unknown", "state_unknown" -> m.stateUnknown += mins
+                "off_body" -> m.offBody += mins
                 else -> continue
             }
         }
@@ -112,7 +131,7 @@ object SleepStageTotals {
             val e = seg.optLong("end")
             val s = maxOf(seg.optLong("start"), onsetSec)
             if (e <= s) continue                                          // fully before the onset → drop
-            out.put(JSONObject().put("start", s).put("end", e).put("stage", seg.optString("stage", "")))
+            out.put(JSONObject(seg.toString()).put("start", s))
         }
         return out.toString()
     }
@@ -260,7 +279,7 @@ object SleepStageTotals {
      *  (a block starting inside the previous span) does not bridge — pinned legacy semantics, `gap >= 0` —
      *  and never fabricates a seam. Groups ordered by start; pure and deterministic. Mirrors Swift
      *  `bridgedNightGroups`. (#364) */
-    fun bridgedNightGroups(blocks: List<NightBlock>, offsetSec: Long): List<BridgedNightGroup> {
+    fun bridgedNightGroups(blocks: List<NightBlock>, offsetSec: Long, timezone: java.time.ZoneId? = null): List<BridgedNightGroup> {
         if (blocks.isEmpty()) return emptyList()
         // Sort indices by onset so bridging sees neighbours, exactly as `bridgeAdjacent` sorts the blocks.
         val order = blocks.indices.sortedBy { blocks[it].start }
@@ -283,7 +302,7 @@ object SleepStageTotals {
                 // onset, or a gap >= NIGHT_TAIL_BRIDGE_MAX_MIN) still stands as its own block.
                 val bridges = gap >= 0 &&
                     (gap < bridgeS ||
-                        (gap < nightTailBridgeS && isOvernightOnset(b.start, offsetSec)))
+                        (gap < nightTailBridgeS && isOvernightOnset(b.start, timezone?.rules?.getOffset(java.time.Instant.ofEpochSecond(b.start))?.totalSeconds?.toLong() ?: offsetSec)))
                 if (bridges) {
                     if (gap > 0) gaps[gaps.size - 1].add(last.end to b.start)
                     bridged[bridged.size - 1] = NightBlock(last.start, maxOf(last.end, b.end))
@@ -315,15 +334,16 @@ object SleepStageTotals {
      *  [mainNightIndex] would pick — byte-identical to the old behaviour for the common case. Pure +
      *  deterministic; shares the [bridgedNightGroups] pass + [mainNightIndex] so the pick stays
      *  cross-platform stable. Mirrors Swift `mainNightGroupIndices`. (#561) */
-    fun mainNightGroupIndices(blocks: List<NightBlock>, offsetSec: Long, habitualMidsleepSec: Long? = null): List<Int>? {
+    fun mainNightGroupIndices(blocks: List<NightBlock>, offsetSec: Long, habitualMidsleepSec: Long? = null,
+                              timezone: java.time.ZoneId? = null): List<Int>? {
         if (blocks.isEmpty()) return null
-        val all = bridgedNightGroups(blocks, offsetSec)
+        val all = bridgedNightGroups(blocks, offsetSec,timezone)
         // Rebuild each group's bridged span for scoring: sorted-ascending fragments make the span
         // (first start, running-max end) — identical to the span the one-pass loop accumulated.
         val bridgedSpans = all.map { g ->
             NightBlock(g.indices.minOf { blocks[it].start }, g.indices.maxOf { blocks[it].end })
         }
-        val winner = mainNightIndex(bridgedSpans, offsetSec, habitualMidsleepSec) ?: return null
+        val winner = mainNightIndex(bridgedSpans, offsetSec, habitualMidsleepSec,timezone) ?: return null
         return all[winner].indices
     }
 
@@ -335,12 +355,13 @@ object SleepStageTotals {
      *  (stable across platforms). Null only for an empty list. This `NightBlock` overload has no decoded
      *  stages, so "asleep minutes" is the clock span — preserving the prior duration semantics for callers
      *  that rank by span (`analyzeDay`). Mirrors Swift `mainNightIndex`. (#525 / #547) */
-    fun mainNightIndex(blocks: List<NightBlock>, offsetSec: Long, habitualMidsleepSec: Long? = null): Int? {
+    fun mainNightIndex(blocks: List<NightBlock>, offsetSec: Long, habitualMidsleepSec: Long? = null,
+                       timezone: java.time.ZoneId? = null): Int? {
         if (blocks.isEmpty()) return null
         val target = targetMidsleepSec(habitualMidsleepSec)
         fun score(b: NightBlock): Double {
             val asleepMin = b.durationS.toDouble() / 60.0
-            val midSec = localSecOfDay(b.midpointSec, offsetSec)
+            val midSec = localSecOfDay(b.midpointSec, timezone?.rules?.getOffset(java.time.Instant.ofEpochSecond(b.midpointSec))?.totalSeconds?.toLong() ?: offsetSec)
             return asleepMin + alignmentBonusMinutes(midSec, target)
         }
         var bestIdx = 0
@@ -447,19 +468,25 @@ object SleepStageTotals {
         for (j in stagesJSONs) {
             val mm = minutes(j) ?: continue
             total.awake += mm.awake
+            total.sleepUnstaged += mm.sleepUnstaged
+            total.stateUnknown += mm.stateUnknown
+            total.offBody += mm.offBody
             total.light += mm.light
             total.deep += mm.deep
             total.rem += mm.rem
             any = true
         }
-        if (interFragmentAwakeSeconds > 0.0) total.awake += interFragmentAwakeSeconds / 60.0
-        if (!any || total.inBed <= 0.0) return null
+        // The legacy parameter name does not establish that an unobserved gap was wake.
+        if (interFragmentAwakeSeconds > 0.0) total.stateUnknown += interFragmentAwakeSeconds / 60.0
+        if (!any || total.inBed <= 0.0 || total.knownState <= 0.0) return null
         return DailySleep(
             totalSleepMin = total.asleep,
             efficiency = total.asleep / total.inBed,
             deepMin = total.deep,
             remMin = total.rem,
             lightMin = total.light,
+            awakeMin = total.awake, sleepUnstagedMin = total.sleepUnstaged,
+            stateUnknownMin = total.stateUnknown, offBodyMin = total.offBody,
         )
     }
 
@@ -654,12 +681,14 @@ object SleepStageTotals {
             val m = minutes(j) ?: continue
             total.awake += m.awake; total.light += m.light
             total.deep += m.deep; total.rem += m.rem
+            total.sleepUnstaged += m.sleepUnstaged
+            total.stateUnknown += m.stateUnknown; total.offBody += m.offBody
             any = true
         }
         if (!any) return null
         // Keys alphabetical (awake, deep, light, rem) to match Swift's .sortedKeys, though the decoder is
         // key-order-independent — this is only ever fed back into `minutes(...)` to score the group.
-        return "{\"awake\":${total.awake},\"deep\":${total.deep},\"light\":${total.light},\"rem\":${total.rem}}"
+        return "{\"awake\":${total.awake},\"deep\":${total.deep},\"light\":${total.light},\"offBody\":${total.offBody},\"rem\":${total.rem},\"sleepUnstaged\":${total.sleepUnstaged},\"stateUnknown\":${total.stateUnknown}}"
     }
 
     /** Index into [blocks] of the day's MAIN night, by the LEARNED-TIMING SCORE: score(block) =

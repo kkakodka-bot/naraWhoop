@@ -346,7 +346,7 @@ class ImuContinuousRecorderTest {
 
     // MARK: - Storage policy
 
-    @Test fun retentionEvictsOldestSegmentAndLateHistoryCannotRegrowIt() {
+    @Test fun retentionStopsNewCaptureWithoutDeletingUnreceiptedSegments() {
         val recorder = makeRecorder()
         recorder.setEnabled(true)
         recorder.setRetentionCap(40_000)   // tiny, so two ~36 KB incompressible blocks exceed it
@@ -364,18 +364,20 @@ class ImuContinuousRecorderTest {
                 receivedAtMs = harness.nowMs + offset * 1_000)
         }
         assertEquals(2, store.segmentInventory().size)
+        val before = store.segmentInventory()
+        val beforeBytes = store.totalBytes()
 
         recorder.tick()   // tick 1 — retention runs on tick 15; drive it directly below
         repeat(14) { recorder.tick() }
-        assertEquals("the oldest segment is evicted once over the cap", 1, store.segmentInventory().size)
-        assertEquals(1, recorder.status.value.evictedSegments)
-        assertEquals("the live segment is never evicted",
-            ImuSessionFileStore.bucketStart(harness.nowSec), store.segmentInventory().first().bucket)
+        assertEquals("all raw segments survive the cap", before, store.segmentInventory())
+        assertEquals(beforeBytes, store.totalBytes())
+        assertEquals(0, recorder.status.value.evictedSegments)
+        assertFalse("new capture is stopped at the cap", recorder.status.value.enabled)
 
         // Late history for an evicted second is refused — evicted stays evicted.
         recorder.ingestFrame(noisyFrame(firstBucketStart), isOffload = true, receivedAtMs = harness.nowMs)
-        assertEquals(1, recorder.status.value.droppedAfterEviction)
-        assertEquals(1, store.segmentInventory().size)
+        assertEquals(0, recorder.status.value.droppedAfterEviction)
+        assertEquals(before, store.segmentInventory())
     }
 
     @Test fun lowDiskPausesWritesAndSurfacesIt() {

@@ -59,12 +59,12 @@ class AnalyticsEngineProvidedSleepTest {
         assertEquals(560.0, res.daily.totalSleepMin!!, 1.0)   // light 320 + deep 120 + rem 120
         assertEquals(120.0, res.daily.deepMin!!, 1.0)
         assertEquals(120.0, res.daily.remMin!!, 1.0)
-        assertEquals(0.75, res.daily.efficiency!!, 0.001)
+        assertEquals(560.0 / 600, res.daily.efficiency!!, 0.001) // recomputed from stage durations
         assertFalse(res.sleepSessions.isEmpty())
         // HRV & resting HR re-derived from THIS day's rr/hr over the provided window (the ring row carried
         // neither) — the crux of #804 (avgHrv was nil despite 36 k rr present).
-        assertNotNull("avgHrv must be derived from rr over the provided window", res.daily.avgHrv)
-        assertNotNull("avgSdnn must be derived from rr inside matched sleep", res.daily.avgSdnn)
+        assertNull("coarse stored RR has no original-beat continuity evidence", res.daily.avgHrv)
+        assertNull("five-minute SDNN also needs verified window support", res.daily.avgSdnn)
         assertNotNull(res.daily.restingHr)
     }
 
@@ -92,7 +92,7 @@ class AnalyticsEngineProvidedSleepTest {
         val res = AnalyticsEngine.analyzeDay(day = day, hr = hr, rr = rr, profile = profile,
             providedSleep = provided)
         assertEquals(48, res.daily.restingHr)
-        assertEquals(65.0, res.daily.avgHrv!!, 0.001)
+        assertNull("vendor scalar HRV must not enter the canonical RMSSD series", res.daily.avgHrv)
     }
 
     /** Keep the public analyzeDay seam fully named and mirrored by the Swift twin. */

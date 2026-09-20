@@ -4,6 +4,9 @@ import StrandDesign
 /// Root — the sidebar shell, with the first-run onboarding/pairing wizard overlaid until complete,
 /// and a "What's New" changelog sheet shown automatically after an update.
 struct ContentView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var cloudScenePhase
+    @State private var cloudReady = CloudCaptureScope.ready
     @AppStorage("noop.onboarded") private var onboarded = false
     @AppStorage("noop.lastSeenChangelogVersion") private var lastSeenChangelog = ""
     @AppStorage("noop.acceptedTermsVersion") private var acceptedTerms = ""
@@ -13,7 +16,8 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            RootView()
+            if cloudReady {
+            CloudDeviceLinkGate(repository: model.serverScores) { RootView() }
             if !onboarded {
                 OnboardingWizard(onFinished: {
                     onboarded = true
@@ -23,6 +27,9 @@ struct ContentView: View {
                 })
                 .transition(.opacity)
                 .zIndex(1)
+            }
+            } else {
+                CloudEnrollmentView().zIndex(1)
             }
             // Terms acknowledgment gate — over EVERYTHING (before onboarding/pairing/Bluetooth) until
             // the current terms version is accepted; re-appears if the terms materially change.
@@ -63,12 +70,31 @@ struct ContentView: View {
                 UpdateWatch.runIfDue(currentVersion: UpdateWatch.installedVersion, sideloadHint: false)
             }
         }
-        .onChangeCompat(of: acceptedTerms) { _ in showWhatsNewIfDue() }
+        .onChangeCompat(of: acceptedTerms) { _ in
+            showWhatsNewIfDue()
+            Task { await model.activateCloudCollection() }
+        }
+        .onChangeCompat(of: cloudScenePhase) { phase in
+            if phase == .active {
+                cloudReady = CloudCaptureScope.ready
+                Task { await model.activateCloudCollection() }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .cloudEnrollmentDidChange)) { _ in
+            cloudReady = CloudCaptureScope.ready
+            if !cloudReady {
+                model.ble.disconnect()
+                showWhatsNew = false
+            } else {
+                showWhatsNewIfDue()
+                Task { await model.activateCloudCollection() }
+            }
+        }
     }
 
     private func showWhatsNewIfDue() {
         // Existing users who updated: their last-seen version is behind the current one.
-        if onboarded && acceptedTerms == Terms.currentVersion
+        if cloudReady && onboarded && acceptedTerms == Terms.currentVersion
             && lastSeenChangelog != AppChangelog.currentVersion {
             showWhatsNew = true
         }

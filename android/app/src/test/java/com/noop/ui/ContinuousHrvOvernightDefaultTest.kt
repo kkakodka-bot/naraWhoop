@@ -16,6 +16,34 @@ import org.junit.Test
  * launch migration pinned here exists for.
  */
 class ContinuousHrvOvernightDefaultTest {
+    @Test fun frequentVitalsActivationIsOnceAndPreservesSubsequentSettings() {
+        val values = mutableMapOf<String, Any>("battery-limit" to 25)
+        val editor = java.lang.reflect.Proxy.newProxyInstance(android.content.SharedPreferences.Editor::class.java.classLoader,
+            arrayOf(android.content.SharedPreferences.Editor::class.java)) { proxy, method, args ->
+            when (method.name) {
+                "putBoolean" -> { values[args[0] as String] = args[1] as Boolean; proxy }
+                "apply" -> null
+                else -> error(method.name)
+            }
+        } as android.content.SharedPreferences.Editor
+        val prefs = java.lang.reflect.Proxy.newProxyInstance(android.content.SharedPreferences::class.java.classLoader,
+            arrayOf(android.content.SharedPreferences::class.java)) { _, method, args ->
+            when (method.name) {
+                "getBoolean" -> values[args[0] as String] as? Boolean ?: args[1]
+                "edit" -> editor
+                else -> error(method.name)
+            }
+        } as android.content.SharedPreferences
+        NoopPrefs.activateFrequentVitalsCapture(prefs)
+        assertTrue(values[NoopPrefs.KEY_CONTINUOUS_HRV] == true)
+        assertTrue(values[NoopPrefs.KEY_CONTINUOUS_HRV_OVERNIGHT] == false)
+        values[NoopPrefs.KEY_CONTINUOUS_HRV] = false
+        values[NoopPrefs.KEY_CONTINUOUS_HRV_OVERNIGHT] = true
+        NoopPrefs.activateFrequentVitalsCapture(prefs)
+        assertTrue(values[NoopPrefs.KEY_CONTINUOUS_HRV] == false)
+        assertTrue(values[NoopPrefs.KEY_CONTINUOUS_HRV_OVERNIGHT] == true)
+        assertTrue(values["battery-limit"] == 25)
+    }
 
     /** The case the migration exists for: used the feature, never chose — pin the old default. */
     @Test fun anExistingContinuousHrvUserIsPinnedToAlwaysOn() {

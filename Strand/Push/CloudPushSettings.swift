@@ -2,9 +2,9 @@ import Foundation
 import CryptoKit
 import NoopPush
 
-/// Push configuration. The destination and bearer token are baked into the build (Info.plist,
-/// from Config/CloudPush.xcconfig) and are the same for every user — there is no per-user
-/// endpoint or token override. Only toggles and run-state persist in UserDefaults.
+/// Push configuration. The destination and fleet authorization token are baked into the build.
+/// A source-bound enrollment credential supplies the user identity for every upload; account-scoped
+/// keys isolate per-login status. Credentials for JWT readback come from the active account session.
 enum CloudPushSettings {
     enum RunState: String {
         case idle, queued, running, continuing, retrying, complete, failed
@@ -16,6 +16,7 @@ enum CloudPushSettings {
         let wifiOnly: Bool
         let endpoint: PushValidEndpoint?
         let hasToken: Bool
+        let termsAccepted: Bool
         let lastSuccessAt: Date?
         let lastError: String?
         let runState: RunState
@@ -24,22 +25,29 @@ enum CloudPushSettings {
         let supportedStreams: [String]?
         let capabilitiesCheckedAt: Date?
 
-        var ready: Bool { enabled && endpoint != nil && hasToken }
+        var ready: Bool { enabled && termsAccepted && endpoint != nil && hasToken }
+    }
+
+    private static func scopedKey(_ key: String) -> String {
+        "account.\(CloudAuthClient.currentContext()?.scope.namespace ?? "signed-out").\(key)"
     }
 
     private enum K {
         static let enabled = "cloudPush.enabled"
         static let binaryObjectsEnabled = "cloudPush.binaryObjectsEnabled"
         static let sourceId = "cloudPush.sourceId"
+        static var scopedSourceId: String { scopedKey("cloudPush.sourceId") }
         static let wifiOnly = "cloudPush.wifiOnly"
-        static let lastSuccess = "cloudPush.lastSuccessAt"
-        static let lastError = "cloudPush.lastError"
-        static let runState = "cloudPush.runState"
-        static let acceptedBatches = "cloudPush.acceptedBatches"
-        static let acceptedRecords = "cloudPush.acceptedRecords"
-        static let capabilitiesEndpoint = "cloudPush.capabilitiesEndpoint"
-        static let capabilitiesStreams = "cloudPush.capabilitiesStreams"
-        static let capabilitiesAt = "cloudPush.capabilitiesAt"
+        static var lastSuccess: String { scopedKey("cloudPush.lastSuccessAt") }
+        static var lastError: String { scopedKey("cloudPush.lastError") }
+        static var runState: String { scopedKey("cloudPush.runState") }
+        static var acceptedBatches: String { scopedKey("cloudPush.acceptedBatches") }
+        static var acceptedRecords: String { scopedKey("cloudPush.acceptedRecords") }
+        static var capabilitiesEndpoint: String { scopedKey("cloudPush.capabilitiesEndpoint") }
+        static var capabilitiesUserId: String { scopedKey("cloudPush.capabilitiesUserId") }
+        static var capabilitiesSourceId: String { scopedKey("cloudPush.capabilitiesSourceId") }
+        static var capabilitiesStreams: String { scopedKey("cloudPush.capabilitiesStreams") }
+        static var capabilitiesAt: String { scopedKey("cloudPush.capabilitiesAt") }
         static let nextDevicePrefix = "cloudPush.nextDevice."
         static let cycleMorePrefix = "cloudPush.cycleMore."
     }
@@ -74,11 +82,12 @@ enum CloudPushSettings {
         bundleValue("NOOPPushEndpoint") ?? ""
     }
 
-    /// The bearer the worker sends: the fleet token baked into the bundle. Never written to the
-    /// keychain — rotation only needs a new build, not a per-device keychain migration.
-    static func resolvedToken() -> String? {
+    /// Fleet authorization is baked into the bundle. It authorizes an installation to contact the
+    /// receiver, but user identity comes only from the enrolled upload credential.
+    static func resolvedFleetToken() -> String? {
         bundleValue("NOOPPushToken")
     }
+    static func resolvedToken() -> String? { CloudAuthClient.storedSession()?.accessToken }
     static var wifiOnly: Bool {
         if UserDefaults.standard.object(forKey: K.wifiOnly) == nil { return true }
         return UserDefaults.standard.bool(forKey: K.wifiOnly)
@@ -87,7 +96,12 @@ enum CloudPushSettings {
     static var ready: Bool { isEnabled && termsAccepted && isConfigured }
 
     private static var isConfigured: Bool {
-        guard case .valid = PushEndpointPolicy.validate(endpointText) else { return false }
+        guard configuredEndpoint() != nil else { return false }
+        if let credential = CloudEnrollment.currentCredential(),
+           CloudCaptureScope.isActive(for: credential.userId),
+           resolvedFleetToken() != nil {
+            return true
+        }
         return resolvedToken() != nil
     }
 
@@ -98,13 +112,16 @@ enum CloudPushSettings {
         } else {
             endpoint = nil
         }
-        let supported = capabilitiesFor(endpoint: endpoint)
+        let sourceId = sourceId()
+        let credential = CloudEnrollment.currentCredential(sourceId: sourceId)
+        let supported = capabilitiesFor(endpoint: endpoint, credential: credential)
         return Snapshot(
             enabled: isEnabled,
             binaryObjectsEnabled: binaryObjectsEnabled,
             wifiOnly: wifiOnly,
             endpoint: endpoint,
-            hasToken: resolvedToken() != nil,
+            hasToken: resolvedFleetToken() != nil && credential != nil || resolvedToken() != nil,
+            termsAccepted: termsAccepted,
             lastSuccessAt: UserDefaults.standard.object(forKey: K.lastSuccess).map { Date(timeIntervalSince1970: $0 as? TimeInterval ?? 0) },
             lastError: UserDefaults.standard.string(forKey: K.lastError),
             runState: RunState(rawValue: UserDefaults.standard.string(forKey: K.runState) ?? "") ?? .idle,
@@ -118,10 +135,14 @@ enum CloudPushSettings {
         )
     }
 
-    static func enabledEndpoint() -> PushValidEndpoint? {
-        guard isEnabled, termsAccepted else { return nil }
+    static func configuredEndpoint() -> PushValidEndpoint? {
         guard case .valid(let endpoint) = PushEndpointPolicy.validate(endpointText) else { return nil }
         return endpoint
+    }
+
+    static func enabledEndpoint() -> PushValidEndpoint? {
+        guard ready else { return nil }
+        return configuredEndpoint()
     }
 
     @discardableResult
@@ -135,6 +156,12 @@ enum CloudPushSettings {
         return true
     }
 
+    /// Enrollment enables automatic delivery even when an older local-only setup disabled it.
+    /// This does not make an unactivated capture store eligible for upload.
+    static func enableForEnrolledAccount(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: K.enabled)
+    }
+
     static func setBinaryObjectsEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: K.binaryObjectsEnabled)
     }
@@ -143,25 +170,111 @@ enum CloudPushSettings {
         UserDefaults.standard.set(wifiOnly, forKey: K.wifiOnly)
     }
 
+    static func sourceId(
+        defaults: UserDefaults = .standard,
+        sourceStore: CloudInstallationSourceStore = .system
+    ) -> String {
+        let defaultsSource = defaults.string(forKey: K.sourceId).flatMap { existing -> String? in
+            guard let uuid = UUID(uuidString: existing) else { return nil }
+            return uuid.uuidString.lowercased()
+        }
+
+        let witnessedSource: String?
+        do {
+            witnessedSource = try sourceStore.load()
+        } catch {
+            // A protected Keychain can be temporarily unavailable before unlock. Do not mint a
+            // replacement identity that would invalidate the returning credential and its witness.
+            if let defaultsSource {
+                return defaultsSource
+            }
+            return ""
+        }
+
+        if let defaultsSource, defaultsSource == witnessedSource {
+            if defaults.string(forKey: K.sourceId) != defaultsSource {
+                defaults.set(defaultsSource, forKey: K.sourceId)
+            }
+            return defaultsSource
+        }
+
+        // Missing defaults indicates reinstall; missing witness indicates device restore or first
+        // rollout of this stronger binding. A mismatch is never allowed to inherit either source.
+        let generated = UUID().uuidString.lowercased()
+        do {
+            try sourceStore.save(generated)
+        } catch {
+            return ""
+        }
+        defaults.set(generated, forKey: K.sourceId)
+        return generated
+    }
+
     static func sourceId() -> String {
-        if let existing = UserDefaults.standard.string(forKey: K.sourceId),
+        sourceId(defaults: .standard, sourceStore: .system)
+    }
+
+    static func sourceId(scope: AccountScope) -> String {
+        sourceId(key: "account.\(scope.namespace).cloudPush.sourceId")
+    }
+
+    private static let sourceIDLock = NSLock()
+    private static func sourceId(key: String) -> String {
+        sourceIDLock.lock(); defer { sourceIDLock.unlock() }
+        if let existing = UserDefaults.standard.string(forKey: key),
            UUID(uuidString: existing) != nil {
             return existing
         }
         let generated = UUID().uuidString.lowercased()
-        UserDefaults.standard.set(generated, forKey: K.sourceId)
+        UserDefaults.standard.set(generated, forKey: key)
         return generated
+    }
+
+    static func progressNamespace(
+        userId: String,
+        sourceId: String,
+        endpoint: PushValidEndpoint,
+        protocolVersion: String = PushProtocol.version,
+        receiverStateId: String = PushCapabilities.unscopedReceiverStateId
+    ) -> String {
+        let seed = "\(userId)\u{0000}\(sourceId)\u{0000}\(endpoint.url)\u{0000}\(protocolVersion)\u{0000}\(receiverStateId)"
+        let digest = SHA256.hash(data: Data(seed.utf8))
+        return digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
     static func progressNamespace(
         sourceId: String,
         endpoint: PushValidEndpoint,
         protocolVersion: String = PushProtocol.version,
-        receiverStateId: String = PushCapabilities.unscopedReceiverStateId
+        receiverStateId: String = PushCapabilities.unscopedReceiverStateId,
+        scope: AccountScope? = CloudAuthClient.currentContext()?.scope
     ) -> String {
-        let seed = "\(sourceId)\u{0000}\(endpoint.url)\u{0000}\(protocolVersion)\u{0000}\(receiverStateId)"
+        if let scope {
+            return progressNamespace(userId: scope.userID, sourceId: sourceId, endpoint: endpoint,
+                                     protocolVersion: protocolVersion, receiverStateId: receiverStateId)
+        }
+        let seed = "unassigned\u{0000}\(sourceId)\u{0000}\(endpoint.url)\u{0000}\(protocolVersion)\u{0000}\(receiverStateId)"
         let digest = SHA256.hash(data: Data(seed.utf8))
         return digest.prefix(12).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Worker status always writes to the captured owner, even if an identity changes concurrently.
+    static func recordScopedRun(context: AccountSessionContext, state: RunState, message: String? = nil,
+                                batches: Int = 0, records: Int = 0) {
+        guard CloudAuthClient.isCurrent(context) else { return }
+        let prefix = "account.\(context.scope.namespace).cloudPush."
+        let defaults = UserDefaults.standard
+        defaults.set(state.rawValue, forKey: prefix + "runState")
+        if let message { defaults.set(String(message.prefix(300)), forKey: prefix + "lastError") }
+        else { defaults.removeObject(forKey: prefix + "lastError") }
+        if state == .complete { defaults.set(Date().timeIntervalSince1970, forKey: prefix + "lastSuccessAt") }
+        if state == .running {
+            defaults.set(0, forKey: prefix + "acceptedBatches")
+            defaults.set(0, forKey: prefix + "acceptedRecords")
+        } else {
+            defaults.set(defaults.integer(forKey: prefix + "acceptedBatches") + batches, forKey: prefix + "acceptedBatches")
+            defaults.set(defaults.integer(forKey: prefix + "acceptedRecords") + records, forKey: prefix + "acceptedRecords")
+        }
     }
 
     static func recordPushStarted() {
@@ -210,6 +323,19 @@ enum CloudPushSettings {
     static func recordCapabilities(
         endpoint: PushValidEndpoint,
         capabilities: PushCapabilities,
+        credential: CloudEnrollmentCredential,
+        checkedAt: Date = Date()
+    ) {
+        UserDefaults.standard.set(endpoint.url, forKey: K.capabilitiesEndpoint)
+        UserDefaults.standard.set(credential.userId, forKey: K.capabilitiesUserId)
+        UserDefaults.standard.set(credential.sourceId, forKey: K.capabilitiesSourceId)
+        UserDefaults.standard.set(capabilities.wireNames.joined(separator: ","), forKey: K.capabilitiesStreams)
+        UserDefaults.standard.set(checkedAt.timeIntervalSince1970, forKey: K.capabilitiesAt)
+    }
+
+    static func recordCapabilities(
+        endpoint: PushValidEndpoint,
+        capabilities: PushCapabilities,
         checkedAt: Date = Date()
     ) {
         UserDefaults.standard.set(endpoint.url, forKey: K.capabilitiesEndpoint)
@@ -233,10 +359,17 @@ enum CloudPushSettings {
         UserDefaults.standard.set(needed, forKey: K.cycleMorePrefix + namespace)
     }
 
-    private static func capabilitiesFor(endpoint: PushValidEndpoint?) -> [String]? {
+    private static func capabilitiesFor(
+        endpoint: PushValidEndpoint?,
+        credential: CloudEnrollmentCredential?
+    ) -> [String]? {
         guard let endpoint,
               UserDefaults.standard.string(forKey: K.capabilitiesEndpoint) == endpoint.url,
               UserDefaults.standard.object(forKey: K.capabilitiesStreams) != nil else { return nil }
+        if let credential {
+            guard UserDefaults.standard.string(forKey: K.capabilitiesUserId) == credential.userId,
+                  UserDefaults.standard.string(forKey: K.capabilitiesSourceId) == credential.sourceId else { return nil }
+        }
         let encoded = UserDefaults.standard.string(forKey: K.capabilitiesStreams) ?? ""
         if encoded.isEmpty { return [] }
         let names = encoded.split(separator: ",").map(String.init)

@@ -10,9 +10,14 @@ import StrandDesign
 /// unknown (we never invent mg), the active hint covers the dose-unknown case in words, and the copy
 /// states it's an estimate from what was logged.
 struct CaffeineLogCard: View {
-    /// The shared UserDefaults-backed store (#949). Shared rather than owned here so the Apple Health
-    /// import and this card write through the same instance — see `CaffeineLogStore.shared`.
-    @ObservedObject private var store = CaffeineLogStore.shared
+    /// Shared only within this account runtime, including its HealthKit bridge.
+    @ObservedObject private var store: CaffeineLogStore
+
+    init(store: CaffeineLogStore, defaults: UserDefaults) {
+        self.store = store
+        _cutoffEnabled = AppStorage(wrappedValue: false, Self.cutoffEnabledKey, store: defaults)
+        _bedtimeMinutes = AppStorage(wrappedValue: 23 * 60, Self.bedtimeMinutesKey, store: defaults)
+    }
 
     /// Drives a live recompute of the estimate while the card is on screen (the decay is time-based).
     @State private var tick = Date()

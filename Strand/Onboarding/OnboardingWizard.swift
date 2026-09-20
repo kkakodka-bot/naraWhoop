@@ -6,36 +6,21 @@ import UserNotifications
 
 // MARK: - OnboardingWizard
 //
-// A full-screen, paged onboarding + pairing flow for NARA. Cinematic and calm:
-// a dark surfaceBase substrate with a slow ambient glow, a bottom progress "thread"
-// that fills as you advance, Back always available, and a forward CTA per step.
-//
-// Steps:
-//  1 Welcome           — NARA + "all your data, none of the cloud"
-//  2 What it does      — 3 calm value slides
-//  3 Bluetooth priming — explain BEFORE the OS prompt
-//  4 Wear & wake       — put your strap on, make sure it's charged
-//  5 Scan              — radar sweep; auto-scans, Scan retries via model.scan()
-//  6 Bonding           — celebration when live.bonded (a RecoveryRing blooms in)
-//  7 Profile           — age / sex / weight / height bound to ProfileStore
-//  8 Import (optional)  — WHOOP / Apple Health import from the wizard
-//  9 Done              — "Your thread starts here." → onFinished()
-//
-// Presentation is wired centrally; this view only calls onFinished() when complete.
+// First-run setup requires explicit strap selection, an encrypted pairing, and
+// verified empty storage before profile setup or normal history ingestion.
 
 public struct OnboardingWizard: View {
 
-    /// Called when the user finishes (or skips to the end of) onboarding.
+    /// Called only after pairing and the storage reset have been verified.
     public var onFinished: () -> Void
 
     public init(onFinished: @escaping () -> Void) {
         self.onFinished = onFinished
     }
 
-    // NOTE: the root deliberately does NOT observe the fast-updating model/live/profile
-    // env objects — doing so re-rendered the whole animated wizard on every HR tick and
-    // caused flicker. Child steps observe what they need; a hidden BondWatcher (below)
-    // handles the bond→celebration transition without re-rendering the root.
+    // Live readings stay in child views. The setup phase, rather than per-tick HR
+    // updates or the legacy bonded flag, controls progression through connection.
+    @EnvironmentObject private var model: AppModel
 
     private enum Step: Int, CaseIterable {
         case welcome, what, expectations, bluetooth, wear, scan, bonded, profile, importData, notifications, appearance, done
@@ -45,6 +30,10 @@ public struct OnboardingWizard: View {
     }
 
     @State private var step: Step = .welcome
+    @State private var setupReady = false
+    @State private var cloudLinkIssue = false
+    @State private var connectionBusy = false
+    @StateObject private var profileActions = ScoringPreferenceActions()
     @State private var glow = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Low Power Mode / "Reduce motion in NARA" pose these looping glows still too. Onboarding is
@@ -70,9 +59,9 @@ public struct OnboardingWizard: View {
                     case .expectations: ExpectationsStep()
                     case .bluetooth:  BluetoothStep()
                     case .wear:       WearStep()
-                    case .scan:       ScanStep(advance: advance)
+                    case .scan:       ScanStep(advance: handleBond, setBusy: { connectionBusy = $0 })
                     case .bonded:     BondedStep()
-                    case .profile:    ProfileStep()
+                    case .profile:    ProfileStep(actions: profileActions)
                     case .importData: ImportStep()
                     case .notifications: NotificationsStep()
                     case .appearance: AppearanceStep()
@@ -96,12 +85,11 @@ public struct OnboardingWizard: View {
         .background(StrandPalette.surfaceBase.ignoresSafeArea())
         // Reduce Motion: leave the ambient bloom at its resting frame (no breathing).
         .onAppear { if !poseStill { glow = true } }
-        // Isolated live observation — a hidden watcher slides Scan → celebration on bond
-        // without subscribing the whole wizard to per-tick updates.
-        .background(BondWatcher(onBonded: handleBond))
     }
 
     private func handleBond() {
+        setupReady = true
+        connectionBusy = false
         if step == .scan { withAnimation(StrandMotion.hero) { step = .bonded } }
     }
 
@@ -150,6 +138,7 @@ public struct OnboardingWizard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Back")
+                .disabled(step == .scan && connectionBusy)
             }
 
             Spacer()
@@ -165,15 +154,26 @@ public struct OnboardingWizard: View {
     @ViewBuilder
     private var bottomBar: some View {
         VStack(spacing: 28) {
+            if cloudLinkIssue {
+                Text("The server has not confirmed this strap yet. Stay online, then tap Enter NARA again.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.statusWarning)
+            }
             ThreadProgress(progress: progress)
                 .frame(height: 3)
                 .frame(maxWidth: 620)
 
-            HStack(spacing: 14) {
-                PrimaryButton(title: ctaTitle, systemImage: ctaIcon, action: primaryAction)
-                    .frame(maxWidth: .infinity)
+            if step != .scan {
+                HStack(spacing: 14) {
+                    if step == .profile {
+                        ProfileContinueButton(actions: profileActions, advance: advance)
+                    } else {
+                        PrimaryButton(title: ctaTitle, systemImage: ctaIcon, action: primaryAction)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .frame(maxWidth: 620)
             }
-            .frame(maxWidth: 620)
         }
     }
 
@@ -188,7 +188,7 @@ public struct OnboardingWizard: View {
         case .what:       return String(localized: "Continue")
         case .expectations: return String(localized: "I understand")
         case .bluetooth:  return String(localized: "Continue")
-        case .wear:       return String(localized: "I'm wearing it")
+        case .wear:       return String(localized: "I see the green light")
         case .scan:       return String(localized: "Continue")
         case .bonded:     return String(localized: "Continue")
         case .profile:    return String(localized: "Save & Continue")
@@ -209,6 +209,17 @@ public struct OnboardingWizard: View {
 
     private func primaryAction() {
         if step.isLast {
+            guard setupReady else { return }
+            guard model.serverScores.deviceLinked else {
+                cloudLinkIssue = true
+                Task { await model.serverScores.refreshVisibleDays() }
+                return
+            }
+            guard model.ble.onboardingSetup.finish() else {
+                setupReady = false
+                step = .scan
+                return
+            }
             onFinished()
         } else {
             advance()
@@ -242,6 +253,7 @@ public struct OnboardingWizard: View {
     }
 
     private func advanceStep() {
+        guard step != .scan || setupReady else { return }
         guard let next = Step(rawValue: step.rawValue + 1) else { onFinished(); return }
         withAnimation(StrandMotion.gentle) { step = next }
     }
@@ -259,17 +271,6 @@ public struct OnboardingWizard: View {
     }
 }
 
-/// Hidden, isolated observer — re-renders on live updates (it's just Color.clear, so no
-/// visible cost) and fires `onBonded` when the strap bonds, keeping the main wizard body
-/// out of the per-tick re-render path that caused flicker.
-private struct BondWatcher: View {
-    @EnvironmentObject private var live: LiveState
-    let onBonded: () -> Void
-    var body: some View {
-        Color.clear.onChangeCompat(of: live.bonded) { newValue in if newValue { onBonded() } }
-    }
-}
-
 // MARK: - Step 1 · Welcome
 
 private struct WelcomeStep: View {
@@ -284,11 +285,11 @@ private struct WelcomeStep: View {
                 BrandMark(size: 120)
                     .scaleEffect(appear ? 1 : 0.92)
                     .opacity(appear ? 1 : 0)
-                Text("all your data, none of the cloud")
+                Text("your strap, your NARA account")
                     .font(StrandFont.title2)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .opacity(appear ? 1 : 0)
-                Text("A private window into your recovery, sleep and strain. Read straight from your strap, kept only on \(Platform.deviceNounPhrase).")
+                Text("Readings from your strap sync to your NARA account for cloud analysis of recovery, sleep and strain.")
                     .font(StrandFont.body)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .multilineTextAlignment(.center)
@@ -323,8 +324,8 @@ private struct WhatItDoesStep: View {
               body: String(localized: "Connect a WHOOP, a heart-rate strap or a gym machine and watch each beat in real time: heart rate, variability and zones as they happen. Already have history elsewhere? Import it from WHOOP, Apple Health, Oura, Fitbit or Garmin.")),
         .init(icon: "lock.shield",
               tint: StrandPalette.statusPositive,
-              title: String(localized: "Own your data, offline"),
-              body: String(localized: "Everything lives on \(Platform.deviceNounPhrase). No account, no sync, no cloud. Your thread is yours alone.")),
+              title: String(localized: "Keep your readings with your account"),
+              body: String(localized: "Your phone collects readings over Bluetooth and uploads them to your NARA account. Server results return to the same account.")),
     ]
 
     var body: some View {
@@ -477,8 +478,8 @@ private struct BluetoothStep: View {
                 InfoCard(
                     icon: "lock.fill",
                     tint: StrandPalette.statusPositive,
-                    title: String(localized: "Nothing leaves your \(Platform.deviceNoun)"),
-                    message: String(localized: "NARA talks to your strap directly over Bluetooth Low Energy. There's no server in the middle. The connection is local, and so is every reading it pulls in.")
+                    title: String(localized: "Bluetooth collection, cloud analysis"),
+                    message: String(localized: "NARA reads your strap over Bluetooth, buffers readings on this device, and uploads them to your account when a permitted network is available.")
                 )
 
                 Text("When the system prompt appears, choose Allow so NARA can find your strap.")
@@ -496,23 +497,24 @@ private struct BluetoothStep: View {
 
 private struct WearStep: View {
     var body: some View {
-        StepShell(title: String(localized: "Put your strap on"),
-                  subtitle: String(localized: "And make sure it's charged.")) {
+        StepShell(title: String(localized: "Charge and wake your WHOOP"),
+                  subtitle: String(localized: "Keep it off your wrist while we set it up.")) {
             VStack(spacing: 22) {
                 ZStack {
                     Circle()
                         .fill(StrandPalette.accent.opacity(0.16))
                         .frame(width: 130, height: 130)
                         .blur(radius: 24)
-                    Image(systemName: "applewatch.side.right")
+                    Image(systemName: "battery.100percent")
                         .font(.system(size: 58, weight: .regular))
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .frame(height: 140)
 
                 VStack(spacing: 12) {
-                    Checkline(text: String(localized: "Wear it snug on your wrist or bicep, sensor against skin."))
-                    Checkline(text: String(localized: "Give it a few minutes of charge if the battery is low."))
+                    Checkline(text: String(localized: "Charge your WHOOP with its charger or battery pack."))
+                    Checkline(text: String(localized: "Double-tap the top to check the side light. Green means it is on and has a good charge."))
+                    Checkline(text: String(localized: "No light, or a red light? Charge it longer, then check again."))
                     Checkline(text: String(localized: "Keep it within about a metre of \(Platform.deviceNounPhrase)."))
                 }
                 .frame(maxWidth: 440)
@@ -521,153 +523,164 @@ private struct WearStep: View {
     }
 }
 
-// MARK: - Step 5 · Scan (radar sweep + reassurance)
+// MARK: - Step 5 · Select, pair, and reset
 
 private struct ScanStep: View {
     let advance: () -> Void
+    let setBusy: (Bool) -> Void
     @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var live: LiveState
-
-    @State private var scanning = false
-    @State private var showHelp = false
-
-    /// Which strap to look for — shared with the Live screen via the same key.
-    @AppStorage("selectedWhoopModel") private var selectedModelRaw = WhoopModel.whoop4.rawValue
-    private var selectedModel: WhoopModel { WhoopModel(rawValue: selectedModelRaw) ?? .whoop4 }
 
     var body: some View {
-        StepShell(title: String(localized: "Find your strap"),
-                  subtitle: live.bonded ? String(localized: "Bonded. You're set.") : String(localized: "Pick your strap below, then tap Scan. NARA will find it.")) {
-            VStack(spacing: 24) {
-                RadarSweep(active: scanning && !live.bonded, bonded: live.bonded)
-                    .frame(width: 220, height: 220)
+        WhoopSetupContent(ble: model.ble, setup: model.ble.onboardingSetup,
+                          advance: advance, setBusy: setBusy)
+    }
+}
 
-                statusLine
+private struct WhoopSetupContent: View {
+    @ObservedObject var ble: BLEManager
+    @ObservedObject var setup: WhoopOnboardingSetup
+    let advance: () -> Void
+    let setBusy: (Bool) -> Void
+    @AppStorage("selectedWhoopModel") private var modelRaw = WhoopModel.whoop4.rawValue
+    @State private var selected: (uuid: String, name: String)?
+    @State private var serialConfirmed = false
+    @State private var blueLightConfirmed = false
+    private var model: WhoopModel { WhoopModel(rawValue: modelRaw) ?? .whoop4 }
 
-                if !live.bonded {
-                    VStack(spacing: 8) {
-                        Text("Which strap are you pairing?").font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                        SegmentedPillControl(
-                            WhoopModel.allCases,
-                            selection: Binding(
-                                get: { selectedModel },
-                                set: { restartScan(for: $0) }
-                            ),
-                            label: { $0.displayName }
-                        )
-                    }
-
-                    // Proactive 5/MG guidance (#130): the strap bonds to one host at a time, so a scan
-                    // here finds nothing while it's still paired in the official WHOOP app.
-                    if selectedModel == .whoop5mg {
-                        Text("WHOOP 5.0/MG pairs with one app at a time. If nothing's found, unpair it in the official WHOOP app and fully close that app, then Scan.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: 360)
-                    }
-
-                    Button(action: { startScan() }) {
-                        Label(scanning ? "Scanning…" : "Scan", systemImage: "dot.radiowaves.left.and.right")
+    var body: some View {
+        StepShell(title: title, subtitle: subtitle) {
+            VStack(alignment: .leading, spacing: 22) {
+                switch setup.phase {
+                case .chooseDevice:
+                    if let selected { pairingInstructions(selected) } else { deviceList }
+                case .pairing:
+                    ProgressView("Waiting for pairing…")
+                    Text("When your phone shows Bluetooth Pairing Request, tap Pair. Keep your WHOOP nearby. NARA will move on only when the secure connection succeeds.")
+                    Text("If the request does not appear, keep tapping the top firmly and repeatedly until the side light flashes blue. A WHOOP already paired to this phone may reconnect without another prompt.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                case .resetting, .verifying:
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel("Connecting and resetting")
+                    Text("Keep your WHOOP charged, off your wrist, and close to your phone. We’re clearing its stored readings and checking that it is ready for you.")
+                case .failed(let message):
+                    Text(message)
+                    PrimaryButton(title: "Retry connection", action: { ble.retryOnboarding() })
+                    Button("Clear storage and retry") { ble.retryOnboarding(eraseAgain: true) }
+                        .buttonStyle(SecondaryButtonStyle())
+                    Button("Choose a different WHOOP") {
+                        selected = nil
+                        startScan()
                     }
                     .buttonStyle(SecondaryButtonStyle())
-                    .disabled(scanning)
-
-                    DisclosureToggle(open: $showHelp, label: String(localized: "Don't see it?"))
-
-                    if showHelp { reassurance }
-
-                    // WHOOP is NARA's primary band, so onboarding leads with it — but it isn't required.
-                    // Make that obvious so a non-WHOOP user doesn't feel stuck here: they can continue now
-                    // and pair a heart-rate strap or import data afterwards (in Devices / Data Sources).
-                    Text("No WHOOP? You can still continue. Pair a heart-rate strap (Polar, Wahoo, Coospo, Garmin HRM…) or a gym machine under Devices, or import from WHOOP, Apple Health, Oura, Fitbit, Garmin and more under Data Sources. You can do either any time.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 360)
+                case .ready:
+                    ProgressView("WHOOP is ready")
                 }
             }
+            .font(StrandFont.body)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .frame(maxWidth: 460, alignment: .leading)
         }
-        .onDisappear { scanning = false }
+        .onAppear {
+            phaseChanged()
+            if setup.phase == .chooseDevice { startScan() }
+        }
+        .onChangeCompat(of: setup.phase) { _ in phaseChanged() }
+        .onDisappear { ble.stopWhoopScan() }
     }
 
-    private var statusLine: some View {
-        Group {
-            if live.bonded {
-                StatePill("Connected", tone: .positive)
-            } else if live.connected {
-                StatePill("Connecting…", tone: .warning, pulsing: true)
-            } else if scanning {
-                StatePill("Searching", tone: .accent, pulsing: true)
-            } else {
-                StatePill("Ready to scan", tone: .neutral, showsDot: false)
-            }
+    private var title: String {
+        switch setup.phase {
+        case .chooseDevice: return selected == nil ? "Connect your WHOOP" : "Tap until the light turns blue"
+        case .pairing: return "Tap Pair on your phone"
+        case .resetting, .verifying: return "Connecting and resetting"
+        case .failed: return "Let’s finish setting up your WHOOP"
+        case .ready: return "Your WHOOP is ready"
         }
     }
 
-    private func startScan(model scanModel: WhoopModel? = nil) {
-        let modelToScan = scanModel ?? selectedModel
-        scanning = true
-        showHelp = false
-        model.scan(model: modelToScan)
-        // Surface the reassurance card if we haven't bonded after a calm beat.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
-            if !live.bonded {
-                scanning = false
-                withAnimation(StrandMotion.gentle) { showHelp = true }
+    private var subtitle: String? {
+        setup.phase == .chooseDevice && selected == nil
+            ? "Find your WHOOP below. Match the number in its name to the serial number printed on your sensor before selecting it."
+            : nil
+    }
+
+    private var deviceList: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SegmentedPillControl(WhoopModel.allCases,
+                selection: Binding(get: { model }, set: { modelRaw = $0.rawValue; startScan() }),
+                label: { $0.displayName })
+            if ble.discoveredWhoops.isEmpty {
+                Text(ble.onboardingScanIssue ?? "Looking for your WHOOP…")
+                    .font(StrandFont.headline)
             }
-        }
-    }
-
-    private func restartScan(for newModel: WhoopModel) {
-        selectedModelRaw = newModel.rawValue
-        guard !live.bonded else { return }
-        model.disconnect()
-        startScan(model: newModel)
-    }
-
-    // The calm, never-alarmist "can't find it" card.
-    private var reassurance: some View {
-        StrandCard {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundStyle(StrandPalette.statusWarning)
-                    Text("Don't see it? That's normal.")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
+            ForEach(ble.discoveredWhoops, id: \.uuid) { strap in
+                Button {
+                    selected = (strap.uuid, strap.name)
+                    serialConfirmed = false
+                    blueLightConfirmed = false
+                    ble.stopWhoopScan()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(strap.name.isEmpty ? "WHOOP (serial not advertised)" : strap.name)
+                                .font(StrandFont.headline)
+                            Text(WhoopOnboardingSetup.hasSerialInName(strap.name)
+                                 ? "Check this against your sensor’s serial number"
+                                 : "Serial number not shown. Cannot select this device.")
+                                .font(StrandFont.caption)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                    }
+                    .padding(16)
+                    .background(NoopPanelSurface(cornerRadius: 14))
                 }
-
-                Text("WHOOP straps don't appear in your \(Platform.deviceNoun)'s Bluetooth settings. They advertise on a custom profile that only apps like NARA can find, so there's nothing to pair there, and you shouldn't try.")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Divider().overlay(StrandPalette.hairline)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Checkline(text: String(localized: "It's charged and worn. The sensor needs skin contact to wake."))
-                    Checkline(text: String(localized: "It isn't held by the WHOOP phone app. Only one host at a time: close the app or turn off its Bluetooth."))
-                    Checkline(text: String(localized: "It's within about a metre of \(Platform.deviceNounPhrase)."))
-                }
-
-                Button(action: retry) {
-                    Label("Try again", systemImage: "arrow.clockwise")
-                }
+                .buttonStyle(.plain)
+                .disabled(!WhoopOnboardingSetup.hasSerialInName(strap.name))
+            }
+            Button("Scan again", action: startScan)
                 .buttonStyle(SecondaryButtonStyle())
-                .padding(.top, 2)
-            }
+            Text("Nothing showing up? Fully close the WHOOP app, keep your charged sensor nearby, and check that Bluetooth is on. If needed, take it off your wrist and tap the top repeatedly until the side light flashes blue, then scan again.")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+            Text("If the name does not show a serial number you can match, do not select it.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
         }
-        .frame(maxWidth: 480)
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
-    private func retry() {
-        withAnimation(StrandMotion.gentle) { showHelp = false }
-        startScan()
+    private func pairingInstructions(_ strap: (uuid: String, name: String)) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(strap.name).font(StrandFont.headline)
+            Toggle("I checked that this matches my WHOOP’s serial number", isOn: $serialConfirmed)
+            Checkline(text: "Take it off your wrist. Hold it by the sides and wait for the green sensor lights underneath to turn off.")
+            Checkline(text: "Tap the top firmly, quickly, and continuously. It can take a lot of taps. Keep going until the light on the side flashes blue.")
+            Toggle("The side light is flashing blue", isOn: $blueLightConfirmed)
+            Text("After you tap Pair on your phone, NARA will automatically erase all readings stored on this WHOOP, including any previous owner’s data. This cannot be undone.")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+            PrimaryButton(title: "Connect and reset this WHOOP", action: {
+                ble.pairForOnboarding(id: strap.uuid, name: strap.name, serialConfirmed: serialConfirmed)
+            })
+            .disabled(!serialConfirmed || !blueLightConfirmed)
+            Button("Choose a different WHOOP") {
+                selected = nil
+                startScan()
+            }
+            .buttonStyle(SecondaryButtonStyle())
+        }
+    }
+
+    private func startScan() {
+        ble.scanForOnboarding(model: model)
+    }
+
+    private func phaseChanged() {
+        setBusy(setup.busy)
+        if setup.phase == .ready { advance() }
     }
 }
 
@@ -700,7 +713,7 @@ private struct BondedStep: View {
                 .frame(height: 210)
 
                 VStack(spacing: 8) {
-                    Text("You're connected.")
+                    Text("Paired. Cleared. Ready for you.")
                         .font(StrandFont.title1)
                         .foregroundStyle(StrandPalette.textPrimary)
                     Text(batteryLine)
@@ -716,9 +729,9 @@ private struct BondedStep: View {
 
     private var batteryLine: String {
         if let pct = live.batteryPct {
-            return String(localized: "Your strap is bonded · \(Int(pct))% battery.")
+            return String(localized: "Stored readings cleared · \(Int(pct))% battery. You can put your WHOOP on now.")
         }
-        return String(localized: "Your strap is bonded and ready to stream.")
+        return String(localized: "Your WHOOP is paired and its stored readings are cleared. You can put it on now.")
     }
 }
 
@@ -726,6 +739,23 @@ private struct BondedStep: View {
 
 private struct ProfileStep: View {
     @EnvironmentObject private var profile: ProfileStore
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var actions: ScoringPreferenceActions
+
+    private var birthDate: Date {
+        if case .number(let value) = actions.draft[.dateOfBirth] { return Date(timeIntervalSince1970: value) }
+        return profile.dateOfBirth
+    }
+    private var sex: String {
+        if case .text(let value) = actions.draft[.sex] { return value }
+        return profile.sex
+    }
+    private func number(_ key: ScoringPreferenceKey, saved: Double) -> Binding<Double> {
+        Binding(get: {
+            if case .number(let value) = actions.draft[key] { return value }
+            return saved
+        }, set: { actions.stage(key, value: .number($0), model: model) })
+    }
 
     // The stored profile is always SI. Body measurements and exercise distance can follow the regional
     // conventions independently; an unset distance choice follows the body choice for compatibility.
@@ -751,25 +781,31 @@ private struct ProfileStep: View {
                 StrandCard {
                     VStack(spacing: 18) {
                         // #146: capture a date of birth so age advances on its own instead of going stale.
-                        DatePicker(selection: $profile.dateOfBirth,
+                        DatePicker(selection: Binding(get: { birthDate }, set: { actions.stageDateOfBirth($0, model: model) }),
                                    in: ProfileStore.dateOfBirthRange,
                                    displayedComponents: .date) {
                             FieldRow(label: String(localized: "Date of birth"),
-                                     value: String(localized: "\(profile.age) yrs"))
+                                     value: String(localized: "\(ProfileStore.years(from: birthDate, to: Date())) yrs"))
                         }
                         .tint(StrandPalette.accent)
+                        .disabled(actions.disabled(model))
+                        .frame(minHeight: 44)
+                        .accessibilityLabel("Date of birth")
 
                         Divider().overlay(StrandPalette.hairline)
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Sex").strandOverline()
-                            Picker("Sex", selection: $profile.sex) {
+                            Picker("Sex", selection: Binding(get: { sex }, set: { actions.stage(.sex, value: .text($0), model: model) })) {
                                 ForEach(sexes, id: \.0) { key, label in
                                     Text(label).tag(key)
                                 }
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
+                            .disabled(actions.disabled(model))
+                            .frame(minHeight: 44)
+                            .accessibilityLabel("Sex")
                         }
 
                         Divider().overlay(StrandPalette.hairline)
@@ -803,17 +839,27 @@ private struct ProfileStep: View {
                         // Steppers, not sliders — matches the Age row above and the macOS Settings
                         // profile editor (same ranges/steps), so every numeric profile field is
                         // consistent across onboarding and Settings on both platforms.
-                        Stepper(value: $profile.weightKg, in: 30...250, step: 0.5) {
+                        Stepper(value: number(.weightKg, saved: profile.weightKg), in: 30...250, step: 0.5) {
                             FieldRow(label: String(localized: "Weight"),
-                                     value: UnitFormatter.massFromKilograms(profile.weightKg, system: unitSystem))
+                                     value: UnitFormatter.massFromKilograms(number(.weightKg, saved: profile.weightKg).wrappedValue, system: unitSystem))
                         }
+                        .disabled(actions.disabled(model))
+                        .frame(minHeight: 44)
 
                         Divider().overlay(StrandPalette.hairline)
 
-                        Stepper(value: $profile.heightCm, in: 120...230, step: 1) {
+                        Stepper(value: number(.heightCm, saved: profile.heightCm), in: 120...230, step: 1) {
                             FieldRow(label: String(localized: "Height"),
-                                     value: UnitFormatter.heightFromCentimeters(profile.heightCm, system: unitSystem))
+                                     value: UnitFormatter.heightFromCentimeters(number(.heightCm, saved: profile.heightCm).wrappedValue, system: unitSystem))
                         }
+                        .disabled(actions.disabled(model))
+                        .frame(minHeight: 44)
+                        if !actions.draft.isEmpty {
+                            Text("Unsaved profile changes. Save below to use them for scoring.")
+                                .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        ScoringPreferenceActionStatus(actions: actions)
                     }
                 }
 
@@ -826,6 +872,22 @@ private struct ProfileStep: View {
                 }
             }
         }
+        .onDisappear { actions.suspendPresentation() }
+    }
+}
+
+private struct ProfileContinueButton: View {
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var actions: ScoringPreferenceActions
+    let advance: () -> Void
+
+    var body: some View {
+        PrimaryButton(title: actions.draft.isEmpty ? String(localized: "Continue") : String(localized: "Save profile and continue"),
+                      systemImage: nil) {
+            actions.saveOnboarding(model: model, afterAccepted: advance)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .disabled(actions.disabled(model))
     }
 }
 
@@ -1001,7 +1063,7 @@ private struct NotificationsStep: View {
 
                 VStack(spacing: 12) {
                     Checkline(text: String(localized: "Strain nudges and your smart alarm tap your wrist the moment they fire."))
-                    Checkline(text: String(localized: "It all stays on your strap and \(Platform.deviceNounPhrase): no account, no cloud."))
+                    Checkline(text: String(localized: "Wrist alerts use the Bluetooth connection between this device and your strap."))
                 }
                 .frame(maxWidth: 460)
                 #else
@@ -1138,106 +1200,7 @@ private struct StepShell<Content: View>: View {
     }
 }
 
-// MARK: - Radar sweep
-
-private struct RadarSweep: View {
-    var active: Bool
-    var bonded: Bool
-    @State private var angle: Double = 0
-    @State private var ping = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// Low Power Mode / "Reduce motion in NARA" pose these looping glows still too. Onboarding is
-    /// first-run only, but a `repeatForever` is a `repeatForever` wherever it lives.
-    @ObservedObject private var motion = NoopMotionState.shared
-    private var poseStill: Bool { motion.poseStill(reduceMotion) }
-
-    var body: some View {
-        GeometryReader { geo in
-            let size = min(geo.size.width, geo.size.height)
-            ZStack {
-                // Concentric rings.
-                ForEach(1...3, id: \.self) { i in
-                    Circle()
-                        .stroke(StrandPalette.hairline.opacity(0.7), lineWidth: 1)
-                        .frame(width: size * Double(i) / 3, height: size * Double(i) / 3)
-                }
-                // Cross hairs.
-                Path { p in
-                    p.move(to: CGPoint(x: size / 2, y: 0)); p.addLine(to: CGPoint(x: size / 2, y: size))
-                    p.move(to: CGPoint(x: 0, y: size / 2)); p.addLine(to: CGPoint(x: size, y: size / 2))
-                }
-                .stroke(StrandPalette.hairline.opacity(0.5), lineWidth: 1)
-
-                // The sweeping wedge.
-                if active {
-                    sweepWedge(size: size)
-                        .rotationEffect(.degrees(angle))
-                }
-
-                // Center node — accent while searching, mint when bonded.
-                Circle()
-                    .fill(bonded ? StrandPalette.recovery100 : StrandPalette.accent)
-                    .frame(width: 14, height: 14)
-                    .shadow(color: (bonded ? StrandPalette.recovery100 : StrandPalette.accent).opacity(0.8),
-                            radius: ping ? 10 : 4)
-
-                // A discovered "blip" once bonded.
-                if bonded {
-                    Circle()
-                        .fill(StrandPalette.statusPositive)
-                        .frame(width: 12, height: 12)
-                        .shadow(color: StrandPalette.statusPositive.opacity(0.9), radius: 8)
-                        .position(x: size * 0.70, y: size * 0.36)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .frame(width: size, height: size)
-        }
-        .onAppear {
-            if active { startSweep() }
-            ping = true
-        }
-        .onChangeCompat(of: active) { isActive in
-            if isActive { startSweep() }
-        }
-        .animation(StrandMotion.breathe(reduced: poseStill), value: ping)
-    }
-
-    private func sweepWedge(size: CGFloat) -> some View {
-        let radius = size / 2
-        return AngularGradient(
-            gradient: Gradient(colors: [StrandPalette.accent.opacity(0.0),
-                                        StrandPalette.accent.opacity(0.45)]),
-            center: .center,
-            startAngle: .degrees(-50),
-            endAngle: .degrees(0)
-        )
-        .mask(
-            Path { p in
-                let c = CGPoint(x: radius, y: radius)
-                p.move(to: c)
-                p.addArc(center: c, radius: radius,
-                         startAngle: .degrees(-50), endAngle: .degrees(0), clockwise: false)
-                p.closeSubpath()
-            }
-        )
-        .frame(width: size, height: size)
-        .blendMode(.plusLighter)
-    }
-
-    private func startSweep() {
-        // Reduce Motion: keep the wedge still (the static rings/crosshairs/blip
-        // still convey "searching" / "found") instead of spinning forever.
-        guard !poseStill else { return }
-        angle = 0
-        withAnimation(.linear(duration: 2.4).repeatForever(autoreverses: false)) {
-            angle = 360
-        }
-    }
-}
-
-// MARK: - The bottom "thread" progress
-
+// MARK: - The bottom progress thread
 private struct ThreadProgress: View {
     var progress: Double           // 0...1
     var body: some View {
@@ -1386,6 +1349,7 @@ private struct PrimaryButton: View {
 }
 
 private struct PrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(maxWidth: .infinity)
@@ -1398,6 +1362,7 @@ private struct PrimaryButtonStyle: ButtonStyle {
             )
             .shadow(color: StrandPalette.accent.opacity(0.4), radius: 12, y: 4)
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .opacity(isEnabled ? 1 : 0.45)
             .animation(StrandMotion.interactive, value: configuration.isPressed)
     }
 }

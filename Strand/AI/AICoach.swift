@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import Security
 import WhoopStore
 import StrandAnalytics
 import StrandImport
@@ -33,74 +32,6 @@ struct ChatMessage: Identifiable, Equatable {
         self.id = id
         self.role = role
         self.text = text
-    }
-}
-
-// MARK: - Secure key storage (Keychain)
-
-/// Keychain Services wrapper for the user's API key. Uses a generic-password item under a fixed
-/// service so the key never lands in UserDefaults, a plist, or on disk in the clear.
-enum AIKeyStore {
-    private static let service = "com.noop.aicoach"
-    private static let account = "api-key"
-
-    private static var baseQuery: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-    }
-
-    /// UserDefaults key recording which provider the stored API key belongs to, so one provider's key
-    /// is never sent to another provider's endpoint (above all the arbitrary user-typed Custom URL).
-    private static let ownerKey = "ai.keyProvider"
-
-    /// The provider the stored key was saved for, or nil for a legacy key saved before this tracking.
-    static var ownerProvider: String? { UserDefaults.standard.string(forKey: ownerKey) }
-
-    /// Store (or replace) the API key for `owner`. Empty/whitespace input is treated as a clear.
-    /// Returns true once the key is in the Keychain (or was cleared); false if the Keychain write
-    /// failed, in which case the owner marker is left untouched so it never points at a key that
-    /// isn't actually stored (#872). The live `read()`/`hasKey` gating already reads the real
-    /// Keychain, so this is defensive tidying of the discarded write result, not a behaviour change.
-    @discardableResult
-    static func save(_ key: String, owner: String) -> Bool {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { clear(); return true }
-        guard let data = trimmed.data(using: .utf8) else { return false }
-
-        // Delete any existing item first so we always insert a single, fresh value.
-        SecItemDelete(baseQuery as CFDictionary)
-
-        var attrs = baseQuery
-        attrs[kSecValueData as String] = data
-        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(attrs as CFDictionary, nil)
-        guard status == errSecSuccess else { return false }
-        UserDefaults.standard.set(owner, forKey: ownerKey)
-        return true
-    }
-
-    /// Read the stored API key, or nil if none is set.
-    static func read() -> String? {
-        var query = baseQuery
-        query[kSecReturnData as String] = kCFBooleanTrue
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess,
-              let data = item as? Data,
-              let str = String(data: data, encoding: .utf8),
-              !str.isEmpty else { return nil }
-        return str
-    }
-
-    /// Remove any stored API key.
-    static func clear() {
-        SecItemDelete(baseQuery as CFDictionary)
-        UserDefaults.standard.removeObject(forKey: ownerKey)
     }
 }
 
@@ -172,8 +103,8 @@ final class AICoachEngine: ObservableObject {
     @Published var pendingPrompt: String?
     @Published var provider: AIProvider {
         didSet {
-            guard provider != oldValue else { return }
-            UserDefaults.standard.set(provider.rawValue, forKey: Self.providerKey)
+            guard account.isCurrent, provider != oldValue else { return }
+            defaults.set(provider.rawValue, forKey: Self.providerKey)
             // Reset the model list to the new provider's built-in options.
             availableModels = provider.modelOptions
             // Keep the model valid for the newly-selected provider.
@@ -183,7 +114,7 @@ final class AICoachEngine: ObservableObject {
         }
     }
     @Published var model: String {
-        didSet { UserDefaults.standard.set(model, forKey: Self.modelKey) }
+        didSet { if account.isCurrent { defaults.set(model, forKey: Self.modelKey) } }
     }
     /// The model ids offered in the picker. Seeded from `provider.modelOptions`, reset when the
     /// provider changes, and optionally extended by `refreshModels()` with the provider's live list.
@@ -191,27 +122,27 @@ final class AICoachEngine: ObservableObject {
     /// Explicit permission for the coach to read & transmit the user's biometric data. OFF by
     /// default, until this is true, NO metrics are included in any request (only the question).
     @Published var dataConsent: Bool {
-        didSet { UserDefaults.standard.set(dataConsent, forKey: Self.consentKey) }
+        didSet { if account.isCurrent { defaults.set(dataConsent, forKey: Self.consentKey) } }
     }
     /// Base URL for the Custom (OpenAI-compatible) provider, e.g. `http://localhost:11434/v1` for a
     /// local LLM server. Only used when `provider == .custom`. Persisted so it survives relaunch.
     @Published var customBaseURL: String {
-        didSet { UserDefaults.standard.set(customBaseURL, forKey: AIProvider.customBaseURLKey) }
+        didSet { if account.isCurrent { defaults.set(customBaseURL, forKey: AIProvider.customBaseURLKey) } }
     }
     @Published var customAuthHeader: CustomAIAuthHeader {
-        didSet { UserDefaults.standard.set(customAuthHeader.rawValue, forKey: AIProvider.customAuthHeaderKey) }
+        didSet { if account.isCurrent { defaults.set(customAuthHeader.rawValue, forKey: AIProvider.customAuthHeaderKey) } }
     }
     /// Whether the user has committed the Custom provider (tapped Connect with a base URL). Lets the
     /// keyless local path reach the chat without a stored key, while avoiding a flip mid-typing.
     @Published var customConnected: Bool {
-        didSet { UserDefaults.standard.set(customConnected, forKey: Self.customConnectedKey) }
+        didSet { if account.isCurrent { defaults.set(customConnected, forKey: Self.customConnectedKey) } }
     }
     /// SECOND opt-in (v5): also fold a SUMMARY of the new on-device signals, your strongest n-of-1
     /// correlations and your Lab Book markers, into the coach context. OFF by default and gated behind
     /// `dataConsent` too, so it never adds anything without both consents. Summary-only: a few one-line
     /// sentences, NEVER raw readings, the anonymity / no-raw-egress posture is preserved.
     @Published var includeOnDeviceSignals: Bool {
-        didSet { UserDefaults.standard.set(includeOnDeviceSignals, forKey: Self.onDeviceSignalsKey) }
+        didSet { if account.isCurrent { defaults.set(includeOnDeviceSignals, forKey: Self.onDeviceSignalsKey) } }
     }
 
     /// K11: THIRD opt-in — send a chart image alongside the text when using Gemini's multimodal
@@ -219,11 +150,16 @@ final class AICoachEngine: ObservableObject {
     /// Gemini (the only provider with multimodal support in the app). When on, the Coach composer
     /// shows an "Attach chart" toggle; the rendered chart is sent as inline_data to Gemini.
     @Published var multimodalChartEnabled: Bool {
-        didSet { UserDefaults.standard.set(multimodalChartEnabled, forKey: Self.multimodalChartKey) }
+        didSet { if account.isCurrent { defaults.set(multimodalChartEnabled, forKey: Self.multimodalChartKey) } }
     }
 
     private let repo: Repository
-    private let session: URLSession
+    private let account: AICoachAccount
+    private var defaults: UserDefaults { account.defaults }
+    private var session: URLSession { account.session }
+    private var customConfiguration: CustomAIConfiguration {
+        .init(baseURL: customBaseURL, authHeader: customAuthHeader)
+    }
 
     private static let providerKey = "ai.provider"
     private static let modelKey = "ai.model"
@@ -265,7 +201,8 @@ final class AICoachEngine: ObservableObject {
     /// the settings takes effect on the next message, with no engine rebuild. A blank/absent stored
     /// value falls back to `defaultSystemPrompt`, so a user who clears it never sends an empty prompt.
     var systemPrompt: String {
-        let stored = UserDefaults.standard.string(forKey: Self.systemPromptKey)?
+        guard account.isCurrent else { return Self.defaultSystemPrompt }
+        let stored = defaults.string(forKey: Self.systemPromptKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let stored, !stored.isEmpty { return stored }
         return Self.defaultSystemPrompt
@@ -276,11 +213,12 @@ final class AICoachEngine: ObservableObject {
     var customSystemPrompt: String {
         get { systemPrompt }
         set {
+            guard account.isCurrent else { return }
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty || trimmed == Self.defaultSystemPrompt {
-                UserDefaults.standard.removeObject(forKey: Self.systemPromptKey)
+                defaults.removeObject(forKey: Self.systemPromptKey)
             } else {
-                UserDefaults.standard.set(newValue, forKey: Self.systemPromptKey)
+                defaults.set(newValue, forKey: Self.systemPromptKey)
             }
             objectWillChange.send()
         }
@@ -289,14 +227,16 @@ final class AICoachEngine: ObservableObject {
     /// True when the user has an edited prompt that differs from the built-in default, gates the
     /// "Reset to default" affordance in the UI.
     var hasCustomSystemPrompt: Bool {
-        let stored = UserDefaults.standard.string(forKey: Self.systemPromptKey)?
+        guard account.isCurrent else { return false }
+        let stored = defaults.string(forKey: Self.systemPromptKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return !(stored ?? "").isEmpty && stored != Self.defaultSystemPrompt
     }
 
     /// Restore the built-in system prompt by clearing the stored override.
     func resetSystemPrompt() {
-        UserDefaults.standard.removeObject(forKey: Self.systemPromptKey)
+        guard account.isCurrent else { return }
+        defaults.removeObject(forKey: Self.systemPromptKey)
         objectWillChange.send()
     }
 
@@ -339,16 +279,20 @@ final class AICoachEngine: ObservableObject {
     them to enable "Let the coach use my data" for guidance tailored to their real numbers.
     """
 
-    init(repo: Repository, session: URLSession = .shared) {
+    init(repo: Repository, defaults: UserDefaults? = nil, accountNamespace: String? = nil,
+         isCurrent: @escaping () -> Bool = { true }, session: URLSession? = nil,
+         keychain: any AIKeychainAccess = AISystemKeychain()) {
         self.repo = repo
-        self.session = session
+        let defaults = defaults ?? UserDefaults(suiteName: "com.noop.aicoach.unassigned." + UUID().uuidString)!
+        self.account = AICoachAccount(defaults: defaults, namespace: accountNamespace, isCurrent: isCurrent,
+                                      configuration: session?.configuration ?? .ephemeral, keychain: keychain)
 
         // Restore persisted provider / model (falling back to sane defaults).
-        let storedProvider = UserDefaults.standard.string(forKey: Self.providerKey)
+        let storedProvider = defaults.string(forKey: Self.providerKey)
             .flatMap(AIProvider.init(rawValue:)) ?? .openAI
         self.provider = storedProvider
 
-        let storedModel = UserDefaults.standard.string(forKey: Self.modelKey)
+        let storedModel = defaults.string(forKey: Self.modelKey)
         // A persisted custom id is honoured even if it's not in the built-in list.
         if let storedModel, !storedModel.isEmpty {
             self.model = storedModel
@@ -363,35 +307,49 @@ final class AICoachEngine: ObservableObject {
         }
         self.availableModels = seeded
 
-        self.dataConsent = UserDefaults.standard.bool(forKey: Self.consentKey)
-        self.customBaseURL = UserDefaults.standard.string(forKey: AIProvider.customBaseURLKey) ?? ""
-        self.customAuthHeader = AIProvider.customAuthHeader
-        self.customConnected = UserDefaults.standard.bool(forKey: Self.customConnectedKey)
-        self.includeOnDeviceSignals = UserDefaults.standard.bool(forKey: Self.onDeviceSignalsKey)
-        self.multimodalChartEnabled = UserDefaults.standard.bool(forKey: Self.multimodalChartKey)
+        self.dataConsent = defaults.bool(forKey: Self.consentKey)
+        self.customBaseURL = defaults.string(forKey: AIProvider.customBaseURLKey) ?? ""
+        self.customAuthHeader = CustomAIAuthHeader(rawValue: defaults.string(forKey: AIProvider.customAuthHeaderKey) ?? "") ?? .bearer
+        self.customConnected = defaults.bool(forKey: Self.customConnectedKey)
+        self.includeOnDeviceSignals = defaults.bool(forKey: Self.onDeviceSignalsKey)
+        self.multimodalChartEnabled = defaults.bool(forKey: Self.multimodalChartKey)
+    }
+
+    func shutdownForAccountChange() {
+        account.retire()
+        messages = []
+        conversationDay = nil
+        pendingPrompt = nil
+        pendingChartImage = nil
+        droppedSummary = nil
+        droppedSummaryKey = []
+        availableModels = []
+        sending = false
+        errorText = nil
+        dataConsent = false
+        includeOnDeviceSignals = false
+        multimodalChartEnabled = false
+        customConnected = false
+        customBaseURL = ""
+        model = ""
     }
 
     // MARK: Key management
 
     /// True when a key is present in the Keychain.
-    var hasKey: Bool { AIKeyStore.read() != nil }
+    var hasKey: Bool { account.isCurrent && account.keys.read() != nil }
 
     /// True once the coach can actually send: a stored key for the cloud providers, or, for the
     /// Custom (local) provider, a committed base URL (a key is optional there, as local servers
     /// usually need none). Gates the setup card vs. the live chat.
-    var isConfigured: Bool { provider == .custom ? customConnected : hasKey }
+    var isConfigured: Bool { account.isCurrent && (provider == .custom ? customConnected : hasKey) }
 
     /// The key to send with a request: the stored key, or an empty string for the keyless Custom
     /// provider. `nil` means "not configured", the caller surfaces `.noKey`.
     private var resolvedKey: String? {
-        if let k = AIKeyStore.read() {
-            // Only send the stored key to the provider it was SAVED for, never Bearer one provider's
-            // key (e.g. a cloud OpenAI/Anthropic secret) to another provider's endpoint, above all the
-            // arbitrary user-typed Custom URL. A legacy key with no recorded owner is assumed to belong
-            // to a cloud provider, so it is never auto-sent to Custom.
-            let owner = AIKeyStore.ownerProvider
-            if owner == provider.rawValue { return k }
-            if owner == nil && provider != .custom { return k }
+        guard account.isCurrent else { return nil }
+        if let credential = account.keys.read(), credential.provider == provider.rawValue {
+            return credential.key
         }
         return provider == .custom ? "" : nil
     }
@@ -399,6 +357,7 @@ final class AICoachEngine: ObservableObject {
     /// Commit the Custom (local) provider once the user has entered a server URL. Optionally stores a
     /// key first if they pasted one. Pulls the server's live model list so the picker isn't empty.
     func connectCustom() {
+        guard account.isCurrent else { return }
         let url = customBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return }
         errorText = nil
@@ -406,6 +365,7 @@ final class AICoachEngine: ObservableObject {
         // Pull the server's model list; if the user hasn't picked one yet, default to the first.
         Task {
             await refreshModels()
+            guard account.isCurrent else { return }
             if model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let first = availableModels.first {
                 model = first
@@ -416,7 +376,8 @@ final class AICoachEngine: ObservableObject {
     /// Disconnect entirely: forget any stored key and un-commit the Custom provider. The base URL is
     /// kept so reconnecting pre-fills it.
     func disconnect() {
-        AIKeyStore.clear()
+        guard account.isCurrent else { return }
+        account.keys.clear()
         customConnected = false
         // Retire the transcript with the connection. Kotlin has done this since the method existed
         // (CoachViewModel.disconnect) and this side never did, so returning to the setup screen on Apple
@@ -430,7 +391,8 @@ final class AICoachEngine: ObservableObject {
     /// Store the user's pasted key securely. Clears any prior error. If the Keychain write fails the
     /// key is NOT saved, so surface that to the UI instead of silently proceeding (#872).
     func setKey(_ key: String) {
-        guard AIKeyStore.save(key, owner: provider.rawValue) else {
+        guard account.isCurrent else { return }
+        guard account.keys.save(key, owner: provider.rawValue) else {
             errorText = AICoachError.keySaveFailed.errorDescription
             objectWillChange.send()
             return
@@ -446,7 +408,8 @@ final class AICoachEngine: ObservableObject {
 
     /// Forget the stored key.
     func clearKey() {
-        AIKeyStore.clear()
+        guard account.isCurrent else { return }
+        account.keys.clear()
         // Same reasoning as `disconnect`: clearing the key returns the user to the setup screen, and
         // Kotlin empties the transcript when it does. Leaving it meant a "clear my key" on Apple removed
         // the credential and kept the conversation.
@@ -459,6 +422,7 @@ final class AICoachEngine: ObservableObject {
 
     /// Set a custom model id (any string). Adds it to the picker if it isn't already listed.
     func setCustomModel(_ id: String) {
+        guard account.isCurrent else { return }
         let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         if !availableModels.contains(trimmed) {
@@ -478,6 +442,7 @@ final class AICoachEngine: ObservableObject {
     /// returned ids into `availableModels`. Never crashes; failures land in `errorText` and leave
     /// the existing list intact. Requires a saved key.
     func refreshModels() async {
+        guard account.isCurrent else { return }
         guard let key = resolvedKey else {
             errorText = AICoachError.noKey.errorDescription
             return
@@ -489,6 +454,8 @@ final class AICoachEngine: ObservableObject {
         // resume that it's still the live one, and merge against THIS same snapshot, so the guard and
         // the merge always use one consistent provider, never a stale/mixed list for the wrong one.
         let capturedProvider = provider
+        let capturedConfiguration = customConfiguration
+        let client = capturedProvider.client(customConfiguration: capturedConfiguration)
 
         do {
             let ids: [String]
@@ -496,15 +463,16 @@ final class AICoachEngine: ObservableObject {
             if let override = fetchModelsOverride {
                 ids = try await override(capturedProvider, key)
             } else {
-                ids = try await capturedProvider.client.fetchModels(key: key, session: session)
+                ids = try await client.fetchModels(key: key, session: session)
             }
             #else
-            ids = try await capturedProvider.client.fetchModels(key: key, session: session)
+            ids = try await client.fetchModels(key: key, session: session)
             #endif
 
             // The user switched providers while we were awaiting, so these ids belong to the old one.
             // Drop them rather than write a list for a provider that's no longer selected.
-            guard provider == capturedProvider else { return }
+            guard account.isCurrent, provider == capturedProvider,
+                  capturedProvider != .custom || customConfiguration == capturedConfiguration else { return }
 
             guard !ids.isEmpty else {
                 errorText = AICoachError.decode.errorDescription
@@ -520,7 +488,8 @@ final class AICoachEngine: ObservableObject {
             availableModels = merged
         } catch {
             // A switch mid-flight makes any error moot for the old provider, so don't surface it.
-            guard provider == capturedProvider else { return }
+            guard account.isCurrent, provider == capturedProvider,
+                  capturedProvider != .custom || customConfiguration == capturedConfiguration else { return }
             errorText = AICoachError.network(error.localizedDescription).errorDescription
             return
         }
@@ -536,6 +505,7 @@ final class AICoachEngine: ObservableObject {
     /// like RAM" report. Cap >> the wire window, so it never changes what's sent. (parity with Android)
     private static let maxStoredMessages = 40
     private func appendMessage(_ message: ChatMessage) {
+        guard account.isCurrent else { return }
         messages.append(message)
         if messages.count > Self.maxStoredMessages {
             messages.removeFirst(messages.count - Self.maxStoredMessages)
@@ -553,10 +523,10 @@ final class AICoachEngine: ObservableObject {
     /// which is synchronous and runs for every screen the app builds, not just Coach. Best-effort: a
     /// store failure just leaves the transcript empty, matching pre-K2 behaviour — never crashes.
     func loadPersistedMessagesIfNeeded() async {
-        guard !didLoadPersistedMessages else { return }
+        guard account.isCurrent, !didLoadPersistedMessages else { return }
         didLoadPersistedMessages = true
-        guard messages.isEmpty, let store = await repo.storeHandle() else { return }
-        guard let rows = try? await store.coachMessages(), !rows.isEmpty else { return }
+        guard messages.isEmpty, let store = await repo.storeHandle(), account.isCurrent else { return }
+        guard let rows = try? await store.coachMessages(), account.isCurrent, !rows.isEmpty else { return }
         messages = rows
             .sorted { $0.orderIndex < $1.orderIndex }
             .map { ChatMessage(id: UUID(uuidString: $0.id) ?? UUID(),
@@ -569,10 +539,11 @@ final class AICoachEngine: ObservableObject {
     /// mutations don't hammer the store. Fire-and-forget; a store failure never blocks the UI — the
     /// in-memory transcript (what the user sees) is unaffected either way.
     private func persistMessages() {
+        guard account.isCurrent else { return }
         let snapshot = messages
         let providerId = provider.rawValue
         Task {
-            guard let store = await repo.storeHandle() else { return }
+            guard account.isCurrent, let store = await repo.storeHandle(), account.isCurrent else { return }
             let rows = snapshot.enumerated().map { index, m in
                 CoachMessageRow(id: m.id.uuidString, role: m.role.rawValue, text: m.text,
                                  provider: providerId, createdAt: Int(Date().timeIntervalSince1970),
@@ -585,17 +556,21 @@ final class AICoachEngine: ObservableObject {
     /// The Coach toolbar's "Clear conversation" action: wipes both the in-memory transcript and the
     /// persisted table. Fire-and-forget on the store side; the in-memory clear is immediate.
     func clearConversation() {
+        guard account.isCurrent else { return }
         messages = []
         droppedSummary = nil      // K13: reset the summary cache on clear
         droppedSummaryKey = []
-        Task { try? await repo.storeHandle()?.clearCoachMessages() }
+        Task {
+            guard account.isCurrent, let store = await repo.storeHandle(), account.isCurrent else { return }
+            try? await store.clearCoachMessages()
+        }
     }
 
     /// K5: surface a brief generated by the SCHEDULED morning-brief notification as the first Coach
     /// message, with no network call — called once when the app opens via a tap on that notification.
     /// No-op if a conversation already exists, so it never duplicates into an active chat.
     func surfaceScheduledBrief(_ text: String) {
-        guard messages.isEmpty else { return }
+        guard account.isCurrent, messages.isEmpty else { return }
         appendMessage(ChatMessage(role: .assistant, text: "Today's brief\n\n" + text))
         persistMessages()
     }
@@ -604,6 +579,7 @@ final class AICoachEngine: ObservableObject {
     /// assistant message, unconditionally — unlike `surfaceScheduledBrief`, this always appends so a
     /// mid-conversation tap still shows the fresh brief.
     func appendGeneratedBrief(_ text: String) {
+        guard account.isCurrent else { return }
         appendMessage(ChatMessage(role: .assistant, text: "Today's brief\n\n" + text))
         persistMessages()
     }
@@ -617,6 +593,7 @@ final class AICoachEngine: ObservableObject {
     /// system prompt + context + running history, parse the reply, append it. Never throws/crashes;
     /// failures land in `errorText`.
     func send(_ userText: String) async {
+        guard account.isCurrent else { return }
         let trimmed = userText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { errorText = AICoachError.emptyQuestion.errorDescription; return }
         guard let key = resolvedKey else { errorText = AICoachError.noKey.errorDescription; return }
@@ -641,17 +618,19 @@ final class AICoachEngine: ObservableObject {
         sending = true
         // K2: persist once the turn is fully settled (success, mid-stream error, or empty-stream
         // removal) — not per streamed chunk, so a long reply doesn't hammer the store.
-        defer { sending = false; persistMessages() }
+        defer { if account.isCurrent { sending = false; persistMessages() } }
 
         // Build the data context once and prepend it to the FIRST user turn we send. We send the
         // full running history so follow-ups stay coherent; the context only needs to ride the
         // earliest user message.
         // Include the user's data ONLY with explicit consent; otherwise send a note instead of numbers.
         let context = dataConsent ? await buildFullContext() : noConsentNote
+        guard account.isCurrent else { return }
         // K13: if the conversation overflows the sliding window, summarize the dropped middle so
         // the model retains context continuity. Best-effort; failure degrades to the old gap.
         await summarizeDroppedMiddleIfNeeded(key: key)
-        var wire = wireMessages(context: context)
+        guard account.isCurrent else { return }
+        let wire = wireMessages(context: context)
 
         // K11: If a chart image is pending and the provider is Gemini, attach it to the last
         // user turn as inline_data. Non-Gemini providers can't accept images, so the image is
@@ -669,6 +648,7 @@ final class AICoachEngine: ObservableObject {
 
         do {
             try await streamProvider(key: key, messages: wire, inlineImage: imageBase64) { delta in
+                guard self.account.isCurrent else { return }
                 accumulated += delta
                 // Replace the last message's text with the accumulated stream so far.
                 if let lastIdx = self.messages.indices.last,
@@ -679,6 +659,7 @@ final class AICoachEngine: ObservableObject {
                 }
             }
             // Finalize: trim whitespace. If the stream produced nothing, show "(no reply)".
+            guard account.isCurrent else { return }
             let clean = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
             if let lastIdx = messages.indices.last, messages[lastIdx].role == .assistant {
                 messages[lastIdx] = ChatMessage(
@@ -687,6 +668,7 @@ final class AICoachEngine: ObservableObject {
                 )
             }
         } catch let e as AICoachError {
+            guard account.isCurrent else { return }
             // Mid-stream error: keep the partial text + an interrupted marker (PRD K1 acceptance).
             let partial = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
             if !partial.isEmpty, let lastIdx = messages.indices.last, messages[lastIdx].role == .assistant {
@@ -700,6 +682,7 @@ final class AICoachEngine: ObservableObject {
             }
             errorText = e.errorDescription
         } catch {
+            guard account.isCurrent else { return }
             let partial = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
             if !partial.isEmpty, let lastIdx = messages.indices.last, messages[lastIdx].role == .assistant {
                 messages[lastIdx] = ChatMessage(
@@ -721,9 +704,10 @@ final class AICoachEngine: ObservableObject {
         guard let key = resolvedKey else { return }
         errorText = nil
         sending = true
-        defer { sending = false; persistMessages() }
+        defer { if account.isCurrent { sending = false; persistMessages() } }
 
         let context = await buildFullContext()
+        guard account.isCurrent else { return }
         let wire: [(role: ChatMessage.Role, content: String)] =
             [(.user, context + "\n\n---\n\n" + Self.briefInstruction)]
 
@@ -734,6 +718,7 @@ final class AICoachEngine: ObservableObject {
 
         do {
             try await streamProvider(key: key, messages: wire) { delta in
+                guard self.account.isCurrent else { return }
                 accumulated += delta
                 if let lastIdx = self.messages.indices.last,
                    self.messages[lastIdx].role == .assistant {
@@ -742,6 +727,7 @@ final class AICoachEngine: ObservableObject {
                     )
                 }
             }
+            guard account.isCurrent else { return }
             let clean = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
             if clean.isEmpty {
                 if let lastIdx = messages.indices.last, messages[lastIdx].role == .assistant {
@@ -751,6 +737,7 @@ final class AICoachEngine: ObservableObject {
                 messages[lastIdx] = ChatMessage(id: placeholder.id, role: .assistant, text: prefix + clean)
             }
         } catch let e as AICoachError {
+            guard account.isCurrent else { return }
             let partial = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
             if partial.isEmpty {
                 if let lastIdx = messages.indices.last, messages[lastIdx].role == .assistant {
@@ -764,6 +751,7 @@ final class AICoachEngine: ObservableObject {
             }
             errorText = e.errorDescription
         } catch {
+            guard account.isCurrent else { return }
             let partial = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
             if partial.isEmpty {
                 if let lastIdx = messages.indices.last, messages[lastIdx].role == .assistant {
@@ -797,9 +785,10 @@ final class AICoachEngine: ObservableObject {
     func generateBrief() async -> String? {
         guard isConfigured, dataConsent, let key = resolvedKey else { return nil }
         let context = await buildFullContext()
+        guard account.isCurrent else { return nil }
         let wire: [(role: ChatMessage.Role, content: String)] =
             [(.user, context + "\n\n---\n\n" + Self.briefInstruction)]
-        guard let reply = try? await callProvider(key: key, messages: wire) else { return nil }
+        guard let reply = try? await callProvider(key: key, messages: wire), account.isCurrent else { return nil }
         let clean = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? nil : clean
     }
@@ -807,15 +796,19 @@ final class AICoachEngine: ObservableObject {
     /// Full data context = the metrics summary + recent workouts (+ an OPT-IN on-device-signals summary
     /// when the second consent is on). Used when the user has granted data access.
     func buildFullContext() async -> String {
+        guard account.isCurrent else { return "" }
         var ctx = buildContext()
         ctx += "\n\n" + (await recentWorkoutsBlock())
+        guard account.isCurrent else { return "" }
         // Derived stress: a single Baevsky Stress Index summary line over today's R-R, computed the same
         // way StressView does. Gated here under `dataConsent` (the caller only reaches buildFullContext()
         // with consent on), so it rides the SAME consent + text-only channel as the HRV/RHR summary, a
         // derived number, never raw R-R egress. Omitted when there aren't enough clean beats yet.
         if let line = await stressIndexLine() { ctx += "\n\n" + line }
+        guard account.isCurrent else { return "" }
         if includeOnDeviceSignals {
             let block = await onDeviceSignalsBlock()
+            guard account.isCurrent else { return "" }
             if !block.isEmpty { ctx += "\n\n" + block }
         }
         return ctx
@@ -898,13 +891,17 @@ final class AICoachEngine: ObservableObject {
     /// Dispatch to the user's chosen provider client.
     private func callProvider(key: String,
                               messages: [(role: ChatMessage.Role, content: String)]) async throws -> String {
-        try await provider.client.send(
+        try account.requireCurrent()
+        guard resolvedKey == key else { throw CancellationError() }
+        let reply = try await provider.client(customConfiguration: customConfiguration).send(
             key: key,
             model: model,
             systemPrompt: systemPrompt,
             messages: messages,
             session: session
         )
+        try account.requireCurrent()
+        return reply
     }
 
     /// K1: Dispatch to the user's chosen provider client's streaming method. The default
@@ -915,15 +912,18 @@ final class AICoachEngine: ObservableObject {
                                 messages: [(role: ChatMessage.Role, content: String)],
                                 inlineImage: String? = nil,
                                 onDelta: (String) -> Void) async throws {
-        try await provider.client.streamWithImage(
+        try account.requireCurrent()
+        guard resolvedKey == key else { throw CancellationError() }
+        try await provider.client(customConfiguration: customConfiguration).streamWithImage(
             key: key,
             model: model,
             systemPrompt: systemPrompt,
             messages: messages,
             inlineImage: inlineImage,
             session: session,
-            onDelta: onDelta
+            onDelta: { delta in if self.account.isCurrent { onDelta(delta) } }
         )
+        try account.requireCurrent()
     }
 
     /// Sliding window over the chat: the FIRST user turn (it carries the metrics context) plus the most
@@ -991,7 +991,7 @@ final class AICoachEngine: ObservableObject {
     /// into a single system message. Called before each send when the window would drop messages.
     /// Best-effort: on any failure, leaves `droppedSummary` nil (the old gap behaviour).
     private func summarizeDroppedMiddleIfNeeded(key: String) async {
-        guard messages.count > Self.maxHistoryMessages + 1,
+        guard account.isCurrent, messages.count > Self.maxHistoryMessages + 1,
               let firstUser = messages.firstIndex(where: { $0.role == .user }) else { return }
         let recentStart = messages.count - Self.maxHistoryMessages
         guard firstUser < recentStart else { return }
@@ -1016,7 +1016,7 @@ final class AICoachEngine: ObservableObject {
         let wire: [(role: ChatMessage.Role, content: String)] = [
             (.user, "You are a concise summarizer. Summarize the conversation in 2-3 sentences.\n\n\(summaryPrompt)"),
         ]
-        if let summary = try? await callProvider(key: key, messages: wire) {
+        if let summary = try? await callProvider(key: key, messages: wire), account.isCurrent {
             droppedSummary = "Summary of earlier conversation: \(summary.trimmingCharacters(in: .whitespacesAndNewlines))"
         }
     }
@@ -1088,10 +1088,10 @@ final class AICoachEngine: ObservableObject {
         let rows = await repo.workoutRows(days: 30) // newest first
         guard !rows.isEmpty else { return "Recent workouts: none recorded in the last 30 days." }
         let bodySystem = UnitSystem(
-            rawValue: UserDefaults.standard.string(forKey: UnitPrefs.systemKey) ?? "") ?? .metric
+            rawValue: defaults.string(forKey: UnitPrefs.systemKey) ?? "") ?? .metric
         let distanceSystem = UnitPrefs.resolveDistance(
             system: bodySystem,
-            override: UserDefaults.standard.string(forKey: UnitPrefs.distanceSystemKey) ?? "")
+            override: defaults.string(forKey: UnitPrefs.distanceSystemKey) ?? "")
         var lines = ["Recent workouts (newest first):"]
         for w in rows.prefix(limit) {
             var parts = ["  \(dateString(w.startTs)) \(w.sport)"]

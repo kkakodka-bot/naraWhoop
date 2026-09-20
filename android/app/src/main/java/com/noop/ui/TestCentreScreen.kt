@@ -516,7 +516,7 @@ private suspend fun buildPending(
     //  - raw_capture_bytes: the 5/MG frame-recorder JSONL on disk (both rotation generations).
     // Everything read, never guessed; when nothing was readable the probe stays null and meta keeps the
     // honest zeroed block. Mirrors the Swift TestCentreReport.storageProbe.
-    val dbPath = context.getDatabasePath(com.noop.data.WhoopDatabase.DB_NAME)
+    val dbPath = context.getDatabasePath(com.noop.data.WhoopDatabase.databaseName(context))
     var dbBytes = 0L
     for (suffix in listOf("", "-wal", "-shm")) {
         val f = java.io.File(dbPath.path + suffix)

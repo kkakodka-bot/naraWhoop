@@ -13,8 +13,8 @@ involved in any of the exchanges described here.
 > device and the data it already holds. NOOP is **not affiliated with, authorized by, or
 > endorsed by WHOOP**, and it is **not a medical device** — nothing here is intended for
 > diagnosis or treatment. The command set NOOP sends is deliberately a *safe subset*;
-> destructive opcodes are documented only so they can be explicitly avoided
-> (see [Destructive commands — do not send](#destructive-commands--do-not-send)).
+> destructive opcodes are excluded from general use, with one explicit first-run storage-reset
+> exception (see [Destructive commands](#destructive-commands--do-not-send)).
 
 The protocol decoder is platform-pure Swift in the `WhoopProtocol` package
 (`Packages/WhoopProtocol/`); it never imports CoreBluetooth, so it runs unchanged in tests and
@@ -493,7 +493,8 @@ The strap also exposes an `IMU_SET_DATA_STREAM` (code 106, shared with `TOGGLE_I
 ### Destructive commands — *do not send*
 
 These exist on the wire but are **deliberately excluded** from `WhoopCommand`. They can wipe
-data, brick, or power-cycle the strap. NOOP must never send them.
+data, brick, or power-cycle the strap. They must not be sent through the generic command UI.
+The first-run storage reset below is the sole exception for `FORCE_TRIM`.
 
 | Code | Command | Hazard |
 |-----:|---------|--------|
@@ -507,6 +508,24 @@ data, brick, or power-cycle the strap. NOOP must never send them.
 | 142 | `START_FIRMWARE_LOAD_NEW` | firmware write |
 | 143 | `LOAD_FIRMWARE_DATA_NEW` | firmware write |
 | 144 | `PROCESS_FIRMWARE_IMAGE_NEW` | firmware write |
+
+**First-run storage reset (iOS/macOS):** the onboarding flow explicitly tells the user that
+connecting the selected WHOOP erases all stored readings. After they confirm the advertised serial
+against their sensor and tap **Connect and reset this WHOOP**, `BLEManager` waits for that exact
+peripheral's encrypted bond and all history notification channels. It then sends `FORCE_TRIM(25)`
+with the documented eight-byte `FE` sentinel through a private, phase- and payload-gated writer.
+Opcode 25 remains absent from `WhoopCommand` and its generic menu. Firmware-update, DFU, fuel-gauge,
+and other destructive commands remain excluded.
+
+This reset clears stored history; it does not reboot the device or reset unrelated configuration.
+Normal collection and all raw journals are blocked before reset. A confirmed write alone is not
+success: setup requests history privately and requires a valid empty START-to-COMPLETE session.
+Old records, events, malformed frames, incomplete fragments, missing subscriptions, timeouts, and
+link loss keep setup closed. No received health data is persisted or exported during verification.
+The erase intent is saved atomically before the write; interrupted attempts resume verification,
+and only the user's **Clear storage and retry** action permits another erase. Already-onboarded
+installs do not run this flow on ordinary reconnects. Physical firmware acceptance remains a
+separate validation gate; the wire contract here is documented, not hardware-qualified by unit tests.
 
 The 142–144 family is the high-opcode-space counterpart of 36/37/38, in the same style as the clock
 family answering at 145–147 on MAVERICK. It is named by the schema and absent from the sender enum on
@@ -645,9 +664,9 @@ gates sync or backfill: the layout is RE'd from the WHOOP app (facts, reimplemen
 [`ATTRIBUTION.md`](../ATTRIBUTION.md)) but **not yet confirmed against real 4.0 / 5-MG captures**, so it stays
 a log-only diagnostic until a fixture pins the offsets + endianness.
 
-**Payload forms** (decoded from the official app's command builders — recorded so the wire format is
-*known*: for the destructive commands, known-and-avoidable; for the one guarded exception,
-`REBOOT_STRAP`, known-and-used by `rebootStrap()`). The opcodes are shared across WHOOP 4 (harvard)
+**Payload forms** (decoded from the official app's command builders; the scoped first-run
+`FORCE_TRIM` path and user-requested `REBOOT_STRAP` path use the forms below).
+The opcodes are shared across WHOOP 4 (harvard)
 and WHOOP 5/MG (puffin): the app's unified command enum (`EnumC58479e`) uses the same `25`/`29`/`32`
 on both transports — unlike haptics, which has a maverick-specific `0x13`.
 
@@ -977,4 +996,3 @@ observations. Treat a strap that stops adopting as evidence the field moved, rat
 table is wrong about the shape. This is why the 4.0 adoption path waits for the same value on two
 separate hellos before acting on it (`RepeatedSerialGate`), where a 5/MG adopts its spec-defined DIS
 serial on first read.
-

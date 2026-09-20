@@ -64,7 +64,7 @@ final class SleepStagerHrOnlySessionsTests: XCTestCase {
         let s = try XCTUnwrap(SleepStager.hrOnlySessions(hr: hr, rr: rr, resp: []).first)
         XCTAssertTrue(s.hrOnly, "must still be flagged hrOnly")
         XCTAssertNotNil(s.restingHR, "restingHR is HR-derived and must be reported")
-        XCTAssertNotNil(s.avgHRV, "avgHRV must be reported when R-R is present")
+        XCTAssertNil(s.avgHRV, "coarse R-R presence is not original-beat continuity proof")
     }
 
     /// The honest boundary of the change: reporting is driven by whether the INPUT exists, not by the

@@ -181,6 +181,11 @@ public struct TrendChart: View {
     }
 
     public var body: some View {
+        let strokeGradient = valueGradient
+        let stops = gradient.toStops()
+        let areaGradient = LinearGradient(
+            colors: [StrandPalette.sample(stops: stops, at: unit(averageValue)).opacity(0.28), .clear],
+            startPoint: .top, endPoint: .bottom)
         Chart {
             if showsBars {
                 // Bar mode: one value-ramp-filled BarMark per (down-sampled) sample, from the baseline.
@@ -192,7 +197,7 @@ public struct TrendChart: View {
                         x: .value("Date", p.date),
                         y: .value("Value", p.value)
                     )
-                    .foregroundStyle(valueGradient)
+                    .foregroundStyle(strokeGradient)
                 }
             } else {
                 if showsArea {
@@ -203,15 +208,7 @@ public struct TrendChart: View {
                             series: .value("Segment", p.segment)
                         )
                         .interpolationMethod(.catmullRom)
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [
-                                    StrandPalette.sample(stops: gradient.toStops(), at: unit(averageValue)).opacity(0.28),
-                                    Color.clear
-                                ],
-                                startPoint: .top, endPoint: .bottom
-                            )
-                        )
+                        .foregroundStyle(areaGradient)
                     }
                 }
                 ForEach(displayPoints) { p in
@@ -222,7 +219,7 @@ public struct TrendChart: View {
                     )
                     .interpolationMethod(.catmullRom)
                     .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-                    .foregroundStyle(valueGradient)
+                    .foregroundStyle(strokeGradient)
                 }
                 // 18pt dots are invisible on dense series (e.g. a 365-day year) but still cost the
                 // GPU a mark each — hide them past a threshold; the line carries the data there. The gate
@@ -234,7 +231,7 @@ public struct TrendChart: View {
                             y: .value("Value", p.value)
                         )
                         .symbolSize(18)
-                        .foregroundStyle(StrandPalette.sample(stops: gradient.toStops(), at: unit(p.value)))
+                        .foregroundStyle(StrandPalette.sample(stops: stops, at: unit(p.value)))
                     }
                 }
             }

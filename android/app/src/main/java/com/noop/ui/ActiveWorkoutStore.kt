@@ -42,7 +42,7 @@ class ActiveWorkoutStore(private val prefs: SharedPreferences) {
         private const val KEY_SNAPSHOT = "activeWorkout.snapshot"
 
         fun from(context: Context): ActiveWorkoutStore =
-            ActiveWorkoutStore(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
+            ActiveWorkoutStore(com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE))
     }
 }
 

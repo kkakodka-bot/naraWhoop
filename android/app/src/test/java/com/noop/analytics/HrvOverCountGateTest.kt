@@ -33,7 +33,7 @@ class HrvOverCountGateTest {
         val start = 1000L
         val end = start + 600
         val rr = (0 until 600).flatMap { i -> listOf(rr(start + i, 900), rr(start + i, 905)) }
-        assertTrue("precondition: these beats DO yield an RMSSD", windowsYieldRmssd(start, end, rr))
+        assertFalse("legacy rows have no proven original adjacency", windowsYieldRmssd(start, end, rr))
         assertNull("an over-counted night must report no HRV", SleepStager.sessionAvgHRV(start, end, rr))
     }
 
@@ -42,27 +42,28 @@ class HrvOverCountGateTest {
         val start = 1000L
         val end = start + 600
         val rr = (0 until 600).flatMap { i -> listOf(rr(start + i, 880), rr(start + i, 960)) }
-        assertTrue("precondition: these beats DO yield an RMSSD", windowsYieldRmssd(start, end, rr))
+        assertFalse("legacy rows have no proven original adjacency", windowsYieldRmssd(start, end, rr))
         assertNull("an over-counted night must report no HRV", SleepStager.sessionAvgHRV(start, end, rr))
     }
 
     /** The gate must not touch an ordinary night: one beat per second, coverage ~1.0. */
     @Test fun aPlausibleNightStillReportsItsHrv() {
-        val start = 1000L
-        val end = start + 600
-        val rr = (0 until 600).map { i -> rr(start + i, if (i % 2 == 0) 980 else 1020) }
-        val hrv = SleepStager.sessionAvgHRV(start, end, rr)
+        val start = 900L
+        val end = 1800L
+        val hrv = SleepStager.sessionAvgHRV(start, end, emptyList(),
+            observations = hrvEvidence(start = start.toInt(), count = 900, pattern = listOf(980.0, 1020.0)),
+            context = listOf(PhysiologyQuality.ContextEpoch(start.toDouble(), end.toDouble(), "sleep", true)))
         assertNotNull("a plausible night must keep its HRV", hrv)
         assertTrue("and it must be a real reading, not zero", hrv!! > 0.0)
     }
 
-    /** A sparse night is UNDER_COVERED, which is honest data and stays trusted. */
-    @Test fun anUnderCoveredNightIsNotGated() {
+    /** Sparse legacy timing cannot establish an observed five-minute window. */
+    @Test fun anUnderCoveredNightIsUnavailable() {
         val start = 1000L
         val end = start + 600
         // A beat every other second: ~0.5 coverage, nothing duplicated.
         val rr = (0 until 300).map { i -> rr(start + i * 2, if (i % 2 == 0) 980 else 1020) }
-        assertNotNull("sparse is not the same as over-counted",
+        assertNull("sparse legacy timing is unverified",
             SleepStager.sessionAvgHRV(start, end, rr))
     }
 

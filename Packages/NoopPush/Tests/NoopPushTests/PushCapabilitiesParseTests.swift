@@ -2,6 +2,8 @@ import XCTest
 @testable import NoopPush
 
 private let receiverId = "00000000-0000-4000-8000-000000000099"
+private let enrolledUserId = "00000000-0000-4000-8000-0000000001aa"
+private let enrolledSourceId = "00000000-0000-4000-8000-0000000001bb"
 
 final class PushCapabilitiesParseTests: XCTestCase {
     func testCapabilitiesParseMatchesOracle() throws {
@@ -67,6 +69,39 @@ final class PushCapabilitiesParseTests: XCTestCase {
         XCTAssertNil(parsed.objectLane)
     }
 
+    func testEnrollmentIdentityParsesWhenPresent() throws {
+        let parsed = try PushCapabilities.parse(try JSONSerialization.data(withJSONObject: [
+            "type": "capabilities",
+            "protocolVersion": PushProtocol.version,
+            "receiverStateId": receiverId,
+            "userId": enrolledUserId,
+            "sourceId": enrolledSourceId,
+            "streams": ["hrSample"],
+        ]))
+        XCTAssertEqual(enrolledUserId, parsed.userId)
+        XCTAssertEqual(enrolledSourceId, parsed.sourceId)
+    }
+
+    func testEnrollmentIdentityMustBeCanonicalWhenPresent() throws {
+        for (key, value) in [
+            ("userId", enrolledUserId.uppercased()),
+            ("sourceId", "not-a-uuid"),
+        ] {
+            var object: [String: Any] = [
+                "type": "capabilities",
+                "protocolVersion": PushProtocol.version,
+                "receiverStateId": receiverId,
+                "userId": enrolledUserId,
+                "sourceId": enrolledSourceId,
+                "streams": ["hrSample"],
+            ]
+            object[key] = value
+            XCTAssertThrowsError(try PushCapabilities.parse(
+                try JSONSerialization.data(withJSONObject: object)
+            ))
+        }
+    }
+
     func testAllUnknownStreamsParseEmptyAndCoordinatorNoOps() async throws {
         let capabilities = try PushCapabilities.parse(Self.fixtureBytes("allUnknown"))
         XCTAssertTrue(capabilities.isEmpty)
@@ -109,7 +144,7 @@ final class PushCapabilitiesParseTests: XCTestCase {
         case "someUnknown":
             return document(version: "1.0", streams: ["hrSample", "stepSample", "futureStream"])
         case "allUnknown":
-            return document(version: "1.1", streams: ["stepSample", "futureStream"])
+            return document(version: "1.1", streams: ["futureScalarStream", "futureStream"])
         case "emptyStreams":
             return document(version: "1.0", streams: [])
         case "duplicate":

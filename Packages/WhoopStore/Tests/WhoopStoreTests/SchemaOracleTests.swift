@@ -55,6 +55,8 @@ final class SchemaOracleTests: XCTestCase {
         let name: String
         let unique: Bool
         let columns: [String]
+        let androidAbsent: Bool?
+        let divergence: DivergenceKeys?
     }
     struct AndroidOverride: Decodable {
         let affinity: String?
@@ -200,7 +202,9 @@ final class SchemaOracleTests: XCTestCase {
     /// becomes ambiguous. Worse, an exactly-duplicated identifier makes GRDB skip the second body
     /// entirely, because the first already recorded that name in `grdb_migrations`.
     ///
-    /// So: identifiers unique, and their `vN` prefixes exactly 1...N with no gaps and no repeats.
+    /// Preserve each deployed identifier at its integrated position. PR22's PPG identity remains
+    /// `v46-ppg-record-identity` immediately after `v47-server-score-cache`. Physiology-v2 databases
+    /// keep their original `v48`–`v51` names after PR22's `v54` so already-applied rows are skipped.
     func testGrdbMigrationIdentifiersAreUniqueAndSequential() throws {
         let ids = WhoopStore.makeMigrator().migrations
         XCTAssertEqual(Set(ids).count, ids.count,
@@ -214,10 +218,24 @@ final class SchemaOracleTests: XCTestCase {
             }
             numbers.append(n)
         }
-        for (offset, n) in numbers.enumerated() where n != offset + 1 {
-            return XCTFail("GRDB migration '\(ids[offset])' claims v\(n) but is #\(offset + 1) in "
-                           + "registration order — two migrations claiming the same vN, or a gap, makes the "
-                           + "GRDB-name <-> Room-version mapping ambiguous. Renumber before merging.")
+        guard ids.count >= 59 else {
+            return XCTFail("Integrated migration history is incomplete: \(ids.count) identifiers")
+        }
+        XCTAssertEqual(Array(ids[45..<48]),
+                       ["v46-rr-source-index", "v47-server-score-cache", "v46-ppg-record-identity"],
+                       "Both deployed feature lines must retain their original migration identifiers")
+        XCTAssertEqual(Array(ids[48..<55]),
+                       ["v48-scoped-server-score-cache", "v49-durable-ingest-receipts",
+                        "v50-account-store-owner", "v51-v18-aux-record-identity",
+                        "v52-scalar-provenance", "v53-standard-hr-capture-journal",
+                        "v54-workout-preference-evaluation"])
+        XCTAssertEqual(Array(ids[55...]),
+                       ["v48-ppg-record-identity", "v49-owner-scoped-physiology-cache",
+                        "v50-rr-packet-provenance", "v51-standard-hr-receipts"],
+                       "Physiology-v2 identifiers must keep their original names after the PR22 chain")
+        for (offset, n) in numbers.prefix(55).enumerated() {
+            let expected = offset == 47 ? 46 : offset + 1 - (offset > 47 ? 1 : 0)
+            XCTAssertEqual(n, expected, "Unexpected migration prefix at position \(offset + 1)")
         }
     }
 
@@ -228,6 +246,7 @@ final class SchemaOracleTests: XCTestCase {
         var used = Set<String>()
         for table in oracle.tables.values {
             for column in table.columns { column.divergence?.keys.forEach { used.insert($0) } }
+            for index in table.indices { index.divergence?.keys.forEach { used.insert($0) } }
             if let key = table.androidColumnOrderDivergence { used.insert(key) }
         }
         let unused = Set(oracle.divergenceReasons.keys).subtracting(used).sorted()
@@ -242,6 +261,16 @@ final class SchemaOracleTests: XCTestCase {
     func testDivergenceOverridesAreWellFormed() throws {
         let oracle = try loadOracle()
         for (name, table) in oracle.tables {
+            for index in table.indices {
+                if index.androidAbsent == true {
+                    XCTAssertEqual(table.platform, "both", "\(name).\(index.name): absence override requires a shared table")
+                    XCTAssertNotNil(index.divergence, "\(name).\(index.name): platform-absent index with no reason key")
+                    XCTAssertFalse(index.divergence?.keys.isEmpty ?? true)
+                } else {
+                    XCTAssertNil(index.androidAbsent, "\(name).\(index.name): false absence override changes nothing")
+                    XCTAssertNil(index.divergence, "\(name).\(index.name): index reason without a real override")
+                }
+            }
             for column in table.columns {
                 if let android = column.android {
                     XCTAssertNotNil(column.divergence,

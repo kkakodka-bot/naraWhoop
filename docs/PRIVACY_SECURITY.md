@@ -1,5 +1,19 @@
 # Privacy & Security
 
+## NARA cloud fork
+
+The current fork requires tester enrollment and uploads health data to the operated Supabase/B2
+backend. Account and installation credentials, cloud storage, server scoring, and authenticated
+readback are described in [TESTER_ENROLLMENT.md](TESTER_ENROLLMENT.md). The phone retains an
+owner/installation-scoped buffer for Bluetooth and interrupted uploads. Old unassigned local
+history is preserved separately, not automatically uploaded under a new account. Cloud enrollment
+requires renewed disclosure acceptance. Operators have backend access; this is not end-to-end
+encryption from operators. Credentials for service-role access, enrollment HMACs and B2 stay
+server-side. Whole-database restore is blocked until ownership can be verified.
+
+The following upstream documentation records the inherited optional integrations. Its statements
+about no operated server, no accounts, and offline defaults do **not** describe this cloud fork.
+
 This document describes NOOP's privacy posture, security model, and the hardening
 applied to the parts of the codebase that touch untrusted input. It is written
 against the actual source tree; file paths and identifiers below are real and can

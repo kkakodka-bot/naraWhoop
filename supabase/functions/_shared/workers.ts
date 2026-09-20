@@ -9,12 +9,42 @@ import type { S3Store } from './s3.ts';
 import { allUserPrefixes, isUuid } from './keys.ts';
 
 const STALE_PENDING_MS = 60 * 60 * 1000;
+
+/** NPB1 digests cover decoded content; append and derived digests cover stored bytes. */
+async function checksumBytes(row: any, bytes: Uint8Array): Promise<Uint8Array> {
+  if (row.object_class === 'raw' && row.format === 'ndjson_gzip_noop_push_v1' && row.compression === 'gzip') return bytes;
+  const rawFormats = ['bin_gzip_noop_push_v1', 'bin_zstd_noop_push_v1', 'protobuf_zstd_noop_push_v1'];
+  if (rawFormats.includes(row.format)) {
+    // zstd decoding belongs to the bounded JVM verifier, never hash its compressed bytes as raw content.
+    if (row.compression !== 'gzip') throw new Error('raw_decoder_unavailable');
+    const limit = Number(row.uncompressed_bytes);
+    if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 64 * 1024 * 1024) throw new Error('raw_size_limit');
+    const stream = new Blob([new Uint8Array(bytes)]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const reader = stream.getReader(); const chunks: Uint8Array[] = []; let length = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read(); if (done) break;
+        length += value.length;
+        if (length > limit) throw new Error('raw_decoded_size_mismatch');
+        chunks.push(value);
+      }
+    } finally { await reader.cancel().catch(() => {}); }
+    if (length !== limit) throw new Error('raw_decoded_size_mismatch');
+    const decoded = new Uint8Array(length); let offset = 0;
+    for (const chunk of chunks) { decoded.set(chunk, offset); offset += chunk.length; }
+    return decoded;
+  }
+  if (row.object_class === 'derived' && ['json_zstd_frwhoop_derived_v1', 'json_zstd_frwhoop_derived_v2'].includes(row.format)) return bytes;
+  throw new Error('digest_contract_unknown');
+}
 export const DELETION_STEPS = [
   'record_job', 'list_manifests', 'delete_b2_versions', 'delete_supabase_rows',
   'delete_auth_user', 'complete',
 ] as const;
 
 export const DELETION_TABLES = [
+  'noop_rr_packet_provenance',
+  'noop_standard_hr_receipts',
   'physiology_buckets', 'daily_physiology_series', 'ingest_gaps', 'measurements',
   'sleep_details', 'events', 'sessions', 'daily_metrics', 'metric_runs', 'object_manifests',
   'sensor_objects', 'derived_objects', 'live_windows', 'sleep_nights', 'coach_messages',
@@ -36,10 +66,20 @@ export async function sweepExpiredManifests({
   const iso = now().toISOString();
   const rows = await rest.select(
     'object_manifests',
-    `status=in.(ready,verified,expired)&expires_at=lte.${encodeURIComponent(iso)}&select=id,object_key,status`,
+    `status=in.(ready,verified,expired)&expires_at=lte.${encodeURIComponent(iso)}&select=id,object_key,status,format,object_kind,push_protocol_version`,
   );
   let deleted = 0;
   for (const row of rows || []) {
+    if (row.object_kind === 'v18AuxSample' && row.push_protocol_version === '1.4') {
+      const validated = await rest.select('noop_aux_object_validation', `object_id=eq.${row.id}&state=eq.validated&select=object_id`).catch(() => []);
+      if (!validated.length) continue;
+    }
+    // Unsettled inline archives are the server's repair source. A missing/unreadable ledger is
+    // also a hold (upgrade scan has not examined it yet), never permission to delete bytes.
+    if (String(row.format).startsWith('ndjson')) {
+      const settled = await rest.select('noop_projection_debt', `object_id=eq.${row.id}&state=eq.complete&select=object_id`).catch(() => []);
+      if (!settled.length) continue;
+    }
     try {
       await objectStore.deleteObject(row.object_key);
       await rest.request(`object_manifests?id=eq.${row.id}`, {
@@ -76,7 +116,7 @@ export async function reconcileObjects({
   const report = {
     pending_missing_object: 0, ready_missing_object: 0, orphan_objects: 0,
     checksum_mismatch: 0, size_mismatch: 0, stale_pending: 0,
-    marked_failed: 0, marked_ready: 0, listed_objects: 0, index_missing_objects: 0,
+    marked_failed: 0, marked_ready: 0, listed_objects: 0, index_missing_objects: 0, checksum_unverified: 0,
   };
 
   const query = userId ? `user_id=eq.${userId}&select=*` : 'select=*&limit=5000';
@@ -85,6 +125,9 @@ export async function reconcileObjects({
   const staleBefore = new Date(now().getTime() - STALE_PENDING_MS).toISOString();
 
   for (const row of manifests as any[]) {
+    // Raw intake has its own paginated, byte-verifying, atomic-index reconciler. HEAD is not
+    // evidence of a digest or a durable window and must never promote these manifests.
+    if (row.object_class === 'raw') continue;
     if (row.status === 'deleted' || row.status === 'deleting') continue;
     let head: any = null;
     try { head = await objectStore.head(row.object_key); } catch { head = null; }
@@ -111,10 +154,15 @@ export async function reconcileObjects({
           const obj = await objectStore.getObject(row.object_key);
           if (obj?.body) {
             const buf = obj.body instanceof Uint8Array ? obj.body : new Uint8Array(obj.body);
-            const hash = await crypto.subtle.digest('SHA-256', buf);
+            const hash = await crypto.subtle.digest('SHA-256', new Uint8Array(await checksumBytes(row, buf)));
             actual = [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, '0')).join('');
           }
         } catch { actual = null; }
+        if (actual == null) {
+          report.checksum_unverified += 1;
+          // An unsupported decoder or failed GET is not a digest match or corruption proof.
+          continue;
+        }
         if (actual != null && actual !== row.sha256) {
           report.checksum_mismatch += 1;
           await rest.request(`object_manifests?id=eq.${row.id}`, {
@@ -143,9 +191,10 @@ export async function reconcileObjects({
     const prefixes = userId
       ? [
           `v3/core/users/${userId}/`, `v3/imu/users/${userId}/`,
+          `v3/derived/users/${userId}/`,
           `v2/users/${userId}/`, `v1/users/${userId}/`,
         ]
-      : ['v3/core/', 'v3/imu/', 'v2/', 'v1/'];
+      : ['v3/core/', 'v3/imu/', 'v3/derived/', 'v2/', 'v1/'];
     const seen = new Set<string>();
     for (const prefix of prefixes) {
       let keys: string[] = [];

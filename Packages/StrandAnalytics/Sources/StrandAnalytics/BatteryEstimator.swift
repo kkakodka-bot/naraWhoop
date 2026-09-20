@@ -10,8 +10,9 @@ import Foundation
 /// recording), so there are no hand-tuned usage multipliers. The discharge curve IS the personalisation.
 ///
 /// Honest about the limits: battery drain is non-linear (faster near full and near empty) and the strap
-/// reports SoC sparsely, so this is an estimate, not a guarantee. Pure value type with no I/O. The Kotlin
-/// twin is BatteryEstimator.kt, kept behaviour-identical (same fixtures, same numbers).
+/// reports SoC sparsely, so this is an estimate, not a guarantee. Pure value type with no I/O.
+/// The Android implementation is BatteryEstimator.kt; Swift-specific changes are recorded in
+/// docs/battery-runtime-investigation-2026-09-18.md.
 public enum BatteryEstimator {
 
     // MARK: - Rated full-charge life (the cold-start fallback)
@@ -71,11 +72,17 @@ public enum BatteryEstimator {
     ///     banked battery series into this shape.
     ///   - ratedHours: the strap's typical full-charge life, one of the `ratedLifeHours…` constants,
     ///     chosen by the caller from the connected strap's generation.
+    ///   - currentSoc: the displayed live percentage, when available. History determines the rate,
+    ///     but an older stored percentage must not determine the charge remaining beside a live gauge.
     /// - Returns: an estimate, or nil when there isn't a single reading to anchor to.
-    public static func estimate(samples: [(ts: Int, soc: Double)], ratedHours: Double) -> Estimate? {
-        let sorted = samples.sorted { $0.ts < $1.ts }
+    public static func estimate(samples: [(ts: Int, soc: Double)], ratedHours: Double,
+                                currentSoc: Double? = nil) -> Estimate? {
+        guard ratedHours.isFinite, ratedHours > 0 else { return nil }
+        let sorted = samples.filter { $0.ts >= 0 && $0.soc.isFinite && (0...100).contains($0.soc) }
+            .sorted { $0.ts < $1.ts }
         guard let last = sorted.last else { return nil }
-        let current = last.soc
+        let current = currentSoc ?? last.soc
+        guard current.isFinite, (0...100).contains(current) else { return nil }
 
         // The discharge segment whose slope we fit: anchored at the most recent NEAR-FULL charge, and ending
         // before any later partial top-up, so neither a charge earlier in the buffer nor a quick desk top-up
@@ -134,8 +141,7 @@ public enum BatteryEstimator {
         //     discharge) rather than the oldest reading, which can sit below a later charge and net to a
         //     NON-discharge window (drop < 0 -> stuck on `rated`). The max is >= every later reading, so the
         //     window can only discharge; the >=minDropPct gate still rejects a flat run. Preserves #8: its
-        //     buffer starts at the max, so this stays index 0 there. Last occurrence of the max (>=), for
-        //     parity with the Kotlin twin.
+        //     buffer starts at the max, so this stays index 0 there.
         //     #99: that max search used to scan the WHOLE buffer, so a strap that tops up short of full
         //     every day (never tripping rule 1) could anchor on a peak several CYCLES back, netting the fit
         //     across multiple undetected intermediate top-ups and flattening the slope into something that
@@ -150,7 +156,9 @@ public enum BatteryEstimator {
             }
             let searchFloor = chargeStepIdxs.count >= 2 ? chargeStepIdxs[chargeStepIdxs.count - 2] : 0
             var maxIdx = searchFloor
-            for i in searchFloor..<sorted.count where sorted[i].soc >= sorted[maxIdx].soc { maxIdx = i }
+            // Keep the start of a flat peak: another identical reading is elapsed discharge time,
+            // not a new charge. Moving the anchor along the plateau overstates the drain rate.
+            for i in searchFloor..<sorted.count where sorted[i].soc > sorted[maxIdx].soc { maxIdx = i }
             startIdx = maxIdx
         }
 

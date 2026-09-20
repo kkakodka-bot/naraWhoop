@@ -78,6 +78,8 @@ interface DeviceRegistryDao {
 
     @Query("DELETE FROM hrSample WHERE deviceId = :deviceId") suspend fun deleteHrFor(deviceId: String)
     @Query("DELETE FROM rrInterval WHERE deviceId = :deviceId") suspend fun deleteRrFor(deviceId: String)
+    @Query("DELETE FROM rrPacketProvenance WHERE deviceId = :deviceId") suspend fun deleteRrPacketsFor(deviceId: String)
+    @Query("DELETE FROM standardHRReceipt WHERE deviceId = :deviceId") suspend fun deleteStandardHrReceiptsFor(deviceId: String)
     @Query("DELETE FROM spo2Sample WHERE deviceId = :deviceId") suspend fun deleteSpo2For(deviceId: String)
     @Query("DELETE FROM skinTempSample WHERE deviceId = :deviceId") suspend fun deleteSkinTempFor(deviceId: String)
     @Query("DELETE FROM respSample WHERE deviceId = :deviceId") suspend fun deleteRespFor(deviceId: String)
@@ -118,6 +120,8 @@ interface DeviceRegistryDao {
     // has no dynamic table names) — the SAME table set as deleteDeviceData, guarded by DeviceRegistryTest.
     @Query("UPDATE OR IGNORE hrSample SET deviceId = :to WHERE deviceId = :from") suspend fun reKeyHr(from: String, to: String)
     @Query("UPDATE OR IGNORE rrInterval SET deviceId = :to WHERE deviceId = :from") suspend fun reKeyRr(from: String, to: String)
+    @Query("UPDATE OR IGNORE rrPacketProvenance SET deviceId = :to WHERE deviceId = :from") suspend fun reKeyRrPackets(from: String, to: String)
+    @Query("UPDATE OR IGNORE standardHRReceipt SET deviceId = :to WHERE deviceId = :from") suspend fun reKeyStandardHrReceipts(from: String, to: String)
     @Query("UPDATE OR IGNORE spo2Sample SET deviceId = :to WHERE deviceId = :from") suspend fun reKeySpo2(from: String, to: String)
     @Query("UPDATE OR IGNORE skinTempSample SET deviceId = :to WHERE deviceId = :from") suspend fun reKeySkinTemp(from: String, to: String)
     @Query("UPDATE OR IGNORE respSample SET deviceId = :to WHERE deviceId = :from") suspend fun reKeyResp(from: String, to: String)

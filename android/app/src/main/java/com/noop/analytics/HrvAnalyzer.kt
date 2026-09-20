@@ -35,6 +35,12 @@ import kotlin.math.sqrt
  */
 object HrvAnalyzer {
 
+    /** Canonical timestamp/identity-aware path. Raw-array helpers below are legacy comparators. */
+    fun measureFiveMinute(start: Int, observations: List<PhysiologyQuality.IntervalObservation>,
+                          context: List<PhysiologyQuality.ContextEpoch> = emptyList(),
+                          policy: HrvWindow.Policy = HrvWindow.Policy(), inputRevision: String = "unversioned"): HrvWindow.Result =
+        HrvWindow.measure(start, observations, context, policy, inputRevision)
+
     /** Minimum plausible RR interval (ms) — 300 ms ≈ 200 bpm. */
     const val RR_MIN_MS: Double = 300.0
 

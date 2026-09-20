@@ -3,7 +3,7 @@ import XCTest
 import WhoopProtocol
 import WhoopStore
 
-/// T2-4: three consecutive chunk persist failures abort the session with zero acks.
+/// A persist failure fences all further input until a fresh session retries the retained chunk.
 final class BackfillerPersistCircuitBreakerTests: XCTestCase {
     private final class FailingStore: BackfillStoreWriting {
         private(set) var attempts = 0
@@ -78,7 +78,7 @@ final class BackfillerPersistCircuitBreakerTests: XCTestCase {
         return frame
     }
 
-    func testThreePersistFailuresAbortWithZeroAcks() async {
+    func testFirstPersistFailureFencesInputUntilFreshSession() async {
         let store = FailingStore()
         var acks = 0
         let broke = BreakerBox()
@@ -93,9 +93,19 @@ final class BackfillerPersistCircuitBreakerTests: XCTestCase {
             await backfiller.ingest(hexBytes(whoop5HistoryEndHex))
         }
         XCTAssertEqual(acks, 0)
-        XCTAssertEqual(store.attempts, 3)
-        XCTAssertTrue(broke.tripped)
+        XCTAssertEqual(store.attempts, 1, "a stalled session must not keep decoding or retrying writes")
+        XCTAssertTrue(backfiller.persistStalled)
+        XCTAssertFalse(broke.tripped, "discarded later packets are not additional persistence attempts")
+
+        backfiller.timeoutFired()
         XCTAssertFalse(backfiller.isBackfilling)
+        backfiller.begin(family: .whoop5)
+        XCTAssertFalse(backfiller.persistStalled)
+        await backfiller.ingest(makeValidImuFrame(unix: 1_500))
+        await backfiller.ingest(hexBytes(whoop5HistoryEndHex))
+        XCTAssertEqual(store.attempts, 2, "the fresh session must retry data left on the strap")
+        XCTAssertTrue(backfiller.persistStalled)
+        XCTAssertEqual(acks, 0)
     }
 }
 
