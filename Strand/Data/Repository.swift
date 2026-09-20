@@ -737,6 +737,7 @@ final class Repository: ObservableObject {
             let s: WhoopStore
             do {
                 s = try await WhoopStore(path: path)
+                try await CloudCaptureScope.prepareStore(s.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
             } catch {
                 let ns = error as NSError
                 NSLog("WhoopStore: ensureStore FAILED opening store: \(ns.domain) code=\(ns.code): \(ns.localizedDescription)")

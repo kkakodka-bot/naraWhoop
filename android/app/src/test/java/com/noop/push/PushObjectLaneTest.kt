@@ -24,6 +24,56 @@ class PushObjectLaneTest {
     }
 
     @Test
+    fun credentialChangeAfterPresignedPutFencesObjectCompletion() = runBlocking {
+        val row = PushRawImuRecord(100, 100, imuColumns(1))
+        val lane = PushObjectLane(
+            endpoint = "/api/push/objects",
+            maxObjectBytes = PushProtocol.MAX_OBJECT_WIRE_BYTES.toLong(),
+            urlTtlSec = 3600,
+            streams = setOf(PushBinaryTable.RAW_IMU_SESSION),
+        )
+        var current = true
+        var completeCalls = 0
+        val transport = object : PushTransport {
+            override suspend fun post(batch: PushBatch) = error("inline push must not run")
+            override suspend fun createObjectIntent(manifest: PushObjectManifest, lane: PushObjectLane) =
+                PushObjectIntent(
+                    manifest.objectId,
+                    "objects/key",
+                    "https://b2.example/upload",
+                    emptyMap(),
+                    null,
+                    duplicate = false,
+                )
+            override suspend fun uploadObject(intent: PushObjectIntent, body: ByteArray) {
+                current = false
+            }
+            override suspend fun completeObject(objectId: String, lane: PushObjectLane): PushObjectAck {
+                completeCalls++
+                error("stale credential must not complete an object")
+            }
+        }
+
+        var cancelled = false
+        try {
+            PushCoordinator(
+                FakeImuSource(listOf(row)),
+                transport,
+                MemoryObjectProgress(),
+                SOURCE_A,
+                pinnedToday,
+                ZoneId.of("UTC"),
+                destinationStillCurrent = { current },
+            ).pushObjects(PushBinaryTable.RAW_IMU_SESSION, "dev", lane)
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            cancelled = true
+        }
+
+        assertTrue(cancelled)
+        assertEquals(0, completeCalls)
+    }
+
+    @Test
     fun resumeAfterKillSkipsPutWhenUploaded() = runBlocking {
         val row = PushRawImuRecord(100, 100, imuColumns(1))
         val batch = PushProtocol.binaryObjectBatch(

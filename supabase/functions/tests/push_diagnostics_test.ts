@@ -50,10 +50,10 @@ Deno.test('HR success and packet projection failure are distinguishable; identic
       projections.set(table, rows);
     },
   });
-  await ingest.acceptBatch({ userId: USER, decodedBody: batch('hrSample') });
+  await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: batch('hrSample') });
   assert.ok(store.acks.has(HR_BATCH));
   let failure: unknown;
-  try { await ingest.acceptBatch({ userId: USER, decodedBody: batch('rrPacketProvenance') }); }
+  try { await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: batch('rrPacketProvenance') }); }
   catch (error) { failure = error; }
   assert.ok(failure instanceof PushIngestFailure);
   const diagnostic = unexpectedIngestDiagnostic(failure);
@@ -68,7 +68,7 @@ Deno.test('HR success and packet projection failure are distinguishable; identic
   assert.ok(store.pending.has(RR_BATCH));
   assert.equal(projections.size, 1);
   failPacket = false;
-  await ingest.acceptBatch({ userId: USER, decodedBody: batch('rrPacketProvenance') });
+  await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: batch('rrPacketProvenance') });
   assert.ok(store.acks.has(RR_BATCH));
   assert.ok(!store.pending.has(RR_BATCH));
   assert.equal(projections.get('noop_rr_packet_provenance')?.length, 1);
@@ -94,13 +94,13 @@ Deno.test('large append batches bound projection statements and acknowledge only
       for (const row of rows as any[]) stored.set(row.ts, row);
     },
   });
-  await assert.rejects(() => ingest.acceptBatch({ userId: USER, decodedBody: body }),
+  await assert.rejects(() => ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body }),
     (error: unknown) => error instanceof PushIngestFailure && error.stage === 'projection');
   assert.ok(stored.size > 0 && stored.size < count);
   assert.ok(!store.acks.has(HR_BATCH));
   assert.ok(store.pending.has(HR_BATCH));
   fail = false;
-  await ingest.acceptBatch({ userId: USER, decodedBody: body });
+  await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body });
   assert.equal(stored.size, count);
   assert.ok(largestStatement <= 250);
   assert.equal(store.acks.get(HR_BATCH).ack.acceptedRows, count);
@@ -108,7 +108,7 @@ Deno.test('large append batches bound projection statements and acknowledge only
   assert.ok(!store.pending.has(HR_BATCH));
   for (let index = 0; index < count; index++) assert.equal(stored.get(1700000000 + index)?.bpm, 60 + index % 20);
   const beforeReplay = [...stored.entries()];
-  await ingest.acceptBatch({ userId: USER, decodedBody: body });
+  await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body });
   assert.deepEqual([...stored.entries()], beforeReplay);
 });
 
@@ -132,7 +132,7 @@ Deno.test('duplicate projected keys across a chunk boundary reject the whole bat
       ensureDevice: async () => { devices++; },
       upsertRows: async () => { projections++; },
     });
-    await assert.rejects(() => ingest.acceptBatch({ userId: USER, decodedBody: body }),
+    await assert.rejects(() => ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body }),
       (error: unknown) => error instanceof PushProtocolError && error.status === 422 && error.code === 'duplicate_record_key');
     assert.equal(store.acks.size, 0);
     assert.equal(store.pending.size, 0);
@@ -153,14 +153,14 @@ Deno.test('RR composite identities preserve equal intervals with distinct sequen
   const ingest = createPushIngest({ walStore: store, archiveObject: async () => ({ ready: true }),
     upsertRows: async (_table, rows) => { accepted.push(...rows); },
   });
-  const ack = await ingest.acceptBatch({ userId: USER, decodedBody: body(1) });
+  const ack = await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body(1) });
   assert.equal(ack.acceptedRows, 2);
   assert.deepEqual(accepted.map((record) => record.seq), [0, 1]);
   const duplicate = createPushIngest({ walStore: wal(), archiveObject: async () => { throw new Error('archive must not run'); },
     upsertRows: async () => { throw new Error('projection must not run'); },
   });
   for (const seq of [0, '0', '-0', '0e0']) {
-    await assert.rejects(() => duplicate.acceptBatch({ userId: USER, decodedBody: body(seq) }),
+    await assert.rejects(() => duplicate.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body(seq) }),
       (error: unknown) => error instanceof PushProtocolError && error.code === 'duplicate_record_key');
   }
 });
@@ -177,7 +177,7 @@ Deno.test('invalid append records and inexact integer keys cannot be discarded w
       archiveObject: async () => { throw new Error('archive must not run'); },
       upsertRows: async () => { throw new Error('projection must not run'); },
     });
-    await assert.rejects(() => ingest.acceptBatch({ userId: USER,
+    await assert.rejects(() => ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet',
       decodedBody: new TextEncoder().encode(JSON.stringify(base) + '\n' + JSON.stringify(record) + '\n') }),
     (error: unknown) => error instanceof PushProtocolError && error.status === 422 &&
       ['invalid_record', 'invalid_record_key'].includes(error.code));
@@ -211,7 +211,7 @@ Deno.test('exact scoring gate contention returns retryable503 without ACK; retry
     upsertRows: (table, rows, opts) => rest.upsert(table, rows, opts),
   });
   let failure: unknown;
-  try { await ingest.acceptBatch({ userId: USER, decodedBody: batch('rrPacketProvenance') }); }
+  try { await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: batch('rrPacketProvenance') }); }
   catch (error) { failure = error; }
   assert.ok(failure instanceof PushProtocolError);
   const response = ingestProtocolErrorResponse(failure);
@@ -221,7 +221,7 @@ Deno.test('exact scoring gate contention returns retryable503 without ACK; retry
   assert.ok(!store.acks.has(RR_BATCH));
   assert.ok(store.pending.has(RR_BATCH));
   busy = false;
-  await ingest.acceptBatch({ userId: USER, decodedBody: batch('rrPacketProvenance') });
+  await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: batch('rrPacketProvenance') });
   assert.ok(store.acks.has(RR_BATCH));
 });
 
@@ -241,7 +241,7 @@ Deno.test('failed1.0 HR and1.1 packet requests retain their exact validated diag
     const body = batch(stream);
     const version = inlineRequestProtocol(body);
     assert.equal(version, stream === 'hrSample' ? '1.0' : '1.1');
-    await assert.rejects(() => ingest.acceptBatch({ userId: USER, decodedBody: body }), (error: unknown) => {
+    await assert.rejects(() => ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body }), (error: unknown) => {
       const diagnostic = unexpectedIngestDiagnostic(error, version);
       assert.equal(diagnostic.protocolVersion, version);
       assert.equal(diagnostic.stream, stream);

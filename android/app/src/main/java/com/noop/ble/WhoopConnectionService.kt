@@ -269,6 +269,10 @@ class WhoopConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!com.noop.push.EnrollmentDataScope.active(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // The notification "Disconnect" action routes back here as a self-intent.
         if (intent?.action == ACTION_STOP) {
             runCatching { ble.disconnect() }
@@ -764,6 +768,7 @@ class WhoopConnectionService : Service() {
          * swallowed so it can never break the core connect flow.
          */
         fun start(context: Context) {
+            if (!com.noop.push.EnrollmentDataScope.active(context)) return
             runCatching {
                 ContextCompat.startForegroundService(
                     context,

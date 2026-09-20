@@ -79,6 +79,8 @@ final class PushBinaryProtocolTests: XCTestCase {
         let manifest = try JSONSerialization.jsonObject(with: first.manifestJSON) as! [String: Any]
         XCTAssertEqual("binaryObject", manifest["type"] as? String)
         XCTAssertEqual("ppgWaveformSample", manifest["stream"] as? String)
+        XCTAssertEqual(sourceA, manifest["sourceId"] as? String)
+        XCTAssertEqual("strap-a", manifest["deviceId"] as? String)
         XCTAssertEqual(2, manifest["sampleCount"] as? Int)
     }
 

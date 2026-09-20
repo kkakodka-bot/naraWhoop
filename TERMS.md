@@ -1,6 +1,6 @@
 # NOOP — Terms of Use & Acknowledgment
 
-**Version 1.1**
+**NARA fork version 3.0**
 
 > **This is not legal advice.** This document was drafted with the help of an AI tool, not a lawyer.
 > It is offered honestly and in good faith, but the NOOP maintainers are not lawyers and nothing here
@@ -16,10 +16,11 @@ remove it.
 
 ## 1. What NOOP is — and who provides it
 
-NOOP is a free, independent, **non-commercial** application for macOS, Android and iOS that pairs directly
-with a WHOOP® strap you own over Bluetooth and stores your data **only on your own device**. There is
-no NOOP server, no NOOP account, and no telemetry — the maintainers cannot see your data and never
-receive it.
+This NARA fork is an independent application for macOS, Android and iOS that pairs directly with a
+WHOOP® strap you own over Bluetooth. It requires a tester account and uploads strap readings to
+NARA's hosted Supabase and Backblaze storage for server analysis. The phone keeps a local collection
+buffer and cached results. Authorized backend operators can access hosted records for operation and
+support; the upstream claim that maintainers never receive data does not apply to this fork.
 
 NOOP is published anonymously by an unpaid hobbyist maintainer and contributors, referred to
 throughout as **"the maintainers."** No personal identity is asserted or implied. "You" means the

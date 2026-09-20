@@ -54,6 +54,25 @@ final class ServerScoreCacheTests: XCTestCase {
         XCTAssertThrowsError(try ServerScoreCacheCodec.parseSnapshot(legacy, day: day, ownerId: owner))
     }
 
+    func testSelectedDeviceLoadsItsOlderSnapshotWithoutCrossingOwner() async throws {
+        let store = try await WhoopStore.inMemory()
+        let persistence = ServerScoreCacheStore(db: store.registryWriter)
+        let deviceA = "22222222-2222-2222-2222-222222222222"
+        let deviceB = "33333333-3333-3333-3333-333333333333"
+        let first = try snapshot()
+        let secondFixture = try snapshot(device: deviceB)
+        let second = try ServerScoreCacheCodec.parseSnapshot(
+            Data(try XCTUnwrap(secondFixture.rawSnapshotJSON).utf8), day: day, ownerId: owner,
+            fetchedAt: Date(timeIntervalSince1970: 2))
+        try persistence.upsert(first)
+        try persistence.upsert(second)
+        XCTAssertEqual(try persistence.load(ownerId: owner, day: day), second)
+        XCTAssertEqual(try persistence.load(ownerId: owner, day: day, deviceId: deviceA), first)
+        XCTAssertEqual(try persistence.load(ownerId: owner, day: day, deviceId: deviceB), second)
+        XCTAssertNil(try persistence.load(ownerId: owner, day: day, deviceId: "missing-device"))
+        XCTAssertNil(try persistence.load(ownerId: "another-owner", day: day, deviceId: deviceA))
+    }
+
     func testDelayedResponseCannotCrossSignOutOrAccountSwitch() throws {
         let cache = try snapshot()
         var state = ServerScoreSessionState()

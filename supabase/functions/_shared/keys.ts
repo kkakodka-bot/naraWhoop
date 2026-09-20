@@ -16,7 +16,6 @@ export function uuidFromParts(parts: unknown[]): string {
  * keys stop lining up with its row projections.
  */
 export function noopDeviceId(userId: string, deviceId: unknown): string {
-  if (isUuid(deviceId)) return String(deviceId);
   return uuidFromParts([userId, 'noop', String(deviceId || 'strap')]);
 }
 
@@ -273,6 +272,12 @@ export function looksLikePii(value: unknown): boolean {
   if (s.includes('@')) return true;
   if (/^\+?\d{7,}$/.test(s.replace(/[\s-]/g, ''))) return true;
   return false;
+}
+
+/** Bounded opaque wearable id safe to persist and use as deterministic key material. */
+export function isSafeExternalDeviceId(value: unknown): boolean {
+  if (typeof value !== 'string' || !/^[\x20-\x7e]{1,255}$/.test(value)) return false;
+  return !looksLikePii(value);
 }
 
 export function periodParts(isoDay: unknown) {

@@ -77,6 +77,7 @@ abstract class WhoopDatabase : RoomDatabase() {
 
     companion object {
         const val DB_NAME = "noop_whoop.db"
+        fun databaseName(context: Context): String = com.noop.push.EnrollmentDataScope.databaseName(context)
         /** Room schema version — MUST equal the `@Database(version = …)` above. Surfaced in the backup
          *  manifest (#1410) so an export states its schema. Bump both together on a migration. */
         const val SCHEMA_VERSION = 42
@@ -1105,7 +1106,7 @@ abstract class WhoopDatabase : RoomDatabase() {
         )
 
         private fun build(appContext: Context): WhoopDatabase =
-            Room.databaseBuilder(appContext, WhoopDatabase::class.java, DB_NAME)
+            Room.databaseBuilder(appContext, WhoopDatabase::class.java, databaseName(appContext))
                 // #1014: replace ONLY the corruption handling of the default open-helper. The
                 // platform default silently DELETES a corrupt database file (non-resendable strap
                 // history gone without a trace); this factory logs + preserves the file instead.
@@ -1131,8 +1132,34 @@ abstract class WhoopDatabase : RoomDatabase() {
                                 "('my-whoop', 'WHOOP', 'WHOOP', NULL, 'liveBLE', " +
                                 "'${WhoopLiveCapabilities.encoded("WHOOP")}', 'active', $now, $now)",
                         )
+                        if (!com.noop.BuildConfig.ENABLE_DEMO && com.noop.push.EnrollmentDataScope.scope(appContext) != null) {
+                            copyLegacyPairingMetadata(appContext, db)
+                        }
                     }
                 })
                 .build()
+
+        /** Read-only legacy access. Never copy samples, analysis, ownership, jobs, or upload cursors. */
+        private fun copyLegacyPairingMetadata(context: Context, target: SupportSQLiteDatabase) {
+            val legacy = context.getDatabasePath(DB_NAME)
+            if (!legacy.exists()) return
+            android.database.sqlite.SQLiteDatabase.openDatabase(legacy.path, null,
+                android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { source ->
+                EnrollmentPairingMetadata.copy(read = { sql ->
+                    source.rawQuery(sql, null).use { rows ->
+                        buildList {
+                            while (rows.moveToNext()) add(rows.columnNames.associateWith { name ->
+                                val i = rows.getColumnIndexOrThrow(name)
+                                when (rows.getType(i)) {
+                                    android.database.Cursor.FIELD_TYPE_NULL -> null
+                                    android.database.Cursor.FIELD_TYPE_INTEGER -> rows.getLong(i)
+                                    else -> rows.getString(i)
+                                }
+                            })
+                        }
+                    }
+                }, write = { sql, values -> target.execSQL(sql, values) })
+            }
+        }
     }
 }

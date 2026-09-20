@@ -62,6 +62,6 @@ verify_jwt = false
 [functions.ingest-verify]
 verify_jwt = false
 
-# Score readback uses the same bearer as push (JWT or opaque noop_ ingest token).
+# Score readback authenticates the source-bound installation bearer plus fleet header in-function.
 [functions.scores]
 verify_jwt = false

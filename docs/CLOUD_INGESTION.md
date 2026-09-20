@@ -32,6 +32,10 @@ A new `WhoopStore` migration that adds a table without updating the registry fai
 Wire framing, acknowledgement rules, and the v1.1 stream registry live in
 [`PUSH_PROTOCOL.md`](PUSH_PROTOCOL.md).
 
+Tester identity, installation enrollment, and recovery are specified in
+[`TESTER_ENROLLMENT.md`](TESTER_ENROLLMENT.md). The fleet credential authorizes a build but is never
+used as the tester identity.
+
 ## Pipeline invariants
 
 1. Ack only after WAL fsync, before B2/Supabase. No partial success.
@@ -158,7 +162,10 @@ Existing tables reused with NOOP-shaped upserts (no server-side scoring):
 
 ## Security and deletion
 
-- Bearer token in Keychain (`kSecAttrAccessibleAfterFirstUnlock`, mirror `AIKeyStore`).
+- Per-installation upload token in Keychain / Android encrypted preferences. The token is bound
+  server-side to one tester and one installation source.
+- Fleet credential is additional build authorization and never selects the tester. Because it is
+  shared in app configuration, it is not treated as proof of a person.
 - TLS-only endpoints in release builds.
 - Per-subject delete reaches B2 objects, `object_manifests`, and Supabase rows.
 - No PHI in logs.
@@ -169,7 +176,9 @@ Existing tables reused with NOOP-shaped upserts (no server-side scoring):
 
 | Variable | Where | Purpose |
 |---|---|---|
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Edge secrets / root `.env` | PostgREST upserts + `object_manifests` |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Edge secrets / root `.env` | PostgREST upserts + `object_manifests`; never ship in an app |
+| `NOOP_ENROLLMENT_PEPPER` | Edge secrets + operator environment | HMAC of short-lived enrollment codes; never ship in an app |
+| `NOOP_ALLOW_LEGACY_FLEET_UPLOADS` | Edge secrets | Emergency migration flag only; unset/false is the secure default |
 | `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET`, `B2_S3_ENDPOINT`, `B2_REGION` | Edge secrets / root `.env` | Hourly archive upload |
 | `WORKER_SECRET` | Edge secrets + Vault `edge_worker_secret` | pg_cron worker bearer (retention, reconcile, deletion) |
 
@@ -178,23 +187,30 @@ Existing tables reused with NOOP-shaped upserts (no server-side scoring):
 | Setting | Example | Notes |
 |---|---|---|
 | Push endpoint | `https://<project-ref>.supabase.co/functions/v1/push` | `GET` capabilities + `POST` batches |
-| Bearer token | opaque ingest token from `POST /functions/v1/push/tokens` | Mint while signed in; Keychain / EncryptedSharedPreferences |
+| Fleet token | opaque fleet credential baked through local secret config | Authorizes enrollment and accompanies Edge upload requests; not a user identity |
+| Upload token | opaque token returned once by `POST /functions/v1/push/enroll` | Bound to `user_id` + `source_id`; Keychain / encrypted preferences |
 
 Apple (`Strand/Push/CloudPushView.swift`) and Android Experimental push ship pointed at the hosted Edge receiver.
 
 ### Apply Supabase migration
 
 ```bash
-supabase db push   # or run supabase/migrations/20260907133000_noop_hr_samples.sql
+supabase db push
 ```
+
+Roll out identity in this order: apply the complete migration chain; classify the exact shared
+credential with `Tools/enrollment/manage.mjs mark-fleet-token`; configure the enrollment pepper and
+other server secrets; deploy the Edge receiver; then ship enrollment-capable clients. Do not deploy
+the receiver against only the original HR migration—the identity, installation, and receipt tables
+from `20260919200000_noop_enrollment_identity.sql` are required.
 
 ### Smoke test
 
 ```bash
 cd supabase/functions && deno test --allow-all tests/
 supabase functions serve push --env-file ../../.env
-# Mint: curl -H "Authorization: Bearer <jwt>" -X POST http://127.0.0.1:54321/functions/v1/push/tokens -d '{"label":"phone"}'
-BASE_URL=http://127.0.0.1:54321/functions/v1/push AUTH=noop_... node Tools/push-conformance/push-conformance.mjs
+# Enroll: use an operator-issued code and the fleet bearer at POST /push/enroll.
+# Upload Edge requests use Authorization: Bearer <upload-token> plus X-NOOP-Fleet-Token.
 ```
 
 | File | Role |

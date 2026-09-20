@@ -96,6 +96,14 @@ object SelfHostedPushScheduler {
         enqueueExternal(app)
     }
 
+    /** Fence queued/running work after enrollment is added, rotated, or cleared. */
+    fun credentialChanged(context: Context) {
+        val app = context.applicationContext
+        PushRunSignal.clear(app)
+        WorkManager.getInstance(app).cancelUniqueWork(UNIQUE_WORK)
+        enqueueExternal(app)
+    }
+
     /** Queue the next healthy pagination/device slice without WorkManager's failure backoff. */
     internal suspend fun enqueueContinuation(
         context: Context,
@@ -103,7 +111,7 @@ object SelfHostedPushScheduler {
     ): Boolean {
         val app = context.applicationContext
         val settings = SelfHostedPushSettings.from(app)
-        if (settings.enabledEndpoint() == null) return true
+        if (settings.readyEndpoint() == null) return true
         val request = request(settings.wifiOnly())
         // Another real trigger won the release/enqueue race and now owns a queued request.
         if (!PushRunSignal.reserve(app, request.id.toString())) return true
@@ -141,9 +149,10 @@ object SelfHostedPushScheduler {
     }
 
     private fun enqueueExternal(context: Context) {
+        if (!EnrollmentDataScope.active(context)) return
         val app = context.applicationContext
         val settings = SelfHostedPushSettings.from(app)
-        if (settings.enabledEndpoint() == null) return
+        if (settings.readyEndpoint() == null) return
         val request = request(settings.wifiOnly())
         if (!PushRunSignal.reserve(app, request.id.toString())) return
         val completion = PushEnqueueCompletion(

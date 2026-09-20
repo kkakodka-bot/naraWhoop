@@ -22,15 +22,21 @@ import kotlin.coroutines.resumeWithException
 /** Minimal HTTP adapter: no redirects, no logging, and bounded acknowledgement/error reads. */
 class PushHttpTransport(
     private val endpoint: PushEndpointPolicy.ValidEndpoint,
-    private val bearerToken: String,
+    private val uploadToken: String,
+    private val fleetToken: String,
     private val client: OkHttpClient = defaultClient(),
     private val uploadClient: OkHttpClient = defaultUploadClient(),
     private val onBatchStart: (PushBatch) -> Unit = {},
 ) : PushTransport {
+    init {
+        require(PushEnrollmentCredential.isValidUploadToken(uploadToken)) { "invalid upload authorization" }
+        require(PushEnrollmentCredential.isValidFleetToken(fleetToken)) { "invalid fleet authorization" }
+    }
+
     override suspend fun capabilities(): PushCapabilitiesResult {
         val request = Request.Builder()
             .url(endpoint.url)
-            .header("Authorization", "Bearer $bearerToken")
+            .pushAuthorization()
             .header("Accept", "application/json")
             .header(ACCEPT_VERSION_HEADER, PushProtocol.CAPABILITIES_ACCEPT_VERSIONS)
             .get()
@@ -87,7 +93,7 @@ class PushHttpTransport(
         if (body.size > 8 * 1024) throw PushTransportException(PushFailure(PushFailureCode.LOCAL_DATA))
         val request = Request.Builder()
             .url(laneUrl(lane.endpoint))
-            .header("Authorization", "Bearer $bearerToken")
+            .pushAuthorization()
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .post(FixedRequestBody(body, "application/json"))
@@ -118,6 +124,8 @@ class PushHttpTransport(
             .apply {
                 intent.requiredHeaders.forEach { (name, value) -> header(name, value) }
             }
+            .removeHeader("Authorization")
+            .removeHeader(FLEET_TOKEN_HEADER)
             .build()
         val response = try {
             uploadClient.newCall(request).await().use { it.code to (it.body?.bytes() ?: ByteArray(0)) }
@@ -134,7 +142,7 @@ class PushHttpTransport(
     override suspend fun completeObject(objectId: String, lane: PushObjectLane): PushObjectAck {
         val request = Request.Builder()
             .url(laneUrl("${lane.endpoint}/$objectId/complete"))
-            .header("Authorization", "Bearer $bearerToken")
+            .pushAuthorization()
             .header("Accept", "application/json")
             .post(FixedRequestBody(ByteArray(0), "application/json"))
             .build()
@@ -171,7 +179,7 @@ class PushHttpTransport(
     ): PushTransportResponse {
         val request = Request.Builder()
             .url(endpoint.url)
-            .header("Authorization", "Bearer $bearerToken")
+            .pushAuthorization()
             .header("Accept", "application/json")
             .header("Content-Type", contentType)
             .apply {
@@ -183,6 +191,10 @@ class PushHttpTransport(
             .build()
         return executeRequest(request)
     }
+
+    private fun Request.Builder.pushAuthorization(): Request.Builder =
+        header("Authorization", "Bearer $uploadToken")
+            .header(FLEET_TOKEN_HEADER, fleetToken)
 
     private suspend fun executeRequest(request: Request): PushTransportResponse {
         try {
@@ -229,6 +241,7 @@ class PushHttpTransport(
 
     companion object {
         const val ACCEPT_VERSION_HEADER = "NOOP-Push-Accept-Version"
+        const val FLEET_TOKEN_HEADER = "X-NOOP-Fleet-Token"
         private val NDJSON = "application/x-ndjson; charset=utf-8".toMediaType()
         private const val OCTET_STREAM = "application/octet-stream"
         internal fun defaultClient(): OkHttpClient = OkHttpClient.Builder()

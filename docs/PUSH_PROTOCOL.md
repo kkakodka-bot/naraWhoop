@@ -12,6 +12,12 @@ Capability `GET` may report per-stream durability state; that metadata is not a 
 
 ## Transport and authentication
 
+The generic self-hosted profile below accepts one user-supplied bearer. The FRWHOOP hosted profile
+adds the enrollment rules in [`TESTER_ENROLLMENT.md`](TESTER_ENROLLMENT.md): `Authorization` carries
+the per-installation upload token and `X-NOOP-Fleet-Token` carries the fleet authorization token.
+The receiver derives the user from the upload token and requires its bound source to match every
+batch or object. Neither credential is forwarded to a presigned object-store URL.
+
 The configured endpoint serves authenticated capabilities on `GET` and accepts one `POST` per batch
 (or one binary-object upload per object — see [Binary object delivery](#binary-object-delivery)).
 The settings screen may issue this `GET` alone when the user selects **Test connection**; that action
@@ -27,7 +33,7 @@ NOOP-Push-Accept-Version: 1.1,1.0
 A successful capability response has these required members:
 
 ```json
-{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"5fc7b9a0-8055-4e49-a308-3a290f98d81a","streams":["hrSample","rrInterval","dailyMetric","labMarker"]}
+{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"5fc7b9a0-8055-4e49-a308-3a290f98d81a","streams":["hrSample","rrInterval","dailyMetric","labMarker"],"userId":"3ab0c13e-842f-4d22-b25c-4ef9c730897d","sourceId":"3a3486dd-5030-4e17-a00d-a781399890f9"}
 ```
 
 `NOOP-Push-Accept-Version` is a comma-separated, sender-preferred list of exact versions it can emit.
@@ -52,7 +58,8 @@ Optional v1.1 capability members (ignored by v1.0 senders):
 | Member | Meaning |
 |---|---|
 | `streamDurability` | Map of `stream` → `pending` \| `ready` \| `verified` last-known server state for UI diagnostics. Not a client cursor. |
-| `userId` | Canonical FRWHOOP user UUID when the bearer resolves to an account. |
+| `userId` | Canonical FRWHOOP user UUID when the bearer resolves to an account. Required by the enrolled hosted profile and checked against the local credential before reading health data. |
+| `sourceId` | Server-bound installation UUID. Required by the enrolled hosted profile and checked against the current installation before reading health data. |
 
 Capability changes affect future attempts only. A client retains progress for an unadvertised
 stream, so advertising it again resumes from the existing cursor. Removing a stream from the list
@@ -121,11 +128,14 @@ Two installations that happen to use the same strap identifier must therefore no
 another. Reinstalling NOOP may create a new `sourceId`; reconciliation between installations is
 deliberately outside v1.
 
-Local progress is scoped by `(sourceId, normalized endpoint, selected protocolVersion,
-receiverStateId)`. A changed endpoint, negotiated version, or receiver state ID forces a fresh
-baseline. Rotating only the bearer token preserves progress. This prevents a newly initialized
-receiver at the same URL from silently missing data and lets a protocol upgrade replay older append
-records when their representation gains fields.
+Local progress is scoped by `(userId, sourceId, normalized endpoint, selected protocolVersion,
+receiverStateId)` in the enrolled hosted profile, and by `(sourceId, normalized endpoint,
+selected protocolVersion, receiverStateId)` in the generic profile. A changed user, source,
+endpoint, negotiated version, or receiver state ID forces a fresh baseline. Rotating only the
+per-installation bearer for the same user and source preserves progress. This prevents progress from
+crossing tester identities, prevents a newly initialized receiver at the same URL from silently
+missing data, and lets a protocol upgrade replay older append records when their representation gains
+fields.
 
 ## NDJSON request
 

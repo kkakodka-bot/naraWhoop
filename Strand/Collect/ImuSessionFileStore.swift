@@ -51,8 +51,19 @@ final class ImuSessionFileStore: @unchecked Sendable {
     private static let payloadBytes = sampleRate * axes * 2
     private static let magic = Data("NOOPIMU2".utf8)
     private let defaults: UserDefaults
-    private let key: String
-    private let directory: URL
+    private let defaultsKey: String
+    private let directoryOverride: URL?
+    private let directoryBase: URL
+    private let directoryComponent: String
+    private var key: String {
+        directoryOverride != nil ? defaultsKey : CloudCaptureScope.component(defaultsKey)
+    }
+    private var directory: URL {
+        let location = directoryOverride ?? directoryBase.appendingPathComponent(
+            CloudCaptureScope.component(directoryComponent), isDirectory: true)
+        try? FileManager.default.createDirectory(at: location, withIntermediateDirectories: true)
+        return location
+    }
     /// Segment path → (strap ts → digest of its stored columns). The digest distinguishes an exact
     /// re-delivery (discard silently) from a conflicting payload (keep first, record evidence).
     private var seen: [String: [Int64: UInt64]] = [:]
@@ -73,8 +84,10 @@ final class ImuSessionFileStore: @unchecked Sendable {
         let fm = FileManager.default
         let base = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                 appropriateFor: nil, create: true)) ?? fm.temporaryDirectory
-        directory = override ?? base.appendingPathComponent(directoryComponent, isDirectory: true)
-        key = defaultsKey
+        directoryOverride = override
+        directoryBase = base
+        self.directoryComponent = directoryComponent
+        self.defaultsKey = defaultsKey
         self.defaults = defaults
         try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
     }

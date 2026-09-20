@@ -2890,4 +2890,17 @@
     <string name="five_minute_hr_coverage">Messabdeckung: %1$d%% · Bei wenig Bewegung: %2$d%%</string>
     <string name="five_minute_hr_show_recent">Letzte 12 Zeitfenster anzeigen</string>
     <string name="five_minute_hr_show_all">Alle %1$d Zeitfenster anzeigen</string>
+    <string name="terms_point_cloud_head">Persönliche Cloud-Registrierung</string>
+    <string name="terms_point_cloud_body">Diese Version verwendet deine persönliche Registrierung, um Wearable-Daten zur Verarbeitung auf den Server hochzuladen und Ergebnisse an dein Konto zurückzugeben. Jedes Telefon hat eigene Zugangsdaten. Frühere Daten ohne Kontozuordnung bleiben auf dem Telefon und werden nicht automatisch hochgeladen. Das Entfernen der Registrierung beendet den Cloud-Zugriff; bereits hochgeladene Daten werden dadurch nicht gelöscht.</string>
+    <string name="terms_attest_cloud">Ich verstehe, dass die Registrierung dieses Telefon mit meinem Konto verbindet, um Wearable-Daten hochzuladen und Server-Ergebnisse zu erhalten.</string>
+    <string name="physiology_reason_newer_input_pending">Ein älteres, fertig berechnetes Server-Ergebnis wird angezeigt. Neuere Daten warten auf die Auswertung.</string>
+    <string name="physiology_reason_no_observations">Dieses Server-Zeitfenster enthält keine Schlagintervall-Daten. Herzfrequenzwerte allein liefern keine HRV.</string>
+    <string name="physiology_reason_timing_coverage">Schlagintervall-Daten liegen vor, aber ihre zeitliche Abdeckung ist nicht verifiziert. Häufigere Auswertungen beheben diese Einschränkung der Eingangsdaten nicht.</string>
+    <string name="physiology_reason_timing_unverified">Für dieses Zeitfenster stehen keine verifizierten Schlagzeitpunkte zur Verfügung. Aus diesen Eingangsdaten lässt sich keine Atemfrequenz schätzen.</string>
+    <string name="physiology_reason_continuity">Schlagintervall-Daten liegen vor, aber die Aufeinanderfolge der ursprünglichen Herzschläge ist nicht nachgewiesen.</string>
+    <string name="physiology_reason_no_eligible_windows">Kein Zeitfenster erfüllte die Signal- und Zeitanforderungen für eine Schätzung der Atemfrequenz.</string>
+    <string name="physiology_reason_sleep_context">Für diese nächtliche Atemfrequenzschätzung war kein geeigneter Schlafzeitraum verfügbar.</string>
+    <string name="physiology_reason_window_missing">Für dieses Fünf-Minuten-Intervall wurde kein Server-Ergebnis zurückgegeben.</string>
+    <string name="physiology_spo2_unavailable_title">SpO₂ aus dieser Quelle nicht verfügbar</string>
+    <string name="physiology_spo2_unavailable_body">Die aktuelle WHOOP-Datenquelle liefert keinen verifizierten prozentualen Blutsauerstoffwert. Dies liegt an den Eingangsdaten und der Kalibrierung, nicht an einem lückenhaften Verlauf. Importierte Messwerte können hier weiterhin angezeigt werden.</string>
 </resources>

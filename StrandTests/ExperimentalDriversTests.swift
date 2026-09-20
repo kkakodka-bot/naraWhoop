@@ -150,7 +150,7 @@ final class ExperimentalDriversTests: XCTestCase {
             setWhoopPreferredPeripheral: { _ in },
             setWhoopActiveDeviceId: { _ in },
             connectedPeripheralUUID: Empty<String?, Never>().eraseToAnyPublisher(),
-            straplog: { strapLogLines.append($0) })
+            straplog: { strapLogLines.append($0) }, collectionAllowed: { true })
 
         // Drive the transition directly (the same call `start()`'s subscription makes on an active-id change).
         coordinator.activeDeviceChanged(to: "apple-health")

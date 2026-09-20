@@ -109,7 +109,7 @@ class MainActivity : ComponentActivity() {
         // requests each permission at the step that explains it, Bluetooth when the Connect step
         // appears, notifications when it enables the background keep-alive, so the OS prompt never
         // lands before the screen that justifies it.
-        if (NoopPrefs.of(this).getBoolean(NoopPrefs.KEY_ONBOARDED, false)) {
+        if (com.noop.push.EnrollmentDataScope.active(this) && NoopPrefs.of(this).getBoolean(NoopPrefs.KEY_ONBOARDED, false)) {
             requestBlePermissions()
         }
 
@@ -249,6 +249,7 @@ internal fun appLaunchIntent(context: Context): Intent =
 object NoopPrefs {
     const val NAME = "noop_prefs"
     const val KEY_ONBOARDED = "noop.onboarded"
+    const val KEY_SETUP_FINISHED = "noop.setupFinishedAwaitingDeviceLink"
     const val KEY_LAST_SEEN_CHANGELOG = "noop.lastSeenChangelogVersion"
     /** Terms-of-use version the user last accepted. Empty until the first-run gate is accepted; a
      *  material terms change bumps [Terms.CURRENT_VERSION] and re-prompts. Mirrors macOS @AppStorage. */
@@ -1469,6 +1470,24 @@ object NoopPrefs {
 fun NoopRoot() {
     val context = LocalContext.current
     val prefs = remember { NoopPrefs.of(context) }
+    // Terms acknowledgment gate, over EVERYTHING (before onboarding/pairing/Bluetooth) until the
+    // current terms version is accepted; re-appears if the terms materially change. (clickwrap)
+    var acceptedTerms by remember {
+        mutableStateOf(prefs.getString(NoopPrefs.KEY_ACCEPTED_TERMS_VERSION, "") ?: "")
+    }
+    if (acceptedTerms != Terms.CURRENT_VERSION) {
+        TermsGateScreen(onAccept = {
+            prefs.edit()
+                .putString(NoopPrefs.KEY_ACCEPTED_TERMS_VERSION, Terms.CURRENT_VERSION)
+                .putString(NoopPrefs.KEY_ACCEPTED_TERMS_AT, java.time.Instant.now().toString())
+                .apply()
+            acceptedTerms = Terms.CURRENT_VERSION
+        })
+        return
+    }
+
+
+    if (!com.noop.push.EnrollmentGate()) return
     val appViewModel: AppViewModel = viewModel()
 
     // #267: app-wide "came to foreground" hook, mirrors the iOS/macOS scenePhase == .active trigger.
@@ -1487,6 +1506,9 @@ fun NoopRoot() {
 
     var onboarded by remember {
         mutableStateOf(prefs.getBoolean(NoopPrefs.KEY_ONBOARDED, false))
+    }
+    var setupFinished by remember {
+        mutableStateOf(prefs.getBoolean(NoopPrefs.KEY_SETUP_FINISHED, false))
     }
     var lastSeenChangelog by remember {
         mutableStateOf(prefs.getString(NoopPrefs.KEY_LAST_SEEN_CHANGELOG, "") ?: "")
@@ -1518,36 +1540,28 @@ fun NoopRoot() {
         }
     }
 
-    // Terms acknowledgment gate, over EVERYTHING (before onboarding/pairing/Bluetooth) until the
-    // current terms version is accepted; re-appears if the terms materially change. (clickwrap)
-    var acceptedTerms by remember {
-        mutableStateOf(prefs.getString(NoopPrefs.KEY_ACCEPTED_TERMS_VERSION, "") ?: "")
-    }
-    if (acceptedTerms != Terms.CURRENT_VERSION) {
-        TermsGateScreen(onAccept = {
-            prefs.edit()
-                .putString(NoopPrefs.KEY_ACCEPTED_TERMS_VERSION, Terms.CURRENT_VERSION)
-                .putString(NoopPrefs.KEY_ACCEPTED_TERMS_AT, java.time.Instant.now().toString())
-                .apply()
-            acceptedTerms = Terms.CURRENT_VERSION
-        })
-        return
-    }
-
-    if (!onboarded) {
+    if (!onboarded && !setupFinished) {
         OnboardingScreen(
             viewModel = appViewModel,
             onFinished = {
-                // A brand-new user just saw the expectations in onboarding, don't also pop the
-                // changelog at them; mark them current (mirrors macOS ContentView onFinished).
-                prefs.edit()
-                    .putBoolean(NoopPrefs.KEY_ONBOARDED, true)
-                    .putString(NoopPrefs.KEY_LAST_SEEN_CHANGELOG, AppChangelog.CURRENT_VERSION)
-                    .apply()
-                lastSeenChangelog = AppChangelog.CURRENT_VERSION
-                onboarded = true
+                check(prefs.edit().putBoolean(NoopPrefs.KEY_SETUP_FINISHED, true).commit())
+                setupFinished = true
             },
         )
+        return
+    }
+
+    if (!com.noop.push.DeviceLinkGate()) return
+    if (!onboarded) {
+        LaunchedEffect(Unit) {
+            if (OnboardingCompletion.record(prefs,
+                    BuildConfig.ENABLE_DEMO || com.noop.push.DeviceLinkStore.currentConfirmed(context),
+                    AppChangelog.CURRENT_VERSION)) {
+                appViewModel.promoteBackgroundConnectionIfActive()
+                lastSeenChangelog = AppChangelog.CURRENT_VERSION
+                onboarded = true
+            }
+        }
         return
     }
 

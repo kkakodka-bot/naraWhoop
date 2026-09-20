@@ -605,12 +605,14 @@ export function capabilitiesBody({
   receiverStateId,
   streams,
   userId,
+  sourceId,
   protocolVersion = '1.2',
   objectLane = null,
 }: {
   receiverStateId: string;
   streams: string[];
   userId?: string;
+  sourceId?: string | null;
   protocolVersion?: string;
   objectLane?: { endpoint: string; maxObjectBytes: number; urlTtlSec: number } | null;
 }) {
@@ -621,6 +623,7 @@ export function capabilitiesBody({
     receiverStateId,
     streams: advertised,
     userId: userId || undefined,
+    sourceId: sourceId || undefined,
   };
   if (protocolVersion === '1.2' && objectLane) {
     body.objectLane = {

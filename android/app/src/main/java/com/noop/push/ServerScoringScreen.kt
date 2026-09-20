@@ -39,11 +39,8 @@ fun ServerScoringScreen(scores: ServerScoreRepository) {
     val enabled by scores.enabled.collectAsStateWithLifecycle()
     val signedIn by scores.signedIn.collectAsStateWithLifecycle()
     val error by scores.lastError.collectAsStateWithLifecycle()
-    var email by remember { mutableStateOf(ServerScoringSettings.authEmail(context)) }
-    var password by remember { mutableStateOf("") }
-    var working by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val configured = ServerScoringSettings.supabaseProjectUrl() != null && ServerScoringSettings.anonKey() != null
+    val configured = SelfHostedPushSettings.from(context).configuredEndpoint() != null
     ScreenScaffold(title = stringResource(R.string.server_scoring_title),
         subtitle = stringResource(R.string.server_scoring_description)) {
         SettingsCard(icon = Icons.Filled.CloudSync, title = stringResource(R.string.server_scoring_title),
@@ -55,28 +52,17 @@ fun ServerScoringScreen(scores: ServerScoreRepository) {
                     if (value) scope.launch { scores.refreshVisibleDays() }
                 })
         }
-        SettingsCard(icon = Icons.Outlined.AccountCircle, title = stringResource(R.string.server_scoring_sign_in),
-            blurb = stringResource(if (signedIn) R.string.server_scoring_signed_in else R.string.physiology_hrv_sign_in)) {
+        SettingsCard(icon = Icons.Outlined.AccountCircle, title = "Your enrollment",
+            blurb = "Uploads and server results use the same personal account on this phone.") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (!configured) Text(stringResource(R.string.physiology_hrv_configure), style = NoopType.footnote, color = Palette.statusWarning)
-                OutlinedTextField(value = email, onValueChange = { email = it }, singleLine = true,
-                    label = { Text(stringResource(R.string.server_scoring_email)) }, modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
-                OutlinedTextField(value = password, onValueChange = { password = it }, singleLine = true,
-                    label = { Text(stringResource(R.string.server_scoring_password)) }, modifier = Modifier.fillMaxWidth(),
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-                NoopButton(text = stringResource(if (working) R.string.server_scoring_signing_in else R.string.server_scoring_sign_in),
-                    kind = NoopButtonKind.Secondary, fullWidth = true,
-                    enabled = enabled && configured && !working && email.isNotBlank() && password.isNotEmpty(), onClick = {
-                        working = true
-                        scope.launch {
-                            try { scores.signIn(email.trim(), password) }
-                            finally { password = ""; working = false }
-                        }
+                Text(if (signedIn) "This phone is enrolled." else "A fresh enrollment code is required.", style = NoopType.body)
+                if (!configured) Text("Cloud configuration is unavailable in this build.", color = Palette.statusWarning)
+                if (signedIn) NoopButton(text = "Remove enrollment", kind = NoopButtonKind.Tertiary, fullWidth = true,
+                    onClick = {
+                        scores.signOut()
+                        (context.applicationContext as? com.noop.NoopApplication)?.ble?.disconnect()
                     })
-                if (signedIn || working) NoopButton(text = stringResource(R.string.server_scoring_sign_out),
-                    kind = NoopButtonKind.Tertiary, fullWidth = true, onClick = { scores.signOut(); password = "" })
+                Text("Removing enrollment stops cloud access. Retained data stays bound to this account; use a separate installation for another person.", style = NoopType.footnote)
                 error?.let { Text(it, style = NoopType.footnote, color = Palette.statusCritical) }
             }
         }

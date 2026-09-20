@@ -24,8 +24,8 @@ class ImuSessionFileStore internal constructor(
     namespace: String,
 ) : ImuSessionPushSource {
     constructor(context: Context, namespace: String = NAMESPACE_SESSIONS) : this(
-        context.getSharedPreferences(preferencesName(namespace), Context.MODE_PRIVATE),
-        File(context.filesDir, directoryName(namespace)),
+        context.getSharedPreferences(com.noop.push.EnrollmentDataScope.storageName(context, preferencesName(namespace)), Context.MODE_PRIVATE),
+        File(context.filesDir, com.noop.push.EnrollmentDataScope.storageName(context, directoryName(namespace))),
         namespace,
     )
 

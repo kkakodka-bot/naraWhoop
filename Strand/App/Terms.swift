@@ -5,7 +5,7 @@ import Foundation
 /// acknowledgment; leave it for typo fixes. Mirrored on Android by `NoopPrefs.TERMS_VERSION`. The
 /// full text lives in `TERMS.md`, shipped with NARA.
 enum Terms {
-    static let currentVersion = "2.0"
+    static let currentVersion = "3.0"
 
     /// The load-bearing points the user must accept on first launch — the plain-English summary of
     /// `TERMS.md` §1–§6. Kept identical to the Android `Terms.points`. Each is (headline, body).
@@ -13,6 +13,8 @@ enum Terms {
     /// like the rest of the app (PR #984); the English wording is the key, and the binding text
     /// stays `TERMS.md` — a translation here is a courtesy, not the agreement.
     static let points: [(String, String)] = [
+        (String(localized: "Your account and cloud data"),
+         String(localized: "NARA requires a tester account. Your strap readings are uploaded to the NARA backend for storage and analysis. Your phone keeps a local buffer for Bluetooth collection and interrupted uploads.")),
         (String(localized: "Independent: not affiliated with WHOOP"),
          String(localized: "NARA is an unofficial project: not affiliated with, endorsed by, or sponsored by WHOOP, Inc. \"WHOOP\" is their trademark, used only to name the hardware NARA works with.")),
         (String(localized: "Using NARA may breach WHOOP's Terms of Service"),

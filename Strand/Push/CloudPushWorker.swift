@@ -46,18 +46,29 @@ enum CloudPushWorker {
         }
         #endif
 
+        let sourceId = CloudPushSettings.sourceId()
         guard let endpoint = CloudPushSettings.enabledEndpoint(),
-              let token = CloudPushSettings.resolvedToken() else {
+              let fleetToken = CloudPushSettings.resolvedFleetToken(),
+              let credential = CloudEnrollment.currentCredential(sourceId: sourceId),
+              CloudCaptureScope.isActive(for: credential.userId) else {
             CloudPushSettings.recordError(
-                String(localized: "The saved token is unavailable. Save it again.")
+                String(localized: "This installation must be enrolled before export can run.")
             )
             return .terminalFailure
         }
 
         CloudPushSettings.recordRunning()
 
-        let sourceId = CloudPushSettings.sourceId()
-        let transport = CloudPushTransport(endpoint: endpoint, bearerToken: token)
+        guard await CloudCaptureScope.verifyDatabase(db, ownerId: credential.userId) else {
+            CloudPushSettings.recordError(String(localized: "Reopen NARA to activate this account's capture store."))
+            return .terminalFailure
+        }
+
+        let transport = CloudPushTransport(
+            endpoint: endpoint,
+            uploadToken: credential.uploadToken,
+            fleetToken: fleetToken
+        )
         let capabilitiesResult = (try? await transport.capabilities()) ?? .rejected(
             reason: PushFailure(code: .networkIO).safeCode,
             retryable: true,
@@ -83,8 +94,20 @@ enum CloudPushWorker {
             }
             return .terminalFailure
         }
-        CloudPushSettings.recordCapabilities(endpoint: endpoint, capabilities: capabilities)
+        guard capabilities.userId == credential.userId,
+              capabilities.sourceId == credential.sourceId else {
+            CloudPushSettings.recordError(
+                String(localized: "The receiver identity does not match this installation's enrollment.")
+            )
+            return .terminalFailure
+        }
+        CloudPushSettings.recordCapabilities(
+            endpoint: endpoint,
+            capabilities: capabilities,
+            credential: credential
+        )
         let namespace = CloudPushSettings.progressNamespace(
+            userId: credential.userId,
             sourceId: sourceId,
             endpoint: endpoint,
             protocolVersion: capabilities.protocolVersion,
@@ -100,7 +123,12 @@ enum CloudPushWorker {
             transport: transport,
             progress: progress,
             sourceId: sourceId,
-            destinationStillCurrent: { CloudPushSettings.enabledEndpoint()?.url == endpoint.url }
+            destinationStillCurrent: {
+                CloudPushSettings.enabledEndpoint()?.url == endpoint.url
+                    && CloudPushSettings.resolvedFleetToken() == fleetToken
+                    && CloudEnrollment.currentCredential(sourceId: sourceId) == credential
+                    && CloudCaptureScope.isActive(for: credential.userId)
+            }
         )
         let run = await coordinator.pushKnownDevices(
             startDeviceIndex: startIndex,

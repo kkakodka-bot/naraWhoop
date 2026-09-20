@@ -330,23 +330,36 @@ public struct ServerScoreCacheStore {
         }
     }
 
-    public func load(ownerId: String, day: String, scopeKey: String? = nil) throws -> ServerScoreDayCache? {
+    public func load(ownerId: String, day: String, scopeKey: String? = nil,
+                     deviceId: String? = nil) throws -> ServerScoreDayCache? {
         guard !ownerId.isEmpty else { return nil }
         return try db.read { db in
             let sql = "SELECT payloadJson FROM serverPhysiologyCacheV2 WHERE ownerId=? AND day=? AND schemaVersion=?" +
-                (scopeKey == nil ? "" : " AND scopeKey=?") + " ORDER BY fetchedAt DESC LIMIT 1"
+                (scopeKey == nil ? "" : " AND scopeKey=?") + " ORDER BY fetchedAt DESC" +
+                (deviceId == nil ? " LIMIT 1" : "")
             var args: StatementArguments = [ownerId.lowercased(), day, ServerScoreCacheCodec.schemaVersion]
             if let scopeKey { args += [scopeKey] }
-            guard let payload = try String.fetchOne(db, sql: sql, arguments: args), let data = payload.data(using: .utf8),
-                  let cache = try? JSONDecoder().decode(ServerScoreDayCache.self, from: data), cache.ownerId == ownerId.lowercased(),
-                  cache.day == day, cache.schemaVersion == ServerScoreCacheCodec.schemaVersion,
-                  scopeKey == nil || scopeKey == cache.scopeKey else { return nil }
-            if let raw = cache.rawSnapshotJSON?.data(using: .utf8) {
-                guard let reparsed = try? ServerScoreCacheCodec.parseSnapshot(raw, day: day, ownerId: ownerId, fetchedAt: cache.fetchedAt),
-                      reparsed.scopeKey == cache.scopeKey else { return nil }
-                return reparsed
+            let rows = try String.fetchCursor(db, sql: sql, arguments: args)
+            while let payload = try rows.next() {
+                guard let data = payload.data(using: .utf8),
+                      var cache = try? JSONDecoder().decode(ServerScoreDayCache.self, from: data),
+                      cache.ownerId == ownerId.lowercased(), cache.day == day,
+                      cache.schemaVersion == ServerScoreCacheCodec.schemaVersion,
+                      scopeKey == nil || scopeKey == cache.scopeKey else { continue }
+                if let raw = cache.rawSnapshotJSON?.data(using: .utf8) {
+                    guard let reparsed = try? ServerScoreCacheCodec.parseSnapshot(raw, day: day, ownerId: ownerId, fetchedAt: cache.fetchedAt),
+                          reparsed.scopeKey == cache.scopeKey else { continue }
+                    cache = reparsed
+                }
+                if let deviceId {
+                    guard cache.features.values.contains(where: { $0.deviceId == deviceId }),
+                          cache.features.values.allSatisfy({
+                              $0.deviceId == deviceId || ($0.deviceId == nil && $0.status == "unavailable")
+                          }) else { continue }
+                }
+                return cache
             }
-            return cache
+            return nil
         }
     }
 

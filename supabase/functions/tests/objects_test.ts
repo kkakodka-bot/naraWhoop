@@ -7,6 +7,7 @@ import { createPushObjects, windowCoverage } from '../_shared/objects.ts';
 import { noopDeviceId } from '../_shared/keys.ts';
 import { PushProtocolError } from '../_shared/registry.ts';
 import { ingestProtocolErrorResponse, PushIngestFailure, unexpectedIngestDiagnostic } from '../_shared/pushDiagnostics.ts';
+import { createUploadReceiptStore } from '../_shared/receipts.ts';
 import { makeFakeB2, makeMemRest, compressFor, sha256Hex, B2_BUCKET } from './helpers.ts';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -23,12 +24,14 @@ const CFG: any = {
 function harness({ now = () => new Date('2026-09-07T18:30:00.000Z') } = {}) {
   const b2 = makeFakeB2({ now });
   const rest = makeMemRest();
+  const receiptStore = createUploadReceiptStore({ rest: rest as any, now });
   const objects = createPushObjects({
     cfg: CFG,
     rest: rest as any,
     raw: b2.s3,
     upsertRows: (table: string, rows: unknown[], opts: { onConflict: string }) => rest.upsert(table, rows, opts),
     ensureDevice: (row: Record<string, unknown>) => rest.upsert('devices', row, { onConflict: 'id' }),
+    receiptStore,
     now,
   });
   return { b2, rest, objects, now };
@@ -113,6 +116,14 @@ Deno.test('housing: a PPG object round-trips through a presigned PUT byte-for-by
   assert.equal(row.sha256_source, 'client_claimed');
   assert.equal(row.compressed_bytes, wire.length);
   assert.equal(h.rest.rowCount('noop_signal_windows'), 1);
+  const [receipt] = h.rest.tables.get('noop_upload_receipts')!;
+  assert.equal(receipt.user_id, USER);
+  assert.equal(receipt.source_id, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+  assert.equal(receipt.device_id, noopDeviceId(USER, STRAP));
+  assert.equal(receipt.stream, 'ppgWaveformSample');
+  assert.equal(receipt.lane, 'object');
+  assert.equal(receipt.auth_mode, 'legacy_fleet');
+  assert.equal(receipt.accepted_status, 'ready');
 });
 
 Deno.test('housing: a truncated upload is refused and never reaches ready', async () => {
@@ -179,6 +190,7 @@ Deno.test('housing: a manifest rejects a client-chosen key, PII, and a mismatche
     ['objectKey', { ...base, objectKey: 'v3/research/users/x/anything' }],
     ['deviceId', { ...base, deviceId: 'patient@example.com' }],
     ['contentEncoding', { ...base, contentEncoding: 'zstd' }],
+    ['contentSha256', { ...base, contentSha256: base.contentSha256.toUpperCase() }],
     ['stream', { ...base, stream: 'hrSample' }],
     ['endTs', { ...base, endTs: base.startTs }],
   ];
@@ -255,6 +267,28 @@ Deno.test('housing: projection failure never acknowledges ready and identical co
   assert.equal(ack.deviceId, noopDeviceId(USER, STRAP));
   assert.equal(h.rest.rowCount('noop_signal_windows'), 1);
   assert.deepEqual(h.b2.objects.get(intent.objectKey!)!.body, wire);
+});
+
+Deno.test('housing: intent retry repairs a failed durable receipt before duplicate ACK', async () => {
+  const h = harness();
+  const { manifest, wire } = manifestFor({ stream: 'ppgWaveformSample', payload: payloadOf(10),
+    startTs: SECOND, endTs: SECOND + 10, sampleCount: 10, compression: 'gzip',
+    objectId: '1a2a3a4a-1a1a-4a1a-8a1a-1a1a1a1a1a1b' });
+  const intent = await h.objects.createIntent({ userId: USER, manifest });
+  h.b2.putViaPresignedUrl(intent.uploadUrl!, wire);
+  const upsert = h.rest.upsert.bind(h.rest);
+  let reject = true;
+  h.rest.upsert = async (table, rows, options) => {
+    if (table === 'noop_upload_receipts' && reject) throw new Error('synthetic_receipt_failure');
+    return upsert(table, rows, options);
+  };
+  await assert.rejects(() => h.objects.completeObject({ userId: USER, objectId: manifest.objectId }));
+  assert.equal(h.rest.manifests.get(manifest.objectId).status, 'ready');
+  await assert.rejects(() => h.objects.createIntent({ userId: USER, manifest }));
+  assert.equal(h.rest.rowCount('noop_upload_receipts'), 0);
+  reject = false;
+  assert.equal((await h.objects.createIntent({ userId: USER, manifest })).duplicate, true);
+  assert.equal(h.rest.rowCount('noop_upload_receipts'), 1);
 });
 
 Deno.test('housing: scoring gate refusal keeps object unacknowledged and retries the same archived bytes', async () => {
@@ -364,6 +398,36 @@ Deno.test('housing: reusing an object id for different bytes is a conflict, not 
   );
 });
 
+Deno.test('housing: one user cannot reuse a batch id for a second object', async () => {
+  const h = harness();
+  const first = manifestFor({
+    stream: 'ppgWaveformSample',
+    payload: payloadOf(5),
+    startTs: SECOND,
+    endTs: SECOND + 5,
+    sampleCount: 5,
+    compression: 'gzip',
+    objectId: 'b3b3b3b3-b3b3-4b3b-8b3b-b3b3b3b3b3b3',
+  });
+  await h.objects.createIntent({ userId: USER, manifest: first.manifest });
+
+  const second = manifestFor({
+    stream: 'ppgWaveformSample',
+    payload: payloadOf(6),
+    startTs: SECOND,
+    endTs: SECOND + 6,
+    sampleCount: 6,
+    compression: 'gzip',
+    objectId: 'b4b4b4b4-b4b4-4b4b-8b4b-b4b4b4b4b4b4',
+  });
+  await assert.rejects(
+    () => h.objects.createIntent({ userId: USER, manifest: second.manifest }),
+    (err: any) => err.code === 'batch_id_conflict' && err.status === 409,
+  );
+  assert.equal(h.rest.manifests.size, 1);
+  assert.equal(h.rest.rowCount('noop_upload_receipts'), 0);
+});
+
 Deno.test('housing: one subject cannot complete or read another subject object', async () => {
   const h = harness();
   const payload = payloadOf(6);
@@ -387,6 +451,56 @@ Deno.test('housing: one subject cannot complete or read another subject object',
   const row = h.rest.manifests.get(objectId);
   assert.ok(row.object_key.includes(`/users/${USER}/`));
   assert.ok(!row.object_key.includes(OTHER_USER));
+});
+
+Deno.test('housing: object retries and completion are bound to the authenticated source', async () => {
+  const h = harness();
+  const payload = payloadOf(6);
+  const objectId = 'f6f6f6f6-f6f6-4f6f-8f6f-f6f6f6f6f6f6';
+  const first = manifestFor({
+    stream: 'ppgWaveformSample',
+    payload,
+    startTs: SECOND,
+    endTs: SECOND + 6,
+    sampleCount: 6,
+    compression: 'gzip',
+    objectId,
+  });
+  const sourceA = first.manifest.sourceId;
+  const sourceB = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const intent = await h.objects.createIntent({
+    userId: USER,
+    sourceId: sourceA,
+    tokenId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    authMode: 'installation',
+    manifest: first.manifest,
+  });
+
+  await assert.rejects(
+    () => h.objects.createIntent({
+      userId: USER,
+      sourceId: sourceB,
+      tokenId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      authMode: 'installation',
+      manifest: { ...first.manifest, sourceId: sourceB },
+    }),
+    (err: any) => err.code === 'forbidden' && err.status === 403,
+  );
+
+  h.b2.putViaPresignedUrl(intent.uploadUrl!, first.wire, {
+    contentType: intent.requiredHeaders!['content-type'],
+  });
+  await assert.rejects(
+    () => h.objects.completeObject({
+      userId: USER,
+      sourceId: sourceB,
+      tokenId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      authMode: 'installation',
+      objectId,
+    }),
+    (err: any) => err.code === 'forbidden' && err.status === 403,
+  );
+  assert.equal(h.rest.manifests.get(objectId).status, 'pending');
 });
 
 Deno.test('housing: a dropout is catalogued as missing records, never interpolated', async () => {

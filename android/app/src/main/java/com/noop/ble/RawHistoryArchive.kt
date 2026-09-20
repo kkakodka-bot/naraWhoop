@@ -33,13 +33,32 @@ import java.io.FileOutputStream
  * A genuine WRITE FAILURE (I/O error) instead throws — the caller treats that as "do NOT ack", so the
  * strap keeps the records and re-sends them on the next offload. No data is lost either way.
  */
-class RawHistoryArchive(
-    private val context: Context,
+class RawHistoryArchive internal constructor(
+    private val directory: File,
+    private val replayPrefs: android.content.SharedPreferences,
+    private val scopeProvider: () -> ArchiveScope?,
+    private val subLagInterpolation: () -> Boolean = { false },
     private val maxBytes: Long = REJECTED_ARCHIVE_MAX_BYTES,
-    // Overridable so tests can drive eviction with a small archive instead of 5 MB of frames. (#344)
     private val perVersionFloor: Int = PER_VERSION_FLOOR,
     private val zeroPayloadFloor: Int = ZERO_PAYLOAD_FLOOR,
 ) {
+    data class ArchiveScope(val owner: String, val source: String, val device: String, val physicalDevice: String) {
+        init { require(listOf(owner, source, device, physicalDevice).all { it.isNotBlank() && it.none(Char::isISOControl) }) }
+        val key = com.noop.push.EnrollmentDataScope.digest("$owner\u0000$source\u0000$device\u0000${physicalDevice.uppercase(java.util.Locale.ROOT)}")
+    }
+
+    constructor(context: Context, device: () -> String, physicalDevice: () -> String?) : this(
+        context.filesDir,
+        context.getSharedPreferences(REPLAY_PREFS, Context.MODE_PRIVATE),
+        {
+            val owner = com.noop.push.EnrollmentDataScope.scope(context)
+            val physical = physicalDevice()?.takeIf { it.isNotBlank() }
+            if (owner == null || physical == null) null else ArchiveScope(owner.userId, owner.sourceId, device(), physical)
+        },
+        { PuffinExperiment.from(context).ppgHrSubLagInterp },
+    )
+
+    private fun file(scope: ArchiveScope) = File(directory, "rejected_history_${scope.key}.jsonl")
     /**
      * Outcome of an [append]. [ok] is true whenever the offload may proceed to ack; [written] is true
      * only when the bytes were actually persisted. (ok=true, written=false) is the archive-full case:
@@ -47,7 +66,6 @@ class RawHistoryArchive(
      */
     data class AppendResult(val ok: Boolean, val written: Boolean)
 
-    private val file: File get() = File(context.filesDir, REJECTED_ARCHIVE_FILE)
 
     /**
      * Durably append the given undecodable record [frames] (one JSONL line each). [trim] is the
@@ -61,13 +79,15 @@ class RawHistoryArchive(
     fun append(frames: List<ByteArray>, trim: Long, family: DeviceFamily): AppendResult {
         if (frames.isEmpty()) return AppendResult(ok = true, written = false)
 
-        val f = file
+        val scope = scopeProvider() ?: throw java.io.IOException("Reject archive requires an enrolled physical device")
+        val f = file(scope)
+        directory.mkdirs()
         val familyTag = familyTag(family)
         val now = System.currentTimeMillis()
 
         // Build the new JSONL lines (each newline-terminated). The version that drives floor-aware
         // retention (#344) is re-derived per line from the stored frame inside [evictLines].
-        val newLines = frames.map { frame -> encodeLine(now, trim, familyTag, frame) + "\n" }
+        val newLines = frames.map { frame -> encodeLine(now, trim, familyTag, frame, scope.key) + "\n" }
         val incomingBytes = newLines.sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() }
 
         // Fast path: it all fits — plain append, fsync BEFORE returning (the point of the archive).
@@ -91,7 +111,7 @@ class RawHistoryArchive(
         // archive is durable BEFORE the ack. [evictLines] is the pure, unit-tested core.
         val existing = if (f.exists()) f.readLines().filter { it.isNotEmpty() }.map { "$it\n" } else emptyList()
         val kept = evictLines(existing + newLines, maxBytes, perVersionFloor, zeroPayloadFloor)
-        val tmp = File(context.filesDir, "$REJECTED_ARCHIVE_FILE.tmp")
+        val tmp = File(directory, "${f.name}.tmp")
         FileOutputStream(tmp).use { out ->
             out.write(kept.joinToString("").toByteArray(Charsets.UTF_8))
             out.flush()
@@ -104,9 +124,9 @@ class RawHistoryArchive(
         return AppendResult(ok = true, written = true)
     }
 
-    private fun encodeLine(capturedAtMs: Long, trim: Long, familyTag: String, frame: ByteArray): String =
+    private fun encodeLine(capturedAtMs: Long, trim: Long, familyTag: String, frame: ByteArray, scope: String): String =
         buildString {
-            append("{\"capturedAtMs\":").append(capturedAtMs)
+            append("{\"archiveScope\":\"").append(scope).append("\",\"capturedAtMs\":").append(capturedAtMs)
             append(",\"trim\":").append(trim)
             append(",\"family\":\"").append(familyTag).append('"')
             append(",\"frameHex\":\"").append(frame.toHex()).append("\"}")
@@ -122,10 +142,15 @@ class RawHistoryArchive(
      * [append] writes. Malformed lines are skipped; an absent/empty file yields []. Mirrors the macOS
      * RawHistoryArchive.readAll (#151).
      */
-    fun readAll(): List<Pair<ByteArray, DeviceFamily>> {
-        val f = file
+    fun readAll(): List<Pair<ByteArray, DeviceFamily>> = scopeProvider()?.let(::readAll) ?: emptyList()
+
+    private fun readAll(scope: ArchiveScope): List<Pair<ByteArray, DeviceFamily>> {
+        val f = file(scope)
         if (!f.exists()) return emptyList()
-        return f.readLines().mapNotNull { parseArchiveLine(it) }
+        return f.readLines().mapNotNull { line ->
+            if (runCatching { org.json.JSONObject(line).optString("archiveScope") }.getOrNull() != scope.key) null
+            else parseArchiveLine(line)
+        }
     }
 
     /**
@@ -138,32 +163,27 @@ class RawHistoryArchive(
      * gate un-advanced so these records (whose only surviving copy is this archive) retry next launch.
      * Returns the rows recovered (for logging). Port of the macOS replay + BLEManager gate (#151, #152).
      */
-    suspend fun replayIfNeeded(repository: WhoopRepository, deviceId: String, appVersion: String): Int {
-        val prefs = context.getSharedPreferences(REPLAY_PREFS, Context.MODE_PRIVATE)
-        if (prefs.getString(KEY_REPLAYED_APP_VERSION, null) == appVersion) return 0
-        val archived = readAll()
+    suspend fun replayIfNeeded(repository: WhoopRepository, deviceId: String, appVersion: String): Int =
+        replayIfNeeded(deviceId, appVersion) { decoded, target -> repository.insert(decoded, target).gravity }
+
+    internal suspend fun replayIfNeeded(deviceId: String, appVersion: String,
+        insert: suspend (com.noop.data.StreamBatch, String) -> Int): Int {
+        val scope = scopeProvider()?.takeIf { it.device == deviceId } ?: return 0
+        val marker = "${scope.key}.$KEY_REPLAYED_APP_VERSION"
+        if (replayPrefs.getString(marker, null) == appVersion) return 0
+        val archived = readAll(scope)
         var rows = 0
         for (family in archived.map { it.second }.toSet()) {
             val frames = archived.filter { it.second == family }.map { it.first }
-            // type-47 records carry their own real-unix ts (clock offset ignored), so an identity clock
-            // ref is correct here — the same fallback the Backfiller uses when clockRef is nil. Thread the
-            // opt-in HR-from-PPG sub-lag interpolation flag (Test Centre → Experimental algorithms) so the
-            // archive replay re-derives v26 HR with the same variant the live offload uses. Default OFF.
-            val decoded = extractHistoricalStreams(
-                frames, 0, 0, family,
-                ppgHrSubLagInterp = PuffinExperiment.from(context).ppgHrSubLagInterp,
-            )
-            // Count rows ACTUALLY inserted, not decoded: under the per-app-version gate the archive
-            // replays every release, and dedupe makes those re-runs insert 0 — counting decoded rows
-            // would log a false "retro-decoded N" success on every update. (#152)
-            rows += try {
-                repository.insert(decoded, deviceId).gravity
-            } catch (t: Throwable) {
-                // Do NOT advance the gate — retry the whole replay next launch (inserts are idempotent).
+            val decoded = extractHistoricalStreams(frames, 0, 0, family,
+                ppgHrSubLagInterp = subLagInterpolation())
+            if (scopeProvider() != scope) return rows
+            rows += try { insert(decoded, scope.device) } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
                 return rows
             }
         }
-        prefs.edit().putString(KEY_REPLAYED_APP_VERSION, appVersion).apply()
+        if (scopeProvider() == scope) replayPrefs.edit().putString(marker, appVersion).apply()
         return rows
     }
 

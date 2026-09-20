@@ -7,9 +7,8 @@ import java.security.MessageDigest
 import java.util.UUID
 
 /**
- * Push configuration. The destination and bearer token are baked into BuildConfig from
- * Config/CloudPushSecrets.properties — one fleet destination for every install, with no
- * per-user endpoint or token override. Only toggles and run-state persist in preferences.
+ * Push configuration. The destination and fleet authorization token are baked into BuildConfig.
+ * Per-person upload authorization is held separately by [PushEnrollmentStore].
  */
 class SelfHostedPushSettings private constructor(
     private val prefs: SharedPreferences,
@@ -24,6 +23,7 @@ class SelfHostedPushSettings private constructor(
         val binaryObjectsEnabled: Boolean,
         val endpoint: PushEndpointPolicy.ValidEndpoint?,
         val hasToken: Boolean,
+        val hasEnrollment: Boolean,
         val lastSuccessAt: Long?,
         val lastError: String?,
         val runState: RunState,
@@ -33,7 +33,7 @@ class SelfHostedPushSettings private constructor(
         val supportedStreams: List<String>?,
         val capabilitiesCheckedAt: Long?,
     ) {
-        val ready: Boolean get() = enabled && endpoint != null && hasToken
+        val ready: Boolean get() = enabled && endpoint != null && hasToken && hasEnrollment
     }
 
     fun snapshot(): Snapshot {
@@ -45,7 +45,8 @@ class SelfHostedPushSettings private constructor(
             wifiOnly = wifiOnly(),
             binaryObjectsEnabled = binaryObjectsEnabled(),
             endpoint = endpoint,
-            hasToken = token() != null,
+            hasToken = fleetToken() != null,
+            hasEnrollment = hasEnrollmentBinding(),
             lastSuccessAt = prefs.getLong(KEY_LAST_SUCCESS, 0L).takeIf { it > 0 },
             lastError = prefs.getString(KEY_LAST_ERROR, null),
             runState = if (!enabled) RunState.IDLE else runCatching {
@@ -61,6 +62,8 @@ class SelfHostedPushSettings private constructor(
     }
 
     fun endpointText(): String = bundleEndpoint
+    fun configuredEndpoint(): PushEndpointPolicy.ValidEndpoint? =
+        (PushEndpointPolicy.validate(endpointText()) as? PushEndpointPolicy.Result.Valid)?.endpoint
     fun wifiOnly(): Boolean = prefs.getBoolean(KEY_WIFI_ONLY, true)
     fun binaryObjectsEnabled(): Boolean = prefs.getBoolean(KEY_BINARY_OBJECTS, DEFAULT_BINARY_OBJECTS)
 
@@ -79,22 +82,54 @@ class SelfHostedPushSettings private constructor(
     /** Plain-pref gate used by stale workers before opening Room or Android Keystore. */
     fun enabledEndpoint(): PushEndpointPolicy.ValidEndpoint? {
         if (!prefs.getBoolean(KEY_ENABLED, DEFAULT_ENABLED)) return null
-        return (PushEndpointPolicy.validate(endpointText()) as? PushEndpointPolicy.Result.Valid)?.endpoint
+        return configuredEndpoint()
     }
 
-    /** The bearer the worker sends: the fleet token baked into BuildConfig. Never persisted. */
-    fun token(): String? = bundleToken.takeIf { it.isNotBlank() }
+    /** A cheap scheduler gate. The worker still verifies the encrypted credential before HTTP or Room. */
+    fun readyEndpoint(): PushEndpointPolicy.ValidEndpoint? {
+        if (!hasEnrollmentBinding() || fleetToken() == null) return null
+        return enabledEndpoint()
+    }
+
+    /** Fleet authorization baked into BuildConfig. It never identifies the uploading person. */
+    fun fleetToken(): String? = bundleToken.takeIf { PushEnrollmentCredential.isValidFleetToken(it) }
 
     /** Stable, non-secret receiver namespace. Generated only after the worker's stale-work gates pass. */
     @Synchronized
     fun sourceId(): String {
-        prefs.getString(KEY_SOURCE_ID, null)?.let { existing ->
-            runCatching { UUID.fromString(existing) }.getOrNull()?.let { return it.toString() }
-        }
+        sourceIdOrNull()?.let { return it }
         val generated = UUID.randomUUID().toString()
         check(prefs.edit().putString(KEY_SOURCE_ID, generated).commit()) { "Could not persist push source id" }
         return generated
     }
+
+    private fun sourceIdOrNull(): String? = prefs.getString(KEY_SOURCE_ID, null)?.let { existing ->
+        runCatching { UUID.fromString(existing) }.getOrNull()?.toString()?.takeIf { it == existing }
+    }
+
+    internal fun enrolledSourceId(): String? {
+        val sourceId = sourceIdOrNull() ?: return null
+        return sourceId.takeIf { prefs.getString(KEY_ENROLLMENT_SOURCE_ID, null) == sourceId }
+    }
+
+    internal fun recordEnrollmentBinding(credential: PushEnrollmentCredential) {
+        require(credential.sourceId == sourceId()) { "enrollment source mismatch" }
+        check(
+            prefs.edit()
+                .putString(KEY_ENROLLMENT_SOURCE_ID, credential.sourceId)
+                .commit(),
+        ) { "Could not persist enrollment binding" }
+    }
+
+    internal fun clearEnrollmentBinding() {
+        check(
+            prefs.edit()
+                .remove(KEY_ENROLLMENT_SOURCE_ID)
+                .commit(),
+        ) { "Could not clear enrollment binding" }
+    }
+
+    private fun hasEnrollmentBinding(): Boolean = enrolledSourceId() != null
 
     fun setEnabled(enabled: Boolean): Boolean = synchronized(statusLock) {
         if (enabled && !snapshot().copy(enabled = true).ready) return@synchronized false
@@ -106,13 +141,14 @@ class SelfHostedPushSettings private constructor(
     }
 
     fun progressNamespace(
+        userId: String,
         sourceId: String,
         endpoint: PushEndpointPolicy.ValidEndpoint,
         protocolVersion: String = PushProtocol.VERSION,
         receiverStateId: String = PushCapabilities.UNSCOPED_RECEIVER_STATE_ID,
     ): String =
         MessageDigest.getInstance("SHA-256").digest(
-            "$sourceId\u0000${endpoint.url}\u0000$protocolVersion\u0000$receiverStateId".toByteArray(),
+            "$userId\u0000$sourceId\u0000${endpoint.url}\u0000$protocolVersion\u0000$receiverStateId".toByteArray(),
         )
             .take(12).joinToString("") { "%02x".format(it) }
 
@@ -256,6 +292,7 @@ class SelfHostedPushSettings private constructor(
         private const val DEFAULT_BINARY_OBJECTS = true
         private const val KEY_WIFI_ONLY = "wifi_only"
         private const val KEY_SOURCE_ID = "source_id"
+        private const val KEY_ENROLLMENT_SOURCE_ID = "enrollment_source_id"
         private const val KEY_LAST_SUCCESS = "last_success_at"
         private const val KEY_LAST_ERROR = "last_error"
         private const val KEY_RUN_STATE = "run_state"
@@ -274,11 +311,12 @@ class SelfHostedPushSettings private constructor(
         private const val MAX_STATUS_CHARS = 300
         private val statusLock = Any()
 
-        fun from(context: Context) = SelfHostedPushSettings(
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE),
-            BuildConfig.NOOP_PUSH_ENDPOINT.trim(),
-            BuildConfig.NOOP_PUSH_TOKEN.trim(),
-        )
+        fun from(context: Context): SelfHostedPushSettings {
+            val app = context.applicationContext
+            val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            EnrollmentDataScope.installationSource(app, prefs)
+            return SelfHostedPushSettings(prefs, BuildConfig.NOOP_PUSH_ENDPOINT.trim(), BuildConfig.NOOP_PUSH_TOKEN.trim())
+        }
 
         internal fun forTest(
             prefs: SharedPreferences,

@@ -58,5 +58,6 @@ object ServerScoringSettings {
         BuildConfig.NOOP_SUPABASE_ANON_KEY.trim().takeIf { it.isNotEmpty() }
 
     fun ready(context: Context): Boolean =
-        isEnabled(context) && supabaseProjectUrl() != null && anonKey() != null
+        isEnabled(context) && supabaseProjectUrl() != null &&
+            SelfHostedPushSettings.from(context).fleetToken() != null && EnrollmentDataScope.credential(context) != null
 }

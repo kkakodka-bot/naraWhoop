@@ -17,11 +17,14 @@ class ServerScoreRepository(
     private val appContext: Context,
     private val scope: CoroutineScope,
 ) {
-    private val cacheStore = ServerScoreCacheStore(appContext)
+    private fun cacheStore(identity: String?) = ServerScoreCacheStore(appContext.getSharedPreferences(
+        "noop_enrolled_scores_" + EnrollmentDataScope.digest(identity.orEmpty()), Context.MODE_PRIVATE))
     private val session = ServerScoreSessionState()
     private val visibleDays = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private var pollingDay: String? = null
-    private fun currentOwnerId() = CloudAuthClient.storedSession(appContext)?.userId?.lowercase()
+    private fun currentOwnerId() = EnrollmentDataScope.credential(appContext)?.userId
+    private fun currentIdentityKey() = ServerScoreClient.requestIdentity(appContext)
+    private var activeIdentityKey: String? = currentIdentityKey()
     private var pollJob: Job? = null
 
     private val _enabled = MutableStateFlow(ServerScoringSettings.isEnabled(appContext))
@@ -46,7 +49,7 @@ class ServerScoreRepository(
     private val _lastFetchedAtMs = MutableStateFlow<Long?>(null)
     val lastFetchedAtMs: StateFlow<Long?> = _lastFetchedAtMs.asStateFlow()
 
-    private val _signedIn = MutableStateFlow(CloudAuthClient.storedSession(appContext) != null)
+    private val _signedIn = MutableStateFlow(currentOwnerId() != null)
     val signedIn: StateFlow<Boolean> = _signedIn.asStateFlow()
 
     init {
@@ -61,35 +64,8 @@ class ServerScoreRepository(
         return session.overlay(day, currentOwnerId())
     }
 
-    suspend fun signIn(email: String, password: String) {
-        stopPolling()
-        CloudAuthClient.clearSession(appContext)
-        session.activate(null)
-        _signedIn.value = false
-        _lastFetchedAtMs.value = null
-        _sleepEditMessage.value = null
-        val attempt = session.generation()
-        runCatching {
-            CloudAuthClient.signIn(appContext, email, password)
-            if (attempt != session.generation()) return
-            session.activate(currentOwnerId())
-            _signedIn.value = true
-            _lastError.value = null
-            preloadRecentDays()
-            val today = pollingDay ?: java.time.LocalDate.now().toString()
-            if (visibleDays.isEmpty()) visibleDays.add(today)
-            for (day in visibleDays.sorted()) refreshDay(day)
-            startPolling(today)
-        }.onFailure {
-            if (it is CancellationException) throw it
-            if (attempt != session.generation()) return
-            _signedIn.value = false
-            _lastError.value = "Sign-in failed"
-        }
-    }
-
     fun signOut() {
-        CloudAuthClient.clearSession(appContext)
+        PushEnrollmentManager.from(appContext).clear()
         _signedIn.value = false
         stopPolling()
         session.activate(null)
@@ -100,6 +76,7 @@ class ServerScoreRepository(
 
     fun startPolling(todayKey: String) {
         pollingDay = todayKey
+        synchronizeOwner()
         if (!ServerScoringSettings.ready(appContext) || !_signedIn.value) return
         stopPolling()
         pollJob = scope.launch {
@@ -129,6 +106,7 @@ class ServerScoreRepository(
         try {
             ServerScoreClient.saveSleepOverride(appContext,target,start,end,tombstone)
             currentCoroutineContext().ensureActive()
+            synchronizeOwner()
             if(!session.isCurrentRequest(key,generation,currentOwnerId(),request)) return false
             _sleepEditMessage.value=if(tombstone) "Sleep deleted. Server recomputation queued." else "Sleep boundaries saved. Server recomputation queued."
             refreshDay(target.day)
@@ -139,9 +117,9 @@ class ServerScoreRepository(
             if(!session.isCurrentRequest(key,generation,currentOwnerId(),request)) return false
             when(error) {
                 is ServerScoreClient.Unauthorized -> {
-                    if(!CloudAuthClient.clearSessionIfCurrent(appContext,error.accessToken,target.ownerId)) return false
+                    if(!clearCredentialIfCurrent(error.accessToken,target.ownerId)) return false
                     synchronizeOwner()
-                    _lastError.value="Session expired — sign in again"
+                    _lastError.value="Enrollment expired — enter a fresh code"
                 }
                 is ServerScoreClient.Conflict -> {
                     refreshDay(target.day)
@@ -159,15 +137,18 @@ class ServerScoreRepository(
         if (!ServerScoringSettings.ready(appContext) || !_signedIn.value) return
         visibleDays.add(day)
         val owner = session.ownerId() ?: return
+        val identity = activeIdentityKey ?: return
+        val store = cacheStore(identity)
         val generation = session.generation()
         val request = session.beginRequest(day)
         runCatching {
             val cache = ServerScoreClient.fetchDaySnapshot(appContext, day, owner)
             currentCoroutineContext().ensureActive()
+            synchronizeOwner()
             if (!session.accept(cache, generation, currentOwnerId(), request)) return
             ServerScoringSettings.markOverlayLive(ServerScoringSettings.prefs(appContext),
                 ServerScoringSettings.overlayIsLive(cache))
-            cacheStore.upsert(cache)
+            store.upsert(cache)
             _lastFetchedAtMs.value = cache.fetchedAtMs
             _lastError.value = null
         }.onFailure { err ->
@@ -175,32 +156,49 @@ class ServerScoreRepository(
             synchronizeOwner()
             if (!session.isCurrentRequest(day, generation, currentOwnerId(), request)) return
             if (err is ServerScoreClient.Unauthorized) {
-                if (!CloudAuthClient.clearSessionIfCurrent(appContext, err.accessToken, owner)) return
+                if (!clearCredentialIfCurrent(err.accessToken, owner)) return
                 _signedIn.value = false
                 session.activate(null)
-                _lastError.value = "Session expired — sign in again"
+                _lastError.value = "Enrollment expired — enter a fresh code"
             } else {
                 _lastError.value = "Server scores unavailable"
-                cacheStore.load(owner, day)?.let { session.accept(it, generation, currentOwnerId(), request) }
+                store.load(owner, day)?.let { session.accept(it, generation, currentOwnerId(), request) }
             }
         }
     }
 
     private fun preloadRecentDays() {
         val owner = session.ownerId() ?: return
+        val identity = activeIdentityKey ?: return
+        val store = cacheStore(identity)
         val cal = java.util.Calendar.getInstance()
         val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
         repeat(14) { offset ->
             cal.timeInMillis = System.currentTimeMillis()
             cal.add(java.util.Calendar.DAY_OF_YEAR, -offset)
             val key = fmt.format(cal.time)
-            cacheStore.load(owner, key)?.let { session.accept(it, session.generation(), currentOwnerId()) }
+            if (identity == currentIdentityKey()) store.load(owner, key)?.let { session.accept(it, session.generation(), currentOwnerId()) }
         }
+    }
+
+    private fun clearCredentialIfCurrent(token: String, owner: String): Boolean {
+        val current = EnrollmentDataScope.credential(appContext) ?: return false
+        if (current.userId != owner || current.uploadToken != token) return false
+        val store = PushEnrollmentStore.from(appContext)
+        val settings = SelfHostedPushSettings.from(appContext)
+        synchronized(store) {
+            if (!store.clearIfCurrent(current)) return false
+            settings.clearEnrollmentBinding()
+        }
+        SelfHostedPushScheduler.credentialChanged(appContext)
+        return true
     }
 
     private fun synchronizeOwner() {
         val current = currentOwnerId()
-        if (session.ownerId() == current) return
+        val identity = currentIdentityKey()
+        if (session.ownerId() == current && activeIdentityKey == identity) return
+        activeIdentityKey = identity
         stopPolling()
         session.activate(current)
         _signedIn.value = current != null

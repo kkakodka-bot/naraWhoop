@@ -12,6 +12,9 @@ export interface PushFunctionConfig {
   b2S3Endpoint: string;
   b2Region: string;
   rawStore: string;
+  enrollmentPepper: string;
+  enrollmentRetryWindowSeconds: number;
+  allowLegacyFleetUploads: boolean;
 }
 
 export function pushConfig(env: Record<string, string | undefined> = Deno.env.toObject()): PushFunctionConfig {
@@ -29,6 +32,10 @@ export function pushConfig(env: Record<string, string | undefined> = Deno.env.to
   };
   const b2KeyId = pick('B2_KEY_ID', 'KEY_ID');
   const b2Ready = Boolean(b2KeyId && pick('B2_APPLICATION_KEY', 'APPLICATION_KEY'));
+  const retryWindowCandidate = Number(pick('NOOP_ENROLLMENT_RETRY_WINDOW_SECONDS') || 300);
+  const enrollmentRetryWindowSeconds = Number.isFinite(retryWindowCandidate)
+    ? Math.max(1, Math.min(900, Math.trunc(retryWindowCandidate)))
+    : 300;
   return {
     supabaseUrl: pick('SUPABASE_URL', 'PROJECT_URL').replace(/\/$/, ''),
     supabaseAnonKey: pick('SUPABASE_ANON_KEY', 'ANNON_KEY'),
@@ -39,6 +46,9 @@ export function pushConfig(env: Record<string, string | undefined> = Deno.env.to
     b2S3Endpoint: withHttps(pick('B2_S3_ENDPOINT')),
     b2Region: pick('B2_REGION', 'B2_S3_REGION') || 'us-west-004',
     rawStore: (pick('RAW_STORE') || (b2Ready ? 'b2' : 'none')).toLowerCase(),
+    enrollmentPepper: pick('NOOP_ENROLLMENT_PEPPER'),
+    enrollmentRetryWindowSeconds,
+    allowLegacyFleetUploads: pick('NOOP_ALLOW_LEGACY_FLEET_UPLOADS').toLowerCase() === 'true',
   };
 }
 

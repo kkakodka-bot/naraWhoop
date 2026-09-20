@@ -46,13 +46,14 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
                 guard auth.owner == owner else { return false }
                 auth.owner = nil
                 return true
-            }, signIn: { owner, _ in auth.owner = owner }, fetch: fetch,
-            enabled: { true }, ready: { true }, automaticPolling: false)
+            }, signIn: { owner, _ in auth.owner = owner }, fetch: { day, owner, _ in try await fetch(day, owner) },
+            enabled: { true }, ready: { true }, automaticPolling: false,
+            canonicalDeviceId: { _, _ in "device" })
     }
-    private func snapshot(_ owner: String, revision: Int = 1) throws -> ServerScoreDayCache {
+    private func snapshot(_ owner: String, revision: Int = 1, device: String = "device") throws -> ServerScoreDayCache {
         let data = try JSONSerialization.data(withJSONObject: ["server_scoring": [
             "schema_version": 2, "user_id": owner, "day": day, "algorithm_version": "per_feature",
-            "features": ["sleep": ["status": "available", "device_id": "device", "algorithm_version": "frwhoop-server-1",
+            "features": ["sleep": ["status": "available", "device_id": device, "algorithm_version": "frwhoop-server-1",
                 "input_revision": revision, "required_revision": revision]],
             "daily": ["sleep_total_min": 480], "nights": [], "stale": false
         ]])
@@ -67,7 +68,7 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
         let repo = ServerScoreRepository(dependencies: dependencies(auth) { _, _ in
             entered.fulfill(); await gate.wait(); return response
         })
-        let store = try await WhoopStore.inMemory(); repo.wire(store: store)
+        let store = try await WhoopStore.inMemory(); repo.selectDevice(localDeviceId: "strap-a"); repo.wire(store: store)
         let pending = Task { await repo.refreshVisibleDays(todayKey: day) }
         await fulfillment(of: [entered], timeout: 2)
         repo.signOut()
@@ -88,7 +89,7 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
             }
             return next
         })
-        let store = try await WhoopStore.inMemory(); repo.wire(store: store)
+        let store = try await WhoopStore.inMemory(); repo.selectDevice(localDeviceId: "strap-a"); repo.wire(store: store)
         let pending = Task { await repo.refreshVisibleDays(todayKey: day) }
         await fulfillment(of: [entered], timeout: 2)
         await repo.signIn(email: ownerB, password: "unused")
@@ -110,7 +111,7 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
             }
             return next
         })
-        let store = try await WhoopStore.inMemory(); repo.wire(store: store)
+        let store = try await WhoopStore.inMemory(); repo.selectDevice(localDeviceId: "strap-a"); repo.wire(store: store)
         let pending = Task { await repo.refreshVisibleDays(todayKey: day) }
         await fulfillment(of: [entered], timeout: 2)
         await repo.signIn(email: ownerB, password: "unused")
@@ -131,7 +132,7 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
             if requests == 1 { entered.fulfill(); await gate.wait(); return old }
             return newest
         })
-        let store = try await WhoopStore.inMemory(); repo.wire(store: store)
+        let store = try await WhoopStore.inMemory(); repo.selectDevice(localDeviceId: "strap-a"); repo.wire(store: store)
         let pending = Task { await repo.refreshVisibleDays(todayKey: day) }
         await fulfillment(of: [entered], timeout: 2)
         await repo.refreshVisibleDays(todayKey: day)
@@ -148,7 +149,7 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
             if offline { throw URLError(.notConnectedToInternet) }
             return prior
         })
-        let store = try await WhoopStore.inMemory(); repo.wire(store: store)
+        let store = try await WhoopStore.inMemory(); repo.selectDevice(localDeviceId: "strap-a"); repo.wire(store: store)
         await repo.refreshVisibleDays(todayKey: day)
         XCTAssertEqual(repo.overlay(for: day)?.ownerId, ownerA)
         offline = true
@@ -157,5 +158,112 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
         XCTAssertEqual(repo.lastError, "Server scores unavailable")
         XCTAssertNotNil(try ServerScoreCacheStore(db: store.registryWriter).load(ownerId: ownerA, day: day))
         XCTAssertNil(try ServerScoreCacheStore(db: store.registryWriter).load(ownerId: ownerB, day: day))
+    }
+
+    func testDeviceSwitchFencesDelayedResponseAndRequiresFreshDeviceResult() async throws {
+        let auth = Auth(ownerA), gate = Gate()
+        let response = try snapshot(ownerA)
+        let entered = expectation(description: "old device fetch started")
+        var arguments: [String] = []
+        var dependencies = dependencies(auth) { _, _ in response }
+        dependencies.canonicalDeviceId = { _, _ in nil }
+        dependencies.fetch = { _, _, device in
+            arguments.append(device)
+            if device == "strap-a" { entered.fulfill(); await gate.wait() }
+            return response
+        }
+        let repo = ServerScoreRepository(dependencies: dependencies)
+        let store = try await WhoopStore.inMemory()
+        repo.selectDevice(localDeviceId: "strap-a"); repo.wire(store: store)
+        let pending = Task { await repo.refreshVisibleDays(todayKey: day) }
+        await fulfillment(of: [entered], timeout: 2)
+        repo.selectDevice(localDeviceId: "strap-b")
+        XCTAssertNil(repo.overlay(for: day)); XCTAssertFalse(repo.deviceLinked)
+        await gate.open(); await pending.value
+        XCTAssertNil(repo.overlay(for: day)); XCTAssertFalse(repo.deviceLinked)
+        XCTAssertNil(try ServerScoreCacheStore(db: store.registryWriter).load(ownerId: ownerA, day: day))
+        await repo.refreshVisibleDays(todayKey: day)
+        XCTAssertEqual(arguments, ["strap-a", "strap-b"])
+        XCTAssertNotNil(repo.overlay(for: day)); XCTAssertTrue(repo.deviceLinked)
+    }
+
+    func testCachedDifferentDeviceIsNotShownAfterSelection() async throws {
+        let auth = Auth(ownerA)
+        var dependencies = dependencies(auth) { _, _ in throw URLError(.notConnectedToInternet) }
+        dependencies.canonicalDeviceId = { _, local in local == "strap-a" ? "device" : "different-device" }
+        let repo = ServerScoreRepository(dependencies: dependencies)
+        let store = try await WhoopStore.inMemory()
+        try ServerScoreCacheStore(db: store.registryWriter).upsert(snapshot(ownerA))
+        repo.selectDevice(localDeviceId: "strap-b"); repo.wire(store: store)
+        await repo.refreshVisibleDays(todayKey: day)
+        XCTAssertNil(repo.overlay(for: day))
+        XCTAssertNotNil(try ServerScoreCacheStore(db: store.registryWriter).load(ownerId: ownerA, day: day))
+    }
+
+    func testOfflineSwitchBackRestoresSelectedStrapDespiteNewerOtherStrapCache() async throws {
+        let auth = Auth(ownerA)
+        let first = try snapshot(ownerA, revision: 1, device: "device-a")
+        let second = try snapshot(ownerA, revision: 2, device: "device-b")
+        var offline = false
+        var dependencies = dependencies(auth) { _, _ in first }
+        dependencies.canonicalDeviceId = { _, local in local == "strap-a" ? "device-a" : "device-b" }
+        dependencies.fetch = { _, _, local in
+            if offline { throw URLError(.notConnectedToInternet) }
+            return local == "strap-a" ? first : second
+        }
+        let repo = ServerScoreRepository(dependencies: dependencies)
+        let store = try await WhoopStore.inMemory()
+        repo.selectDevice(localDeviceId: "strap-a"); repo.wire(store: store)
+        await repo.refreshVisibleDays(todayKey: day)
+        XCTAssertEqual(repo.overlay(for: day)?.features["sleep"]?.deviceId, "device-a")
+        repo.selectDevice(localDeviceId: "strap-b")
+        await repo.refreshVisibleDays(todayKey: day)
+        XCTAssertEqual(repo.overlay(for: day)?.features["sleep"]?.deviceId, "device-b")
+
+        offline = true
+        repo.selectDevice(localDeviceId: "strap-a")
+        await repo.refreshVisibleDays(todayKey: day)
+        XCTAssertEqual(repo.overlay(for: day), first)
+        XCTAssertEqual(repo.lastError, "Server scores unavailable")
+        XCTAssertEqual(try ServerScoreCacheStore(db: store.registryWriter)
+            .load(ownerId: ownerA, day: day)?.features["sleep"]?.deviceId, "device-b")
+    }
+
+    func testPersistedRegistrationReceiptKeepsSameStrapLinkedOfflineWithoutScores() async throws {
+        let auth = Auth(ownerA)
+        var dependencies = dependencies(auth) { _, _ in throw URLError(.notConnectedToInternet) }
+        dependencies.canonicalDeviceId = { owner, local in
+            owner == self.ownerA && local == "strap-a" ? "device-a" : nil
+        }
+        let repo = ServerScoreRepository(dependencies: dependencies)
+        let store = try await WhoopStore.inMemory()
+        repo.selectDevice(localDeviceId: "strap-a"); repo.wire(store: store)
+        XCTAssertTrue(repo.deviceLinked)
+        await repo.refreshVisibleDays(todayKey: day)
+        XCTAssertTrue(repo.deviceLinked)
+        XCTAssertNil(repo.overlay(for: day))
+        repo.selectDevice(localDeviceId: "strap-b")
+        XCTAssertFalse(repo.deviceLinked)
+        repo.selectDevice(localDeviceId: "strap-a")
+        XCTAssertTrue(repo.deviceLinked)
+        auth.owner = ownerB
+        repo.enrollmentChanged()
+        XCTAssertFalse(repo.deviceLinked)
+    }
+
+    func testRegistrationAcknowledgedBeforeFailedScoreFetchStillLinksDevice() async throws {
+        let auth = Auth(ownerA)
+        var registered = false
+        var dependencies = dependencies(auth) { _, _ in
+            registered = true
+            throw URLError(.notConnectedToInternet)
+        }
+        dependencies.canonicalDeviceId = { _, _ in registered ? "device-a" : nil }
+        let repo = ServerScoreRepository(dependencies: dependencies)
+        repo.selectDevice(localDeviceId: "strap-a")
+        XCTAssertFalse(repo.deviceLinked)
+        await repo.refreshVisibleDays(todayKey: day)
+        XCTAssertTrue(repo.deviceLinked)
+        XCTAssertEqual(repo.lastError, "Server scores unavailable")
     }
 }

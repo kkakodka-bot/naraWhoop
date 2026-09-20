@@ -38,15 +38,22 @@ final class RawDataSessionStore: ObservableObject {
     @Published private(set) var sessions: [Session] = []
     var active: Session? { sessions.first(where: \.active) }
 
-    private let directory: URL
+    private let directoryOverride: URL?
+    private let directoryBase: URL
+    private var directory: URL {
+        let location = directoryOverride ?? directoryBase.appendingPathComponent(
+            CloudCaptureScope.component("OpenWhoop/RawDataSessions"), isDirectory: true)
+        try? FileManager.default.createDirectory(at: location, withIntermediateDirectories: true)
+        return location
+    }
     private let encoder: JSONEncoder
     private let decoder = JSONDecoder()
 
     init(directory override: URL? = nil, fileManager: FileManager = .default) {
         let base = (try? fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                          appropriateFor: nil, create: true)) ?? fileManager.temporaryDirectory
-        directory = override ?? base.appendingPathComponent("OpenWhoop/RawDataSessions", isDirectory: true)
-        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        directoryOverride = override
+        directoryBase = base
         encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         reload()

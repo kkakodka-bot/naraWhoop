@@ -464,6 +464,7 @@ class PushCoordinator(
         }
         if (!uploaded) {
             val intent = try {
+                requireCurrentDestination()
                 transport.createObjectIntent(manifest, lane)
             } catch (intentFailure: PushTransportException) {
                 if (intentFailure.failure.receiverCode != "object_id_conflict") {
@@ -471,6 +472,7 @@ class PushCoordinator(
                 }
                 manifest = manifest.replacingObjectId(PushProtocol.freshObjectId())
                 try {
+                    requireCurrentDestination()
                     transport.createObjectIntent(manifest, lane)
                 } catch (retry: PushTransportException) {
                     return objectLaneFailure(retry)
@@ -529,17 +531,20 @@ class PushCoordinator(
         var reuploaded = false
         while (true) {
             val ack = try {
+                requireCurrentDestination()
                 transport.completeObject(manifest.objectId, lane)
             } catch (completeFailure: PushTransportException) {
                 val code = completeFailure.failure.receiverCode
                 if (!reuploaded && (code == "size_mismatch" || code == "object_missing")) {
                     reuploaded = true
                     try {
+                        requireCurrentDestination()
                         val refreshed = transport.createObjectIntent(manifest, lane)
                         if (refreshed.duplicate) continue
                         if (refreshed.objectId != manifest.objectId) {
                             return rejected(PushFailure(PushFailureCode.ACK_INVALID))
                         }
+                        requireCurrentDestination()
                         transport.uploadObject(refreshed, batch.payload)
                         expectedKey = refreshed.objectKey
                     } catch (failure: PushTransportException) {
@@ -570,6 +575,12 @@ class PushCoordinator(
 
     private fun objectLaneFailure(error: PushTransportException): PushResult =
         rejected(error.failure)
+
+    private fun requireCurrentDestination() {
+        if (!destinationStillCurrent()) {
+            throw CancellationException("push destination changed")
+        }
+    }
 
     private suspend fun deliver(batch: PushBatch): PushResult {
         if (!destinationStillCurrent()) {

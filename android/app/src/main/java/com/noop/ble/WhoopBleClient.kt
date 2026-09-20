@@ -3064,23 +3064,19 @@ class WhoopBleClient(
      * acked, so an unrecognised firmware layout can't cost the user their only copy: the ack frees
      * the strap's records, and this archive is the only remaining copy until the layout is mapped.
      */
-    private val rawHistoryArchive = RawHistoryArchive(context)
+    private val rawHistoryArchive = RawHistoryArchive(context, { deviceId }, { lastDeviceAddress })
 
     init {
         seedLastSyncFromActiveStrap()
-        // Retro-decode (#151): when the decoder gains a historical layout (WHOOP 4.0 v25), re-run every
-        // archived undecodable frame through it and insert whatever now decodes — the only path by
-        // which already-acked, strap-freed history backfills after an update. Runs once per APP version
-        // (no manual decoder constant to forget to bump, #152); idempotent if it re-runs (offloaded rows
-        // dedupe by ts), and the gate holds on a failed insert so the records retry next launch. Mirrors
-        // the Swift BLEManager gate. (This client is a process singleton, so init runs once per process.)
+    }
+
+    /** Replay only after this physical strap has an established local destination. */
+    private fun replayRejectedHistory() {
+        val target = deviceId
+        if (lastDeviceAddress == null || !com.noop.push.EnrollmentDataScope.active(context)) return
         ioScope.launch {
-            val rows = rawHistoryArchive.replayIfNeeded(
-                repository, deviceId, com.noop.ui.AppChangelog.CURRENT_VERSION,
-            )
-            if (rows > 0) {
-                log("Backfill: retro-decoded $rows record(s) from the reject archive after an update.")
-            }
+            val rows = rawHistoryArchive.replayIfNeeded(repository, target, com.noop.ui.AppChangelog.CURRENT_VERSION)
+            if (rows > 0) log("Backfill: retro-decoded $rows record(s) from this device's reject archive.")
         }
     }
 
@@ -3833,6 +3829,7 @@ class WhoopBleClient(
 
     @SuppressLint("MissingPermission")
     private fun connectInternal(model: WhoopModel, userInitiated: Boolean) {
+        if (!com.noop.push.EnrollmentDataScope.active(context)) return
         // #1881: only the SYSTEM path is gated. This class already draws that line — `connect()` is the
         // user's explicit Connect button, `connectFromSystem()` is every automatic path — and the report's
         // complaint is only ever about NOOP acting on its own. Gating both would have made the Connect
@@ -3945,6 +3942,7 @@ class WhoopBleClient(
      * Gating here as well would block the user's explicit Connect.
      */
     private fun startScan(model: WhoopModel, allowFallback: Boolean) {
+        if (!com.noop.push.EnrollmentDataScope.active(context)) return
         // #1635: one advertisement line per SCAN, not per process. The question this answers is whether
         // a strap advertises differently in pairing mode, which is only visible by comparing a scan
         // before it was put into pairing mode against one after — so the latch has to reopen here.
@@ -4259,6 +4257,7 @@ class WhoopBleClient(
         if (id.isEmpty()) return
         deviceId = id
         backfiller.deviceId = id
+        replayRejectedHistory()
     }
 
     /**
@@ -4348,9 +4347,14 @@ class WhoopBleClient(
         val registry = (context.applicationContext as? com.noop.NoopApplication)?.deviceRegistry ?: return
         ioScope.launch {
             val rows = runCatching { registry.all() }.getOrNull() ?: return@launch
-            val resolved = SourceIdentity.resolve(addr, rows, deviceId) ?: return@launch
-            log("Attributing this link to $resolved — the strap that connected, not the active device (#1881)")
-            setActiveDeviceId(resolved)
+            if (!lastDeviceAddress.equals(addr, ignoreCase = true)) return@launch
+            val matched = rows.firstOrNull { it.peripheralId?.equals(addr, ignoreCase = true) == true && SourceIdentity.isWhoop(it) }
+                ?: return@launch
+            val resolved = SourceIdentity.resolve(addr, rows, deviceId)
+            if (resolved != null) {
+                log("Attributing this link to $resolved — the strap that connected, not the active device (#1881)")
+                setActiveDeviceId(resolved)
+            } else if (matched.id == deviceId) replayRejectedHistory()
         }
     }
 
@@ -6715,6 +6719,7 @@ class WhoopBleClient(
          */
         alreadyAuthorised: Boolean = false,
     ) {
+        if (!com.noop.push.EnrollmentDataScope.active(context)) return
         if (!alreadyAuthorised && !whoopConnectAllowed("connect-to-device")) return
         // Reset per-connection state (mirrors the Swift flags cleared on connect/disconnect).
         reset()
@@ -10083,6 +10088,7 @@ class WhoopBleClient(
      * `BLEManager.requestSync`, which recomputes inline the same way.
      */
     private fun requestSync(trigger: BackfillTrigger) {
+        if (!com.noop.push.EnrollmentDataScope.active(context)) return
         val s = _state.value
         if (!canRequestSync(s.connected, s.bonded, backfilling)) return
         val clockUntrusted = isFutureDatedNewest(strapNewestTs, System.currentTimeMillis() / 1000L)

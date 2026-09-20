@@ -183,6 +183,8 @@ export function makeMemRest() {
         if (daym?.[1]) rows = rows.filter((r) => r.period_day === daym[1]);
         const uidm = /(?:^|&)user_id=eq\.([^&]+)/.exec(query);
         if (uidm?.[1]) rows = rows.filter((r) => r.user_id === uidm[1]);
+        const batchm = /(?:^|&)batch_id=eq\.([^&]+)/.exec(query);
+        if (batchm?.[1]) rows = rows.filter((r) => r.batch_id === batchm[1]);
         return rows;
       }
       return rowsFor(table);

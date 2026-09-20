@@ -1,17 +1,13 @@
 import Foundation
 import WhoopStore
 
-/// Hosted score identity for the owner's fleet: a GoTrue session *or* the baked ingest token.
+/// Cloud identity is the personal enrollment. A build credential never identifies a person.
 enum CloudScoreIdentity {
     private static let ownerKey = "noop.serverScoring.ingestOwnerId"
     private static let overlayLiveKey = "noop.serverScoring.overlayLive"
 
     static func storedOwnerId() -> String? {
-        if let jwt = CloudAuthClient.storedSession()?.userId, !jwt.isEmpty { return jwt }
-        let ingest = UserDefaults.standard.string(forKey: ownerKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let ingest, UUID(uuidString: ingest) != nil else { return nil }
-        return ingest
+        CloudEnrollment.currentCredential()?.userId
     }
 
     static func rememberOwner(_ id: String) {
@@ -39,6 +35,6 @@ enum CloudScoreIdentity {
     }
 
     static var hasIngestToken: Bool {
-        CloudPushSettings.resolvedToken() != nil
+        CloudEnrollment.currentCredential() != nil
     }
 }

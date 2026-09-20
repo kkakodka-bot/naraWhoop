@@ -55,12 +55,14 @@ class NoopApplication : Application() {
         // Install before any app-owned startup work so even an early failure is preserved for the
         // recovery screen on the next launch.
         CrashCapture.install(this)
+        runCatching { com.noop.push.EnrollmentDataScope.initialize(this) }
         // #1008: pin the pre-change Overnight-only default for existing installs before anything
         // reads it. Idempotent; a no-op on fresh installs and on every launch after the first.
         com.noop.ui.NoopPrefs.migrateContinuousHrvOvernightDefault(this)
         // Productive history inserts mark syncJob in the same Room transaction before the strap ACK.
         // Re-open the process-level BLE owner only when debt survived a prior process, then drain it.
         applicationScope.launch {
+            if (!com.noop.push.EnrollmentDataScope.active(this@NoopApplication)) return@launch
             if (runCatching { repository.hasOwedSyncJobs() }.getOrDefault(false)) {
                 ble.resumeOwedPostBackfillWork()
             }

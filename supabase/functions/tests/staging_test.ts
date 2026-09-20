@@ -195,7 +195,7 @@ Deno.test('ingest: a newer generation repairs a complete unacknowledged generati
     upsertRows: async (_table, rows) => { projected.push(rows as any[]); },
     deleteRows: async () => {},
   });
-  const ack = await ingest.acceptBatch({ userId: USER, decodedBody: body });
+  const ack = await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body });
   assert.equal(ack.status, 'accepted');
   assert.deepEqual(projected.map((rows) => rows.map((row) => row.day)),
     [['2026-09-01', '2026-09-02'], ['2026-09-01']]);
@@ -244,7 +244,7 @@ Deno.test('ingest: an acknowledged first part completes after a receiver upgrade
     upsertRows: async (_table, rows) => { projected.push(rows as any[]); },
     deleteRows: async () => {},
   });
-  await ingest.acceptBatch({ userId: USER, decodedBody: body });
+  await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body });
   assert.equal(acknowledged, true);
   assert.deepEqual(projected[0].map((row) => row.day), ['2026-09-01', '2026-09-02']);
   assert.equal(rest.rows.size, 0);

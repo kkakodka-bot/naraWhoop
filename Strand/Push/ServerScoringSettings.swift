@@ -46,7 +46,7 @@ enum ServerScoringSettings {
 
     /// Supabase project base URL derived from the fleet push endpoint.
     static func supabaseProjectURL() -> URL? {
-        guard let endpoint = CloudPushSettings.enabledEndpoint()?.url else { return nil }
+        guard let endpoint = CloudPushSettings.configuredEndpoint()?.url else { return nil }
         let trimmed = endpoint.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard trimmed.hasSuffix("/functions/v1/push") else { return nil }
         let base = String(trimmed.dropLast("/functions/v1/push".count))

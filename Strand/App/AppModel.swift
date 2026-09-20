@@ -221,6 +221,7 @@ final class AppModel: ObservableObject {
     private var smartAlarmRearmTimer: Timer?
 
     init() {
+        _ = CloudCaptureScope.processOwnerId
         let live = LiveState()
         self.live = live
         // SEED every subsystem with the same id (`deviceId`, "my-whoop" at launch). The store/registry
@@ -421,6 +422,7 @@ final class AppModel: ObservableObject {
             await self.wireSourceCoordinator()                 // dormant unless a generic strap is active
             if let store = await self.repo.storeHandle() {
                 self.serverScores.wire(store: store)
+                self.serverScores.selectDevice(localDeviceId: self.repo.deviceId)
                 if ServerScoringSettings.isEnabled, let day = self.repo.today?.day {
                     self.serverScores.startPolling(todayKey: day)
                 }
@@ -569,6 +571,7 @@ final class AppModel: ObservableObject {
 
     private func wireSourceCoordinator() async {
         guard sourceCoordinator == nil, let store = await repo.storeHandle() else { return }
+        guard sourceCoordinator == nil else { return }
         let registry = DeviceRegistry(store: DeviceRegistryStore(dbQueue: store.registryWriter))
         registry.reload()
         let coordinator = SourceCoordinator(
@@ -633,8 +636,25 @@ final class AppModel: ObservableObject {
     /// already resolves the active strap per day via the registry's own active id (`resolveDayOwner`), so it
     /// reads + scores the re-added strap's raw and writes the computed result to the STABLE canonical
     /// `-noop` sibling, no engine re-point needed.
+    func activateCloudCollection() async {
+        guard CloudCaptureScope.ready, CloudPushSettings.termsAccepted else { return }
+        RawDataSessionStore.shared.reload()
+        await ble.bootstrapStore()
+        await wireSourceCoordinator()
+        guard let store = await repo.storeHandle() else { return }
+        serverScores.wire(store: store)
+        if let active = deviceRegistry?.activeDeviceId {
+            _ = repo.adoptActiveDeviceId(active)
+        }
+        serverScores.selectDevice(localDeviceId: repo.deviceId)
+        serverScores.startPolling(todayKey: Repository.dayString(Date()))
+        await repo.refresh()
+        ble.connectFromSystem()
+    }
+
     private func adoptActiveDevice(_ activeId: String) async {
         let trimmed = activeId.trimmingCharacters(in: .whitespaces)
+        serverScores.selectDevice(localDeviceId: trimmed)
         let repoMoved = repo.adoptActiveDeviceId(trimmed)
         guard repoMoved else { return }
         live.append(log: "Read spine re-pointed to active device after registry change (#814).")

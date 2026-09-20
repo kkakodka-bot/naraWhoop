@@ -31,6 +31,7 @@ public struct OnboardingWizard: View {
 
     @State private var step: Step = .welcome
     @State private var setupReady = false
+    @State private var cloudLinkIssue = false
     @State private var connectionBusy = false
     @State private var glow = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -152,6 +153,11 @@ public struct OnboardingWizard: View {
     @ViewBuilder
     private var bottomBar: some View {
         VStack(spacing: 28) {
+            if cloudLinkIssue {
+                Text("The server has not confirmed this strap yet. Stay online, then tap Enter NARA again.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.statusWarning)
+            }
             ThreadProgress(progress: progress)
                 .frame(height: 3)
                 .frame(maxWidth: 620)
@@ -199,6 +205,11 @@ public struct OnboardingWizard: View {
     private func primaryAction() {
         if step.isLast {
             guard setupReady else { return }
+            guard model.serverScores.deviceLinked else {
+                cloudLinkIssue = true
+                Task { await model.serverScores.refreshVisibleDays() }
+                return
+            }
             guard model.ble.onboardingSetup.finish() else {
                 setupReady = false
                 step = .scan
@@ -269,11 +280,11 @@ private struct WelcomeStep: View {
                 BrandMark(size: 120)
                     .scaleEffect(appear ? 1 : 0.92)
                     .opacity(appear ? 1 : 0)
-                Text("all your data, none of the cloud")
+                Text("your strap, your NARA account")
                     .font(StrandFont.title2)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .opacity(appear ? 1 : 0)
-                Text("A private window into your recovery, sleep and strain. Read straight from your strap, kept only on \(Platform.deviceNounPhrase).")
+                Text("Readings from your strap sync to your NARA account for cloud analysis of recovery, sleep and strain.")
                     .font(StrandFont.body)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .multilineTextAlignment(.center)
@@ -308,8 +319,8 @@ private struct WhatItDoesStep: View {
               body: String(localized: "Connect a WHOOP, a heart-rate strap or a gym machine and watch each beat in real time: heart rate, variability and zones as they happen. Already have history elsewhere? Import it from WHOOP, Apple Health, Oura, Fitbit or Garmin.")),
         .init(icon: "lock.shield",
               tint: StrandPalette.statusPositive,
-              title: String(localized: "Own your data, offline"),
-              body: String(localized: "Everything lives on \(Platform.deviceNounPhrase). No account, no sync, no cloud. Your thread is yours alone.")),
+              title: String(localized: "Keep your readings with your account"),
+              body: String(localized: "Your phone collects readings over Bluetooth and uploads them to your NARA account. Server results return to the same account.")),
     ]
 
     var body: some View {
@@ -462,8 +473,8 @@ private struct BluetoothStep: View {
                 InfoCard(
                     icon: "lock.fill",
                     tint: StrandPalette.statusPositive,
-                    title: String(localized: "Nothing leaves your \(Platform.deviceNoun)"),
-                    message: String(localized: "NARA talks to your strap directly over Bluetooth Low Energy. There's no server in the middle. The connection is local, and so is every reading it pulls in.")
+                    title: String(localized: "Bluetooth collection, cloud analysis"),
+                    message: String(localized: "NARA reads your strap over Bluetooth, buffers readings on this device, and uploads them to your account when a permitted network is available.")
                 )
 
                 Text("When the system prompt appears, choose Allow so NARA can find your strap.")
@@ -998,7 +1009,7 @@ private struct NotificationsStep: View {
 
                 VStack(spacing: 12) {
                     Checkline(text: String(localized: "Strain nudges and your smart alarm tap your wrist the moment they fire."))
-                    Checkline(text: String(localized: "It all stays on your strap and \(Platform.deviceNounPhrase): no account, no cloud."))
+                    Checkline(text: String(localized: "Wrist alerts use the Bluetooth connection between this device and your strap."))
                 }
                 .frame(maxWidth: 460)
                 #else

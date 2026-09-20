@@ -14,53 +14,96 @@ object ServerScoreClient {
     class Unauthorized(val accessToken: String) : IllegalStateException("unauthorized")
     class Conflict : IllegalStateException("override revision changed")
 
-    suspend fun saveSleepOverride(context: Context,target: ServerSleepEditTarget,start: Long,end: Long,tombstone: Boolean): Long =
+    internal fun localDeviceId(context: Context): String {
+        val app = context.applicationContext as com.noop.NoopApplication
+        return app.sourceCoordinator.activeDeviceId.value ?: app.activeDeviceId
+    }
+
+    internal fun requestIdentity(context: Context): String? = EnrollmentDataScope.credential(context)?.let {
+        "${it.userId}:${it.sourceId}:${it.tokenId}:${localDeviceId(context)}"
+    }
+
+    suspend fun saveSleepOverride(context: Context, target: ServerSleepEditTarget, start: Long, end: Long, tombstone: Boolean): Long =
         withContext(Dispatchers.IO) {
-            val arguments=target.rpcArguments(start,end,tombstone)
-            val base=ServerScoringSettings.supabaseProjectUrl() ?: error("not configured")
-            val anon=ServerScoringSettings.anonKey() ?: error("not configured")
-            val token=CloudAuthClient.validAccessToken(context)
-            check(CloudAuthClient.storedSession(context)?.userId?.lowercase()==target.ownerId.lowercase()) { "session changed" }
-            currentCoroutineContext().ensureActive()
-            val conn=(URL("$base/rest/v1/rpc/${target.rpcName}").openConnection() as HttpURLConnection).apply {
-                requestMethod="POST"; connectTimeout=15_000; readTimeout=30_000; doOutput=true
-                setRequestProperty("Content-Type","application/json"); setRequestProperty("apikey",anon)
-                setRequestProperty("Authorization","Bearer $token")
-            }
-            try {
-                conn.outputStream.use { it.write(arguments.toString().toByteArray()) }
-                val code=conn.responseCode
-                if(code==401 || code==403) throw Unauthorized(token)
-                val body=(if(code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
-                currentCoroutineContext().ensureActive()
-                if(code==409 || runCatching { JSONObject(body).optString("code") }.getOrNull()=="40001") throw Conflict()
-                check(code==200) { "boundary update failed" }
-                body.trim().toLong().also { check(it>target.expectedRevision) { "invalid override revision" } }
-            } finally { conn.disconnect() }
+            val credential = EnrollmentDataScope.credential(context) ?: error("enrollment required")
+            check(credential.userId == target.ownerId) { "account changed" }
+            val payload = JSONObject().put("deviceId", localDeviceId(context))
+                .put("arguments", target.rpcArguments(start, end, tombstone))
+            enrolledRequest(context, credential, "/sleep-overrides", payload).trim().toLong()
+                .also { check(it > target.expectedRevision) { "invalid override revision" } }
         }
+
+    suspend fun registerCurrentDevice(context: Context): String = withContext(Dispatchers.IO) {
+        val credential = EnrollmentDataScope.credential(context) ?: error("enrollment required")
+        val identity = DeviceLinkStore.identity(context) ?: error("device identity unavailable")
+        val response = enrolledRequest(context, credential, "/devices", JSONObject().put("deviceId", identity.device))
+        validateIdentityReceipt(JSONObject(response), credential, identity.device, requireDevice = true)
+        check(DeviceLinkStore.identity(context) == identity) { "device changed during registration" }
+        DeviceLinkStore.from(context).record(identity, response)
+    }
+
     suspend fun fetchDaySnapshot(context: Context, day: String, ownerId: String): ServerScoreDayCache =
         withContext(Dispatchers.IO) {
-            val base = ServerScoringSettings.supabaseProjectUrl() ?: error("not configured")
-            val anon = ServerScoringSettings.anonKey() ?: error("not configured")
-            val token = CloudAuthClient.validAccessToken(context)
-            check(CloudAuthClient.storedSession(context)?.userId?.lowercase() == ownerId.lowercase()) { "session changed" }
-            val conn = (URL("$base/rest/v1/rpc/get_day_snapshot").openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 15_000; readTimeout = 30_000
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("apikey", anon)
-                setRequestProperty("Authorization", "Bearer $token")
-                doOutput = true
-            }
-            try {
-                conn.outputStream.use { it.write(JSONObject(mapOf("p_day" to day)).toString().toByteArray()) }
-                if (conn.responseCode == 401 || conn.responseCode == 403) throw Unauthorized(token)
-                check(conn.responseCode == 200) { "fetch failed" }
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                currentCoroutineContext().ensureActive()
-                parseSnapshot(body, day, ownerId)
-            } finally { conn.disconnect() }
+            val credential = EnrollmentDataScope.credential(context) ?: error("enrollment required")
+            check(credential.userId == ownerId) { "account changed" }
+            val device = localDeviceId(context)
+            registerCurrentDevice(context)
+            check(localDeviceId(context) == device) { "device changed during registration" }
+            val encode: (String) -> String = { java.net.URLEncoder.encode(it, "UTF-8") }
+            val body = enrolledRequest(context, credential, "?day=${encode(day)}&deviceId=${encode(device)}", null)
+            validateEnrollmentReceipt(body, credential, device)
+            parseSnapshot(body, day, ownerId)
         }
+
+    internal fun validateEnrollmentReceipt(body: String, credential: PushEnrollmentCredential, localDevice: String) {
+        val root = JSONObject(body)
+        val canonical = validateIdentityReceipt(root, credential, localDevice)
+        val features = root.getJSONObject("server_scoring").getJSONObject("features")
+        for (key in features.keys()) {
+            val selected = features.getJSONObject(key).opt("device_id") as? String
+            require(selected == null || (canonical != null && selected == canonical)) { "score device mismatch" }
+        }
+    }
+
+    internal fun validateIdentityReceipt(root: JSONObject, credential: PushEnrollmentCredential, localDevice: String, requireDevice: Boolean = false): String? {
+        val identity = root.getJSONObject("identity")
+        require(identity.getString("userId") == credential.userId &&
+            identity.getString("sourceId") == credential.sourceId &&
+            identity.getString("externalDeviceId") == localDevice) { "invalid enrollment receipt" }
+        val canonical = (identity.opt("deviceId") as? String)?.takeIf { it.isNotBlank() }
+        require(!requireDevice || canonical?.let(PushEnrollmentCredential::isCanonicalUuid) == true) { "missing registered device" }
+        return canonical
+    }
+
+    private suspend fun enrolledRequest(context: Context, credential: PushEnrollmentCredential, path: String, payload: JSONObject?): String {
+        val settings = SelfHostedPushSettings.from(context)
+        val endpoint = settings.configuredEndpoint()?.url ?: error("not configured")
+        require(endpoint.endsWith("/functions/v1/push")) { "unsupported endpoint" }
+        val fleet = settings.fleetToken() ?: error("not configured")
+        val identity = requestIdentity(context)
+        val conn = (URL(endpoint.removeSuffix("/push") + "/scores" + path).openConnection() as HttpURLConnection).apply {
+            requestMethod = if (payload == null) "GET" else "POST"
+            instanceFollowRedirects = false
+            connectTimeout = 15_000; readTimeout = 30_000
+            setRequestProperty("Authorization", "Bearer ${credential.uploadToken}")
+            setRequestProperty("X-NOOP-Fleet-Token", fleet)
+            setRequestProperty("Content-Type", "application/json")
+            doOutput = payload != null
+        }
+        try {
+            currentCoroutineContext().ensureActive()
+            check(EnrollmentDataScope.credential(context) == credential) { "enrollment changed" }
+            payload?.let { value -> conn.outputStream.use { it.write(value.toString().toByteArray()) } }
+            val code = conn.responseCode
+            if (code == 401 || code == 403) throw Unauthorized(credential.uploadToken)
+            if (code == 409) throw Conflict()
+            check(code == 200) { "score request failed" }
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            currentCoroutineContext().ensureActive()
+            check(identity != null && identity == requestIdentity(context)) { "score scope changed" }
+            return body
+        } finally { conn.disconnect() }
+    }
 
     fun parseSnapshot(body: String, day: String, ownerId: String, fetchedAtMs: Long = System.currentTimeMillis()): ServerScoreDayCache {
         val o = JSONObject(body).getJSONObject("server_scoring")

@@ -60,8 +60,12 @@ Deno.test('capabilities: the objectLane block appears only alongside the streams
     receiverStateId: 'r',
     streams: advertisedStreams('1.2'),
     protocolVersion: '1.2',
+    userId: '11111111-1111-4111-8111-111111111111',
+    sourceId: '22222222-2222-4222-8222-222222222222',
     objectLane: lane,
   });
+  assert.equal(v12.userId, '11111111-1111-4111-8111-111111111111');
+  assert.equal(v12.sourceId, '22222222-2222-4222-8222-222222222222');
   assert.equal(v12.objectLane.endpoint, OBJECT_LANE_PATH);
   assert.deepEqual(
     [...v12.objectLane.streams].sort(),
