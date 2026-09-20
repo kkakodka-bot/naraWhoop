@@ -2873,7 +2873,6 @@ public final class BLEManager: NSObject, ObservableObject {
     /// FRWHOOP issue #1: best-effort repair of session .imus data from the retained raw archive.
     /// Returns the number of newly routed one-second IMU records (0 when no store/windows exist).
     public func repairGroundTruthImuSessions() async -> Int {
-        guard deviceId != BluetoothOpticalRecorder.enrolledDeviceId else { return 0 }
         return await collector?.repairImuSessionsFromRawArchive() ?? 0
     }
 
@@ -2897,7 +2896,7 @@ public final class BLEManager: NSObject, ObservableObject {
         let isSensorOpcode = command == .startRawData
             || command == .stopRawData || command == .toggleIMUMode
         let continuousSensorWrite = rawDataCommandGate
-            && deviceId == BluetoothOpticalRecorder.enrolledDeviceId
+            && (imuRecorder.expectsImuPackets || opticalRecorder.status.enabled)
             && !sensorAcquisition.isActive && !sensorAcquisition.cleanupRequired
             && !sensorCommandLaneTaintedUntilReconnect
             && ((command == .startRawData && payload == [0x01])

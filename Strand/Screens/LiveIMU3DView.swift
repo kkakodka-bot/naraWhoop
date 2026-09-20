@@ -1,6 +1,7 @@
 import SwiftUI
 import SceneKit
 import simd
+import StrandDesign
 
 #if os(iOS)
 private typealias IMUSceneColor = UIColor
@@ -23,56 +24,56 @@ struct LiveIMU3DView: View {
                 let sample = model.presentation(at: context.date)
                 let fresh = live.connected && sample.map { context.date.timeIntervalSince($0.receivedAt) < 5 } == true
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                         HStack {
                             Label(fresh ? "Live IMU" : "Waiting for live IMU", systemImage: fresh ? "dot.radiowaves.left.and.right" : "pause.circle")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(fresh ? .green : .secondary)
+                                .font(StrandFont.headline)
+                                .foregroundStyle(fresh ? StrandPalette.statusPositive : StrandPalette.textSecondary)
                             Spacer()
                             Button("Zero rotation") { model.zeroRotation(at: context.date) }
                                 .buttonStyle(.bordered).disabled(sample == nil)
                         }
                         IMUSceneSurface(scene: scene, sample: sample,
                             showAcceleration: showAcceleration, showGyroscope: showGyroscope)
-                            .frame(height: 340)
-                            .clipShape(RoundedRectangle(cornerRadius: 18))
+                            .frame(height: NoopMetrics.chartHeight)
+                            .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
                             .accessibilityLabel("3D sensor orientation with acceleration and angular velocity arrows. Numeric equivalents below.")
                         Text("Drag to orbit · pinch to zoom · X red / Y green / Z blue")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                         HStack {
-                            Toggle("Acceleration", isOn: $showAcceleration).tint(.cyan)
-                            Toggle("Rotation rate", isOn: $showGyroscope).tint(.orange)
+                            Toggle("Acceleration", isOn: $showAcceleration).tint(StrandPalette.accent)
+                            Toggle("Rotation rate", isOn: $showGyroscope).tint(StrandPalette.statusWarning)
                         }
-                        .font(.caption)
+                        .font(StrandFont.caption)
                         if let sample {
                             Text("100 Hz samples · 30 fps view · sample age \(max(0, context.date.timeIntervalSince1970 - sample.pose.sensorTimestamp), specifier: "%.1f")s")
-                                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                .font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textSecondary)
                             if !fresh {
                                 Text("Last received \(max(0, Int(context.date.timeIntervalSince(sample.receivedAt))))s ago. Holding the last sample.")
-                                    .font(.caption).foregroundStyle(.orange)
+                                    .font(StrandFont.caption).foregroundStyle(StrandPalette.statusWarning)
                             }
                             vectorCard("Relative rotation", values: sample.eulerDegrees,
-                                labels: ["Roll", "Pitch", "Yaw"], unit: "°", color: .primary)
+                                labels: ["Roll", "Pitch", "Yaw"], unit: "°", color: StrandPalette.textPrimary)
                             vectorCard("Acceleration · includes gravity", values: sample.pose.acceleration,
-                                unit: "g", color: .cyan)
+                                unit: "g", color: StrandPalette.accent)
                             vectorCard("Gyroscope · rotation rate", values: sample.pose.angularVelocity,
-                                unit: "°/s", color: .orange)
+                                unit: "°/s", color: StrandPalette.statusWarning)
                             vectorCard("Linear acceleration · estimate", values: sample.pose.linearAcceleration,
-                                unit: "g", color: .secondary)
+                                unit: "g", color: StrandPalette.textSecondary)
                         } else {
                             Text("Move your WHOOP while live IMU collection is enabled. Only fresh Bluetooth IMU packets drive this view; backfill is excluded.")
-                                .font(.subheadline).foregroundStyle(.secondary)
+                                .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                         }
                         Text("Rotation is estimated from the gyroscope with gravity correction. Yaw has no compass reference and may drift. Zero rotation sets a new relative reference. Sensor axes are shown, not anatomical wrist angles; position is not tracked.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                         Text("The strap sends one-second packets, played at sample cadence here. Arrows show direction and scaled magnitude; long arrows are capped to fit the scene.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                         if model.gapResets > 0 {
                             Text("Orientation restarted after \(model.gapResets) data gap(s).")
-                                .font(.caption).foregroundStyle(.orange)
+                                .font(StrandFont.caption).foregroundStyle(StrandPalette.statusWarning)
                         }
                     }
-                    .padding()
+                    .padding(NoopMetrics.cardPadding)
                 }
             }
             .navigationTitle("IMU in 3D")
@@ -81,27 +82,27 @@ struct LiveIMU3DView: View {
         .onAppear { model.activate() }
         .onDisappear { model.deactivate() }
         #if os(macOS)
-        .frame(minWidth: 560, minHeight: 740)
+        .frame(minWidth: NoopMetrics.detailSheetMinWidth, minHeight: NoopMetrics.detailSheetMinHeight)
         #endif
     }
 
     private func vectorCard(_ title: String, values: SIMD3<Float>, labels: [String] = ["X", "Y", "Z"],
                             unit: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(color)
+        NoopCard(padding: NoopMetrics.space3) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            Text(title).font(StrandFont.headline).foregroundStyle(color)
             HStack {
                 ForEach(0..<3) { index in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(labels[index]).font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: NoopMetrics.spaceHalf) {
+                        Text(labels[index]).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                         Text("\(values[index], specifier: "%.2f") \(unit)")
-                            .font(.system(.body, design: .monospaced)).minimumScaleFactor(0.7).lineLimit(1)
+                            .font(StrandFont.bodyNumber).minimumScaleFactor(0.7).lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+            }
         }
-        .padding(12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -114,9 +115,9 @@ final class LiveIMUScene: ObservableObject {
     private let gyro: SCNNode
 
     init() {
-        acceleration = Self.arrow(color: .cyan, radius: 0.025)
-        gyro = Self.arrow(color: .orange, radius: 0.025)
-        scene.background.contents = IMUSceneColor(white: 0.045, alpha: 1)
+        acceleration = Self.arrow(color: Self.platformColor(StrandPalette.accent), radius: 0.025)
+        gyro = Self.arrow(color: Self.platformColor(StrandPalette.statusWarning), radius: 0.025)
+        scene.background.contents = Self.platformColor(StrandPalette.surfaceBase)
         camera.camera = SCNCamera()
         camera.camera?.zNear = 0.01
         camera.camera?.zFar = 100
@@ -133,19 +134,20 @@ final class LiveIMUScene: ObservableObject {
         scene.rootNode.addChildNode(key)
 
         let body = SCNBox(width: 1.0, height: 1.6, length: 0.28, chamferRadius: 0.12)
-        body.firstMaterial?.diffuse.contents = IMUSceneColor(white: 0.28, alpha: 1)
+        body.firstMaterial?.diffuse.contents = Self.platformColor(StrandPalette.surfaceRaised)
         body.firstMaterial?.lightingModel = .physicallyBased
         body.firstMaterial?.metalness.contents = 0.5
         body.firstMaterial?.roughness.contents = 0.35
         sensor.addChildNode(SCNNode(geometry: body))
         // A contrasting face makes front/back and rotation visually distinguishable.
         let face = SCNNode(geometry: SCNBox(width: 0.76, height: 1.14, length: 0.02, chamferRadius: 0.06))
-        face.geometry?.firstMaterial?.diffuse.contents = IMUSceneColor(white: 0.06, alpha: 1)
+        face.geometry?.firstMaterial?.diffuse.contents = Self.platformColor(StrandPalette.surfaceInset)
         face.position.z = 0.15
         sensor.addChildNode(face)
         let axes: [(SIMD3<Float>, IMUSceneColor, String)] = [
-            (SIMD3(1, 0, 0), .systemRed, "X"), (SIMD3(0, 1, 0), .systemGreen, "Y"),
-            (SIMD3(0, 0, 1), .systemBlue, "Z")]
+            (SIMD3(1, 0, 0), Self.platformColor(StrandPalette.statusCritical), "X"),
+            (SIMD3(0, 1, 0), Self.platformColor(StrandPalette.statusPositive), "Y"),
+            (SIMD3(0, 0, 1), Self.platformColor(StrandPalette.restColor), "Z")]
         for (direction, color, name) in axes {
             let axis = Self.arrow(color: color, radius: 0.009)
             Self.point(axis, along: direction, gain: 1.15)
@@ -174,7 +176,7 @@ final class LiveIMUScene: ObservableObject {
         }
         let geometry = SCNGeometry(sources: [SCNGeometrySource(vertices: grid)],
             elements: [SCNGeometryElement(indices: grid.indices.map(Int32.init), primitiveType: .line)])
-        geometry.firstMaterial?.diffuse.contents = IMUSceneColor(white: 0.22, alpha: 1)
+        geometry.firstMaterial?.diffuse.contents = Self.platformColor(StrandPalette.hairline)
         geometry.firstMaterial?.lightingModel = .constant
         scene.rootNode.addChildNode(SCNNode(geometry: geometry))
     }
@@ -215,6 +217,14 @@ final class LiveIMUScene: ObservableObject {
             root.addChildNode(node)
         }
         return root
+    }
+
+    private static func platformColor(_ color: Color) -> IMUSceneColor {
+        #if os(iOS)
+        UIColor(color)
+        #else
+        NSColor(color)
+        #endif
     }
 
     private static func point(_ arrow: SCNNode, along vector: SIMD3<Float>, gain: Float) {

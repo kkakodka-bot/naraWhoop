@@ -354,17 +354,16 @@ final class ImuContinuousRecorderTests: XCTestCase {
         XCTAssertEqual(recorder.coverage.coveredSeconds, 1)
     }
 
-    func testEnrolledStrapDefaultsOnButExplicitOffIsPreserved() {
-        harness.deviceId = BluetoothOpticalRecorder.enrolledDeviceId
+    func testRecorderDefaultsOffAndExplicitOnIsPreserved() {
         let recorder = makeRecorder()
         recorder.handleBonded5MG()
-        XCTAssertTrue(recorder.status.enabled)
-        XCTAssertEqual(harness.starts, 1)
-        recorder.setEnabled(false)
+        XCTAssertFalse(recorder.status.enabled)
+        XCTAssertEqual(harness.starts, 0)
+        recorder.setEnabled(true)
         let relaunched = makeRecorder()
         relaunched.handleBonded5MG()
-        XCTAssertFalse(relaunched.status.enabled)
-        XCTAssertEqual(harness.starts, 1)
+        XCTAssertTrue(relaunched.status.enabled)
+        XCTAssertEqual(harness.starts, 2)
     }
 
     // MARK: - Storage policy

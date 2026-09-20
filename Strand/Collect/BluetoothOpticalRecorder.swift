@@ -2,12 +2,13 @@ import Combine
 import Foundation
 import WhoopProtocol
 
-/// Local Bluetooth capture for the explicitly enrolled research strap. Requested rate is a goal,
-/// not a firmware setting: opcode 107 has no verified rate argument on 5/MG. Preserve native
-/// packets and their provenance; never upsample, sum channels into a rate, or label an ack 100 Hz.
+/// Optional local Bluetooth optical capture. Requested rate is a goal, not a firmware setting:
+/// opcode 107 (`ENABLE_OPTICAL_DATA`) is named in `Strand/BLE/Commands.swift` and
+/// `docs/PROTOCOL.md`, while this firmware's observed failure response is recorded in
+/// `docs/BLUETOOTH_RAW_COLLECTION.md`. No rate argument is verified on 5/MG. Preserve native
+/// packets and provenance; never upsample, sum channels into a rate, or label an ack 100 Hz.
 @MainActor
 final class BluetoothOpticalRecorder: ObservableObject {
-    nonisolated static let enrolledDeviceId = "whoop-5B00145417"
     static let requestedRateHz = 100
     private static let enabledPrefix = "bluetooth.optical.enabled."
     struct Status {
@@ -41,8 +42,7 @@ final class BluetoothOpticalRecorder: ObservableObject {
 
     func isEnabled(for id: String) -> Bool {
         guard !id.isEmpty else { return false }
-        return defaults.object(forKey: Self.enabledPrefix + id) == nil
-            ? id == Self.enrolledDeviceId : defaults.bool(forKey: Self.enabledPrefix + id)
+        return defaults.bool(forKey: Self.enabledPrefix + id)
     }
 
     func bonded(deviceId: String) {

@@ -63,7 +63,6 @@ actor BackfillActor {
             log: { line in await hooks.log(line) },
             rejectedSink: { frames, trim, family in await hooks.rejectedSink(frames, trim, family) },
             imuSessionSink: { deviceId, records in
-                if deviceId == BluetoothOpticalRecorder.enrolledDeviceId { return true } // enrolled strap: live-only IMU
                 return ImuSessionFileStore.shared.persistHistoricalImu(deviceId: deviceId, records: records)
             },
             opticalSink: hooks.opticalSink,

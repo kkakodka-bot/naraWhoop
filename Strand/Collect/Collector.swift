@@ -379,10 +379,8 @@ final class Collector {
         // an evidenced carrier type, and the complete 100 x 6 shape. Corrupt or
         // unknown frames remain wire evidence but never enter interpreted storage.
         let id = explicitDeviceId ?? deviceId
-        if id == BluetoothOpticalRecorder.enrolledDeviceId {
-            guard ImuContinuousRecorder.isFreshLiveFrame(frame, isOffload: false,
-                receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000)) else { return 0 }
-        }
+        guard ImuContinuousRecorder.isFreshLiveFrame(frame, isOffload: false,
+            receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000)) else { return 0 }
         return ImuSessionFileStore.shared.append(
             deviceId: id,
             frame: frame,
@@ -403,8 +401,7 @@ final class Collector {
     /// capture-time wall-clock values, not the contained frames' strap timestamps.
     @discardableResult
     func repairImuSessionsFromRawArchive(imuStore: ImuSessionFileStore = .shared) async -> Int {
-        guard deviceId != BluetoothOpticalRecorder.enrolledDeviceId,
-              let store = concreteStore, imuStore.hasWindows(deviceId: deviceId) else { return 0 }
+        guard let store = concreteStore, imuStore.hasWindows(deviceId: deviceId) else { return 0 }
         var repaired = 0
         var cursor: RawBatchMeta?
         while let page = try? await store.rawBatchMetas(deviceId: deviceId, after: cursor, limit: 20),

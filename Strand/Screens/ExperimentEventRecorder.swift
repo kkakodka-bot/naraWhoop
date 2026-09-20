@@ -19,12 +19,7 @@ struct ExperimentEventRecorder: View {
     @State private var pendingDelete: ExperimentEvent?
     @State private var cloud = CloudPushSettings.snapshot()
 
-    private let builtInLabels = [
-        "Rest", "Walking", "Wrist movement", "Sleeve warming",
-        "Off wrist", "Posture change", "Mental arithmetic",
-    ]
-
-    private var quickLabels: [String] { builtInLabels + log.customLabels }
+    private var quickLabels: [String] { ExperimentEventLog.builtInLabels + log.customLabels }
     private var recentEvents: [ExperimentEvent] {
         Array(log.events.reversed().filter { $0.endUnixSeconds != nil }.prefix(3))
     }
@@ -65,6 +60,14 @@ struct ExperimentEventRecorder: View {
             Button("Cancel", role: .cancel) { pendingDelete = nil }
         }
         .onChange(of: log.active?.id) { _ in
+            activeNote = log.active?.note ?? ""
+        }
+        .onChange(of: activeNote) { note in
+            guard log.active != nil, note != (log.active?.note ?? "") else { return }
+            log.saveActiveNoteDraft(note)
+            exportURL = nil
+        }
+        .onAppear {
             activeNote = log.active?.note ?? ""
         }
         .task {
@@ -112,7 +115,10 @@ struct ExperimentEventRecorder: View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             Text("Tap to start").strandOverline()
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: NoopMetrics.tileHeight), spacing: NoopMetrics.space2)],
+                columns: [
+                    GridItem(.flexible(), spacing: NoopMetrics.space2),
+                    GridItem(.flexible(), spacing: NoopMetrics.space2),
+                ],
                 spacing: NoopMetrics.space2
             ) {
                 ForEach(quickLabels, id: \.self) { label in
@@ -121,7 +127,9 @@ struct ExperimentEventRecorder: View {
                     } label: {
                         HStack(spacing: NoopMetrics.space2) {
                             Image(systemName: "play.fill").font(StrandFont.footnote)
-                            Text(label).lineLimit(1)
+                            Text(label)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.85)
                             Spacer(minLength: 0)
                         }
                         .font(StrandFont.subhead)
@@ -140,20 +148,20 @@ struct ExperimentEventRecorder: View {
                         }
                     }
                 }
-                Button {
-                    customName = ""
-                    customNote = ""
-                    rememberCustom = true
-                    showingCustomEvent = true
-                } label: {
-                    Label("New event", systemImage: "plus")
-                        .font(StrandFont.subhead)
-                        .padding(.horizontal, NoopMetrics.space3)
-                        .frame(minHeight: NoopMetrics.controlHeight)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.borderedProminent)
             }
+            Button {
+                customName = ""
+                customNote = ""
+                rememberCustom = true
+                showingCustomEvent = true
+            } label: {
+                Label("New event", systemImage: "plus")
+                    .font(StrandFont.subhead)
+                    .padding(.horizontal, NoopMetrics.space3)
+                    .frame(minHeight: NoopMetrics.controlHeight)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
         }
     }
 
@@ -181,17 +189,14 @@ struct ExperimentEventRecorder: View {
                 TextField("Optional note", text: $activeNote)
                     .textFieldStyle(.roundedBorder)
                 Button("Save note") {
-                    log.update(id: active.id, label: active.label, note: activeNote)
+                    log.saveActiveNoteDraft(activeNote)
                     exportURL = nil
                 }
                 .font(StrandFont.caption)
             }
 
             Button(role: .destructive) {
-                if activeNote != (active.note ?? "") {
-                    log.update(id: active.id, label: active.label, note: activeNote)
-                }
-                log.stop()
+                log.stop(note: activeNote)
                 exportURL = nil
             } label: {
                 Label("Stop and save", systemImage: "stop.fill")
