@@ -33,6 +33,15 @@ class PostgresClient private constructor(
                 idleTimeout = 600_000
                 maxLifetime = 1_800_000
 
+                // Hikari's connectionTimeout only bounds borrowing a pool connection. A
+                // separate input-gate watchdog cannot interrupt this connection's reads.
+                // pgJDBC deadlines are seconds; URL options intentionally override these
+                // defaults (https://jdbc.postgresql.org/documentation/use/). socketTimeout
+                // bounds a stalled read, not total job time or a stream making progress.
+                addDataSourceProperty("connectTimeout", "10")
+                addDataSourceProperty("socketTimeout", "60")
+                addDataSourceProperty("cancelSignalTimeout", "5")
+
                 val creds = parseUserInfo(databaseUrl)
                 if (creds.user != null) {
                     addDataSourceProperty("user", creds.user)

@@ -57,6 +57,39 @@ class ScoringWorkQueueIntegrationTest {
         assertNull(queue.claimOne(user, device, day))
     }
 
+    @Test fun candidateSelectionSkipsOnlyTheLeasedDeviceAndRecoversAfterExpiry() {
+        val otherDevice=UUID.randomUUID()
+        sql("insert into devices(id,user_id) values('$otherDevice','$user')")
+        queue.dirtyWorkItem(user,device,day)
+        queue.dirtyWorkItem(user,device,"2026-09-18")
+        queue.dirtyWorkItem(user,otherDevice,day)
+        assertNotNull(queue.claimOne(user,device,day))
+        assertEquals(otherDevice,queue.peekOne(userId=user)?.deviceId)
+        assertNull(queue.peekOne(userId=user,excludedDevices=setOf(ScoringWorkQueue.DeviceKey(user,otherDevice))))
+        sql("update physiology_work_items set lease_expires_at=clock_timestamp()-interval '1 second' where user_id='$user' and device_id='$device'")
+        assertNotNull(queue.peekOne(userId=user,deviceId=device,day=day))
+    }
+
+    @Test fun candidateCursorKeepsMicrosecondTimestampsAndAllIdentityTieBreakers() {
+        val otherDevice=UUID.randomUUID()
+        sql("insert into devices(id,user_id) values('$otherDevice','$user')")
+        for(strap in listOf(device,otherDevice)) for(date in listOf(day,"2026-09-18")) {
+            queue.dirtyWorkItem(user,strap,date)
+        }
+        sql("update physiology_work_items set next_attempt_at='2000-01-01T10:20:30.123456+05:30',dirty_at='2000-01-01T10:20:30.654321-07:00' where user_id='$user'")
+        val candidates=mutableListOf<ScoringWorkQueue.Candidate>()
+        var cursor:ScoringWorkQueue.Cursor?=null
+        repeat(4) {
+            val candidate=queue.peekOne(userId=user,after=cursor)!!
+            assertEquals(Instant.parse("2000-01-01T04:50:30.123456Z"),candidate.cursor!!.nextAttemptAt)
+            assertEquals(Instant.parse("2000-01-01T17:20:30.654321Z"),candidate.cursor.dirtyAt)
+            candidates.add(candidate);cursor=candidate.cursor
+        }
+        assertEquals(4,candidates.map { it.deviceId to it.day }.toSet().size)
+        assertNull(queue.peekOne(userId=user,after=cursor))
+        assertEquals(candidates.first(),queue.peekOne(userId=user))
+    }
+
     @Test fun failureBudgetBelongsToRevisionAndWaitingDoesNotConsumeIt() {
         queue.dirtyWorkItem(user, device, day)
         repeat(8) { count ->

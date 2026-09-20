@@ -4,6 +4,11 @@ import com.frwhoop.scoring.db.EngineIngestWriter
 import com.frwhoop.scoring.db.PostgresClient
 import com.frwhoop.scoring.db.ScoringInputGate
 import com.frwhoop.scoring.db.ScoringWorkQueue
+import com.frwhoop.scoring.db.ScoreInputProvider
+import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.health.HeartbeatReporter
+import com.frwhoop.scoring.scoring.DayScorer
+import com.frwhoop.scoring.scoring.ScoringPoller
 import com.frwhoop.scoring.scoring.ServerScoreBundle
 import com.frwhoop.scoring.signals.PhysiologyShadowRunner
 import com.noop.analytics.DayResult
@@ -24,6 +29,7 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Real projection triggers and RPC publication; the HTTP adapter only replaces PostgREST. */
 class ScoringInputGateIntegrationTest {
@@ -225,6 +231,110 @@ class ScoringInputGateIntegrationTest {
         }
         assertEquals(2L,rows("server_physiology_results"));assertEquals(2L,rows("physiology_archive_outbox"))
     }
+
+    @Test fun anotherWorkersLiveDayDoesNotBlockASeparateUsersPendingWork() = busyDeviceDoesNotBlockOtherOwner(true)
+
+    @Test fun busyGateBeforeClaimSkipsEveryPendingDayForThatDeviceAndVisitsOtherOwner() = busyDeviceDoesNotBlockOtherOwner(false)
+
+    @Test fun boundedScanProgressesPastEightBusyDevicesAndWrapsToRevisedEarlierWork() {
+        val busyOwners=(0 until 8).map { UUID.randomUUID() to UUID.randomUUID() }
+        val freeOwner=UUID.randomUUID() to UUID.randomUUID()
+        val owners=busyOwners+freeOwner
+        owners.forEachIndexed { index,(ownerId,strap) ->
+            owner(ownerId,strap);queue.dirtyWorkItem(ownerId,strap,day)
+            sql("update physiology_work_items set next_attempt_at='2000-01-01'::timestamptz+interval '$index seconds' where user_id='$ownerId'")
+        }
+        val reads=mutableMapOf<UUID,Int>()
+        val reader=object:ScoreInputProvider {
+            override fun loadDay(userId:UUID,day:String,deviceId:UUID):SignalSampleReader.DayInputs? {
+                reads[userId]=(reads[userId]?:0)+1
+                return null
+            }
+        }
+        val poller=ScoringPoller(ScoringConfig("unused","test","http://127.0.0.1:1","test"),
+            reader,queue,DayScorer(),EngineIngestWriter("http://127.0.0.1:1","test","test"),
+            HeartbeatReporter(db,"frwhoop-physiology-2"))
+        onlyOwnersDue(owners.map { it.first }.toSet()) {
+            db.withConnection { holder ->
+                holder.autoCommit=false
+                try {
+                    holder.prepareStatement("select scoring_acquire_input_gate(?,?)").use { p ->
+                        busyOwners.forEach { (owner,strap) -> p.setObject(1,owner);p.setObject(2,strap);p.execute() }
+                    }
+                    val before=busyOwners.associate { it.first to queueRows(it.first) }
+                    poller.pollOnce()
+                    assertTrue("one bounded poll may examine only the eight busy devices",reads.isEmpty())
+                    poller.pollOnce()
+                    assertEquals("the next poll must reach the ninth owner without releasing the first eight gates",1,reads[freeOwner.first])
+                    busyOwners.forEach { (owner,_) ->
+                        assertNull(reads[owner]);assertEquals(before[owner],queueRows(owner))
+                    }
+                } finally { holder.rollback();holder.autoCommit=true }
+            }
+            // Replace every queued revision and move the ordering keys before the saved cursor.
+            // The cursor is a fair scan position, never permission to discard earlier work.
+            owners.forEach { (owner,strap) ->
+                assertEquals(2L,queue.dirtyWorkItem(owner,strap,day))
+                sql("update physiology_work_items set next_attempt_at='1999-01-01' where user_id='$owner'")
+            }
+            repeat(2) { poller.pollOnce() }
+            busyOwners.forEach { (owner,_) -> assertEquals("released/revised owner must be revisited",1,reads[owner]) }
+            assertEquals(2,reads[freeOwner.first])
+        }
+    }
+
+    private fun busyDeviceDoesNotBlockOtherOwner(hasRunningClaim:Boolean) {
+        val otherUser=UUID.randomUUID();val otherDevice=UUID.randomUUID()
+        owner(otherUser,otherDevice)
+        queue.dirtyWorkItem(user,device,day)
+        queue.dirtyWorkItem(user,device,"2026-09-18")
+        queue.dirtyWorkItem(otherUser,otherDevice,day)
+        sql("update physiology_work_items set next_attempt_at='2000-01-01' where user_id='$user'")
+        sql("update physiology_work_items set next_attempt_at='2000-01-02' where user_id='$otherUser'")
+        val busyReads=AtomicInteger();val otherReads=AtomicInteger()
+        val reader=object:ScoreInputProvider {
+            override fun loadDay(userId:UUID,day:String,deviceId:UUID):SignalSampleReader.DayInputs? {
+                if(userId==user) busyReads.incrementAndGet()
+                if(userId==otherUser) otherReads.incrementAndGet()
+                return null // The waiting result exercises completion without any HTTP publisher.
+            }
+        }
+        val poller=ScoringPoller(ScoringConfig("unused","test","http://127.0.0.1:1","test"),
+            reader,queue,DayScorer(),EngineIngestWriter("http://127.0.0.1:1","test","test"),
+            HeartbeatReporter(db,"frwhoop-physiology-2"))
+        onlyOwnersDue(setOf(user,otherUser)) {
+            queue.withInputGate(ScoringWorkQueue.Candidate(user,device,day)) {
+                if(hasRunningClaim) assertNotNull(queue.claimOne(user,device,day))
+                val before=queueRows(user)
+                poller.pollOnce()
+                assertEquals("unrelated owner must progress while the original gate remains held",1,otherReads.get())
+                assertEquals(0,busyReads.get())
+                assertEquals("polling must not claim, release, retry or mutate busy device work",before,queueRows(user))
+                assertEquals(1L,number("select count(*) from physiology_work_items where user_id='$otherUser' and status='waiting' and consecutive_failures=0"))
+            }
+        }
+    }
+
+    /** Existing integration fixtures share this disposable database; preserve their due times. */
+    private fun onlyOwnersDue(owners:Set<UUID>,block:()->Unit) {
+        val excluded=owners.joinToString(",") { "'$it'" }
+        val held=db.withConnection { conn -> conn.createStatement().use { statement ->
+            statement.executeQuery("select user_id,device_id,day,next_attempt_at from physiology_work_items where user_id not in ($excluded)").use { rows ->
+                buildList { while(rows.next()) add(listOf(rows.getString(1),rows.getString(2),rows.getString(3),rows.getString(4))) }
+            }
+        } }
+        sql("update physiology_work_items set next_attempt_at='infinity' where user_id not in ($excluded)")
+        try { block() } finally {
+            db.withConnection { conn -> conn.prepareStatement("update physiology_work_items set next_attempt_at=?::timestamptz where user_id=?::uuid and device_id=?::uuid and day=?::date").use { p ->
+                held.forEach { row -> p.setString(1,row[3]);p.setString(2,row[0]);p.setString(3,row[1]);p.setString(4,row[2]);p.addBatch() }
+                p.executeBatch()
+            } }
+        }
+    }
+
+    private fun queueRows(owner:UUID):String=db.withConnection { conn -> conn.createStatement().use { statement ->
+        statement.executeQuery("select jsonb_agg(to_jsonb(w) order by day)::text from physiology_work_items w where user_id='$owner'").use { rows -> rows.next();rows.getString(1) }
+    } }
 
     private fun emptyTransportFixture()=ServerScoreBundle(user,day,device.toString(),"frwhoop-physiology-2",
         DayResult(DailyMetric(deviceId=device.toString(),day=day),emptyList(),emptyList(),null,null))

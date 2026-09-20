@@ -24,11 +24,14 @@ class ScoringPoller(
     private val archiveOutbox: DerivedArchiveOutbox? = null,
 ) {
     private val log = LoggerFactory.getLogger(ScoringPoller::class.java)
+    // Continue the bounded scan across polls: a fixed prefix of busy devices must not
+    // monopolize every cycle. This is only a scheduling cursor, never a progress watermark.
+    private var scanAfter: ScoringWorkQueue.Cursor? = null
 
     fun runForever() {
         log.info("scoring poller started (interval={}s, version={})", config.pollInterval.seconds, config.algorithmVersion)
         val archive=archiveOutbox?.let { outbox -> ArchiveRetryWorker(config.pollInterval,
-            work={ outbox.processOne();Unit },
+            work={ outbox.processOne() },
             onError={ log.warn("Archive queue unavailable: {}",it.javaClass.simpleName) }) }
         try {
             while (!Thread.currentThread().isInterrupted) {
@@ -45,14 +48,26 @@ class ScoringPoller(
 
     fun pollOnce() {
         heartbeat.recordPoll()
+        val busyDevices = mutableSetOf<ScoringWorkQueue.DeviceKey>()
         repeat(8) {
-            val candidate = queue.peekOne() ?: return
-            val attempted = queue.withInputGate(candidate) { guard ->
-                val item = queue.claimOne(candidate.userId,candidate.deviceId,candidate.day)
+            var candidate = queue.peekOne(excludedDevices=busyDevices,after=scanAfter)
+            if(candidate == null && scanAfter != null) {
+                // Input revisions may move jobs before the saved key. Wrapping also revisits
+                // released gates and rows recreated after a restart/deletion; nothing is retired.
+                scanAfter = null
+                candidate = queue.peekOne(excludedDevices=busyDevices)
+            }
+            val selected = candidate ?: return
+            // Advance even when the later claim loses a race or the device gate is busy.
+            scanAfter = selected.cursor
+            val attempted = queue.withInputGate(selected) { guard ->
+                val item = queue.claimOne(selected.userId,selected.deviceId,selected.day)
                 if (item != null) processWorkItem(item,guard)
                 true
             }
-            if (attempted == null) return
+            // A slow device must not stop other users from using an available worker.
+            // Keep the bounded scan and acquire a gate before claiming any queued work.
+            if (attempted == null) busyDevices.add(ScoringWorkQueue.DeviceKey(selected.userId,selected.deviceId))
         }
     }
 

@@ -43,7 +43,7 @@ class RuntimePreflightIntegrationTest {
     }
 
     @Test fun missingMigrationFailsBeforeCheckingSecret() {
-        execute("delete from supabase_migrations.schema_migrations where version='20260918220000'")
+        execute("delete from supabase_migrations.schema_migrations where version='20260919010000'")
         val error = assertThrows(RuntimePreflightCommand.Failure::class.java) {
             RuntimePreflightCommand.checkDatabase(connection, "secret-must-not-be-printed")
         }

@@ -90,7 +90,11 @@ docker build -t frwhoop/scoring-service:latest -f scoring-service/Dockerfile .
 
 See `infra/vps/templates/docker-compose.scoring-override.yml`. It runs the persistent
 `scoring-physiology-v2` service from an immutable commit tag against the hosted Supabase database
-and PostgREST endpoint. Keep the separately built, patched v1 image available for rollback.
+and PostgREST endpoint. It is a standalone Compose project under `/opt/frwhoop/scoring`; it does
+not require a local Supabase database, Caddy override, or Envoy override. Keep the separately built,
+patched v1 image available for rollback. Defaults cap the container at two CPUs, 2 GiB memory,
+256 processes and three 10 MiB log files. These bounds protect the host; they are not a fleet
+capacity measurement or a five-minute latency guarantee.
 
 The deploy script requires dedicated hosted-project variables in `/opt/frwhoop/secrets.env`:
 `SCORING_DATABASE_URL`, `SCORING_SUPABASE_URL` (ending `/rest/v1`),
@@ -102,8 +106,25 @@ and ingest-secret check followed by an authenticated read of the hosted heartbea
 the direct database hostname or pooler username identifies the same project as the canonical
 `https://<project>.supabase.co/rest/v1` URL. Custom domains need separate binding evidence and are
 rejected by this deployment check. Failures produce a fixed stage code without printing secrets.
-Passing preflight is configuration evidence; `phase3-acceptance-checks.sh` still verifies actual
-advancing poll/publication timestamps after deployment. Process existence alone is not worker health.
+Passing preflight is configuration evidence. Deployment retains the previous v2 containers and env
+until `remote/verify-scoring-runtime.sh` verifies the exact running image and hosted poll/publication
+progress; a failed cutover restores the previous workers. Only workers belonging to the same hosted
+project and algorithm are replaced. The v1 worker and other projects are preserved. A deployment lock
+serializes cutovers, and each build uses a separate committed source directory. `DROPLET_ENV`,
+`SSH_KEY`, and `SSH_USER` can select an existing SSH configuration; strict host-key verification is
+required. `phase3-acceptance-checks.sh` invokes the same runtime check. Retry-exhausted debt fails;
+delayed debt is reported and cannot pass without a new publication. An empty queue can establish
+poll liveness only. Process existence alone is not worker health.
+
+The database client defaults to 10-second connection, 60-second socket-read and 5-second
+cancellation-connection timeouts. Explicit URL options retain driver precedence. The read timeout
+bounds a stalled read, not a whole query/job or immediate server-side cancellation; it does not
+establish a five-minute delivery guarantee.
+
+The temperature dependency migration `20260919010000` adds transactional invalidation and requeues
+previously published v2 days without modifying raw data or immutable results. It aborts atomically
+on active gate/DDL contention or more than 10,000 distinct published days. Quiesce scoring during
+this migration or retry after contention; larger installations need a reviewed batched catch-up.
 
 The operations-only `ingest-verify` report exposes `physiology_processing` independently of
 `complete` (`complete_scope: ingestion_only`). It distinguishes a worker that never polled, queued
@@ -127,11 +148,15 @@ habitual timing and waveform channel semantics, carry explicit unavailable state
 Optional raw/model work uses bounded GET/hash/decode and a separately configured shadow lane. See
 [inference/README.md](inference/README.md). The JVM Docker image does not install approved Python model
 environments; absent activation/assets disables those candidates, not the independent deterministic work.
+Invalid optional configuration also leaves canonical processing available and records
+`shadow_configuration_unavailable` without exposing configuration contents. The production entry point
+does not provide a verified waveform job assembler, so installing weights alone cannot enable inference.
 
 ## Immutable derived archives
 
 Publication atomically creates durable archive debt for the exact canonical JSON snapshot. A separate
-bounded worker retries upload and readback verification to the same configured B2 bucket:
+bounded worker retries upload and readback verification to the same configured B2 bucket, draining
+up to 32 ready objects per cycle rather than sleeping after every successful object:
 
 ```text
 v3/derived/users/{user}/devices/{device}/days/{day}/{algorithm}/revisions/{revision}/{hash}.json.zst

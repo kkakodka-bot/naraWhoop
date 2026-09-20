@@ -2,6 +2,7 @@
 # Clone official self-hosted Supabase, pin release, merge FRWHOOP env + Caddy.
 # Run as deploy user on VPS. Expects /opt/frwhoop/secrets.env and API_DOMAIN.
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 BASE="/opt/frwhoop"
 SUPABASE_DIR="${BASE}/supabase-docker"
@@ -118,6 +119,7 @@ services:
       - "127.0.0.1:3000:3000/tcp"
 EOF
 
+python3 "$SCRIPT_DIR/14-pooler-network.py" "${SUPABASE_DIR}/docker" --write
 docker compose pull
 docker compose up -d
 

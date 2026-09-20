@@ -23,10 +23,11 @@ object RuntimePreflightCommand {
         "20260918050000", "20260918060000", "20260918070000", "20260918100000",
         "20260918110000", "20260918120000", "20260918130000", "20260918140000",
         "20260918150000", "20260918180000", "20260918190000", "20260918200000",
-        "20260918210000", "20260918220000",
+        "20260918210000", "20260918220000", "20260919010000",
     )
     internal val requiredTables = listOf("public.physiology_service_heartbeats", "public.physiology_work_items",
-        "public.server_physiology_results", "public.noop_rr_packet_provenance", "public.noop_standard_hr_receipts")
+        "public.server_physiology_results", "public.noop_rr_packet_provenance", "public.noop_standard_hr_receipts",
+        "public.noop_skin_temp_samples")
     internal val requiredFunctions = listOf("internal.assert_ingest_secret(text)",
         "public.scoring_claim_one(integer,integer,uuid,uuid,date)",
         "public.scoring_acquire_input_gate(uuid,uuid)", "public.engine_publish_physiology(text,jsonb)",
