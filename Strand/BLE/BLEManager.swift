@@ -1869,6 +1869,13 @@ public final class BLEManager: NSObject, ObservableObject {
         central.stopScan()
     }
 
+    /// Whether a registry removal is allowed to release the live BLE source. A nil id preserves the
+    /// legacy "release the current strap" call, while an explicit id prevents a stale duplicate row
+    /// sharing the same CoreBluetooth peripheral id from tearing down the active connection.
+    nonisolated static func removalTargetsCurrentDevice(removedDeviceId: String?, currentDeviceId: String) -> Bool {
+        removedDeviceId == nil || removedDeviceId == currentDeviceId
+    }
+
     /// #78: fully RELEASE a strap when the user removes it from the Devices screen. Archiving the registry
     /// row alone left the strap connected — NOOP kept re-grabbing it (the 3s disconnect→reconnect timer, the
     /// targeted-connect pin, and iOS state restoration ALL still pointed at it), so it stayed connected and
@@ -1876,9 +1883,13 @@ public final class BLEManager: NSObject, ObservableObject {
     /// can't show its blue pairing LEDs). Stop auto-reconnect, drop the live link, and clear the targeting +
     /// restoration references that point at this strap so NOOP lets go for good — until the user deliberately
     /// reconnects (which clears `intentionalDisconnect` again via connect()).
-    public func forgetDevice(_ peripheralId: String?) {
+    public func forgetDevice(_ peripheralId: String?, deviceId: String? = nil) {
         let target = peripheralId.flatMap { UUID(uuidString: $0) }
-        let isCurrent = target == nil || peripheral?.identifier == target
+        // A stale registry row can share a peripheralId with the active row after a re-pair. The
+        // registry id is the disambiguator: removing that stale row must not release the live strap.
+        let isCurrentDevice = Self.removalTargetsCurrentDevice(removedDeviceId: deviceId,
+                                                               currentDeviceId: self.deviceId)
+        let isCurrent = isCurrentDevice && (target == nil || peripheral?.identifier == target)
         // Captured BEFORE the teardown below nils `peripheral`, since a nil argument means "the current
         // strap" and that is the only place its identifier can still be read.
         let releasedUUID = peripheralId ?? peripheral?.identifier.uuidString
