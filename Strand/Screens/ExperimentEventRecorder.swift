@@ -374,7 +374,7 @@ struct ExperimentEventRecorder: View {
                 }
             }
             .navigationTitle("New event")
-            .navigationBarTitleDisplayMode(.inline)
+            .eventRecorderInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { showingCustomEvent = false }
@@ -391,11 +391,14 @@ struct ExperimentEventRecorder: View {
             List {
                 if log.eventLabels.isEmpty {
                     Section {
-                        ContentUnavailableView(
-                            "No event types",
-                            systemImage: "tag.slash",
-                            description: Text("Add an event type to create a reusable start button.")
-                        )
+                        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                            Label("No event types", systemImage: "tag.slash")
+                                .font(StrandFont.headline)
+                            Text("Add an event type to create a reusable start button.")
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        .padding(.vertical, NoopMetrics.space2)
                     }
                 } else {
                     Section("Event types") {
@@ -428,7 +431,7 @@ struct ExperimentEventRecorder: View {
                 }
             }
             .navigationTitle("Start event")
-            .navigationBarTitleDisplayMode(.inline)
+            .eventRecorderInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { showingEventPicker = false }
@@ -506,7 +509,7 @@ struct ExperimentEventRecorder: View {
                 }
             }
             .navigationTitle("Past event")
-            .navigationBarTitleDisplayMode(.inline)
+            .eventRecorderInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { showingPastEvent = false }
@@ -607,8 +610,8 @@ struct ExperimentEventRecorder: View {
             }
         }
         .navigationTitle("Event types")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { EditButton() }
+        .eventRecorderInlineNavigationTitle()
+        .eventRecorderEditToolbar()
         .alert("Rename event type", isPresented: $showingRenameEventType) {
             TextField("Event name", text: $renamedEventType)
             Button("Cancel", role: .cancel) {
@@ -668,7 +671,7 @@ struct ExperimentEventRecorder: View {
                 }
             }
             .navigationTitle("Edit event")
-            .navigationBarTitleDisplayMode(.inline)
+            .eventRecorderInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { editingEvent = nil }
@@ -782,5 +785,25 @@ struct ExperimentEventRecorder: View {
 
     private func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func eventRecorderInlineNavigationTitle() -> some View {
+        #if os(iOS)
+        navigationBarTitleDisplayMode(.inline)
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func eventRecorderEditToolbar() -> some View {
+        #if os(iOS)
+        toolbar { EditButton() }
+        #else
+        self
+        #endif
     }
 }
