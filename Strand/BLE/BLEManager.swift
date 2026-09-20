@@ -1043,8 +1043,10 @@ public final class BLEManager: NSObject, ObservableObject {
     /// #520 DIS: remembered at discovery, READ post-bond — and since #1635 also on a SUPPRESSED link that
     /// will never bond, which is now a permanent state rather than a transient one. The #490 note (a 5/MG
     /// refuses standard reads before the link is encrypted) is the open question that attempt settles
-    /// either way. Serial + hardware revision are immutable, so they are read ONCE per connection
-    /// (`disRead`), never re-polled like the battery.
+    /// either way. Serial + hardware revision are immutable, so the authenticated read is issued ONCE
+    /// per connection (`disRead`), never re-polled like the battery. The unbonded probe has its own latch:
+    /// it is intentionally allowed to run first without consuming this authenticated read, because a
+    /// pre-bond response can be a truncated prefix and cannot establish the stable device identity.
     /// Peripheral whose GATT tree has already been dumped, so the ~30-line enumeration is emitted once per
     /// device rather than once per connect (#1635). Not persisted: a fresh launch is exactly when the tree
     /// is worth seeing again, and a strap whose firmware changed between runs may expose something new.
@@ -1053,6 +1055,7 @@ public final class BLEManager: NSObject, ObservableObject {
     private var disSerialCharacteristic: CBCharacteristic?
     private var disHwRevCharacteristic: CBCharacteristic?
     private var disRead = false
+    private var disUnbondedReadAttempted = false
     /// 3.0s — the Kotlin twin's `BATTERY_ON_CONNECT_DELAY_MS * 2` (1500 × 2), and the same 1.5s on-connect
     /// pacing this file already uses before `requestSync(.connect)`. Long enough that the link has settled
     /// after the suppression decision, short enough to land in the same session. Pinned to the twin's
@@ -5427,6 +5430,7 @@ public final class BLEManager: NSObject, ObservableObject {
         disHwRevCharacteristic = nil
         disExtraCharacteristics = []
         disRead = false
+        disUnbondedReadAttempted = false
         disSerial = nil
         disHwRev = nil
         disFirmware = nil
@@ -5555,8 +5559,12 @@ public final class BLEManager: NSObject, ObservableObject {
         // and the earliest can land before DIS discovery has completed. Setting the flag unconditionally
         // would burn the one-shot on a call where the characteristics were still nil, and the variant
         // would never resolve. Leaving it unset lets a later caller (the keep-alive tick) pick it up.
-        if !disRead, selectedModel.deviceFamily != .whoop4,
-           let serialChar = disSerialCharacteristic, serialChar.properties.contains(.read) {
+        let hasReadableSerial = disSerialCharacteristic?.properties.contains(.read) == true
+        if shouldReadDisPostBond(isWhoop5: selectedModel.deviceFamily == .whoop5,
+                                 bonded: didBond,
+                                 alreadyReadThisLink: disRead,
+                                 hasReadableCharacteristic: hasReadableSerial),
+           let serialChar = disSerialCharacteristic {
             disRead = true
             p.readValue(for: serialChar)
             if let c = disHwRevCharacteristic, c.properties.contains(.read) { p.readValue(for: c) }
@@ -5600,14 +5608,14 @@ public final class BLEManager: NSObject, ObservableObject {
             .map { UserDefaults.standard.bool(forKey: $0) } ?? false
         guard shouldReadDisUnbonded(isWhoop5: selectedModel.deviceFamily == .whoop5,
                                     bonded: didBond,
-                                    alreadyReadThisLink: disRead,
+                                    alreadyReadThisLink: disUnbondedReadAttempted,
                                     previouslyRefused: refused) else { return }
         guard let serialChar = disSerialCharacteristic, serialChar.properties.contains(.read) else {
             log("DIS: serial characteristic unavailable — hardware variant stays unknown")
             return
         }
         log("DIS: trying the identity read on an UNbonded link — unproven, and a refusal is itself the answer to whether DIS needs an encrypted bond (#490)")
-        disRead = true
+        disUnbondedReadAttempted = true
         p.readValue(for: serialChar)
         if let c = disHwRevCharacteristic, c.properties.contains(.read) { p.readValue(for: c) }
         readDisExtras(p)
@@ -5688,16 +5696,24 @@ public final class BLEManager: NSObject, ObservableObject {
     /// leaves the strap on its existing id: adopting onto a junk id would migrate every device-scoped row
     /// onto a garbage key, which is worse than not adopting.
     private func adoptWhoopSerialIdentity() {
-        guard let rs = registryStore,
+        // DIS can expose a prefix on the unencrypted link. Only an authenticated read is authoritative
+        // enough to rename a device namespace; otherwise a short prefix could strand history under a
+        // plausible-looking but incomplete serial id.
+        guard didBond,
+              let rs = registryStore,
               let serialId = WhoopSerialIdentity.adoptedId(serial: adoptableSerial),
-              let active = try? rs.all().first(where: { $0.status == .active }),
+              // Use the identity that owns THIS live BLE source, not an arbitrary active row. With two
+              // WHOOPs paired, a DIS callback from the non-selected strap must never migrate the selected
+              // strap's history onto the callback's serial (or vice versa).
+              let active = try? rs.all().first(where: { $0.id == deviceId && $0.status == .active }),
               WhoopSerialIdentity.mayAdopt(currentId: active.id),
               active.id != serialId
         else { return }
         let currentId = active.id
         Task { @MainActor [weak self] in
             guard let self, let rs = self.registryStore,
-                  (try? rs.all().first(where: { $0.status == .active }))?.id == currentId
+                  self.deviceId == currentId,
+                  (try? rs.all().first(where: { $0.id == currentId && $0.status == .active }))?.id == currentId
             else { return }
             guard (try? rs.adoptSerialIdentity(from: currentId, to: serialId)) == true else { return }
             try? rs.setActive(serialId)
@@ -7174,6 +7190,10 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 noteGenuineBond(of: peripheral)   // #52: this strap bonds fine; clears any pin-refusal streak
                 emitConnectionBondState("encryptedBond family=whoop5 (CLIENT_HELLO acked)")
                 log("WHOOP 5/MG: CLIENT_HELLO acked — link established; subscribing notify chars (experimental).")
+                // A pre-bond DIS probe may have populated only a truncated prefix. The authenticated
+                // read below can now provide the complete serial; retry adoption immediately as well as
+                // from its eventual callback so a repair cannot leave a UUID row stranded.
+                adoptWhoopSerialIdentity()
             }
             for c in whoop5NotifyCharacteristics where !c.isNotifying || restoreNeedsResubscribe {
                 requestNotify(c, on: peripheral, reason: "post-bond puffin")   // #613: force re-arm on restore
@@ -7579,11 +7599,19 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 liveBluetoothDiagnostics.receiveBattery(bytes)
             }
         case BLEManager.disSerialChar:
+            guard self.peripheral?.identifier == peripheral.identifier else {
+                log("DIS identity ignored from a stale peripheral callback")
+                return
+            }
             // #520: NUL-terminated ASCII per the DIS spec; trim any padding before resolving.
             disSerial = String(decoding: bytes, as: UTF8.self)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines))
             noteWhoop5VariantFromDIS()
         case BLEManager.disHwRevChar:
+            guard self.peripheral?.identifier == peripheral.identifier else {
+                log("DIS identity ignored from a stale peripheral callback")
+                return
+            }
             disHwRev = String(decoding: bytes, as: UTF8.self)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines))
             noteWhoop5VariantFromDIS()

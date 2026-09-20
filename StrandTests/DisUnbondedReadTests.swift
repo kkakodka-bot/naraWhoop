@@ -40,6 +40,29 @@ final class DisUnbondedReadTests: XCTestCase {
                                              alreadyReadThisLink: false, previouslyRefused: true))
     }
 
+    // The pre-bond probe is diagnostic and may return only a prefix. It must not
+    // prevent the authenticated read that can provide the full stable serial.
+    func testUnbondedProbeDoesNotConsumeThePostBondIdentityRead() {
+        XCTAssertTrue(shouldReadDisPostBond(isWhoop5: true, bonded: true,
+                                            alreadyReadThisLink: false,
+                                            hasReadableCharacteristic: true))
+    }
+
+    func testPostBondIdentityReadIsOnlyIssuedOnceOnAnAuthenticatedFiveMGLink() {
+        XCTAssertFalse(shouldReadDisPostBond(isWhoop5: true, bonded: false,
+                                             alreadyReadThisLink: false,
+                                             hasReadableCharacteristic: true))
+        XCTAssertFalse(shouldReadDisPostBond(isWhoop5: true, bonded: true,
+                                             alreadyReadThisLink: true,
+                                             hasReadableCharacteristic: true))
+        XCTAssertFalse(shouldReadDisPostBond(isWhoop5: false, bonded: true,
+                                             alreadyReadThisLink: false,
+                                             hasReadableCharacteristic: true))
+        XCTAssertFalse(shouldReadDisPostBond(isWhoop5: true, bonded: true,
+                                             alreadyReadThisLink: false,
+                                             hasReadableCharacteristic: false))
+    }
+
     // MARK: - the refusal latch key
 
     func testTheRefusalKeyIsCaseInsensitiveAndTrimmed() {
