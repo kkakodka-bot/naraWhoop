@@ -11,6 +11,8 @@ RUN JAVA_TOOL_OPTIONS=-XX:ActiveProcessorCount=1 ./gradlew :service:installDist 
 FROM eclipse-temurin:17-jre-jammy@sha256:24cd8eed18b5976441d27b45823490eb5e8efff4b3ecdc632e442717ea66f160 AS jre
 
 FROM python:3.11-slim-bookworm@sha256:4b4c524dc3dce996864e030c7bd9c6b0e517597189fee48f48e05b499442444b
+ARG RELEASE_SHA
+LABEL org.opencontainers.image.revision=$RELEASE_SHA
 COPY --from=jre /opt/java/openjdk /opt/java/openjdk
 COPY --from=build /build/scoring-service/service/build/install/service /app
 COPY --from=model_bundle / /opt/physiology/
@@ -32,6 +34,8 @@ RUN python -m physiology_inference.bundle verify --root /opt/physiology \
     && java -version \
     && python -c "import torch; import wav2sleep; assert not torch.cuda.is_available()"
 WORKDIR /app
+RUN test "${#RELEASE_SHA}" -eq 40 && printf '%s\n' "$RELEASE_SHA" | grep -Eq '^[0-9a-f]{40}$' \
+    && printf '%s\n' "$RELEASE_SHA" > /app/release.sha && chmod 444 /app/release.sha
 USER 65532:65532
 # Exercise upstream imports with the runtime's credential-free, per-job caches as the serving UID.
 RUN python - <<'PY'

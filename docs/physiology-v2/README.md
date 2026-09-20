@@ -9,6 +9,7 @@ Start with [the iOS/server production-candidate report](production-candidate.md)
 - [Linux offline packaging preflight](linux-model-packaging-preflight.md)
 - [Isolated model queue and deployment contract](model-execution-production-candidate.md)
 - [Actual-VPS resource status](vps-resource-report.md)
+- [Restored SSH and live scoring destination diagnosis](vps-continuation-20260919.md)
 - [Receiver motion/orientation provenance](motion-input-provenance.md)
 - [HRV policy](hrv.md), [sleep policy](sleep-production-candidate.md), [respiration policy](respiration-production-candidate.md)
 

@@ -24,11 +24,17 @@ Identities:
 
 The Linux smoke container was network-disabled and capped at one CPU, 2 GiB memory and 128 processes. It ran under QEMU x86_64 on the local arm64 Colima VM. NNPACK reported unsupported emulated hardware and used the available CPU path. Two model calls took 13.217 seconds wall and 12.562 seconds process CPU, with reported peak process RSS 617,861,120 bytes. These are synthetic emulated-host diagnostics, not overnight throughput, native VPS performance, whole-service memory or acceptance thresholds. macOS and Linux output hashes differ; no cross-platform byte-equivalence claim is made.
 
-## Incomplete combined image
+## Initial local combined-image attempt
 
 The actual `scoring-service/Dockerfile.model` build was attempted with the verified bundle. It pulled the pinned JDK/JRE/Python images, downloaded Gradle 8.7 and reached `:analytics-kernel:compileKotlin`. It was deliberately cancelled with SIGINT/exit 130 when the shared local Docker VM became heavily unresponsive. The VM reported 6,198,034,432 bytes RAM and a 30 GiB filesystem with 96% used/about 1.2 GiB available during the attempt. This is an incomplete resource-constrained local build, **not a demonstrated compiler error**. No finished combined-image ID, JVM-in-image execution or deployment is claimed.
 
 The JVM build recipe restricts active processors and Gradle workers to one. Its dedicated ignore file excludes unrelated repository content, local credentials and generated build directories. Repeat the combined build after final integration on a host with sufficient disk/CPU headroom; then run the actual worker/environment checks. Do not resize or prune shared infrastructure implicitly.
+
+## Native VPS continuation
+
+Restored deploy-key SSH allowed the complete combined image to build on the actual native Linux x86_64 VPS, from committed source `fa7fe6b1f0161011a9481cb52630ec5586b52cb0`. Image digest: `sha256:a11e74e0909935516b91bd2fe38e0c0a1f867a7cf6a9711987fd1142905476c0`. Its JVM manifest export matched that commit's recorded manifests byte for byte. The separate BuildKit instance was capped at one CPU/3 GiB, then stopped before probes. This supersedes the earlier missing-image/access blocker, not the original local failure record.
+
+The first network-disabled, read-only-root, numeric-UID probe uncovered a real packaging defect that the root build-time import check did not exercise: upstream Numba's cached decorator could not find a writable cache location. All twelve attempted records across four frozen cases failed before inference, without OOM. A scoped writable-cache diagnostic then executed the actual checkpoint successfully under the same non-root/read-only restrictions. The candidate repairs production and probe child environments with private per-job cache directories; it does not make checkpoint/source directories writable or inherit credentials. All twelve repaired-image records subsequently passed, including eight-hour synthetic inputs at concurrency one and two. The [VPS resource report](vps-resource-report.md) and exact-head handoff distinguish the failed initial image, repaired-image measurements and final integration rerun identities.
 
 ## Reproduction and retained evidence
 

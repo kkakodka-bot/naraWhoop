@@ -105,6 +105,16 @@ rejected by this deployment check. Failures produce a fixed stage code without p
 Passing preflight is configuration evidence; `phase3-acceptance-checks.sh` still verifies actual
 advancing poll/publication timestamps after deployment. Process existence alone is not worker health.
 
+Persistent/replay workers and `--check-config` require `SCORING_WORKER_INSTANCE_ID` (a fresh canonical
+UUID per deployment) and `SCORING_WORKER_SOURCE_REVISION` (the exact 40-character commit SHA).
+Both images must be built with `--build-arg RELEASE_SHA=<commit>`; the worker checks its environment
+against the read-only `/app/release.sha` before opening its database. Migration `20260919010000`
+adds operator-only `physiology_worker_heartbeats`: deployment UUID plus a new process UUID per JVM
+boot, immutable source/algorithm identity, and that process's poll/score/error progress. Automatic
+container restarts create empty new process rows; they never inherit the previous boot's progress.
+The older singleton remains diagnostic compatibility only, not release-attribution evidence.
+Model-only, archive-only and inventory commands do not require deterministic-worker identity.
+
 The operations-only `ingest-verify` report exposes `physiology_processing` independently of
 `complete` (`complete_scope: ingestion_only`). It distinguishes a worker that never polled, queued
 or failed work, absent/stale publication, and published results whose measurements are unavailable.

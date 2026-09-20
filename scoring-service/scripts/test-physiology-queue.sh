@@ -47,8 +47,9 @@ fi
 if [[ -f "$repo_dir/supabase/migrations/20260918070000_physiology_legacy_boundary_continuation.sql" ]]; then
   "${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260918070000_physiology_legacy_boundary_continuation.sql" >>"$pg_test_dir/migrations.log"
 fi
-for migration in "$repo_dir"/supabase/migrations/20260918[1-9]*.sql; do
+for migration in "$repo_dir"/supabase/migrations/*.sql; do
   [[ -f "$migration" ]] || continue
+  [[ "$(basename "$migration")" < 20260918100000_ ]] && continue
   if [[ "$(basename "$migration")" == 20260918100000_physiology_independent_work.sql ]]; then
     "${psql_cmd[@]}" -f "$service_dir/service/src/test/resources/physiology_queue_isolation_fixture.sql" >>"$pg_test_dir/migrations.log"
   fi
@@ -59,6 +60,7 @@ for migration in "$repo_dir"/supabase/migrations/20260918[1-9]*.sql; do
 done
 cd "$service_dir"
 ./gradlew :service:test --tests com.frwhoop.scoring.ScoringWorkQueueIntegrationTest \
+  --tests com.frwhoop.scoring.WorkerHeartbeatIntegrationTest \
   --tests com.frwhoop.scoring.ScoringInputGateIntegrationTest \
   --tests com.frwhoop.scoring.ProjectionInvalidationIntegrationTest \
   --tests com.frwhoop.scoring.IndependentScoringWorkIntegrationTest \
@@ -75,6 +77,7 @@ cd "$service_dir"
   --tests com.frwhoop.scoring.SignalInventoryIntegrationTest \
   --tests com.frwhoop.scoring.CalendarOwnershipIntegrationTest --rerun-tasks
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ScoringWorkQueueIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.WorkerHeartbeatIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ScoringInputGateIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ProjectionInvalidationIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyPublicationIntegrationTest.xml" "$pg_test_dir/"

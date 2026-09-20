@@ -3,7 +3,9 @@
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo_dir"
-git diff --quiet && git diff --cached --quiet || { printf 'Commit the candidate before exact-head verification\n' >&2; exit 2; }
+[[ -z "$(git status --porcelain --untracked-files=all)" ]] || {
+  printf 'Commit all candidate sources before exact-head verification\n' >&2; exit 2;
+}
 : "${PHYSIOLOGY_BUILD_ROOT:?Set an external scratch directory}"
 : "${PHYSIOLOGY_PYTHON:?Set the pinned inference environment Python executable}"
 : "${PHYSIOLOGY_PACKAGE_CACHE:?Set the Xcode package checkout directory}"
@@ -16,15 +18,19 @@ git rev-parse "$candidate_base" > "$evidence/pr-base.txt"
 git status --porcelain=v1 > "$evidence/initial-status.txt"
 printf 'Evidence: %s\n' "$evidence"
 failed=0
+require_exact_candidate() {
+  [[ "$(git rev-parse HEAD)" == "$candidate" && -z "$(git status --porcelain --untracked-files=all)" ]] || {
+    printf 'Candidate changed during verification\n' >&2; exit 2;
+  }
+}
 run() {
   name="$1"; shift
+  require_exact_candidate
   printf '%s: running\n' "$name"
   printf '%q ' "$@" > "$evidence/$name.command"
   if "$@" > "$evidence/$name.log" 2>&1; then result=PASS; else result=FAIL; failed=1; fi
+  require_exact_candidate
   printf '%s\t%s\n' "$name" "$result" | tee -a "$evidence/results.tsv"
-  [[ "$(git rev-parse HEAD)" == "$candidate" ]] && git diff --quiet && git diff --cached --quiet || {
-    printf 'Candidate changed during verification\n' >&2; exit 2;
-  }
 }
 gates=("${@:-all}")
 if [[ "${gates[0]}" == all ]]; then
@@ -38,9 +44,9 @@ for gate in "${gates[@]}"; do
           --scratch-path "$PHYSIOLOGY_BUILD_ROOT/swift-$package" --jobs 2
       done ;;
     kernel)
-      run kernel bash -c 'cd "$1/scoring-service" && ./gradlew --no-daemon --max-workers=2 :analytics-kernel:test :service:test :service:installDist --rerun-tasks' _ "$repo_dir" ;;
+      run kernel bash -c 'cd "$1/scoring-service" && ./gradlew --no-daemon --max-workers=2 :analytics-kernel:test :service:test :service:installDist --rerun-tasks && mkdir -p "$2/kernel-junit" "$2/service-junit" && cp "$1/scoring-service/analytics-kernel/build/test-results/test/"TEST-*.xml "$2/kernel-junit/" && cp "$1/scoring-service/service/build/test-results/test/"TEST-*.xml "$2/service-junit/"' _ "$repo_dir" "$evidence" ;;
     manifests)
-      run manifests bash -c 'java -cp "$1/scoring-service/service/build/install/service/lib/*" com.frwhoop.scoring.scoring.ProductionAlgorithmManifest > "$2/manifests.json" && cmp "$2/manifests.json" "$1/docs/physiology-v2/candidate-algorithm-manifests.json"' _ "$repo_dir" "$evidence" ;;
+      run manifests bash -c 'cd "$1/scoring-service" && ./gradlew --no-daemon --max-workers=2 :service:installDist --rerun-tasks && java -cp "$1/scoring-service/service/build/install/service/lib/*" com.frwhoop.scoring.scoring.ProductionAlgorithmManifest > "$2/manifests.json" && cmp "$2/manifests.json" "$1/docs/physiology-v2/candidate-algorithm-manifests.json"' _ "$repo_dir" "$evidence" ;;
     database) run database bash scoring-service/scripts/test-physiology-queue.sh ;;
     runtime-preflight) run runtime-preflight bash scoring-service/scripts/test-runtime-preflight.sh ;;
     migrations)
@@ -50,7 +56,7 @@ for gate in "${gates[@]}"; do
     python)
       run python-inference "$PHYSIOLOGY_PYTHON" -m unittest discover -s scoring-service/inference/tests -v
       run python-reference "$PHYSIOLOGY_PYTHON" -m unittest discover -s Tools/physiology-bench/tests -v
-      run python-deployment "$PHYSIOLOGY_PYTHON" -m unittest discover -s infra/vps/tests -p test_scoring_deploy.py -v ;;
+      run python-deployment "$PHYSIOLOGY_PYTHON" -m unittest discover -s infra/vps/tests -p 'test_*.py' -v ;;
     checkpoint)
       : "${PHYSIOLOGY_WAV2SLEEP_PYTHON:?Set the pinned released-checkpoint environment Python executable}"
       : "${PHYSIOLOGY_WAV2SLEEP_SOURCE:?Set the pinned wav2sleep source checkout}"
@@ -58,7 +64,10 @@ for gate in "${gates[@]}"; do
       run checkpoint env PYTHONPATH="$repo_dir/scoring-service/inference:$PHYSIOLOGY_WAV2SLEEP_SOURCE/src" \
         HF_HUB_OFFLINE=1 OMP_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 \
         "$PHYSIOLOGY_WAV2SLEEP_PYTHON" -m physiology_inference.checkpoint_smoke \
-        --checkpoint-root "$PHYSIOLOGY_CHECKPOINT_ROOT" --epochs 20 --output "$evidence/checkpoint-smoke.json" ;;
+        --checkpoint-root "$PHYSIOLOGY_CHECKPOINT_ROOT" --epochs 20 --output "$evidence/checkpoint-smoke.json"
+      run synthetic-probe-tests env PYTHONPATH="$repo_dir/scoring-service/inference:$repo_dir/Tools/physiology-bench:$PHYSIOLOGY_WAV2SLEEP_SOURCE/src" \
+        HF_HUB_OFFLINE=1 OMP_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1 WAV2SLEEP_CHECKPOINT_ROOT="$PHYSIOLOGY_CHECKPOINT_ROOT" \
+        "$PHYSIOLOGY_WAV2SLEEP_PYTHON" -m unittest discover -s Tools/physiology-bench/tests -p test_checkpoint_probe.py -v ;;
     macos|ios-simulator|iphone|iphone-device)
       run "generate-$gate" xcodegen generate
       common=(-project Strand.xcodeproj -clonedSourcePackagesDirPath "$PHYSIOLOGY_PACKAGE_CACHE"

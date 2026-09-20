@@ -80,7 +80,8 @@ fun main(args: Array<String>) {
     require(config.algorithmVersion == CanonicalScorePayload.ALGORITHM_VERSION) {
         "This build requires algorithm version ${CanonicalScorePayload.ALGORITHM_VERSION}; use the baseline build for rollback"
     }
-    val db = PostgresClient(config.databaseUrl)
+    val workerIdentity = config.workerIdentity()
+    val db = PostgresClient(config.databaseUrl, queryTimeoutSeconds = 15)
     val reader = SignalSampleReader(db)
     val queue = ScoringWorkQueue(db)
     // Model configuration, object retrieval and Python execution are absent from this process path.
@@ -92,20 +93,21 @@ fun main(args: Array<String>) {
     if (derivedWriter == null) {
         log.warn("B2 credentials missing — derived artifact lane disabled (scores still write to Postgres)")
     }
-    val heartbeat = HeartbeatReporter(db, config.algorithmVersion)
+    val heartbeat = HeartbeatReporter(db, config.algorithmVersion, workerIdentity)
     val archiveOutbox = derivedWriter?.let { DerivedArchiveOutbox(db, it) }
     val poller = ScoringPoller(config, reader, queue, scorer, writer, heartbeat, archiveOutbox)
 
-    if (mode == ScoringRunMode.REPLAY) {
-        val userId = UUID.fromString(config.replayUserId ?: error("REPLAY_USER_ID required for --replay-day"))
-        val day = config.replayDay ?: error("REPLAY_DAY required for --replay-day")
-        val deviceId = resolveReplayDeviceId(reader, userId, config.replayDeviceId)
-        log.info("replay mode: user={} device={} day={}", userId, deviceId, day)
-        poller.scoreDay(userId, deviceId, day)
-        return
-    }
-
-    poller.runForever()
+    try {
+        ScoringWorkerProcess.run {
+            if (mode == ScoringRunMode.REPLAY) {
+                val userId = UUID.fromString(config.replayUserId ?: error("REPLAY_USER_ID required for --replay-day"))
+                val day = config.replayDay ?: error("REPLAY_DAY required for --replay-day")
+                val deviceId = resolveReplayDeviceId(reader, userId, config.replayDeviceId)
+                log.info("replay mode: user={} device={} day={}", userId, deviceId, day)
+                poller.scoreDay(userId, deviceId, day)
+            } else poller.runForever()
+        }
+    } finally { db.close() }
 }
 
 private fun resolveReplayDeviceId(

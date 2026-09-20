@@ -39,6 +39,8 @@ class ScoringWorkQueue(
     fun <T : Any> withInputGate(candidate: Candidate, block: (ScoringInputGate.Guard) -> T): T? =
         inputGate.withGate(candidate.userId,candidate.deviceId,block)
 
+    internal fun abortConnectionsOwnedBy(owner: Thread) = db.abortConnectionsOwnedBy(owner)
+
     data class WorkItem(
         val userId: UUID,
         val deviceId: UUID,

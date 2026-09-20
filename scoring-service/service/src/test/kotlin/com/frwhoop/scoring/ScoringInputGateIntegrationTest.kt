@@ -4,6 +4,11 @@ import com.frwhoop.scoring.db.EngineIngestWriter
 import com.frwhoop.scoring.db.PostgresClient
 import com.frwhoop.scoring.db.ScoringInputGate
 import com.frwhoop.scoring.db.ScoringWorkQueue
+import com.frwhoop.scoring.db.ScoreInputProvider
+import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.health.HeartbeatReporter
+import com.frwhoop.scoring.scoring.DayScorer
+import com.frwhoop.scoring.scoring.ScoringPoller
 import com.frwhoop.scoring.scoring.ServerScoreBundle
 import com.frwhoop.scoring.signals.PhysiologyShadowRunner
 import com.noop.analytics.DayResult
@@ -24,6 +29,8 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Real projection triggers and RPC publication; the HTTP adapter only replaces PostgREST. */
 class ScoringInputGateIntegrationTest {
@@ -228,6 +235,162 @@ class ScoringInputGateIntegrationTest {
         }
         assertEquals(2L,rows("server_physiology_results"));assertEquals(2L,rows("physiology_archive_outbox"))
     }
+
+    @Test fun deterministicInputDeadlineCancelsActualJdbcAndBacksOffBeforeAnotherOwnerRuns() {
+        val otherUser=UUID.randomUUID(); val otherDevice=UUID.randomUUID()
+        owner(otherUser,otherDevice)
+        sql(hrInsert(ts)); makeDue()
+        sql(hrInsert(ts,otherUser,otherDevice))
+        sql("update physiology_work_items set next_attempt_at=clock_timestamp() where user_id='$otherUser'")
+        val nextOwnerCalls=AtomicInteger()
+        val provider=object:ScoreInputProvider {
+            override fun loadDay(userId:UUID,day:String,deviceId:UUID):SignalSampleReader.DayInputs? {
+                if(userId==user) db.withConnection { c -> c.createStatement().use { it.execute("select pg_sleep(30)") } }
+                else nextOwnerCalls.incrementAndGet()
+                return null
+            }
+        }
+        val poller=poller(provider)
+        val began=System.nanoTime()
+        assertEquals(false,poller.processCandidate(ScoringWorkQueue.Candidate(user,device,day)))
+        assertTrue("JDBC input must not keep the attempt alive",(System.nanoTime()-began)/1e9<4)
+        assertEquals(1L,number("select count(*) from physiology_work_items where user_id='$user' and status='retry' " +
+            "and last_error='scoring_attempt_timeout' and lease_token is null and consecutive_failures=1 and next_attempt_at>clock_timestamp()"))
+        assertNull(queue.peekOne(user,device,day))
+        assertEquals(false,poller.processCandidate(ScoringWorkQueue.Candidate(otherUser,otherDevice,day)))
+        assertEquals(1,nextOwnerCalls.get())
+        assertEquals(1L,number("select count(*) from physiology_work_items where user_id='$otherUser' and status='waiting'"))
+        assertEquals(0L,rows("server_physiology_results"))
+        // Cancellation released the input gate; the next real arrival remains writable and revises the failed job.
+        sql(hrInsert(ts+1)); assertEquals(2L,revision())
+    }
+
+    @Test fun realReaderBlockedOnProjectionLockIsCancelledWithoutAbortingUnrelatedConnection() {
+        sql(hrInsert(ts)); makeDue()
+        db.withConnection { blocker ->
+            blocker.autoCommit=false
+            blocker.createStatement().use { it.execute("lock table noop_hr_samples in access exclusive mode") }
+            try {
+                val began=System.nanoTime()
+                assertEquals(false,poller(SignalSampleReader(db)).processCandidate(ScoringWorkQueue.Candidate(user,device,day)))
+                assertTrue((System.nanoTime()-began)/1e9<4)
+                assertTrue("Cancellation must leave other DB owners/connections intact",blocker.isValid(1))
+                assertEquals(1L,number("select count(*) from physiology_work_items where user_id='$user' and status='retry'"))
+            } finally { blocker.rollback(); blocker.autoCommit=true }
+        }
+        sql(hrInsert(ts+1))
+    }
+
+    @Test fun deadlineStopsAnAlreadyRenewingClaimAndClearsItsLease() {
+        sql(hrInsert(ts)); makeDue()
+        val renewed=AtomicBoolean(false)
+        val provider=object:ScoreInputProvider {
+            override fun loadDay(userId:UUID,day:String,deviceId:UUID):SignalSampleReader.DayInputs? {
+                CountDownLatch(1).await(450,TimeUnit.MILLISECONDS)
+                renewed.set(number("select count(*) from physiology_work_items where user_id='$user' and day='$day' " +
+                    "and lease_expires_at>claimed_at+interval '1.1 seconds'")==1L)
+                db.withConnection { c -> c.createStatement().use { it.execute("select pg_sleep(30)") } }
+                return null
+            }
+        }
+        val shortLease=ScoringWorkQueue(db,claimLease=Duration.ofSeconds(1))
+        assertEquals(false,poller(provider,duration=Duration.ofMillis(900),workQueue=shortLease)
+            .processCandidate(ScoringWorkQueue.Candidate(user,device,day)))
+        assertTrue("The deadline must interrupt a claim whose renewal actually ran",renewed.get())
+        CountDownLatch(1).await(400,TimeUnit.MILLISECONDS)
+        assertEquals(1L,number("select count(*) from physiology_work_items where user_id='$user' and day='$day' " +
+            "and status='retry' and lease_token is null and lease_expires_at is null and consecutive_failures=1"))
+        assertEquals(0,Thread.getAllStackTraces().keys.count { it.name=="scoring-lease-renewal" && it.isAlive })
+    }
+
+    @Test fun followingOwnerCompletesFencedPublicationAfterTimedOutInput() {
+        val otherUser=UUID.randomUUID(); val otherDevice=UUID.randomUUID()
+        owner(otherUser,otherDevice)
+        sql(hrInsert(ts)); makeDue()
+        sql(hrInsert(ts,otherUser,otherDevice))
+        sql("update physiology_work_items set next_attempt_at=clock_timestamp() where user_id='$otherUser'")
+        val provider=object:ScoreInputProvider {
+            override fun loadDay(userId:UUID,day:String,deviceId:UUID):SignalSampleReader.DayInputs? {
+                if(userId==user) CountDownLatch(1).await(30,TimeUnit.SECONDS)
+                return SignalSampleReader(db).loadDay(userId,day,deviceId)
+            }
+        }
+        val server=HttpServer.create(InetSocketAddress("127.0.0.1",0),0)
+        server.createContext("/rpc/engine_publish_physiology") { exchange ->
+            try {
+                val body=JSONObject(exchange.requestBody.bufferedReader().readText())
+                publish(body.getJSONObject("p_payload"))
+                exchange.sendResponseHeaders(200,2)
+                exchange.responseBody.use { it.write("{}".toByteArray()) }
+            } finally { exchange.close() }
+        }
+        server.start()
+        try {
+            val url="http://127.0.0.1:${server.address.port}"
+            assertEquals(false,poller(provider,url).processCandidate(ScoringWorkQueue.Candidate(user,device,day)))
+            assertNull(queue.peekOne(user,device,day))
+            assertEquals(true,poller(provider,url,Duration.ofSeconds(5))
+                .processCandidate(ScoringWorkQueue.Candidate(otherUser,otherDevice,day)))
+            assertEquals(1L,number("select count(*) from server_physiology_results where user_id='$otherUser' and device_id='$otherDevice'"))
+            assertEquals(1L,number("select count(*) from physiology_work_items where user_id='$otherUser' and day='$day' and status='done' and lease_token is null"))
+            assertEquals(0L,rows("server_physiology_results"))
+        } finally { server.stop(0) }
+    }
+
+    @Test fun ignoredInterruptionStopsWorkerAfterFencedBackoffAndCannotPublishLate() {
+        sql(hrInsert(ts)); makeDue()
+        val inputs=SignalSampleReader(db).loadDay(user,day,device)!!
+        val release=CountDownLatch(1); val returned=CountDownLatch(1)
+        val provider=object:ScoreInputProvider {
+            override fun loadDay(userId:UUID,day:String,deviceId:UUID):SignalSampleReader.DayInputs {
+                while(release.count>0) { try { release.await() } catch(_:InterruptedException) {} }
+                returned.countDown(); return inputs
+            }
+        }
+        val requests=AtomicInteger()
+        val server=HttpServer.create(InetSocketAddress("127.0.0.1",0),0)
+        server.createContext("/rpc/engine_publish_physiology") { exchange ->
+            requests.incrementAndGet(); exchange.sendResponseHeaders(500,-1); exchange.close()
+        }
+        server.start()
+        try {
+            val runner=poller(provider,"http://127.0.0.1:${server.address.port}")
+            val began=System.nanoTime()
+            try { runner.processCandidate(ScoringWorkQueue.Candidate(user,device,day)); fail("Expected terminal cancellation failure") }
+            catch(_:ScoringPoller.UnresponsiveAttempt) {}
+            assertTrue((System.nanoTime()-began)/1e9<4)
+            assertEquals(1L,number("select count(*) from physiology_work_items where user_id='$user' and status='retry' and lease_token is null"))
+            release.countDown(); assertTrue(returned.await(1,TimeUnit.SECONDS))
+            // Let the abandoned task pass its post-input cancellation check; no publication may follow.
+            CountDownLatch(1).await(100,TimeUnit.MILLISECONDS)
+            assertEquals(0,requests.get()); assertEquals(0L,rows("server_physiology_results"))
+            sql(hrInsert(ts+1))
+        } finally { release.countDown(); server.stop(0) }
+    }
+
+    @Test fun boundedDatabaseClientEnforcesServerTimeoutAndKeepsSocketBoundsDespiteUrlOverrides() {
+        val url=System.getenv("PHYSIOLOGY_TEST_DATABASE_URL")!!
+        PostgresClient("$url?socketTimeout=0&connectTimeout=0&options=-c%20statement_timeout%3D0",queryTimeoutSeconds=1).use { bounded ->
+            assertEquals("6",bounded.dataSource.dataSourceProperties["socketTimeout"].toString())
+            assertEquals("5",bounded.dataSource.dataSourceProperties["connectTimeout"].toString())
+            bounded.withConnection { c ->
+                c.createStatement().use { s ->
+                    s.executeQuery("show statement_timeout").use { r -> r.next();assertEquals("1s",r.getString(1)) }
+                    val began=System.nanoTime()
+                    try { s.execute("select pg_sleep(30)");fail("Expected statement timeout") }
+                    catch(error:SQLException) { assertEquals("57014",error.sqlState) }
+                    assertTrue((System.nanoTime()-began)/1e9<4)
+                }
+            }
+        }
+    }
+
+    private fun poller(provider:ScoreInputProvider,url:String="http://127.0.0.1:1",duration:Duration=Duration.ofMillis(250),
+                       workQueue:ScoringWorkQueue=queue)=ScoringPoller(
+        ScoringConfig(System.getenv("PHYSIOLOGY_TEST_DATABASE_URL"),"test",url,"test"),provider,workQueue,DayScorer(),
+        EngineIngestWriter(url,"test","test"),HeartbeatReporter(db,"frwhoop-physiology-2",
+            com.frwhoop.scoring.health.WorkerHeartbeatIdentity(UUID.randomUUID(),"a".repeat(40))),
+        maximumAttemptDuration=duration,cancellationGrace=Duration.ofMillis(500))
 
     private fun emptyTransportFixture()=ServerScoreBundle(user,day,device.toString(),"frwhoop-physiology-2",
         DayResult(DailyMetric(deviceId=device.toString(),day=day),emptyList(),emptyList(),null,null))

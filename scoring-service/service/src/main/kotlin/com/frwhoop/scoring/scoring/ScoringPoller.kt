@@ -9,10 +9,17 @@ import com.frwhoop.scoring.derived.DerivedArchiveOutbox
 import com.frwhoop.scoring.derived.ArchiveRetryWorker
 import com.frwhoop.scoring.health.HeartbeatReporter
 import org.slf4j.LoggerFactory
+import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.CancellationException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 class ScoringPoller(
     private val config: ScoringConfig,
@@ -22,7 +29,14 @@ class ScoringPoller(
     private val writer: EngineIngestWriter,
     private val heartbeat: HeartbeatReporter,
     private val archiveOutbox: DerivedArchiveOutbox? = null,
+    private val maximumAttemptDuration: Duration = Duration.ofSeconds(90),
+    private val cancellationGrace: Duration = Duration.ofSeconds(2),
 ) {
+    init {
+        require(maximumAttemptDuration.toMillis() in 100..105_000)
+        require(cancellationGrace.toMillis() in 50..5_000)
+    }
+    class UnresponsiveAttempt : IllegalStateException("scoring_attempt_cancellation_failed")
     private val log = LoggerFactory.getLogger(ScoringPoller::class.java)
 
     fun runForever() {
@@ -35,8 +49,9 @@ class ScoringPoller(
                 try {
                     pollOnce()
                 } catch (err: Exception) {
+                    if (err is UnresponsiveAttempt) throw err
                     log.error("poll cycle failed: {}", err.message, err)
-                    heartbeat.recordError(err.message ?: err.javaClass.simpleName)
+                    heartbeat.recordError(err.javaClass.simpleName)
                 }
                 Thread.sleep(config.pollInterval.toMillis())
             }
@@ -47,11 +62,7 @@ class ScoringPoller(
         heartbeat.recordPoll()
         repeat(8) {
             val candidate = queue.peekOne() ?: return
-            val attempted = queue.withInputGate(candidate) { guard ->
-                val item = queue.claimOne(candidate.userId,candidate.deviceId,candidate.day)
-                if (item != null) processWorkItem(item,guard)
-                true
-            }
+            val attempted = processCandidate(candidate)
             if (attempted == null) return
         }
     }
@@ -59,73 +70,109 @@ class ScoringPoller(
     fun scoreDay(userId: UUID, deviceId: UUID, day: String) {
         queue.dirtyWorkItem(userId, deviceId, day)
         val candidate = ScoringWorkQueue.Candidate(userId,deviceId,day)
-        val done = queue.withInputGate(candidate) { guard ->
-            val item = queue.claimOne(userId, deviceId, day)
-                ?: error("Replay revision is owned by another worker")
-            processWorkItem(item,guard)
-        }
+        val done = processCandidate(candidate)
         check(done == true) { "Replay did not finish publication; inspect the durable work status" }
     }
 
+    internal fun processCandidate(candidate: ScoringWorkQueue.Candidate): Boolean? =
+        queue.withInputGate(candidate) { guard ->
+            val item = queue.claimOne(candidate.userId,candidate.deviceId,candidate.day)
+            if (item == null) false else processWorkItem(item,guard)
+        }
+
     private fun processWorkItem(item: ScoringWorkQueue.WorkItem, guard: ScoringInputGate.Guard): Boolean {
         val started = System.nanoTime()
+        val budget = minOf(maximumAttemptDuration, guard.remainingDuration.minusSeconds(15))
+        val deadline = started + budget.toNanos().coerceAtLeast(0)
+        val cancelled = AtomicBoolean(false)
         val leaseLost = AtomicBoolean(false)
+        val finished = CountDownLatch(1)
+        val renewalThread = AtomicReference<Thread>()
+        fun requireActive() {
+            check(!cancelled.get() && !leaseLost.get() && !Thread.currentThread().isInterrupted &&
+                System.nanoTime() < deadline) { "scoring_attempt_cancelled" }
+            guard.requireActive()
+        }
+        val work = FutureTask {
+            requireActive()
+            val input = inputs.loadDay(item.userId, item.day, item.deviceId, item.timezoneId)
+            requireActive()
+            if (input == null) {
+                queue.markWaiting(item, "no device/inputs")
+                false
+            } else {
+                // Deleted inputs must still publish an unavailable snapshot instead of retaining old physiology.
+                val bundle = scorer.score(input, config.algorithmVersion,item.inputRevision.toString(),
+                    shadowBudget = { minOf(guard.remainingDuration,
+                        Duration.ofNanos((deadline-System.nanoTime()).coerceAtLeast(0))).minusSeconds(15) })
+                requireActive()
+                writer.write(bundle, item, minOf(guard.remainingDuration,
+                    Duration.ofNanos((deadline-System.nanoTime()).coerceAtLeast(0))))
+                requireActive()
+                queue.markDone(item, ((System.nanoTime()-started)/1_000_000).toInt())
+            }
+        }
+        val attemptThread = Thread({ try { work.run() } finally { finished.countDown() } }, "scoring-attempt")
+            .apply { isDaemon = true }
+        fun cancelWork() {
+            cancelled.set(true)
+            work.cancel(true)
+            queue.abortConnectionsOwnedBy(attemptThread)
+        }
         val renewal = Executors.newSingleThreadScheduledExecutor { task ->
-            Thread(task, "scoring-lease-renewal").apply { isDaemon = true }
+            Thread(task, "scoring-lease-renewal").apply { isDaemon = true; renewalThread.set(this) }
         }
         val periodMs = (queue.claimLease.toMillis() / 3).coerceAtLeast(100)
         renewal.scheduleAtFixedRate({
+            if (cancelled.get() || System.nanoTime() >= deadline) return@scheduleAtFixedRate
             try {
-                if (!queue.renew(item)) leaseLost.set(true)
+                if (!queue.renew(item)) { leaseLost.set(true); cancelWork() }
             } catch (err: Exception) {
                 leaseLost.set(true)
-                log.warn("lease renewal failed for run {}: {}", item.runId, err.message)
+                log.warn("lease renewal failed for run {}: {}", item.runId, err.javaClass.simpleName)
+                cancelWork()
             }
         }, periodMs, periodMs, TimeUnit.MILLISECONDS)
+        var failure: String? = null
+        var interrupted = false
+        var done = false
         try {
-            guard.requireActive()
-            val inputs = inputs.loadDay(item.userId, item.day, item.deviceId, item.timezoneId)
-            if (inputs == null) {
-                queue.markWaiting(item, "no device/inputs")
-                return false
+            attemptThread.start()
+            done = work.get((deadline-System.nanoTime()).coerceAtLeast(1), TimeUnit.NANOSECONDS)
+        } catch (_: TimeoutException) {
+            failure = "scoring_attempt_timeout"
+        } catch (_: InterruptedException) {
+            interrupted = true; failure = "scoring_attempt_cancelled"
+        } catch (_: CancellationException) {
+            failure = if (leaseLost.get()) "scoring_lease_lost" else "scoring_attempt_cancelled"
+        } catch (error: ExecutionException) {
+            failure = "scoring_attempt_${error.cause?.javaClass?.simpleName ?: "failed"}"
+        } finally {
+            // Stop and abort renewal before cancellation/finish so it cannot extend a timed-out claim.
+            cancelled.set(true)
+            renewal.shutdownNow()
+            renewalThread.get()?.let(queue::abortConnectionsOwnedBy)
+            if (failure != null) cancelWork()
+        }
+        try {
+            val stopped = try { finished.await(cancellationGrace.toMillis(), TimeUnit.MILLISECONDS) }
+            catch (_: InterruptedException) { interrupted = true; false }
+            if (failure != null) {
+                try {
+                    if (queue.markFailed(item, failure)) heartbeat.recordError(failure)
+                } catch (_: Exception) {
+                    // Leave no renewing abandoned lease if durable retry cannot be recorded.
+                    throw UnresponsiveAttempt()
+                }
             }
-            // Empty inputs can be an intentional correction/deletion. Publish an unavailable
-            // snapshot so an old generated episode cannot survive a tombstone or removed data.
-            val bundle = scorer.score(inputs, config.algorithmVersion,item.inputRevision.toString(),
-                shadowBudget = { guard.remainingDuration.minusSeconds(15) })
-            check(!leaseLost.get()) { "Scoring lease was lost before publication" }
-            guard.requireActive()
-            writer.write(bundle, item,guard.remainingDuration)
-            val durationMs = ((System.nanoTime() - started) / 1_000_000).toInt()
-            val done = queue.markDone(item, durationMs)
+            if (!stopped) throw UnresponsiveAttempt()
             if (done) {
                 heartbeat.recordScore(item.userId, item.day)
-                log.info(
-                    "scored {} {} {} (hr={}, rr={}, sleeps={}, {}ms)",
-                    item.userId, item.deviceId, item.day, inputs.hr.size, inputs.rr.size,
-                    bundle.result.sleepSessions.size, durationMs,
-                )
-            } else {
-                log.info(
-                    "completion fenced for {} {} {} because lease or revision changed",
-                    item.userId, item.deviceId, item.day,
-                )
+                log.info("scored {} {} {} ({}ms)", item.userId, item.deviceId, item.day,
+                    (System.nanoTime()-started)/1_000_000)
             }
             return done
-        } catch (err: Exception) {
-            log.error(
-                "score failed for {} {} {}: {}",
-                item.userId, item.deviceId, item.day, err.message, err,
-            )
-            if (queue.markFailed(item, err.message ?: err.javaClass.simpleName)) {
-                heartbeat.recordError(err.message ?: err.javaClass.simpleName)
-            } else {
-                log.info("discarded superseded scoring run {}", item.runId)
-            }
-            return false
-        } finally {
-            renewal.shutdownNow()
-        }
+        } finally { if (interrupted) Thread.currentThread().interrupt() }
     }
 
 }

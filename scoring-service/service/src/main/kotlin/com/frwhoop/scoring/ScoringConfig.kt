@@ -1,7 +1,11 @@
 package com.frwhoop.scoring
 
 import com.frwhoop.scoring.b2.B2Config
+import com.frwhoop.scoring.health.WorkerHeartbeatIdentity
+import java.nio.file.Files
+import java.nio.file.Path
 import java.time.Duration
+import java.util.UUID
 
 enum class ScoringRunMode { PERSISTENT, REPLAY, INVENTORY, ARCHIVE_ONLY, CHECK_CONFIG, MODELS_ONLY, ACTIVATE_MODELS }
 
@@ -18,6 +22,8 @@ data class ScoringConfig(
     val replayUserId: String? = null,
     val replayDay: String? = null,
     val replayDeviceId: String? = null,
+    val workerInstanceId: String? = null,
+    val workerSourceRevision: String? = null,
 ) {
     init { require(pollInterval.toMillis() in 1..600_000) { "Scoring poll interval must be positive and at most 10 minutes" } }
 
@@ -29,6 +35,24 @@ data class ScoringConfig(
             require(!replayDay.isNullOrBlank()) { "REPLAY_DAY required for --replay-day" }
         }
         return mode
+    }
+
+    /** Check image provenance before opening the worker database or mutating its queue. */
+    fun workerIdentity(packagedRevision: () -> String = {
+        Files.readString(Path.of("/app/release.sha"))
+    }): WorkerHeartbeatIdentity {
+        val instance = workerInstanceId
+        require(instance != null && instance.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))) {
+            "SCORING_WORKER_INSTANCE_ID must be a canonical UUID"
+        }
+        val revision = workerSourceRevision
+        require(revision != null && revision.matches(Regex("[0-9a-f]{40}"))) {
+            "SCORING_WORKER_SOURCE_REVISION must be an immutable source revision"
+        }
+        val packaged = try { packagedRevision().trim() }
+        catch (_: Exception) { throw IllegalArgumentException("Packaged scoring source revision unavailable") }
+        require(packaged == revision) { "Packaged scoring source revision mismatch" }
+        return WorkerHeartbeatIdentity(UUID.fromString(instance), revision)
     }
 
     companion object {
@@ -61,6 +85,8 @@ data class ScoringConfig(
                 replayUserId = System.getenv("REPLAY_USER_ID"),
                 replayDay = System.getenv("REPLAY_DAY"),
                 replayDeviceId = System.getenv("REPLAY_DEVICE_ID"),
+                workerInstanceId = System.getenv("SCORING_WORKER_INSTANCE_ID"),
+                workerSourceRevision = System.getenv("SCORING_WORKER_SOURCE_REVISION"),
             )
         }
 
