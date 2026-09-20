@@ -9,7 +9,7 @@
     "path": "scoring-service/inference",
     "evidence": "bounded_unmodified_source_wrapper_octave_not_available",
     "activation_status": "blocked_pending_separate_rights_inputs_and_environment_qualification",
-    "implementation_sha256": "73e1a2ec1174429abbbaa1ac9e4159873e8930a863954b07bfe28020c1a69dbb",
+    "implementation_sha256": "adf6d8ede5e0bfaa7ec2be132fb5d39d4cdead8d02b9c51b30af6456f8559f2f",
     "details": "scoring-service/inference/README.md"
   },
   "code": {
@@ -58,7 +58,7 @@
   },
   "preprocessing_sha256": "73bfd7402886a1b14929b1a251b23dec691799844bfa9b45ee64dbb6fcd0b564",
   "quality_policy_sha256": "58661e5a2c43b9e00d0fe599cd73c23595280f3121c9c3b2ce89e81ff695cb0d",
-  "adapter_sha256": "73e1a2ec1174429abbbaa1ac9e4159873e8930a863954b07bfe28020c1a69dbb",
+  "adapter_sha256": "adf6d8ede5e0bfaa7ec2be132fb5d39d4cdead8d02b9c51b30af6456f8559f2f",
   "resource_limits": {
     "maximum_concurrency": 1,
     "threads": 1,

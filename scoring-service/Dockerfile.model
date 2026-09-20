@@ -33,5 +33,13 @@ RUN python -m physiology_inference.bundle verify --root /opt/physiology \
     && python -c "import torch; import wav2sleep; assert not torch.cuda.is_available()"
 WORKDIR /app
 USER 65532:65532
+# Exercise upstream imports with the runtime's credential-free, per-job caches as the serving UID.
+RUN python - <<'PY'
+import subprocess
+import sys
+from physiology_inference.runtime import isolated_child_environment
+with isolated_child_environment() as environment:
+    subprocess.run([sys.executable, "-c", "import wav2sleep"], env=environment, check=True, timeout=60)
+PY
 ENTRYPOINT ["/app/bin/service"]
 CMD ["--models-only"]
