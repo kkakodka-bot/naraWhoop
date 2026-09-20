@@ -32,6 +32,11 @@ class PostgresClient private constructor(
                 connectionTimeout = 30_000
                 idleTimeout = 600_000
                 maxLifetime = 1_800_000
+                // Legacy/archive clients retain operator URL overrides of finite driver defaults.
+                // Dedicated scoring/model clients below enforce their stricter limits instead.
+                addDataSourceProperty("connectTimeout", "10")
+                addDataSourceProperty("socketTimeout", "60")
+                addDataSourceProperty("cancelSignalTimeout", "5")
                 queryTimeoutSeconds?.let { seconds ->
                     require(seconds in 1..60)
                     connectionTimeout = 5_000

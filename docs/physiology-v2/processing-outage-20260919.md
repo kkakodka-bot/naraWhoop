@@ -1,5 +1,10 @@
 # September 19: uploads without physiology results
 
+Updated by [the VPS audit](vps-systemic-audit-20260919.md): SSH access was restored and verified
+as `deploy` on port 22 at 2026-09-20 00:17 UTC. The previous access blocker is resolved. The live
+machine runs only the old v1 worker against its separate local database; no hosted v2 worker is
+installed. The observations below describe the earlier investigation before guest access.
+
 This follow-up starts at PR 21 revision `715df5b7dc74aa3730f087792b9ab8ca0ee7af43`.
 It repairs shared worker configuration and deployment behavior. It does not add a user-specific
 exception, relax physiological quality requirements, or establish functioning WHOOP HRV/SpO2.
@@ -14,10 +19,10 @@ The connected phone still had NARA 11.1.1 build 354 installed.
 
 `ScoringPoller.pollOnce` records its poll before reading physiological data. Missing R-R timing
 cannot explain the absent poll. The `awaiting_result` RPC state correctly reflects absent published
-results; the phone is not hiding a calculated September 19 sleep/HRV snapshot. The actual VPS image,
-environment and process logs remain unobserved because the registered deployment public key does
-not match an available local key. The DigitalOcean API confirms an active VPS, not an operating
-physiology process. No production deployment or data write occurred in this follow-up.
+results; the phone was not hiding a calculated September 19 sleep/HRV snapshot. At that inspection,
+the VPS image, environment and logs had not yet been observed. The subsequent SSH investigation
+linked above establishes the actual deployment mismatch. No production deployment or data write
+occurred in this earlier follow-up.
 
 A bounded aggregate coverage query exceeded its eight-second read-only timeout and returned no
 coverage result. This investigation does not infer current input coverage from that uncompleted query.

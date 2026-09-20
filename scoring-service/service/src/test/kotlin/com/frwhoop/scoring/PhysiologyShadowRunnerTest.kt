@@ -6,17 +6,106 @@ import com.noop.analytics.RespirationEstimator
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import java.lang.reflect.Proxy
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.UUID
+import javax.sql.DataSource
 import kotlin.math.PI
 import kotlin.math.sin
 
 class PhysiologyShadowRunnerTest {
     private val user = UUID.fromString("11111111-1111-1111-1111-111111111111")
     private val device = UUID.fromString("22222222-2222-2222-2222-222222222222")
+    private val unusedDataSource = Proxy.newProxyInstance(DataSource::class.java.classLoader,
+        arrayOf(DataSource::class.java)) { _, _, _ -> error("Unexpected database access in configuration test") } as DataSource
+
+    private fun configuredRunner(path: Path) = PhysiologyShadowRunner.fromEnvironment(unusedDataSource, null,
+        mapOf("PHYSIOLOGY_SHADOW_CONFIG" to path.toString()))
+
+    private fun assertConfigurationFailureIsIsolated(path: Path) {
+        val input = request()
+        val runner = configuredRunner(path)
+        assertTrue("Failed configuration must not leave activatable models", runner.configuredModels().isEmpty())
+        repeat(2) {
+            val result = runner.evaluate(input)
+            assertEquals(12.0, result.windows.first().breathsPerMinute!!, 0.5)
+            assertNull(result.summaries.single().summary.median)
+            assertEquals("insufficient_accepted_duration", result.summaries.single().summary.reason)
+            assertTrue(result.windows.any { it.breathsPerMinute != null })
+            assertTrue(result.rawReasons.contains("shadow_configuration_unavailable"))
+            assertEquals(8, result.modelResults.size)
+            assertTrue(result.modelResults.map { JSONObject(it.toString()) }.all { model -> model.getString("status") == "abstained" &&
+                model.getString("reason") == "shadow_configuration_unavailable" &&
+                !model.getBoolean("canonical_outputs_allowed") && model.getString("publication_mode") == "shadow" &&
+                model.getString("user_id") == input.userId.toString() &&
+                model.getString("device_id") == input.deviceId.toString() &&
+                model.getString("input_revision") == input.inputRevision })
+            val serialized = result.json().toString()
+            assertFalse(serialized.contains(path.parent.toString()))
+            assertFalse(serialized.contains("private-configuration-marker"))
+        }
+    }
+
+    private fun shadowConfig(directory: Path, activation: Path, python: Path = Path.of(System.getProperty("java.home"), "bin", "java")): Path {
+        val config = JSONObject().put("python", python.toString()).put("python_path", directory.toString())
+            .put("models", org.json.JSONArray().put(JSONObject().put("model_id", "neurokit2")
+                .put("activation_file", activation.toString()).put("asset_root", directory.toString())))
+        return Files.writeString(directory.resolve("shadow.json"), config.toString())
+    }
+
+    @Test fun `missing optional configuration preserves repeated interval respiration`() {
+        val directory = Files.createTempDirectory("shadow-startup-")
+        try { assertConfigurationFailureIsIsolated(directory.resolve("missing.json")) }
+        finally { directory.toFile().deleteRecursively() }
+    }
+
+    @Test fun `malformed optional configuration is unavailable without leaking contents`() {
+        val directory = Files.createTempDirectory("shadow-startup-")
+        try {
+            val config = Files.writeString(directory.resolve("shadow.json"), "private-configuration-marker")
+            assertConfigurationFailureIsIsolated(config)
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
+    @Test fun `missing and malformed activations preserve interval respiration`() {
+        val directory = Files.createTempDirectory("shadow-startup-")
+        try {
+            val activation = directory.resolve("activation.json")
+            val config = shadowConfig(directory, activation)
+            assertConfigurationFailureIsIsolated(config)
+            Files.writeString(activation, "private-configuration-marker")
+            assertConfigurationFailureIsIsolated(config)
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
+    @Test fun `unavailable python cannot prevent canonical worker construction`() {
+        val directory = Files.createTempDirectory("shadow-startup-")
+        try {
+            val activation = Files.writeString(directory.resolve("activation.json"), "{}")
+            assertConfigurationFailureIsIsolated(shadowConfig(directory, activation, directory.resolve("missing-python")))
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
+    @Test fun `valid configuration remains gated on verified model input adapter`() {
+        val directory = Files.createTempDirectory("shadow-startup-")
+        try {
+            val activation = Files.writeString(directory.resolve("activation.json"), "{}")
+            val runner = configuredRunner(shadowConfig(directory, activation))
+            val result = runner.evaluate(request())
+            assertEquals(12.0, result.windows.first().breathsPerMinute!!, 0.5)
+            assertNull(result.summaries.single().summary.median)
+            assertFalse(result.rawReasons.contains("shadow_configuration_unavailable"))
+            assertTrue(result.modelResults.all { it.getString("reason") == "independent_model_queue" })
+            val model = runner.evaluateModel(request(), "neurokit2")
+            assertEquals("verified_model_input_adapter_not_configured", model.getString("reason"))
+            assertFalse(model.getBoolean("canonical_outputs_allowed"))
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
     private fun request(): PhysiologyShadowRunner.Request {
         var time = 0.0
         val rows = (0 until 400).map { i ->
@@ -165,6 +254,47 @@ class PhysiologyShadowRunnerTest {
             java.nio.file.Files.deleteIfExists(config);java.nio.file.Files.deleteIfExists(activation)
             java.nio.file.Files.deleteIfExists(directory)
         }
+    }
+
+    @Test fun `selected corrupt activation cannot become a different configured model`() {
+        val directory = Files.createTempDirectory("model-selection-failure-")
+        try {
+            val activation = Files.writeString(directory.resolve("activation.json"), "{}")
+            val config = shadowConfig(directory, activation)
+            val configuration = JSONObject(Files.readString(config))
+            configuration.getJSONArray("models").put(JSONObject().put("model_id", "wav2sleep-cardiorespiratory")
+                .put("activation_file", directory.resolve("missing.json").toString())
+                .put("asset_root", directory.toString()))
+            Files.writeString(config, configuration.toString())
+            val runner = PhysiologyShadowRunner.fromEnvironment(unusedDataSource, null,
+                mapOf("PHYSIOLOGY_SHADOW_CONFIG" to config.toString()), modelId = "wav2sleep-cardiorespiratory")
+            assertTrue(runner.configuredModels().isEmpty())
+            val result = runner.evaluate(request())
+            assertEquals(12.0, result.windows.first().breathsPerMinute!!, .5)
+            assertTrue(result.modelResults.all { it.getString("reason") == "shadow_configuration_unavailable" })
+            try {
+                runner.evaluateModel(request(), "wav2sleep-cardiorespiratory")
+                fail("A missing activation must not execute or substitute another model")
+            } catch (_: NoSuchElementException) {
+                // The independent worker also requires one configured activation before leasing.
+            }
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
+    @Test fun `configuration fallback never reads optional raw objects in deterministic lane`() {
+        val directory = Files.createTempDirectory("shadow-no-raw-")
+        try {
+            val objects = object : com.frwhoop.scoring.b2.B2ObjectStore.GetClient {
+                override fun getObject(key: String, maximumBytes: Int): ByteArray = error("Unexpected raw read")
+            }
+            val runner = PhysiologyShadowRunner.fromEnvironment(unusedDataSource, objects,
+                mapOf("PHYSIOLOGY_SHADOW_CONFIG" to directory.resolve("missing.json").toString()),
+                assembler = PhysiologyShadowRunner.JobAssembler { _, _, _ -> error("Unexpected assembly") })
+            val result = runner.evaluate(request())
+            assertEquals(listOf("shadow_configuration_unavailable"), result.rawReasons)
+            assertEquals(0, result.verifiedObjects)
+            assertEquals(12.0, result.windows.first().breathsPerMinute!!, .5)
+        } finally { directory.toFile().deleteRecursively() }
     }
 
     @Test fun `expired publication budget abstains before starting model work`() {

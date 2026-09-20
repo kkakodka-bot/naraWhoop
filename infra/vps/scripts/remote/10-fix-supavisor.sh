@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Fix Supavisor crash: VAULT_ENC_KEY must be exactly 32 hex chars (openssl rand -hex 16).
 # Also bind pooler ports to localhost and set POOLER_TENANT_ID.
+# This legacy credential repair is not the network-only deployment procedure.
+# For network changes alone, use 14-pooler-network.py and recreate only supavisor.
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 COMPOSE_DIR="${1:-/opt/frwhoop/supabase-docker/docker}"
 ENV_FILE="${COMPOSE_DIR}/.env"
 SECRETS="/opt/frwhoop/secrets.env"
-OVERRIDE="${COMPOSE_DIR}/docker-compose.override.yml"
+
+# Validate before touching credentials. Preserve existing Studio bindings; refuse
+# public Studio exposure instead of overwriting unrelated override configuration.
+python3 "$SCRIPT_DIR/14-pooler-network.py" "$COMPOSE_DIR"
 
 current_len=$(grep '^VAULT_ENC_KEY=' "$ENV_FILE" | cut -d= -f2- | tr -d '\r\n' | wc -c | tr -d ' ')
 if [[ "$current_len" != "32" ]]; then
@@ -25,27 +31,7 @@ if grep -q '^POOLER_TENANT_ID=your-tenant-id' "$ENV_FILE"; then
   echo "Set POOLER_TENANT_ID=frwhoop"
 fi
 
-cat >"$OVERRIDE" <<'EOF'
-services:
-  studio:
-    ports:
-      - "127.0.0.1:3000:3000/tcp"
-  supavisor:
-    ports:
-      - "127.0.0.1:5432:5432/tcp"
-      - "127.0.0.1:6543:6543/tcp"
-EOF
-
-# Override ports list may merge with base compose; patch base file for localhost bind.
-python3 - <<'PY'
-from pathlib import Path
-p = Path("/opt/frwhoop/supabase-docker/docker/docker-compose.yml")
-text = p.read_text()
-old = "    ports:\n      - ${POSTGRES_PORT}:5432\n      - ${POOLER_PROXY_PORT_TRANSACTION}:6543"
-new = "    ports:\n      - 127.0.0.1:${POSTGRES_PORT}:5432\n      - 127.0.0.1:${POOLER_PROXY_PORT_TRANSACTION}:6543"
-if "127.0.0.1:${POSTGRES_PORT}" not in text and old in text:
-    p.write_text(text.replace(old, new, 1))
-PY
+python3 "$SCRIPT_DIR/14-pooler-network.py" "$COMPOSE_DIR" --write
 
 cd "$COMPOSE_DIR"
 docker compose up -d --force-recreate supavisor studio

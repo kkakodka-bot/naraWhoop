@@ -23,6 +23,7 @@ class PhysiologyShadowRunner(
     private val executor: Executor? = null,
     private val assembler: JobAssembler? = null,
     private val totalTimeoutSeconds: Long = 60,
+    private val configurationUnavailable: Boolean = false,
 ) {
     private val requestSlot = Semaphore(1)
     init { require(totalTimeoutSeconds in 1..120) }
@@ -187,12 +188,19 @@ class PhysiologyShadowRunner(
         }
         val waitingModels = MODEL_IDS.map { id -> JSONObject().put("model_id", id).put("publication_mode", "shadow")
             .put("canonical_outputs_allowed", false).put("status", "abstained")
-            .put("reason", if (includeModels) "shadow_deadline_before_models" else "independent_model_queue")
+            .put("reason", when {
+                configurationUnavailable -> "shadow_configuration_unavailable"
+                includeModels -> "shadow_deadline_before_models"
+                else -> "independent_model_queue"
+            })
             .put("user_id", request.userId).put("device_id", request.deviceId).put("input_revision", request.inputRevision) }
-        onProgress(Result(windows.toList(), summaries.toList(), waitingModels, emptyList(), 0))
-        if (!includeModels) return Result(windows, summaries, waitingModels,
-            if (candidates.size > 512) listOf("respiration_window_budget_reached") else emptyList(), 0)
         val rawReasons = mutableListOf<String>(); val decoded = mutableListOf<VerifiedRawObjectReader.Decoded>()
+        if (configurationUnavailable) rawReasons += "shadow_configuration_unavailable"
+        onProgress(Result(windows.toList(), summaries.toList(), waitingModels, rawReasons.toList(), 0))
+        // Configuration diagnostics do not authorize raw I/O or optional execution in the
+        // deterministic lane. A failed configuration also contains no activatable models.
+        if (!includeModels) return Result(windows, summaries, waitingModels,
+            rawReasons + if (candidates.size > 512) listOf("respiration_window_budget_reached") else emptyList(), 0)
         if (contexts.isEmpty()) rawReasons += "no_qualified_respiration_context"
         if (catalogue == null) rawReasons += "raw_object_reader_not_configured" else {
             try {
@@ -219,6 +227,7 @@ class PhysiologyShadowRunner(
             checkCancellation()
             val model = configured[id]
             var reason = when {
+                configurationUnavailable -> "shadow_configuration_unavailable"
                 model == null -> "model_not_configured"
                 executor == null -> "bounded_runtime_not_configured"
                 assembler == null -> "verified_model_input_adapter_not_configured"
@@ -262,22 +271,28 @@ class PhysiologyShadowRunner(
             val catalogue = objects?.let { RawSignalCatalogue(dataSource, VerifiedRawObjectReader(it)) }
             val configPath = environment["PHYSIOLOGY_SHADOW_CONFIG"]?.takeIf { it.isNotBlank() }
                 ?: return PhysiologyShadowRunner(catalogue = catalogue, assembler = assembler)
-            val path = Path.of(configPath).toAbsolutePath()
-            require(Files.size(path) <= 1024 * 1024) { "shadow_config_size_limit" }
-            val config = JSONObject(Files.readString(path))
-            val specifications = config.getJSONArray("models")
-            require(specifications.length() <= 8)
-            val selected = (0 until specifications.length()).map { specifications.getJSONObject(it) }
-                .filter { modelId == null || it.optString("model_id") == modelId }
-            val models = selected.map { specification ->
-                val id = specification.getString("model_id"); require(id in MODEL_IDS)
-                val activationPath = Path.of(specification.getString("activation_file")); require(Files.size(activationPath) <= 1024 * 1024)
-                Model(id, JSONObject(Files.readString(activationPath)), Path.of(specification.getString("asset_root")))
+            return try {
+                val path = Path.of(configPath).toAbsolutePath()
+                require(Files.size(path) <= 1024 * 1024) { "shadow_config_size_limit" }
+                val config = JSONObject(Files.readString(path))
+                val specifications = config.getJSONArray("models")
+                require(specifications.length() <= 8)
+                val selected = (0 until specifications.length()).map { specifications.getJSONObject(it) }
+                    .filter { modelId == null || it.optString("model_id") == modelId }
+                val models = selected.map { specification ->
+                    val id = specification.getString("model_id"); require(id in MODEL_IDS)
+                    val activationPath = Path.of(specification.getString("activation_file")); require(Files.size(activationPath) <= 1024 * 1024)
+                    Model(id, JSONObject(Files.readString(activationPath)), Path.of(specification.getString("asset_root")))
+                }
+                require(models.map { it.id }.distinct().size == models.size)
+                PhysiologyShadowRunner(catalogue, models,
+                    PythonShadowExecutor(Path.of(config.getString("python")), config.getString("python_path"), config.optLong("model_timeout_seconds", 35)),
+                    assembler, config.optLong("total_timeout_seconds", 60))
+            } catch (_: Exception) {
+                // Optional model setup cannot stop deterministic scoring. No failed activation
+                // is registered or leased, and configuration contents/paths are never exposed.
+                PhysiologyShadowRunner(catalogue = catalogue, assembler = assembler, configurationUnavailable = true)
             }
-            require(models.map { it.id }.distinct().size == models.size)
-            return PhysiologyShadowRunner(catalogue, models,
-                PythonShadowExecutor(Path.of(config.getString("python")), config.getString("python_path"), config.optLong("model_timeout_seconds", 35)),
-                assembler, config.optLong("total_timeout_seconds", 60))
         }
     }
 }

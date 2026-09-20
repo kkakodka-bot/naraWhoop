@@ -60,8 +60,10 @@ ssh -i "$SSH_KEY" "deploy@${DROPLET_IP}" "sudo bash /opt/frwhoop/scripts/05-rest
 
 echo "========== 8. docker compose ps / listeners =========="
 ssh -i "$SSH_KEY" "deploy@${DROPLET_IP}" "cd /opt/frwhoop/supabase-docker/docker && docker compose ps"
-ssh -i "$SSH_KEY" "deploy@${DROPLET_IP}" "ss -tlnp | grep -E ':(22|80|443|5432|8000|3000)\s' || true"
+ssh -i "$SSH_KEY" "deploy@${DROPLET_IP}" "ss -tlnp | grep -E ':(22|80|443|5432|6543|8000|3000)\s' || true"
 ssh -i "$SSH_KEY" "deploy@${DROPLET_IP}" \
-  "! ss -tlnp | grep -E '0\\.0\\.0\\.0:(5432|8000|3000)|\\[::\\]:(5432|8000|3000)' || (echo 'FAIL: internal service bound publicly' >&2; exit 1)"
+  "! ss -tlnp | grep -E '0\\.0\\.0\\.0:(5432|6543|8000|3000)|\\[::\\]:(5432|6543|8000|3000)' || (echo 'FAIL: internal service bound publicly' >&2; exit 1)"
+ssh -i "$SSH_KEY" "deploy@${DROPLET_IP}" \
+  "sudo python3 /opt/frwhoop/scripts/14-pooler-network.py --check --running"
 
 echo "All acceptance checks finished."

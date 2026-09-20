@@ -10,7 +10,7 @@ SSH_KEY="${ROOT}/infra/vps/keys/frwhoop_deploy"
 DEPLOY_TARGET="$(python3 "${ROOT}/infra/vps/scripts/read-deploy-target.py" "$DROPLET_ENV")"
 IFS='|' read -r DROPLET_IP SSH_PORT <<<"$DEPLOY_TARGET"
 SSH_ARGS=(-F /dev/null -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes
-  -o ConnectTimeout=10 -o PreferredAuthentications=publickey
+  -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o PreferredAuthentications=publickey
   -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -p "$SSH_PORT")
 if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=all)" ]]; then
   echo "Refusing to deploy a dirty checkout" >&2
@@ -30,7 +30,8 @@ echo "========== sync exact scoring build context =========="
 # REMOTE_BUILD passed the exact path/character whitelist above.
 # shellcheck disable=SC2029
 git -C "$ROOT" archive "$RELEASE_SHA" android scoring-service \
-  infra/vps/scripts/scoring-progress.sh infra/vps/templates/docker-compose.scoring-override.yml | \
+  infra/vps/scripts/scoring-progress.sh infra/vps/scripts/remote/verify-scoring-runtime.sh \
+  infra/vps/templates/docker-compose.scoring-override.yml | \
   ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" \
     "tar -xf - -C '${REMOTE_BUILD}'"
 
@@ -39,14 +40,15 @@ ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$REMOTE_B
 set -euo pipefail
 RELEASE_SHA="$1"
 BASE="/opt/frwhoop"
-COMPOSE_DIR="${BASE}/supabase-docker/docker"
+COMPOSE_DIR="${BASE}/scoring"
 BUILD="$2"
 SECRETS="${BASE}/secrets.env"
 SCORING_ENV="${BASE}/scoring.env"
-COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.scoring.yml"
+COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
 CANDIDATE_COMPOSE="${BUILD}/infra/vps/templates/docker-compose.scoring-override.yml"
 # shellcheck disable=SC1091
 source "${BUILD}/infra/vps/scripts/scoring-progress.sh"
+install -d -m 700 "$COMPOSE_DIR"
 exec 9>"${BASE}/scoring-deploy.lock"
 flock -n 9 || { echo 'Another scoring deployment is active' >&2; exit 1; }
 
@@ -73,15 +75,22 @@ declare -a previous_v2=() previous_names=() previous_running=() stopped=() renam
 [[ ! -f "$SCORING_ENV" ]] || { cp -p "$SCORING_ENV" "${rollback_dir}/scoring.env"; old_env=true; }
 [[ ! -f "$COMPOSE_FILE" ]] || { cp -p "$COMPOSE_FILE" "${rollback_dir}/docker-compose.scoring.yml"; old_compose=true; }
 finish() {
-  local result=$? index actual_name candidate_id candidate_quiet=true rollback_failed=false
+  local result=$? index actual_name candidate_id candidate_project candidate_quiet=true rollback_failed=false
   trap - EXIT
   if [[ "$cutover" == true && "$accepted" == false ]]; then
     # Prior containers are retained by ID; Compose must not recreate/delete their labels.
     if [[ "$candidate_attempted" == true ]]; then
       if candidate_id="$(timeout 12 docker ps --no-trunc -aq --filter 'name=^/scoring-physiology-v2$')"; then
-        if [[ -n "$candidate_id" ]] && ! timeout 40 docker rm -f "$candidate_id" >/dev/null; then
-          rollback_failed=true
-          timeout 40 docker stop --time 30 "$candidate_id" >/dev/null || candidate_quiet=false
+        if [[ -n "$candidate_id" ]]; then
+          candidate_project="$(timeout 12 docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$candidate_id")" || candidate_project=""
+          if [[ "$candidate_project" != "$compose_project" ]]; then
+            # Another invocation may have acquired the fixed name while Compose failed.
+            # Never stop/remove it, or start a competing prior scorer with unknown ownership.
+            candidate_quiet=false; rollback_failed=true
+          elif ! timeout 40 docker rm -f "$candidate_id" >/dev/null; then
+            rollback_failed=true
+            timeout 40 docker stop --time 30 "$candidate_id" >/dev/null || candidate_quiet=false
+          fi
         fi
       else candidate_quiet=false; rollback_failed=true; fi
     fi
@@ -137,9 +146,11 @@ docker run --rm --env-file "$candidate_env" --env-file "${BASE}/b2.env" \
 
 cd "$COMPOSE_DIR"
 export SCORING_IMAGE_TAG="$RELEASE_SHA"
+export SCORING_CPUS="${SCORING_CPUS:-2.0}"
+export SCORING_MEMORY_LIMIT="${SCORING_MEMORY_LIMIT:-2g}"
+compose_project="frwhoop-scoring-${SCORING_WORKER_INSTANCE_ID}"
 SCORING_ENV_FILE="$candidate_env" docker compose \
-  -f docker-compose.yml -f docker-compose.caddy.yml -f docker-compose.envoy.yml \
-  -f "$CANDIDATE_COMPOSE" config --quiet
+  -p "$compose_project" -f "$CANDIDATE_COMPOSE" config --quiet
 
 prior_ids="$(scoring_worker_ids -aq)"
 while read -r id; do
@@ -169,11 +180,13 @@ install -m 600 "$candidate_env" "$SCORING_ENV"
 install -m 600 "$CANDIDATE_COMPOSE" "$COMPOSE_FILE"
 unset SCORING_ENV_FILE
 candidate_attempted=true
-timeout 60 docker compose -f docker-compose.yml -f docker-compose.caddy.yml -f docker-compose.envoy.yml \
-  -f docker-compose.scoring.yml run -d --no-deps --name scoring-physiology-v2 scoring-physiology-v2
+timeout 60 docker compose -p "$compose_project" -f docker-compose.yml \
+  run -d --no-deps --name scoring-physiology-v2 scoring-physiology-v2
 timeout 12 docker update --restart unless-stopped scoring-physiology-v2 >/dev/null
 scoring_wait_for_progress "$RELEASE_SHA" "$baseline"
 accepted=true
+install -m 700 "${BUILD}/infra/vps/scripts/scoring-progress.sh" "${COMPOSE_DIR}/scoring-progress.sh"
+install -m 700 "${BUILD}/infra/vps/scripts/remote/verify-scoring-runtime.sh" "${COMPOSE_DIR}/verify-scoring-runtime.sh"
 echo "Prior worker/configuration retained for rollback: ${rollback_dir}"
 REMOTE
 

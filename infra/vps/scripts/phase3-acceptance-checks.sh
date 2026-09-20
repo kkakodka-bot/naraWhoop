@@ -24,7 +24,7 @@ if [[ "$LOCAL_ONLY" == false ]]; then
   IFS='|' read -r DROPLET_IP SSH_PORT <<<"$DEPLOY_TARGET"
 fi
 SSH_ARGS=(-F /dev/null -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes
-  -o ConnectTimeout=10 -o PreferredAuthentications=publickey
+  -o StrictHostKeyChecking=yes -o ConnectTimeout=10 -o PreferredAuthentications=publickey
   -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -p "$SSH_PORT")
 export JAVA_HOME="${JAVA_HOME:-$(brew --prefix openjdk@17 2>/dev/null)/libexec/openjdk.jdk/Contents/Home}"
 
@@ -68,8 +68,7 @@ SCORING_WORKER_INSTANCE_ID="$(scoring_environment_value "$candidate_environment"
 SCORING_WORKER_SOURCE_REVISION="$release_sha"
 unset candidate_environment
 scoring_assert_candidate "$release_sha"
-initial="$(scoring_progress_snapshot)"
-scoring_wait_for_progress "$release_sha" "$initial"
+scoring_wait_for_progress "$release_sha"
 REMOTE
   } | ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA"; then
     echo 'NOT_READY: VPS identity/configuration/progress acceptance failed' >&2; exit 3

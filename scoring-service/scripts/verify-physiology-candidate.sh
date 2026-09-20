@@ -11,7 +11,7 @@ cd "$repo_dir"
 : "${PHYSIOLOGY_PACKAGE_CACHE:?Set the Xcode package checkout directory}"
 evidence="$(mktemp -d "${TMPDIR:-/tmp}/physiology-exact-head.XXXXXX")"
 candidate="$(git rev-parse HEAD)"
-candidate_base="${PHYSIOLOGY_PR_BASE:-28a6b32e0140507dc75ece23286db4c814bbd5bc}"
+candidate_base="${PHYSIOLOGY_PR_BASE:-a39a0d46e3ce74fa8c5aee646e3cbb481f6525a3}"
 git merge-base --is-ancestor "$candidate_base" "$candidate" || { printf 'Candidate does not include the recorded PR base\n' >&2; exit 2; }
 printf '%s\n' "$candidate" > "$evidence/commit.txt"
 git rev-parse "$candidate_base" > "$evidence/pr-base.txt"
@@ -56,7 +56,7 @@ for gate in "${gates[@]}"; do
     python)
       run python-inference "$PHYSIOLOGY_PYTHON" -m unittest discover -s scoring-service/inference/tests -v
       run python-reference "$PHYSIOLOGY_PYTHON" -m unittest discover -s Tools/physiology-bench/tests -v
-      run python-deployment "$PHYSIOLOGY_PYTHON" -m unittest discover -s infra/vps/tests -p 'test_*.py' -v ;;
+      run python-deployment "${PHYSIOLOGY_INFRA_PYTHON:-$PHYSIOLOGY_PYTHON}" -m unittest discover -s infra/vps/tests -p 'test_*.py' -v ;;
     checkpoint)
       : "${PHYSIOLOGY_WAV2SLEEP_PYTHON:?Set the pinned released-checkpoint environment Python executable}"
       : "${PHYSIOLOGY_WAV2SLEEP_SOURCE:?Set the pinned wav2sleep source checkout}"

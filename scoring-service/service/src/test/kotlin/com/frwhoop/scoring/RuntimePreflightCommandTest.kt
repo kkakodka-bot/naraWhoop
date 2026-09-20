@@ -19,6 +19,18 @@ class RuntimePreflightCommandTest {
         }
     }
 
+    @Test fun urlOptionsCannotDisableThePreflightDriverDeadlines() {
+        val candidate = config.copy(databaseUrl = config.databaseUrl + "?connectTimeout=0&socketTimeout=0&sslmode=require")
+        RuntimePreflightCommand.heartbeatUrl(candidate)
+        val (url, properties) = RuntimePreflightCommand.databaseConnectionParameters(candidate)
+        val actual = org.postgresql.Driver.parseURL(url, properties)!!
+        assertEquals("10", actual.getProperty("connectTimeout"))
+        assertEquals("15", actual.getProperty("socketTimeout"))
+        assertEquals("5", actual.getProperty("cancelSignalTimeout"))
+        assertEquals("require", actual.getProperty("sslmode"))
+        assertFalse(url.contains("private-password"))
+    }
+
     @Test fun mismatchedUnknownOrInsecureEndpointsFailBeforeCredentialsCanLeave() {
         val invalid = listOf(
             config.copy(databaseUrl = config.databaseUrl.replace("postgres.$project", "postgres.zyxwvutsrqponmlkjihg")),

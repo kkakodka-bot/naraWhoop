@@ -2,6 +2,7 @@ package com.frwhoop.scoring.db
 
 import java.sql.PreparedStatement
 import java.sql.ResultSet
+import java.sql.Timestamp
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
@@ -14,25 +15,52 @@ class ScoringWorkQueue(
 ) {
     private val inputGate = ScoringInputGate(db)
 
-    data class Candidate(val userId: UUID, val deviceId: UUID, val day: String)
+    data class Cursor(val nextAttemptAt: Instant, val dirtyAt: Instant,
+                      val userId: UUID, val deviceId: UUID, val day: String)
+    data class Candidate(val userId: UUID, val deviceId: UUID, val day: String, val cursor: Cursor? = null)
+    data class DeviceKey(val userId: UUID, val deviceId: UUID)
 
     /** Look before acquiring the input gate; a waiting worker must not age a live claim. */
-    fun peekOne(userId: UUID? = null, deviceId: UUID? = null, day: String? = null): Candidate? =
+    fun peekOne(userId: UUID? = null, deviceId: UUID? = null, day: String? = null,
+                excludedDevices: Set<DeviceKey> = emptySet(), after: Cursor? = null): Candidate? =
         db.withConnection { conn ->
+            // A device gate covers every day. Another worker's live day claim therefore
+            // makes its other pending days unavailable too; look for unrelated work first.
+            val excluded = excludedDevices.joinToString(" ") { "and not (w.user_id=? and w.device_id=?)" }
+            val cursorClause = if(after == null) "" else
+                "and (w.next_attempt_at,w.dirty_at,w.user_id,w.device_id,w.day) > (?::timestamptz,?::timestamptz,?::uuid,?::uuid,?::date)"
             conn.prepareStatement("""
-                select user_id,device_id,day from public.physiology_work_items
-                where done_at is null and next_attempt_at<=clock_timestamp()
-                  and (lease_expires_at is null or lease_expires_at<=clock_timestamp())
-                  and (failure_revision<>input_revision or consecutive_failures<?)
-                  and (?::uuid is null or user_id=?) and (?::uuid is null or device_id=?)
-                  and (?::date is null or day=?::date)
-                order by next_attempt_at,dirty_at,user_id,device_id,day limit 1
+                select w.user_id,w.device_id,w.day,w.next_attempt_at,w.dirty_at from public.physiology_work_items w
+                where w.done_at is null and w.next_attempt_at<=clock_timestamp()
+                  and (w.lease_expires_at is null or w.lease_expires_at<=clock_timestamp())
+                  and (w.failure_revision<>w.input_revision or w.consecutive_failures<?)
+                  and (?::uuid is null or w.user_id=?) and (?::uuid is null or w.device_id=?)
+                  and (?::date is null or w.day=?::date)
+                  and not exists (select 1 from public.physiology_work_items active
+                    where active.user_id=w.user_id and active.device_id=w.device_id
+                      and active.status='running' and active.lease_expires_at>clock_timestamp())
+                  $excluded
+                  $cursorClause
+                order by w.next_attempt_at,w.dirty_at,w.user_id,w.device_id,w.day limit 1
             """.trimIndent()).use { p ->
                 p.setInt(1,maxAttempts); p.setObject(2,userId); p.setObject(3,userId)
                 p.setObject(4,deviceId); p.setObject(5,deviceId); p.setString(6,day); p.setString(7,day)
-                p.executeQuery().use { r -> if (r.next()) Candidate(
-                    r.getObject("user_id",UUID::class.java),r.getObject("device_id",UUID::class.java),
-                    r.getDate("day").toString()) else null }
+                excludedDevices.forEachIndexed { index, key ->
+                    p.setObject(8+index*2,key.userId); p.setObject(9+index*2,key.deviceId)
+                }
+                after?.let { cursor ->
+                    val index=8+excludedDevices.size*2
+                    p.setTimestamp(index,Timestamp.from(cursor.nextAttemptAt))
+                    p.setTimestamp(index+1,Timestamp.from(cursor.dirtyAt))
+                    p.setObject(index+2,cursor.userId);p.setObject(index+3,cursor.deviceId);p.setString(index+4,cursor.day)
+                }
+                p.executeQuery().use { r -> if (r.next()) {
+                    val owner=r.getObject("user_id",UUID::class.java)
+                    val device=r.getObject("device_id",UUID::class.java)
+                    val date=r.getDate("day").toString()
+                    Candidate(owner,device,date,Cursor(r.getTimestamp("next_attempt_at").toInstant(),
+                        r.getTimestamp("dirty_at").toInstant(),owner,device,date))
+                } else null }
             }
         }
 

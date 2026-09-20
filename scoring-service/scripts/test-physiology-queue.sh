@@ -61,8 +61,10 @@ done
 cd "$service_dir"
 ./gradlew :service:test --tests com.frwhoop.scoring.ScoringWorkQueueIntegrationTest \
   --tests com.frwhoop.scoring.WorkerHeartbeatIntegrationTest \
+  --tests com.frwhoop.scoring.PostgresDeadlineIntegrationTest \
   --tests com.frwhoop.scoring.ScoringInputGateIntegrationTest \
   --tests com.frwhoop.scoring.ProjectionInvalidationIntegrationTest \
+  --tests com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest \
   --tests com.frwhoop.scoring.IndependentScoringWorkIntegrationTest \
   --tests com.frwhoop.scoring.PhysiologyPublicationIntegrationTest \
   --tests com.frwhoop.scoring.PhysiologyPromotionIntegrationTest \
@@ -78,8 +80,10 @@ cd "$service_dir"
   --tests com.frwhoop.scoring.CalendarOwnershipIntegrationTest --rerun-tasks
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ScoringWorkQueueIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.WorkerHeartbeatIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PostgresDeadlineIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ScoringInputGateIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ProjectionInvalidationIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyPublicationIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyPromotionIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest.xml" "$pg_test_dir/"

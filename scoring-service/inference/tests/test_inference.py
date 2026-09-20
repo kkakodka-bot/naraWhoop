@@ -108,7 +108,7 @@ class ContractsTest(unittest.TestCase):
             path = Path(root) / "weights"
             path.write_bytes(b"synthetic test asset")
             asset = {"path": "weights", "sha256": sha256(path.read_bytes()).hexdigest()}
-            self.assertEqual(verify_asset(asset, root), path)
+            self.assertEqual(verify_asset(asset, root), path.resolve())
             with self.assertRaisesRegex(Abstain, "hash_mismatch"): verify_asset({**asset, "sha256": "0" * 64}, root)
             with self.assertRaisesRegex(Abstain, "path_invalid"): verify_asset({**asset, "path": "../weights"}, root)
 

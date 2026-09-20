@@ -13,7 +13,7 @@ export DEBIAN_FRONTEND=noninteractive
 timedatectl set-timezone UTC
 
 apt-get update
-apt-get install -y ca-certificates curl gnupg ufw fail2ban unattended-upgrades apt-listchanges
+apt-get install -y ca-certificates curl gnupg ufw fail2ban unattended-upgrades apt-listchanges python3-yaml
 
 # Deploy user + authorized_keys from root (cloud-init may have placed key on root only)
 if ! id "$DEPLOY_USER" &>/dev/null; then

@@ -2,6 +2,12 @@
 
 No secrets in this file. Generated deployment tooling lives under `infra/vps/scripts/`.
 
+For the existing hardened VPS, use `deploy` on port 22 with
+`infra/vps/keys/frwhoop_deploy` and `IdentitiesOnly=yes`. Root/password SSH is disabled by design;
+do not recreate keys or repeat initial provisioning to repair a worker. Hosted physiology-v2 is
+separate from this local Supabase stack; follow [the scoring service instructions](../../scoring-service/README.md)
+and [the September 19 VPS audit](../physiology-v2/vps-systemic-audit-20260919.md).
+
 ## Stack layout
 
 | Component | Location on VPS | Public exposure |
@@ -37,13 +43,13 @@ ssh-keygen -t ed25519 -f infra/vps/keys/frwhoop_deploy -N "" -C frwhoop-vps-depl
 # 4) Bootstrap VPS (replace API_DOMAIN)
 export API_DOMAIN=api.example.com
 source infra/vps/droplet.env
-scp -i infra/vps/keys/frwhoop_deploy infra/vps/scripts/remote/*.sh deploy@$DROPLET_IP:/tmp/
+scp -i infra/vps/keys/frwhoop_deploy infra/vps/scripts/remote/*.sh infra/vps/scripts/remote/*.py deploy@$DROPLET_IP:/tmp/
 ssh -i infra/vps/keys/frwhoop_deploy root@$DROPLET_IP 'bash /tmp/01-harden.sh'
-ssh -i infra/vps/keys/frwhoop_deploy root@$DROPLET_IP 'bash /tmp/02-docker.sh'
+ssh -i infra/vps/keys/frwhoop_deploy deploy@$DROPLET_IP 'sudo bash /tmp/02-docker.sh'
 
 scp -i infra/vps/keys/frwhoop_deploy infra/vps/secrets.env deploy@$DROPLET_IP:/opt/frwhoop/secrets.env
 ssh -i infra/vps/keys/frwhoop_deploy deploy@$DROPLET_IP \
-  "sudo mkdir -p /opt/frwhoop/scripts && sudo cp /tmp/0*.sh /opt/frwhoop/scripts/ && API_DOMAIN=$API_DOMAIN bash /tmp/03-supabase-stack.sh"
+  "sudo mkdir -p /opt/frwhoop/scripts && sudo install -m 750 /tmp/0*.sh /tmp/14-pooler-network.py /opt/frwhoop/scripts/ && API_DOMAIN=$API_DOMAIN bash /tmp/03-supabase-stack.sh"
 
 # 5) B2 env on VPS (no secrets in git)
 ssh deploy@$DROPLET_IP 'sudo tee /opt/frwhoop/b2.env' <<'EOF'
@@ -72,8 +78,23 @@ convention only). The service therefore accepts the receiver-style URL
 (`postgresql://user:pass@host:port/db`, optional `jdbc:` prefix) and internally strips the
 userinfo, passing user/password via Hikari data-source properties
 (`PostgresClient.normalizeJdbcUrl` / `parseUserInfo`). Keep `SCORING_DATABASE_URL` in the
-libpq form — do not hand-encode it as a bare JDBC URL with userinfo
-(`jdbc:postgresql://host:port/db?user=...&password=...` also works if you must).
+libpq form; do not hand-encode it as a bare JDBC URL with userinfo.
+Do not put credentials in query options; the hosted preflight rejects identity overrides.
+
+## Pooler network repair
+
+Docker-published ports can bypass UFW. Both database pooler ports, 5432 and 6543, must bind only to
+loopback. `14-pooler-network.py` parses port mappings, validates real Compose merges, and preserves
+all non-port source text and `.env` files. It needs `python3-yaml`, installed by `01-harden.sh`.
+Default mode plans a repair using private temporary copies. `--write` saves validated edits with
+private backups; it never restarts containers or rotates credentials. Pass each explicitly selected
+Compose overlay with `--additional-file /absolute/path/to/file.yml` so it is also checked.
+
+After a reviewed plan, apply only those edits, recreate only the pooler using the same effective
+Compose file list, then run `--check --running`, confirm local pooler health, and verify external
+TCP connections to both ports fail. Do not run the legacy `10-fix-supavisor.sh` as a network-only
+repair: it also contains historical credential-maintenance behavior. The broader acceptance script
+also performs a restore drill, so it is not a read-only network check.
 
 ## Derived artifact lane (scoring service → B2)
 
