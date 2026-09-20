@@ -47,6 +47,12 @@ final class SyncEngine {
 
     /// The single entry point every wake calls.
     func drain(reason: SyncDrainPolicy.WakeReason) async {
+        // A parked connect can be consumed by another quick refusal. A background
+        // maintenance wake is a bounded chance to retry after the pause floor,
+        // even when the user has not opened the app again.
+        if case .backgroundTask = reason {
+            host?.ble.retryPausedStandingConnectIfDue()
+        }
         guard !draining else {
             trailingDrainRequested = true
             return

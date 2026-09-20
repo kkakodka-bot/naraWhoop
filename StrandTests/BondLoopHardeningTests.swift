@@ -150,4 +150,26 @@ final class BondLoopHardeningTests: XCTestCase {
             pausedForBondLoop: true, connected: false, intentionalDisconnect: true,
             secondsSincePauseTripped: nil))
     }
+
+    // MARK: initial parked connect after a bond-loop trip (#5)
+
+    func testTripBeforeDisconnectKeepsInitialParkUntilLinkIsDown() {
+        var plan = BondLoopStandingConnectPlan()
+        plan.pauseTripped()
+
+        XCTAssertFalse(plan.takeInitialPark(connected: true))
+        XCTAssertTrue(plan.initialParkOwed)
+        XCTAssertTrue(plan.takeInitialPark(connected: false))
+        XCTAssertFalse(plan.takeInitialPark(connected: false))
+    }
+
+    func testTripAfterDisconnectParksImmediatelyAndResetClearsDebt() {
+        var plan = BondLoopStandingConnectPlan()
+        plan.pauseTripped()
+        XCTAssertTrue(plan.takeInitialPark(connected: false))
+
+        plan.pauseTripped()
+        plan.reset()
+        XCTAssertFalse(plan.takeInitialPark(connected: false))
+    }
 }

@@ -134,6 +134,23 @@ struct PostBondTimeoutLoopDetector {
     }
 }
 
+/// Holds the first paused standing-connect request until the old link is actually down.
+/// Consuming it while `state.connected` is still true loses the only background recovery
+/// request, because the ordinary retry is then blocked by the ten-minute floor.
+struct BondLoopStandingConnectPlan {
+    private(set) var initialParkOwed = false
+
+    mutating func pauseTripped() { initialParkOwed = true }
+
+    mutating func takeInitialPark(connected: Bool) -> Bool {
+        guard initialParkOwed, !connected else { return false }
+        initialParkOwed = false
+        return true
+    }
+
+    mutating func reset() { initialParkOwed = false }
+}
+
 /// #747 / #750: decides when a strap that keeps REFUSING the encrypted bond ("Encryption/Authentication is
 /// insufficient", no genuine bond in between) has refused enough times that hammering it further is
 /// pointless. Two responsibilities, both pure so they're unit-testable without a CoreBluetooth seam:
@@ -1272,6 +1289,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// probing a #617-paused link costs one bounded cycle and self-heals the same way); nil whenever the
     /// pause clears. Never persisted.
     private var bondLoopPausedAt: Date?
+    private var bondLoopStandingConnectPlan = BondLoopStandingConnectPlan()
     /// NotificationCenter token for the app-foreground salvage probe (installForegroundSalvageProbe).
     private var foregroundSalvageObserver: NSObjectProtocol?
     /// Multi-WHOOP stale-pin recovery (#52). Consecutive "Encryption/Authentication is insufficient" bond
@@ -1700,6 +1718,7 @@ public final class BLEManager: NSObject, ObservableObject {
             bondGiveUp.reset()
             autoReconnectPausedForBondLoop = false
             bondLoopPausedAt = nil
+            bondLoopStandingConnectPlan.reset()
         }
         // #1635: the suppression path pauses NOTHING, so the reset above never fires for it. An explicit
         // Connect is exactly the signal that the user has acted (pairing mode, closed the WHOOP app), so
@@ -1820,6 +1839,7 @@ public final class BLEManager: NSObject, ObservableObject {
         bondGiveUp.reset()     // #747/#750: a clean teardown clears the bond-refusal give-up + un-pauses auto-reconnect
         autoReconnectPausedForBondLoop = false
         bondLoopPausedAt = nil
+        bondLoopStandingConnectPlan.reset()
         state.reconnectGuide = nil   // #711: a user-initiated teardown resolves the re-pair guide (no longer looping)
         readoptingTo = nil   // #52: a clean teardown abandons any in-flight pin handoff
         standardHRFallback = false
@@ -1873,6 +1893,7 @@ public final class BLEManager: NSObject, ObservableObject {
         bondGiveUp.reset()
         autoReconnectPausedForBondLoop = false
         bondLoopPausedAt = nil
+        bondLoopStandingConnectPlan.reset()
         central.stopScan()
         log("Device removed — released the strap: stopped auto-reconnect, dropped the link, cleared targeting. Put it in pairing mode (blue LEDs) to re-pair if you want it back. (#78)")
     }
@@ -1998,6 +2019,14 @@ public final class BLEManager: NSObject, ObservableObject {
         bondLoopPausedAt = now
         log("Bond-loop pause: parking a standing connect so the strap is claimed the moment it is reachable (#1539) - the give-up stays latched")
         issueStandingConnect(whilePausedForBondLoop: true)
+    }
+
+    /// The trip can arrive in a write callback before disconnect or in a callback after it.
+    /// In either case, spend the initial request only once the link is down; later calls
+    /// use the existing ten-minute retry floor.
+    func retryPausedStandingConnectIfDue() {
+        let justTripped = bondLoopStandingConnectPlan.takeInitialPark(connected: state.connected)
+        standingConnectWhilePausedIfDue(justTripped: justTripped)
     }
 
     /// Observe the app-foreground notification and run the salvage probe. Installed once per manager from
@@ -6328,8 +6357,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         } else {
             autoReconnectPausedForBondLoop = true
             bondLoopPausedAt = Date()   // starts the #78 hole-4 salvage-probe floor
-            // #1539: park the connect in the same breath as the pause, so this can end while backgrounded.
-            standingConnectWhilePausedIfDue(justTripped: true)
+            bondLoopStandingConnectPlan.pauseTripped()
+            retryPausedStandingConnectIfDue()
             log(BondRefusalGiveUp.epitaphLine(refusals: bondGiveUp.refusals, opaqueId: opaque))
         }
         // Each branch gets the hint that matches what it actually DID. The paused hints say "auto-reconnect
@@ -6439,10 +6468,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             // is real; the stale OS pairing is the problem, which the guide tells the user how to clear.
             autoReconnectPausedForBondLoop = true
             bondLoopPausedAt = Date()   // the #78 hole-4 salvage probe covers this pause too (one bounded cycle)
-            // #1539: arm the parked connect in the same breath as the pause. The salvage probe only fires on
-            // app-foreground, so without this a pause tripped with the phone in a pocket strands the strap
-            // until someone opens the app.
-            standingConnectWhilePausedIfDue(justTripped: true)
+            bondLoopStandingConnectPlan.pauseTripped()
+            retryPausedStandingConnectIfDue()
             if TestCentre.active(.connection) {
                 state.append(log: "reconnect paused=bondLoop (#617: \(postBondLoop.consecutiveBondTimeouts) bond-then-timeout cycles)", domain: .connection)
             }
@@ -6618,7 +6645,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             log("Disconnected\(error.map { ": \($0.localizedDescription)" } ?? ""); auto-reconnect paused (strap keeps refusing to pair; tap Connect once it's free)")
             // #1539: a connect attempt CONSUMES the parked request, so re-park it — floored, so a reachable
             // strap that keeps refusing gets one attempt per window instead of a connect/refuse spin.
-            standingConnectWhilePausedIfDue()
+            retryPausedStandingConnectIfDue()
             if TestCentre.active(.connection) {
                 state.append(log: "connect down (uptime ends)", domain: .connection)
                 state.append(log: "reconnect paused=bondLoop (strap refusing bond)", domain: .connection)
@@ -6716,7 +6743,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // handshake dies — would consume the request and strand us again with no disconnect callback ever
         // coming to re-arm it. Re-park it here, floored, so the instantly-failing shape this callback warns
         // about above cannot hot-loop. Inert when the pause is not latched (the gate checks it).
-        standingConnectWhilePausedIfDue()
+        retryPausedStandingConnectIfDue()
         scheduleReconnect()
     }
 
@@ -7116,6 +7143,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 bondGiveUp.reset()            // #747/#750: a genuine bond clears the give-up + re-arms auto-reconnect
                 autoReconnectPausedForBondLoop = false
                 bondLoopPausedAt = nil
+                bondLoopStandingConnectPlan.reset()
                 noteGenuineBond(of: peripheral)   // #52: this strap bonds fine; clears any pin-refusal streak
                 emitConnectionBondState("encryptedBond family=whoop5 (CLIENT_HELLO acked)")
                 log("WHOOP 5/MG: CLIENT_HELLO acked — link established; subscribing notify chars (experimental).")
