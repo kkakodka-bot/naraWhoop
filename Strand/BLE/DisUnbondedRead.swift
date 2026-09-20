@@ -34,6 +34,21 @@ func shouldReadDisUnbonded(
     return !previouslyRefused
 }
 
+/// Should the authenticated link issue the canonical DIS identity read?
+///
+/// The unbonded probe and the bonded read answer different questions.  An unbonded
+/// response may be truncated (for example, only a serial prefix), so attempting it
+/// must never consume the one-shot bonded read that supplies the stable identity used
+/// for device adoption.
+func shouldReadDisPostBond(
+    isWhoop5: Bool,
+    bonded: Bool,
+    alreadyReadThisLink: Bool,
+    hasReadableCharacteristic: Bool
+) -> Bool {
+    isWhoop5 && bonded && !alreadyReadThisLink && hasReadableCharacteristic
+}
+
 /// Persisted key for "this strap refused an unbonded DIS read". Per device and lowercased, for the same
 /// reason the hello-suppression key is.
 ///
