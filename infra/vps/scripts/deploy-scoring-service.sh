@@ -182,7 +182,10 @@ unset SCORING_ENV_FILE
 candidate_attempted=true
 timeout 60 docker compose -p "$compose_project" -f docker-compose.yml \
   run -d --no-deps --name scoring-physiology-v2 scoring-physiology-v2
-timeout 12 docker update --restart unless-stopped scoring-physiology-v2 >/dev/null
+candidate_id="$(timeout 12 docker inspect -f '{{.Id}}' scoring-physiology-v2)"
+candidate_project="$(timeout 12 docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$candidate_id")"
+[[ "$candidate_project" == "$compose_project" ]] || { echo 'Candidate ownership changed before restart policy update' >&2; exit 1; }
+timeout 12 docker update --restart unless-stopped "$candidate_id" >/dev/null
 scoring_wait_for_progress "$RELEASE_SHA" "$baseline"
 accepted=true
 install -m 700 "${BUILD}/infra/vps/scripts/scoring-progress.sh" "${COMPOSE_DIR}/scoring-progress.sh"

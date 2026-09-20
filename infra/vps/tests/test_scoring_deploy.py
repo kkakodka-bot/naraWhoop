@@ -47,10 +47,10 @@ elif args[0] == 'compose':
     assert 'run' in args and '--no-deps' in args and '--name' in args
     assert not any(row['name'] == 'scoring-physiology-v2' for row in state['containers'].values())
     assert not state['containers']['old-v2']['running']
-    if scenario == 'foreign-create-race':
+    if scenario in ('foreign-create-race', 'foreign-create-success-race'):
         state['containers']['racing-foreign'] = dict(name='scoring-physiology-v2', running=True,
             version='frwhoop-physiology-2', mode='[]', project='unrelated-compose-project')
-        save(); sys.exit(1)
+        save(); sys.exit(1 if scenario == 'foreign-create-race' else 0)
     state['containers']['new-v2'] = dict(name='scoring-physiology-v2', running=True, version='frwhoop-physiology-2',
         mode='[]', project=args[args.index('-p')+1])
     save()
@@ -128,8 +128,10 @@ elif args[0] == 'run' and 'psql' in args:
     if n > 2 and scenario == 'process-changed': process_id = '44444444-4444-4444-8444-444444444444'
     publication = 11 if score > 0 else 10
     print('|'.join(map(str,[processes,process_id,poll,score,'t',int(debt),0,0,0,publication,1000])))
-elif args[0] == 'update' and scenario == 'restart-policy': sys.exit(1)
-elif args[0] not in ('build','update'): raise AssertionError(args)
+elif args[0] == 'update':
+    key,row = lookup(args[-1]); assert key == 'new-v2' and args[-1] == key
+    if scenario == 'restart-policy': sys.exit(1)
+elif args[0] != 'build': raise AssertionError(args)
 '''
 
 
@@ -256,8 +258,8 @@ class ScoringDeployTest(unittest.TestCase):
         self.assertTrue(state['containers']['foreign']['running'])
         self.assertEqual(state['containers']['foreign']['name'], 'scoring-physiology-v2')
 
-    def test_foreign_container_created_during_failed_cutover_is_never_removed_or_stopped(self):
-        result, commands, config, compose, state, pending = self.run_remote('foreign-create-race')
+    def assert_foreign_cutover_preserved(self, scenario):
+        result, commands, config, compose, state, pending = self.run_remote(scenario)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Rollback incomplete', result.stderr)
         self.assertEqual(config, 'existing-worker-config\n')
@@ -269,9 +271,16 @@ class ScoringDeployTest(unittest.TestCase):
         self.assertTrue(state['containers']['old-v2']['name'].startswith('scoring-rollback-'))
         self.assertTrue(state['containers']['old-v1']['running'])
         self.assertTrue(state['containers']['model']['running'])
+        self.assertFalse(any(command[0] == 'update' for command in commands))
         for command in commands:
             if command[0] in ('rm','stop','start','rename'):
                 self.assertNotIn('racing-foreign', command)
+
+    def test_foreign_container_created_during_failed_cutover_is_never_removed_or_stopped(self):
+        self.assert_foreign_cutover_preserved('foreign-create-race')
+
+    def test_foreign_container_after_successful_create_is_not_given_restart_policy(self):
+        self.assert_foreign_cutover_preserved('foreign-create-success-race')
 
     def test_startup_and_progress_failures_restore_exact_prior_worker_and_config(self):
         for scenario in ("compose-start", "crash", "restarts", "ports", "wrong-image",
