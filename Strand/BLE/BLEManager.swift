@@ -3935,6 +3935,12 @@ public final class BLEManager: NSObject, ObservableObject {
         }
     }
 
+    /// Traffic lanes follow the completed frame type, not the global backfill flag: realtime type 40/43
+    /// frames continue to arrive on the proprietary channel while a historical drain is active.
+    static func trafficLane(for frame: [UInt8], family: DeviceFamily) -> LiveBluetoothDiagnostics.TrafficLane {
+        isOffloadFrame(frame, family: family) ? .backfill : .live
+    }
+
     /// Re-arm the idle watchdog. Called on every offload frame during backfill so the timer resets
     /// as long as the strap keeps sending HISTORY; if the strap goes silent the timer fires and we
     /// exit the session (the durable strap_trim cursor means the next session resumes where we left
@@ -8642,6 +8648,18 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         }
         guard let data = characteristic.value else { return }
         let bytes = [UInt8](data)
+        // Count every raw Bluetooth value exactly once. Standard-profile traffic is inherently live;
+        // proprietary traffic is lane-classified only after reassembly, because live type 40/43 frames
+        // continue to arrive on those same characteristics during a historical drain.
+        let proprietaryTraffic = characteristic.uuid == BLEManager.dataNotifyChar
+            || characteristic.uuid == BLEManager.cmdNotifyChar
+            || characteristic.uuid == BLEManager.eventNotifyChar
+            || BLEManager.whoop5NotifyChars.contains(characteristic.uuid)
+        if proprietaryTraffic {
+            liveBluetoothDiagnostics.receiveIncomingBytes(bytes.count)
+        } else {
+            liveBluetoothDiagnostics.receiveBytes(bytes.count, lane: .live)
+        }
         if consumeOnboardingValue(bytes, characteristic: characteristic, peripheral: peripheral) { return }
         // Level A is authoritative: persist the exact notification value before routing,
         // reassembly, packet classification, or any semantic decoder can touch it.
@@ -8720,6 +8738,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
              BLEManager.eventNotifyChar:
             // Reassemble (no-op for already-complete frames) then route each complete frame.
             for frame in reassembler.feed(bytes, characteristicID: characteristic.uuid.uuidString) {
+                liveBluetoothDiagnostics.receiveFrame(frame, family: .whoop4)
+                liveBluetoothDiagnostics.receiveClassifiedBytes(
+                    frame.count,
+                    lane: BLEManager.trafficLane(for: frame, family: .whoop4)
+                )
                 if backfilling, BLEManager.isOffloadFrame(frame, family: .whoop4) {
                     // Historical replay is bulk sync traffic, not live UI traffic. Feed it only to
                     // the Backfiller; parsing every record through FrameRouter updates SwiftUI for
@@ -8809,6 +8832,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     noteRealtimeImuCandidateAfterStop(validated: false)
                 }
                 for frame in reassembler.feed(bytes, characteristicID: characteristic.uuid.uuidString) {
+                    liveBluetoothDiagnostics.receiveFrame(frame, family: .whoop5)
+                    liveBluetoothDiagnostics.receiveClassifiedBytes(
+                        frame.count,
+                        lane: BLEManager.trafficLane(for: frame, family: .whoop5)
+                    )
                     let isOffload = backfilling && BLEManager.isOffloadFrame(frame, family: .whoop5)
                     noteSensorAcquisitionFirmwareResponse(frame)
                     noteWhoop5R22Telemetry(frame, duringOffload: isOffload)   // #174 deep-data telemetry

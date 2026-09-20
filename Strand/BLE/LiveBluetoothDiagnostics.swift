@@ -8,13 +8,21 @@ final class LiveBluetoothDiagnostics {
     nonisolated static let visibilityKey = "developer.showLiveBluetoothDiagnostic"
     let imuVisualization = LiveIMUVisualizationModel()
 
+    enum TrafficLane {
+        case live
+        case backfill
+    }
+
     struct TrafficRates {
-        let bytesPerSecond: Double
+        let liveBytesPerSecond: Double
+        let backfillBytesPerSecond: Double
+        let totalBytesPerSecond: Double
         let chunksPerSecond: Double
-        var bitsPerSecond: Double { bytesPerSecond * 8 }
     }
     private struct TrafficBucket {
-        var bytes = 0
+        var totalBytes = 0
+        var liveBytes = 0
+        var backfillBytes = 0
         var chunks = 0
     }
     private var traffic: [Int: TrafficBucket] = [:]
@@ -22,13 +30,32 @@ final class LiveBluetoothDiagnostics {
     private(set) var savedChunks = 0
     private(set) var lastSavedChunk: Date?
 
-    /// Count at the notification/read callback, BEFORE reassembly, exactly once per payload.
-    /// Includes live, backfill and control replies. This is app payload, not radio/ATT overhead.
-    func receiveBytes(_ count: Int, at now: Date = Date()) {
+    /// Count a payload whose lane is already known (standard profiles and test fixtures).
+    /// This is app payload, not radio/ATT overhead.
+    func receiveBytes(_ count: Int, lane: TrafficLane, at now: Date = Date()) {
+        receiveIncomingBytes(count, at: now)
+        receiveClassifiedBytes(count, lane: lane, at: now)
+    }
+
+    /// Count every raw notification exactly once before proprietary-frame reassembly. Keeping the total
+    /// independent from the classified lanes means a partial or corrupt frame is still honest incoming
+    /// Bluetooth traffic instead of disappearing from the UI.
+    func receiveIncomingBytes(_ count: Int, at now: Date = Date()) {
         guard count > 0 else { return }
         let second = prepareTrafficBucket(at: now)
-        traffic[second, default: TrafficBucket()].bytes += count
+        traffic[second, default: TrafficBucket()].totalBytes += count
         receivedBytes += count
+    }
+
+    /// Attribute bytes after a proprietary frame is complete, when live-vs-backfill is knowable from its
+    /// decoded type. This intentionally does not touch the raw total a second time.
+    func receiveClassifiedBytes(_ count: Int, lane: TrafficLane, at now: Date = Date()) {
+        guard count > 0 else { return }
+        let second = prepareTrafficBucket(at: now)
+        switch lane {
+        case .live: traffic[second, default: TrafficBucket()].liveBytes += count
+        case .backfill: traffic[second, default: TrafficBucket()].backfillBytes += count
+        }
     }
 
     /// Called at the durable chunk's trim-ack boundary, not for every historical packet.
@@ -48,7 +75,9 @@ final class LiveBluetoothDiagnostics {
     func trafficRates(at now: Date) -> TrafficRates {
         let second = Int(now.timeIntervalSince1970)
         let recent = traffic.filter { $0.key > second - 10 && $0.key <= second }.values
-        return TrafficRates(bytesPerSecond: Double(recent.reduce(0) { $0 + $1.bytes }) / 10,
+        return TrafficRates(liveBytesPerSecond: Double(recent.reduce(0) { $0 + $1.liveBytes }) / 10,
+                            backfillBytesPerSecond: Double(recent.reduce(0) { $0 + $1.backfillBytes }) / 10,
+                            totalBytesPerSecond: Double(recent.reduce(0) { $0 + $1.totalBytes }) / 10,
                             chunksPerSecond: Double(recent.reduce(0) { $0 + $1.chunks }) / 10)
     }
 

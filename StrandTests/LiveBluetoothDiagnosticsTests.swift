@@ -86,16 +86,56 @@ final class LiveBluetoothDiagnosticsTests: XCTestCase {
     func testThroughputCountsNotificationBytesWithoutCountingReassemblyAgain() {
         let model = LiveBluetoothDiagnostics()
         // One 1,244-byte frame delivered as three Bluetooth values.
-        for size in [500, 500, 244] { model.receiveBytes(size, at: now) }
+        for size in [500, 500, 244] { model.receiveBytes(size, lane: .live, at: now) }
         model.receiveFrame(frame(type: 43), family: .whoop5, at: now)
-        // Backfill and control payloads are included in the combined incoming total.
-        model.receiveBytes(2000, at: now)
-        model.receiveBytes(20, at: now)
+        model.receiveBytes(2000, lane: .backfill, at: now)
+        model.receiveBytes(20, lane: .live, at: now)
         let rates = model.trafficRates(at: now)
         XCTAssertEqual(model.receivedBytes, 3264)
-        XCTAssertEqual(rates.bytesPerSecond, 326.4, accuracy: 0.0001)
-        XCTAssertEqual(rates.bitsPerSecond, 2611.2, accuracy: 0.0001)
+        XCTAssertEqual(rates.liveBytesPerSecond, 126.4, accuracy: 0.0001)
+        XCTAssertEqual(rates.backfillBytesPerSecond, 200, accuracy: 0.0001)
+        XCTAssertEqual(rates.totalBytesPerSecond, 326.4, accuracy: 0.0001)
         XCTAssertEqual(rates.chunksPerSecond, 0)
+    }
+
+    func testThroughputSeparatesLiveAndBackfillWhileTotalRemainsTheirSum() {
+        let model = LiveBluetoothDiagnostics()
+        model.receiveBytes(1000, lane: .live, at: now)
+        model.receiveBytes(2000, lane: .backfill, at: now)
+
+        let rates = model.trafficRates(at: now)
+        XCTAssertEqual(rates.liveBytesPerSecond, 100, accuracy: 0.0001)
+        XCTAssertEqual(rates.backfillBytesPerSecond, 200, accuracy: 0.0001)
+        XCTAssertEqual(rates.totalBytesPerSecond, 300, accuracy: 0.0001)
+    }
+
+    func testMixedRealtimeAndHistoricalFramesUseDecodedTrafficLanesDuringBackfill() {
+        let model = LiveBluetoothDiagnostics()
+        let liveFrame = frame(type: 43)
+        let backfillFrame = frame(type: 47)
+        model.receiveIncomingBytes(liveFrame.count + backfillFrame.count, at: now)
+        for candidate in [liveFrame, backfillFrame] {
+            model.receiveClassifiedBytes(
+                candidate.count,
+                lane: BLEManager.trafficLane(for: candidate, family: .whoop5),
+                at: now
+            )
+        }
+
+        let rates = model.trafficRates(at: now)
+        XCTAssertEqual(rates.liveBytesPerSecond, Double(liveFrame.count) / 10, accuracy: 0.0001)
+        XCTAssertEqual(rates.backfillBytesPerSecond, Double(backfillFrame.count) / 10, accuracy: 0.0001)
+        XCTAssertEqual(rates.totalBytesPerSecond, Double(liveFrame.count + backfillFrame.count) / 10, accuracy: 0.0001)
+    }
+
+    func testPartialProprietaryFrameStillAppearsInTotalIncoming() {
+        let model = LiveBluetoothDiagnostics()
+        model.receiveIncomingBytes(244, at: now)
+
+        let rates = model.trafficRates(at: now)
+        XCTAssertEqual(rates.totalBytesPerSecond, 24.4, accuracy: 0.0001)
+        XCTAssertEqual(rates.liveBytesPerSecond, 0)
+        XCTAssertEqual(rates.backfillBytesPerSecond, 0)
     }
 
     func testChunkRateOnlyCountsCommitBoundaryAndAgesToZero() {
@@ -115,13 +155,13 @@ final class LiveBluetoothDiagnosticsTests: XCTestCase {
     func testByteRatesExpireAndConnectionResetClearsTotals() {
         let model = LiveBluetoothDiagnostics()
         // High notification count must not lose byte totals to a sample-array cap.
-        for _ in 0..<5000 { model.receiveBytes(100, at: now) }
-        XCTAssertEqual(model.trafficRates(at: now).bytesPerSecond, 50_000)
-        XCTAssertEqual(model.trafficRates(at: now.addingTimeInterval(10)).bytesPerSecond, 0)
-        model.receiveBytes(200, at: now.addingTimeInterval(11))
-        XCTAssertEqual(model.trafficRates(at: now.addingTimeInterval(11)).bytesPerSecond, 20)
+        for _ in 0..<5000 { model.receiveBytes(100, lane: .live, at: now) }
+        XCTAssertEqual(model.trafficRates(at: now).totalBytesPerSecond, 50_000)
+        XCTAssertEqual(model.trafficRates(at: now.addingTimeInterval(10)).totalBytesPerSecond, 0)
+        model.receiveBytes(200, lane: .backfill, at: now.addingTimeInterval(11))
+        XCTAssertEqual(model.trafficRates(at: now.addingTimeInterval(11)).backfillBytesPerSecond, 20)
         model.reset()
         XCTAssertEqual(model.receivedBytes, 0)
-        XCTAssertEqual(model.trafficRates(at: now.addingTimeInterval(11)).bytesPerSecond, 0)
+        XCTAssertEqual(model.trafficRates(at: now.addingTimeInterval(11)).totalBytesPerSecond, 0)
     }
 }
