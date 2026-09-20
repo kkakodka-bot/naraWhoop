@@ -323,6 +323,7 @@ public actor ServerScoreSnapshotCache {
     private let db: DatabaseWriter
     private let limits: Limits
     private var activeSession: ServerScoreCacheSession?
+    private var establishedBounds: BoundsProof?
 
     public init(db: DatabaseWriter, limits: Limits = Limits()) {
         self.db = db
@@ -337,50 +338,40 @@ public actor ServerScoreSnapshotCache {
 
     /// Last observed server-selected source/version per day, for offline launch before the RPC returns.
     /// This does not choose a source by computation order; fetchedAt records the accepted readback.
-    public func loadRecent(session: ServerScoreCacheSession, timeZoneID: String) throws -> [ServerScoreCachedSnapshot] {
+    public func loadRecent(session: ServerScoreCacheSession, timeZoneID: String,
+                           now: Date = Date()) throws -> [ServerScoreCachedSnapshot] {
         guard session == activeSession else { throw ServerScoreSnapshotCacheError.staleSession }
-        let keys: [ServerScoreCacheKey] = try db.read { db in
+        guard now.timeIntervalSince1970.isFinite else { throw ServerScoreSnapshotCacheError.invalidSnapshot }
+        let loaded: [LoadedSnapshot] = try db.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT sourceDeviceID, day, timeZoneID, schemaVersion, algorithmVersion FROM serverScoreSnapshotCache
                 WHERE projectURL=? AND userID=? AND timeZoneID=?
                 ORDER BY fetchedAt DESC, resultRevision DESC LIMIT ?
                 """, arguments: [session.owner.projectURL, session.owner.userID, timeZoneID, limits.totalRows])
             var seen: Set<String> = []
-            return rows.compactMap { row in
+            return try rows.compactMap { row in
                 let day: String = row["day"]
                 guard seen.count < limits.daysPerNamespace, seen.insert(day).inserted else { return nil }
-                return ServerScoreCacheKey(owner: session.owner, sourceDeviceID: row["sourceDeviceID"], day: day,
-                                           timeZoneID: row["timeZoneID"], schemaVersion: row["schemaVersion"],
-                                           algorithmVersion: row["algorithmVersion"])
+                let key = ServerScoreCacheKey(owner: session.owner, sourceDeviceID: row["sourceDeviceID"], day: day,
+                                             timeZoneID: row["timeZoneID"], schemaVersion: row["schemaVersion"],
+                                             algorithmVersion: row["algorithmVersion"])
+                try validate(key, session: session)
+                return try readSnapshot(db, key: key)
             }
         }
-        return try keys.compactMap { try load($0, session: session) }
+        // Hydration reads one bounded snapshot, then commits all LRU touches together.
+        // A corrupt selected row fails before any access metadata changes.
+        try touch(loaded, now: now.timeIntervalSince1970)
+        return loaded.map(\.snapshot)
     }
 
     public func load(_ key: ServerScoreCacheKey, session: ServerScoreCacheSession,
                      now: Date = Date()) throws -> ServerScoreCachedSnapshot? {
         try validate(key, session: session)
         guard now.timeIntervalSince1970.isFinite else { throw ServerScoreSnapshotCacheError.invalidSnapshot }
-        return try db.write { db in
-            // Reject oversized rows before materializing a potentially corrupt blob.
-            guard let size = try Int.fetchOne(db, sql: "SELECT length(payload) FROM serverScoreSnapshotCache WHERE \(ServerScoreCacheKey.predicate)",
-                                             arguments: key.arguments) else { return nil }
-            guard size > 0 && size <= limits.payloadBytes else { throw ServerScoreSnapshotCacheError.corruptRow }
-            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM serverScoreSnapshotCache WHERE \(ServerScoreCacheKey.predicate)",
-                                            arguments: key.arguments),
-                  let state = ServerScoreCachedSnapshot.State(rawValue: row["state"]) else {
-                throw ServerScoreSnapshotCacheError.corruptRow
-            }
-            let input: Int64 = row["inputRevision"]
-            let result: Int64 = row["resultRevision"]
-            let fetched: Double = row["fetchedAt"]
-            guard input >= 0 && result > 0 && fetched.isFinite else { throw ServerScoreSnapshotCacheError.corruptRow }
-            try db.execute(sql: "UPDATE serverScoreSnapshotCache SET accessedAt = ? WHERE \(ServerScoreCacheKey.predicate)",
-                           arguments: [now.timeIntervalSince1970] + key.arguments)
-            return ServerScoreCachedSnapshot(key: key, inputRevision: input, resultRevision: result,
-                                             state: state, payload: row["payload"],
-                                             fetchedAt: Date(timeIntervalSince1970: fetched))
-        }
+        guard let loaded = try db.read({ try readSnapshot($0, key: key) }) else { return nil }
+        try touch([loaded], now: now.timeIntervalSince1970)
+        return loaded.snapshot
     }
 
     @discardableResult
@@ -391,22 +382,40 @@ public actor ServerScoreSnapshotCache {
               snapshot.fetchedAt.timeIntervalSince1970.isFinite, now.timeIntervalSince1970.isFinite,
               !snapshot.payload.isEmpty else { throw ServerScoreSnapshotCacheError.invalidSnapshot }
         guard snapshot.payload.count <= limits.payloadBytes else { throw ServerScoreSnapshotCacheError.payloadTooLarge }
-        return try db.write { db in
-            var result = WriteResult.inserted
-            if let row = try Row.fetchOne(db, sql: "SELECT inputRevision, resultRevision, state, payload FROM serverScoreSnapshotCache WHERE \(ServerScoreCacheKey.predicate)",
+        let (result, proof): (WriteResult, BoundsProof?) = try db.write { db in
+            guard let dataVersion = try Int.fetchOne(db, sql: "PRAGMA data_version") else {
+                throw ServerScoreSnapshotCacheError.corruptRow
+            }
+            let unchangedBounds = establishedBounds?.matches(snapshot.key, changes: db.totalChangesCount,
+                                                              dataVersion: dataVersion) == true
+            if let row = try Row.fetchOne(db, sql: "SELECT inputRevision, resultRevision, state, length(payload) AS payloadBytes, fetchedAt, accessedAt FROM serverScoreSnapshotCache WHERE \(ServerScoreCacheKey.predicate)",
                                          arguments: snapshot.key.arguments) {
                 let previousInput: Int64 = row["inputRevision"]
                 let previousResult: Int64 = row["resultRevision"]
                 if snapshot.resultRevision < previousResult || snapshot.inputRevision < previousInput {
-                    return .ignoredOlderRevision
+                    return (.ignoredOlderRevision, nil)
                 }
                 if snapshot.resultRevision == previousResult {
                     guard snapshot.inputRevision == previousInput,
-                          snapshot.state.rawValue == (row["state"] as String),
-                          snapshot.payload == (row["payload"] as Data) else {
+                          snapshot.state.rawValue == (row["state"] as String) else {
                         throw ServerScoreSnapshotCacheError.revisionConflict
                     }
-                    result = .refreshed
+                    let size: Int = row["payloadBytes"]
+                    guard size > 0 && size <= limits.payloadBytes else { throw ServerScoreSnapshotCacheError.corruptRow }
+                    guard let payload = try Data.fetchOne(db, sql: "SELECT payload FROM serverScoreSnapshotCache WHERE \(ServerScoreCacheKey.predicate)",
+                                                         arguments: snapshot.key.arguments), payload == snapshot.payload else {
+                        throw ServerScoreSnapshotCacheError.revisionConflict
+                    }
+                    if (row["fetchedAt"] as Double) != snapshot.fetchedAt.timeIntervalSince1970
+                        || (row["accessedAt"] as Double) != now.timeIntervalSince1970 {
+                        try db.execute(sql: "UPDATE serverScoreSnapshotCache SET fetchedAt = ?, accessedAt = ? WHERE \(ServerScoreCacheKey.predicate)",
+                                       arguments: [snapshot.fetchedAt.timeIntervalSince1970, now.timeIntervalSince1970] + snapshot.key.arguments)
+                    }
+                    // Skip eviction only with a current proof for this namespace. Another cache
+                    // instance, connection, or namespace may have used different limits.
+                    if !unchangedBounds { try evict(db, key: snapshot.key) }
+                    return (.refreshed, BoundsProof(key: snapshot.key, changes: db.totalChangesCount,
+                                                    dataVersion: dataVersion))
                 }
             }
             try db.execute(sql: """
@@ -420,7 +429,67 @@ public actor ServerScoreSnapshotCache {
                 """, arguments: snapshot.key.arguments + [snapshot.inputRevision, snapshot.resultRevision,
                     snapshot.state.rawValue, snapshot.payload, snapshot.fetchedAt.timeIntervalSince1970, now.timeIntervalSince1970])
             try evict(db, key: snapshot.key)
-            return result
+            return (.inserted, BoundsProof(key: snapshot.key, changes: db.totalChangesCount,
+                                          dataVersion: dataVersion))
+        }
+        // A failed commit cannot establish bounds for the next call.
+        if let proof { establishedBounds = proof }
+        return result
+    }
+
+    private struct BoundsProof {
+        let key: ServerScoreCacheKey
+        let changes: Int
+        let dataVersion: Int
+
+        func matches(_ other: ServerScoreCacheKey, changes: Int, dataVersion: Int) -> Bool {
+            self.changes == changes && self.dataVersion == dataVersion
+                && key.owner == other.owner && key.sourceDeviceID == other.sourceDeviceID
+                && key.timeZoneID == other.timeZoneID && key.schemaVersion == other.schemaVersion
+                && key.algorithmVersion == other.algorithmVersion
+        }
+    }
+
+    private struct LoadedSnapshot {
+        let snapshot: ServerScoreCachedSnapshot
+        let accessedAt: Double
+    }
+
+    private func readSnapshot(_ db: Database, key: ServerScoreCacheKey) throws -> LoadedSnapshot? {
+        // Check the stored size before materializing a potentially corrupt blob.
+        guard let size = try Int.fetchOne(db, sql: "SELECT length(payload) FROM serverScoreSnapshotCache WHERE \(ServerScoreCacheKey.predicate)",
+                                         arguments: key.arguments) else { return nil }
+        guard size > 0 && size <= limits.payloadBytes else { throw ServerScoreSnapshotCacheError.corruptRow }
+        guard let row = try Row.fetchOne(db, sql: "SELECT inputRevision, resultRevision, state, payload, fetchedAt, accessedAt FROM serverScoreSnapshotCache WHERE \(ServerScoreCacheKey.predicate)",
+                                        arguments: key.arguments),
+              let state = ServerScoreCachedSnapshot.State(rawValue: row["state"]) else {
+            throw ServerScoreSnapshotCacheError.corruptRow
+        }
+        let input: Int64 = row["inputRevision"]
+        let result: Int64 = row["resultRevision"]
+        let fetched: Double = row["fetchedAt"]
+        let accessed: Double = row["accessedAt"]
+        guard input >= 0 && result > 0 && fetched.isFinite && accessed.isFinite else {
+            throw ServerScoreSnapshotCacheError.corruptRow
+        }
+        return LoadedSnapshot(snapshot: ServerScoreCachedSnapshot(key: key, inputRevision: input, resultRevision: result,
+                              state: state, payload: row["payload"], fetchedAt: Date(timeIntervalSince1970: fetched)),
+                              accessedAt: accessed)
+    }
+
+    private func touch(_ loaded: [LoadedSnapshot], now: Double) throws {
+        let changed = loaded.filter { $0.accessedAt != now }
+        guard !changed.isEmpty else { return }
+        try db.write { db in
+            for row in changed {
+                // Another cache owner can use the same writer between the read and this transaction.
+                // Do not touch a replacement revision or overwrite a newer access timestamp.
+                try db.execute(sql: """
+                    UPDATE serverScoreSnapshotCache SET accessedAt = ? WHERE \(ServerScoreCacheKey.predicate)
+                    AND inputRevision = ? AND resultRevision = ? AND accessedAt = ?
+                    """, arguments: [now] + row.snapshot.key.arguments
+                        + [row.snapshot.inputRevision, row.snapshot.resultRevision, row.accessedAt])
+            }
         }
     }
 
