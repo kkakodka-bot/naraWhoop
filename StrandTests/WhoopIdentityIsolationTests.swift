@@ -15,7 +15,6 @@ final class WhoopIdentityIsolationTests: XCTestCase {
         registry.reload()
         registry.setPeripheralId("my-whoop", peripheralId: pin)
         let live = LiveState()
-        live.selectBatteryDevice("my-whoop")
         live.encryptedBond = encrypted
         let events = CurrentValueSubject<String?, Never>(replay)
         let coordinator = SourceCoordinator(

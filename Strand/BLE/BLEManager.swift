@@ -1388,7 +1388,6 @@ public final class BLEManager: NSObject, ObservableObject {
     /// NotificationCenter token for the app-foreground salvage probe (installForegroundSalvageProbe).
     private var foregroundSalvageObserver: NSObjectProtocol?
     private var connectionStartupTask: Task<Void, Never>?
-    private var restorationTask: Task<Void, Never>?
     /// The strap family the user chose to pair. Drives which service we scan for
     /// and which service we discover after connecting. Hydrated from the persisted
     /// pick so restoration/reconnect after a relaunch target the right strap.
@@ -2408,6 +2407,11 @@ public final class BLEManager: NSObject, ObservableObject {
     static func acceptsInboundPeripheral(_ candidate: UUID, current: UUID?, preferred: UUID?,
                                          identityLoaded: Bool) -> Bool {
         identityLoaded && candidate == current && (preferred == nil || candidate == preferred)
+    }
+
+    static func restoredPeripheralID(preferred: UUID?, candidates: [UUID]) -> UUID? {
+        guard let preferred, candidates.contains(preferred) else { return nil }
+        return preferred
     }
 
     private func acceptsInboundPeripheral(_ p: CBPeripheral) -> Bool {

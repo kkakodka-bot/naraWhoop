@@ -42,6 +42,43 @@ Restoration then chose the first peripheral and assumed it was encrypted. A late
 the UUID publisher observed the replayed UUID with that Boolean already true. The coordinator
 treated this as authorization to overwrite a different saved physical identity.
 
+### Why another strap was selected, and why the mistake persisted
+
+The original source represented both "saved identity has not loaded yet" and "no selected strap"
+with `preferredPeripheralUUID == nil`. `isPreferredPeripheral` accepted any WHOOP in that state,
+and the discovery handler connected to the first supported advertisement. `poweredOn` started
+store bootstrap in a separate task and immediately entered that connection path. Meanwhile,
+`AppModel` wired `SourceCoordinator` only after awaiting the repository refresh and a downstream
+sync drain. Saved-device selection therefore depended on unrelated startup work completing first.
+
+This particular incident used the scan path: the retained log shows a new launch scanning at
+16:46:52, accepting an advertisement at 16:46:53, and reporting the existing-MG/different-connected-
+device mismatch at 16:46:57. The MG binding was still present at that point. Loading the preferred
+UUID afterward did not cancel an already-started connection; the old setter only changed a field.
+
+The later 17:04:20 restoration made the temporary wrong connection persistent. It picked the first
+restored peripheral and set `encryptedBond = true` without a successful new handshake. When the
+coordinator subscribed, the current-value publisher replayed that peripheral's UUID. The
+coordinator's older automatic stale-pairing recovery rule treated the Boolean as permission to
+replace the saved strap. Its message claiming that the old strap "refused to bond" was fixed text
+in that branch, not independent evidence that the MG had refused. The actual next write failed
+authentication on the other strap.
+
+The behavior was timing-dependent: another supported strap had to become eligible before the
+saved selection reached the transport. It did not require the user to select a replacement.
+Neither Bluetooth discovery order nor a restored connection is evidence of which device the user
+intends to wear. The regression test reproduces the late-subscription overwrite on the original
+source and verifies that the same replay cannot change a saved binding after the fix.
+
+The earlier interruption is a separate evidence boundary. The MG's retained live log ends at
+16:28:22, with the last completed store flush at 16:28:20; there is no retained MG disconnect reason
+before the new 16:46:52 app session. The phone's available crash inventory has no matching NARA
+report for that gap. The nearby 16:50:08 Jetsam report lists NARA as active/frontmost without a
+kill reason and identifies other processes as victims. It does not establish why the earlier
+session ended. A crash, system eviction, radio loss, manual close or app replacement must not be
+claimed as the initiating event without further evidence. The wrong-device selection and later
+binding overwrite are independently established by the retained logs and reproduced code path.
+
 The repair:
 
 - waits for saved identity and complete store bootstrap before normal connection startup;
