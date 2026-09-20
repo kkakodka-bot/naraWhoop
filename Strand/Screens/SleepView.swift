@@ -36,9 +36,6 @@ struct SleepView: View {
     }
     private var serverOwned: Bool { serverScores.state.owns(.sleepSessions) }
     @EnvironmentObject var repo: Repository
-    /// For `circadianPhase` only (the body-clock dial). Named `appModel` because `model` on this screen is
-    /// already the built `SleepModel`.
-    @EnvironmentObject var appModel: AppModel
     // NOTE: SleepView itself deliberately does NOT observe `LiveState`. A connected strap publishes
     // at ~1 Hz; observing here would re-evaluate this heavy body on every tick. The only two live
     // dependencies — the "going to sleep / awake" mark card (it appends to the strap log) and the
@@ -157,7 +154,10 @@ struct SleepView: View {
                        // with dropping the top-level LiveState observation (the sleep-mark card + the
                        // syncing note now own `live` in their own leaves), so a 1 Hz HR tick no longer
                        // re-evaluates this heavy body.
-                       onRefresh: { await repo.refresh() },
+                       onRefresh: {
+                           await serverScores.refreshVisibleDays(todayKey: serverDay, reason: .userInitiated)
+                           await repo.refresh()
+                       },
                        lazy: true,
                        topBackground: resolved == nil ? nil : AnyView(sleepNightTopBackground)) {
             Group {
@@ -202,7 +202,7 @@ struct SleepView: View {
             // `resolved` already drives THIS frame, so there is no flash and no extra rebuild.
             .onChangeCompat(of: key) { newKey in
                 modelKey = newKey
-                model = buildModel()
+                model = localResolved
                 // New data invalidates a navigated offset — the same offset would silently
                 // point at a different session. Snap back to last night. (#160)
                 if !serverOwned { nightOffset = 0 }
@@ -233,7 +233,7 @@ struct SleepView: View {
                 let sessions = compute.requiresLocalSleepModel ? await repo.localAllSleepSessions() : []
                 // Load the learned habitual midsleep the engine used, so the main-night pick aligns to it
                 // (a shift/late sleeper) instead of only the cold-start band. nil under threshold. (#547)
-                let habitual = await repo.habitualMidsleepSec()
+                let habitual = compute.requiresLocalSleepModel ? await repo.habitualMidsleepSec() : nil
                 // Per-epoch motion for every block (#407), keyed by detected start. mergeDay reads only the
                 // already-resolved group's entries — this just pre-fetches them all so the model build is sync.
                 let motion = compute.requiresLocalSleepMotion ? await repo.sessionMotions(sessions: sessions) : [:]
@@ -484,13 +484,9 @@ struct SleepView: View {
     /// night against, and an empty ring would read as a broken chart rather than as "not enough data". The
     /// card is a reorderable Sleep section, so anyone who does not want it hides it in Arrange — the same
     /// affordance every other card on this screen already has, rather than a new setting of its own.
-    @ViewBuilder
     private func bodyClockDial(_ model: SleepModel) -> some View {
-        if let phase = appModel.circadianPhase, phase.confidence != .unreadable {
-            BodyClockDialCard(estimate: phase,
-                              actualBedHour: Self.localClockHour(model.night.session.effectiveStartTs),
-                              actualWakeHour: Self.localClockHour(model.night.session.endTs))
-        }
+        SleepBodyClockDial(actualBedHour: Self.localClockHour(model.night.session.effectiveStartTs),
+                           actualWakeHour: Self.localClockHour(model.night.session.endTs))
     }
 
     /// A unix second as a fractional local clock hour — the dial's only input beyond the phase estimate.
@@ -2273,6 +2269,18 @@ struct SleepView: View {
     }()
 }
 
+private struct SleepBodyClockDial: View {
+    @EnvironmentObject private var appModel: AppModel
+    let actualBedHour: Double
+    let actualWakeHour: Double
+
+    var body: some View {
+        if let phase = appModel.circadianPhase, phase.confidence != .unreadable {
+            BodyClockDialCard(estimate: phase, actualBedHour: actualBedHour, actualWakeHour: actualWakeHour)
+        }
+    }
+}
+
 /// Original atmospheric night hero — photographic moonlit lake plus lightweight static depth layers.
 /// Drawn as ScreenScaffold.topBackground (fixed under the status bar / overscroll); bottom fades into
 /// `surfaceBase` before the first card. No TimelineView, no animation loops.
@@ -2326,13 +2334,14 @@ private struct SleepPerformanceNightScene: View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
+            let photo = resolvedNightHeroImage
             ZStack(alignment: .bottom) {
-                // Guaranteed atmospheric base (lake / hills / sky) if the photo asset is missing.
-                proceduralNightBase(width: w, height: h)
+                // Both bundled photos are opaque; only build the blurred base on fallback.
+                if photo == nil { proceduralNightBase(width: w, height: h) }
 
                 // Photographic original (moonlit lake). Ships in StrandiOS Assets.xcassets.
                 Group {
-                    if let img = resolvedNightHeroImage {
+                    if let img = photo {
                         img
                             .resizable()
                             .scaledToFill()
