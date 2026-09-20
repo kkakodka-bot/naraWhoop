@@ -155,8 +155,10 @@ struct SleepView: View {
                        // syncing note now own `live` in their own leaves), so a 1 Hz HR tick no longer
                        // re-evaluates this heavy body.
                        onRefresh: {
-                           await serverScores.refreshVisibleDays(todayKey: serverDay, reason: .userInitiated)
+                           let scores = serverScores, day = serverDay
+                           async let cloudRefresh: Void = scores.refreshVisibleDays(todayKey: day, reason: .userInitiated)
                            await repo.refresh()
+                           await cloudRefresh
                        },
                        lazy: true,
                        topBackground: resolved == nil ? nil : AnyView(sleepNightTopBackground)) {
@@ -2336,8 +2338,12 @@ private struct SleepPerformanceNightScene: View {
             let h = geo.size.height
             let photo = resolvedNightHeroImage
             ZStack(alignment: .bottom) {
-                // Both bundled photos are opaque; only build the blurred base on fallback.
+                // UIKit validates the opaque bundled photo; an unvalidated Image handle doesn't.
+                #if canImport(UIKit)
                 if photo == nil { proceduralNightBase(width: w, height: h) }
+                #else
+                proceduralNightBase(width: w, height: h)
+                #endif
 
                 // Photographic original (moonlit lake). Ships in StrandiOS Assets.xcassets.
                 Group {
