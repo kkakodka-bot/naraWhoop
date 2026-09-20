@@ -81,6 +81,10 @@ struct LiveBluetoothDiagnosticCard: View {
     private func trafficSummary(at now: Date) -> some View {
         let diagnostics = ble.liveBluetoothDiagnostics
         let rates = diagnostics.trafficRates(at: now)
+        let mostRecentSync = [
+            diagnostics.lastSavedChunk?.timeIntervalSince1970,
+            live.lastSyncedAt,
+        ].compactMap { $0 }.max()
         return VStack(alignment: .leading, spacing: NoopMetrics.space1) {
             HStack {
                 Text("Backfill").font(StrandFont.captionNumber)
@@ -88,18 +92,40 @@ struct LiveBluetoothDiagnosticCard: View {
                 Text(!live.connected ? "Disconnected" : (live.backfilling ? "Syncing history" : "Idle"))
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
             }
-            Text("\(rates.chunksPerSecond, specifier: "%.2f") chunks/s · \(diagnostics.savedChunks) completed this connection")
-                .font(StrandFont.captionNumber)
-            if let last = diagnostics.lastSavedChunk {
-                Text("Last chunk saved \(max(0, Int(now.timeIntervalSince(last))))s ago")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+            if let mostRecentSync {
+                Text("Last synced \(relativeAgo(mostRecentSync, now: now.timeIntervalSince1970))")
+                    .font(StrandFont.captionNumber)
+                    .foregroundStyle(StrandPalette.textSecondary)
+            } else {
+                Text("Last synced: never")
+                    .font(StrandFont.captionNumber)
+                    .foregroundStyle(StrandPalette.textSecondary)
             }
-            Text("Incoming Bluetooth · live + backfill")
+            Text("\(diagnostics.savedChunks) chunks saved this connection · \(rates.chunksPerSecond, specifier: "%.2f") chunks/s")
                 .font(StrandFont.captionNumber)
-            Text("\(rates.bytesPerSecond / 1000, specifier: "%.2f") kB/s · \(rates.bitsPerSecond / 1000, specifier: "%.2f") kbps")
-                .font(StrandFont.bodyNumber)
-            Text("10s averages. Chunks count after saving. Throughput includes all received Bluetooth payloads, including control replies; radio overhead is excluded.")
+            Text("Incoming Bluetooth").font(StrandFont.captionNumber)
+            throughputRow("Live", bytesPerSecond: rates.liveBytesPerSecond)
+            throughputRow("Backfill", bytesPerSecond: rates.backfillBytesPerSecond)
+            throughputRow("Total incoming", bytesPerSecond: rates.totalBytesPerSecond)
+            Text("10s averages in kilobytes per second. Backfill is completed history frames; live is completed realtime/control traffic. Total incoming includes every raw payload, including a frame still being assembled. Radio overhead is excluded.")
                 .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
         }
+    }
+
+    private func throughputRow(_ title: String, bytesPerSecond: Double) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                Spacer(minLength: NoopMetrics.space2)
+                Text("\(bytesPerSecond / 1000, specifier: "%.2f") kB/s")
+                    .monospacedDigit()
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.spaceHalf) {
+                Text(title)
+                Text("\(bytesPerSecond / 1000, specifier: "%.2f") kB/s")
+                    .monospacedDigit()
+            }
+        }
+        .font(StrandFont.bodyNumber)
     }
 }
