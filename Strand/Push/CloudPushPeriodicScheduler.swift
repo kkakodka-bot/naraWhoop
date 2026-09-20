@@ -56,7 +56,12 @@ enum CloudPushPeriodicScheduler {
                 lock.unlock()
             }
             await CloudPushBackgroundRuntime.reconcileActive()
-            _ = await CloudPushWorker.runOnce(db: db, trigger: reason)
+            let outcome = await CloudPushWorker.runOnce(db: db, trigger: reason)
+            if case .completed = outcome {
+                Task { @MainActor in
+                    await AppModel.shared?.serverScores.refreshVisibleDays(reason: .invalidation)
+                }
+            }
         }
         pendingTask = task
         lock.unlock()

@@ -224,6 +224,51 @@ protocol CloudEnrollmentKeychainBackend {
     func delete(service: String, account: String) throws
 }
 
+/// Enrollment gates run in view and BLE hot paths. Share short-lived successful reads while
+/// invalidating synchronously on every write or revocation; failed reads are always retried.
+final class CachedCloudEnrollmentKeychain: CloudEnrollmentKeychainBackend, @unchecked Sendable {
+    private struct Entry { let data: Data; let expiresAt: TimeInterval }
+    private let lock = NSLock()
+    private let backend: any CloudEnrollmentKeychainBackend
+    private let now: () -> TimeInterval
+    private let lifetime: TimeInterval
+    private var entries: [String: Entry] = [:]
+
+    init(backend: any CloudEnrollmentKeychainBackend, lifetime: TimeInterval = 1,
+         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.backend = backend
+        self.lifetime = lifetime
+        self.now = now
+    }
+
+    func read(service: String, account: String) throws -> Data? {
+        try lock.withLock {
+            let key = service + "\u{0000}" + account
+            if let entry = entries[key], now() < entry.expiresAt { return entry.data }
+            entries[key] = nil
+            guard let data = try backend.read(service: service, account: account) else { return nil }
+            entries[key] = Entry(data: data, expiresAt: now() + lifetime)
+            return data
+        }
+    }
+
+    func write(_ data: Data, service: String, account: String) throws {
+        try lock.withLock {
+            entries[service + "\u{0000}" + account] = nil
+            try backend.write(data, service: service, account: account)
+        }
+    }
+
+    func delete(service: String, account: String) throws {
+        try lock.withLock {
+            entries[service + "\u{0000}" + account] = nil
+            try backend.delete(service: service, account: account)
+        }
+    }
+}
+
+private let sharedEnrollmentKeychain = CachedCloudEnrollmentKeychain(backend: SystemCloudEnrollmentKeychain())
+
 private struct SystemCloudEnrollmentKeychain: CloudEnrollmentKeychainBackend {
     private struct KeychainStatusError: Error {
         let status: OSStatus
@@ -288,7 +333,7 @@ private struct SystemCloudEnrollmentKeychain: CloudEnrollmentKeychainBackend {
 }
 
 struct CloudEnrollmentCredentialStore {
-    static let system = CloudEnrollmentCredentialStore(backend: SystemCloudEnrollmentKeychain())
+    static let system = CloudEnrollmentCredentialStore(backend: sharedEnrollmentKeychain)
 
     private let backend: any CloudEnrollmentKeychainBackend
     private let service = "noop.cloudEnrollment"
@@ -327,7 +372,7 @@ struct CloudEnrollmentCredentialStore {
 /// phone, while this `ThisDeviceOnly` Keychain item may not. Both copies must agree before an old
 /// source id is reused.
 struct CloudInstallationSourceStore {
-    static let system = CloudInstallationSourceStore(backend: SystemCloudEnrollmentKeychain())
+    static let system = CloudInstallationSourceStore(backend: sharedEnrollmentKeychain)
 
     private let backend: any CloudEnrollmentKeychainBackend
     private let service = "noop.cloudEnrollment"
@@ -357,7 +402,7 @@ struct CloudInstallationSourceStore {
 
 /// Retained independently of sign-in, so changing credentials cannot relabel the capture store.
 struct CloudEnrollmentOwnerStore {
-    static let system = CloudEnrollmentOwnerStore(backend: SystemCloudEnrollmentKeychain())
+    static let system = CloudEnrollmentOwnerStore(backend: sharedEnrollmentKeychain)
     private let backend: any CloudEnrollmentKeychainBackend
     private let service = "noop.cloudEnrollment"
     private let account = "capture-owner.v1"

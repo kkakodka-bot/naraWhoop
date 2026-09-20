@@ -6,18 +6,16 @@ enum ServerScoringSettings {
     static let defaultsKey = "noop.serverScoring"
     static let authEmailKey = "noop.serverScoring.authEmail"
     static let settingsDidChange = Notification.Name("noop.serverScores.settingsDidChange")
-    static let pollIntervalSeconds = 60
+    static let pollIntervalSeconds = 15
     static let staleAfterSeconds = 6 * 60 * 60
     /// Foreground idle push cadence when server scoring is on (spec: 30–60 s).
     static let idlePushIntervalSeconds: TimeInterval = 45
     /// During an active offload, flush push at most once per this interval (spec: ≤10 s).
     static let syncPushIntervalSeconds: TimeInterval = 10
 
-    /// The hosted snapshot owns individual physiology fields, not the whole local analysis pass.
-    /// Even a fresh overlay cannot settle local-only metrics or their history. Keep the existing
-    /// coalesced, fingerprint-gated local schedule; fetching a score adds no new analysis timer.
-    /// The local pass still produces Charge/Effort/Rest and other unmigrated fields.
-    static var skipsSyncCoupledRescore: Bool { false }
+    /// In hosted mode, core physiological score computation is owned by the VPS.
+    /// Pending server results must not trigger a competing phone score pass.
+    static var skipsSyncCoupledRescore: Bool { isEnabled }
 
     /// Clear any in-flight deferred rescore debt when server scoring owns the score path.
     @MainActor

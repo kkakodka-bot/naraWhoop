@@ -36,20 +36,18 @@ final class ServerVitalSelectionTests: XCTestCase {
         for metric in ServerVitalSelection.Metric.allCases {
             let result = ServerVitalSelection.resolve(metric, serverEnabled: true, selectedDay: day,
                                                       overlay: nil, localValue: 99)
-            let owned = metric == .sleep || metric == .hrv || metric == .respiratory
-            XCTAssertEqual(result.value, owned ? nil : 99)
-            XCTAssertEqual(result.fromServer, owned)
+            XCTAssertNil(result.value)
+            XCTAssertTrue(result.fromServer)
         }
     }
 
     func testMissingServerPhysiologyRemainsUnavailable() throws {
         let overlay = try cache()
-        for metric in [ServerVitalSelection.Metric.hrv, .restingHR, .respiratory, .sleep, .charge, .strain, .spo2, .skinTemp] {
+        for metric in ServerVitalSelection.Metric.allCases {
             let result = ServerVitalSelection.resolve(metric, serverEnabled: true, selectedDay: day,
                                                       overlay: overlay, localValue: 99)
-            let owned = metric == .sleep || metric == .hrv || metric == .respiratory
-            XCTAssertEqual(result.value, owned ? nil : 99)
-            XCTAssertEqual(result.fromServer, owned)
+            XCTAssertNil(result.value)
+            XCTAssertTrue(result.fromServer)
         }
         let blankHrv = try cache(daily: .init(), statuses: ["hrv": "available", "sleep": "available", "respiration": "available"])
         let hrv = ServerVitalSelection.resolve(.hrv, serverEnabled: true, selectedDay: day,
@@ -71,9 +69,8 @@ final class ServerVitalSelectionTests: XCTestCase {
         for metric in ServerVitalSelection.Metric.allCases {
             let result = ServerVitalSelection.resolve(metric, serverEnabled: true, selectedDay: day,
                                                       overlay: overlay, localValue: 99)
-            let owned = metric == .sleep || metric == .hrv || metric == .respiratory
-            XCTAssertEqual(result.value, owned ? nil : 99)
-            XCTAssertEqual(result.fromServer, owned)
+            XCTAssertNil(result.value)
+            XCTAssertTrue(result.fromServer)
         }
     }
 
@@ -121,8 +118,8 @@ final class ServerVitalSelectionTests: XCTestCase {
             for overlay in [try cache(daily: daily, statuses: [key: "unavailable", "resting_hr": "available"]),
                             try cache(daily: daily, removing: [key])] {
                 let result = ServerVitalSelection.resolve(metric, serverEnabled: true, selectedDay: day, overlay: overlay, localValue: 99)
-                XCTAssertEqual(result.value, metric == .restingHR ? 99 : nil)
-                XCTAssertEqual(result.fromServer, metric != .restingHR)
+                XCTAssertNil(result.value)
+                XCTAssertTrue(result.fromServer)
             }
         }
     }
@@ -144,6 +141,15 @@ final class ServerVitalSelectionTests: XCTestCase {
         XCTAssertTrue(ServerVitalSelection.resolve(.sleep, serverEnabled: true, selectedDay: day, overlay: unknown, localValue: 120).fromServer)
         let local = ServerVitalSelection.resolve(.sleep, serverEnabled: false, selectedDay: day, overlay: unknown, localValue: 120)
         XCTAssertEqual(local.value, 120); XCTAssertFalse(local.fromServer)
+    }
+
+    func testRestUsesQualifiedSleepFeature() throws {
+        let overlay = try cache(daily: .init(rest: 37.5), statuses: ["sleep": "available"])
+        let result = ServerVitalSelection.resolve(.rest, serverEnabled: true, selectedDay: day,
+                                                  overlay: overlay, localValue: 99)
+        XCTAssertEqual(result.value, 37.5)
+        XCTAssertTrue(result.fromServer)
+        XCTAssertEqual(result.sourceFeature, "sleep")
     }
 
 }

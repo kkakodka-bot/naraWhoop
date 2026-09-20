@@ -43,6 +43,7 @@ public struct ServerScoreDailyCache: Equatable, Codable {
     public var offBodyMin: Double?
     public var opportunityKind: String?
     public var recovery: Double?
+    public var rest: Double?
     public var strain: Double?
     public var spo2Pct: Double?
     public var skinTempC: Double?
@@ -60,6 +61,16 @@ public struct ServerScoreDailyCache: Equatable, Codable {
     public let computedAt: String?
 
     public init(
+        sleepUnstagedMin: Double? = nil,
+        stateUnknownMin: Double? = nil,
+        offBodyMin: Double? = nil,
+        opportunityKind: String? = nil,
+        recovery: Double? = nil,
+        rest: Double? = nil,
+        strain: Double? = nil,
+        spo2Pct: Double? = nil,
+        skinTempC: Double? = nil,
+        skinTempDevC: Double? = nil,
         hrvRmssdMs: Double? = nil,
         restingHrBpm: Int? = nil,
         sleepTotalMin: Double? = nil,
@@ -72,6 +83,16 @@ public struct ServerScoreDailyCache: Equatable, Codable {
         respRateBpm: Double? = nil,
         computedAt: String? = nil
     ) {
+        self.sleepUnstagedMin = sleepUnstagedMin
+        self.stateUnknownMin = stateUnknownMin
+        self.offBodyMin = offBodyMin
+        self.opportunityKind = opportunityKind
+        self.recovery = recovery
+        self.rest = rest
+        self.strain = strain
+        self.spo2Pct = spo2Pct
+        self.skinTempC = skinTempC
+        self.skinTempDevC = skinTempDevC
         self.hrvRmssdMs = hrvRmssdMs
         self.restingHrBpm = restingHrBpm
         self.sleepTotalMin = sleepTotalMin
@@ -242,6 +263,7 @@ public enum ServerScoreCacheCodec {
             daily?.offBodyMin = number(d["off_body_min"])
             daily?.opportunityKind = d["opportunity_kind"] as? String
             daily?.recovery = number(d["recovery"])
+            daily?.rest = number(d["rest"])
             daily?.strain = number(d["strain"])
             daily?.spo2Pct = number(d["spo2_pct"])
             daily?.skinTempC = number(d["skin_temp_c"])

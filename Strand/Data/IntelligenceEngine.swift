@@ -1092,6 +1092,7 @@ final class IntelligenceEngine: ObservableObject {
     /// card shows. Light + works offline (stored data only). Returns true if a value was written. Mirrors
     /// the Android `recomputeFitnessAgeOnly`.
     func recomputeFitnessAgeOnly(maxDays: Int = 21) async -> Bool {
+        guard !ServerScoringSettings.skipsSyncCoupledRescore else { return false }
         guard captureScoringReaderInputs() != nil else { return false }
         let age = profile.age, sex = profile.sex, waistCm = profile.waistCm
         let heightCm = profile.heightCm, weightKg = profile.weightKg
@@ -1135,6 +1136,7 @@ final class IntelligenceEngine: ObservableObject {
     /// "-noop" computed source) , those are handled by re-import. A day already on 0–100 is recomputed
     /// from the same raw HR and lands on 0–100 again: UNCHANGED axis (verified by test).
     func runEffortRescoreIfNeeded(historyDays: Int = 4000) async {
+        guard !ServerScoringSettings.skipsSyncCoupledRescore else { return }
         guard accountRuntimeActive, !defaults.bool(forKey: Self.effortRescoreFlagKey) else { return }
         await analyzeRecent(maxDays: historyDays)
         // Only mark done if the pass actually completed (wasn't skipped because another tick held the
@@ -1172,6 +1174,7 @@ final class IntelligenceEngine: ObservableObject {
     /// re-running is harmless, but a persisted flag skips it on every later launch. Runs BEFORE the normal
     /// `analyzeRecent` loop so the rescore it triggers operates on an already-cleaned DB.
     func runTimestampHealIfNeeded(historyDays: Int = 4000) async {
+        guard !ServerScoringSettings.skipsSyncCoupledRescore else { return }
         guard ResourceBudget.shared.permits(.bulk), !Task.isCancelled else { return }
         // Run when the one-shot heal hasn't run yet OR a sync just flagged a re-heal (#547 re-pollution): a
         // wandering-clock strap re-sends bad-dated records across syncs, so a single on-upgrade pass can't
@@ -1204,6 +1207,7 @@ final class IntelligenceEngine: ObservableObject {
     /// Personal baselines (HRV / resting HR) are folded from the imported history, so even the first
     /// live night can be scored against your norm.
     func analyzeRecent(maxDays: Int = 21, force: Bool = true, skipIfUnchanged: Bool = false) async {
+        guard !ServerScoringSettings.skipsSyncCoupledRescore else { return }
         guard ResourceBudget.shared.permits(.bulk) else { return }
         if captureScoringReaderInputs()?.accepted != nil {
             _ = await runPreferenceProjection(maxDays: maxDays,

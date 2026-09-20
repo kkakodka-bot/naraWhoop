@@ -13,6 +13,7 @@ enum CloudScoreIdentity {
     static func rememberOwner(_ id: String) {
         let value = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard UUID(uuidString: value) != nil else { return }
+        guard UserDefaults.standard.string(forKey: ownerKey) != value else { return }
         UserDefaults.standard.set(value, forKey: ownerKey)
     }
 
@@ -26,6 +27,7 @@ enum CloudScoreIdentity {
     }
 
     static func markOverlayLive(_ live: Bool) {
+        guard overlayLive != live else { return }
         UserDefaults.standard.set(live, forKey: overlayLiveKey)
     }
 
