@@ -108,6 +108,15 @@ were reproduced against the original source. The repaired source passed 75 targe
 including 13 identity/explicit-repair tests, reconnect policy, battery lifecycle, onboarding,
 last-sync attribution and backfill lifecycle/persistence checks. Test hosts disabled physical BLE.
 
+The follow-up PR branch is stacked on PR 22 head
+`97704bdf8e4ab802083070d8d45664ade51c1f6c`. Its conflict resolution preserves PR 22's
+account-scoped store, connection-owner and restoration fencing while applying the identity admission
+rules above. The stacked candidate passed 75 focused tests covering identity isolation, conditional
+repair, reconnect policy, account preference isolation, battery lifecycle, last-sync attribution and
+backfill persistence/lifecycle. Physical BLE remained disabled for this hosted run; the phone results
+below belong to signed build 357 from the earlier repair lineage and are not binary evidence for the
+stacked PR candidate.
+
 Private artifacts: `baseline-regression.log`, `final-357-regression.log`,
 `candidate-source-manifest.json` and `incident-manifest.json`. The first test iteration also had a
 fixture that omitted initial battery-device selection; that fixture was corrected before the final

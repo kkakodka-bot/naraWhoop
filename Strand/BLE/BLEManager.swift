@@ -6918,8 +6918,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         guard !accountShutdown, !intentionalDisconnect,
-              connectionOwner.connected(peripheral.identifier),
-              whoopConnectAllowed("connected"), isPreferredPeripheral(peripheral) else {
+              whoopConnectAllowed("connected"), isPreferredPeripheral(peripheral),
+              connectionOwner.connected(peripheral.identifier) else {
             if intentionalDisconnect || accountShutdown || !isPreferredPeripheral(peripheral) {
                 central.cancelPeripheralConnection(peripheral)
             }
