@@ -151,6 +151,7 @@ public struct ServerScoreDayCache: Equatable, Codable {
     public var schemaVersion: Int = 2
     public var features: [String: ServerScoreFeatureCache] = [:]
     public var rawSnapshotJSON: String?
+    public var fullDaySleepEpochs: [ServerScoreStageCache]?
     public var measurementsJSON: String? {
         guard let data = rawSnapshotJSON?.data(using: .utf8),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -225,7 +226,9 @@ public enum ServerScoreCacheCodec {
                 publicationStatus: f["publication_status"] as? String, archiveStatus: f["archive_status"] as? String,
                 manifestHash: f["manifest_hash"] as? String, supportsBoundaryOverrides: f["supports_boundary_overrides"] as? Bool,
                 processingStatus: f["processing_status"] as? String, timezoneId: f["timezone_id"] as? String,
-                timezoneIds: f["timezone_ids"] as? [String])
+                timezoneIds: f["timezone_ids"] as? [String],
+                canonicalQualification: f["canonical_qualification"] as? String,
+                featureManifestHash: f["feature_manifest_hash"] as? String)
         }
         var daily: ServerScoreDailyCache?
         if let d = o["daily"] as? [String: Any] {
@@ -277,13 +280,29 @@ public enum ServerScoreCacheCodec {
                     pWake: number(s["p_wake"]), pLight: number(s["p_light"]), pDeep: number(s["p_deep"]), pRem: number(s["p_rem"]),
                     evidenceCoverage: number(s["evidence_coverage"]), reason: (s["reason"] as? String) ?? (stageLegacy ? "legacy_quality_unavailable" : nil),
                     calibrationStatus: (s["calibration_status"] as? String) ?? (stageLegacy ? "legacy_unvalidated" : nil), algorithmVersion: (s["algorithm_version"] as? String) ?? (stageLegacy ? sourceVersion : nil),
-                    computationMode: s["computation_mode"] as? String))
+                    computationMode: s["computation_mode"] as? String,
+                    contextKind: s["context_kind"] as? String, contextProvenance: s["context_provenance"] as? String))
             }
             nights.append(night)
         }
         var result = ServerScoreDayCache(day: day, algorithmVersion: version, daily: daily, nights: nights,
             computedAt: o["computed_at"] as? String, stale: o["stale"] as? Bool ?? true, fetchedAt: fetchedAt)
         result.ownerId = ownerId.lowercased(); result.features = features
+        if let epochs = (o["daily"] as? [String: Any])?["full_day_sleep_epochs"] as? [[String: Any]] {
+            result.fullDaySleepEpochs = try epochs.map { s in
+                guard let lo = number(s["start"]), let hi = number(s["end"]), hi > lo,
+                      lo.rounded() == lo, hi.rounded() == hi, lo >= -62135596800, hi <= 253402300799 else {
+                    throw DecodeError.invalidPayload
+                }
+                return ServerScoreStageCache(start: Int(lo), end: Int(hi), stage: s["stage"] as? String ?? "unknown",
+                    state: s["state"] as? String ?? "state_unknown", sleepProbability: number(s["p_sleep"]),
+                    pWake: number(s["p_wake"]), pLight: number(s["p_light"]), pDeep: number(s["p_deep"]), pRem: number(s["p_rem"]),
+                    evidenceCoverage: number(s["evidence_coverage"]), reason: s["reason"] as? String,
+                    calibrationStatus: s["calibration_status"] as? String, algorithmVersion: s["algorithm_version"] as? String,
+                    computationMode: s["computation_mode"] as? String,
+                    contextKind: s["context_kind"] as? String, contextProvenance: s["context_provenance"] as? String)
+            }
+        }
         result.rawSnapshotJSON = String(data: data, encoding: .utf8)
         return result
     }
@@ -397,6 +416,7 @@ public struct ServerScoreStageCache: Equatable, Codable {
     public let sleepProbability: Double?, pWake: Double?, pLight: Double?, pDeep: Double?, pRem: Double?
     public let evidenceCoverage: Double?
     public let reason: String?, calibrationStatus: String?, algorithmVersion: String?, computationMode: String?
+    public var contextKind: String? = nil, contextProvenance: String? = nil
 }
 
 public struct ServerScoreFeatureCache: Equatable, Codable {
@@ -408,6 +428,13 @@ public struct ServerScoreFeatureCache: Equatable, Codable {
     public var processingStatus: String? = nil
     public var timezoneId: String? = nil
     public var timezoneIds: [String]? = nil
+    public var canonicalQualification: String? = nil
+    public var featureManifestHash: String? = nil
+    public var hasCanonicalAuthorization: Bool {
+        if algorithmVersion == "frwhoop-server-1" { return true }
+        guard canonicalQualification == "signed_reference_approval", let featureManifestHash else { return false }
+        return featureManifestHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+    }
 }
 
 public extension ServerScoreDayCache {
@@ -416,6 +443,12 @@ public extension ServerScoreDayCache {
         var lines = ["Device: \(feature.deviceId ?? "unavailable")", "Model: \(feature.algorithmVersion ?? "unavailable")"]
         if feature.algorithmVersion == "frwhoop-server-1" {
             lines.append("Legacy baseline · quality and evidence coverage unavailable")
+        }
+        if !feature.hasCanonicalAuthorization { lines.append("Unavailable: signed feature qualification missing") }
+        if let epochs = fullDaySleepEpochs, feature.hasCanonicalAuthorization {
+            let unknown = epochs.filter { $0.state == "state_unknown" }.reduce(0) { $0 + $1.end - $1.start }
+            let offBody = epochs.filter { $0.state == "off_body" }.reduce(0) { $0 + $1.end - $1.start }
+            lines.append("Full-day unknown: \(unknown / 60) min · off body: \(offBody / 60) min")
         }
         lines.append("Observed through: \(feature.observedThrough ?? "unavailable")")
         lines.append("Computed: \(feature.computedAt ?? "unavailable")")

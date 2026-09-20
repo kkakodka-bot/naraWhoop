@@ -10,6 +10,15 @@ class PostgresClientTest {
     // URL handling is pure and testable WITHOUT opening a real Hikari pool / database
     // (Phase 3 gate: "URL normalization must be testable without requiring a real database").
 
+    @Test fun boundedWorkersCannotDisableDriverTimeoutsThroughUrlOptions() {
+        assertEquals("jdbc:postgresql://db/postgres?sslmode=require&options=-c%20default_transaction_read_only%3Don",
+            PostgresClient.boundedJdbcUrl("postgresql://user:secret@db/postgres?socketTimeout=0&connectTimeout=0&" +
+                "cancelSignalTimeout=0&socket%54imeout=999&sslmode=require&options=-c%20default_transaction_read_only%3Don"))
+        assertEquals("jdbc:postgresql://db/postgres",PostgresClient.boundedJdbcUrl("postgres://db/postgres?socketTimeout=0"))
+        assertEquals("jdbc:postgresql://db/postgres?socketTimeout=0",
+            PostgresClient.normalizeJdbcUrl("postgres://db/postgres?socketTimeout=0"))
+    }
+
     @Test
     fun normalizesPostgresqlUrlToJdbc() {
         // Userinfo is stripped for the JDBC URL; credentials travel via Hikari data-source properties.

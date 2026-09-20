@@ -14,7 +14,8 @@ object HrvSeries {
     }
     data class Baseline(val version: String, val windowDays: Int, val effectiveSampleCount: Int,
         val excludedZeroCount: Int, val logMedian: Double?, val logMAD: Double?, val logDeviation: Double?,
-        val robustZ: Double?, val reason: String?)
+        val robustZ: Double?, val reason: String?, val independentNightCount: Int = 0,
+        val observationCount: Int = 0, val lagOneCorrelation: Double? = null)
     data class Summary(val context: String, val meanRMSSD: Double?, val medianRMSSD: Double?,
         val durationWeightedMeanRMSSD: Double?, val distribution: List<Double>, val eligibleWindowCount: Int,
         val excludedWindowCount: Int, val acceptedDurationSeconds: Double, val opportunitySeconds: Double,
@@ -31,7 +32,7 @@ object HrvSeries {
         val starts = (HrvWindow.alignedStart(start) until end step HrvWindow.SECONDS).toList()
         val lo = starts.first().toDouble(); val hi = starts.last() + 300.0
         val buckets = mutableMapOf<Int, MutableList<PhysiologyQuality.IntervalObservation>>()
-        for (row in observations) {
+        for (row in PhysiologyQuality.propagatingEndpointRejections(observations)) {
             val owners = mutableSetOf<Int>()
             if (row.eventTime.isFinite() && row.eventTime >= lo && row.eventTime < hi) owners.add(HrvWindow.alignedStart(floor(row.eventTime).toInt()))
             row.verifiedSpan?.let { span ->
@@ -46,8 +47,23 @@ object HrvSeries {
             for (owner in owners) buckets.getOrPut(owner) { mutableListOf() }.add(row)
         }
         return starts.map {
-            HrvWindow.measure(it, buckets[it] ?: emptyList(), context, policy, inputRevision, computationMode)
+            selectedWindow(it, buckets[it] ?: emptyList(), context, policy, inputRevision, computationMode)
         }
+    }
+    /** Each window selects a qualified source; incomplete transports never form a combined train. */
+    fun selectedWindow(start: Int, observations: List<PhysiologyQuality.IntervalObservation>,
+                       context: List<PhysiologyQuality.ContextEpoch> = emptyList(), policy: HrvWindow.Policy = HrvWindow.Policy(),
+                       inputRevision: String = "unversioned", computationMode: String = "retrospective"): HrvWindow.Result {
+        fun measure(rows: List<PhysiologyQuality.IntervalObservation>) = HrvWindow.measure(start, rows, context, policy, inputRevision, computationMode)
+        val owned = PhysiologyQuality.propagatingEndpointRejections(observations).filter { it.eventTime >= start && it.eventTime < start + 300 ||
+            it.verifiedSpan?.let { span -> span.start < start + 300 && span.end > start } == true }
+        if (owned.map { it.userId to it.deviceId }.toSet().size > 1) return measure(owned)
+        val sources = owned.groupBy { it.source }
+        if (sources.size <= 1) return measure(owned)
+        val priority = listOf("whoop5_history", "channel:5", "whoop5_standard_ble", "channel:7")
+        val candidates = sources.keys.sortedWith(compareBy<String> { priority.indexOf(it).takeIf { n -> n >= 0 } ?: priority.size }.thenBy { it })
+            .map { measure(sources.getValue(it)) }
+        return candidates.firstOrNull { it.measurementValid } ?: measure(owned)
     }
     private fun median(values: List<Double>): Double? {
         if (values.isEmpty()) return null
@@ -69,22 +85,38 @@ object HrvSeries {
         val candidates = unambiguous(history.filter { it.end <= current.start &&
             it.start >= current.start.toLong() - maxOf(0, windowDays).toLong() * 86400 &&
             sameSeries(current, it) }).filter { it.baselineEligible && it.measurementValid && it.context == current.context }
-        val values = candidates.mapNotNull { it.observedRMSSD }.filter { it.isFinite() && it >= 0 }
-        val positives = values.filter { it > 0 }.map(::ln)
+        // Exclude the current episode and collapse correlated windows into separated nights.
+        val completed = candidates.filter { current.start.toLong() - it.end >= 12 * 3600 }
+        val nights = mutableListOf<MutableList<HrvWindow.Result>>()
+        for (row in completed) {
+            val last = nights.lastOrNull()?.lastOrNull()
+            if (last != null && row.start.toLong() - last.end < 12 * 3600) nights.last().add(row)
+            else nights.add(mutableListOf(row))
+        }
+        val values = completed.mapNotNull { it.observedRMSSD }.filter { it.isFinite() && it >= 0 }
+        val positives = nights.mapNotNull { night -> median(night.mapNotNull { it.observedRMSSD }.filter { it.isFinite() && it > 0 }.map(::ln)) }
         val center = median(positives)
         val mad = center?.let { m -> median(positives.map { abs(it - m) }) }
+        val average = if (positives.isEmpty()) 0.0 else positives.average()
+        val variance = positives.sumOf { (it - average) * (it - average) }
+        val covariance = (1 until positives.size).sumOf { (positives[it - 1] - average) * (positives[it] - average) }
+        val correlation = if (variance > 0) (covariance / variance).coerceIn(0.0, 0.99) else 0.0
+        val effective = floor(positives.size * (1 - correlation) / (1 + correlation)).toInt()
         val reason = when {
-            windowDays <= 0 || minimumSamples < 1 -> "invalid_baseline_policy"
+            windowDays <= 0 || minimumSamples < 2 -> "invalid_baseline_policy"
             !current.measurementValid || !current.baselineEligible -> current.baselineReason ?: "ineligible_measurement"
+            current.deviceFirmware.isNullOrEmpty() -> "acquisition_identity_unverified"
             positives.size < minimumSamples -> "insufficient_baseline"
+            effective < minimumSamples -> "serially_correlated_baseline"
             current.observedRMSSD == 0.0 -> "zero_not_log_transformable"
             current.observedRMSSD == null || current.observedRMSSD < 0 || !current.observedRMSSD.isFinite() -> "unusable_measurement"
             else -> null
         }
         val deviation = if (reason == null) ln(current.observedRMSSD!!) - center!! else null
         val z = deviation?.let { d -> mad?.takeIf { it > 0 }?.let { d / (1.4826 * it) } }
-        return Baseline("past-log-median-mad-v1", windowDays, positives.size, values.size - positives.size,
-            center, mad, deviation, z, reason ?: if (mad == 0.0) "zero_baseline_dispersion" else null)
+        return Baseline("past-night-log-median-mad-v2", windowDays, effective, values.count { it == 0.0 },
+            center, mad, deviation, z, reason ?: if (mad == 0.0) "zero_baseline_dispersion" else null,
+            positives.size, values.size, correlation.takeIf { positives.size >= 3 })
     }
 
     fun summarize(windows: List<HrvWindow.Result>, start: Int, end: Int, context: String = "sleep",

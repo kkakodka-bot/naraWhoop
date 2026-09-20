@@ -124,7 +124,8 @@ extension WhoopStore {
     /// changed. Fingerprint the complete scoring input instead. HR keeps its established count+timestamp
     /// fingerprint; the other streams use SQLite's monotonic rowid frontier, which catches old backfills
     /// without full-table COUNT scans over millions of dense motion/R-R rows.
-    /// `v4` also witnesses immutable packet receipts, including packet-only late arrival.
+    /// `v5` invalidates the persisted watermark for per-window physiology source qualification.
+    /// Immutable packet receipts also witness packet-only late arrival.
     /// The version changes the persisted watermark once so the normal recent window is recomputed.
     /// Older persisted scores remain until explicitly rescored; raw legacy intervals stay on disk.
     public func analysisFingerprint() async throws -> String {
@@ -161,7 +162,7 @@ extension WhoopStore {
             }
             let historyCount: Int = row["w5"]
             let registry: String = row["registry"]
-            return "v4|h\(hc):\(hm)|" + tails.joined(separator: "|") + "|q\(row["qc"] as Int):\(row["qm"] as Int)"
+            return "v5|h\(hc):\(hm)|" + tails.joined(separator: "|") + "|q\(row["qc"] as Int):\(row["qm"] as Int)"
                 + "|w5\(historyCount)|w7\(row["w7"] as Int)|tagged\(row["w5tagged"] as Int)|registry\(registry)"
         }
     }
@@ -365,13 +366,26 @@ extension WhoopStore {
     /// alias has no confirmed identity; a known WHOOP 4 or another brand retains its own read policy.
     public func rrIntervals(deviceId: String, from: Int, to: Int, limit: Int,
                             unlabelledAliasOfWhoop5: Bool) async throws -> [RRInterval] {
+        try await readRRInputs(deviceId: deviceId, from: from, to: to, limit: limit,
+            unlabelledAliasOfWhoop5: unlabelledAliasOfWhoop5, retainPhysiologyCandidates: false)
+    }
+
+    /// Retain eligible transports for the physiology engine to qualify separately per event-time window.
+    public func rrPhysiologyInputs(deviceId: String, from: Int, to: Int, limit: Int,
+                                   unlabelledAliasOfWhoop5: Bool = false) async throws -> [RRInterval] {
+        try await readRRInputs(deviceId: deviceId, from: from, to: to, limit: limit,
+            unlabelledAliasOfWhoop5: unlabelledAliasOfWhoop5, retainPhysiologyCandidates: true)
+    }
+
+    private func readRRInputs(deviceId: String, from: Int, to: Int, limit: Int,
+                              unlabelledAliasOfWhoop5: Bool, retainPhysiologyCandidates: Bool) async throws -> [RRInterval] {
         try syncRead { db in
             let strictWhoop5 = try Self.isWhoop5RRSource(db: db, deviceId: deviceId,
                 unlabelledAliasOfWhoop5: unlabelledAliasOfWhoop5)
             // One transport for the complete requested interval. Legacy WHOOP 5 rows mix units and
             // origins, so they remain stored but cannot be converted or spliced into a scored beat train.
             // This subquery uses the SAME time/suspect predicates as the outer read, before LIMIT.
-            let sourcePredicate = strictWhoop5 ? """
+            let sourcePredicate = strictWhoop5 && retainPhysiologyCandidates ? "srcChannel IN (5, 7)" : strictWhoop5 ? """
                 srcChannel = (SELECT MIN(srcChannel) FROM rrInterval
                     WHERE deviceId = :d AND ts >= :f AND ts <= :t AND srcChannel IN (5, 7)
                     AND (tsSuspect IS NULL OR tsSuspect <> 1))

@@ -40,11 +40,14 @@ class ScoringRunModeTest {
         assertEquals(ScoringRunMode.INVENTORY, stale.runMode(arrayOf("--inventory-signals")))
         assertEquals(ScoringRunMode.ARCHIVE_ONLY, stale.runMode(arrayOf("--archive-only")))
         assertEquals(ScoringRunMode.CHECK_CONFIG, stale.runMode(arrayOf("--check-config")))
+        assertEquals(ScoringRunMode.MODELS_ONLY, stale.runMode(arrayOf("--models-only")))
+        assertEquals(ScoringRunMode.ACTIVATE_MODELS, stale.runMode(arrayOf("--activate-models")))
     }
 
     @Test
     fun unknownAndCombinedCommandsAreRejected() {
-        for (args in listOf(arrayOf("--unknown"), arrayOf("--replay-day", "--archive-only"))) {
+        for (args in listOf(arrayOf("--unknown"), arrayOf("--replay-day", "--archive-only"),
+            arrayOf("--models-only","--replay-day"),arrayOf("--check-config","--activate-models"))) {
             assertThrows(IllegalArgumentException::class.java) { config.runMode(args) }
         }
     }

@@ -1,0 +1,17 @@
+# Keep local credentials, generated build artifacts and unrelated application data
+# out of the model-worker build context. The offline bundle is a separate context.
+**
+!android
+!android/**
+!scoring-service
+!scoring-service/**
+**/.git
+**/.gradle
+**/build
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+**/.env
+**/.env.*
+**/*.pem
+**/*.key

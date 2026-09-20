@@ -47,8 +47,9 @@ fi
 if [[ -f "$repo_dir/supabase/migrations/20260918070000_physiology_legacy_boundary_continuation.sql" ]]; then
   "${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260918070000_physiology_legacy_boundary_continuation.sql" >>"$pg_test_dir/migrations.log"
 fi
-for migration in "$repo_dir"/supabase/migrations/20260918[1-9]*.sql; do
+for migration in "$repo_dir"/supabase/migrations/*.sql; do
   [[ -f "$migration" ]] || continue
+  [[ "$(basename "$migration")" < 20260918100000_ ]] && continue
   if [[ "$(basename "$migration")" == 20260918100000_physiology_independent_work.sql ]]; then
     "${psql_cmd[@]}" -f "$service_dir/service/src/test/resources/physiology_queue_isolation_fixture.sql" >>"$pg_test_dir/migrations.log"
   fi
@@ -57,15 +58,18 @@ for migration in "$repo_dir"/supabase/migrations/20260918[1-9]*.sql; do
   fi
   "${psql_cmd[@]}" -f "$migration" >>"$pg_test_dir/migrations.log"
 done
-"${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260919010000_skin_temperature_dependencies.sql" >>"$pg_test_dir/migrations.log"
 cd "$service_dir"
 ./gradlew :service:test --tests com.frwhoop.scoring.ScoringWorkQueueIntegrationTest \
+  --tests com.frwhoop.scoring.WorkerHeartbeatIntegrationTest \
   --tests com.frwhoop.scoring.PostgresDeadlineIntegrationTest \
   --tests com.frwhoop.scoring.ScoringInputGateIntegrationTest \
   --tests com.frwhoop.scoring.ProjectionInvalidationIntegrationTest \
   --tests com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest \
   --tests com.frwhoop.scoring.IndependentScoringWorkIntegrationTest \
   --tests com.frwhoop.scoring.PhysiologyPublicationIntegrationTest \
+  --tests com.frwhoop.scoring.PhysiologyPromotionIntegrationTest \
+  --tests com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest \
+  --tests com.frwhoop.scoring.MotionEvidenceIntegrationTest \
   --tests com.frwhoop.scoring.PhysiologyDependencyIntegrationTest \
   --tests com.frwhoop.scoring.RrPacketProvenanceIntegrationTest \
   --tests com.frwhoop.scoring.StandardHRReceiptIntegrationTest \
@@ -75,11 +79,15 @@ cd "$service_dir"
   --tests com.frwhoop.scoring.SignalInventoryIntegrationTest \
   --tests com.frwhoop.scoring.CalendarOwnershipIntegrationTest --rerun-tasks
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ScoringWorkQueueIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.WorkerHeartbeatIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PostgresDeadlineIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ScoringInputGateIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ProjectionInvalidationIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyPublicationIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyPromotionIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.MotionEvidenceIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PhysiologyDependencyIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.CalendarOwnershipIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.RrPacketProvenanceIntegrationTest.xml" "$pg_test_dir/"

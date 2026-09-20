@@ -58,6 +58,23 @@ class CanonicalScorePayloadTest {
         assertEquals(5.0,night.getDouble("state_unknown_min"),0.0)
     }
 
+    @Test fun wakeStageCannotEraseBinarySleepInEpisodeOrFullDayReadback() {
+        val stages=listOf(StageSegment(start,start+7200,"wake",state="sleep"))
+        val input=bundle(stages).let { it.copy(result=it.result.copy(fullDaySleepEpochs=stages,
+            sleepSessions=it.result.sleepSessions.map { session -> session.copy(end=start+7200) })) }
+        val payload=CanonicalScorePayload.build(input)
+        val night=payload.getJSONArray("nights").getJSONObject(0)
+        assertEquals(120.0,night.getDouble("asleep_min"),0.0)
+        assertEquals(120.0,night.getDouble("sleep_unstaged_min"),0.0)
+        assertEquals("main_sleep",night.getString("episode_type"))
+        for(epoch in listOf(night.getJSONArray("stages").getJSONObject(0),
+            payload.getJSONObject("daily").getJSONArray("full_day_sleep_epochs").getJSONObject(0))) {
+            assertEquals("unknown",epoch.getString("stage"))
+            assertEquals("sleep_unstaged",epoch.getString("state"))
+            assertEquals("stage_binary_disagreement",epoch.getString("reason"))
+        }
+    }
+
     @Test fun publicationAndArchiveUseTheSameMappingAndComputationTimestamp() {
         val input=bundle(listOf(StageSegment(start,start+300,"light",pLight=0.7,
             pWake=0.1,pDeep=0.1,pRem=0.1,probabilitiesCalibrated=false)))

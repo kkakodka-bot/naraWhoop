@@ -14,6 +14,80 @@ from .references import psg_epochs, scalar_windows
 from .splits import purge_overlap, validate_split
 
 
+def _binary_report(rows: list[dict]) -> dict:
+    """Stage probabilities never determine the separately observed binary result."""
+    output = {"contract": "independent_binary_state_no_stage_imputation"}
+    for name in ("baseline", "candidate"):
+        wake = sum(row["reference"] == "wake" for row in rows)
+        sleep = len(rows) - wake
+        states = [row[name].get("binary_state", "unknown") for row in rows]
+        accepted = sum(state in ("sleep", "wake") for state in states)
+        output[name] = {
+            "reference_epochs": len(rows), "accepted_epochs": accepted,
+            "unknown_or_off_body_epochs": len(rows) - accepted,
+            "accepted_coverage": accepted / len(rows) if rows else None,
+            "sleep_sensitivity_all_reference": sum(row["reference"] != "wake" and state == "sleep"
+                for row, state in zip(rows, states)) / sleep if sleep else None,
+            "wake_specificity_all_reference": sum(row["reference"] == "wake" and state == "wake"
+                for row, state in zip(rows, states)) / wake if wake else None,
+            "provenance": sorted({row[name].get("binary_provenance", "unavailable") for row in rows})}
+    for metric in ("sleep_sensitivity_all_reference", "wake_specificity_all_reference", "accepted_coverage"):
+        candidate, baseline = output["candidate"][metric], output["baseline"][metric]
+        output["candidate_minus_baseline_" + metric] = candidate - baseline if candidate is not None and baseline is not None else None
+    return output
+
+
+def _nightly_report(groups: dict, name: str, config: dict, tolerance: float | None) -> dict:
+    policy = config.get("nightly_coverage_policy")
+    if policy is None:
+        return {"status": "unavailable", "reason": "nightly_coverage_policy_not_prespecified",
+                "eligible_nights": len(groups), "accepted_nights": 0, "errors": numeric([], tolerance)}
+    require(isinstance(policy, dict), "nightly coverage policy must be an object")
+    minimum_s = number(policy.get("minimum_accepted_seconds"), "nightly accepted seconds")
+    minimum_fraction = number(policy.get("minimum_accepted_fraction"), "nightly accepted fraction")
+    minimum_third = number(policy.get("minimum_third_fraction"), "nightly third fraction")
+    require(minimum_s > 0 and 0 < minimum_fraction <= 1 and 0 < minimum_third <= 1,
+            "invalid prespecified nightly coverage policy")
+    nights, pairs, errors, median_pairs, median_errors = [], [], [], [], []
+    for (pid, rid, lo, hi), rows in sorted(groups.items()):
+        accepted = [row for row in rows if row[name] is not None]
+        spans = [(row["start_s"], row["end_s"]) for row in accepted]
+        duration = union_duration(spans)
+        thirds = [union_duration([(max(a, lo + i * (hi - lo) / 3), min(b, lo + (i + 1) * (hi - lo) / 3))
+                                  for a, b in spans if a < lo + (i + 1) * (hi - lo) / 3
+                                  and b > lo + i * (hi - lo) / 3]) / ((hi - lo) / 3) for i in range(3)]
+        qualified = duration >= minimum_s and duration / (hi - lo) >= minimum_fraction and min(thirds) >= minimum_third
+        reference_mean = mean(row["reference"] for row in rows)
+        estimate = mean(row[name] for row in accepted) if accepted and qualified else None
+        reference_median = median(row["reference"] for row in rows)
+        estimate_median = median(row[name] for row in accepted) if accepted and qualified else None
+        nights.append({"participant_id": pid, "recording_id": rid, "opportunity_start_s": lo,
+                       "opportunity_end_s": hi, "accepted_seconds": duration,
+                       "accepted_fraction": duration / (hi - lo), "coverage_by_third": thirds,
+                       "reference_mean_all_eligible_windows": reference_mean, "estimate_mean": estimate,
+                       "reference_median_all_eligible_windows": reference_median, "estimate_median": estimate_median,
+                       "reason": None if qualified else "nonrepresentative_night"})
+        if estimate is not None:
+            pairs.append((reference_mean, estimate))
+            errors.append({"participant_id": pid, "absolute_error": abs(estimate - reference_mean)})
+            median_pairs.append((reference_median, estimate_median))
+            median_errors.append({"participant_id": pid, "absolute_error": abs(estimate_median - reference_median)})
+    return {"status": "evaluated" if groups else "unavailable",
+            "reason": None if groups else "independent_main_sleep_opportunity_unavailable",
+            "bounds_policy": "independently_timestamped_main_sleep_not_surviving_reference_span",
+            "policy": policy, "eligible_nights": len(groups),
+            "accepted_nights": len(pairs), "retained_night_coverage": len(pairs) / len(groups) if groups else None,
+            "participants": sorted({row["participant_id"] for row in errors}),
+            "participant_n": len({row["participant_id"] for row in errors}),
+            "errors": numeric(pairs, tolerance), "median_errors": numeric(median_pairs, tolerance), "per_night": nights,
+            "mae_participant_ci": participant_bootstrap(errors,
+                lambda sample: mean(row["absolute_error"] for row in sample) if sample else None,
+                config["seed"], config["bootstrap_replicates"]),
+            "median_mae_participant_ci": participant_bootstrap(median_errors,
+                lambda sample: mean(row["absolute_error"] for row in sample) if sample else None,
+                config["seed"], config["bootstrap_replicates"])}
+
+
 def _numeric_report(rows: list[dict], metric: str, config: dict) -> dict:
     tolerance = 2.0 if metric == "respiratory_rate_bpm" else None
     report = {}
@@ -105,7 +179,16 @@ def _numeric_report(rows: list[dict], metric: str, config: dict) -> dict:
                 nightly_medians.append((median(row["reference"] for row in accepted), median(row[name] for row in accepted)))
         report["nightly_sleep_window_mean_error"][name] = numeric(nightly, tolerance)
         report["nightly_sleep_window_median_error"][name] = numeric(nightly_medians, tolerance)
-    report["nightly_context_policy"] = "Entire 300-second window covered by independent PSG sleep; gaps/mixed context excluded."
+    report["nightly_context_policy"] = "Entire scalar window covered by independent PSG sleep; gaps/mixed context excluded."
+    report["nightly_common_time_diagnostic_only"] = True
+    representative_groups = defaultdict(list)
+    for values in sleep_groups.values():
+        for row in values:
+            if row.get("reference_night_bounds") is not None:
+                representative_groups[(row["participant_id"], row["recording_id"],
+                                       *row["reference_night_bounds"])].append(row)
+    report["nightly_representative"] = {name: _nightly_report(representative_groups, name, config, tolerance)
+                                       for name in ("baseline", "candidate")}
     return report
 
 
@@ -168,6 +251,8 @@ def _episode_report(recordings: list[dict], predictions: dict, config: dict) -> 
     ref_n = predicted_n = matched_n = naps = predicted_naps = matched_naps = 0
     total_seconds = unknown_seconds = 0.0
     unlabelled_predictions = unlabelled_opportunities = 0
+    by_type = {kind: {"reference_episodes": 0, "predicted_episodes": 0, "matched_episodes": 0}
+               for kind in ("main_sleep", "nap", "other_sleep")}
     for recording in recordings:
         if recording["reference"]["modality"] != "PSG":
             continue
@@ -189,6 +274,10 @@ def _episode_report(recordings: list[dict], predictions: dict, config: dict) -> 
         naps += sum(row["type"] == "nap" for row in reference)
         predicted_naps += sum(row["type"] == "nap" for row in proposed)
         matched_naps += sum(reference[i]["type"] == proposed[j]["type"] == "nap" for i, j in matches)
+        for kind, counts in by_type.items():
+            counts["reference_episodes"] += sum(row["type"] == kind for row in reference)
+            counts["predicted_episodes"] += sum(row["type"] == kind for row in proposed)
+            counts["matched_episodes"] += sum(reference[i]["type"] == proposed[j]["type"] == kind for i, j in matches)
         total_seconds += union_duration(spans)
         epochs = psg_epochs(recording)
         candidate_epochs = predictions.get(recording["id"], {}).get("epochs", [])
@@ -212,7 +301,11 @@ def _episode_report(recordings: list[dict], predictions: dict, config: dict) -> 
                     values.append((actual[key], estimate[key]))
             participants.append({"participant_id": recording["participant_id"],
                                  "tst_error_s": estimate["tst_s"] - actual["tst_s"]})
+    for counts in by_type.values():
+        counts["precision"] = counts["matched_episodes"] / counts["predicted_episodes"] if counts["predicted_episodes"] else None
+        counts["recall"] = counts["matched_episodes"] / counts["reference_episodes"] if counts["reference_episodes"] else None
     return {"reference_episodes": ref_n, "predicted_episodes": predicted_n, "matched_episodes": matched_n,
+            "by_episode_type": by_type,
             "minimum_iou": config["episode_minimum_iou"],
             "precision": matched_n / predicted_n if predicted_n else None,
             "recall": matched_n / ref_n if ref_n else None,
@@ -258,9 +351,17 @@ def evaluate(dataset: dict, baseline: dict, candidate: dict, split: dict, config
     scalar, stages, rejected_reference = defaultdict(list), [], []
     beats = []
     context_epochs = defaultdict(list)
+    main_opportunities = defaultdict(set)
     for recording in recordings:
         if recording["reference"]["modality"] == "PSG":
             context_epochs[recording["participant_id"]].extend(psg_epochs(recording))
+            spans = [(row["start_s"], row["end_s"])
+                     for row in recording.get("opportunity_annotation_spans", [])]
+            for opportunity in recording.get("opportunities", []):
+                lo, hi = opportunity["start_s"], opportunity["end_s"]
+                covered = union_duration([(max(a, lo), min(b, hi)) for a, b in spans if a < hi and b > lo])
+                if opportunity["type"] == "main_sleep" and covered >= hi - lo:
+                    main_opportunities[recording["participant_id"]].add((lo, hi))
     for recording in recordings:
         rid = recording["id"]
         if recording["reference"]["modality"] == "ECG":
@@ -291,6 +392,9 @@ def evaluate(dataset: dict, baseline: dict, candidate: dict, split: dict, config
                                  if epoch["stage"] in ("light", "deep", "rem")
                                  and epoch["start_s"] < hi and epoch["end_s"] > lo]
             row["reference_context"] = "sleep" if union_duration(independent_sleep) >= hi - lo else "mixed_or_unknown"
+            opportunities = [span for span in main_opportunities[recording["participant_id"]]
+                             if span[0] <= lo and span[1] >= hi]
+            row["reference_night_bounds"] = opportunities[0] if len(opportunities) == 1 else None
             for name, lookup in lookups.items():
                 predicted = lookup.get(key, {})
                 row[name] = predicted.get("value")
@@ -314,13 +418,19 @@ def evaluate(dataset: dict, baseline: dict, candidate: dict, split: dict, config
         for name, value in participant.get("subgroups", {}).items():
             groups[f"{name}={value}"].add(participant["id"])
     subgroups = {}
+    def participant_scope(ids):
+        matching = [row for row in recordings if row["participant_id"] in ids]
+        matching_stages = [row for row in stages if row["participant_id"] in ids]
+        return {"participant_n": len({row["participant_id"] for row in matching}),
+                "numeric": {metric: _numeric_report([row for row in rows if row["participant_id"] in ids], metric, config)
+                            for metric, rows in scalar.items()},
+                "stages": _stage_report(matching_stages, config), "binary": _binary_report(matching_stages),
+                "detection": {name: _episode_report(matching, values, config) for name, values in prediction_sets.items()},
+                "beat_timing": [row for row in beats if row["participant_id"] in ids]}
     for group, ids in sorted(groups.items()):
         matching = [row for row in recordings if row["participant_id"] in ids]
         if matching:
-            subgroups[group] = {"participant_n": len({row["participant_id"] for row in matching}),
-                               "numeric": {metric: _numeric_report([row for row in rows if row["participant_id"] in ids], metric, config)
-                                           for metric, rows in scalar.items()},
-                               "stages": _stage_report([row for row in stages if row["participant_id"] in ids], config)}
+            subgroups[group] = participant_scope(ids)
     primary_ready = dataset["evidence_kind"] == "reference" and all(
         row["reference"]["adjudicated"] and row["reference"]["sha256"] in verified_reference_hashes for row in recordings)
     return {"schema_version": 1, "harness_version": VERSION, "evidence_kind": dataset["evidence_kind"],
@@ -350,10 +460,13 @@ def evaluate(dataset: dict, baseline: dict, candidate: dict, split: dict, config
                                         for metric, rows in scalar.items()}
                               for label in sorted({label for rows in scalar.values() for row in rows for label in row["strata"]})},
             "stages": _stage_report(stages, config),
+            "binary": _binary_report(stages),
             "behavior_strata": {label: _stage_report([row for row in stages if label in row["behaviors"]], config)
                                 for label in sorted({label for row in stages for label in row["behaviors"]})},
             "detection": {name: _episode_report(recordings, values, config) for name, values in prediction_sets.items()},
             "subgroups": subgroups,
+            "per_participant": {pid: participant_scope({pid})
+                                for pid in sorted({row["participant_id"] for row in recordings})},
             "limitations": ["Reference provenance and adjudication are supplied by the data custodian; this tool cannot certify them.",
                             "Limits of agreement are descriptive; confidence intervals resample participants, not epochs.",
                             "A prediction absent at the exact reference bounds is an abstention; no temporal interpolation is performed.",

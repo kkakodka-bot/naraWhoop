@@ -66,8 +66,8 @@ final class SleepStagerV2Tests: XCTestCase {
                        "clipping must establish timestamp order before binary-search bounds")
     }
 
-    /// Same-second gravity accumulation is order-sensitive under catastrophic cancellation. Each call uses a
-    /// distinct translated window so the memo cannot answer one permutation from another's cache entry.
+    /// Impossible vectors cannot manufacture motion evidence through cancellation or input ordering.
+    /// Distinct translated windows prevent the memo from supplying another permutation's result.
     func testShuffledTimestampGroupsPreserveOrderSensitiveDuplicateOutcomes() {
         let duration = 90 * 60
         let padding = 600
@@ -95,8 +95,8 @@ final class SleepStagerV2Tests: XCTestCase {
         let cancelledShuffled = stagedShape(start: base + 10_000_020, signalLast: false, shuffled: true)
         let retainedSorted = stagedShape(start: base + 20_000_010, signalLast: true, shuffled: false)
         let retainedShuffled = stagedShape(start: base + 30_000_000, signalLast: true, shuffled: true)
-        let cancelledOracle = ["0:4320:light", "4320:5400:rem"]
-        let retainedOracle = ["0:5400:wake"]
+        let cancelledOracle = ["0:5400:unknown"]
+        let retainedOracle = ["0:5400:unknown"]
         XCTAssertEqual(cancelledSorted, cancelledOracle)
         XCTAssertEqual(cancelledShuffled, cancelledOracle)
         XCTAssertEqual(retainedSorted, retainedOracle)
@@ -360,7 +360,7 @@ final class SleepStagerV2Tests: XCTestCase {
             let ph = i / phase
             let restless = ph == 3 && (i % 20) < 6
             grav.append(restless ? GravitySample(ts: ts, x: 0.2, y: 0.15, z: 0.96)
-                                  : GravitySample(ts: ts, x: 0, y: 0, z: 1.0))
+                                  : GravitySample(ts: ts, x: 0.000001 * Double(i % 2), y: 0, z: 1.0))
             let bpm: Int
             switch ph {
             case 0: bpm = 50

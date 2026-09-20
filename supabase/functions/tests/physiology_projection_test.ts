@@ -35,3 +35,44 @@ Deno.test('steps project observed counter and activity without manufacturing mis
     assert.equal(projection.mapRow({ ...owner, record: { key: { ts: 100 }, data: { counter } } }), null);
   }
 });
+
+Deno.test('gravity motion proof never coerces missing malformed or out-of-range input to stillness', () => {
+  const map = APPEND_STREAM_PROJECTIONS.gravitySample.mapRow;
+  for (const dynAccel of [null, undefined, false, true, '', '0', NaN, Infinity, -0.1, 8.1]) {
+    const row = map({ ...owner, record: { key: { ts: 100 }, data: {
+      x: 0, y: 0, z: 1, dynAccel, motion_evidence_version: 'projected-dynamic-acceleration-g-1',
+    } } });
+    assert.notEqual(row, null);
+    assert.equal(row!.dynAccel, null);
+    assert.equal(row!.motion_evidence_version, null);
+    assert.equal(row!.orientation_evidence_version, 'projected-gravity-g-1');
+  }
+  for (const dynAccel of [0, 0.01, 0.3, 8]) {
+    const row = map({ ...owner, record: { key: { ts: 100 }, data: { x: 0, y: 0, z: 1, dynAccel } } });
+    assert.equal(row?.dynAccel, dynAccel);
+    assert.equal(row?.motion_evidence_version, 'projected-dynamic-acceleration-g-1');
+    assert.equal(row?.orientation_evidence_version, 'projected-gravity-g-1');
+  }
+});
+
+Deno.test('gravity timestamp and XYZ require actual finite numeric values', () => {
+  const map = APPEND_STREAM_PROJECTIONS.gravitySample.mapRow;
+  for (const bad of [null, undefined, false, true, '', '0', NaN, Infinity]) {
+    for (const key of ['x', 'y', 'z']) {
+      assert.equal(map({ ...owner, record: { key: { ts: 100 }, data: { x: 0, y: 0, z: 1, [key]: bad, dynAccel: 0 } } }), null);
+    }
+    assert.equal(map({ ...owner, record: { key: { ts: bad }, data: { x: 0, y: 0, z: 1, dynAccel: 0 } } }), null);
+  }
+  for (const ts of [100.5, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.equal(map({ ...owner, record: { key: { ts }, data: { x: 0, y: 0, z: 1, dynAccel: 0 } } }), null);
+  }
+  const orientationOnly = map({ ...owner, record: { key: { ts: 100 }, data: {
+    x: 0, y: 0, z: 1, orientation_evidence_version: 'untrusted-upload-label',
+  } } });
+  assert.equal(orientationOnly?.orientation_evidence_version, 'projected-gravity-g-1');
+  assert.equal(orientationOnly?.dynAccel, null);
+  assert.equal(orientationOnly?.motion_evidence_version, null);
+  assert.equal(map({ ...owner, record: { key: { ts: 100 }, data: {
+    x: null, y: false, z: 1, dynAccel: 0, orientation_evidence_version: 'projected-gravity-g-1',
+  } } }), null);
+});

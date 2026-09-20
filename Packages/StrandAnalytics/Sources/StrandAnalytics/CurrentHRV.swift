@@ -42,7 +42,7 @@ public enum CurrentHRV {
 
     public static func derive(observations: [PhysiologyQuality.IntervalObservation], nowUnix: Int,
                               policy: HrvWindow.Policy = .init(), inputRevision: String = "unversioned") -> Snapshot? {
-        let result = HrvWindow.measure(start: completedWindow(nowUnix: nowUnix).lowerBound,
+        let result = HrvSeries.selectedWindow(start: completedWindow(nowUnix: nowUnix).lowerBound,
             observations: observations, policy: policy, inputRevision: inputRevision, computationMode: "causal")
         guard result.measurementValid, let rmssd = result.observedRMSSD else { return nil }
         return Snapshot(rmssdMs: rmssd, cleanBeats: Int((result.validIntervalFraction * Double(result.originalIds.count)).rounded()),

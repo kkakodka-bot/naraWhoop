@@ -138,15 +138,21 @@ def match_episodes(reference: list[dict], predictions: list[dict], minimum_iou: 
 
 
 def opportunity_summary(epochs: list[dict], start_s: float, end_s: float, bed_entry_s=None) -> dict:
+    def state(row):
+        if "binary_state" in row:
+            return row["binary_state"]
+        if row["stage"] in ("light", "deep", "rem", "sleep_unstaged"):
+            return "sleep"
+        return "wake" if row["stage"] == "wake" else "unknown"
     sleep = sorted((max(row["start_s"], start_s), min(row["end_s"], end_s)) for row in epochs
-                   if row["stage"] in ("light", "deep", "rem", "sleep_unstaged")
+                   if state(row) == "sleep"
                    and row["start_s"] < end_s and row["end_s"] > start_s)
     tst = sum(b - a for a, b in sleep)
     onset, offset = (sleep[0][0], sleep[-1][1]) if sleep else (None, None)
     waso = sum(max(0, min(row["end_s"], offset) - max(row["start_s"], onset))
-               for row in epochs if row["stage"] == "wake") if sleep else None
+               for row in epochs if state(row) == "wake") if sleep else None
     known = sum(max(0, min(row["end_s"], end_s) - max(row["start_s"], start_s))
-                for row in epochs if row["stage"] != "state_unknown")
+                for row in epochs if state(row) in ("wake", "sleep"))
     return {"tst_s": tst, "waso_s": waso, "onset_s": onset, "offset_s": offset,
             "latency_s": onset - bed_entry_s if onset is not None and bed_entry_s is not None else None,
             "unknown_s": max(0, end_s - start_s - known)}

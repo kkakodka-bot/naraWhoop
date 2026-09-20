@@ -28,9 +28,11 @@ class PhysiologyShadowRunner(
     private val requestSlot = Semaphore(1)
     init { require(totalTimeoutSeconds in 1..120) }
     data class Context(val start: Double, val end: Double, val kind: String)
+    data class ContaminationSpan(val start: Double, val end: Double, val contamination: RespirationEstimator.Contamination)
     data class Request(val userId: UUID, val deviceId: UUID, val inputRevision: String,
                        val start: Long, val end: Long, val intervals: List<PhysiologyQuality.IntervalObservation>,
-                       val contexts: List<Context> = emptyList())
+                       val contexts: List<Context> = emptyList(),
+                       val respirationContamination: List<ContaminationSpan> = emptyList())
     data class Model(val id: String, val activation: JSONObject, val assetRoot: Path)
     data class PreparedJob(val payload: JSONObject)
     fun interface Executor { fun run(model: Model, job: PreparedJob): JSONObject }
@@ -52,6 +54,10 @@ class PhysiologyShadowRunner(
                 .put("spectral_fraction", w.spectralFraction ?: JSONObject.NULL).put("autocorrelation", w.autocorrelation ?: JSONObject.NULL)
                 .put("effective_cycles", w.effectiveCycles ?: JSONObject.NULL).put("supported_min_bpm", w.minimumRate)
                 .put("supported_max_bpm", w.maximumRate).put("method_version", w.methodVersion)
+                .put("quality_policy_version", w.qualityPolicyVersion).put("quality_evidence_version", w.qualityEvidenceVersion)
+                .put("motion_observed_fraction", w.motionObservedFraction ?: JSONObject.NULL)
+                .put("rejection_reasons", JSONArray(w.rejectionReasons))
+                .put("acquisition_identity", JSONArray(w.acquisitionIdentity))
                 .put("preprocess_version", w.preprocessVersion).put("computation_mode", w.computationMode) }))
             .put("respiration_summaries", JSONArray(summaries.map { s -> JSONObject().put("start", s.start).put("end", s.end)
                 .put("context", s.summary.context).put("median_bpm", s.summary.median ?: JSONObject.NULL)
@@ -59,10 +65,27 @@ class PhysiologyShadowRunner(
                 .put("distribution_bpm", JSONArray(s.summary.distributionBpm))
                 .put("distribution_kind", "sorted_accepted_window_estimates")
                 .put("coverage", s.summary.coverage).put("accepted_windows", s.summary.acceptedWindows)
+                .put("reason", s.summary.reason ?: JSONObject.NULL).put("coverage_by_third", JSONArray(s.summary.coverageByThird))
+                .put("rejection_reasons", JSONArray(s.summary.rejectionReasons)).put("quality_policy_version", s.summary.qualityPolicyVersion)
+                .put("evidence_strength", s.summary.evidenceStrength ?: JSONObject.NULL)
+                .put("evidence_strength_kind", "minimum_window_autocorrelation_not_calibrated_probability")
                 .put("total_windows", s.summary.totalWindows) }))
     }
 
-    fun evaluate(request: Request, remainingBudget: Duration? = null): Result {
+    /** Deterministic measurements never discover objects, prepare jobs, or invoke optional models. */
+    fun evaluate(request: Request, remainingBudget: Duration? = null): Result = evaluateRequest(request, remainingBudget, false)
+
+    fun configuredModels(): List<Model> = models.toList()
+
+    /** Called only by an independently leased per-model worker. */
+    fun evaluateModel(request: Request, modelId: String): JSONObject {
+        val model = models.single { it.id == modelId }
+        val isolated = PhysiologyShadowRunner(catalogue, listOf(model), executor, assembler, totalTimeoutSeconds)
+        val result = isolated.evaluateRequest(request.copy(contexts = emptyList(), respirationContamination = emptyList()), null, true)
+        return result.modelResults.single { it.getString("model_id") == modelId }
+    }
+
+    private fun evaluateRequest(request: Request, remainingBudget: Duration?, includeModels: Boolean): Result {
         fun unavailable(reason: String) = Result(emptyList(), emptyList(), MODEL_IDS.map { id -> JSONObject()
             .put("model_id", id).put("publication_mode", "shadow").put("canonical_outputs_allowed", false)
             .put("status", "abstained").put("reason", reason).put("user_id", request.userId)
@@ -73,7 +96,7 @@ class PhysiologyShadowRunner(
         if (!requestSlot.tryAcquire()) return unavailable("shadow_request_busy")
         val deadline = System.nanoTime() + allowed.toNanos()
         val progress = AtomicReference(unavailable("shadow_request_pending"))
-        val work = FutureTask { evaluateBounded(request,deadline) { progress.set(it) } }
+        val work = FutureTask { evaluateBounded(request,deadline,includeModels) { progress.set(it) } }
         val thread = Thread({ try { work.run() } finally { requestSlot.release() } }, "physiology-shadow-bounded")
         thread.isDaemon = true
         try {
@@ -97,9 +120,12 @@ class PhysiologyShadowRunner(
         }
     }
 
-    private fun evaluateBounded(request: Request, deadline: Long, onProgress: (Result) -> Unit): Result {
+    private fun evaluateBounded(request: Request, deadline: Long, includeModels: Boolean, onProgress: (Result) -> Unit): Result {
         require(request.end > request.start && request.end - request.start <= 76 * 3600 && request.inputRevision.isNotBlank())
-        require(request.intervals.size <= 300_000 && request.contexts.size <= 512 && models.size <= 8)
+        require(request.intervals.size <= 300_000 && request.contexts.size <= 512 && models.size <= 8 &&
+            request.respirationContamination.size <= 300_000)
+        require(request.respirationContamination.all { it.start.isFinite() && it.end.isFinite() && it.end > it.start &&
+            it.start >= request.start && it.end <= request.end })
         fun checkCancellation() {
             if (Thread.currentThread().isInterrupted || System.nanoTime() >= deadline) throw InterruptedException("shadow_cancelled")
         }
@@ -131,9 +157,27 @@ class PhysiologyShadowRunner(
             checkCancellation()
             val start = candidate.start
             val end = start + 120
-            val rows = if (ownerValid) request.intervals.filter { row -> row.verifiedSpan?.let { it.end >= start - 2 && it.start <= end + 2 }
-                ?: (row.eventTime >= start - 2 && row.eventTime <= end + 2) } else emptyList()
-            val output = RespirationEstimator.estimate(RespirationEstimator.fromIntervals(start, 120, rows, request.inputRevision))
+            val rows = if (ownerValid) request.intervals.filter { row -> row.verifiedSpan
+                ?.takeIf { it.start.isFinite() && it.end.isFinite() && it.end > it.start }
+                ?.let { it.end >= start - 2 && it.start <= end + 2 }
+                ?: (!row.eventTime.isFinite() || (row.eventTime >= start - 2 && row.eventTime <= end + 2)) } else emptyList()
+            val evidence = request.respirationContamination.filter { it.end > start && it.start < end }
+            val observed = evidence.filter { it.contamination.motionObservedFraction == 1.0 &&
+                it.contamination.evidenceVersion.isNotBlank() && it.contamination.evidenceVersion != "unverified" }
+                .map { PhysiologyQuality.Span(it.start, it.end) }
+            var through = start
+            var seconds = 0.0
+            for (span in observed.sortedBy { it.start }) {
+                val lo = maxOf(start, through, span.start)
+                val hi = minOf(end, span.end)
+                if (hi > lo) { seconds += hi - lo; through = hi }
+            }
+            val contamination = RespirationEstimator.Contamination(seconds / 120,
+                evidence.any { it.contamination.motionContaminated },
+                evidence.flatMap { it.contamination.signalQualityReasons }.distinct().sorted(),
+                evidence.map { it.contamination.evidenceVersion }.distinct().sorted().joinToString("+").ifBlank { "unverified" })
+            val output = RespirationEstimator.estimate(RespirationEstimator.fromIntervals(start, 120, rows,
+                request.inputRevision, contamination))
             val result = if (ownerValid) output else output.copy(reason = "interval_owner_mismatch", breathsPerMinute = null)
             windows += result
             localWindows[candidate.contextIndex] += result
@@ -144,11 +188,19 @@ class PhysiologyShadowRunner(
         }
         val waitingModels = MODEL_IDS.map { id -> JSONObject().put("model_id", id).put("publication_mode", "shadow")
             .put("canonical_outputs_allowed", false).put("status", "abstained")
-            .put("reason", if (configurationUnavailable) "shadow_configuration_unavailable" else "shadow_deadline_before_models")
+            .put("reason", when {
+                configurationUnavailable -> "shadow_configuration_unavailable"
+                includeModels -> "shadow_deadline_before_models"
+                else -> "independent_model_queue"
+            })
             .put("user_id", request.userId).put("device_id", request.deviceId).put("input_revision", request.inputRevision) }
         val rawReasons = mutableListOf<String>(); val decoded = mutableListOf<VerifiedRawObjectReader.Decoded>()
         if (configurationUnavailable) rawReasons += "shadow_configuration_unavailable"
         onProgress(Result(windows.toList(), summaries.toList(), waitingModels, rawReasons.toList(), 0))
+        // Configuration diagnostics do not authorize raw I/O or optional execution in the
+        // deterministic lane. A failed configuration also contains no activatable models.
+        if (!includeModels) return Result(windows, summaries, waitingModels,
+            rawReasons + if (candidates.size > 512) listOf("respiration_window_budget_reached") else emptyList(), 0)
         if (contexts.isEmpty()) rawReasons += "no_qualified_respiration_context"
         if (catalogue == null) rawReasons += "raw_object_reader_not_configured" else {
             try {
@@ -171,7 +223,7 @@ class PhysiologyShadowRunner(
         }
         onProgress(Result(windows.toList(), summaries.toList(), waitingModels, rawReasons.distinct(), decoded.size))
         val configured = models.associateBy { it.id }
-        val outputs = MODEL_IDS.map { id ->
+        val outputs = models.map { it.id }.map { id ->
             checkCancellation()
             val model = configured[id]
             var reason = when {
@@ -179,6 +231,7 @@ class PhysiologyShadowRunner(
                 model == null -> "model_not_configured"
                 executor == null -> "bounded_runtime_not_configured"
                 assembler == null -> "verified_model_input_adapter_not_configured"
+                rawReasons.any { it in setOf("raw_object_verification_failed", "raw_catalogue_unavailable") } -> "raw_input_temporarily_unavailable"
                 else -> null
             }
             if (reason == null && model != null) {
@@ -212,7 +265,9 @@ class PhysiologyShadowRunner(
 
         /** No configuration means no external model loading. Unknown WHOOP waveform proof stays unavailable. */
         fun fromEnvironment(dataSource: DataSource, objects: B2ObjectStore.GetClient?,
-                            environment: Map<String, String> = System.getenv(), assembler: JobAssembler? = null): PhysiologyShadowRunner {
+                            environment: Map<String, String> = System.getenv(), assembler: JobAssembler? = null,
+                            modelId: String? = null): PhysiologyShadowRunner {
+            require(modelId == null || modelId in MODEL_IDS)
             val catalogue = objects?.let { RawSignalCatalogue(dataSource, VerifiedRawObjectReader(it)) }
             val configPath = environment["PHYSIOLOGY_SHADOW_CONFIG"]?.takeIf { it.isNotBlank() }
                 ?: return PhysiologyShadowRunner(catalogue = catalogue, assembler = assembler)
@@ -222,8 +277,9 @@ class PhysiologyShadowRunner(
                 val config = JSONObject(Files.readString(path))
                 val specifications = config.getJSONArray("models")
                 require(specifications.length() <= 8)
-                val models = (0 until specifications.length()).map { i ->
-                    val specification = specifications.getJSONObject(i)
+                val selected = (0 until specifications.length()).map { specifications.getJSONObject(it) }
+                    .filter { modelId == null || it.optString("model_id") == modelId }
+                val models = selected.map { specification ->
                     val id = specification.getString("model_id"); require(id in MODEL_IDS)
                     val activationPath = Path.of(specification.getString("activation_file")); require(Files.size(activationPath) <= 1024 * 1024)
                     Model(id, JSONObject(Files.readString(activationPath)), Path.of(specification.getString("asset_root")))
@@ -233,8 +289,8 @@ class PhysiologyShadowRunner(
                     PythonShadowExecutor(Path.of(config.getString("python")), config.getString("python_path"), config.optLong("model_timeout_seconds", 35)),
                     assembler, config.optLong("total_timeout_seconds", 60))
             } catch (_: Exception) {
-                // Optional model setup cannot stop canonical scoring. Do not expose configuration
-                // contents or paths; retain the independent interval and verified-raw lanes.
+                // Optional model setup cannot stop deterministic scoring. No failed activation
+                // is registered or leased, and configuration contents/paths are never exposed.
                 PhysiologyShadowRunner(catalogue = catalogue, assembler = assembler, configurationUnavailable = true)
             }
         }

@@ -4,10 +4,22 @@ import com.noop.data.RrInterval
 import com.noop.protocol.DeviceFamily
 import com.noop.protocol.RrSourceChannel
 
-/** Mirrors WhoopStore.rrIntervals: one verified transport for the entire requested interval. */
+/** Transport filtering is not timing qualification. HRV selects among these candidates per window. */
 object CanonicalRrPolicy {
     const val VERSION = "whoop-canonical-rr-2"
     const val TIMESTAMP_PRECISION_SECONDS = 1.0
+
+    fun candidates(rows: List<RrInterval>, family: DeviceFamily): List<RrInterval> = ordered(
+        rows.filter { it.tsSuspect != 1 && it.srcChannel != RrSourceChannel.SPO2_IBI.code }
+            .groupBy { Math.floorDiv(it.ts, 300L) }.values.flatMap { window ->
+                if (family != DeviceFamily.WHOOP5) window
+                else {
+                    val tagged = window.filter { it.srcChannel == 5 || it.srcChannel == 7 }
+                    if (tagged.isNotEmpty()) tagged
+                    else if (window.any { it.srcChannel != null && it.srcChannel != 0 }) emptyList()
+                    else window
+                }
+            })
 
     fun select(rows: List<RrInterval>, family: DeviceFamily): List<RrInterval> {
         val eligible = rows.filter { it.tsSuspect != 1 && it.srcChannel != RrSourceChannel.SPO2_IBI.code }

@@ -2,6 +2,7 @@ package com.frwhoop.scoring
 
 import com.frwhoop.scoring.signals.PhysiologyShadowRunner
 import com.noop.analytics.PhysiologyQuality
+import com.noop.analytics.RespirationEstimator
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -28,9 +29,12 @@ class PhysiologyShadowRunnerTest {
     private fun assertConfigurationFailureIsIsolated(path: Path) {
         val input = request()
         val runner = configuredRunner(path)
+        assertTrue("Failed configuration must not leave activatable models", runner.configuredModels().isEmpty())
         repeat(2) {
             val result = runner.evaluate(input)
-            assertEquals(12.0, result.summaries.single().summary.median!!, 0.5)
+            assertEquals(12.0, result.windows.first().breathsPerMinute!!, 0.5)
+            assertNull(result.summaries.single().summary.median)
+            assertEquals("insufficient_accepted_duration", result.summaries.single().summary.reason)
             assertTrue(result.windows.any { it.breathsPerMinute != null })
             assertTrue(result.rawReasons.contains("shadow_configuration_unavailable"))
             assertEquals(8, result.modelResults.size)
@@ -90,10 +94,13 @@ class PhysiologyShadowRunnerTest {
         val directory = Files.createTempDirectory("shadow-startup-")
         try {
             val activation = Files.writeString(directory.resolve("activation.json"), "{}")
-            val result = configuredRunner(shadowConfig(directory, activation)).evaluate(request())
-            assertEquals(12.0, result.summaries.single().summary.median!!, 0.5)
+            val runner = configuredRunner(shadowConfig(directory, activation))
+            val result = runner.evaluate(request())
+            assertEquals(12.0, result.windows.first().breathsPerMinute!!, 0.5)
+            assertNull(result.summaries.single().summary.median)
             assertFalse(result.rawReasons.contains("shadow_configuration_unavailable"))
-            val model = result.modelResults.single { it.getString("model_id") == "neurokit2" }
+            assertTrue(result.modelResults.all { it.getString("reason") == "independent_model_queue" })
+            val model = runner.evaluateModel(request(), "neurokit2")
             assertEquals("verified_model_input_adapter_not_configured", model.getString("reason"))
             assertFalse(model.getBoolean("canonical_outputs_allowed"))
         } finally { directory.toFile().deleteRecursively() }
@@ -110,15 +117,20 @@ class PhysiologyShadowRunnerTest {
                 decoderVersion = "fixture", clockVersion = "fixture")
         }
         return PhysiologyShadowRunner.Request(user, device, "revision-1", 0, 300, rows,
-            listOf(PhysiologyShadowRunner.Context(0.0, 300.0, "qualified_sleep")))
+            listOf(PhysiologyShadowRunner.Context(0.0, 300.0, "qualified_sleep")),
+            listOf(PhysiologyShadowRunner.ContaminationSpan(0.0, 300.0,
+                RespirationEstimator.Contamination(1.0, evidenceVersion = "synthetic-motion-v1"))))
     }
 
     @Test fun `missing raw does not disable independently verified interval respiration`() {
         val result = PhysiologyShadowRunner().evaluate(request())
         assertEquals(4, result.windows.size)
         assertTrue(result.windows.any { it.breathsPerMinute != null })
-        assertEquals(12.0, result.summaries.single().summary.median!!, 0.5)
-        assertTrue(result.rawReasons.contains("raw_object_reader_not_configured"))
+        assertNull(result.summaries.single().summary.median)
+        assertEquals("insufficient_accepted_duration", result.summaries.single().summary.reason)
+        assertEquals(12.0, result.windows.first().breathsPerMinute!!, 0.5)
+        assertTrue(result.rawReasons.isEmpty())
+        assertTrue(result.modelResults.all { it.getString("reason") == "independent_model_queue" })
         assertEquals(8, result.modelResults.size)
         assertFalse(result.json().getBoolean("canonical_outputs_allowed"))
         assertTrue(result.json().has("respiration_summaries"))
@@ -146,27 +158,30 @@ class PhysiologyShadowRunnerTest {
             .put("canonical_outputs_allowed", false).put("publication_mode", "shadow")
             .put("user_id",job.payload.get("user_id")).put("device_id",job.payload.get("device_id"))
             .put("input_revision",job.payload.get("input_revision")) }
-        val result = PhysiologyShadowRunner(models = listOf(model), executor = executor, assembler = assembler).evaluate(request())
-        assertEquals(1, calls); assertEquals(8, result.modelResults.size)
+        val result = PhysiologyShadowRunner(models = listOf(model), executor = executor, assembler = assembler).evaluateModel(request(), "neurokit2")
+        assertEquals(1, calls); assertEquals("neurokit2", result.getString("model_id"))
         val invalid = PhysiologyShadowRunner.JobAssembler { _, _, _ -> PhysiologyShadowRunner.PreparedJob(JSONObject().put("user_id", "other")) }
-        val failed = PhysiologyShadowRunner(models = listOf(model), executor = executor, assembler = invalid).evaluate(request())
+        val failed = PhysiologyShadowRunner(models = listOf(model), executor = executor, assembler = invalid).evaluateModel(request(), "neurokit2")
         assertEquals(1, calls)
-        assertEquals("model_input_owner_or_revision_mismatch", failed.modelResults.first { it.getString("model_id") == "neurokit2" }.getString("reason"))
+        assertEquals("model_input_owner_or_revision_mismatch", failed.getString("reason"))
     }
 
-    @Test fun `total deadline preserves deterministic respiration and interrupts model`() {
+    @Test fun `deterministic publication never invokes slow optional model`() {
         val model = PhysiologyShadowRunner.Model("neurokit2", JSONObject(), Path.of("."))
         val assembler = PhysiologyShadowRunner.JobAssembler { _, request, _ -> PhysiologyShadowRunner.PreparedJob(JSONObject()
             .put("user_id", request.userId).put("device_id", request.deviceId).put("input_revision", request.inputRevision)) }
-        val slow = PhysiologyShadowRunner.Executor { _, _ -> Thread.sleep(5000); JSONObject() }
+        var calls=0
+        val slow = PhysiologyShadowRunner.Executor { _, _ -> calls++; Thread.sleep(5000); JSONObject() }
         val runner = PhysiologyShadowRunner(models=listOf(model),executor=slow,assembler=assembler,totalTimeoutSeconds=1)
         val result = runner.evaluate(request())
-        assertTrue(result.rawReasons.contains("shadow_request_timeout"))
-        assertEquals(12.0,result.summaries.single().summary.median!!,0.5)
+        assertEquals(0,calls)
+        assertTrue(result.rawReasons.isEmpty())
+        assertEquals(12.0,result.windows.first().breathsPerMinute!!,0.5)
+        assertNull(result.summaries.single().summary.median)
         assertTrue(result.windows.any { it.breathsPerMinute != null })
     }
 
-    @Test fun `remaining publication budget bounds a configured two minute model lane`() {
+    @Test fun `publication budget is independent of configured two minute model lane`() {
         val stopped=CountDownLatch(1)
         val model=PhysiologyShadowRunner.Model("neurokit2",JSONObject(),Path.of("."))
         val assembler=PhysiologyShadowRunner.JobAssembler { _,request,_ -> PhysiologyShadowRunner.PreparedJob(JSONObject()
@@ -178,11 +193,108 @@ class PhysiologyShadowRunnerTest {
         val start=System.nanoTime()
         val result=runner.evaluate(request(),Duration.ofMillis(200))
         assertTrue(Duration.ofNanos(System.nanoTime()-start)<Duration.ofSeconds(2))
-        assertTrue(result.rawReasons.contains("shadow_request_timeout"))
-        assertTrue(stopped.await(1,TimeUnit.SECONDS))
-        assertEquals(12.0,result.summaries.single().summary.median!!,.5)
+        assertTrue(result.rawReasons.isEmpty())
+        assertEquals(1L,stopped.count)
+        assertEquals(12.0,result.windows.first().breathsPerMinute!!,.5)
+        assertNull(result.summaries.single().summary.median)
         assertTrue(result.windows.any { it.breathsPerMinute != null })
         assertFalse(result.json().getBoolean("canonical_outputs_allowed"))
+    }
+
+    @Test fun `isolated model deadline is an unavailable retryable output`() {
+        val model=PhysiologyShadowRunner.Model("neurokit2",JSONObject(),Path.of("."))
+        val assembler=PhysiologyShadowRunner.JobAssembler { _,r,_ -> PhysiologyShadowRunner.PreparedJob(JSONObject()
+            .put("user_id",r.userId).put("device_id",r.deviceId).put("input_revision",r.inputRevision)) }
+        val runner=PhysiologyShadowRunner(models=listOf(model),assembler=assembler,totalTimeoutSeconds=1,
+            executor=PhysiologyShadowRunner.Executor { _,_ -> Thread.sleep(5000); JSONObject() })
+        val started=System.nanoTime()
+        val result=runner.evaluateModel(request(),"neurokit2")
+        assertTrue(Duration.ofNanos(System.nanoTime()-started)<Duration.ofSeconds(3))
+        assertEquals("abstained",result.getString("status"))
+        assertNotNull(com.frwhoop.scoring.signals.ModelQueueWorker.transientFailure(result))
+    }
+
+    @Test fun `catalogue outage is retryable instead of terminal missing physiology`() {
+        val source=java.lang.reflect.Proxy.newProxyInstance(javax.sql.DataSource::class.java.classLoader,
+            arrayOf(javax.sql.DataSource::class.java)) { _,_,_ -> throw java.sql.SQLException("synthetic outage") } as javax.sql.DataSource
+        val objects=object:com.frwhoop.scoring.b2.B2ObjectStore.GetClient {
+            override fun getObject(key:String,maximumBytes:Int):ByteArray=error("must not fetch")
+        }
+        val catalogue=com.frwhoop.scoring.signals.RawSignalCatalogue(source,com.frwhoop.scoring.signals.VerifiedRawObjectReader(objects))
+        var assembled=0
+        val runner=PhysiologyShadowRunner(catalogue=catalogue,
+            models=listOf(PhysiologyShadowRunner.Model("neurokit2",JSONObject(),Path.of("."))),
+            assembler=PhysiologyShadowRunner.JobAssembler { _,_,_ -> assembled++;null },
+            executor=PhysiologyShadowRunner.Executor { _,_ -> error("must not execute") })
+        val result=runner.evaluateModel(request(),"neurokit2")
+        assertEquals("raw_input_temporarily_unavailable",result.getString("reason"))
+        assertNotNull(com.frwhoop.scoring.signals.ModelQueueWorker.transientFailure(result))
+        assertEquals(0,assembled)
+        assertNotNull(com.frwhoop.scoring.signals.ModelQueueWorker.transientFailure(JSONObject()
+            .put("status","abstained").put("reason","shadow_request_cancelled")))
+    }
+
+    @Test fun `unrelated corrupt activation cannot block selected model startup`() {
+        val directory=java.nio.file.Files.createTempDirectory("model-selection-fixture-")
+        val activation=directory.resolve("activation.json");val config=directory.resolve("runner.json")
+        try {
+            java.nio.file.Files.writeString(activation,JSONObject().put("model_id","neurokit2").toString())
+            java.nio.file.Files.writeString(config,JSONObject().put("python","/usr/bin/true").put("python_path","fixture")
+                .put("models",org.json.JSONArray().put(JSONObject().put("model_id","neurokit2")
+                    .put("activation_file",activation.toString()).put("asset_root",directory.toString()))
+                    .put(JSONObject().put("model_id","wav2sleep-cardiorespiratory")
+                        .put("activation_file",directory.resolve("absent-corrupt-model.json").toString())
+                        .put("asset_root",directory.toString()))).toString())
+            val source=java.lang.reflect.Proxy.newProxyInstance(javax.sql.DataSource::class.java.classLoader,
+                arrayOf(javax.sql.DataSource::class.java)) { _,_,_ -> error("no database access expected") } as javax.sql.DataSource
+            val runner=PhysiologyShadowRunner.fromEnvironment(source,null,
+                mapOf("PHYSIOLOGY_SHADOW_CONFIG" to config.toString()),modelId="neurokit2")
+            assertEquals(listOf("neurokit2"),runner.configuredModels().map { it.id })
+        } finally {
+            java.nio.file.Files.deleteIfExists(config);java.nio.file.Files.deleteIfExists(activation)
+            java.nio.file.Files.deleteIfExists(directory)
+        }
+    }
+
+    @Test fun `selected corrupt activation cannot become a different configured model`() {
+        val directory = Files.createTempDirectory("model-selection-failure-")
+        try {
+            val activation = Files.writeString(directory.resolve("activation.json"), "{}")
+            val config = shadowConfig(directory, activation)
+            val configuration = JSONObject(Files.readString(config))
+            configuration.getJSONArray("models").put(JSONObject().put("model_id", "wav2sleep-cardiorespiratory")
+                .put("activation_file", directory.resolve("missing.json").toString())
+                .put("asset_root", directory.toString()))
+            Files.writeString(config, configuration.toString())
+            val runner = PhysiologyShadowRunner.fromEnvironment(unusedDataSource, null,
+                mapOf("PHYSIOLOGY_SHADOW_CONFIG" to config.toString()), modelId = "wav2sleep-cardiorespiratory")
+            assertTrue(runner.configuredModels().isEmpty())
+            val result = runner.evaluate(request())
+            assertEquals(12.0, result.windows.first().breathsPerMinute!!, .5)
+            assertTrue(result.modelResults.all { it.getString("reason") == "shadow_configuration_unavailable" })
+            try {
+                runner.evaluateModel(request(), "wav2sleep-cardiorespiratory")
+                fail("A missing activation must not execute or substitute another model")
+            } catch (_: NoSuchElementException) {
+                // The independent worker also requires one configured activation before leasing.
+            }
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
+    @Test fun `configuration fallback never reads optional raw objects in deterministic lane`() {
+        val directory = Files.createTempDirectory("shadow-no-raw-")
+        try {
+            val objects = object : com.frwhoop.scoring.b2.B2ObjectStore.GetClient {
+                override fun getObject(key: String, maximumBytes: Int): ByteArray = error("Unexpected raw read")
+            }
+            val runner = PhysiologyShadowRunner.fromEnvironment(unusedDataSource, objects,
+                mapOf("PHYSIOLOGY_SHADOW_CONFIG" to directory.resolve("missing.json").toString()),
+                assembler = PhysiologyShadowRunner.JobAssembler { _, _, _ -> error("Unexpected assembly") })
+            val result = runner.evaluate(request())
+            assertEquals(listOf("shadow_configuration_unavailable"), result.rawReasons)
+            assertEquals(0, result.verifiedObjects)
+            assertEquals(12.0, result.windows.first().breathsPerMinute!!, .5)
+        } finally { directory.toFile().deleteRecursively() }
     }
 
     @Test fun `expired publication budget abstains before starting model work`() {
@@ -206,6 +318,27 @@ class PhysiologyShadowRunnerTest {
         assertTrue(failed.rawReasons.contains("shadow_input_contract_invalid"))
         assertTrue(failed.modelResults.all { it.getString("reason")=="shadow_input_contract_invalid" })
         assertTrue(runner.evaluate(input).windows.any { it.breathsPerMinute!=null })
+    }
+    @Test fun `motion gaps aggregate fractions contamination and quality failures cannot certify windows`() {
+        val original = request()
+        val runner = PhysiologyShadowRunner()
+        for (spans in listOf(emptyList(), listOf(PhysiologyShadowRunner.ContaminationSpan(0.0, 300.0,
+            RespirationEstimator.Contamination(.99, evidenceVersion = "aggregate_only"))))) {
+            val output = runner.evaluate(original.copy(respirationContamination = spans))
+            assertTrue(output.windows.all { it.reason == "motion_evidence_unavailable" && it.breathsPerMinute == null })
+        }
+        val moving = original.respirationContamination + PhysiologyShadowRunner.ContaminationSpan(50.0, 51.0,
+            RespirationEstimator.Contamination(1.0, true, evidenceVersion = "synthetic-motion-v1"))
+        val rejected = runner.evaluate(original.copy(respirationContamination = moving))
+        assertEquals("motion_contamination", rejected.windows.first().reason)
+        assertTrue(rejected.windows.drop(1).all { it.breathsPerMinute != null })
+        val quality = original.respirationContamination + PhysiologyShadowRunner.ContaminationSpan(50.0, 51.0,
+            RespirationEstimator.Contamination(signalQualityReasons = listOf("off_body"), evidenceVersion = "wear-event"))
+        val qualityResult = runner.evaluate(original.copy(respirationContamination = quality))
+        assertEquals("signal_quality_contamination", qualityResult.windows.first().reason)
+        assertTrue("off_body" in qualityResult.windows.first().rejectionReasons)
+        val duplicate = runner.evaluate(original.copy(respirationContamination = original.respirationContamination + original.respirationContamination))
+        assertTrue(duplicate.windows.all { it.motionObservedFraction == 1.0 })
     }
 
     @Test fun `bounded respiration attempts are shared across qualified contexts`() {
@@ -266,6 +399,14 @@ class PhysiologyShadowRunnerTest {
             contexts=listOf(PhysiologyShadowRunner.Context(0.0,600.0,"qualified_sleep")))
         val result=PhysiologyShadowRunner().evaluate(input)
         assertEquals((0..480 step 60).map(Int::toDouble),result.windows.map { it.start })
+        assertFalse(result.rawReasons.contains("respiration_window_budget_reached"))
+    }
+
+    @Test fun `exactly full respiration budget does not report omitted candidates`() {
+        val input=request().copy(start=0,end=30_780,intervals=emptyList(),
+            contexts=listOf(PhysiologyShadowRunner.Context(0.0,30_780.0,"qualified_sleep")))
+        val result=PhysiologyShadowRunner().evaluate(input)
+        assertEquals(512,result.windows.size)
         assertFalse(result.rawReasons.contains("respiration_window_budget_reached"))
     }
 }

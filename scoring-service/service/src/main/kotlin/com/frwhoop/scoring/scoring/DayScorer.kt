@@ -66,8 +66,10 @@ class DayScorer(private val physiology: PhysiologyShadowRunner = PhysiologyShado
         ) { it.ts } ?: inputs.gravity.filter { it.ts in dayLo..dayHi }).filter { owns(it.ts) }
 
         val wristOff = AnalyticsEngine.offWristIntervals(inputs.events, inputs.nightHi+1)
-        val observations = inputs.hrvObservations ?: PhysiologyQuality.legacy(inputs.rr,inputs.deviceId)
-            .map { it.copy(userId=inputs.userId.toString(),deviceFirmware=inputs.deviceFirmware) }
+        val motionEvidence=PhysiologyMotionEvidence(inputs.gravity,wristOff + inputs.sleepContext
+            .filter { it.kind=="off_body" }.map { it.start to it.end })
+        val observations = (inputs.hrvObservations ?: PhysiologyQuality.legacy(inputs.rr,inputs.deviceId)
+            .map { it.copy(userId=inputs.userId.toString()) }).map(motionEvidence::annotate)
         require(observations.all { it.userId==inputs.userId.toString() && it.deviceId==inputs.deviceId })
 
         val observedThrough = (inputs.hr.map { it.ts } + inputs.rr.map { it.ts } + inputs.resp.map { it.ts } +
@@ -117,7 +119,7 @@ class DayScorer(private val physiology: PhysiologyShadowRunner = PhysiologyShado
             val group=com.noop.analytics.SleepOpportunityDetector.mainSleepGroupIndices(
                 result.sleepSessions,inputs.tzOffsetSeconds).toSet()
             val episodes=result.sleepSessions.mapIndexed { index,s -> s.copy(
-                episodeType=if(!s.hasKnownState) "uncertain" else if(index in group) "main_sleep" else "nap") }
+                episodeType=com.noop.analytics.SleepOpportunityDetector.episodeType(s,index in group)) }
             val context=episodes.flatMap { PhysiologyQuality.contextFromSleep(it.stages,it.start,it.end,it.episodeType) }
             val from=minOf(dayLo,episodes.minOfOrNull { it.start }?:dayLo).toInt()
             val windows=HrvSeries.windows(from,minOf(dayHi+1,nowSeconds).toInt(),observations,context,inputRevision=inputRevision).filter { window ->
@@ -145,7 +147,9 @@ class DayScorer(private val physiology: PhysiologyShadowRunner = PhysiologyShado
             } }
             session.copy(restingHR=com.noop.analytics.SleepStager.sessionRestingHR(session.start,session.end,eligibleHr))
         }
-        result=result.copy(sleepSessions=finalEpisodes,daily=result.daily.copy(restingHr=finalEpisodes.mapNotNull { it.restingHR }.minOrNull()))
+        result=result.copy(sleepSessions=finalEpisodes,
+            fullDaySleepEpochs=SleepBoundaryOverrides.applyToFullDay(analyzed.fullDaySleepEpochs,finalEpisodes,inputs.sleepOverrides),
+            daily=result.daily.copy(restingHr=finalEpisodes.mapNotNull { it.restingHR }.minOrNull()))
         val sleepEpochs=result.sleepSessions.filter { it.episodeType=="main_sleep" }.flatMap { it.stages }
             .filter(SleepStageSemantics::isSleep)
         val sleepingHr=inputs.hr.filter { sample -> sample.bpm>0 && sleepEpochs.any { sample.ts>=it.start && sample.ts<it.end } }
@@ -165,9 +169,10 @@ class DayScorer(private val physiology: PhysiologyShadowRunner = PhysiologyShado
             } else sleepSpans.add(PhysiologyShadowRunner.Context(epoch.start.toDouble(),epoch.end.toDouble(),"qualified_sleep"))
         }
         val respiratoryContexts = RespirationContexts.withAwakeRest(sleepSpans, heartRateWindows,
-            result.sleepSessions.flatMap { it.stages }, contexts)
+            result.fullDaySleepEpochs, contexts)
         val shadow=physiology.evaluate(PhysiologyShadowRunner.Request(inputs.userId,java.util.UUID.fromString(inputs.deviceId),
-            inputRevision,inputs.nightLo,inputs.nightHi+1,observations,respiratoryContexts),shadowBudget?.invoke())
+            inputRevision,inputs.nightLo,inputs.nightHi+1,observations,respiratoryContexts,
+            respirationContamination=motionEvidence.respiratorySpans(inputs.nightLo,inputs.nightHi+1)),shadowBudget?.invoke())
         val mainEpisodes=result.sleepSessions.filter { it.episodeType=="main_sleep" }
         // Awake-rest results are retained separately and never enter the overnight statistic.
         val sleepRespiration = shadow.windows.filter { window -> sleepSpans.any {

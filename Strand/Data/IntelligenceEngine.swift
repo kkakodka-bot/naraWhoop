@@ -1059,9 +1059,12 @@ final class IntelligenceEngine: ObservableObject {
                 let strictWhoop5RR = (try? await store.isWhoop5RRSource(deviceId: owner,
                     unlabelledAliasOfWhoop5: activeWhoop5RR && owner == Repository.whoopSource)) ?? true
                 let rr = await rrWindow.rows(owner: owner, from: from, to: to, allowReuse: !strictWhoop5RR)
+                let physiologyRR = strictWhoop5RR ? (try? await store.rrPhysiologyInputs(deviceId: owner,
+                    from: from, to: to, limit: StreamReadCap.rr,
+                    unlabelledAliasOfWhoop5: activeWhoop5RR && owner == Repository.whoopSource)) ?? [] : rr
                 let hrvObservations = strictWhoop5RR ? PhysiologyQuality.packetOrLegacy(
                     (try? await store.rrPacketProvenance(deviceId: owner, from: from, to: to + 1)) ?? [],
-                    legacy: rr, deviceId: owner) : nil
+                    legacy: physiologyRR, deviceId: owner) ?? PhysiologyQuality.legacy(physiologyRR, deviceId: owner) : nil
                 // `forScoring` drops an Oura ring's respiration rows: those are the ring's OWN per-window
                 // RATE (0x6A, milli-bpm, ~1 row per 5 min), stored as instrumentation, while the stager
                 // reads this stream as a ~1 Hz raw ADC waveform. Refusing by provenance keeps the
@@ -1262,7 +1265,7 @@ final class IntelligenceEngine: ObservableObject {
                         traceSink?(SleepStager.GateTrace.hrOnlyGateLine(
                             attempted: true, reason: "no-motion-no-hypnogram",
                             gravRows: grav.count, storedNights: 0))
-                        providedSleep = SleepStager.hrOnlySessions(hr: hr, rr: rr, resp: resp,
+                        providedSleep = useSleepStagerV2 ? [] : SleepStager.hrOnlySessions(hr: hr, rr: rr, resp: resp,
                                                                    traceSink: traceSink)
                     }
                 } else {
@@ -1310,7 +1313,10 @@ final class IntelligenceEngine: ObservableObject {
                                                      // ring buffer isn't flooded; every night keeps the summary.
                                                      hrvWindowDetail: dayStart == nowLocalMidnight,
                                                      deepHrvWindow: deepHrvWindow,
-                                                     effortMethod: effortMethodGlobal)
+                                                     effortMethod: effortMethodGlobal,
+                                                     sleepObservedThrough: min(now, to + 1),
+                                                     useFullDaySleepOpportunities: useSleepStagerV2 && providedSleep.isEmpty,
+                                                     measurementObservedThrough: now)
                 dayScoreSeconds += Date().timeIntervalSince(tScore0)
                 // #195: whole-night HRV cleaning-pipeline summary for the always-on strap log, so a "reads ~2x
                 // too high" report is triageable without the HRV test mode: RMSSD vs SDNN (rmssd >> sdnn =

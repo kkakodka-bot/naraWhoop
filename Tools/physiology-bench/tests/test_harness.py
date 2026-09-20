@@ -112,6 +112,8 @@ def synthetic_gate_payload():
     criteria = [{"role": "primary_improvement", "path": "report/numeric/respiratory_rate_bpm/common/candidate_minus_baseline_mae", "operator": "<=", "limit": -0.1},
                 {"role": "coverage_noninferiority", "path": "report/numeric/respiratory_rate_bpm/native/candidate_minus_baseline_accepted_coverage", "operator": ">=", "limit": 0},
                 {"role": "subgroup_regression", "path": "report/subgroups/fixture=only/numeric/respiratory_rate_bpm/common/candidate_minus_baseline_mae", "operator": "<=", "limit": 0}]
+    criteria += [{"role": "nightly_accuracy", "path": "report/numeric/respiratory_rate_bpm/nightly_representative/candidate/median_errors/mae", "operator": "<=", "limit": 1},
+                 {"role": "nightly_coverage", "path": "report/numeric/respiratory_rate_bpm/nightly_representative/candidate/retained_night_coverage", "operator": ">=", "limit": 0.8}]
     for name in ("p95_latency_ms", "maximum_rss_bytes", "cpu_seconds_per_record", "records_per_hour"):
         criteria.append({"role": "resource_budget", "path": "resources/" + name,
                          "operator": ">=" if name == "records_per_hour" else "<=", "limit": 1})
@@ -126,14 +128,23 @@ def synthetic_gate_payload():
                                                 "unit": "participant", "lower": -1, "upper": -1}}
     report = {"reference_validation_ready": True, "evidence_kind": "reference", "partition": "test",
               "verified_reference_artifact_sha256": ["f" * 64],
-              "reference_provenance": [{"sha256": "f" * 64, "adjudicated": True, "synchronization": {"applied": True}}],
+              "reference_provenance": [{"sha256": "f" * 64, "modality": "capnography",
+                                         "adjudicated": True, "synchronization": {"applied": True}}],
               "evaluated_participants": ["functional-4", "functional-5"],
               "leakage_audit": {"overlap_conflicts": 0}, "numeric": {"respiratory_rate_bpm": {
                   "common": copy.deepcopy(common), "native": {"candidate_minus_baseline_accepted_coverage": 0}}},
               "subgroups": {"fixture=only": {"participant_n": 2, "numeric": {"respiratory_rate_bpm": {
                   "common": copy.deepcopy(common)}}}}}
     report.update({key: policy[key] for key in ("dataset_sha256", "split_sha256", "config_sha256", "model_manifest_sha256")})
+    report["numeric"]["respiratory_rate_bpm"]["nightly_representative"] = {"candidate": {
+        "status": "evaluated", "participants": ["functional-4", "functional-5"], "participant_n": 2,
+        "errors": {"mae": 0}, "median_errors": {"mae": 0}, "retained_night_coverage": 1,
+        "median_mae_participant_ci": {"participant_n": 2, "unit": "participant", "replicates": 30,
+                               "defined_replicates": 30, "lower": 0, "upper": 0}}}
+    report["subgroups"]["fixture=only"]["numeric"]["respiratory_rate_bpm"]["nightly_representative"] = copy.deepcopy(
+        report["numeric"]["respiratory_rate_bpm"]["nightly_representative"])
     manifest = {"schema_version": 1, "policy_sha256": content_hash(policy), "evaluation_started_at": "2026-01-02T00:00:00Z",
+                "evaluation_finished_at": "2026-01-02T00:01:00Z",
                 "report": report, "functional_gates_passed": True, "fit_audit": audit, "model_manifest": model,
                 "evidence": {gate: {"status": "passed", "artifact_sha256": "e" * 64, "reviewer": "SYNTHETIC_TEST_ONLY"}
                              for gate in ("functional_gate_suite", "locked_phone_soak", "actual_target_resources", "reference_custodian_attestation")},

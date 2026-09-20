@@ -21,6 +21,16 @@ import kotlin.math.sin
 
 /** Synthetic wiring controls only, not a WHOOP/reference accuracy result. */
 class DayScorerPhysiologyIntegrationTest {
+    @Test fun priorOffWristContextDoesNotInvalidateLaterQualifiedRespiration() {
+        val base=input(true)
+        val events=listOf(com.noop.data.EventRow(device.toString(),base.nightLo-60,"WRIST_OFF","{}"),
+            com.noop.data.EventRow(device.toString(),base.nightLo+60,"WRIST_ON","{}"))
+        val score=DayScorer().score(base.copy(events=events),CanonicalScorePayload.ALGORITHM_VERSION,"prior-off",
+            Instant.ofEpochSecond(bounds.dayHi+1))
+        assertFalse(score.physiologyShadow!!.rawReasons.contains("shadow_input_contract_invalid"))
+        assertEquals(12.0,score.respirationSummary!!.median!!,.5)
+    }
+
     @Test fun exhaustedShadowBudgetKeepsCompletedHeartRateAndSleepOutputsPublishable() {
         val lo=bounds.dayLo
         val hr=(lo until lo+600).map { HrSample(device.toString(),it,60) }
@@ -109,7 +119,8 @@ class DayScorerPhysiologyIntegrationTest {
         val hr=(bounds.dayLo..bounds.dayHi step 5).map { t ->
             HrSample(device.toString(),t,if(sleep.any { t in it }) 60 else 80)
         }
-        val gravity=hr.map { GravitySample(device.toString(),it.ts,0.0,0.0,1.0) }
+        val gravity=(bounds.dayLo..bounds.dayHi).map { t ->
+            GravitySample(device.toString(),t,(t%2)*.000001,0.0,1.0,dynAccel=.01) }
         val rows=sleep.flatMapIndexed { run,range ->
             val result=mutableListOf<PhysiologyQuality.IntervalObservation>(); var time=range.first.toDouble(); var index=0
             while(time<range.last+1) {
@@ -139,7 +150,7 @@ class DayScorerPhysiologyIntegrationTest {
         assertEquals(12.0,payload.getJSONObject("daily").getDouble("resp_rate_bpm"),0.5)
         val summary=payload.getJSONObject("daily").getJSONObject("respiration_summary")
         assertTrue(summary.getDouble("coverage")>0.9)
-        assertEquals("resp-spectrum-acf-1",summary.getString("method_version"))
+        assertEquals("resp-spectrum-acf-2",summary.getString("method_version"))
         val main=score.result.sleepSessions.filter { it.episodeType=="main_sleep" }
         val lo=main.minOf { it.start }; val hi=main.maxOf { it.end }
         assertEquals(score.physiologyShadow!!.windows.count { it.start>=lo && it.end<=hi },summary.getInt("total_windows"))
@@ -156,6 +167,8 @@ class DayScorerPhysiologyIntegrationTest {
         val features=JSONObject()
         for (feature in listOf("sleep","hrv","respiration")) features.put(feature,JSONObject()
             .put("status","available").put("device_id",score.deviceId)
+            .put("canonical_qualification","signed_reference_approval")
+            .put("feature_manifest_hash","f".repeat(64)) // Disposable RPC fixture, not an approval.
             .put("algorithm_version",score.algorithmVersion).put("input_revision",42).put("required_revision",42))
         val envelope=JSONObject().put("server_scoring",JSONObject()
             .put("schema_version",2).put("user_id",score.userId.toString()).put("day",score.day)

@@ -5,7 +5,7 @@ public typealias HrvWindowResult = HrvWindow.Result
 /// Five-minute, event-time measurements. Engineering thresholds require reference-data qualification.
 public enum HrvWindow {
     public static let seconds = 300
-    public static let algorithmVersion = "observed-pair-rmssd-v2"
+    public static let algorithmVersion = "observed-pair-rmssd-v3"
     public struct Policy: Codable, Equatable, Sendable {
         public var minimumObservedFraction: Double = 0.90
         public var minimumValidIntervalFraction: Double = 0.90
@@ -13,7 +13,7 @@ public enum HrvWindow {
         public var maximumCorrectionFraction: Double = 0.10
         public var maximumGapSeconds: Double = 30
         public var minimumPairs: Int = 20
-        public var version: String = "engineering-shadow-90-v2"
+        public var version: String = "engineering-multisignal-90-v3"
         public init() {}
     }
     public struct Result: Codable, Equatable, Sendable {
@@ -59,6 +59,8 @@ public enum HrvWindow {
         public let timingPrecisionSeconds: Double?
         public let decoderVersions: [String]
         public let clockVersions: [String]
+        public var qualityEvidence: [String] = []
+        public var unavailableQualitySignals: [String] = []
 
         /// Publication revisions do not change an otherwise identical physiological measurement.
         public func sameMeasurement(as other: Self) -> Bool {
@@ -75,7 +77,7 @@ public enum HrvWindow {
                                inputRevision: String = "unversioned", computationMode: String = "retrospective") -> Result {
         typealias Observation = PhysiologyQuality.IntervalObservation
         let lo = Double(start), hi = lo + 300
-        let inWindow = observations.filter { row in
+        let inWindow = PhysiologyQuality.propagatingEndpointRejections(observations).filter { row in
             row.eventTime >= lo && row.eventTime < hi ||
                 (row.verifiedSpan.map { $0.start < hi && $0.end > lo } ?? false)
         }
@@ -102,11 +104,14 @@ public enum HrvWindow {
         }
         func validTiming(_ row: Observation) -> Bool {
             guard row.timestampPrecisionSeconds.isFinite, row.timestampPrecisionSeconds > 0, row.eventTime.isFinite else { return false }
-            guard let span = row.verifiedSpan else { return true }
+            guard let span = row.verifiedSpan else { return false }
             // Clock uncertainty never expands the fixed RR quantization tolerance.
             return !row.clockVersion.isEmpty && row.clockVersion != "unknown" && row.timestampPrecisionSeconds <= 0.020 &&
                 span.start.isFinite && span.end.isFinite && span.end > span.start && row.originalRRMs.isFinite &&
                 abs((span.end - span.start) - row.originalRRMs / 1000) <= 0.002001
+        }
+        func signalReason(_ row: Observation) -> String? {
+            PhysiologyQuality.signalRejectionReason(row)
         }
         // A rejected endpoint remains rejected wherever that same original beat appears.
         var rejectedBeats = Set<[String]>()
@@ -116,7 +121,8 @@ public enum HrvWindow {
         }
         func originalAccepted(_ row: Observation) -> Bool {
             row.originalAccepted && row.startBeatAccepted && row.endBeatAccepted && !row.rhythmAmbiguous &&
-                row.originalRRMs.isFinite && (250...2500).contains(row.originalRRMs) && proof(row) &&
+                !row.corrections.contains(where: { ["inserted", "deleted"].contains($0.kind) }) &&
+                row.originalRRMs.isFinite && (250...2500).contains(row.originalRRMs) && proof(row) && validTiming(row) && signalReason(row) == nil &&
                 !rejectedBeats.contains([row.userId, row.deviceId, row.source, row.startBeatId ?? ""]) &&
                 !rejectedBeats.contains([row.userId, row.deviceId, row.source, row.endBeatId ?? ""])
         }
@@ -139,6 +145,7 @@ public enum HrvWindow {
         if rows.count > 1 {
             for index in 1..<rows.count where successive(rows[index - 1], rows[index]) {
                 let a = rows[index - 1], b = rows[index]
+                guard validTiming(a), validTiming(b) else { pairReasons[index] = "timing_unverified"; continue }
                 guard inside(a), inside(b) else { pairReasons[index] = "window_boundary"; continue }
                 pairMask[index] = accepted[index - 1] && accepted[index]
                 pairReasons[index] = pairMask[index] ? nil : "rejected_original_beat"
@@ -146,7 +153,13 @@ public enum HrvWindow {
                 let correctedA = a.correctedRRMs ?? (accepted[index - 1] ? a.originalRRMs : .nan)
                 let correctedB = b.correctedRRMs ?? (accepted[index] ? b.originalRRMs : .nan)
                 if correctedA.isFinite, correctedB.isFinite, (250...2500).contains(correctedA),
-                   (250...2500).contains(correctedB), !a.rhythmAmbiguous, !b.rhythmAmbiguous {
+                   (250...2500).contains(correctedB), !a.rhythmAmbiguous, !b.rhythmAmbiguous,
+                   signalReason(a) == nil, signalReason(b) == nil,
+                   a.startBeatAccepted, a.endBeatAccepted, b.startBeatAccepted, b.endBeatAccepted,
+                   !rejectedBeats.contains([a.userId, a.deviceId, a.source, a.startBeatId ?? ""]),
+                   !rejectedBeats.contains([a.userId, a.deviceId, a.source, a.endBeatId ?? ""]),
+                   !rejectedBeats.contains([b.userId, b.deviceId, b.source, b.endBeatId ?? ""]),
+                   !(a.corrections + b.corrections).contains(where: { ["inserted", "deleted"].contains($0.kind) }) {
                     correctedPairMask[index] = true
                     correctedDifferences.append(correctedB - correctedA)
                 }
@@ -172,6 +185,7 @@ public enum HrvWindow {
         let firmware = Set(rows.map(\.deviceFirmware))
         let provenRows = rows.filter(proof)
         let endpointKeys = provenRows.map { [$0.userId, $0.deviceId, $0.source, $0.startBeatId!, $0.endBeatId!] }
+        let extremeAlternation = PhysiologyQuality.hasAmbiguousAlternation(rows)
         let reason: String?
         if alignedStart(start) != start { reason = "unaligned_window" }
         else if !["retrospective", "causal"].contains(computationMode) { reason = "invalid_computation_mode" }
@@ -189,10 +203,12 @@ public enum HrvWindow {
         else if modalities.count != 1 || !["ppg_ibi", "ecg_nn"].contains(rows[0].modality) { reason = "unsupported_modality" }
         else if !rows.contains(where: proof) { reason = "continuity_unverified" }
         else if Set(endpointKeys).count != endpointKeys.count { reason = "duplicate_interval_identity" }
-        else if rows.contains(where: { !validTiming($0) }) { reason = "invalid_timing_metadata" }
+        else if rows.contains(where: { $0.verifiedSpan != nil && !validTiming($0) }) { reason = "invalid_timing_metadata" }
         else if rows.contains(where: { $0.correctedRRMs != nil && $0.corrections.isEmpty }) { reason = "missing_correction_provenance" }
         else if spans.isEmpty { reason = "timing_coverage_unverified" }
-        else if rows.contains(where: \.rhythmAmbiguous) { reason = "rhythm_ambiguity" }
+        else if rows.contains(where: { $0.verifiedSpan == nil }) { reason = "mixed_verified_unverified_timing" }
+        else if rows.contains(where: \.rhythmAmbiguous) || extremeAlternation { reason = "rhythm_ambiguity" }
+        else if let contaminated = rows.compactMap(signalReason).sorted().first { reason = contaminated }
         else if duration / 300 < policy.minimumObservedFraction { reason = "insufficient_observed_time" }
         else if gap > policy.maximumGapSeconds { reason = "acquisition_gap" }
         else if validFraction < policy.minimumValidIntervalFraction { reason = "insufficient_original_intervals" }
@@ -212,7 +228,7 @@ public enum HrvWindow {
         let baselineReason = reason ?? (eligibleContext ? nil :
             (["sleep", "nap", "quiet_rest"].contains(state) ? "context_coverage_insufficient" : "context_\(state)"))
         let hasCorrection = affected > 0
-        return Result(start: start, end: start + seconds, userId: users.count == 1 ? users.first : nil,
+        var result = Result(start: start, end: start + seconds, userId: users.count == 1 ? users.first : nil,
             deviceId: devices.count == 1 ? devices.first : nil, deviceFirmware: firmware.count == 1 ? firmware.first! : nil,
             source: sources.count == 1 ? sources.first : nil,
             modality: modalities.count == 1 ? modalities.first : nil, inputRevision: inputRevision, computationMode: computationMode,
@@ -236,5 +252,15 @@ public enum HrvWindow {
             baselineEligible: reason == nil && eligibleContext, baselineReason: baselineReason,
             timingPrecisionSeconds: rows.map(\.timestampPrecisionSeconds).filter { $0.isFinite && $0 > 0 }.max(),
             decoderVersions: Set(rows.map(\.decoderVersion)).sorted(), clockVersions: Set(rows.map(\.clockVersion)).sorted())
+        result.qualityEvidence = ["ibi_plausibility", "original_beat_continuity", "gap_topology", "correction_burden", "acquisition_versions", "rhythm_ambiguity_screen"] +
+            (rows.contains { $0.motionContaminated != nil } ? ["motion"] : []) +
+            (rows.contains { $0.contactAccepted != nil } ? ["contact"] : []) +
+            (rows.contains { $0.opticalQualityAccepted != nil } ? ["optical_quality"] : []) +
+            (rows.contains { $0.detectorAgreementFraction != nil } ? ["detector_agreement"] : [])
+        result.unavailableQualitySignals = [("motion", rows.allSatisfy { $0.motionContaminated != nil }),
+            ("contact", rows.allSatisfy { $0.contactAccepted != nil }),
+            ("optical_quality", rows.allSatisfy { $0.opticalQualityAccepted != nil }),
+            ("detector_agreement", rows.allSatisfy { $0.detectorAgreementFraction != nil })].compactMap { $0.1 && !rows.isEmpty ? nil : $0.0 }
+        return result
     }
 }

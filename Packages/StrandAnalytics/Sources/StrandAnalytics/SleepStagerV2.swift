@@ -39,7 +39,10 @@ public enum SleepStagerV2 {
     /// WHOOP 4 and 5. The recipe stages "wake" naturally (no separate pre-onset / post-wake forcing).
     public static func stageSession(start: Int, end: Int, grav: [GravitySample],
                                     hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
-        let grav = grav.filter(SleepSignalValidity.gravity)
+        if end-start > SleepOpportunityDetector.maximumEpisodeSeconds {
+            return [SleepStageSemantics.unknown(start: start,end: end,reason: "episode_exceeds_supported_duration")]
+        }
+        let grav = grav.filter(SleepSignalValidity.hasOrientation)
         let hr = hr.filter(SleepSignalValidity.heartRate)
         // v7.0.2 perf (#707): stage each night AT MOST ONCE per (window, input-fingerprint). The post-sync
         // scoring loop and the self-heal restage call this with byte-identical streams across passes; without
@@ -137,6 +140,8 @@ public enum SleepStagerV2 {
         if end <= start { return [] }
         let feats = features(start: start, end: end, grav: grav, hr: hr, rr: rr)
         if feats.isEmpty { return [SleepStageSemantics.unknown(start: start, end: end)] }
+        let frozen=SleepSignalValidity.constantSensorSpans(hr: hr,gravity: grav,minimumSeconds: 30*60)
+        func isFrozen(_ epoch: Epoch) -> Bool { frozen.contains { $0.lowerBound<epoch.start+30 && $0.upperBound>epoch.start } }
         // Missing epochs break temporal inference as well as the displayed timeline.
         var labels: [Int: String] = [:], run: [Epoch] = []
         func finishRun() {
@@ -144,7 +149,7 @@ public enum SleepStagerV2 {
             run.removeAll(keepingCapacity: true)
         }
         for f in feats {
-            if f.evidenceCoverage < minimumEpochCoverage { finishRun(); continue }
+            if f.evidenceCoverage < minimumEpochCoverage || isFrozen(f) { finishRun(); continue }
             if let last = run.last, f.start != last.start + 30 { finishRun() }
             run.append(f)
         }
@@ -157,10 +162,10 @@ public enum SleepStagerV2 {
                 let stage = label == "awake" ? "wake" : label
                 segments.append(StageSegment(start: lo, end: hi, stage: stage,
                     state: stage == "wake" ? "awake" : "sleep", evidenceCoverage: f.evidenceCoverage,
-                    computationMode: "retrospective", algorithmVersion: "sleep-v2-evidence-1",
+                    computationMode: "retrospective", algorithmVersion: "sleep-v2-evidence-2",
                     probabilitiesCalibrated: false))
             } else { segments.append(SleepStageSemantics.unknown(start: lo, end: hi,
-                reason: "insufficient_epoch_coverage", coverage: f.evidenceCoverage)) }
+                reason: isFrozen(f) ? "sensor_stale_or_constant" : "insufficient_joint_hr_motion_coverage", coverage: f.evidenceCoverage)) }
         }
         return SleepStageSemantics.coalesced(SleepStageSemantics.normalized(segments, start: start, end: end))
     }
@@ -237,7 +242,7 @@ public enum SleepStagerV2 {
         "awake": ["deep": 0.0, "rem": 0.0, "light": 0.10, "awake": 0.90]]
 
     /// One 30 s epoch's recipe features. Optionals are "no measurement"; the z-score / percentile treat a
-    /// missing value as the neutral centre so a sparse channel never blocks a stage.
+    /// missing feature never supplies evidence for the joint HR/motion coverage gate.
     struct Epoch {
         let start: Int          // epoch start (unix seconds, multiple of 30)
         let hr: Double?         // epoch-mean HR (bpm)
@@ -344,7 +349,7 @@ public enum SleepStagerV2 {
             for s in max(start, e)..<min(end, e + 30) {
                 if let h = secHR[s] { hrs.append(h) }
                 if let g = secG[s] { gseq.append(g); gtimes.append(s) }
-                if secHR[s] != nil || secG[s] != nil { observed += 1 }
+                if secHR[s] != nil && secG[s] != nil { observed += 1 }
             }
             if hrs.isEmpty && gseq.isEmpty { e += 30; continue }   // no coverage → skip the epoch
 

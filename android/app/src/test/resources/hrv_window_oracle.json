@@ -14,13 +14,23 @@
       "baseline": true
     },
     {
-      "id": "clean_high_variability",
+      "id": "extreme_alternation_is_ambiguous",
       "count": 300,
       "pattern": [
         600,
         1400
       ],
       "pairs": 299,
+      "coverage": 1,
+      "gap": 0,
+      "reason": "rhythm_ambiguity",
+      "baseline": false
+    },
+    {
+      "id": "clean_high_variability_without_extreme_alternation",
+      "count": 240,
+      "pattern": [450, 1250, 2050, 1250],
+      "pairs": 239,
       "coverage": 1,
       "gap": 0,
       "rmssd": 800,
@@ -150,7 +160,7 @@
         1000
       ],
       "mode": "packet",
-      "pairs": 299,
+      "pairs": 0,
       "coverage": 0,
       "gap": 300,
       "reason": "timing_coverage_unverified",
