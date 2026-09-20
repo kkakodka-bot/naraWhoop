@@ -71,7 +71,8 @@ final class PortableZstdTests: XCTestCase {
             ]),
         ]
         for (table, rows) in fixtures {
-            let decoded = try PushBinaryCodec.pack(table: table, rows: rows)
+            let decoded = try PushBinaryCodec.pack(table: table, rows: rows,
+                ppgIdentityV2: table == .ppgWaveformSample)
             let frame = try PushBinaryCompression.zstdRawFrame(decoded,
                 maxDecoded: PushProtocolLimits.maxObjectDecodedBytes, maxWire: PushProtocolLimits.maxObjectWireBytes)
             XCTAssertEqual(try referenceDecode(frame), decoded, table.rawValue)

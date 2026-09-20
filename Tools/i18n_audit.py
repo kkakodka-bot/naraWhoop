@@ -45,7 +45,7 @@ ANDROID_LOCALE_DIRS = {
 # false positives here just mean noise in the report, not a wrong fix.
 UNIVERSAL = {
     "", "-", "–", "—", "·", "•", "✓", "→", "↔",
-    "NOOP", "bpm", "BPM", "HRV", "SpO2", "SpO₂", "OK", "ID",
+    "NOOP", "NARA", "bpm", "BPM", "HRV", "SpO2", "SpO₂", "OK", "ID",
     # Training-load acronyms — universal training-science terms, identical in every language (like HRV).
     "CTL", "ATL", "TSB",
 }

@@ -17,7 +17,7 @@ final class PpgIdentityBinaryTests: XCTestCase {
         let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
         let records = fixture.rows.map { PushPpgWaveformRecord(rowId: $0.rowId, ts: $0.ts,
             burstIndex: $0.burstIndex, samples: hex($0.samples), recordIndex: $0.recordIndex) }
-        let bytes = try PushBinaryCodec.pack(table: .ppgWaveformSample, rows: records.map(PushBinaryRow.ppgWaveform))
+        let bytes = try PushBinaryCodec.pack(table: .ppgWaveformSample, rows: records.map(PushBinaryRow.ppgWaveform), ppgIdentityV2: true)
         XCTAssertEqual(bytes, hex(fixture.hex))
         let decoded = try PushBinaryCodec.unpackPpgRecords(bytes)
         XCTAssertEqual(decoded.map(\.recordIndex), records.map(\.recordIndex))

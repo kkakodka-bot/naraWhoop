@@ -110,7 +110,7 @@ fun FiveMinuteHeartRateCard(vm: AppViewModel) {
                     }
                     for (window in if (expanded) windows.asReversed() else windows.takeLast(12).asReversed()) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("${timestamp(window.start)}–${timestamp(window.end)}", style = NoopType.footnote)
+                            Text(uiString(R.string.five_minute_hr_window_range, timestamp(window.start), timestamp(window.end)), style = NoopType.footnote)
                             Text(uiString(R.string.five_minute_hr_values, bpm(window.meanBpm), bpm(window.lowMotionBpm)),
                                 style = NoopType.footnote)
                             Text(uiString(R.string.five_minute_hr_coverage,

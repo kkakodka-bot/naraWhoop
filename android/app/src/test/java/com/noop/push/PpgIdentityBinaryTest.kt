@@ -17,7 +17,11 @@ class PpgIdentityBinaryTest {
                 if (row.isNull("burstIndex")) null else row.getInt("burstIndex"), hex(row.getString("samples")),
                 if (row.isNull("recordIndex")) null else row.getLong("recordIndex"))
         }
-        val bytes = PushBinaryCodec.pack(PushBinaryTable.PPG_WAVEFORM_SAMPLE, records.map(PushBinaryRow::PpgWaveform))
+        val bytes = PushBinaryCodec.pack(
+            PushBinaryTable.PPG_WAVEFORM_SAMPLE,
+            records.map(PushBinaryRow::PpgWaveform),
+            ppgIdentityV2 = true,
+        )
         assertArrayEquals(hex(fixture.getString("hex")), bytes)
         assertEquals(records, PushBinaryCodec.unpackPpgRecords(bytes))
         assertNotEquals(PushProtocol.binaryKeyFingerprint(PushBinaryTable.PPG_WAVEFORM_SAMPLE, "d", PushBinaryRow.PpgWaveform(records[0])),

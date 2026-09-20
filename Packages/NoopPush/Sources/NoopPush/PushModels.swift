@@ -54,7 +54,6 @@ public struct PushPpgWaveformRecord: Sendable {
     public let burstIndex: Int32?
     public let recordIndex: Int64?
     public let samples: Data
-    public let recordIndex: Int64?
 
     public init(rowId: Int64, ts: Int64, burstIndex: Int32?, samples: Data, recordIndex: Int64? = nil) {
         precondition(rowId > 0)
@@ -63,7 +62,6 @@ public struct PushPpgWaveformRecord: Sendable {
         self.burstIndex = burstIndex
         self.recordIndex = recordIndex
         self.samples = samples
-        self.recordIndex = recordIndex
     }
 }
 
@@ -198,7 +196,7 @@ public struct PushBinaryBatch: Sendable {
             case .rawImuSession(let r): positions.append((r.rowId, r.ts))
             case .rawBatch(let r):
                 guard rows.count == 1, endCursor == nil, r.startTs < Int64.max, r.endTs >= r.startTs,
-                      manifest.startTs == r.startTs, manifest.endTs == (r.endTs == r.startTs ? r.startTs + 1 : r.endTs),
+                      manifest.startTs == r.startTs, manifest.endTs == r.endTs + 1,
                       manifest.sampleCount == Int64(r.frameCount) else { throw PushPreparedSelection.invalid() }
             }
         }

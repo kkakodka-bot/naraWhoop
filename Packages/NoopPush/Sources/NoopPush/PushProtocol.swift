@@ -456,9 +456,12 @@ public enum PushProtocol {
             guard record.endTs >= record.startTs, record.startTs < Int64.max else {
                 throw PushProtocolException("raw batch bounds are invalid")
             }
-            // Legacy producers stored equal bounds for a single second or decoded-empty chunk.
-            // Normalize only the manifest; the persisted payload and its content digest stay intact.
-            let end = record.endTs == record.startTs ? record.startTs + 1 : record.endTs
+            // Packed capture bounds stay inclusive. Manifest endTs is exclusive so a 100..200
+            // payload occupies [100, 201) and a single-second payload occupies [ts, ts+1).
+            guard record.endTs < Int64.max else {
+                throw PushProtocolException("raw batch bounds are invalid")
+            }
+            let end = record.endTs + 1
             let (span, overflow) = end.subtractingReportingOverflow(record.startTs)
             guard !overflow, span <= maxObjectWindowSeconds else {
                 throw PushProtocolException("raw batch exceeds the object window limit")

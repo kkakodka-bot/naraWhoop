@@ -49,10 +49,6 @@
     "v45-backfill-frontier",
     "v46-rr-source-index",
     "v47-server-score-cache",
-    "v48-ppg-record-identity",
-    "v49-owner-scoped-physiology-cache",
-    "v50-rr-packet-provenance",
-    "v51-standard-hr-receipts",
     "v46-ppg-record-identity",
     "v48-scoped-server-score-cache",
     "v49-durable-ingest-receipts",
@@ -60,10 +56,13 @@
     "v51-v18-aux-record-identity",
     "v52-scalar-provenance",
     "v53-standard-hr-capture-journal",
-    "v54-workout-preference-evaluation"
+    "v54-workout-preference-evaluation",
+    "v48-ppg-record-identity",
+    "v49-owner-scoped-physiology-cache",
+    "v50-rr-packet-provenance",
+    "v51-standard-hr-receipts"
   ],
   "divergenceReasons": {
-    "sqlite-integer-pk-notnull-metadata": "GRDB declares syncJournalEntry.id INTEGER PRIMARY KEY AUTOINCREMENT without explicit NOT NULL, so PRAGMA table_info reports notnull=0. Room declares the same generated integer key with explicit NOT NULL. Both use SQLite rowid generation and cannot persist a null identity; this baseline difference is schema metadata, not a packet migration change.",
     "android-orphan-synced-column": "REAL COLUMN DRIFT: `synced` exists on Android only. GRDB's v10 note is explicit that stepSample gets no `synced` column ('unused; see StreamStore'), and v12's ppgHrSample never had one either; the Room entities copied the flag from the older per-second entities. Nothing reads it on Android \u2014 the per-row upload flag belongs to an upload path that does not exist there \u2014 so it is dead width, not divergent data. Removing it needs a Room table rebuild.",
     "battery-alter-append-order": "REAL COLUMN-ORDER DRIFT (CLAUDE.md: 'column order in a Room CREATE TABLE must match the entity field order'). GRDB appended `synced` (v5) then `charging` (v6) with ALTER TABLE, which can only append; the Room entity declares `charging` before `synced`. Same columns, same types, different positions \u2014 so any positional copy (INSERT INTO battery SELECT * FROM \u2026) swaps them. Fixing it means reordering the Room entity's fields, which changes Room's identity hash and therefore needs a version bump plus a no-op migration.",
     "grdb-boolean-affinity": "GRDB's .boolean column type is declared BOOLEAN, which SQLite gives NUMERIC affinity; Room maps Kotlin Boolean to INTEGER. For the 0/1 values both sides write, NUMERIC and INTEGER affinity store bit-identical INTEGERs, so a .noopbak round-trips. Closing it means a GRDB table rebuild.",
@@ -77,126 +76,164 @@
     "ppg-record-index-default": "Both platforms preserve device/timestamp/recordIndex identity. Room v40 declares DEFAULT -1 for the explicit unknown legacy identity; GRDB retains its deployed no-default column. Both writers bind the index explicitly, and the wire maps unknown to null."
   },
   "tables": {
-    "standardHRReceipt": {
-      "platform": "both",
+    "workoutPreferenceEvaluation": {
+      "platform": "ios_only",
+      "reason": "Bounded local workout preference evaluation and revision fencing; no health rows, cloud receipt, or pruning authority.",
       "columns": [
         {
-          "name": "deviceId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "receiptId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "ts",
+          "name": "singleton",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "sessionId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "notificationOrdinal",
+          "name": "formatVersion",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "receivedUnixMs",
+          "name": "storeID",
+          "affinity": "BLOB",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "workoutRevision",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "receivedMonotonicNs",
+          "name": "revisionOverflow",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "rawHex",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "schemaVersion",
+          "name": "stateSerial",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "clockVersion",
-          "affinity": "TEXT",
+          "name": "stateBytes",
+          "affinity": "BLOB",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "stateSHA256",
+          "affinity": "BLOB",
           "notNull": true,
           "default": null
         }
       ],
       "primaryKey": [
-        "deviceId",
-        "receiptId"
+        "singleton"
       ],
-      "indices": [
-        {
-          "name": "standardHRReceipt_device_ts",
-          "unique": false,
-          "columns": [
-            "deviceId",
-            "ts"
-          ]
-        }
-      ]
+      "indices": []
     },
-    "rrPacketProvenance": {
-      "platform": "both",
+    "standardHRCaptureSession": {
+      "platform": "ios_only",
+      "reason": "Account-bound local StandardHR capture session and retained-capacity accounting. No cloud receipt or pruning authority.",
       "columns": [
         {
-          "name": "deviceId",
+          "name": "ordinal",
+          "affinity": "INTEGER",
+          "notNull": false,
+          "default": null
+        },
+        {
+          "name": "sessionID",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
         },
         {
-          "name": "packetId",
+          "name": "projectURL",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
         },
         {
-          "name": "ts",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "sensorTs",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "recordIndex",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "rawHex",
+          "name": "userID",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
         },
         {
-          "name": "srcChannel",
+          "name": "runtimeGeneration",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "openedAt",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "sealed",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": "0"
+        },
+        {
+          "name": "nextSequence",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": "0"
+        },
+        {
+          "name": "retainedCount",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": "0"
+        },
+        {
+          "name": "retainedBytes",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": "0"
+        },
+        {
+          "name": "sessionChargeBytes",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "ordinal"
+      ],
+      "indices": []
+    },
+    "standardHRCaptureOccurrence": {
+      "platform": "ios_only",
+      "reason": "Retained exact StandardHR notification bytes, immutable one-notification projection and pending local projection state. Canonical SQL rows do not replace the original occurrence.",
+      "columns": [
+        {
+          "name": "sessionID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "sequence",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "deviceID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "hostTimestampSeconds",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
@@ -214,25 +251,200 @@
           "default": null
         },
         {
-          "name": "clockVersion",
+          "name": "mappingVersion",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
         },
         {
-          "name": "timestampPrecisionSeconds",
-          "affinity": "REAL",
+          "name": "rawBytes",
+          "affinity": "BLOB",
           "notNull": true,
           "default": null
         },
         {
-          "name": "clockOffsetSeconds",
+          "name": "projectionJSON",
+          "affinity": "BLOB",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "rawSHA256",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "intentSHA256",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "chargeBytes",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "declaredCount",
+          "name": "projectionState",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": "0"
+        },
+        {
+          "name": "attempts",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": "0"
+        },
+        {
+          "name": "lastFailureCode",
+          "affinity": "TEXT",
+          "notNull": false,
+          "default": null
+        },
+        {
+          "name": "projectedAt",
+          "affinity": "INTEGER",
+          "notNull": false,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "sessionID",
+        "sequence"
+      ],
+      "indices": [
+        {
+          "name": "standardHRCaptureOccurrence_pending",
+          "unique": false,
+          "columns": [
+            "projectionState",
+            "sessionID",
+            "sequence"
+          ]
+        }
+      ]
+    },
+    "gpsDestinationBarrier": {
+      "platform": "android_only",
+      "reason": "Room44 bounded local control state for a fresh destination commit and checked checkpoint before GPS handoff cleanup. Its value is never a reusable durability receipt or physiological input.",
+      "columns": [
+        {
+          "name": "singleton",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "phase",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "singleton"
+      ],
+      "indices": []
+    },
+    "gpsWorkoutDelivery": {
+      "platform": "android_only",
+      "reason": "Room43 immutable workout-owned captured payload and exact canonical-HR projection witness. Retains ordered workout observations separately from the legacy scalar table; not a cloud receipt or proof of measured physiological provenance.",
+      "columns": [
+        {
+          "name": "deviceId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "startTs",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "sport",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "namespace",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "projectURL",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "userID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "capturedGeneration",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "sessionId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "formatVersion",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "payload",
+          "affinity": "BLOB",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "payloadSha256",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "witness",
+          "affinity": "BLOB",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "witnessSha256",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "captureCount",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "witnessCount",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "retainedBytes",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
@@ -240,25 +452,227 @@
       ],
       "primaryKey": [
         "deviceId",
-        "packetId"
+        "startTs",
+        "sport"
+      ],
+      "indices": []
+    },
+    "localCaptureResource": {
+      "platform": "android_only",
+      "reason": "Room43 local recovery index for immutable Android capture files. Swift uses its account-scoped file journal; this table is not a cloud durability receipt or permission to prune.",
+      "columns": [
+        {
+          "name": "captureId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "projectURL",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "userID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "sourceID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "generation",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "deviceID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "serverDeviceID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "producerID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "format",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "formatVersion",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "relativePath",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "fileSha256",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "fileBytes",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "payloadBytes",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "recordCount",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "memberCount",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "captureId"
+      ],
+      "indices": []
+    },
+    "localCaptureMember": {
+      "platform": "android_only",
+      "reason": "Room43 exact member/projection index referencing localCaptureResource. The captured file remains authoritative across restore; Swift does not use this Android-local index.",
+      "columns": [
+        {
+          "name": "captureId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "recordOrdinal",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "routeOrdinal",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "encounterOrdinal",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "receivedAtMs",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "namespace",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "sessionID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "bucket",
+          "affinity": "INTEGER",
+          "notNull": false,
+          "default": null
+        },
+        {
+          "name": "payloadOffset",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "payloadBytes",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "payloadSha256",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "projectionState",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "captureId",
+        "recordOrdinal",
+        "routeOrdinal"
       ],
       "indices": [
         {
-          "name": "rrPacketProvenance_device_ts",
+          "name": "localCaptureMember_projection",
           "unique": false,
           "columns": [
-            "deviceId",
-            "ts"
+            "projectionState",
+            "captureId"
           ]
         }
       ]
     },
-    "serverPhysiologyCacheV2": {
+    "serverScoreSnapshotCache": {
       "platform": "ios_only",
-      "reason": "Owner-scoped server readback cache uses private preferences on Android.",
       "columns": [
         {
-          "name": "ownerId",
+          "name": "projectURL",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "userID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "sourceDeviceID",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
@@ -270,7 +684,7 @@
           "default": null
         },
         {
-          "name": "scopeKey",
+          "name": "timeZoneID",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
@@ -282,8 +696,32 @@
           "default": null
         },
         {
-          "name": "payloadJson",
+          "name": "algorithmVersion",
           "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "inputRevision",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "resultRevision",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "state",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "payload",
+          "affinity": "BLOB",
           "notNull": true,
           "default": null
         },
@@ -292,18 +730,262 @@
           "affinity": "REAL",
           "notNull": true,
           "default": null
+        },
+        {
+          "name": "accessedAt",
+          "affinity": "REAL",
+          "notNull": true,
+          "default": null
         }
       ],
       "primaryKey": [
-        "ownerId",
+        "projectURL",
+        "userID",
+        "sourceDeviceID",
         "day",
-        "scopeKey"
+        "timeZoneID",
+        "schemaVersion",
+        "algorithmVersion"
+      ],
+      "indices": [
+        {
+          "name": "serverScoreSnapshotCache_eviction",
+          "unique": false,
+          "columns": [
+            "accessedAt",
+            "resultRevision"
+          ]
+        }
+      ]
+    },
+    "ingestRawResource": {
+      "platform": "ios_only",
+      "columns": [
+        {
+          "name": "lane",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "deviceId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "resourceKey",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "scopeKey",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "environment",
+          "affinity": "TEXT",
+          "notNull": false,
+          "default": null
+        },
+        {
+          "name": "accountId",
+          "affinity": "TEXT",
+          "notNull": false,
+          "default": null
+        },
+        {
+          "name": "contentSHA256",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "byteCount",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "lane",
+        "deviceId",
+        "resourceKey"
+      ],
+      "indices": []
+    },
+    "sensorQuarantine": {
+      "platform": "ios_only",
+      "columns": [
+        {
+          "name": "id",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "scopeKey",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "environment",
+          "affinity": "TEXT",
+          "notNull": false,
+          "default": null
+        },
+        {
+          "name": "accountId",
+          "affinity": "TEXT",
+          "notNull": false,
+          "default": null
+        },
+        {
+          "name": "deviceId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "family",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "trim",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "frame",
+          "affinity": "BLOB",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "capturedAt",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "indices": [
+        {
+          "name": "sensorQuarantine_scope",
+          "unique": false,
+          "columns": [
+            "scopeKey",
+            "capturedAt",
+            "id"
+          ]
+        }
+      ]
+    },
+    "rawDurabilityReceipt": {
+      "platform": "ios_only",
+      "columns": [
+        {
+          "name": "lane",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "deviceId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "resourceKey",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "scopeKey",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "contentSHA256",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "objectKey",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "receiptId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "verifiedAt",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "retainUntil",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "lane",
+        "deviceId",
+        "resourceKey",
+        "scopeKey",
+        "contentSHA256"
+      ],
+      "indices": []
+    },
+    "localAccountOwner": {
+      "platform": "ios_only",
+      "columns": [
+        {
+          "name": "singleton",
+          "affinity": "INTEGER",
+          "notNull": false,
+          "default": null
+        },
+        {
+          "name": "projectURL",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "userID",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "singleton"
       ],
       "indices": []
     },
     "serverScoreCache": {
       "platform": "ios_only",
-      "reason": "Server readback cache is stored in Android preferences rather than Room.",
       "columns": [
         {
           "name": "day",
@@ -2152,7 +2834,7 @@
           "android": {
             "notNull": true
           },
-          "divergence": "sqlite-integer-pk-notnull-metadata"
+          "divergence": "integer-rowid-pk-nullability"
         },
         {
           "name": "ts",
@@ -2212,14 +2894,14 @@
           "default": null
         },
         {
-          "name": "fields",
-          "affinity": "BLOB",
+          "name": "recordIndex",
+          "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "recordIndex",
-          "affinity": "INTEGER",
+          "name": "fields",
+          "affinity": "BLOB",
           "notNull": true,
           "default": null
         },
@@ -2361,164 +3043,126 @@
         }
       ]
     },
-    "workoutPreferenceEvaluation": {
-      "platform": "ios_only",
-      "reason": "Bounded local workout preference evaluation and revision fencing; no health rows, cloud receipt, or pruning authority.",
+    "standardHRReceipt": {
+      "platform": "both",
       "columns": [
         {
-          "name": "singleton",
+          "name": "deviceId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "receiptId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "ts",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "formatVersion",
+          "name": "sessionId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "notificationOrdinal",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "storeID",
-          "affinity": "BLOB",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "workoutRevision",
+          "name": "receivedUnixMs",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "revisionOverflow",
+          "name": "receivedMonotonicNs",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "stateSerial",
+          "name": "rawHex",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "schemaVersion",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "stateBytes",
-          "affinity": "BLOB",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "stateSHA256",
-          "affinity": "BLOB",
+          "name": "clockVersion",
+          "affinity": "TEXT",
           "notNull": true,
           "default": null
         }
       ],
       "primaryKey": [
-        "singleton"
+        "deviceId",
+        "receiptId"
       ],
-      "indices": []
-    },
-    "standardHRCaptureSession": {
-      "platform": "ios_only",
-      "reason": "Account-bound local StandardHR capture session and retained-capacity accounting. No cloud receipt or pruning authority.",
-      "columns": [
+      "indices": [
         {
-          "name": "ordinal",
-          "affinity": "INTEGER",
-          "notNull": false,
-          "default": null
-        },
-        {
-          "name": "sessionID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "projectURL",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "userID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "runtimeGeneration",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "openedAt",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "sealed",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": "0"
-        },
-        {
-          "name": "nextSequence",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": "0"
-        },
-        {
-          "name": "retainedCount",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": "0"
-        },
-        {
-          "name": "retainedBytes",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": "0"
-        },
-        {
-          "name": "sessionChargeBytes",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
+          "name": "standardHRReceipt_device_ts",
+          "unique": false,
+          "columns": [
+            "deviceId",
+            "ts"
+          ]
         }
-      ],
-      "primaryKey": [
-        "ordinal"
-      ],
-      "indices": []
+      ]
     },
-    "standardHRCaptureOccurrence": {
-      "platform": "ios_only",
-      "reason": "Retained exact StandardHR notification bytes, immutable one-notification projection and pending local projection state. Canonical SQL rows do not replace the original occurrence.",
+    "rrPacketProvenance": {
+      "platform": "both",
       "columns": [
         {
-          "name": "sessionID",
+          "name": "deviceId",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
         },
         {
-          "name": "sequence",
+          "name": "packetId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "ts",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "deviceID",
+          "name": "sensorTs",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "recordIndex",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "rawHex",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
         },
         {
-          "name": "hostTimestampSeconds",
+          "name": "srcChannel",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
@@ -2536,200 +3180,25 @@
           "default": null
         },
         {
-          "name": "mappingVersion",
+          "name": "clockVersion",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
         },
         {
-          "name": "rawBytes",
-          "affinity": "BLOB",
+          "name": "timestampPrecisionSeconds",
+          "affinity": "REAL",
           "notNull": true,
           "default": null
         },
         {
-          "name": "projectionJSON",
-          "affinity": "BLOB",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "rawSHA256",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "intentSHA256",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "chargeBytes",
+          "name": "clockOffsetSeconds",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
         },
         {
-          "name": "projectionState",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": "0"
-        },
-        {
-          "name": "attempts",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": "0"
-        },
-        {
-          "name": "lastFailureCode",
-          "affinity": "TEXT",
-          "notNull": false,
-          "default": null
-        },
-        {
-          "name": "projectedAt",
-          "affinity": "INTEGER",
-          "notNull": false,
-          "default": null
-        }
-      ],
-      "primaryKey": [
-        "sessionID",
-        "sequence"
-      ],
-      "indices": [
-        {
-          "name": "standardHRCaptureOccurrence_pending",
-          "unique": false,
-          "columns": [
-            "projectionState",
-            "sessionID",
-            "sequence"
-          ]
-        }
-      ]
-    },
-    "gpsDestinationBarrier": {
-      "platform": "android_only",
-      "reason": "Room44 bounded local control state for a fresh destination commit and checked checkpoint before GPS handoff cleanup. Its value is never a reusable durability receipt or physiological input.",
-      "columns": [
-        {
-          "name": "singleton",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "phase",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        }
-      ],
-      "primaryKey": [
-        "singleton"
-      ],
-      "indices": []
-    },
-    "gpsWorkoutDelivery": {
-      "platform": "android_only",
-      "reason": "Room43 immutable workout-owned captured payload and exact canonical-HR projection witness. Retains ordered workout observations separately from the legacy scalar table; not a cloud receipt or proof of measured physiological provenance.",
-      "columns": [
-        {
-          "name": "deviceId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "startTs",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "sport",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "namespace",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "projectURL",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "userID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "capturedGeneration",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "sessionId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "formatVersion",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "payload",
-          "affinity": "BLOB",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "payloadSha256",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "witness",
-          "affinity": "BLOB",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "witnessSha256",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "captureCount",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "witnessCount",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "retainedBytes",
+          "name": "declaredCount",
           "affinity": "INTEGER",
           "notNull": true,
           "default": null
@@ -2737,227 +3206,25 @@
       ],
       "primaryKey": [
         "deviceId",
-        "startTs",
-        "sport"
-      ],
-      "indices": []
-    },
-    "localCaptureResource": {
-      "platform": "android_only",
-      "reason": "Room43 local recovery index for immutable Android capture files. Swift uses its account-scoped file journal; this table is not a cloud durability receipt or permission to prune.",
-      "columns": [
-        {
-          "name": "captureId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "projectURL",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "userID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "sourceID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "generation",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "deviceID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "serverDeviceID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "producerID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "format",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "formatVersion",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "relativePath",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "fileSha256",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "fileBytes",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "payloadBytes",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "recordCount",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "memberCount",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        }
-      ],
-      "primaryKey": [
-        "captureId"
-      ],
-      "indices": []
-    },
-    "localCaptureMember": {
-      "platform": "android_only",
-      "reason": "Room43 exact member/projection index referencing localCaptureResource. The captured file remains authoritative across restore; Swift does not use this Android-local index.",
-      "columns": [
-        {
-          "name": "captureId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "recordOrdinal",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "routeOrdinal",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "encounterOrdinal",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "receivedAtMs",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "namespace",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "sessionID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "bucket",
-          "affinity": "INTEGER",
-          "notNull": false,
-          "default": null
-        },
-        {
-          "name": "payloadOffset",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "payloadBytes",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "payloadSha256",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "projectionState",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        }
-      ],
-      "primaryKey": [
-        "captureId",
-        "recordOrdinal",
-        "routeOrdinal"
+        "packetId"
       ],
       "indices": [
         {
-          "name": "localCaptureMember_projection",
+          "name": "rrPacketProvenance_device_ts",
           "unique": false,
           "columns": [
-            "projectionState",
-            "captureId"
+            "deviceId",
+            "ts"
           ]
         }
       ]
     },
-    "serverScoreSnapshotCache": {
+    "serverPhysiologyCacheV2": {
       "platform": "ios_only",
+      "reason": "Owner-scoped server readback cache uses private preferences on Android.",
       "columns": [
         {
-          "name": "projectURL",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "userID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "sourceDeviceID",
+          "name": "ownerId",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
@@ -2969,7 +3236,7 @@
           "default": null
         },
         {
-          "name": "timeZoneID",
+          "name": "scopeKey",
           "affinity": "TEXT",
           "notNull": true,
           "default": null
@@ -2981,32 +3248,8 @@
           "default": null
         },
         {
-          "name": "algorithmVersion",
+          "name": "payloadJson",
           "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "inputRevision",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "resultRevision",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "state",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "payload",
-          "affinity": "BLOB",
           "notNull": true,
           "default": null
         },
@@ -3015,257 +3258,12 @@
           "affinity": "REAL",
           "notNull": true,
           "default": null
-        },
-        {
-          "name": "accessedAt",
-          "affinity": "REAL",
-          "notNull": true,
-          "default": null
         }
       ],
       "primaryKey": [
-        "projectURL",
-        "userID",
-        "sourceDeviceID",
+        "ownerId",
         "day",
-        "timeZoneID",
-        "schemaVersion",
-        "algorithmVersion"
-      ],
-      "indices": [
-        {
-          "name": "serverScoreSnapshotCache_eviction",
-          "unique": false,
-          "columns": [
-            "accessedAt",
-            "resultRevision"
-          ]
-        }
-      ]
-    },
-    "ingestRawResource": {
-      "platform": "ios_only",
-      "columns": [
-        {
-          "name": "lane",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "deviceId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "resourceKey",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "scopeKey",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "environment",
-          "affinity": "TEXT",
-          "notNull": false,
-          "default": null
-        },
-        {
-          "name": "accountId",
-          "affinity": "TEXT",
-          "notNull": false,
-          "default": null
-        },
-        {
-          "name": "contentSHA256",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "byteCount",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        }
-      ],
-      "primaryKey": [
-        "lane",
-        "deviceId",
-        "resourceKey"
-      ],
-      "indices": []
-    },
-    "sensorQuarantine": {
-      "platform": "ios_only",
-      "columns": [
-        {
-          "name": "id",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "scopeKey",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "environment",
-          "affinity": "TEXT",
-          "notNull": false,
-          "default": null
-        },
-        {
-          "name": "accountId",
-          "affinity": "TEXT",
-          "notNull": false,
-          "default": null
-        },
-        {
-          "name": "deviceId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "family",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "trim",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "frame",
-          "affinity": "BLOB",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "capturedAt",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        }
-      ],
-      "primaryKey": [
-        "id"
-      ],
-      "indices": [
-        {
-          "name": "sensorQuarantine_scope",
-          "unique": false,
-          "columns": [
-            "scopeKey",
-            "capturedAt",
-            "id"
-          ]
-        }
-      ]
-    },
-    "rawDurabilityReceipt": {
-      "platform": "ios_only",
-      "columns": [
-        {
-          "name": "lane",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "deviceId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "resourceKey",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "scopeKey",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "contentSHA256",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "objectKey",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "receiptId",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "verifiedAt",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "retainUntil",
-          "affinity": "INTEGER",
-          "notNull": true,
-          "default": null
-        }
-      ],
-      "primaryKey": [
-        "lane",
-        "deviceId",
-        "resourceKey",
-        "scopeKey",
-        "contentSHA256"
-      ],
-      "indices": []
-    },
-    "localAccountOwner": {
-      "platform": "ios_only",
-      "columns": [
-        {
-          "name": "singleton",
-          "affinity": "INTEGER",
-          "notNull": false,
-          "default": null
-        },
-        {
-          "name": "projectURL",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        },
-        {
-          "name": "userID",
-          "affinity": "TEXT",
-          "notNull": true,
-          "default": null
-        }
-      ],
-      "primaryKey": [
-        "singleton"
+        "scopeKey"
       ],
       "indices": []
     }

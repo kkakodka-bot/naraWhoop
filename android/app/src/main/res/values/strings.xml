@@ -2919,4 +2919,8 @@
     <string name="physiology_reason_window_missing">No server result was returned for this five-minute interval.</string>
     <string name="physiology_spo2_unavailable_title">SpO₂ unavailable from this source</string>
     <string name="physiology_spo2_unavailable_body">The current WHOOP data source has no verified blood-oxygen percentage. This is an input and calibration limitation, not sparse history. Imported readings can still appear here.</string>
+    <string name="five_minute_hr_window_range">%1$s–%2$s</string>
+    <string name="widget_open_nara_to_connect">Open NARA to connect</string>
+    <string name="whats_new_in_nara">What\'s new in NARA %1$s</string>
+    <string name="whats_new_nara_is_here">NARA %1$s is here — tap to read what\'s new.</string>
 </resources>

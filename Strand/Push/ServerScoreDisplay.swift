@@ -215,7 +215,7 @@ enum ServerScoreDisplay {
     }
 
     static func sleepStageMin(_ key: String, overlay: ServerScoreDayCache?) -> Double? {
-        guard ServerScoringSettings.isEnabled, overlay?.day == day, let daily = overlay?.daily else { return nil }
+        guard ServerScoringSettings.isEnabled, let daily = overlay?.daily else { return nil }
         switch key {
         case "light": return daily.sleepLightMin
         case "deep": return daily.sleepDeepMin

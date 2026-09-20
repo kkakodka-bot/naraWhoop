@@ -2966,6 +2966,9 @@ private struct SleepTimeEditor: View {
     /// userEdited/nap row, which is never re-detected, so the delete-confirm copy drops the suppression
     /// promise for it, matching the undo banner. (#65 confirm honesty.)
     private let suppressesReDetection: Bool
+    private let automaticallyDismiss: Bool
+    private let statusMessage: String?
+    private let deleteMessage: LocalizedStringKey?
 
     @Environment(\.dismiss) private var dismiss
     @State private var bed: Date
@@ -2990,6 +2993,9 @@ private struct SleepTimeEditor: View {
          deleteLabel: LocalizedStringKey = "Delete this sleep",
          coverage: ClosedRange<Int>? = nil,
          suppressesReDetection: Bool = true,
+         automaticallyDismiss: Bool = true,
+         statusMessage: String? = nil,
+         deleteMessage: LocalizedStringKey? = nil,
          onSave: @escaping (Int, Int) async -> Void,
          onDelete: (() async -> Void)? = nil) {
         self.onSave = onSave
@@ -2999,6 +3005,9 @@ private struct SleepTimeEditor: View {
         self.deleteLabel = deleteLabel
         self.coverage = coverage
         self.suppressesReDetection = suppressesReDetection
+        self.automaticallyDismiss = automaticallyDismiss
+        self.statusMessage = statusMessage
+        self.deleteMessage = deleteMessage
         // A bed can never be seeded in the future (#940): the "Add a nap" anchor is wake+1h, which is
         // ahead of the clock right after a morning sync; clamp so the picker opens inside its bound.
         let seedBed = min(bedTs, Int(Date().timeIntervalSince1970))
@@ -3020,7 +3029,8 @@ private struct SleepTimeEditor: View {
         saving = true
         Task {
             await onSave(start, end)
-            dismiss()
+            saving = false
+            if automaticallyDismiss { dismiss() }
         }
     }
 
@@ -3032,6 +3042,7 @@ private struct SleepTimeEditor: View {
             Text(blurb)
                 .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let statusMessage { Text(statusMessage).font(StrandFont.footnote).foregroundStyle(StrandPalette.statusCritical) }
 
             NoopCard(padding: NoopMetrics.cardPadding, tint: StrandPalette.restColor) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -3127,15 +3138,16 @@ private struct SleepTimeEditor: View {
                 saving = true
                 Task {
                     await onDelete?()
-                    dismiss()
+                    saving = false
+                    if automaticallyDismiss { dismiss() }
                 }
             }
         } message: {
             // A detected night is tombstoned so it won't re-detect; a userEdited/nap row writes no
             // tombstone, so its copy drops that (false) promise. Mirrors the undo banner. (#65)
-            Text(suppressesReDetection
+            Text(deleteMessage ?? (suppressesReDetection
                  ? "Removes this recorded sleep and recomputes the day without it. NARA won't re-detect sleep in this window. You can undo for a few seconds after."
-                 : "Removes this sleep and recomputes the day without it. You can undo for a few seconds after.")
+                 : "Removes this sleep and recomputes the day without it. You can undo for a few seconds after."))
         }
     }
 }

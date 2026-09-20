@@ -27,7 +27,7 @@ fun publicPushBuildConfig(key: String): String =
         .replace("\"", "\\\"") + "\""
 
 val fleetPushPropsFile = rootProject.file("../Config/CloudPushSecrets.properties")
-val fleetPushProps = java.util.Properties().apply {
+val fleetPushProps = Properties().apply {
     if (fleetPushPropsFile.exists()) fleetPushPropsFile.inputStream().use { load(it) }
 }
 fun fleetPushBuildConfig(key: String): String {

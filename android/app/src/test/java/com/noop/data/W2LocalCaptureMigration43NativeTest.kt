@@ -44,7 +44,7 @@ class W2LocalCaptureMigration43NativeTest {
             val before = createPriorSchema(account.getDatabasePath(WhoopDatabase.DB_NAME), f.owner)
             val room = WhoopDatabase.get(account)
             val db = room.openHelper.writableDatabase // Real registered migration and generated Room validation.
-            assertEquals(44, db.version); assertEquals(before, snapshot(db::query)); assertEmptyIndex(db)
+            assertEquals(WhoopDatabase.SCHEMA_VERSION, db.version); assertEquals(before, snapshot(db::query)); assertEmptyIndex(db)
             val owner = CaptureOwner(f.owner, SOURCE)
             val store = store(owner, room)
             val captured = withJournal(account, room, owner) { journal ->
@@ -59,7 +59,7 @@ class W2LocalCaptureMigration43NativeTest {
             val next = f.account()
             assertEquals(account.root, next.root); assertNotEquals(account.identity.generation, next.identity.generation)
             val reopened = WhoopDatabase.get(next)
-            assertEquals(44, reopened.openHelper.readableDatabase.version)
+            assertEquals(WhoopDatabase.SCHEMA_VERSION, reopened.openHelper.readableDatabase.version)
             assertEquals(before, snapshot(reopened.openHelper.readableDatabase::query))
             val nextStore = store(owner, reopened)
             withJournal(next, reopened, owner) { journal ->
@@ -77,7 +77,7 @@ class W2LocalCaptureMigration43NativeTest {
     @Test fun actualOlder42RestoreKeepsSealedFilesAndReindexesOnlyUnderFreshAdmittedWriter() = runBlocking(Dispatchers.IO) {
         W4NativeFixture().use { f ->
             val account = f.account(); val room = WhoopDatabase.get(account)
-            assertEquals(44, room.openHelper.writableDatabase.version)
+            assertEquals(WhoopDatabase.SCHEMA_VERSION, room.openHelper.writableDatabase.version)
             val owner = CaptureOwner(f.owner, SOURCE); val oldStore = store(owner, room)
             val captured = withJournal(account, room, owner) { journal ->
                 capture(journal).also { oldStore.register(it) }
@@ -99,7 +99,7 @@ class W2LocalCaptureMigration43NativeTest {
             val next = f.account(); val migrated = WhoopDatabase.get(next)
             assertEquals(account.root, next.root); assertNotEquals(account.identity.generation, next.identity.generation)
             val db = migrated.openHelper.writableDatabase
-            assertEquals(44, db.version); assertEquals(restoredRows, snapshot(db::query)); assertEmptyIndex(db)
+            assertEquals(WhoopDatabase.SCHEMA_VERSION, db.version); assertEquals(restoredRows, snapshot(db::query)); assertEmptyIndex(db)
             val nextStore = store(owner, migrated)
             withJournal(next, migrated, owner) { journal ->
                 val recovered = journal.recoverPage().single()
@@ -119,7 +119,7 @@ class W2LocalCaptureMigration43NativeTest {
     @Test fun foreignOwner42RestoreCannotReplaceCurrentIndexOrCaptureFile() = runBlocking(Dispatchers.IO) {
         W4NativeFixture().use { f ->
             val account = f.account(); val room = WhoopDatabase.get(account)
-            assertEquals(44, room.openHelper.writableDatabase.version)
+            assertEquals(WhoopDatabase.SCHEMA_VERSION, room.openHelper.writableDatabase.version)
             val owner = CaptureOwner(f.owner, SOURCE); val store = store(owner, room)
             val captured = withJournal(account, room, owner) { journal -> capture(journal).also { store.register(it) } }
             val pending = store.pendingMembers(); val bytes = captureFile(account, captured).readBytes()
@@ -127,7 +127,7 @@ class W2LocalCaptureMigration43NativeTest {
             val backup = File(account.cacheDir, "synthetic-foreign42-${UUID.randomUUID()}.sqlite")
             createPriorSchema(backup, AccountScope.create(f.owner.projectURL, UUID.randomUUID().toString()))
             assertTrue(DataBackup.importFrom(account, Uri.fromFile(backup)) is DataBackup.ImportResult.Failed)
-            assertTrue(room.isOpen); assertEquals(44, room.openHelper.readableDatabase.version)
+            assertTrue(room.isOpen); assertEquals(WhoopDatabase.SCHEMA_VERSION, room.openHelper.readableDatabase.version)
             assertEquals(before, snapshot(room.openHelper.readableDatabase::query))
             assertEquals(pending, store.pendingMembers()); assertArrayEquals(bytes, captureFile(account, captured).readBytes())
         }
@@ -141,7 +141,7 @@ class W2LocalCaptureMigration43NativeTest {
             assertEquals(2, before.getValue("localCaptureMember").size)
             val room = WhoopDatabase.get(account)
             val db = room.openHelper.writableDatabase
-            assertEquals(44, db.version)
+            assertEquals(WhoopDatabase.SCHEMA_VERSION, db.version)
             assertEquals(before, snapshot(db::query, includeRoom43 = true))
             db.query("SELECT projectionState,bucket FROM localCaptureMember ORDER BY recordOrdinal").use {
                 assertTrue(it.moveToFirst()); assertEquals(0, it.getInt(0)); assertTrue(it.isNull(1))
@@ -160,7 +160,7 @@ class W2LocalCaptureMigration43NativeTest {
             }
             WhoopDatabase.close(); f.controller.signIn("synthetic-same-owner", "synthetic")
             val reopened = WhoopDatabase.get(f.account()).openHelper.readableDatabase
-            assertEquals(44, reopened.version)
+            assertEquals(WhoopDatabase.SCHEMA_VERSION, reopened.version)
             assertEquals(before, snapshot(reopened::query, includeRoom43 = true))
             reopened.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
             reopened.query("SELECT count(*) FROM gpsDestinationBarrier").use {
@@ -172,12 +172,11 @@ class W2LocalCaptureMigration43NativeTest {
     /** Construct the historical shape from the CURRENT export, never a stale retained JSON. */
     private fun createPriorSchema(file: File, scope: AccountScope, version: Int = 42): Map<String, List<List<String>>> {
         require(version in 42..43)
-        assertEquals("This gate requires root's generated Room44 implementation", 44, WhoopDatabase.SCHEMA_VERSION)
         val directory = checkNotNull(System.getProperty("room.schemaLocation")) { "Run root's Room schema snapshot task" }
         val export = File(directory, "com.noop.data.WhoopDatabase/${WhoopDatabase.SCHEMA_VERSION}.json")
         assertTrue("Current Room export missing: $export", export.isFile)
         val schema = JSONObject(export.readText()).getJSONObject("database")
-        assertEquals(44, schema.getInt("version"))
+        assertEquals(WhoopDatabase.SCHEMA_VERSION, schema.getInt("version"))
         val entities = schema.getJSONArray("entities")
         val names = (0 until entities.length()).map { entities.getJSONObject(it).getString("tableName") }
         assertTrue(names.containsAll(POST42_ADDITIONS)); assertEquals(names.size, names.distinct().size)

@@ -202,8 +202,9 @@ final class SchemaOracleTests: XCTestCase {
     /// becomes ambiguous. Worse, an exactly-duplicated identifier makes GRDB skip the second body
     /// entirely, because the first already recorded that name in `grdb_migrations`.
     ///
-    /// Preserve the deployed PR15 identifier at its integrated position. All other identifiers
-    /// retain sequential prefixes; future migrations start at v48. Full names remain unique.
+    /// Preserve each deployed identifier at its integrated position. PR22's PPG identity remains
+    /// `v46-ppg-record-identity` immediately after `v47-server-score-cache`. Physiology-v2 databases
+    /// keep their original `v48`–`v51` names after PR22's `v54` so already-applied rows are skipped.
     func testGrdbMigrationIdentifiersAreUniqueAndSequential() throws {
         let ids = WhoopStore.makeMigrator().migrations
         XCTAssertEqual(Set(ids).count, ids.count,
@@ -217,13 +218,22 @@ final class SchemaOracleTests: XCTestCase {
             }
             numbers.append(n)
         }
-        guard ids.count >= 48 else {
+        guard ids.count >= 59 else {
             return XCTFail("Integrated migration history is incomplete: \(ids.count) identifiers")
         }
         XCTAssertEqual(Array(ids[45..<48]),
                        ["v46-rr-source-index", "v47-server-score-cache", "v46-ppg-record-identity"],
                        "Both deployed feature lines must retain their original migration identifiers")
-        for (offset, n) in numbers.enumerated() {
+        XCTAssertEqual(Array(ids[48..<55]),
+                       ["v48-scoped-server-score-cache", "v49-durable-ingest-receipts",
+                        "v50-account-store-owner", "v51-v18-aux-record-identity",
+                        "v52-scalar-provenance", "v53-standard-hr-capture-journal",
+                        "v54-workout-preference-evaluation"])
+        XCTAssertEqual(Array(ids[55...]),
+                       ["v48-ppg-record-identity", "v49-owner-scoped-physiology-cache",
+                        "v50-rr-packet-provenance", "v51-standard-hr-receipts"],
+                       "Physiology-v2 identifiers must keep their original names after the PR22 chain")
+        for (offset, n) in numbers.prefix(55).enumerated() {
             let expected = offset == 47 ? 46 : offset + 1 - (offset > 47 ? 1 : 0)
             XCTAssertEqual(n, expected, "Unexpected migration prefix at position \(offset + 1)")
         }

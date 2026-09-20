@@ -148,10 +148,10 @@ final class PushSenderBoundaryTests: XCTestCase {
     }
 
     func testRawPositiveBoundsRetainCompatibilityAndInvalidBoundsFailClosed() throws {
-        let result = try batch(.rawBatch, [raw(start: base, end: base + 172_800)])
+        let result = try batch(.rawBatch, [raw(start: base, end: base + 172_799)])
         XCTAssertEqual(result.endTs, base + 172_800)
         XCTAssertThrowsError(try batch(.rawBatch, [raw(start: base, end: base - 1)]))
-        XCTAssertThrowsError(try batch(.rawBatch, [raw(start: base, end: base + 172_801)]))
+        XCTAssertThrowsError(try batch(.rawBatch, [raw(start: base, end: base + 172_800)]))
         XCTAssertThrowsError(try batch(.rawBatch, [raw(start: .max, end: .max)]))
         XCTAssertThrowsError(try batch(.rawBatch, [raw(start: .min, end: .max)]))
     }

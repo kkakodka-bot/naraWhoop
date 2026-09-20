@@ -1396,7 +1396,6 @@ public final class BLEManager: NSObject, ObservableObject {
     /// NotificationCenter token for the app-foreground salvage probe (installForegroundSalvageProbe).
     private var foregroundSalvageObserver: NSObjectProtocol?
     private var connectionStartupTask: Task<Void, Never>?
-    private var restorationTask: Task<Void, Never>?
     /// Multi-WHOOP stale-pin recovery (#52). Consecutive "Encryption/Authentication is insufficient" bond
     /// refusals on the CURRENTLY PINNED peripheral.
     private var pinnedBondRefusals = 0

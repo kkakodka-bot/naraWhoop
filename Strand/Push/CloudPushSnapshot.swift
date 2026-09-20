@@ -476,6 +476,14 @@ struct CloudPushSnapshot: PushSnapshotSource {
         switch table {
         case .hrSample: return TableSpec(sqlName: "hrSample", keyColumns: ["ts"], dataColumns: ["bpm"], booleanColumns: [])
         case .rrInterval: return TableSpec(sqlName: "rrInterval", keyColumns: ["ts", "rrMs", "seq"], dataColumns: ["ord", "srcChannel", "tsSuspect"], booleanColumns: ["tsSuspect"])
+        case .rrPacketProvenance: return TableSpec(
+            sqlName: "rrPacketProvenance", keyColumns: ["packetId"],
+            dataColumns: ["ts", "sensorTs", "recordIndex", "rawHex", "srcChannel", "schemaVersion", "decoderVersion", "clockVersion", "timestampPrecisionSeconds", "clockOffsetSeconds", "declaredCount"],
+            booleanColumns: [])
+        case .standardHRReceipt: return TableSpec(
+            sqlName: "standardHRReceipt", keyColumns: ["receiptId"],
+            dataColumns: ["ts", "sessionId", "notificationOrdinal", "receivedUnixMs", "receivedMonotonicNs", "rawHex", "schemaVersion", "clockVersion"],
+            booleanColumns: [])
         case .event: return TableSpec(sqlName: "event", keyColumns: ["ts", "kind"], dataColumns: ["payloadJSON"], booleanColumns: [])
         case .battery: return TableSpec(sqlName: "battery", keyColumns: ["ts"], dataColumns: ["soc", "mv", "charging"], booleanColumns: ["charging"])
         case .spo2Sample: return TableSpec(sqlName: "spo2Sample", keyColumns: ["ts"], dataColumns: ["red", "ir"], booleanColumns: [])

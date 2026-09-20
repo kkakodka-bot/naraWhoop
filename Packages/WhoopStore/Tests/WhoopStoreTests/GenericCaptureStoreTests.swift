@@ -82,11 +82,11 @@ final class GenericCaptureStoreTests: XCTestCase {
     func testSwiftEncodingsMatchAllFourSizingFixtures() async throws {
         let s = try await fixture(); let session = try await begin(s)
         let cases: [([UInt8], [Int], Int, Int64, String)] = [
-            ([6, 72], [], 276, 590, "c27b07b1d25a5419b0cd4f58ad91d480b7761ab482f71ae03bf1c01aca2bc276"),
-            ([0x16, 72, 0, 4, 0, 4], [1000, 1000], 335, 653, "3f0b15395fe0f519a89febe13abe573c3a1b055082543c1c0a47a351d3792033"),
-            ([0x1e, 72, 0x34, 0x12, 0, 4, 0, 4], [1000, 1000], 335, 655, "3f0b15395fe0f519a89febe13abe573c3a1b055082543c1c0a47a351d3792033"),
-            ([0x16, 72] + Array(repeating: 255, count: 510), Array(repeating: 63999, count: 255), 8180, 9004,
-             "11e28e4375266cab0fd59cdeb858ae36def59660569fb6fca7fb1251fc57cd72")
+            ([6, 72], [], 318, 632, "e5c7df10595b758acceb5ef126b8f82dba046aa73a44276017c1524ac5a5e2e5"),
+            ([0x16, 72, 0, 4, 0, 4], [1000, 1000], 377, 695, "7ccc380f67b28c594cef96e90562dc748ce72f2540199fad86bdbce6df809392"),
+            ([0x1e, 72, 0x34, 0x12, 0, 4, 0, 4], [1000, 1000], 377, 697, "7ccc380f67b28c594cef96e90562dc748ce72f2540199fad86bdbce6df809392"),
+            ([0x16, 72] + Array(repeating: 255, count: 510), Array(repeating: 63999, count: 255), 8222, 9046,
+             "e2e3b469adb3ee2aaba4a690c8794def5db2730a0562e4fdd2fed194b0b12e7c")
         ]
         for (index, c) in cases.enumerated() {
             let b = try batch(session, sequence: Int64(index), raw: c.0, rr: c.1)

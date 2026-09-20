@@ -25,6 +25,7 @@ object PushProtocol {
     const val MAX_OBJECT_DECODED_BYTES = 64 * 1024 * 1024
     const val MAX_OBJECT_WIRE_BYTES = 256 * 1024 * 1024 + 64 * 1024
     const val MAX_IMU_OBJECT_WINDOW_SECONDS = 3_600L
+    const val MAX_OBJECT_WINDOW_SECONDS = 48L * 60L * 60L
     internal val FORBIDDEN_REMOTE_CONTROL_MEMBERS = setOf(
         "command", "commands", "endpoint", "url", "cadence", "schema", "fields",
     )
@@ -324,7 +325,19 @@ object PushProtocol {
     private fun binaryBounds(table: PushBinaryTable, rows: List<PushBinaryRow>): Triple<Long, Long, Int> = when (table) {
         PushBinaryTable.RAW_BATCH -> {
             val record = (rows.single() as PushBinaryRow.RawBatch).record
-            Triple(record.startTs, record.endTs, record.frameCount)
+            if (record.endTs < record.startTs || record.startTs == Long.MAX_VALUE || record.endTs == Long.MAX_VALUE) {
+                throw PushProtocolException("raw batch bounds are invalid")
+            }
+            val end = record.endTs + 1
+            val span = try {
+                Math.subtractExact(end, record.startTs)
+            } catch (_: ArithmeticException) {
+                throw PushProtocolException("raw batch exceeds the object window limit")
+            }
+            if (span > MAX_OBJECT_WINDOW_SECONDS) {
+                throw PushProtocolException("raw batch exceeds the object window limit")
+            }
+            Triple(record.startTs, end, record.frameCount)
         }
         PushBinaryTable.PPG_WAVEFORM_SAMPLE, PushBinaryTable.V18_AUX_SAMPLE, PushBinaryTable.RAW_IMU_SESSION -> {
             val timestamps = rows.map { row ->

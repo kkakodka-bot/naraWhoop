@@ -2903,4 +2903,8 @@
     <string name="physiology_reason_window_missing">Für dieses Fünf-Minuten-Intervall wurde kein Server-Ergebnis zurückgegeben.</string>
     <string name="physiology_spo2_unavailable_title">SpO₂ aus dieser Quelle nicht verfügbar</string>
     <string name="physiology_spo2_unavailable_body">Die aktuelle WHOOP-Datenquelle liefert keinen verifizierten prozentualen Blutsauerstoffwert. Dies liegt an den Eingangsdaten und der Kalibrierung, nicht an einem lückenhaften Verlauf. Importierte Messwerte können hier weiterhin angezeigt werden.</string>
+    <string name="five_minute_hr_window_range">%1$s–%2$s</string>
+    <string name="widget_open_nara_to_connect">NARA öffnen, um zu verbinden</string>
+    <string name="whats_new_in_nara">Was ist neu in NARA %1$s</string>
+    <string name="whats_new_nara_is_here">NARA %1$s ist da — tippe, um die Neuigkeiten zu lesen.</string>
 </resources>
