@@ -6,6 +6,7 @@ import json
 import math
 from pathlib import Path
 import re
+import struct
 
 
 class Abstain(ValueError):
@@ -14,6 +15,28 @@ class Abstain(ValueError):
 
 def canonical_hash(value):
     return sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def typed_hash(value):
+    """Cross-JVM JSON identity: finite binary64 numbers and length-prefixed UTF-8 strings."""
+    def encode(item):
+        if item is None:
+            return b"n"
+        if type(item) is bool:
+            return b"t" if item else b"f"
+        if isinstance(item, (int, float)):
+            if not math.isfinite(item) or isinstance(item, int) and abs(item) > 2**53:
+                raise Abstain("input_hash_number_invalid")
+            return b"d" + struct.pack(">d", float(item))
+        if isinstance(item, str):
+            raw = item.encode("utf-8")
+            return b"s" + str(len(raw)).encode() + b":" + raw
+        if isinstance(item, list):
+            return b"[" + b"".join(encode(x) for x in item) + b"]"
+        if isinstance(item, dict) and all(isinstance(key, str) and key.isascii() for key in item):
+            return b"{" + b"".join(encode(key) + encode(item[key]) for key in sorted(item)) + b"}"
+        raise Abstain("input_hash_type_invalid")
+    return sha256(encode(value)).hexdigest()
 
 
 def implementation_hash():
@@ -82,7 +105,11 @@ def validate_job(job):
         raise Abstain("job_identity_missing")
     if job["mode"] not in ("causal", "retrospective", "windowed"):
         raise Abstain("computation_mode_invalid")
-    expected = canonical_hash({k: v for k, v in job.items() if k != "input_hash"})
+    encoding = job.get("input_hash_encoding", "canonical-json-1")
+    if encoding not in ("canonical-json-1", "typed-json-sha256-1"):
+        raise Abstain("input_hash_encoding_unsupported")
+    hasher = typed_hash if encoding == "typed-json-sha256-1" else canonical_hash
+    expected = hasher({k: v for k, v in job.items() if k != "input_hash"})
     if job["input_hash"] != expected:
         raise Abstain("immutable_input_hash_mismatch")
     signals = [Signal.parse(x) for x in job["signals"]]
@@ -154,6 +181,9 @@ def validate_activation(activation, root, model_id):
         if model_id == "rr-estimation" and (assets.get("weights", {}).get("sha256") != pinned["checkpoint_sha256"] or
                                            assets.get("model_source", {}).get("sha256") != pinned["source_sha256"]):
             raise Abstain("released_rr_assets_mismatch")
+        if model_id == "wav2sleep-cardiorespiratory" and any(assets.get(name, {}).get("sha256") != pinned[key]
+                for name, key in (("weights", "checkpoint_sha256"), ("config", "config_sha256"))):
+            raise Abstain("released_wav2sleep_assets_mismatch")
     return paths
 
 
@@ -173,7 +203,8 @@ def shadow_result(job, model_id, output=None, reason=None, activation=None):
             "input_revision": job.get("input_revision"), "input_hash": job.get("input_hash"),
             "computation_mode": job.get("mode"), "status": "abstained" if reason else "complete",
             "reason": reason, "output": output, "activation_hash": canonical_hash(activation) if activation else None,
-            "probabilities_calibrated": False,
+            "probabilities_calibrated": bool(output and output.get("calibrated") is True),
+            "checkpoint_sha256": activation.get("assets", {}).get("weights", {}).get("sha256") if activation else None,
             "code_revision": activation.get("code_revision") if activation else None,
             "preprocess_version": activation.get("preprocess_version") if activation else None,
             "quality_policy_version": activation.get("quality_policy_version") if activation else None}

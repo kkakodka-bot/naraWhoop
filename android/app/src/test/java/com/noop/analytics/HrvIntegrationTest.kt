@@ -7,7 +7,7 @@ import org.junit.Test
 class HrvIntegrationTest {
     private val profile = UserProfile(weightKg = 75.0, heightCm = 178.0, age = 30.0, sex = "male")
     private fun observations() = hrvEvidence() + hrvEvidence(start = 300, pattern = listOf(950.0, 1050.0)) +
-        hrvEvidence(start = 600, pattern = listOf(600.0, 1400.0))
+        hrvEvidence(start = 600, pattern = listOf(450.0, 1250.0, 2050.0, 1250.0))
     @Test fun enginePublishesWindowArithmeticNotCachedVendorValueOrDeepOnlyPreference() {
         val provided = DetectedSleep(0, 900, 1.0, listOf(StageSegment(0, 900, "light")), null, 999.0)
         val result = AnalyticsEngine.analyzeDay("1970-01-01", hrvObservations = observations(),
@@ -34,7 +34,7 @@ class HrvIntegrationTest {
         val grid = SleepStager.buildEpochGrid(0.0, 300.0, emptyList(), emptyList(), emptyList(), rows, emptyList())
         val legacy = SleepStager.extractFeatures(grid, emptyList(), emptyList(), 0, 9)
         assertTrue(legacy.all { it.rmssd.isNaN() && it.sdnn.isNaN() })
-        val measurement = HrvWindow.measure(0, hrvEvidence(pattern = listOf(600.0, 1400.0)))
+        val measurement = HrvWindow.measure(0, hrvEvidence(pattern = listOf(450.0, 1250.0, 2050.0, 1250.0)))
         assertFalse(measurement.baselineEligible); assertTrue(measurement.measurementValid)
         val proven = SleepStager.extractFeatures(grid, emptyList(), emptyList(), 0, 9, listOf(measurement))
         assertTrue(proven.all { it.rmssd == 800.0 && it.sdnn.isFinite() })

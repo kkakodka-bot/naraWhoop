@@ -59,6 +59,14 @@ class RuntimePreflightIntegrationTest {
         assertEquals(RuntimePreflightCommand.Stage.DATABASE_SCHEMA, error.stage)
     }
 
+    @Test fun migrationLedgerCannotHideMissingPerProcessHeartbeatTable() {
+        execute("drop table public.physiology_worker_heartbeats")
+        val error = assertThrows(RuntimePreflightCommand.Failure::class.java) {
+            RuntimePreflightCommand.checkDatabase(connection, "fixture-secret")
+        }
+        assertEquals(RuntimePreflightCommand.Stage.DATABASE_SCHEMA, error.stage)
+    }
+
     @Test fun ingestSecretIsBoundAndDatabaseErrorCannotDiscloseIt() {
         val secret = "'); update internal.preflight_sentinel set value=99; --"
         val error = assertThrows(RuntimePreflightCommand.Failure::class.java) {

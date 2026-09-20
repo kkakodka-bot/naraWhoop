@@ -22,25 +22,30 @@ class PostgresClient private constructor(
     internal val dataSource: HikariDataSource,
 ) : AutoCloseable {
 
-    constructor(databaseUrl: String) : this(
+    constructor(databaseUrl: String, queryTimeoutSeconds: Int? = null) : this(
         HikariDataSource(
             HikariConfig().apply {
                 driverClassName = "org.postgresql.Driver"
-                jdbcUrl = normalizeJdbcUrl(databaseUrl)
+                jdbcUrl = if (queryTimeoutSeconds == null) normalizeJdbcUrl(databaseUrl) else boundedJdbcUrl(databaseUrl)
                 maximumPoolSize = 6
                 minimumIdle = 1
                 connectionTimeout = 30_000
                 idleTimeout = 600_000
                 maxLifetime = 1_800_000
-
-                // Hikari's connectionTimeout only bounds borrowing a pool connection. A
-                // separate input-gate watchdog cannot interrupt this connection's reads.
-                // pgJDBC deadlines are seconds; URL options intentionally override these
-                // defaults (https://jdbc.postgresql.org/documentation/use/). socketTimeout
-                // bounds a stalled read, not total job time or a stream making progress.
+                // Legacy/archive clients retain operator URL overrides of finite driver defaults.
+                // Dedicated scoring/model clients below enforce their stricter limits instead.
                 addDataSourceProperty("connectTimeout", "10")
                 addDataSourceProperty("socketTimeout", "60")
                 addDataSourceProperty("cancelSignalTimeout", "5")
+                queryTimeoutSeconds?.let { seconds ->
+                    require(seconds in 1..60)
+                    connectionTimeout = 5_000
+                    addDataSourceProperty("connectTimeout", 5)
+                    addDataSourceProperty("socketTimeout", seconds + 5)
+                    addDataSourceProperty("cancelSignalTimeout", 5)
+                    addDataSourceProperty("options", "-c statement_timeout=${seconds * 1000}")
+                    connectionInitSql = "set statement_timeout = ${seconds * 1000}"
+                }
 
                 val creds = parseUserInfo(databaseUrl)
                 if (creds.user != null) {
@@ -65,6 +70,18 @@ class PostgresClient private constructor(
             }
             // Strip userinfo from the authority: jdbc:postgresql://user:pass@host:port/db -> jdbc:postgresql://host:port/db
             return stripUserInfo(base)
+        }
+
+        /** pgJDBC URL parameters otherwise override the worker's bounded connection properties. */
+        internal fun boundedJdbcUrl(databaseUrl: String): String {
+            val normalized = normalizeJdbcUrl(databaseUrl)
+            if ('?' !in normalized) return normalized
+            val retained = normalized.substringAfter('?').split('&').filter { parameter ->
+                val name = try { URLDecoder.decode(parameter.substringBefore('='), StandardCharsets.UTF_8) }
+                catch (_: IllegalArgumentException) { throw IllegalArgumentException("Invalid database URL option encoding") }
+                name !in setOf("connectTimeout", "socketTimeout", "cancelSignalTimeout")
+            }.joinToString("&")
+            return normalized.substringBefore('?') + if (retained.isEmpty()) "" else "?$retained"
         }
 
         /** Extract user/password from `user:pass@` userinfo. Splits at the LAST `@` before the first
@@ -120,8 +137,35 @@ class PostgresClient private constructor(
         }
     }
 
-    fun <T> withConnection(block: (Connection) -> T): T =
-        dataSource.connection.use(block)
+    private val activeConnections = java.util.concurrent.ConcurrentHashMap<Connection, Thread>()
+
+    fun <T> withConnection(block: (Connection) -> T): T {
+        val owner = Thread.currentThread()
+        if (owner.isInterrupted) throw InterruptedException("database_operation_cancelled")
+        return dataSource.connection.use { connection ->
+            activeConnections[connection] = owner
+            try {
+                if (owner.isInterrupted) throw InterruptedException("database_operation_cancelled")
+                block(connection)
+            } finally { activeConnections.remove(connection) }
+        }
+    }
+
+    /** Used only by a dedicated model process's hard attempt deadline. */
+    fun abortActiveConnections() {
+        abortConnections(activeConnections.keys.toList())
+    }
+
+    /** Cancel an attempt without touching the input gate, archive lane or another owner. */
+    fun abortConnectionsOwnedBy(owner: Thread) {
+        abortConnections(activeConnections.entries.filter { it.value === owner }.map { it.key })
+    }
+
+    private fun abortConnections(connections: List<Connection>) {
+        connections.forEach { connection -> runCatching {
+            connection.abort { task -> Thread(task, "physiology-jdbc-abort").apply { isDaemon = true }.start() }
+        } }
+    }
 
     override fun close() {
         dataSource.close()

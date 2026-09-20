@@ -264,6 +264,14 @@ def validate_predictions(data: dict, dataset: dict) -> dict:
         for row in record.get("epochs", []):
             require(row.get("stage") in STATES, "unknown predicted state")
             require(abs(row["end_s"] - row["start_s"] - 30) < 1e-6, "prediction epoch must be 30 seconds")
+            if "binary_state" in row or dataset["evidence_kind"] == "reference":
+                require(row.get("binary_state") in ("sleep", "wake", "unknown", "off_body"),
+                        "reference evaluation requires independent binary_state")
+                identifier(row.get("binary_provenance"), "binary state provenance")
+                require(row["binary_provenance"] not in ("stage", "stage_prediction", "stage_inferred"),
+                        "stage prediction cannot establish binary state")
+            if row["stage"] in STAGES:
+                require(row["observed_duration_s"] > 0, "accepted stage without observed input")
             if row["stage"] in ("state_unknown", "sleep_unstaged"):
                 identifier(row.get("abstention_reason"), "stage abstention reason")
             probabilities = row.get("probabilities")

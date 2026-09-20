@@ -299,7 +299,7 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
                 }
             }
         }
-    }.let { rows -> CanonicalRrPolicy.select(rows.filter { row -> contextIntervals == null ||
+    }.let { rows -> CanonicalRrPolicy.candidates(rows.filter { row -> contextIntervals == null ||
         contextIntervals.any { row.ts >= it.first && row.ts < it.second } }, family) }
 
     private fun loadSteps(conn: Connection, userId: UUID, deviceId: String,
@@ -356,9 +356,11 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
         toTs: Long,
     ): List<GravitySample> = conn.prepareStatement(
         """
-        select ts, x, y, z, "dynAccel"
+        select ts, x, y, z,
+          case when motion_evidence_version='projected-dynamic-acceleration-g-1' then "dynAccel" else null end as "dynAccel"
         from public.noop_gravity_samples
         where user_id = ? and device_id::text = ? and ts between ? and ?
+          and orientation_evidence_version='projected-gravity-g-1'
         order by ts asc
         """.trimIndent(),
     ).use { ps ->

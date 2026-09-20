@@ -6,7 +6,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 internal fun hrvEvidence(start: Int = 0, count: Int = 300, pattern: List<Double> = listOf(1000.0),
-                        offset: Double = 0.0, mode: String = "", deviceId: String = "d", firmware: String? = "test-v1"):
+                        offset: Double = 0.0, mode: String = "", deviceId: String = "d", firmware: String? = "test-v1", source: String? = null):
     List<PhysiologyQuality.IntervalObservation> {
     var time = start + offset
     val rows = mutableListOf<PhysiologyQuality.IntervalObservation>()
@@ -14,10 +14,10 @@ internal fun hrvEvidence(start: Int = 0, count: Int = 300, pattern: List<Double>
         val value = if (mode == "boundary" && i == 0) 2000.0 else pattern[i % pattern.size]
         val end = time + value / 1000
         var row = PhysiologyQuality.IntervalObservation(originalId = "i$i", deviceId = deviceId, deviceFirmware = firmware,
-            source = if (mode == "source_switch" && i >= 150) "other" else "test", modality = if (mode == "sdnn") "sdnn" else "ecg_nn",
+            source = source ?: if (mode == "source_switch" && i >= 150) "other" else "test", modality = if (mode == "sdnn") "sdnn" else "ecg_nn",
             eventTime = time, originalRRMs = value, startBeatId = if (mode == "legacy") null else "b$i",
-            endBeatId = if (mode == "legacy") null else "b${i + 1}", continuityGroup = if (mode == "legacy") null else "run",
-            verifiedSpan = if (mode in listOf("legacy", "packet")) null else PhysiologyQuality.Span(time, end),
+            endBeatId = if (mode == "legacy") null else "b${i + 1}", continuityGroup = if (mode == "legacy") null else if (mode == "reconnect" && i >= 150) "new-run" else "run",
+            verifiedSpan = if (mode in listOf("legacy", "packet") || (mode == "mixed_timing" && i == 150)) null else PhysiologyQuality.Span(time, end),
             timestampPrecisionSeconds = 0.001, decoderVersion = "fixture-v1", clockVersion = "verified-fixture-v1", ordinal = i)
         if (mode == "rejected_beat" && i == 149) row = row.copy(endBeatAccepted = false)
         if (mode == "corrected" && i == 150) row = row.copy(correctedRRMs = 1200.0, corrections = listOf(
@@ -30,6 +30,57 @@ internal fun hrvEvidence(start: Int = 0, count: Int = 300, pattern: List<Double>
 }
 
 class HrvWindowTest {
+    @Test fun rejectedBeatOutsideWindowStillRejectsItsSharedInsideEndpoint() {
+        val previous = PhysiologyQuality.IntervalObservation(originalId = "previous", deviceId = "d", source = "test", modality = "ecg_nn",
+            eventTime = -1.0, originalRRMs = 1000.0, startBeatId = "previous-beat", endBeatId = "b0", continuityGroup = "run",
+            verifiedSpan = PhysiologyQuality.Span(-1.0, 0.0), timestampPrecisionSeconds = 0.001, decoderVersion = "fixture-v1", clockVersion = "verified-fixture-v1",
+            deviceFirmware = "test-v1", endBeatAccepted = false)
+        val observations = listOf(previous) + hrvEvidence()
+        for (result in listOf(HrvWindow.measure(0, observations), HrvSeries.windows(0, 300, observations)[0])) {
+            assertEquals(298, result.validPairCount); assertFalse(result.pairMask[1]); assertFalse(result.correctedPairMask[1])
+        }
+        val conflicting = hrvEvidence()[100].copy(endBeatAccepted = false)
+        assertEquals("original_identity_conflict", HrvSeries.selectedWindow(0, hrvEvidence() + conflicting).reason)
+    }
+    @Test fun mixedTimingAbstainsAndCorrectionCannotRecoverMissingAcquisition() {
+        val rows = hrvEvidence(mode = "mixed_timing").mapIndexed { i, row -> if (i == 150) row.copy(correctedRRMs = 1400.0,
+            corrections = listOf(PhysiologyQuality.Correction("repair", "p1", "replaced"))) else row }
+        val result = HrvWindow.measure(0, rows)
+        assertEquals("mixed_verified_unverified_timing", result.reason)
+        assertNull(result.observedRMSSD); assertNull(result.correctedRMSSD); assertEquals(297, result.validPairCount)
+        assertFalse(result.correctedPairMask[150]); assertFalse(result.correctedPairMask[151]); assertEquals(0.0, result.researchObservedRMSSD!!, 0.0)
+    }
+    @Test fun correctionsCannotBridgeRejectedEndpointsOrDeletedOriginals() {
+        val rows = hrvEvidence(mode = "rejected_beat").mapIndexed { i, row -> if (i in 149..150) row.copy(correctedRRMs = 1200.0,
+            corrections = listOf(PhysiologyQuality.Correction("repair", "p1", if (i == 149) "deleted" else "replaced"))) else row }
+        val result = HrvWindow.measure(0, rows)
+        for (i in 149..151) { assertFalse(result.pairMask[i]); assertFalse(result.correctedPairMask[i]) }
+        assertEquals(298, HrvWindow.measure(0, hrvEvidence(mode = "reconnect")).validPairCount)
+        val deleted = hrvEvidence().mapIndexed { i, row -> if (i == 150) row.copy(corrections = listOf(PhysiologyQuality.Correction("deletion", "p1", "deleted"))) else row }
+        val deletion = HrvWindow.measure(0, deleted)
+        assertEquals(297, deletion.validPairCount); assertFalse(deletion.pairMask[150]); assertFalse(deletion.pairMask[151])
+    }
+    @Test fun availableSignalFailuresAbstainAndMissingSignalsStayUnavailable() {
+        assertEquals(setOf("motion", "contact", "optical_quality", "detector_agreement"), HrvWindow.measure(0, hrvEvidence()).unavailableQualitySignals.toSet())
+        for (field in listOf("motion_contamination", "contact_rejected", "optical_quality_rejected", "detector_disagreement", "invalid_detector_evidence")) {
+            val rows = hrvEvidence().mapIndexed { i, row -> if (i != 100) row else when (field) {
+                "motion_contamination" -> row.copy(motionContaminated = true)
+                "contact_rejected" -> row.copy(contactAccepted = false)
+                "optical_quality_rejected" -> row.copy(opticalQualityAccepted = false)
+                "detector_disagreement" -> row.copy(detectorAgreementFraction = 0.5)
+                else -> row.copy(detectorAgreementFraction = 2.0)
+            } }
+            val result = HrvWindow.measure(0, rows)
+            assertEquals(field, result.reason); assertNull(result.observedRMSSD)
+            assertFalse(result.pairMask[100]); assertFalse(result.pairMask[101])
+        }
+    }
+    @Test fun extremeAlternationRetainsEvidenceWithoutCleanHighHrvClaim() {
+        val result = HrvWindow.measure(0, hrvEvidence(pattern = listOf(600.0, 1400.0)))
+        assertEquals("rhythm_ambiguity", result.reason); assertEquals(800.0, result.researchObservedRMSSD!!, 0.0)
+        assertNull(result.observedRMSSD); assertFalse(result.baselineEligible)
+        assertEquals(800.0, HrvWindow.measure(0, hrvEvidence(count = 240, pattern = listOf(450.0, 1250.0, 2050.0, 1250.0))).observedRMSSD!!, 0.0)
+    }
     @Test fun sharedGoldenWindows() {
         val data = javaClass.classLoader!!.getResourceAsStream("hrv_window_oracle.json")!!.bufferedReader().use { it.readText() }
         val cases = JSONObject(data).getJSONArray("cases")
@@ -77,7 +128,7 @@ class HrvWindowTest {
         assertEquals(listOf(1000.0, 500.0), rows.map { it.originalRRMs })
         assertEquals(rows[0].endBeatId, rows[1].startBeatId); assertTrue(rows.all { it.verifiedSpan == null })
         val result = HrvWindow.measure(HrvWindow.alignedStart(rows[0].eventTime.toInt()), rows)
-        assertEquals("timing_coverage_unverified", result.reason); assertEquals(1, result.validPairCount)
+        assertEquals("timing_coverage_unverified", result.reason); assertEquals(0, result.validPairCount)
         assertTrue(PhysiologyQuality.historicalPacket(frame.copy(parsed = parsed + ("rr_count" to 3)), "zero-word-packet", "d").isEmpty())
         assertTrue(PhysiologyQuality.historicalPacket(frame.copy(crcOk = false), "bad-crc", "d").isEmpty())
     }
@@ -113,6 +164,6 @@ class HrvWindowTest {
         }
         assertTrue(HrvWindow.measure(0, rows(precision = 0.020)).measurementValid)
         assertTrue(HrvWindow.measure(0, rows(duration = 1.002, precision = 0.020)).measurementValid)
-        assertEquals("engineering-shadow-90-v2", HrvWindow.Policy().version)
+        assertEquals("engineering-multisignal-90-v3", HrvWindow.Policy().version)
     }
 }

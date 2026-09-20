@@ -18,6 +18,9 @@ public enum HrvSeries {
         public let logDeviation: Double?
         public let robustZ: Double?
         public let reason: String?
+        public var independentNightCount: Int = 0
+        public var observationCount: Int = 0
+        public var lagOneCorrelation: Double? = nil
     }
     public struct Summary: Codable, Equatable, Sendable {
         public let context: String
@@ -50,7 +53,7 @@ public enum HrvSeries {
         let starts = Array(stride(from: HrvWindow.alignedStart(start), to: end, by: HrvWindow.seconds))
         let lo = Double(starts[0]), hi = Double(starts.last!) + 300
         var buckets: [Int: [PhysiologyQuality.IntervalObservation]] = [:]
-        for row in observations {
+        for row in PhysiologyQuality.propagatingEndpointRejections(observations) {
             var owners = Set<Int>()
             if row.eventTime.isFinite, row.eventTime >= lo, row.eventTime < hi {
                 owners.insert(HrvWindow.alignedStart(Int(floor(row.eventTime))))
@@ -65,8 +68,29 @@ public enum HrvSeries {
             for owner in owners { buckets[owner, default: []].append(row) }
         }
         return starts.map {
-            HrvWindow.measure(start: $0, observations: buckets[$0] ?? [], context: context, policy: policy, inputRevision: inputRevision, computationMode: computationMode)
+            selectedWindow(start: $0, observations: buckets[$0] ?? [], context: context, policy: policy, inputRevision: inputRevision, computationMode: computationMode)
         }
+    }
+
+    /// Source ownership is resolved independently in every window. Partial sources are never spliced.
+    public static func selectedWindow(start: Int, observations: [PhysiologyQuality.IntervalObservation],
+                                     context: [PhysiologyQuality.ContextEpoch] = [], policy: HrvWindow.Policy = .init(),
+                                     inputRevision: String = "unversioned", computationMode: String = "retrospective") -> HrvWindow.Result {
+        func measure(_ rows: [PhysiologyQuality.IntervalObservation]) -> HrvWindow.Result {
+            HrvWindow.measure(start: start, observations: rows, context: context, policy: policy,
+                inputRevision: inputRevision, computationMode: computationMode)
+        }
+        let owned = PhysiologyQuality.propagatingEndpointRejections(observations).filter { $0.eventTime >= Double(start) && $0.eventTime < Double(start + 300) ||
+            ($0.verifiedSpan.map { $0.start < Double(start + 300) && $0.end > Double(start) } ?? false) }
+        guard Set(owned.map { [$0.userId, $0.deviceId] }).count <= 1 else { return measure(owned) }
+        let sources = Dictionary(grouping: owned, by: \.source)
+        guard sources.count > 1 else { return measure(owned) }
+        let priority = ["whoop5_history", "channel:5", "whoop5_standard_ble", "channel:7"]
+        let candidates = sources.keys.sorted { a, b in
+            let x = priority.firstIndex(of: a) ?? priority.count, y = priority.firstIndex(of: b) ?? priority.count
+            return x == y ? a < b : x < y
+        }.map { measure(sources[$0]!) }
+        return candidates.first(where: \.measurementValid) ?? measure(owned)
     }
     private static func median(_ values: [Double]) -> Double? {
         guard !values.isEmpty else { return nil }
@@ -97,23 +121,46 @@ public enum HrvSeries {
             $0.end <= current.start && $0.start >= current.start - max(0, windowDays) * 86400 &&
                 sameSeries(current, $0)
         }).filter { $0.baselineEligible && $0.measurementValid && $0.context == current.context }
-        let values = candidates.compactMap(\.observedRMSSD).filter { $0.isFinite && $0 >= 0 }
-        let positives = values.filter { $0 > 0 }.map(log)
+        // Twelve hours of separation prevents one dense night or split sleep from supplying
+        // independent samples. The current episode is excluded; no fixed local bedtime is used.
+        let completed = candidates.filter { current.start - $0.end >= 12 * 3600 }
+        var nights: [[HrvWindow.Result]] = []
+        for row in completed {
+            if let last = nights.last?.last, row.start - last.end < 12 * 3600 { nights[nights.count - 1].append(row) }
+            else { nights.append([row]) }
+        }
+        let values = completed.compactMap(\.observedRMSSD).filter { $0.isFinite && $0 >= 0 }
+        let positives = nights.compactMap { night in
+            median(night.compactMap(\.observedRMSSD).filter { $0.isFinite && $0 > 0 }.map(log))
+        }
         let center = median(positives)
         let mad = center.flatMap { m in median(positives.map { abs($0 - m) }) }
+        let average = positives.isEmpty ? 0 : positives.reduce(0, +) / Double(positives.count)
+        let variance = positives.reduce(0) { $0 + pow($1 - average, 2) }
+        let covariance = positives.count < 2 ? 0 : (1..<positives.count).reduce(0.0) {
+            $0 + (positives[$1 - 1] - average) * (positives[$1] - average)
+        }
+        let correlation = variance > 0 ? max(0, min(0.99, covariance / variance)) : 0
+        let effective = Int(floor(Double(positives.count) * (1 - correlation) / (1 + correlation)))
         let reason: String?
-        if windowDays <= 0 || minimumSamples < 1 { reason = "invalid_baseline_policy" }
+        if windowDays <= 0 || minimumSamples < 2 { reason = "invalid_baseline_policy" }
         else if !current.measurementValid || !current.baselineEligible { reason = current.baselineReason ?? "ineligible_measurement" }
+        else if current.deviceFirmware?.isEmpty != false { reason = "acquisition_identity_unverified" }
         else if positives.count < minimumSamples { reason = "insufficient_baseline" }
+        else if effective < minimumSamples { reason = "serially_correlated_baseline" }
         else if current.observedRMSSD == 0 { reason = "zero_not_log_transformable" }
         else if current.observedRMSSD == nil || current.observedRMSSD! < 0 || !current.observedRMSSD!.isFinite { reason = "unusable_measurement" }
         else { reason = nil }
         let deviation = reason == nil ? log(current.observedRMSSD!) - center! : nil
         let z = deviation.flatMap { d in mad.flatMap { $0 > 0 ? d / (1.4826 * $0) : nil } }
-        return Baseline(version: "past-log-median-mad-v1", windowDays: windowDays,
-            effectiveSampleCount: positives.count, excludedZeroCount: values.count - positives.count,
+        var result = Baseline(version: "past-night-log-median-mad-v2", windowDays: windowDays,
+            effectiveSampleCount: effective, excludedZeroCount: values.filter { $0 == 0 }.count,
             logMedian: center, logMAD: mad, logDeviation: deviation, robustZ: z,
             reason: reason ?? (mad == 0 ? "zero_baseline_dispersion" : nil))
+        result.independentNightCount = positives.count
+        result.observationCount = values.count
+        result.lagOneCorrelation = positives.count >= 3 ? correlation : nil
+        return result
     }
 
     /// Arithmetic mean is primary; representativeness is measured across three equal episode spans.

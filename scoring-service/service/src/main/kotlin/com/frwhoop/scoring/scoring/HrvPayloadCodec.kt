@@ -21,6 +21,8 @@ object HrvPayloadCodec {
             "source" to w.source,"modality" to w.modality,"metric" to w.metric,"unit" to w.unit,
             "input_revision" to w.inputRevision,"computation_mode" to w.computationMode,
             "algorithm_version" to w.algorithmVersion,"quality_version" to w.qualityVersion,
+            "quality_evidence" to JSONArray(w.qualityEvidence),
+            "unavailable_quality_signals" to JSONArray(w.unavailableQualitySignals),
             "preprocess_version" to "original-beat-continuity-v2","checkpoint_hash" to null,
             "decoder_versions" to JSONArray(w.decoderVersions),"clock_versions" to JSONArray(w.clockVersions),
             "observed_rmssd_ms" to w.observedRMSSD,"corrected_rmssd_ms" to w.correctedRMSSD,
@@ -40,6 +42,8 @@ object HrvPayloadCodec {
             "calibration_status" to "engineering_shadow",
             "baseline" to baseline?.let { obj("version" to it.version,"window_days" to it.windowDays,
                 "effective_sample_count" to it.effectiveSampleCount,"excluded_zero_count" to it.excludedZeroCount,
+                "independent_night_count" to it.independentNightCount,"observation_count" to it.observationCount,
+                "lag_one_correlation" to it.lagOneCorrelation,
                 "log_median" to it.logMedian,"log_mad" to it.logMAD,"log_deviation" to it.logDeviation,
                 "robust_z" to it.robustZ,"reason" to it.reason) })
     }
@@ -79,7 +83,9 @@ object HrvPayloadCodec {
             deletedEventCount=o.getInt("deleted_event_count"),measurementValid=o.getBoolean("measurement_valid"),
             reason=s("reason"),context=o.getString("context"),baselineEligible=o.getBoolean("baseline_eligible"),
             baselineReason=s("baseline_reason"),timingPrecisionSeconds=d("timing_precision_seconds"),
-            decoderVersions=strings("decoder_versions"),clockVersions=strings("clock_versions"))
+            decoderVersions=strings("decoder_versions"),clockVersions=strings("clock_versions"),
+            qualityEvidence=if(o.has("quality_evidence")) strings("quality_evidence") else emptyList(),
+            unavailableQualitySignals=if(o.has("unavailable_quality_signals")) strings("unavailable_quality_signals") else listOf("legacy_quality_evidence_unavailable"))
         require(w.end.toLong()-w.start==300L && HrvWindow.alignedStart(w.start)==w.start)
         require(w.observedTimeFraction in 0.0..1.0 && w.validIntervalFraction in 0.0..1.0 && w.correctionFraction in 0.0..1.0)
         require(w.acceptedDurationSeconds in 0.0..300.0 && w.maximumGapSeconds in 0.0..300.0)

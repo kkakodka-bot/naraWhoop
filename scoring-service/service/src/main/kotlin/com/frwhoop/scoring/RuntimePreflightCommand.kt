@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 
 /** Read-only deployment check. Never initializes a worker, claims work, or tests a publication RPC. */
 object RuntimePreflightCommand {
-    enum class Stage { PROJECT_BINDING, DATABASE_CONNECTION, DATABASE_SCHEMA, INGEST_AUTH, REST_AUTH }
+    enum class Stage { WORKER_IDENTITY, PROJECT_BINDING, DATABASE_CONNECTION, DATABASE_SCHEMA, INGEST_AUTH, REST_AUTH }
     class Failure(val stage: Stage) : IllegalStateException("runtime_preflight_failed:${stage.name.lowercase()}")
 
     // Every physiology migration this binary depends on, including the restored revision fence and gate.
@@ -23,16 +23,19 @@ object RuntimePreflightCommand {
         "20260918050000", "20260918060000", "20260918070000", "20260918100000",
         "20260918110000", "20260918120000", "20260918130000", "20260918140000",
         "20260918150000", "20260918180000", "20260918190000", "20260918200000",
-        "20260918210000", "20260918220000", "20260919010000",
+        "20260918210000", "20260918220000", "20260918230000", "20260918233000", "20260918234000",
+        "20260919010000", "20260919020000",
     )
     internal val requiredTables = listOf("public.physiology_service_heartbeats", "public.physiology_work_items",
         "public.server_physiology_results", "public.noop_rr_packet_provenance", "public.noop_standard_hr_receipts",
-        "public.noop_skin_temp_samples")
+        "public.physiology_feature_manifests", "public.physiology_promotion_approvals", "public.physiology_model_acquisition_contracts",
+        "public.physiology_worker_heartbeats", "public.noop_skin_temp_samples")
     internal val requiredFunctions = listOf("internal.assert_ingest_secret(text)",
         "public.scoring_claim_one(integer,integer,uuid,uuid,date)",
         "public.scoring_acquire_input_gate(uuid,uuid)", "public.engine_publish_physiology(text,jsonb)",
         "public.scoring_renew_lease(uuid,uuid,date,bigint,uuid,uuid,integer)",
-        "public.scoring_finish_work(uuid,uuid,date,bigint,uuid,uuid,text,integer,text)")
+        "public.scoring_finish_work(uuid,uuid,date,bigint,uuid,uuid,text,integer,text)",
+        "public.physiology_feature_is_canonical(text,text)")
 
     private fun <T> checked(stage: Stage, block: () -> T): T = try { block() }
         catch (_: Exception) { throw Failure(stage) } // A JDBC/HTTP exception may contain credentials or server data.
@@ -65,22 +68,29 @@ object RuntimePreflightCommand {
 
     /** Returns a fixed marker only. Caller may print it; no configured identifiers/secrets are returned. */
     fun run(config: ScoringConfig): String {
+        checked(Stage.WORKER_IDENTITY) { config.workerIdentity() }
         val endpoint = heartbeatUrl(config)
         val connection = checked(Stage.DATABASE_CONNECTION) {
-            val credentials = PostgresClient.parseUserInfo(config.databaseUrl)
-            val properties = Properties().apply {
-                credentials.user?.let { setProperty("user", it) }
-                credentials.password?.let { setProperty("password", it) }
-                setProperty("connectTimeout", "10")
-                setProperty("socketTimeout", "15")
-                setProperty("ApplicationName", "physiology-runtime-preflight")
-            }
-            DriverManager.getConnection(PostgresClient.normalizeJdbcUrl(config.databaseUrl), properties)
+            val (url, properties) = databaseConnectionParameters(config)
+            DriverManager.getConnection(url, properties)
         }
         try { checkDatabase(connection, config.ingestSecret) }
         finally { runCatching { connection.close() } }
         checkRest(endpoint, config.serviceRoleKey)
         return "runtime_preflight_ok"
+    }
+
+    internal fun databaseConnectionParameters(config: ScoringConfig): Pair<String, Properties> {
+        val credentials = PostgresClient.parseUserInfo(config.databaseUrl)
+        val properties = Properties().apply {
+            credentials.user?.let { setProperty("user", it) }
+            credentials.password?.let { setProperty("password", it) }
+            setProperty("connectTimeout", "10")
+            setProperty("socketTimeout", "15")
+            setProperty("cancelSignalTimeout", "5")
+            setProperty("ApplicationName", "physiology-runtime-preflight")
+        }
+        return PostgresClient.boundedJdbcUrl(config.databaseUrl) to properties
     }
 
     internal fun checkDatabase(connection: Connection, ingestSecret: String) {

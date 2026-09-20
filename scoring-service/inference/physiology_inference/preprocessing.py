@@ -38,6 +38,14 @@ def wav2sleep_ppg(signals, epochs):
         raise Abstain("ppg_units_or_wavelength_unverified")
     if not 10 <= ppg.sample_rate_hz <= 1024 / 30 or not isinstance(epochs, int) or not 1 <= epochs <= 1680:
         raise Abstain("wav2sleep_input_range_unsupported")
+    # Whole-night variance must not hide stale epochs. This retrospective adapter has no
+    # validated missing-span model, so one unsupported epoch abstains the whole request.
+    original = np.asarray(ppg.values, dtype=np.float64)
+    for epoch in range(epochs):
+        lo = math.ceil(epoch * 30 * ppg.sample_rate_hz)
+        hi = math.ceil((epoch + 1) * 30 * ppg.sample_rate_hz)
+        if len(original[lo:hi]) < 2 or float(np.std(original[lo:hi], ddof=1)) < 1e-6:
+            raise Abstain("flat_ppg_epoch")
     x = resample(ppg, 1024 / 30, epochs * 1024, first_sample_offset=30 / 1024)
     # Upstream ParquetDataset uses torch.std's sample standard deviation, eps=1e-6.
     std = float(np.std(x, ddof=1))

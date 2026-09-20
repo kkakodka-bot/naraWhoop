@@ -294,11 +294,12 @@ export const APPEND_STREAM_PROJECTIONS: Record<string, {
     onConflict: 'user_id,device_id,ts',
     tsKey: 'ts',
     mapRow: ({ userId, deviceId, sourceId, batchId, record }) => {
-      const ts = Number(record.key?.ts);
-      const x = Number(record.data?.x);
-      const y = Number(record.data?.y);
-      const z = Number(record.data?.z);
-      if (!Number.isFinite(ts) || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+      const ts = record.key?.ts;
+      const x = record.data?.x;
+      const y = record.data?.y;
+      const z = record.data?.z;
+      if (typeof ts !== 'number' || !Number.isSafeInteger(ts) ||
+          [x, y, z].some((value) => typeof value !== 'number' || !Number.isFinite(value))) return null;
       const row: Record<string, unknown> = {
         user_id: userId,
         device_id: deviceId,
@@ -307,10 +308,16 @@ export const APPEND_STREAM_PROJECTIONS: Record<string, {
         x,
         y,
         z,
+        dynAccel: null,
+        orientation_evidence_version: 'projected-gravity-g-1',
+        motion_evidence_version: null,
         batch_id: batchId,
       };
-      const dynAccel = Number(record.data?.dynAccel);
-      if (Number.isFinite(dynAccel)) row.dynAccel = dynAccel;
+      const dynAccel = record.data?.dynAccel;
+      if (typeof dynAccel === 'number' && Number.isFinite(dynAccel) && dynAccel >= 0 && dynAccel <= 8) {
+        row.dynAccel = dynAccel;
+        row.motion_evidence_version = 'projected-dynamic-acceleration-g-1';
+      }
       return row;
     },
   },

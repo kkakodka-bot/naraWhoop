@@ -107,24 +107,35 @@ the direct database hostname or pooler username identifies the same project as t
 `https://<project>.supabase.co/rest/v1` URL. Custom domains need separate binding evidence and are
 rejected by this deployment check. Failures produce a fixed stage code without printing secrets.
 Passing preflight is configuration evidence. Deployment retains the previous v2 containers and env
-until `remote/verify-scoring-runtime.sh` verifies the exact running image and hosted poll/publication
+until the shared `scoring-progress.sh` checks verify the exact running image and hosted poll/publication
 progress; a failed cutover restores the previous workers. Only workers belonging to the same hosted
 project and algorithm are replaced. The v1 worker and other projects are preserved. A deployment lock
-serializes cutovers, and each build uses a separate committed source directory. `DROPLET_ENV`,
-`SSH_KEY`, and `SSH_USER` can select an existing SSH configuration; strict host-key verification is
-required. `phase3-acceptance-checks.sh` invokes the same runtime check. Retry-exhausted debt fails;
+serializes cutovers, and each build uses a separate committed source directory. SSH uses the dedicated
+deploy key on port 22 with no password fallback or user-config overrides. The remote verifier wrapper
+and `phase3-acceptance-checks.sh` invoke the same runtime check. Retry-exhausted debt fails;
 delayed debt is reported and cannot pass without a new publication. An empty queue can establish
 poll liveness only. Process existence alone is not worker health.
 
-The database client defaults to 10-second connection, 60-second socket-read and 5-second
-cancellation-connection timeouts. Explicit URL options retain driver precedence. The read timeout
-bounds a stalled read, not a whole query/job or immediate server-side cancellation; it does not
-establish a five-minute delivery guarantee.
+Legacy/archive database clients default to 10-second connection, 60-second socket-read and
+5-second cancellation-connection timeouts, with operator URL overrides. Dedicated deterministic
+and model workers enforce 15-second statement and 20-second socket deadlines without URL bypass;
+the deterministic worker also bounds a whole claimed attempt to 90 seconds. Preflight enforces its
+own 10-second connection and 15-second socket deadlines. None establishes a five-minute delivery SLA.
 
 The temperature dependency migration `20260919010000` adds transactional invalidation and requeues
 previously published v2 days without modifying raw data or immutable results. It aborts atomically
 on active gate/DDL contention or more than 10,000 distinct published days. Quiesce scoring during
 this migration or retry after contention; larger installations need a reviewed batched catch-up.
+
+Persistent/replay workers and `--check-config` require `SCORING_WORKER_INSTANCE_ID` (a fresh canonical
+UUID per deployment) and `SCORING_WORKER_SOURCE_REVISION` (the exact 40-character commit SHA).
+Both images must be built with `--build-arg RELEASE_SHA=<commit>`; the worker checks its environment
+against the read-only `/app/release.sha` before opening its database. Migration `20260919020000`
+adds operator-only `physiology_worker_heartbeats`: deployment UUID plus a new process UUID per JVM
+boot, immutable source/algorithm identity, and that process's poll/score/error progress. Automatic
+container restarts create empty new process rows; they never inherit the previous boot's progress.
+The older singleton remains diagnostic compatibility only, not release-attribution evidence.
+Model-only, archive-only and inventory commands do not require deterministic-worker identity.
 
 The operations-only `ingest-verify` report exposes `physiology_processing` independently of
 `complete` (`complete_scope: ingestion_only`). It distinguishes a worker that never polled, queued
@@ -148,9 +159,9 @@ habitual timing and waveform channel semantics, carry explicit unavailable state
 Optional raw/model work uses bounded GET/hash/decode and a separately configured shadow lane. See
 [inference/README.md](inference/README.md). The JVM Docker image does not install approved Python model
 environments; absent activation/assets disables those candidates, not the independent deterministic work.
-Invalid optional configuration also leaves canonical processing available and records
-`shadow_configuration_unavailable` without exposing configuration contents. The production entry point
-does not provide a verified waveform job assembler, so installing weights alone cannot enable inference.
+Invalid optional configuration cannot stop the separate deterministic process. The model-only entry
+point uses the verified acquisition-contract assembler, isolated model queue and immutable assets;
+installing weights alone cannot establish compatible or qualified waveform inputs.
 
 ## Immutable derived archives
 

@@ -1,8 +1,10 @@
 """One bounded child per job, no inference thread pool, no credentials or publication client."""
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 import json
 import os
+from pathlib import Path
 import subprocess
 import sys
 import threading
@@ -10,7 +12,25 @@ import time
 import tempfile
 import signal
 
-from .contracts import shadow_result
+from .contracts import canonical_hash, shadow_result
+
+
+@contextmanager
+def isolated_child_environment():
+    """Private disposable caches also work for a read-only image with a numeric, homeless UID."""
+    with tempfile.TemporaryDirectory(prefix="physiology-inference-") as directory:
+        env = {k: os.environ[k] for k in ("PATH", "PYTHONPATH", "TMPDIR", "SYSTEMROOT") if k in os.environ}
+        env.update({"OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+                    "NUMEXPR_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1", "TF_NUM_INTRAOP_THREADS": "1",
+                    "TF_NUM_INTEROP_THREADS": "1", "PYTHONHASHSEED": "55", "HF_HUB_OFFLINE": "1",
+                    "TRANSFORMERS_OFFLINE": "1", "MPLBACKEND": "Agg", "PYTHONDONTWRITEBYTECODE": "1"})
+        for name, child in (("NUMBA_CACHE_DIR", "numba"), ("XDG_CACHE_HOME", "cache"),
+                            ("MPLCONFIGDIR", "matplotlib"), ("TORCH_HOME", "torch"),
+                            ("TORCHINDUCTOR_CACHE_DIR", "inductor"), ("HF_HOME", "huggingface")):
+            cache = Path(directory) / child
+            cache.mkdir(mode=0o700)
+            env[name] = str(cache)
+        yield env
 
 
 @dataclass(frozen=True)
@@ -39,13 +59,7 @@ class ShadowRuntime:
                                   "asset_root": str(asset_root), "limits": self.limits.__dict__}, allow_nan=False).encode()
             if len(payload) > self.limits.maximum_input_bytes:
                 return shadow_result(job, model_id, reason="inference_input_limit")
-            # Deliberately omit DB, B2 and cloud credentials. Only package lookup/cache roots survive.
-            env = {k: os.environ[k] for k in ("PATH", "PYTHONPATH", "TMPDIR", "SYSTEMROOT") if k in os.environ}
-            env.update({"OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
-                        "NUMEXPR_NUM_THREADS": "1", "VECLIB_MAXIMUM_THREADS": "1", "TF_NUM_INTRAOP_THREADS": "1",
-                        "TF_NUM_INTEROP_THREADS": "1", "PYTHONHASHSEED": "55", "HF_HUB_OFFLINE": "1",
-                        "TRANSFORMERS_OFFLINE": "1", "MPLBACKEND": "Agg"})
-            with tempfile.TemporaryFile() as output_file:
+            with isolated_child_environment() as env, tempfile.TemporaryFile() as output_file:
                 with subprocess.Popen([self.python, "-m", self.worker_module], stdin=subprocess.PIPE,
                                       stdout=output_file, stderr=subprocess.DEVNULL, env=env, start_new_session=True) as child:
                     try:
@@ -62,8 +76,15 @@ class ShadowRuntime:
                 def invalid_constant(value):
                     raise ValueError("nonfinite worker output")
                 result = json.loads(output, parse_constant=invalid_constant)
-                if result.get("publication_mode") != "shadow" or result.get("canonical_outputs_allowed") is not False or any(
+                if not isinstance(result, dict) or result.get("model_id") != model_id or result.get("publication_mode") != "shadow" or result.get("canonical_outputs_allowed") is not False or any(
                         result.get(k) != job.get(k) for k in ("user_id", "device_id", "input_revision", "input_hash")):
+                    return shadow_result(job, model_id, reason="inference_output_contract_invalid")
+                if result.get("status") not in ("complete", "abstained"):
+                    return shadow_result(job, model_id, reason="inference_output_contract_invalid")
+                if result.get("status") == "complete" and (not isinstance(result.get("output"), dict) or
+                        result.get("activation_hash") != (canonical_hash(activation) if activation else None) or
+                        result.get("checkpoint_sha256") != activation.get("assets", {}).get("weights", {}).get("sha256") or
+                        any(result.get(k) != activation.get(k) for k in ("code_revision", "preprocess_version", "quality_policy_version"))):
                     return shadow_result(job, model_id, reason="inference_output_contract_invalid")
                 result["elapsed_seconds"] = time.monotonic() - started
                 result["resource_scope"] = "host_measurement_not_target_vps"

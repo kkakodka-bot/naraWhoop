@@ -9,7 +9,7 @@ final class SleepOpportunityDetectorTests: XCTestCase {
         stride(from: day,to: day+86400,by: 5).map { t in HRSample(ts: t,bpm: sleep.contains { $0.contains(t) } ? 55 : 80) }
     }
     private func gravity() -> [GravitySample] {
-        stride(from: day,to: day+86400,by: 5).map { GravitySample(ts: $0,x: 0,y: 0,z: 1) }
+        stride(from: day,to: day+86400,by: 5).map { GravitySample(ts: $0,x: 0.00001*sin(Double($0)),y: 0,z: 1) }
     }
     func testTwentyMinuteAfternoonNapAndDaytimeShiftSleepHaveNoTimeOfDayGate() {
         let ranges = [(day+8*3600)..<(day+13*3600),nap..<(nap+1200)]

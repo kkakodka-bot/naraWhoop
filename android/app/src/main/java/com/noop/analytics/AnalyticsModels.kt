@@ -79,6 +79,8 @@ data class StageSegment(
     var computationMode: String? = null,
     var algorithmVersion: String? = null,
     var probabilitiesCalibrated: Boolean? = null,
+    var contextKind: String? = null,
+    var contextProvenance: String? = null,
 )
 
 object SleepStageSemantics {
@@ -97,10 +99,10 @@ object SleepStageSemantics {
     }
     fun isSleep(segment: StageSegment): Boolean {
         if (segment.state in listOf("state_unknown", "off_body", "awake")) return false
-        return segment.stage in listOf("light", "deep", "rem", "sleep_unstaged") ||
-            (segment.stage == "unknown" && segment.state == "sleep_unstaged")
+        if (segment.state in listOf("sleep", "sleep_unstaged")) return true
+        return segment.stage in listOf("light", "deep", "rem", "sleep_unstaged")
     }
-    fun isKnownState(segment: StageSegment): Boolean = isSleep(segment) ||
+    fun isKnownState(segment: StageSegment): Boolean = isSleep(segment) || segment.state == "awake" ||
         ((segment.state == null || segment.state == "awake") && SleepStageVocabulary.isWake(segment.stage))
     fun coalesced(segments: List<StageSegment>): List<StageSegment> {
         val out = ArrayList<StageSegment>()
@@ -130,7 +132,7 @@ object SleepStageSemantics {
         }
         fun priority(c: SleepContextSpan): Int = when {
             c.kind == "off_body" -> 3
-            c.kind in listOf("awake", "reading", "phone_use") -> 2
+            c.kind in listOf("awake", "reading", "phone_use", "quiet_rest") -> 2
             c.qualifiedBinarySleep -> 1
             else -> 0
         }
@@ -141,12 +143,15 @@ object SleepStageSemantics {
                 if (mode == "causal") s = unknown(lo, hi, "causal_stage_model_unavailable", mode = mode)
                 val c = context.filter { it.start <= lo && it.end >= hi &&
                     (mode != "causal" || (it.availableAt ?: it.end) <= hi) }.maxByOrNull(::priority)
-                if (c != null && priority(c) > 0) {
-                    val off = c.kind == "off_body"; val awake = priority(c) == 2
-                    if (off || awake || !isKnownState(s)) s = StageSegment(lo, hi,
-                        if (awake) "wake" else "unknown", state = if (off) "off_body" else if (awake) "awake" else "sleep_unstaged",
+                if (c != null) {
+                    val off = c.kind == "off_body"; val quiet=c.kind=="quiet_rest"; val awake = priority(c) == 2 && !quiet
+                    if (priority(c) > 0 && (off || awake || quiet || !isKnownState(s))) s = StageSegment(lo, hi,
+                        if (awake) "wake" else "unknown", state = if (off) "off_body" else if (awake) "awake" else if(quiet) "state_unknown" else "sleep_unstaged",
                         evidenceCoverage = s.evidenceCoverage, abstentionReason = "context:${c.kind}:${c.provenance}",
-                        computationMode = mode, algorithmVersion = "sleep-context-v1", probabilitiesCalibrated = false)
+                        computationMode = mode, algorithmVersion = "sleep-context-v2", probabilitiesCalibrated = false,
+                        contextKind=c.kind,contextProvenance=c.provenance)
+                    // Bed/opportunity reports are context, not binary sleep evidence.
+                    s=s.copy(contextKind=c.kind,contextProvenance=c.provenance)
                 }
                 s
             }
@@ -418,4 +423,5 @@ data class DayResult(
     val hrvMeasurements: List<HrvWindowResult> = emptyList(),
     val hrvBaselines: List<HrvSeries.Baseline> = emptyList(),
     val hrvNightSummary: HrvSeries.Summary? = null,
+    val fullDaySleepEpochs: List<StageSegment> = emptyList(),
 )

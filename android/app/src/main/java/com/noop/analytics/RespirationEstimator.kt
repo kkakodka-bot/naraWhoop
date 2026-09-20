@@ -4,14 +4,20 @@ import kotlin.math.*
 
 /** Transparent shadow spectral/autocorrelation estimator. Engineering gates are not clinical cutoffs. */
 object RespirationEstimator {
-    const val VERSION = "resp-spectrum-acf-1"
-    const val PREPROCESS_VERSION = "masked-linear-detrend-hann-1"
+    const val VERSION = "resp-spectrum-acf-2"
+    const val PREPROCESS_VERSION = "plausible-masked-linear-detrend-hann-2"
+    const val QUALITY_POLICY_VERSION = "resp-quality-2"
+    data class Contamination(val motionObservedFraction: Double? = null,
+        val motionContaminated: Boolean = false, val signalQualityReasons: List<String> = emptyList(),
+        val evidenceVersion: String = "unverified")
     data class Input(
         val start: Double, val sampleRateHz: Double, val values: List<Double>,
         val observed: List<Boolean>, val source: String, val modality: String,
         val timingVerified: Boolean, val channelVerified: Boolean,
         val motionContaminated: Boolean = false, val inputRevision: String = "local",
         val maximumSupportedRate: Double? = null,
+        val contamination: Contamination = Contamination(), val inputRejectionReasons: List<String> = emptyList(),
+        val acquisitionIdentity: List<String> = emptyList(),
     )
     data class Policy(
         val minimumRate: Double = 4.0, val maximumRate: Double = 40.0,
@@ -19,6 +25,7 @@ object RespirationEstimator {
         val minimumCycles: Double = 5.0, val minimumStandardDeviation: Double = 0.01,
         val minimumSpectralFraction: Double = 0.45, val minimumAutocorrelation: Double = 0.5,
         val maximumDisagreement: Double = 1.5, val harmonicPowerRatio: Double = 0.2,
+        val subharmonicPowerRatio: Double = 0.002, val minimumMotionObservedFraction: Double = 0.9,
     )
     data class Result(
         val start: Double, val end: Double, val breathsPerMinute: Double?, val reason: String?,
@@ -30,6 +37,9 @@ object RespirationEstimator {
         val acceptedSpans: List<PhysiologyQuality.Span> = emptyList(),
         val methodVersion: String = VERSION, val preprocessVersion: String = PREPROCESS_VERSION,
         val publicationMode: String = "shadow", val computationMode: String = "windowed_retrospective",
+        val qualityPolicyVersion: String = QUALITY_POLICY_VERSION, val motionObservedFraction: Double? = null,
+        val qualityEvidenceVersion: String = "unverified", val rejectionReasons: List<String> = emptyList(),
+        val acquisitionIdentity: List<String> = emptyList(),
     )
 
     fun estimate(input: Input, policy: Policy = Policy()): Result {
@@ -43,14 +53,23 @@ object RespirationEstimator {
         var acceptedSpans = emptyList<PhysiologyQuality.Span>()
         fun result(reason: String?, estimate: Double? = null) = Result(input.start, input.start + duration,
             estimate, reason, coverage, maxGap, spectralRate, acfRate, spectralFraction, acfStrength,
-            cycles, input.source, input.modality, input.inputRevision, policy.minimumRate, maximumRate, acceptedSpans)
+            cycles, input.source, input.modality, input.inputRevision, policy.minimumRate, maximumRate, acceptedSpans,
+            motionObservedFraction = input.contamination.motionObservedFraction,
+            qualityEvidenceVersion = input.contamination.evidenceVersion,
+            rejectionReasons = (input.inputRejectionReasons + input.contamination.signalQualityReasons + listOfNotNull(reason)).distinct().sorted(),
+            acquisitionIdentity = input.acquisitionIdentity)
         if (!input.start.isFinite() || !rate.isFinite() || rate < 1 || rate > 128 || n !in 32..16384 ||
             input.observed.size != n || duration < 32 || duration > 300 ||
             !(policy.minimumRate > 0 && maximumRate.isFinite() && maximumRate > policy.minimumRate) ||
             policy.maximumRate >= 0.8 * rate * 30) return result("unsupported_shape_or_rate")
         if (!input.timingVerified) return result("timing_unverified")
         if (!input.channelVerified) return result("channel_semantics_unverified")
-        if (input.motionContaminated) return result("motion_contamination")
+        if (input.motionContaminated || input.contamination.motionContaminated) return result("motion_contamination")
+        if (input.contamination.signalQualityReasons.isNotEmpty()) return result("signal_quality_contamination")
+        val motionCoverage = input.contamination.motionObservedFraction
+        if (motionCoverage == null || !motionCoverage.isFinite() || motionCoverage < policy.minimumMotionObservedFraction ||
+            motionCoverage > 1 || input.contamination.evidenceVersion.isBlank() || input.contamination.evidenceVersion == "unverified")
+            return result("motion_evidence_unavailable")
         val mask = input.values.indices.map { input.observed[it] && input.values[it].isFinite() }
         coverage = mask.count { it }.toDouble() / n
         acceptedSpans = PhysiologyQuality.union(mask.indices.filter { mask[it] }.map {
@@ -59,7 +78,8 @@ object RespirationEstimator {
         var run = 0; var longest = 0
         for (observed in mask) { run = if (observed) 0 else run + 1; longest = max(longest, run) }
         maxGap = longest / rate
-        if (coverage < policy.minimumObservedFraction) return result("insufficient_observed_time")
+        if (coverage < policy.minimumObservedFraction) return result(if ("interval_out_of_plausibility" in input.inputRejectionReasons)
+            "interval_out_of_plausibility" else "insufficient_observed_time")
         if (maxGap > policy.maximumGapSeconds) return result("acquisition_gap")
         val count = mask.count { it }.toDouble()
         val meanT = mask.indices.filter { mask[it] }.sumOf { it.toDouble() } / count
@@ -111,6 +131,18 @@ object RespirationEstimator {
             k in firstBin..highestBin && abs(k - peak) > 2 && power[k] >= power[peak] * policy.harmonicPowerRatio
         }
         if (harmonic) return result("harmonic_ambiguity")
+        // The first ACF peak can agree with a dominant second harmonic. A resolved weaker
+        // fundamental is evidence of ambiguity, not permission to report twice its rate.
+        val half = (peak / 2.0).roundToInt()
+        if (half > firstBin && half < highestBin && peak - half > 2) {
+            val candidate = ((half - 1)..(half + 1)).maxByOrNull { power[it] }!!
+            val neighborhood = (max(firstBin, candidate - 5)..min(highestBin, candidate + 5))
+                .filter { abs(it - candidate) > 2 && abs(it - peak) > 2 }.map { power[it] }.sorted()
+            val background = if (neighborhood.isEmpty()) 0.0 else neighborhood[neighborhood.size / 2]
+            if (power[candidate] >= power[peak] * policy.subharmonicPowerRatio && power[candidate] > background * 8 &&
+                power[candidate] >= power[candidate - 1] && power[candidate] >= power[candidate + 1])
+                return result("harmonic_ambiguity")
+        }
         if (abs(acfRate - spectralRate) > policy.maximumDisagreement) return result("spectral_autocorrelation_disagreement")
         cycles = duration * coverage * acfRate / 60
         if (cycles < policy.minimumCycles) return result("insufficient_cycles")
@@ -122,10 +154,14 @@ object RespirationEstimator {
 
     /** A sampled tachogram is eligible only inside verified original spans; gaps are never filled. */
     fun fromIntervals(start: Double, duration: Int, observations: List<PhysiologyQuality.IntervalObservation>,
-                      inputRevision: String = "local"): Input {
+                      inputRevision: String = "local", contamination: Contamination = Contamination()): Input {
         require(duration in 32..300 && start.isFinite())
-        val rows = observations.distinct().sortedBy { it.verifiedSpan?.start ?: it.eventTime }
-        val ownership = rows.map { listOf(it.userId, it.deviceId, it.source, it.modality, it.clockVersion) }.distinct()
+        val rows = observations.filter { row -> row.verifiedSpan?.takeIf { it.start.isFinite() && it.end.isFinite() && it.end > it.start }
+            ?.let { it.end > start && it.start < start + duration }
+            ?: (!row.eventTime.isFinite() || (row.eventTime >= start && row.eventTime < start + duration))
+        }.distinct().sortedBy { it.verifiedSpan?.start ?: it.eventTime }
+        val ownership = rows.map { listOf(it.userId, it.deviceId, it.source, it.modality, it.clockVersion,
+            it.decoderVersion, it.deviceFirmware ?: "unknown") }.distinct()
         val identities = rows.groupBy { it.originalId }
         val verified = rows.isNotEmpty() && ownership.size == 1 && identities.values.all { it.size == 1 } && rows.all {
             val span = it.verifiedSpan
@@ -133,7 +169,8 @@ object RespirationEstimator {
                 it.eventTime.isFinite() && it.originalRRMs.isFinite() &&
                 abs((span.end - span.start) - it.originalRRMs / 1000) <= 0.002001 &&
                 it.timestampPrecisionSeconds.isFinite() && it.timestampPrecisionSeconds > 0 && it.timestampPrecisionSeconds <= .020 &&
-                !it.startBeatId.isNullOrEmpty() && !it.endBeatId.isNullOrEmpty() &&
+                it.originalId.isNotEmpty() && !it.startBeatId.isNullOrEmpty() && !it.endBeatId.isNullOrEmpty() && it.startBeatId != it.endBeatId &&
+                it.deviceId.isNotEmpty() && it.source.isNotEmpty() && it.decoderVersion.isNotEmpty() &&
                 !it.continuityGroup.isNullOrEmpty() && it.clockVersion.isNotEmpty() && it.clockVersion != "unknown" && it.decoderVersion != "unknown" &&
                 it.modality in listOf("ecg_nn", "ppg_ibi")
         }
@@ -142,15 +179,29 @@ object RespirationEstimator {
             row.startBeatId.takeIf { !row.startBeatAccepted }, row.endBeatId.takeIf { !row.endBeatAccepted }) }.toSet()
         fun endpointsAccepted(row: PhysiologyQuality.IntervalObservation) = row.startBeatAccepted && row.endBeatAccepted &&
             row.startBeatId !in rejectedBeats && row.endBeatId !in rejectedBeats
+        fun plausible(row: PhysiologyQuality.IntervalObservation) = when (row.modality) {
+            "ecg_nn" -> row.originalRRMs in 250.0..3000.0
+            "ppg_ibi" -> row.originalRRMs in 250.0..2500.0
+            else -> false
+        }
+        fun qualityReasons(row: PhysiologyQuality.IntervalObservation): List<String> = buildList {
+            if (!plausible(row)) add("interval_out_of_plausibility")
+            if (!row.originalAccepted || !endpointsAccepted(row)) add("rejected_original_endpoint")
+            if (row.rhythmAmbiguous) add("rhythm_ambiguity")
+            if (row.corrections.isNotEmpty()) add("corrected_intervals_excluded")
+            row.qualityReason?.let(::add)
+            PhysiologyQuality.signalRejectionReason(row)?.let(::add)
+        }
+        val rejections = rows.associate { it.originalId to qualityReasons(it) }
+        fun usable(row: PhysiologyQuality.IntervalObservation) = rejections[row.originalId].isNullOrEmpty()
+        val rhythmAmbiguity = PhysiologyQuality.hasAmbiguousAlternation(rows)
         val values = MutableList(duration * 4) { Double.NaN }; val mask = MutableList(duration * 4) { false }
-        if (verified) for (i in 1 until rows.size) {
+        if (verified && !rhythmAmbiguity) for (i in 1 until rows.size) {
             val a = rows[i - 1]; val b = rows[i]; val sa = a.verifiedSpan!!; val sb = b.verifiedSpan!!
             if (a.endBeatId != b.startBeatId || a.continuityGroup != b.continuityGroup ||
-                abs(sa.end - sb.start) > 0.002 || !a.originalAccepted || !b.originalAccepted ||
-                !endpointsAccepted(a) || !endpointsAccepted(b) || a.rhythmAmbiguous || b.rhythmAmbiguous ||
-                a.corrections.isNotEmpty() || b.corrections.isNotEmpty()) continue
+                abs(sa.end - sb.start) > 0.000001 || !usable(a) || !usable(b)) continue
             val left = (sa.start + sa.end) / 2; val right = (sb.start + sb.end) / 2
-            if (right <= left || right - left > 2) continue
+            if (right <= left || right - left > if (a.modality == "ecg_nn") 3.0 else 2.5) continue
             for (j in values.indices) {
                 val t = start + j / 4.0
                 if (t >= left && t < right) {
@@ -159,16 +210,19 @@ object RespirationEstimator {
                 }
             }
         }
-        val maximumRate = if (verified) 24.0 / rows.maxOf { it.verifiedSpan!!.end - it.verifiedSpan.start } else null
+        val maximumRate = if (verified) rows.filter(::usable).maxOfOrNull { it.verifiedSpan!!.end - it.verifiedSpan.start }?.let { 24.0 / it } else null
         return Input(start, 4.0, values, mask, rows.firstOrNull()?.source ?: "unavailable", "rsa_ibi_ms",
-            verified, verified, inputRevision = inputRevision, maximumSupportedRate = maximumRate)
+            verified, verified, inputRevision = inputRevision, maximumSupportedRate = maximumRate,
+            contamination = contamination, inputRejectionReasons =
+                (rejections.values.flatten() + if (rhythmAmbiguity) listOf("rhythm_ambiguity") else emptyList()).distinct().sorted(),
+            acquisitionIdentity = ownership.singleOrNull() ?: emptyList())
     }
 
     data class Fusion(val breathsPerMinute: Double?, val reason: String?, val methods: List<String>, val evidenceStrength: Double?)
 
     /** Correlated channels never multiply confidence; disagreement is retained as abstention. */
     fun fuse(results: List<Result>, maximumDisagreement: Double = 1.5): Fusion {
-        val accepted = results.filter { it.reason == null && it.breathsPerMinute != null }
+        val accepted = results.distinct().filter { it.reason == null && it.breathsPerMinute?.isFinite() == true && it.breathsPerMinute > 0 }
         if (accepted.isEmpty()) return Fusion(null, "no_eligible_channels", emptyList(), null)
         if (accepted.map { Triple(it.start, it.end, it.inputRevision) }.distinct().size != 1)
             return Fusion(null, "channel_windows_not_aligned", accepted.map { it.modality }, null)
@@ -180,18 +234,40 @@ object RespirationEstimator {
 
     data class Summary(val median: Double?, val mean: Double?, val acceptedSeconds: Double, val coverage: Double,
                        val acceptedWindows: Int, val totalWindows: Int, val context: String,
-                       val distributionBpm: List<Double> = emptyList())
+                       val distributionBpm: List<Double> = emptyList(), val reason: String? = null,
+                       val coverageByThird: List<Double> = emptyList(), val rejectionReasons: List<String> = emptyList(),
+                       val qualityPolicyVersion: String = QUALITY_POLICY_VERSION, val evidenceStrength: Double? = null)
+    data class SummaryPolicy(val minimumSleepAcceptedSeconds: Double = 1800.0,
+        val minimumAwakeRestAcceptedSeconds: Double = 120.0, val minimumSleepWindows: Int = 3,
+        val minimumCoverage: Double = 0.5, val minimumCoveragePerThird: Double = 0.1)
 
     /** Overlapping strides contribute to duration once. Sleep and awake-rest summaries stay separate. */
-    fun summarize(results: List<Result>, start: Double, end: Double, context: String): Summary {
-        require(end > start && context in listOf("qualified_sleep", "qualified_awake_rest"))
-        val inPeriod = results.filter { it.start >= start && it.end <= end }
-        val accepted = inPeriod.filter { it.reason == null && it.breathsPerMinute != null }
+    fun summarize(results: List<Result>, start: Double, end: Double, context: String, policy: SummaryPolicy = SummaryPolicy()): Summary {
+        require(start.isFinite() && end.isFinite() && end > start && context in listOf("qualified_sleep", "qualified_awake_rest"))
+        val inPeriod = results.filter { it.start >= start && it.end <= end }.distinct()
+        val accepted = inPeriod.filter { it.reason == null && it.breathsPerMinute?.isFinite() == true && it.breathsPerMinute > 0 }
         val values = accepted.map { it.breathsPerMinute!! }.sorted()
-        val seconds = PhysiologyQuality.union(accepted.flatMap { it.acceptedSpans }, start, end)
-            .sumOf { it.end - it.start }
-        val median = if (values.isEmpty()) null else (values[(values.size - 1) / 2] + values[values.size / 2]) / 2
-        return Summary(median, if (values.isEmpty()) null else values.average(), seconds, seconds / (end - start),
-            accepted.size, inPeriod.size, context, values)
+        val spans = accepted.flatMap { PhysiologyQuality.union(it.acceptedSpans, it.start, it.end) }
+        val seconds = PhysiologyQuality.union(spans, start, end).sumOf { it.end - it.start }
+        val third = (end - start) / 3
+        val thirds = (0..2).map { i -> PhysiologyQuality.union(spans, start + i * third, start + (i + 1) * third).sumOf { it.end - it.start } / third }
+        val provenance = accepted.map { listOf(it.source, it.modality, it.inputRevision, it.methodVersion, it.preprocessVersion, it.qualityPolicyVersion) + it.acquisitionIdentity }.distinct()
+        val conflicts = inPeriod.groupBy { it.start to it.end }.values.any { it.size > 1 }
+        val coverage = seconds / (end - start)
+        val reason = when {
+            conflicts -> "conflicting_window_results"
+            provenance.size > 1 -> "incompatible_window_provenance"
+            values.isEmpty() -> "no_quality_eligible_windows"
+            seconds < (if (context == "qualified_sleep") policy.minimumSleepAcceptedSeconds else policy.minimumAwakeRestAcceptedSeconds) -> "insufficient_accepted_duration"
+            context == "qualified_sleep" && accepted.size < policy.minimumSleepWindows -> "insufficient_accepted_windows"
+            coverage < policy.minimumCoverage -> "insufficient_period_coverage"
+            thirds.any { it < policy.minimumCoveragePerThird } -> "unrepresentative_temporal_coverage"
+            else -> null
+        }
+        val median = if (reason != null) null else (values[(values.size - 1) / 2] + values[values.size / 2]) / 2
+        return Summary(median, if (reason != null) null else values.average(), seconds, coverage,
+            accepted.size, inPeriod.size, context, values, reason, thirds,
+            (inPeriod.flatMap { it.rejectionReasons } + listOfNotNull(reason)).distinct().sorted(),
+            evidenceStrength = if (reason == null) accepted.mapNotNull { it.autocorrelation }.minOrNull() else null)
     }
 }

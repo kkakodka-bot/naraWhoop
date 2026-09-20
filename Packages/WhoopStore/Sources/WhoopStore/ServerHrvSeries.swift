@@ -30,7 +30,7 @@ public struct ServerHrvSeries {
                 observedThrough: feature?.observedThrough, stale: cache?.stale ?? true)
         }
         guard let cache, cache.day == day, !cache.ownerId.isEmpty, cache.schemaVersion == 2,
-              let feature, feature.algorithmVersion == "frwhoop-physiology-2", let device = feature.deviceId, !device.isEmpty,
+              let feature, feature.hasCanonicalAuthorization, feature.algorithmVersion == "frwhoop-physiology-2", let device = feature.deviceId, !device.isEmpty,
               let revision = feature.inputRevision,
               let json = cache.rawSnapshotJSON?.data(using: .utf8),
               let root = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any],

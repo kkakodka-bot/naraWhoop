@@ -32,8 +32,7 @@ class PhysiologyPublicationIntegrationTest {
         sql("insert into devices(id,user_id) values ('$device','$user')")
     }
     @After fun close() { if (::db.isInitialized) {
-        sql("update physiology_feature_qualifications set qualification='shadow',policy_sha256=null,evaluation_sha256=null," +
-            "signed_policy=null,signed_evaluation=null,reviewed_by=null,reviewed_at=null where algorithm_version='frwhoop-physiology-2'")
+        SignedPromotionFixtures.reset(db)
         db.close()
     } }
 
@@ -78,6 +77,60 @@ class PhysiologyPublicationIntegrationTest {
         val bad = payload(item).apply { getJSONObject("daily").put("source_device_id",UUID.randomUUID().toString()) }
         expectFailure("22023") { publish(bad) }
         assertEquals(0L, count("server_physiology_results"))
+    }
+
+    @Test fun anApprovedNewManifestCannotPromoteAnOlderV2Snapshot() {
+        selectSyntheticQualifiedV2()
+        val item=claim()
+        val older=payload(item).apply { remove("feature_manifest_hashes") }
+        publish(older)
+        db.withConnection { c -> c.createStatement().use { s ->
+            s.execute("set role authenticated")
+            try {
+                s.execute("select set_config('request.jwt.claim.sub','$user',false)")
+                s.executeQuery("select server_scoring_for_day('$user','$day')").use { r ->
+                    r.next(); val read=JSONObject(r.getString(1))
+                    for(feature in listOf("hrv","sleep","respiration")) {
+                        assertEquals("unavailable",read.getJSONObject("features").getJSONObject(feature).getString("status"))
+                    }
+                    assertEquals(0,read.getJSONArray("measurements").length())
+                }
+            } finally { s.execute("reset role") }
+        } }
+    }
+
+    @Test fun sleepSelectionCannotExposeSeparatelyUnselectedOrRevokedNightlyPhysiology() {
+        listOf("sleep","hrv","respiration").forEach {
+            SignedPromotionFixtures.register(db,SignedPromotionFixtures.prepare(db,it))
+            SignedPromotionFixtures.qualify(db,it)
+        }
+        sql("insert into physiology_source_selection(user_id,feature,device_id,algorithm_version) " +
+            "values('$user','sleep','$device','frwhoop-physiology-2')")
+        val value=payload(claim(),1).apply { getJSONArray("nights").getJSONObject(0)
+            .put("hrv_rmssd_ms",80).put("resting_hr_bpm",55).put("resp_rate_bpm",12) }
+        publish(value)
+        fun readNight(): JSONObject = db.withConnection { c -> c.createStatement().use { s ->
+            // The disposable bootstrap lacks Supabase's public-schema default SELECT grants.
+            s.execute("grant usage on schema auth to authenticated")
+            s.execute("grant select on devices,noop_hr_samples,server_daily_scores,server_sleep_nights to authenticated")
+            s.execute("set role authenticated")
+            try {
+                s.execute("select set_config('request.jwt.claim.sub','$user',false)")
+                s.executeQuery("select server_scoring_for_day('$user','$day')").use { r ->
+                    r.next(); JSONObject(r.getString(1)).getJSONArray("nights").getJSONObject(0)
+                }
+            } finally { s.execute("reset role") }
+        } }
+        val sleepOnly=readNight()
+        assertFalse(sleepOnly.has("hrv_rmssd_ms")); assertFalse(sleepOnly.has("resting_hr_bpm"))
+        assertFalse(sleepOnly.has("resp_rate_bpm"))
+        sql("insert into physiology_source_selection(user_id,feature,device_id,algorithm_version) " +
+            "select '$user',feature,'$device','frwhoop-physiology-2' from physiology_feature_defaults where feature<>'sleep'")
+        assertEquals(80,readNight().getInt("hrv_rmssd_ms"))
+        assertEquals(12,readNight().getInt("resp_rate_bpm"))
+        sql("update physiology_feature_qualifications set qualification='shadow' where algorithm_version='frwhoop-physiology-2' and feature='hrv'")
+        assertFalse(readNight().has("hrv_rmssd_ms"))
+        assertEquals(12,readNight().getInt("resp_rate_bpm"))
     }
 
     @Test fun archiveFailureIsIndependentlyRetryableAndFenced() {
@@ -301,13 +354,10 @@ class PhysiologyPublicationIntegrationTest {
 
     /** Disposable fixture qualification exercises selected readback; it is not scientific evidence. */
     private fun selectSyntheticQualifiedV2() {
-        sql("update physiology_feature_qualifications set qualification='reference_qualified'," +
-            "policy_sha256=repeat('a',64),evaluation_sha256=repeat('b',64)," +
-            "signed_policy=jsonb_build_object('payload',jsonb_build_object('metric_family',feature)," +
-            "'signature',jsonb_build_object('algorithm','HMAC-SHA256'))," +
-            "signed_evaluation=jsonb_build_object('payload',jsonb_build_object('policy_sha256',repeat('a',64))," +
-            "'signature',jsonb_build_object('algorithm','HMAC-SHA256')),reviewed_by='disposable-test',reviewed_at=now() " +
-            "where algorithm_version='frwhoop-physiology-2'")
+        listOf("hrv","sleep","respiration").forEach {
+            SignedPromotionFixtures.register(db,SignedPromotionFixtures.prepare(db,it))
+            SignedPromotionFixtures.qualify(db,it)
+        }
         sql("insert into physiology_source_selection(user_id,feature,device_id,algorithm_version) " +
             "select '$user',feature,'$device','frwhoop-physiology-2' from physiology_feature_defaults")
     }
@@ -319,6 +369,7 @@ class PhysiologyPublicationIntegrationTest {
     }
 
     private fun payload(item: ScoringWorkQueue.WorkItem, episodes: Int = 0): JSONObject = JSONObject()
+        .put("feature_manifest_hashes",SignedPromotionFixtures.hashes(db))
         .put("schema_version",2).put("user_id",item.userId.toString()).put("device_id",item.deviceId.toString())
         .put("day",day).put("algorithm_version","frwhoop-physiology-2")
         .put("input_revision",item.inputRevision).put("lease_token",item.leaseToken.toString())

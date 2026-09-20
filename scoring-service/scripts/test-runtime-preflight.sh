@@ -14,6 +14,8 @@ trap cleanup EXIT
 export RUNTIME_PREFLIGHT_TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:$test_port/runtime_preflight_test"
 cd "$service_dir"
 ./gradlew :service:test --tests com.frwhoop.scoring.RuntimePreflightCommandTest \
-  --tests com.frwhoop.scoring.RuntimePreflightIntegrationTest --no-daemon --max-workers=2
+  --tests com.frwhoop.scoring.WorkerHeartbeatIdentityTest \
+  --tests com.frwhoop.scoring.RuntimePreflightIntegrationTest --no-daemon --max-workers=2 --rerun-tasks
 cp service/build/test-results/test/TEST-com.frwhoop.scoring.RuntimePreflight*.xml "$test_dir/"
+cp service/build/test-results/test/TEST-com.frwhoop.scoring.WorkerHeartbeatIdentityTest.xml "$test_dir/"
 printf 'Disposable PostgreSQL preflight evidence: %s\n' "$test_dir"

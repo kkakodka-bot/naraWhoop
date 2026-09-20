@@ -115,32 +115,40 @@ def neurokit_detectors(signals, nk):
             "perfusion_reason": "dc_calibration_not_available", "correction_comparison": corrections}
 
 
+def wav2sleep_predict(signals, epochs, paths, package_tree_sha256):
+    """Actual released-checkpoint execution after the caller's asset and activation checks."""
+    import numpy as np
+    import torch
+    import wav2sleep
+    verify_loaded_package(wav2sleep, package_tree_sha256)
+    x = wav2sleep_ppg(signals, epochs)
+    if set(paths) != {"config", "weights"} or paths["config"].name != "config.yaml" or paths["weights"].name != "state_dict.pth" or paths["config"].parent != paths["weights"].parent:
+        raise Abstain("wav2sleep_checkpoint_layout_invalid")
+    torch.set_num_threads(1); torch.use_deterministic_algorithms(True)
+    model = wav2sleep.load_model(str(paths["weights"].parent), device="cpu", compile=False)
+    if model.num_classes != 4 or "PPG" not in model.valid_signals:
+        raise Abstain("wav2sleep_checkpoint_modality_mismatch")
+    with torch.inference_mode():
+        probabilities = torch.softmax(model({"PPG": torch.from_numpy(x)}), dim=-1).cpu().numpy()[0]
+    if probabilities.shape != (epochs, 4) or not np.isfinite(probabilities).all():
+        raise Abstain("model_output_shape_invalid")
+    labels = ["wake", "light", "deep", "rem"]
+    return {"labels": labels, "probabilities": probabilities.tolist(), "epoch_seconds": 30,
+            "stages": [labels[int(index)] for index in probabilities.argmax(axis=1)],
+            "evidence_coverage": [{"ppg": 1.0}] * epochs, "abstention_reasons": [None] * epochs,
+            "calibrated": False, "computation_mode": "retrospective"}
+
+
 def execute(job, model_id, activation, asset_root):
     signals = validate_job(job)
     paths = validate_activation(activation, asset_root, model_id)
     # Ancillary qualification evidence is validated, but is not a model input asset.
-    paths = {name: path for name, path in paths.items() if name != "environment_manifest"}
+    paths = {name: path for name, path in paths.items() if name not in ("environment_manifest", "acquisition_contract")}
     output = None
     if model_id == "wav2sleep-cardiorespiratory":
         if job["mode"] != "retrospective":
             raise Abstain("noncausal_model_requires_retrospective_mode")
-        import numpy as np
-        import torch
-        import wav2sleep
-        verify_loaded_package(wav2sleep, activation.get("package_tree_sha256"))
-        load_model = wav2sleep.load_model
-        x = wav2sleep_ppg(signals, job.get("epochs"))
-        if set(paths) != {"config", "weights"} or paths["config"].name != "config.yaml" or paths["weights"].name != "state_dict.pth" or paths["config"].parent != paths["weights"].parent:
-            raise Abstain("wav2sleep_checkpoint_layout_invalid")
-        torch.set_num_threads(1); torch.use_deterministic_algorithms(True)
-        model = load_model(str(paths["weights"].parent), device="cpu", compile=False)
-        if model.num_classes != 4 or "PPG" not in model.valid_signals:
-            raise Abstain("wav2sleep_checkpoint_modality_mismatch")
-        with torch.inference_mode():
-            probabilities = torch.softmax(model({"PPG": torch.from_numpy(x)}), dim=-1).cpu().numpy()[0]
-        if probabilities.shape != (job["epochs"], 4) or not np.isfinite(probabilities).all():
-            raise Abstain("model_output_shape_invalid")
-        output = {"labels": ["wake", "light", "deep", "rem"], "probabilities": probabilities.tolist(), "epoch_seconds": 30}
+        output = wav2sleep_predict(signals, job.get("epochs"), paths, activation.get("package_tree_sha256"))
     elif model_id == "rr-estimation":
         x = rr_estimation(signals, job.get("preprocessing_contract"))
         import tensorflow as tf

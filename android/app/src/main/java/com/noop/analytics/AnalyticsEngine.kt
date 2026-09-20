@@ -177,7 +177,8 @@ object AnalyticsEngine {
                     "pLight" to s.pLight, "pDeep" to s.pDeep, "pRem" to s.pRem,
                     "evidenceCoverage" to s.evidenceCoverage, "abstentionReason" to s.abstentionReason,
                     "computationMode" to s.computationMode, "algorithmVersion" to s.algorithmVersion,
-                    "probabilitiesCalibrated" to s.probabilitiesCalibrated)
+                    "probabilitiesCalibrated" to s.probabilitiesCalibrated,
+                    "contextKind" to s.contextKind,"contextProvenance" to s.contextProvenance)
                 sb.append(values.filterValues { it != null }.entries.joinToString(",", "{", "}") { (k, v) ->
                     JSONObject.quote(k) + ":" + when (v) {
                         is String -> JSONObject.quote(v)
@@ -216,7 +217,8 @@ object AnalyticsEngine {
                     pLight = num("pLight"), pDeep = num("pDeep"), pRem = num("pRem"),
                     evidenceCoverage = num("evidenceCoverage"), abstentionReason = str("abstentionReason"),
                     computationMode = str("computationMode"), algorithmVersion = str("algorithmVersion"),
-                    probabilitiesCalibrated = if (o.isNull("probabilitiesCalibrated")) null else o.getBoolean("probabilitiesCalibrated")))
+                    probabilitiesCalibrated = if (o.isNull("probabilitiesCalibrated")) null else o.getBoolean("probabilitiesCalibrated"),
+                    contextKind=str("contextKind"),contextProvenance=str("contextProvenance")))
             }
             out
         } catch (_: Throwable) {
@@ -462,10 +464,8 @@ object AnalyticsEngine {
                 }).also { opportunityEpochs=it.epochs }.episodes.map { s ->
                 // Naps have binary evidence, not a forced miniature overnight stage architecture.
                 if(s.end-s.start<3600 || !useSleepStagerV2) s else {
-                    val staged=SleepStagerV2.stageSession(s.start,s.end,gravity,hr,rr,resp).map { segment ->
-                        if(segment.state=="state_unknown") segment.copy(state="sleep_unstaged",
-                            abstentionReason="binary_sleep_stage_unavailable") else segment
-                    }
+                    val staged=SleepOpportunityDetector.stagesPreservingBinarySleep(
+                        SleepStagerV2.stageSession(s.start,s.end,gravity,hr,rr,resp),s.start,s.end)
                     s.copy(stages=staged,efficiency=SleepStager.efficiency(s.start,s.end,staged))
                 }
             }
@@ -582,7 +582,8 @@ object AnalyticsEngine {
         }
         val groupId = mainGroupIdx.map { matched[it].start }.minOrNull()?.let { "sleep-group:$it" }
         matched = matched.mapIndexed { i, s -> s.copy(
-            episodeType = if (!s.hasKnownState) "uncertain" else if (i in mainGroupIdx) "main_sleep" else "nap",
+            episodeType = if(useFullDaySleepOpportunities) SleepOpportunityDetector.episodeType(s,i in mainGroupIdx)
+                else if (!s.hasKnownState) "uncertain" else if (i in mainGroupIdx) "main_sleep" else "nap",
             groupedNightId = if (i in mainGroupIdx) groupId else null) }
         val mainGroup: List<DetectedSleep> = mainGroupIdx.map { matched[it] }
         val finalHrvContext = hrvContext.ifEmpty { matched.flatMap {
@@ -1043,6 +1044,8 @@ object AnalyticsEngine {
             gravitySparse = gravitySparse,
             detectionFunnel = detectionFunnel,
             hrvMeasurements = hrvMeasurements, hrvBaselines = hrvBaselines, hrvNightSummary = hrvNightSummary,
+            fullDaySleepEpochs = if(useFullDaySleepOpportunities) SleepStageSemantics.applyingContext(
+                opportunityEpochs,dayStartUtc,dayEndUtc,contexts,sleepComputationMode,sleepObservedThrough) else emptyList(),
         )
     }
 

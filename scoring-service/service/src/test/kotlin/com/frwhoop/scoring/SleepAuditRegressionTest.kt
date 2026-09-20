@@ -23,7 +23,8 @@ class SleepAuditRegressionTest {
     private fun input(): SignalSampleReader.DayInputs {
         val ranges=listOf(day+3*3600 until day+4*3600,day+13*3600 until day+15*3600)
         val hr=(day until day+86400 step 5).map { HrSample(device,it,if(ranges.any { span -> it in span }) 55 else 80) }
-        val gravity=hr.map { GravitySample(device,it.ts,0.0,0.0,1.0) }
+        // Plausible non-frozen orientation supports binary sleep; 5-second sampling still cannot qualify staging.
+        val gravity=hr.map { GravitySample(device,it.ts,(it.ts%2)*.000001,0.0,1.0) }
         return SignalSampleReader.DayInputs(user,"2026-09-17",device,0,day,day+86399,UserProfile(),
             day-86400,day+86399,hr,emptyList(),emptyList(),gravity,emptyList(),DeviceFamily.WHOOP5)
     }

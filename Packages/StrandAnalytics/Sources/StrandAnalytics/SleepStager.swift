@@ -42,17 +42,21 @@ public struct StageSegment: Equatable, Sendable, Codable {
     public var computationMode: String?
     public var algorithmVersion: String?
     public var probabilitiesCalibrated: Bool?
+    public var contextKind: String?
+    public var contextProvenance: String?
     public init(start: Int, end: Int, stage: String, state: String? = nil,
                 sleepProbability: Double? = nil, pWake: Double? = nil, pLight: Double? = nil,
                 pDeep: Double? = nil, pRem: Double? = nil, evidenceCoverage: Double? = nil,
                 abstentionReason: String? = nil, computationMode: String? = nil,
-                algorithmVersion: String? = nil, probabilitiesCalibrated: Bool? = nil) {
+                algorithmVersion: String? = nil, probabilitiesCalibrated: Bool? = nil,
+                contextKind: String? = nil, contextProvenance: String? = nil) {
         self.start = start; self.end = end; self.stage = stage
         self.state = state; self.sleepProbability = sleepProbability
         self.pWake = pWake; self.pLight = pLight; self.pDeep = pDeep; self.pRem = pRem
         self.evidenceCoverage = evidenceCoverage; self.abstentionReason = abstentionReason
         self.computationMode = computationMode; self.algorithmVersion = algorithmVersion
         self.probabilitiesCalibrated = probabilitiesCalibrated
+        self.contextKind = contextKind; self.contextProvenance = contextProvenance
     }
 }
 
@@ -74,11 +78,11 @@ public enum SleepStageSemantics {
     }
     public static func isSleep(_ segment: StageSegment) -> Bool {
         if segment.state == "state_unknown" || segment.state == "off_body" || segment.state == "awake" { return false }
+        if segment.state == "sleep" || segment.state == "sleep_unstaged" { return true }
         return ["light", "deep", "rem", "sleep_unstaged"].contains(segment.stage)
-            || (segment.stage == "unknown" && segment.state == "sleep_unstaged")
     }
     public static func isKnownState(_ segment: StageSegment) -> Bool {
-        isSleep(segment) || ((segment.state == nil || segment.state == "awake")
+        isSleep(segment) || segment.state == "awake" || ((segment.state == nil || segment.state == "awake")
             && SleepStageVocabulary.isWake(segment.stage))
     }
     public static func coalesced(_ segments: [StageSegment]) -> [StageSegment] {
@@ -119,18 +123,22 @@ public enum SleepStageSemantics {
             }
             func priority(_ c: SleepContextSpan) -> Int {
                 if c.kind == "off_body" { return 3 }
-                if ["awake", "reading", "phone_use"].contains(c.kind) { return 2 }
+                if ["awake", "reading", "phone_use", "quiet_rest"].contains(c.kind) { return 2 }
                 return c.qualifiedBinarySleep ? 1 : 0
             }
-            if let c = eligible.max(by: { priority($0) < priority($1) }), priority(c) > 0 {
-                let off = c.kind == "off_body", awake = priority(c) == 2
-                if off || awake || !isKnownState(s) {
+            if let c = eligible.max(by: { priority($0) < priority($1) }) {
+                let off = c.kind == "off_body", quiet = c.kind == "quiet_rest"
+                let awake = priority(c) == 2 && !quiet
+                if priority(c) > 0 && (off || awake || quiet || !isKnownState(s)) {
                     s = StageSegment(start: lo, end: hi, stage: awake ? "wake" : "unknown",
-                        state: off ? "off_body" : awake ? "awake" : "sleep_unstaged",
+                        state: off ? "off_body" : awake ? "awake" : quiet ? "state_unknown" : "sleep_unstaged",
                         evidenceCoverage: s.evidenceCoverage,
                         abstentionReason: "context:\(c.kind):\(c.provenance)", computationMode: mode,
-                        algorithmVersion: "sleep-context-v1", probabilitiesCalibrated: false)
+                        algorithmVersion: "sleep-context-v2", probabilitiesCalibrated: false,
+                        contextKind: c.kind, contextProvenance: c.provenance)
                 }
+                // Bed/opportunity reports are context, not binary sleep evidence.
+                s.contextKind = c.kind; s.contextProvenance = c.provenance
             }
             result.append(s)
         }
