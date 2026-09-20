@@ -208,6 +208,43 @@ class DayScorerPhysiologyIntegrationTest {
         assertTrue(after.result.sleepSessions.isEmpty())
         val daily=CanonicalScorePayload.build(after).getJSONObject("daily")
         assertTrue(daily.isNull("resting_hr_bpm"));assertTrue(daily.isNull("overnight_hr_bpm"))
+        assertTrue(daily.isNull("rest"));assertTrue(daily.isNull("recovery"))
+        assertNull(after.result.rest);assertNull(after.result.recovery)
+        assertNull(after.result.daily.skinTempC)
+    }
+
+    @Test fun seededChargeUsesFinalEditedRestAndStillAbstainsForInsufficientHrv() {
+        val baselines = com.noop.analytics.ProfileBaselines(
+            hrv = com.noop.analytics.Baselines.foldHistory(List(14) { 42.0 }, com.noop.analytics.Baselines.hrvCfg),
+            restingHR = com.noop.analytics.Baselines.foldHistory(List(14) { 60.0 }, com.noop.analytics.Baselines.restingHRCfg),
+            resp = com.noop.analytics.Baselines.foldHistory(List(14) { 12.0 }, com.noop.analytics.Baselines.respCfg))
+        val original = input(true).copy(baselines = baselines)
+        val at = Instant.parse("2026-09-18T00:00:00Z")
+        val before = DayScorer().score(original, CanonicalScorePayload.ALGORITHM_VERSION, "seeded", at)
+        assertNotNull(before.result.recovery)
+        val main = before.result.sleepSessions.first { it.episodeType == "main_sleep" }
+        val edit = com.frwhoop.scoring.scoring.SleepBoundaryOverride("shortened", main.start, main.end,
+            main.start, main.end - 10 * 60, false, 1, "user_annotation")
+        val edited = DayScorer().score(original.copy(sleepOverrides = listOf(edit)), CanonicalScorePayload.ALGORITHM_VERSION, "edited", at)
+        val daily = CanonicalScorePayload.build(edited).getJSONObject("daily")
+        assertEquals(daily.getDouble("rest"), edited.result.rest!!, 0.0)
+        assertNotEquals(before.result.rest, edited.result.rest)
+        val expected = com.noop.analytics.RecoveryScorer.recovery(edited.result.daily.avgHrv!!,
+            edited.result.daily.restingHr!!.toDouble(), edited.result.daily.respRateBpm, baselines.hrv!!,
+            baselines.restingHR, baselines.resp, edited.result.rest!! / 100.0, edited.result.daily.skinTempDevC)
+        assertEquals(expected, edited.result.recovery)
+        val unverified = DayScorer().score(input(false).copy(baselines = baselines), CanonicalScorePayload.ALGORITHM_VERSION, "unverified", at)
+        assertNull(unverified.result.recovery)
+        val insufficient = baselines.copy(hrv = com.noop.analytics.Baselines.foldHistory(List(3) { 42.0 }, com.noop.analytics.Baselines.hrvCfg))
+        assertNull(DayScorer().score(original.copy(baselines = insufficient), CanonicalScorePayload.ALGORITHM_VERSION, "calibrating", at).result.recovery)
+        val noOptionalHistory = baselines.copy(
+            restingHR = com.noop.analytics.Baselines.foldHistory(emptyList(), com.noop.analytics.Baselines.restingHRCfg),
+            resp = com.noop.analytics.Baselines.foldHistory(emptyList(), com.noop.analytics.Baselines.respCfg))
+        val missingOptional = DayScorer().score(original.copy(baselines = noOptionalHistory), CanonicalScorePayload.ALGORITHM_VERSION, "missing-optional", at)
+        val expectedWithoutUnobservedDrivers = com.noop.analytics.RecoveryScorer.recovery(missingOptional.result.daily.avgHrv!!,
+            missingOptional.result.daily.restingHr!!.toDouble(), missingOptional.result.daily.respRateBpm, baselines.hrv!!,
+            null, null, missingOptional.result.rest!! / 100.0, null)
+        assertEquals(expectedWithoutUnobservedDrivers, missingOptional.result.recovery)
     }
 
     @Test fun snapshotExcludesFutureSignalsAndUnfinishedMeasurementWindowsWithoutChangingMode() {

@@ -43,6 +43,7 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
         val hrvHistory: List<com.noop.analytics.HrvWindow.Result> = emptyList(),
         val calendarOwnership: CalendarOwnershipReader.Ownership? = null,
         val skinTemp: List<com.noop.data.SkinTempSample> = emptyList(),
+        val baselines: com.noop.analytics.ProfileBaselines = com.noop.analytics.ProfileBaselines(),
     )
 
     override fun loadDay(userId: UUID, day: String, deviceId: UUID): DayInputs? =
@@ -104,6 +105,8 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
                 calendarOwnership = ownership,
                 skinTemp = if (available) loadSkinTemp(conn, userId, deviceIdText, nightLo, nightHi)
                     .filter { inContext(it.ts) } else emptyList(),
+                baselines = if (available) CanonicalBaselineReader.load(conn, userId, deviceId, day)
+                    else com.noop.analytics.ProfileBaselines(),
             )
         }
 

@@ -27,6 +27,7 @@ class CanonicalScorePayloadTest {
         assertEquals(5.0,night.getDouble("state_unknown_min"),0.0)
         assertEquals("uncertain",night.getString("episode_type"))
         assertTrue(payload.getJSONObject("daily").isNull("sleep_total_min"))
+        assertTrue(payload.getJSONObject("daily").isNull("rest"))
         assertTrue(payload.getJSONObject("daily").isNull("overnight_hr_bpm"))
         assertEquals(48,payload.getJSONObject("daily").getInt("resting_hr_bpm"))
     }
@@ -92,6 +93,16 @@ class CanonicalScorePayloadTest {
         val first=JSONObject().put("a",1).put("b",JSONObject().put("z",false).put("x",JSONObject.NULL))
         val second=JSONObject().put("b",JSONObject().put("x",JSONObject.NULL).put("z",false)).put("a",1)
         assertEquals(CanonicalScorePayload.hash(first),CanonicalScorePayload.hash(second))
+    }
+
+    @Test fun restUsesCanonicalSleepTotalsInsteadOfAnEarlierComposite() {
+        val original = bundle(listOf(StageSegment(start,start+300,"light")))
+        val stale = original.copy(result = original.result.copy(rest = 99.0))
+        val daily = CanonicalScorePayload.build(stale).getJSONObject("daily")
+        val expected = com.noop.analytics.RestScorer.rest(300.0, 1.0, 0.0, 0.0)!!
+        assertEquals(expected, daily.getDouble("rest"), 0.0)
+        val deleted = stale.copy(result = stale.result.copy(sleepSessions = emptyList()))
+        assertTrue(CanonicalScorePayload.build(deleted).getJSONObject("daily").isNull("rest"))
     }
     @Test fun respirationSummaryRetainsAcceptedDistributionAndEmptyUnavailability() {
         val summary=com.noop.analytics.RespirationEstimator.Summary(15.0,15.0,180.0,0.6,2,4,

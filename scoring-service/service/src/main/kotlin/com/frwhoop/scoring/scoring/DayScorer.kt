@@ -92,6 +92,7 @@ class DayScorer(private val physiology: PhysiologyShadowRunner = PhysiologyShado
             steps = inputs.steps,
             daySteps = inputs.steps.filter { owns(it.ts) },
             profile = inputs.profile,
+            baselines = inputs.baselines,
             tzOffsetSeconds = inputs.tzOffsetSeconds,
             wristOff = wristOff,
             skinTemp = inputs.skinTemp,
@@ -181,9 +182,14 @@ class DayScorer(private val physiology: PhysiologyShadowRunner = PhysiologyShado
         val respirationSummary=if(mainEpisodes.isEmpty()) null else RespirationEstimator.summarize(sleepRespiration,
             mainEpisodes.minOf { it.start }.toDouble(),mainEpisodes.maxOf { it.end }.toDouble(),"qualified_sleep")
         // This v2 shadow snapshot must never relabel the older peak-counting heuristic as the repaired estimator.
-        result=result.copy(daily=result.daily.copy(respRateBpm=respirationSummary?.median))
+        val finalTemperature = com.noop.analytics.ServerSleepTemperature.mean(finalEpisodes, inputs.hr, inputs.skinTemp, inputs.deviceFamily)
+        val temperatureDeviation = finalTemperature?.let { value -> inputs.baselines.skinTemp?.takeIf { it.usable }?.let {
+            kotlin.math.round(com.noop.analytics.Baselines.deviation(value, it).delta * 100.0) / 100.0
+        } }
+        result=result.copy(daily=result.daily.copy(respRateBpm=respirationSummary?.median,
+            skinTempC=finalTemperature,skinTempDevC=temperatureDeviation),nightlySkinTempC=finalTemperature)
 
-        return ServerScoreBundle(
+        val bundle = ServerScoreBundle(
             userId = inputs.userId,
             day = inputs.day,
             deviceId = inputs.deviceId,
@@ -200,6 +206,19 @@ class DayScorer(private val physiology: PhysiologyShadowRunner = PhysiologyShado
             calendarOwnership = ownership,
             heartRateWindows = heartRateWindows,
         )
+        // Publication normalizes conflicting/missing epochs and grouped gaps. Charge must consume
+        // that same final Rest, HRV, resting HR and respiration, never the pre-edit analysis.
+        val rest = CanonicalScorePayload.finalRest(bundle)
+        val hrv = result.daily.avgHrv
+        val restingHr = result.daily.restingHr
+        val hrvBaseline = inputs.baselines.hrv
+        val charge = if (hrv != null && restingHr != null && hrvBaseline != null) {
+            com.noop.analytics.RecoveryScorer.recovery(hrv,restingHr.toDouble(),result.daily.respRateBpm,
+                hrvBaseline,inputs.baselines.restingHR?.takeIf { it.usable },inputs.baselines.resp?.takeIf { it.usable },
+                rest?.div(100.0),temperatureDeviation)
+        } else null
+        return bundle.copy(result=result.copy(rest=rest,recovery=charge,daily=result.daily.copy(recovery=charge),
+            chargeConfidence=com.noop.analytics.ScoreConfidence.forCharge(charge,hrvBaseline)))
     }
 }
 
