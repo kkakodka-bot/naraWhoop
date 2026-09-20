@@ -266,4 +266,16 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
         XCTAssertTrue(repo.deviceLinked)
         XCTAssertEqual(repo.lastError, "Server scores unavailable")
     }
+
+    func testConfirmedDeviceLinkRequiresBothTheOwnerAndSelectedStrap() {
+        let mapping: (String, String) -> String? = { owner, strap in
+            owner == self.ownerA && strap == "strap-a" ? "device-a" : nil
+        }
+        XCTAssertTrue(ServerScoreRepository.hasConfirmedDeviceLink(
+            ownerId: ownerA, localDeviceId: "strap-a", canonicalDeviceId: mapping))
+        XCTAssertFalse(ServerScoreRepository.hasConfirmedDeviceLink(
+            ownerId: ownerA, localDeviceId: "strap-b", canonicalDeviceId: mapping))
+        XCTAssertFalse(ServerScoreRepository.hasConfirmedDeviceLink(
+            ownerId: nil, localDeviceId: "strap-a", canonicalDeviceId: mapping))
+    }
 }

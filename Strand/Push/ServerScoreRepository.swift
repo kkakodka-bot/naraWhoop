@@ -114,6 +114,7 @@ final class ServerScoreRepository: ObservableObject {
             .sink { [weak self] _ in
                 guard let self, !self.retired else { return }
                 self.synchronizeIdentity()
+                self.restoreDeviceLink()
             }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: CloudAuthClient.identityDidChange)
             .receive(on: DispatchQueue.main).sink { [weak self] _ in
@@ -363,6 +364,8 @@ final class ServerScoreRepository: ObservableObject {
         synchronizeIdentity()
         if let day = todayKey, ServerScoreDate.isDay(day) { selectedDay = day }
         guard foreground else { return }
+        await confirmSelectedDeviceLink()
+        guard deviceLinked else { return }
         publish(days: state.days)
         guard signedIn, state.configured else { return }
         let current = currentDay
@@ -438,6 +441,7 @@ final class ServerScoreRepository: ObservableObject {
         hydratedEpoch = nil
         context = next
         signedIn = next != nil
+        restoreDeviceLink()
         selectedDay = nil
         lastFetchedAt = nil
         lastError = nil
@@ -719,6 +723,11 @@ final class ServerScoreRepository: ObservableObject {
             sleepEditMessage = nil
             preloadFromDisk()
             if let day = pollingDay { startPolling(todayKey: day) }
+        } else {
+            // PR 22 moved the primary reader to account-scoped snapshots, but the gate still
+            // relies on the enrolled-device receipt. Restore it before a score read so an
+            // already-confirmed strap never waits on an unrelated result request.
+            restoreDeviceLink()
         }
     }
 
@@ -818,11 +827,44 @@ final class ServerScoreRepository: ObservableObject {
     }
 
     private func restoreDeviceLink() {
-        guard let owner = currentOwnerId, owner == session.ownerId, let local = activeDeviceId else {
-            deviceLinked = false
+        if let dependencies = legacy {
+            deviceLinked = Self.hasConfirmedDeviceLink(
+                ownerId: currentOwnerId == session.ownerId ? currentOwnerId : nil,
+                localDeviceId: activeDeviceId,
+                canonicalDeviceId: dependencies.canonicalDeviceId)
             return
         }
-        deviceLinked = legacy?.canonicalDeviceId(owner, local) != nil
+        deviceLinked = Self.hasConfirmedDeviceLink(
+            ownerId: CloudEnrollment.currentCredential()?.userId.lowercased(),
+            localDeviceId: activeDeviceId,
+            canonicalDeviceId: { ServerScoreClient.canonicalDeviceId(ownerId: $0, localDeviceId: $1) })
+    }
+
+    /// A positive value is a server-issued canonical id, not merely an active BLE peripheral.
+    static func hasConfirmedDeviceLink(ownerId: String?, localDeviceId: String?,
+                                       canonicalDeviceId: (String, String) -> String?) -> Bool {
+        guard let ownerId, let localDeviceId,
+              !ownerId.isEmpty, !localDeviceId.isEmpty else { return false }
+        return canonicalDeviceId(ownerId, localDeviceId) != nil
+    }
+
+    private func confirmSelectedDeviceLink() async {
+        guard legacy == nil else { return }
+        restoreDeviceLink()
+        guard !deviceLinked,
+              let owner = CloudEnrollment.currentCredential()?.userId.lowercased(),
+              let local = activeDeviceId else { return }
+        do {
+            _ = try await ServerScoreClient.confirmDeviceLink(localDeviceId: local, expectedOwnerId: owner)
+            guard !retired, activeDeviceId == local,
+                  CloudEnrollment.currentCredential()?.userId.lowercased() == owner else { return }
+            restoreDeviceLink()
+            if deviceLinked { lastError = nil }
+        } catch {
+            guard !retired, activeDeviceId == local,
+                  CloudEnrollment.currentCredential()?.userId.lowercased() == owner else { return }
+            lastError = "Could not confirm this strap with the server. Check your connection and try again."
+        }
     }
 
     private func cachedDay(ownerId: String, day: String) -> ServerScoreDayCache? {
