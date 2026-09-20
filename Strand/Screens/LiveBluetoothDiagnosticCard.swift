@@ -1,4 +1,5 @@
 import SwiftUI
+import StrandDesign
 
 /// Keep the per-second clock in this leaf, not in either Today dashboard.
 struct LiveBluetoothDiagnosticCard: View {
@@ -21,55 +22,58 @@ struct LiveBluetoothDiagnosticCard: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let rows = ble.liveBluetoothDiagnostics.streams.values.sorted { $0.id < $1.id }
             let active = live.connected ? rows.filter { $0.isActive(at: context.date) }.count : 0
-            VStack(alignment: .leading, spacing: 10) {
+            NoopCard {
+                VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
                 HStack {
                     Label("Live Bluetooth", systemImage: "waveform.path")
-                        .font(.subheadline.weight(.semibold))
+                        .font(StrandFont.headline)
                     Spacer()
                     Text(live.connected ? "\(active) active" : "Disconnected")
-                        .font(.caption).foregroundStyle(active > 0 ? .green : .secondary)
+                        .font(StrandFont.caption)
+                        .foregroundStyle(active > 0 ? StrandPalette.statusPositive : StrandPalette.textSecondary)
                 }
                 Text("Live sensor streams · backfill shown separately below")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 if rows.isEmpty {
                     Text(live.connected ? "Waiting for live sensor data…" : "Connect your WHOOP to see incoming data.")
-                        .font(.subheadline)
+                        .font(StrandFont.subhead)
                 }
                 ForEach(rows) { row in
                     let receiving = live.connected && row.isActive(at: context.date)
-                    HStack(alignment: .top, spacing: 8) {
-                        Circle().fill(receiving ? Color.green : Color.secondary)
-                            .frame(width: 6, height: 6).padding(.top, 6)
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 8) {
-                                Text(row.title).font(.caption.weight(.semibold))
+                    HStack(alignment: .top, spacing: NoopMetrics.space2) {
+                        Circle().fill(receiving ? StrandPalette.statusPositive : StrandPalette.textTertiary)
+                            .frame(width: NoopMetrics.space2, height: NoopMetrics.space2)
+                            .padding(.top, NoopMetrics.space1)
+                        VStack(alignment: .leading, spacing: NoopMetrics.spaceHalf) {
+                            HStack(spacing: NoopMetrics.space2) {
+                                Text(row.title).font(StrandFont.captionNumber)
                                 if row.id == "imu" {
                                     Button { showIMU3D = true } label: {
                                         Label("3D view", systemImage: "cube.transparent")
                                     }
-                                    .font(.caption).buttonStyle(.bordered)
+                                    .font(StrandFont.caption).buttonStyle(.bordered)
                                     .accessibilityLabel("Open live IMU 3D visualization")
                                 }
                             }
-                            Text(row.detail).font(.caption).foregroundStyle(.secondary)
+                            Text(row.detail).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                             Text("\(row.packetsPerSecond(at: context.date), specifier: "%.1f") packets/s · \(row.packets) this connection")
-                                .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary).monospacedDigit()
                         }
-                        Spacer(minLength: 4)
+                        Spacer(minLength: NoopMetrics.space1)
                         Text(receiving ? "Live" : "\(max(0, Int(context.date.timeIntervalSince(row.lastReceived))))s ago")
-                            .font(.caption2).foregroundStyle(receiving ? .green : .secondary)
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(receiving ? StrandPalette.statusPositive : StrandPalette.textSecondary)
                             .monospacedDigit()
                     }
                 }
                 Text("Optical: no verified live stream. Historical optical is excluded from these sensor rows.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 Text("Live = received within 5s. Sensor rows exclude history and command replies.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
                 Divider()
                 trafficSummary(at: context.date)
+                }
             }
-            .padding(12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
             .accessibilityIdentifier("liveBluetoothDiagnostic")
         }
     }
@@ -77,25 +81,25 @@ struct LiveBluetoothDiagnosticCard: View {
     private func trafficSummary(at now: Date) -> some View {
         let diagnostics = ble.liveBluetoothDiagnostics
         let rates = diagnostics.trafficRates(at: now)
-        return VStack(alignment: .leading, spacing: 5) {
+        return VStack(alignment: .leading, spacing: NoopMetrics.space1) {
             HStack {
-                Text("Backfill").font(.caption.weight(.semibold))
+                Text("Backfill").font(StrandFont.captionNumber)
                 Spacer()
                 Text(!live.connected ? "Disconnected" : (live.backfilling ? "Syncing history" : "Idle"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
             }
             Text("\(rates.chunksPerSecond, specifier: "%.2f") chunks/s · \(diagnostics.savedChunks) completed this connection")
-                .font(.caption).monospacedDigit()
+                .font(StrandFont.captionNumber)
             if let last = diagnostics.lastSavedChunk {
                 Text("Last chunk saved \(max(0, Int(now.timeIntervalSince(last))))s ago")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
             }
             Text("Incoming Bluetooth · live + backfill")
-                .font(.caption.weight(.semibold))
+                .font(StrandFont.captionNumber)
             Text("\(rates.bytesPerSecond / 1000, specifier: "%.2f") kB/s · \(rates.bitsPerSecond / 1000, specifier: "%.2f") kbps")
-                .font(.subheadline.monospacedDigit())
+                .font(StrandFont.bodyNumber)
             Text("10s averages. Chunks count after saving. Throughput includes all received Bluetooth payloads, including control replies; radio overhead is excluded.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
         }
     }
 }

@@ -31,6 +31,10 @@ protocol ExperimentEventPushSource: Sendable {
 @MainActor
 final class ExperimentEventLog: ObservableObject {
     static let shared = ExperimentEventLog()
+    static let builtInLabels = [
+        "Rest", "Walking", "Wrist movement", "Sleeve warming",
+        "Off wrist", "Posture change", "Mental arithmetic",
+    ]
     @Published private(set) var events: [ExperimentEvent] = []
     @Published private(set) var customLabels: [String] = []
     @Published private(set) var errorMessage: String?
@@ -78,12 +82,34 @@ final class ExperimentEventLog: ObservableObject {
     }
 
     func stop(at date: Date = Date()) {
+        finishActive(note: active?.note, at: date)
+    }
+
+    /// Complete the active interval and its latest note in one atomic file replacement. A failed
+    /// write therefore cannot stop the event while silently retaining an older note.
+    func stop(note: String, at date: Date = Date()) {
+        finishActive(note: note, at: date)
+    }
+
+    /// Persist the in-progress note as the user types so navigation, backgrounding, or a process
+    /// restart cannot discard the draft. The event remains active and its start time is unchanged.
+    func saveActiveNoteDraft(_ note: String) {
+        guard loaded, let index = events.lastIndex(where: { $0.endUnixSeconds == nil }) else { return }
+        let nextNote = trimmed(note)
+        guard events[index].note != nextNote else { return }
+        var next = events
+        next[index].note = nextNote
+        save(next)
+    }
+
+    private func finishActive(note: String?, at date: Date) {
         guard loaded, let index = events.lastIndex(where: { $0.endUnixSeconds == nil }) else { return }
         guard date.timeIntervalSince1970 >= events[index].startUnixSeconds else {
             errorMessage = "The phone clock moved backwards. Check Date & Time before stopping."
             return
         }
         var next = events
+        next[index].note = trimmed(note)
         next[index].endUnixSeconds = date.timeIntervalSince1970
         save(next)
     }
@@ -91,6 +117,7 @@ final class ExperimentEventLog: ObservableObject {
     func addCustomLabel(_ value: String) {
         let label = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard loaded, !label.isEmpty,
+              !Self.builtInLabels.contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame }),
               !customLabels.contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame }) else { return }
         save(events, customLabels: customLabels + [label])
     }

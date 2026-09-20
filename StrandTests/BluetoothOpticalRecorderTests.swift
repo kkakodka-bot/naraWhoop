@@ -4,6 +4,7 @@ import WhoopProtocol
 
 @MainActor
 final class BluetoothOpticalRecorderTests: XCTestCase {
+    private let deviceId = "test-whoop"
     private func fixture() throws -> [UInt8] {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let url = root.appendingPathComponent("Packages/WhoopProtocol/Tests/WhoopProtocolTests/Resources/r20_optical_oracle.json")
@@ -28,10 +29,10 @@ final class BluetoothOpticalRecorderTests: XCTestCase {
     func testNativeOpticalIsDurableAndNeverRelabeled100Hz() throws {
         let (folder, defaults) = try environment()
         let recorder = BluetoothOpticalRecorder(directory: folder, defaults: defaults)
-        let id = BluetoothOpticalRecorder.enrolledDeviceId
-        recorder.bonded(deviceId: id)
+        recorder.bonded(deviceId: deviceId)
+        recorder.setEnabled(true)
         let frame = try fixture()
-        XCTAssertTrue(recorder.persistHistory(deviceId: id, frames: [frame]))
+        XCTAssertTrue(recorder.persistHistory(deviceId: deviceId, frames: [frame]))
         let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
         let data = try Data(contentsOf: XCTUnwrap(files.first))
         let row = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -47,29 +48,31 @@ final class BluetoothOpticalRecorderTests: XCTestCase {
         let (folder, defaults) = try environment()
         try Data([1]).write(to: folder) // not a directory; deterministic write failure
         let recorder = BluetoothOpticalRecorder(directory: folder, defaults: defaults)
-        XCTAssertFalse(recorder.persistHistory(deviceId: BluetoothOpticalRecorder.enrolledDeviceId, frames: [try fixture()]))
+        recorder.bonded(deviceId: deviceId)
+        recorder.setEnabled(true)
+        XCTAssertFalse(recorder.persistHistory(deviceId: deviceId, frames: [try fixture()]))
         XCTAssertNotNil(recorder.status.error)
         XCTAssertEqual(recorder.status.historyFrames, 0)
     }
 
-    func testOnlyEnrolledStrapDefaultsOnAndOffSurvivesReconnect() throws {
+    func testCaptureDefaultsOffAndExplicitChoiceSurvivesReconnect() throws {
         let (folder, defaults) = try environment()
         let recorder = BluetoothOpticalRecorder(directory: folder, defaults: defaults)
         var starts = 0, stops = 0
         recorder.sendEnable = { starts += 1 }; recorder.sendDisable = { stops += 1 }
-        recorder.bonded(deviceId: "other-whoop")
+        recorder.bonded(deviceId: deviceId)
         XCTAssertFalse(recorder.status.enabled)
         XCTAssertEqual(starts, 0)
-        recorder.bonded(deviceId: BluetoothOpticalRecorder.enrolledDeviceId)
-        recorder.bonded(deviceId: BluetoothOpticalRecorder.enrolledDeviceId)
+        recorder.setEnabled(true)
+        recorder.bonded(deviceId: deviceId)
         XCTAssertEqual(starts, 1)
         recorder.disconnected()
         recorder.setEnabled(false)
-        recorder.bonded(deviceId: BluetoothOpticalRecorder.enrolledDeviceId)
+        recorder.bonded(deviceId: deviceId)
         XCTAssertFalse(recorder.status.enabled)
         XCTAssertEqual(starts, 1)
         XCTAssertEqual(stops, 1)
-        XCTAssertFalse(recorder.isEnabled(for: "other-whoop"))
+        XCTAssertFalse(recorder.isEnabled(for: deviceId))
     }
 
     func testCorruptFrameNeverBecomesAnOpticalRecord() throws {
@@ -82,7 +85,8 @@ final class BluetoothOpticalRecorderTests: XCTestCase {
     func testCommandAckAloneNeverCountsAsOpticalSamples() throws {
         let (folder, defaults) = try environment()
         let recorder = BluetoothOpticalRecorder(directory: folder, defaults: defaults)
-        recorder.bonded(deviceId: BluetoothOpticalRecorder.enrolledDeviceId)
+        recorder.bonded(deviceId: deviceId)
+        recorder.setEnabled(true)
         // Synthetic CRC-valid puffin COMMAND_RESPONSE, revision 1, SUCCESS result 1.
         var frame = [UInt8](repeating: 0, count: 17)
         frame[0] = 0xAA; frame[1] = 1; frame[2] = 9

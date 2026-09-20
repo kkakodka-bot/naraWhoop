@@ -3471,7 +3471,7 @@ public final class BLEManager: NSObject, ObservableObject {
         let isSensorOpcode = command == .startRawData
             || command == .stopRawData || command == .toggleIMUMode
         let continuousSensorWrite = rawDataCommandGate
-            && deviceId == BluetoothOpticalRecorder.enrolledDeviceId
+            && (imuRecorder.expectsImuPackets || opticalRecorder.status.enabled)
             && !sensorAcquisition.isActive && !sensorAcquisition.cleanupRequired
             && !sensorCommandLaneTaintedUntilReconnect
             && ((command == .startRawData && payload == [0x01])

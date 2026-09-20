@@ -6,7 +6,8 @@ circuit breaker, reconnect fixes, and bounded sensor-capture controller.
 
 ## Collection policy
 
-- The explicitly enrolled research strap defaults to optical collection enabled.
+- Optical and continuous-IMU collection default off. The user must enable each recorder explicitly;
+  the choice then persists per installation/device.
   A per-device saved Off overrides the default and survives reconnects.
 - Request the known raw producer and candidate optical-enable command once per
   connection. Opcode 107's effect on this firmware must be verified from data;

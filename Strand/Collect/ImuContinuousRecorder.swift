@@ -320,12 +320,6 @@ final class ImuContinuousRecorder: ObservableObject {
         guard !accountShutdown else { return }
         let deviceId = transport.activeDeviceId()
         guard !deviceId.isEmpty else { return }
-        // Default only the explicitly enrolled research strap; a saved Off remains an opt-out.
-        if deviceId == BluetoothOpticalRecorder.enrolledDeviceId,
-           defaults.object(forKey: Self.enabledKey) == nil {
-            setEnabled(true)
-            return
-        }
         if !enabled {
             // Never re-arm while Off — but an owed stop is sent before anything else.
             if stopPending {

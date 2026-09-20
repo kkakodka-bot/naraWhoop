@@ -2,8 +2,13 @@ import Foundation
 import simd
 import WhoopProtocol
 
-/// A local 6-axis attitude estimate, never a measured heading or a position tracker.
-/// Uses every received sample at strap cadence; rendering only reads already-computed poses.
+/// A local 6-axis attitude estimate, never a measured heading or position tracker.
+/// The gyro integration plus accelerometer gravity correction follows the complementary-filter
+/// family described by Mahony, Hamel & Pflimlin, IEEE TAC 53(5), 2008,
+/// https://doi.org/10.1109/TAC.2008.923738. This is an app visualization, not a validated
+/// implementation of that paper: the 0.85...1.15 g acceptance band and two-second correction
+/// constant below are explicit NOOP display heuristics. Uses every received sample at strap cadence;
+/// rendering only reads already-computed poses.
 @MainActor
 final class LiveIMUVisualizationModel {
     struct Pose {
