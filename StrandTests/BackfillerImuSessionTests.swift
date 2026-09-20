@@ -133,4 +133,29 @@ final class BackfillerImuSessionTests: XCTestCase {
         XCTAssertFalse(acked)
         XCTAssertFalse(store.operations.contains("cursor"))
     }
+
+    func testCachedImuRecordsKeepExactColumnsAndExcludeInvalidFrames() async throws {
+        let first = makeValidImuFrame(unix: 1_500, seed: 1)
+        let second = makeValidImuFrame(unix: 1_501, seed: 2)
+        var corrupt = first
+        corrupt[28] ^= 0xff
+        var unknownLayout = second
+        unknownLayout[9] = 22
+        let crc = crc32(Array(unknownLayout[8..<(unknownLayout.count - 4)]))
+        for offset in 0..<4 { unknownLayout[unknownLayout.count - 4 + offset] = UInt8(truncatingIfNeeded: crc >> (offset * 8)) }
+        XCTAssertNil(Whoop5RawImu.decodeColumns(corrupt))
+        XCTAssertNil(Whoop5RawImu.decodeColumns(unknownLayout))
+        var seen: [(baseTs: Int, columns: [Int16])] = []
+        var acked = false
+        let backfiller = Backfiller(store: SpyStore(), deviceId: "synthetic",
+            ackTrim: { _, _ in acked = true }, rejectedSink: { _, _, _ in true },
+            imuSessionSink: { _, records in seen = records; return true })
+        backfiller.begin(family: .whoop5)
+        for frame in [first, corrupt, unknownLayout, second] { await backfiller.ingest(frame) }
+        await backfiller.ingest(hexBytes(whoop5HistoryEndHex))
+        XCTAssertTrue(acked)
+        XCTAssertEqual(seen.map(\.baseTs), [1_500, 1_501])
+        XCTAssertEqual(seen.map(\.columns), [try XCTUnwrap(Whoop5RawImu.decodeColumns(first)).columns,
+                                           try XCTUnwrap(Whoop5RawImu.decodeColumns(second)).columns])
+    }
 }

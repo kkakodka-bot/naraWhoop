@@ -317,6 +317,7 @@ final class BackfillActorPipelineTests: XCTestCase {
                 case .connectionLog(let line): log("connection: " + line)
                 case .firmwareLayout(let version): log("layout: \(version)")
                 case .chunk(let decoded, let console): log("chunk: \(decoded),\(console)")
+                case .quarantined(let count): log("quarantined: \(count)")
                 case .banked(let hr, let rr, let ev, let bat, let spo2, let skin, let resp, let grav):
                     log("banked: \(hr),\(rr),\(ev),\(bat),\(spo2),\(skin),\(resp),\(grav)")
                 }

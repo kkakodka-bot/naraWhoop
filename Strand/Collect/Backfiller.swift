@@ -7,6 +7,26 @@ import StrandAnalytics
 /// It contains only a generated opaque identifier, never strap/account identifiers.
 enum CaptureJobTrace {
     @TaskLocal static var correlation: UUID?
+    @TaskLocal static var ackSubmission: BackfillAckSubmission?
+}
+
+/// The transport marks an actual write submission, not merely an ACK callback returning.
+final class BackfillAckSubmission: @unchecked Sendable {
+    private let lock = NSLock()
+    private let now: @Sendable () -> TimeInterval
+    private var submittedAt: TimeInterval?
+
+    init(now: @escaping @Sendable () -> TimeInterval) { self.now = now }
+
+    func markSubmitted() {
+        lock.lock(); defer { lock.unlock() }
+        if submittedAt == nil { submittedAt = now() }
+    }
+
+    func milliseconds(since start: TimeInterval) -> Int? {
+        lock.lock(); defer { lock.unlock() }
+        return submittedAt.map { max(0, Int(($0 - start) * 1000)) }
+    }
 }
 
 // MARK: - BackfillStoreWriting protocol
@@ -67,6 +87,9 @@ struct BackfillChunkPhaseSample: Sendable {
     var diagnosticsMs: Int = 0
     var archiveMs: Int = 0
     var cursorMs: Int = 0
+    /// END-handler entry to the transport's writeValue submission; nil if no write was submitted.
+    var ackSubmissionMs: Int?
+    var postAckPresentationMs: Int = 0
 }
 
 /// Ordered observations for one chunk. They do not control durability or BLE acknowledgements.
@@ -75,6 +98,7 @@ enum BackfillChunkInfo: Sendable {
     case connectionLog(String)
     case firmwareLayout(Int)
     case chunk(decoded: Bool, console: Bool)
+    case quarantined(Int)
     case banked(hr: Int, rr: Int, events: Int, battery: Int,
                 spo2: Int, skinTemp: Int, resp: Int, gravity: Int)
 }
@@ -258,7 +282,7 @@ final class Backfiller {
     /// `finishChunk` invocation (one HISTORY_END). Total includes callback/actor waits;
     /// queue wait before this handler and the subsequent BLE confirmation remain outside it.
     private var chunkPhaseSamples: [BackfillChunkPhaseSample] = []
-    private var lastChunkArrival: CFAbsoluteTime?
+    private var lastChunkArrival: TimeInterval?
 
     /// Durably archives undecodable record frames BEFORE the trim ack (#77 / #91). Returns true once
     /// the bytes are safe (written OR cap-reached — either way the chunk may be acked) and false on a
@@ -301,6 +325,7 @@ final class Backfiller {
     /// injection remains available for tests and replay clients; no observations are detached.
     private let chunkInfo: (([BackfillChunkInfo]) async -> Void)?
     private let onQuarantined: ((Int) async -> Void)?
+    private let monotonic: @Sendable () -> TimeInterval
     /// T2-4: consecutive chunk commits that failed before ack (insert / archive / raw / imu / cursor).
     private var consecutivePersistFailures = 0
 
@@ -324,6 +349,7 @@ final class Backfiller {
          onChunkCommitAborted: (() async -> Void)? = nil,
          chunkInfo: (([BackfillChunkInfo]) async -> Void)? = nil,
          onQuarantined: ((Int) async -> Void)? = nil,
+         monotonic: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          // The default (prod) Extractor reads the opt-in HR-from-PPG sub-lag interpolation flag (Test Centre →
          // Experimental algorithms) at decode time and threads it into the pure decoder, so the pure package
          // never reaches for UserDefaults. Default OFF = byte-identical to today. Tests inject their own seam.
@@ -332,6 +358,7 @@ final class Backfiller {
                                                                     subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled) }) {
         self.store = store
         self.onQuarantined = onQuarantined
+        self.monotonic = monotonic
         self.deviceId = deviceId
         self.ackTrim = ackTrim
         self.onBankedOffload = onBankedOffload
@@ -378,6 +405,7 @@ final class Backfiller {
             case .connectionLog(let line): await connectionLog?(line)
             case .firmwareLayout(let version): await firmwareLayout?(version)
             case .chunk(let decoded, let console): await onChunk?(decoded, console)
+            case .quarantined(let count): await onQuarantined?(count)
             case .banked(let hr, let rr, let events, let battery, let spo2, let skinTemp, let resp, let gravity):
                 await onBankedOffload((hr, rr, events, battery, spo2, skinTemp, resp, gravity))
             }
@@ -523,7 +551,12 @@ final class Backfiller {
         let gaps = samples.compactMap(\.gapMs)
         var line = "Backfill: chunk phase timing n=\(samples.count) chunks"
         line += " total p50/p99=\(p(samples.map(\.totalMs), 50))/\(p(samples.map(\.totalMs), 99))ms"
-        line += " (HISTORY_END processing through ACK submission, including callback waits)"
+        line += " (HISTORY_END handler through optional presentation; excludes FIFO wait and ATT confirmation)"
+        let submitted = samples.compactMap(\.ackSubmissionMs)
+        if !submitted.isEmpty {
+            line += " end-to-ACK-submit n=\(submitted.count) p50/p99=\(p(submitted, 50))/\(p(submitted, 99))ms"
+        }
+        line += " post-ACK presentation p50/p99=\(p(samples.map(\.postAckPresentationMs), 50))/\(p(samples.map(\.postAckPresentationMs), 99))ms"
         line += " diagnostics p50/p99=\(p(samples.map(\.diagnosticsMs), 50))/\(p(samples.map(\.diagnosticsMs), 99))ms"
         line += " archive p50/p99=\(p(samples.map(\.archiveMs), 50))/\(p(samples.map(\.archiveMs), 99))ms"
         line += " decode p50/p99=\(p(decode, 50))/\(p(decode, 99))ms"
@@ -547,6 +580,7 @@ final class Backfiller {
         line += " decodeMs=\(sample.decodeMs) insertMs=\(sample.insertMs)"
         line += " rawMs=\(sample.rawMs) imuMs=\(sample.imuMs) cursorMs=\(sample.cursorMs) ackMs=\(sample.ackMs)"
         line += " totalMs=\(sample.totalMs) diagnosticsMs=\(sample.diagnosticsMs) archiveMs=\(sample.archiveMs)"
+        line += " ackSubmissionMs=\(sample.ackSubmissionMs.map(String.init) ?? "none") postAckPresentationMs=\(sample.postAckPresentationMs)"
         return line
     }
 
@@ -717,6 +751,7 @@ final class Backfiller {
         let parsed: [ParsedFrame]
         let decoded: Streams
         let rejected: [[UInt8]]
+        let imuRecords: [(baseTs: Int, columns: [Int16])]
     }
 
     private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8]) async {
@@ -735,11 +770,14 @@ final class Backfiller {
             await onChunkCommitAborted?()
         }
 
-        let chunkArrival = CFAbsoluteTimeGetCurrent()
+        let chunkArrival = monotonic()
         let gapMs = lastChunkArrival.map { Int((chunkArrival - $0) * 1000) }
         lastChunkArrival = chunkArrival
         var decodeMs = 0, insertMs = 0, rawMs = 0, imuMs = 0, ackMs = 0
         var diagnosticsMs = 0, archiveMs = 0, cursorMs = 0
+        var ackSubmissionMs: Int?
+        var postAckPresentationMs = 0
+        var ordinaryQuarantinedCount = 0
         var cursorCommittedWithChunk = false
         var pendingInfo: [BackfillChunkInfo] = []
         func info(_ event: BackfillChunkInfo) async {
@@ -758,9 +796,9 @@ final class Backfiller {
             guard !pendingInfo.isEmpty else { return }
             let events = pendingInfo
             pendingInfo.removeAll(keepingCapacity: true)
-            let started = CFAbsoluteTimeGetCurrent()
+            let started = monotonic()
             await deliverChunkInfo(events)
-            diagnosticsMs += Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+            diagnosticsMs += Int((monotonic() - started) * 1000)
         }
 
         // The strap waits for this chunk's ACK throughout decode, diagnostics, and persistence,
@@ -791,9 +829,10 @@ final class Backfiller {
             let sample = BackfillChunkPhaseSample(frameCount: frameCount, gapMs: gapMs,
                                           decodeMs: decodeMs, insertMs: insertMs,
                                           rawMs: rawMs, imuMs: imuMs, ackMs: ackMs,
-                                          totalMs: Int((CFAbsoluteTimeGetCurrent() - chunkArrival) * 1000),
+                                          totalMs: Int((monotonic() - chunkArrival) * 1000),
                                           diagnosticsMs: diagnosticsMs, archiveMs: archiveMs,
-                                          cursorMs: cursorMs)
+                                          cursorMs: cursorMs, ackSubmissionMs: ackSubmissionMs,
+                                          postAckPresentationMs: postAckPresentationMs)
             chunkPhaseSamples.append(sample)
             await emitConnection(Backfiller.chunkPhaseDetailLine(trim: trim, sample: sample))
         }
@@ -822,16 +861,23 @@ final class Backfiller {
             let dev = ref.device, wall = ref.wall
             let oldest = sessionOldestUnix, newest = sessionNewestUnix
             let extractFn = extract   // keep the injected Extractor seam (tests override it); prod == extractHistoricalStreams
-            let decodeStart = CFAbsoluteTimeGetCurrent()
+            let decodeStart = monotonic()
+            let needsImuRecords = imuSessionSink != nil || store is WhoopStore
             let d = await Task.detached(priority: .utility) { () -> DecodedChunk in
                 let interval = SyncPipelineTrace.begin(.bleDecode, correlation: correlation)
                 defer { SyncPipelineTrace.end(interval, outcome: .succeeded) }
                 let parsed = frames.map { parseFrame($0, family: fam) }
                 let decoded = extractFn(parsed, dev, wall, oldest, newest)
                 let rejected = historicalRecoveryRecords(frames, family: fam, parsedFrames: parsed)
-                return DecodedChunk(parsed: parsed, decoded: decoded, rejected: rejected)
+                let imuRecords = needsImuRecords
+                    ? zip(frames, parsed).compactMap { frame, packet -> (baseTs: Int, columns: [Int16])? in
+                        guard packet.ok && packet.crcOK == true else { return nil }
+                        return Whoop5RawImu.decodeColumns(frame)
+                    } : []
+                return DecodedChunk(parsed: parsed, decoded: decoded, rejected: rejected,
+                                    imuRecords: imuRecords)
             }.value
-            decodeMs = Int((CFAbsoluteTimeGetCurrent() - decodeStart) * 1000)
+            decodeMs = Int((monotonic() - decodeStart) * 1000)
             let parsed = d.parsed
             // #1008: per-chunk clock basis + R-R packing. The session summary logs only the FIRST chunk's
             // correlation, which cannot show the offset moving across a long offload nor separate "the same
@@ -957,7 +1003,7 @@ final class Backfiller {
             // (the "rejected frames" red herring users kept reporting — #77/#120). Drives both the
             // log wording below and the archive guard further down.
             let rejected = d.rejected
-            let diagnosticsStart = CFAbsoluteTimeGetCurrent()
+            let diagnosticsStart = monotonic()
             // Tally this chunk's outcome so a completed-but-empty session is distinguishable from a
             // caught-up one (#77 family): did it decode sensor rows, and was it console-only?
             await info(.chunk(decoded: !decoded.isEmpty, console: decoded.isEmpty && rejected.isEmpty))
@@ -973,7 +1019,7 @@ final class Backfiller {
                 await infoLog("Backfill: preserving \(rejected.count) non-console history frame(s) losslessly before ACK.")
 
             }
-            diagnosticsMs += Int((CFAbsoluteTimeGetCurrent() - diagnosticsStart) * 1000)
+            diagnosticsMs += Int((monotonic() - diagnosticsStart) * 1000)
             // Commit the decoded rows FIRST (durable). Doing this before the reject archive means a
             // rare insert failure — which returns and re-sends the whole chunk next session — can't
             // leave duplicate lines in the append-only reject archive.
@@ -982,14 +1028,12 @@ final class Backfiller {
             // emission can be measured, since every existing R-R number is taken after the ON CONFLICT key
             // has already absorbed part of it.
             let rrCensus = RrEmissionStats.compute(decoded.rr.map { (ts: $0.ts, rrMs: $0.rrMs) })
-            let insertStart = CFAbsoluteTimeGetCurrent()
+            let insertStart = monotonic()
             do {
                 // The durable debt is part of the SAME transaction as the decoded rows (safe trim): if the
                 // job upsert fails, the insert rolls back too and this chunk stays on the strap for replay.
                 if let durableStore = store as? WhoopStore {
-                    let touchesIMU = zip(frames, parsed).contains { frame, packet in
-                        packet.ok && packet.crcOK == true && Whoop5RawImu.decodeColumns(frame) != nil
-                    }
+                    let touchesIMU = !d.imuRecords.isEmpty
                     if !enableRawCapture && !touchesIMU && !persistStalled {
                         outcome = try await durableStore.commitHistoricalChunk(decoded, scope: scope,
                             family: String(describing: family), trim: trim, recoveryFrames: rejected,
@@ -1008,7 +1052,7 @@ final class Backfiller {
                         note: "historical rows committed before trim=\(trim)")
                 }
             } catch {
-                insertMs = Int((CFAbsoluteTimeGetCurrent() - insertStart) * 1000)
+                insertMs = Int((monotonic() - insertStart) * 1000)
                 // A conflicting typed projection must not discard the original history bytes.
                 // The archive is independently durable; the conflict still fences every ACK.
                 if (error as? DurableIngestError) == .identityConflict, !rejected.isEmpty,
@@ -1027,7 +1071,7 @@ final class Backfiller {
                 await resumeCommitWatchdogIfNeeded()
                 return
             }
-            insertMs = Int((CFAbsoluteTimeGetCurrent() - insertStart) * 1000)
+            insertMs = Int((monotonic() - insertStart) * 1000)
             let counts = outcome.counts
             await info(.banked(hr: counts.hr, rr: counts.rr, events: counts.events, battery: counts.battery,
                                spo2: counts.spo2, skinTemp: counts.skinTemp, resp: counts.resp, gravity: counts.gravity))
@@ -1070,10 +1114,10 @@ final class Backfiller {
             // before trim. Capacity or archival failure holds ACK; no oldest-record eviction.
             if !rejected.isEmpty && !cursorCommittedWithChunk {
                 await flushInfo()   // Archive warnings retain their order before the durable archive.
-                let archiveStart = CFAbsoluteTimeGetCurrent()
+                let archiveStart = monotonic()
                 let archived = await archiveRecovery(rejected, scope: scope, trim: trim, family: family,
                                                      ref: ref, correlation: correlation)
-                archiveMs = Int((CFAbsoluteTimeGetCurrent() - archiveStart) * 1000)
+                archiveMs = Int((monotonic() - archiveStart) * 1000)
                 guard archived else {
                     await log?("Backfill: rejected-frame archive failed (trim=\(trim)) — holding ack so the strap re-sends.")
                     persistStalled = true   // #57
@@ -1084,11 +1128,11 @@ final class Backfiller {
                 }
                 await onQuarantined?(rejected.count)
             }
-            if cursorCommittedWithChunk && !rejected.isEmpty { await onQuarantined?(rejected.count) }
+            if cursorCommittedWithChunk { ordinaryQuarantinedCount = rejected.count }
 
             // Optional research capture is additional to the unconditional recovery archive.
             if enableRawCapture {
-                let rawStart = CFAbsoluteTimeGetCurrent()
+                let rawStart = monotonic()
                 do {
                     // Prefer decoded capture times; decoded-empty history retains the END timestamp
                     // so replaying the same chunk does not move its bounds with the phone clock.
@@ -1104,7 +1148,7 @@ final class Backfiller {
                         byteSize: frames.reduce(0) { $0 + $1.count }, captureScope: scope)
                     try await store.enqueueRawBatch(meta, frames: frames)
                 } catch {
-                    rawMs = Int((CFAbsoluteTimeGetCurrent() - rawStart) * 1000)
+                    rawMs = Int((monotonic() - rawStart) * 1000)
                     // Diag (#601): raw-capture is ON and the raw batch couldn't be enqueued. Hold the ack
                     // (return) so the strap re-sends — the research toggle's contract is that raw is durable
                     // before the trim advances. Surface it so a stalled offload with raw-capture on is visible.
@@ -1116,7 +1160,7 @@ final class Backfiller {
                     await resumeCommitWatchdogIfNeeded()
                     return
                 }
-                rawMs = Int((CFAbsoluteTimeGetCurrent() - rawStart) * 1000)
+                rawMs = Int((monotonic() - rawStart) * 1000)
             }
 
             // FRWHOOP issue #1: historical 100 Hz IMU buffers in this chunk belong to any registered
@@ -1126,14 +1170,11 @@ final class Backfiller {
             // offered; a flush failure holds the ack so the strap re-sends the chunk next session
             // rather than trimming past session data we never durably stored.
             if let imuSessionSink {
-                let imuRecords = zip(frames, parsed).compactMap { frame, p -> (baseTs: Int, columns: [Int16])? in
-                    guard p.ok && p.crcOK == true else { return nil }
-                    return Whoop5RawImu.decodeColumns(frame)
-                }
+                let imuRecords = d.imuRecords
                 if !imuRecords.isEmpty {
-                    let imuStart = CFAbsoluteTimeGetCurrent()
+                    let imuStart = monotonic()
                     let imuOk = imuSessionSink(deviceId, imuRecords)
-                    imuMs = Int((CFAbsoluteTimeGetCurrent() - imuStart) * 1000)
+                    imuMs = Int((monotonic() - imuStart) * 1000)
                     if !imuOk {
                         await flushInfo()
                         await log?("Backfill: failed to durably persist session IMU data (trim=\(trim)) — holding ack so the strap re-sends this chunk; session .imus must be on disk before the trim advances.")
@@ -1179,12 +1220,12 @@ final class Backfiller {
             return
         }
 
-        let cursorStart = CFAbsoluteTimeGetCurrent()
+        let cursorStart = monotonic()
         do {
             if !cursorCommittedWithChunk { try await store.setCursor("strap_trim:\(scope.key)", Int(trim)) }
         } catch {
             await flushInfo()
-            cursorMs = Int((CFAbsoluteTimeGetCurrent() - cursorStart) * 1000)
+            cursorMs = Int((monotonic() - cursorStart) * 1000)
             await log?("Backfill: failed to write strap_trim cursor (trim=\(trim)): \(error) — holding ack so the strap re-sends this chunk; history won't advance until the cursor write succeeds.")
             persistStalled = true   // #57
             await notePersistFailure(trim: trim, reason: "strap_trim cursor failed")
@@ -1193,15 +1234,22 @@ final class Backfiller {
             return
         }
 
-        cursorMs = Int((CFAbsoluteTimeGetCurrent() - cursorStart) * 1000)
+        cursorMs = Int((monotonic() - cursorStart) * 1000)
         persistenceOutcome = .succeeded
         commitWatchdogPaused = false
-        let ackStart = CFAbsoluteTimeGetCurrent()
+        let ackStart = monotonic()
+        let submission = BackfillAckSubmission(now: monotonic)
         await CaptureJobTrace.$correlation.withValue(correlation) {
-            await ackTrim(trim, endData)
+            await CaptureJobTrace.$ackSubmission.withValue(submission) {
+                await ackTrim(trim, endData)
+            }
         }
-        ackMs = Int((CFAbsoluteTimeGetCurrent() - ackStart) * 1000)
+        ackMs = Int((monotonic() - ackStart) * 1000)
+        ackSubmissionMs = submission.milliseconds(since: chunkArrival)
+        let presentationStart = monotonic()
+        if ordinaryQuarantinedCount > 0 { pendingInfo.append(.quarantined(ordinaryQuarantinedCount)) }
         await flushInfo() // Optional presentation follows durable authorization and ACK submission.
+        postAckPresentationMs = Int((monotonic() - presentationStart) * 1000)
         lastAckedTrim = trim   // #364: record the advanced cursor for the auto-continue spin-detector
         notePersistSuccess()
         await recordPhaseSample()

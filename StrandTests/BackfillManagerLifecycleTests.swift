@@ -5,6 +5,26 @@ import WhoopStore
 
 @MainActor
 final class BackfillManagerLifecycleTests: XCTestCase {
+    func testHistoricalAckLogCadenceIsBounded() {
+        XCTAssertFalse(BLEManager.shouldLogHistoricalAck(number: 0))
+        XCTAssertEqual((1...100).filter { BLEManager.shouldLogHistoricalAck(number: $0) },
+                       [1, 25, 50, 75, 100])
+    }
+
+    func testHistorySubmissionMarkerRequiresAnAcceptedWrite() {
+        for accepted in [false, true] {
+            let manager = BLEManager(state: LiveState(), startCentral: false)
+            manager.test_configureHistoryTransport { _, _ in accepted }
+            manager.test_simulateActiveBackfillSessionForWatchdog()
+            let submission = BackfillAckSubmission(now: { 5 })
+            CaptureJobTrace.$ackSubmission.withValue(submission) {
+                manager.ackHistoricalChunk(trim: 7, endData: [UInt8](repeating: 0, count: 8))
+            }
+            XCTAssertEqual(submission.milliseconds(since: 0), accepted ? 5_000 : nil)
+            manager.test_invalidateHistoryLink()
+        }
+    }
+
     private final class Store: BackfillStoreWriting {
         func insert(_ streams: Streams, deviceId: String) async throws
             -> (hr: Int, rr: Int, events: Int, battery: Int, spo2: Int, skinTemp: Int, resp: Int, gravity: Int) {

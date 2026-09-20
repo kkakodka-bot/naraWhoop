@@ -1861,6 +1861,7 @@ public final class BLEManager: NSObject, ObservableObject {
                     case .chunk(let decoded, let console):
                         if decoded { self.state.decodedChunksThisSession += 1 }
                         if console { self.state.consoleChunksThisSession += 1 }
+                    case .quarantined(let count): self.state.rejectedFramesThisSession += count
                     case .banked(let hr, let rr, _, _, let spo2, let skinTemp, let resp, let gravity):
                         self.offloadChunks += 1
                         self.offloadHr += hr; self.offloadRr += rr
@@ -3382,10 +3383,11 @@ public final class BLEManager: NSObject, ObservableObject {
             }
             recordConfirmedCommandWrite(command, writeType: writeType)
             p.writeValue(Data(frame), for: ch, type: writeType)
+            if command == .historicalDataResult { CaptureJobTrace.ackSubmission?.markSubmitted() }
             let cmdNote = isHaptics ? " cmd=0x13" : ""
             if command == .historicalDataResult {
                 historicalAckLogCounter += 1
-                if historicalAckLogCounter == 1 || historicalAckLogCounter.isMultiple(of: 25) {
+                if Self.shouldLogHistoricalAck(number: historicalAckLogCounter) {
                     log("→ \(command.label) ack #\(historicalAckLogCounter) payload=\(hex(puffinPayload)) (puffin)")
                 }
                 return true
@@ -3400,8 +3402,20 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         recordConfirmedCommandWrite(command, writeType: writeType)
         p.writeValue(Data(frame), for: ch, type: writeType)
+        if command == .historicalDataResult {
+            CaptureJobTrace.ackSubmission?.markSubmitted()
+            historicalAckLogCounter += 1
+            if Self.shouldLogHistoricalAck(number: historicalAckLogCounter) {
+                log("→ \(command.label) ack #\(historicalAckLogCounter) payload=\(hex(payload))")
+            }
+            return true
+        }
         log("→ \(command.label) payload=\(hex(payload))")
         return true
+    }
+
+    static func shouldLogHistoricalAck(number: Int) -> Bool {
+        number == 1 || (number > 0 && number.isMultiple(of: 25))
     }
 
     private func recordConfirmedCommandWrite(_ command: WhoopCommand?, writeType: CBCharacteristicWriteType) {
@@ -3418,6 +3432,7 @@ public final class BLEManager: NSObject, ObservableObject {
         guard !accountShutdown else { return false }
         if let writer = historyCommandWriterForTesting {
             guard writer(command, payload) else { return false }
+            if command == .historicalDataResult { CaptureJobTrace.ackSubmission?.markSubmitted() }
             recordConfirmedCommandWrite(command, writeType: .withResponse)
             return true
         }
