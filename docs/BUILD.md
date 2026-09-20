@@ -1,5 +1,10 @@
 # Building NOOP
 
+> FRWHOOP/NARA fork: hosted enrollment and scoring are required. The offline-only product description
+> below is upstream background, not this fork's privacy or account contract. Follow
+> [SCOPE.md](SCOPE.md) and [TESTER_ENROLLMENT.md](TESTER_ENROLLMENT.md) for current behavior; the
+> platform build commands below still apply.
+
 NOOP is a standalone, fully **offline** companion app for WHOOP straps (4.0 and 5.0). It pairs
 directly with the strap over Bluetooth Low Energy, stores everything on-device in SQLite, imports
 WHOOP CSV exports and Apple Health exports, and computes recovery / strain / HRV / sleep locally.

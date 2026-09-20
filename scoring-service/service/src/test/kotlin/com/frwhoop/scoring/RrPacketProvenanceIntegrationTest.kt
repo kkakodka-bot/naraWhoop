@@ -2,6 +2,7 @@ package com.frwhoop.scoring
 
 import com.frwhoop.scoring.db.PostgresClient
 import com.frwhoop.scoring.db.SignalSampleReader
+import com.noop.protocol.DeviceFamily
 import com.noop.protocol.RrPacketProvenance
 import org.json.JSONObject
 import org.junit.After
@@ -34,6 +35,30 @@ class RrPacketProvenanceIntegrationTest {
     }
 
     @After fun close() { if (::db.isInitialized) db.close() }
+
+    @Test fun missingProfilePreservesOwnedWhoop4FirmwareAndDefaultContext() {
+        sql("delete from profiles where id='$user'")
+        sql("delete from scoring_timezone_history where user_id='$user'")
+        sql("update devices set device_family='whoop4',firmware='whoop4-test-firmware' where id='$device'")
+
+        val reader = SignalSampleReader(db)
+        val input = reader.loadDay(user, day, device)!!
+        assertEquals(DeviceFamily.WHOOP4, input.deviceFamily)
+        assertEquals("whoop4-test-firmware", input.deviceFirmware)
+        assertEquals(30.0, input.profile.age, 0.0)
+        assertEquals("nonbinary", input.profile.sex)
+        assertEquals(70.0, input.profile.weightKg, 0.0)
+        assertEquals(170.0, input.profile.heightCm, 0.0)
+        assertEquals(0L, input.tzOffsetSeconds)
+        assertEquals(listOf("UTC"), input.calendarOwnership!!.timezoneIds)
+
+        val otherOwner = UUID.randomUUID()
+        sql("insert into auth.users values ('$otherOwner')")
+        sql("insert into profiles(id,timezone) values ('$otherOwner','Pacific/Honolulu')")
+        assertNull(reader.loadDay(otherOwner, day, device))
+        assertNull(reader.loadDay(otherOwner, day, device, "UTC"))
+        assertNull(reader.loadDay(user, day, UUID.randomUUID()))
+    }
 
     @Test fun packetOnlyArrivalRetainsZeroSlotIsOwnerScopedAndDirtiesTransactionally() {
         val insert = """

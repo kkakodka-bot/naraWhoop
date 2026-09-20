@@ -55,7 +55,7 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
         db.withConnection { conn ->
             val deviceIdText = deviceId.toString()
             if (!deviceExistsForUser(conn, userId, deviceId)) return@withConnection null
-            val profileRow = loadProfile(conn, userId, deviceId)
+            val profileRow = loadProfile(conn, userId, deviceId) ?: return@withConnection null
             val bounds = UserDayBounds.forDay(day, timezoneId?.let(UserDayBounds::parseZone) ?: profileRow.zoneId)
             val ownership = CalendarOwnershipReader.load(conn, userId, day)
             val dayLo = ownership.dayLo ?: bounds.dayLo
@@ -195,7 +195,7 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
             ps.executeQuery().use { rs -> rs.next() }
         }
 
-    private fun loadProfile(conn: Connection, userId: UUID, deviceId: UUID): ProfileRow {
+    private fun loadProfile(conn: Connection, userId: UUID, deviceId: UUID): ProfileRow? {
         conn.prepareStatement(
             """
             select
@@ -206,17 +206,15 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
               coalesce(p.timezone, 'UTC') as timezone_name,
               coalesce(d.device_family, 'whoop5') as device_family,
               d.firmware as device_firmware
-            from public.profiles p
-            join public.devices d on d.user_id = p.id and d.id = ?
-            where p.id = ?
+            from public.devices d
+            left join public.profiles p on p.id = d.user_id
+            where d.id = ? and d.user_id = ?
             """.trimIndent(),
         ).use { ps ->
             ps.setObject(1, deviceId)
             ps.setObject(2, userId)
             ps.executeQuery().use { rs ->
-                if (!rs.next()) {
-                    return ProfileRow(UserProfile(), UserDayBounds.parseZone("UTC"), DeviceFamily.WHOOP5)
-                }
+                if (!rs.next()) return null
                 val zoneId = UserDayBounds.parseZone(rs.getString("timezone_name"))
                 val family = when (rs.getString("device_family")?.lowercase()) {
                     "whoop4", "4.0", "whoop 4.0" -> DeviceFamily.WHOOP4

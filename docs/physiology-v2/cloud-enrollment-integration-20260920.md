@@ -31,6 +31,7 @@ review found no unresolved P0/P1 among the reported enrollment blockers.
 | P2 | An unavailable feature in the new SQL response omitted `device_id` and `algorithm_version`. | Swift could reject the entire response, including qualified metrics. | Include identity on unavailable features; mixed-qualified/unqualified PostgreSQL regression. | Fixed |
 | P2 | `RawDataSessionStore` read global legacy metadata after enrollment. | Old sessions/comments could appear or block new capture. | Scope metadata by owner/source and reload after activation; session store and scope tests. | Fixed |
 | P2 | Operator `create-tester` created Auth records before validating code configuration. Invalid pepper/expiry left partial users. | Retrying could create confusing account state. | Validate configuration before writes; reject pepper whitespace. Zero-admin-call counterexamples in `manage.test.mjs`. | Fixed |
+| P2 | `SignalSampleReader.loadProfile` used an inner profile join and defaulted the entire row when a profile was absent. A WHOOP4 device then became WHOOP5 and lost its firmware context. | Device-specific input policy could use the wrong family in the defensive missing-profile path. Normal signup creates a profile. | Drive the owner-filtered query from devices with an optional profile; preserve device family/firmware and default only profile fields. Real PostgreSQL regression covers missing profile/history, WHOOP4 firmware, defaults/UTC, wrong owner and absent device. | Fixed; 116-case PostgreSQL harness passed |
 | P2 | `WhoopSerialIdentity.mayAdopt` rejects generic/bare legacy IDs, which the server scopes per installation. | Replacement-phone continuity of legacy wearable history remains incomplete. | Keep old history separate until physical serial and prior ownership can be proven; add a reviewed migration and replacement-device test before automatic reconciliation. | Remaining; unsafe to infer ownership |
 | P2 | No multi-phone overnight soak, Android hardware enrollment, or physiological reference cohort was run for this candidate. | Source tests cannot establish hardware reliability or accuracy. | Run the named physical and reference gates; retain missingness/abstention until inputs qualify. | Remaining acceptance gate |
 | P3 | Upstream build/privacy prose describes an offline-only app. | Documentation could conflict with hosted behavior. | Updated fork scope, terms, privacy preamble and enrollment guide; upstream historical sections remain identified as such. | Bounded repair |
@@ -88,3 +89,40 @@ accuracy, newly installed heavy models, or production readiness from these repos
 | Deployed | Pending separate rollout receipt |
 
 Recommendation at candidate freeze: ready for controlled device testing, not production or model promotion.
+
+## Enrollment rollout receipt
+
+Enrollment client/Edge source was pinned to `fe896f5f2718e8e7e7d92d76fcbcdb704a435357`.
+Both migrations were applied atomically after the successful hosted rollback trial. Push version 9
+and scores version 3 are active with gateway JWT verification disabled and handler authorization
+enabled. The existing bundled token was classified as fleet; legacy uploads are disabled. Prior
+receiver source and token ownership metadata were preserved privately for a reviewed rollback.
+
+A positive live test using temporary test identities proved enrollment (201), negotiated capabilities
+(200, protocol 1.2 and matching owner/source), device acknowledgement (200), and empty selected-device
+score readback (200). The first harness attempt omitted the mandatory protocol-negotiation header and
+received 406; the corrected client-equivalent request passed. Both test users were deleted, and
+installation/token/device/code/redemption/receipt cascade checks found no remaining rows. No health
+samples were uploaded by this smoke test.
+
+Signed NARA 11.1.1 build 361 was installed and launched on the connected iPhone, replacing build 360.
+The installed bundle/version was independently read back. Executable SHA-256:
+`a8bfcca32640bf5f9b58eef197836a13a158c66670f79044fd2519988a86002d`.
+The user's chosen tester identity was created after checking for an existing matching email.
+The user has not yet entered the enrollment code, so this phone has no confirmed personal session,
+device acknowledgement or upload-to-score receipt for the new identity. Installation is not an
+end-to-end capture result. This is the only manual step pending for the installed enrollment flow.
+
+The pre-existing hosted v2 worker was independently verified at
+`a39a0d46e3ce74fa8c5aee646e3cbb481f6525a3`, with a recent heartbeat, zero restarts and no error.
+The observed queue had 92 completed items across three users and no pending, runnable, failed or
+exhausted work. Readback defaults select v2 without personal feature selections; seven critical
+live SQL functions match source. This demonstrates general queue operation, not a sustained fleet
+benchmark. All live users had profiles and timezone history; defensive missing-history handling
+uses UTC and does not prove the user's local calendar.
+
+The subsequent bounded missing-profile/device-family repair passed `bash scripts/test-physiology-queue.sh`:
+116/116 real PostgreSQL tests, zero skips/failures. Evidence directory:
+`/var/folders/rk/rw132g3n6zv9hbqb1tw_ctxm0000gn/T/physiology-queue.KGjwHF`.
+It changes no Apple/Android client or Edge files. Worker deployment for that repair is recorded in
+the final release receipt separately from the already completed enrollment rollout.
