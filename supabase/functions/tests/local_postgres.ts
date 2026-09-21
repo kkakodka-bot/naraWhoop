@@ -9,8 +9,9 @@ export const USER_A = '11111111-1111-4111-8111-111111111111';
 export const USER_B = '22222222-2222-4222-8222-222222222222';
 const decoder = new TextDecoder();
 
-export async function startLocalPostgres({ scalarProjections = false, auxiliaryIdentity = false }:
-  { scalarProjections?: boolean; auxiliaryIdentity?: boolean } = {}) {
+export async function startLocalPostgres({ scalarProjections = false, auxiliaryIdentity = false,
+  appendCompatibility = false }:
+  { scalarProjections?: boolean; auxiliaryIdentity?: boolean; appendCompatibility?: boolean } = {}) {
   const artifacts = Deno.env.get('EDGE_TEST_ARTIFACTS');
   if (!artifacts?.startsWith('/Volumes/')) throw new Error('EDGE_TEST_ARTIFACTS must name an external-volume directory');
   const base = await Deno.makeTempDir({ dir: artifacts, prefix: 'edge-pg-' });
@@ -79,6 +80,7 @@ export async function startLocalPostgres({ scalarProjections = false, auxiliaryI
       '20260918060000_production_scalar_projections.sql');
     if (auxiliaryIdentity) migrations.push('20260918070000_production_aux_identity_provenance.sql',
       '20260918080000_production_ppg_input_selection.sql');
+    if (appendCompatibility) migrations.push('20260921070000_production_append_stream_compatibility.sql');
     for (const migration of migrations) {
       const file = new URL(`../../migrations/${migration}`, import.meta.url);
       await run(`${bin}/psql`, ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-h', base, '-U', 'edge_test', '-d', 'postgres', '-f', decodeURIComponent(file.pathname)]);

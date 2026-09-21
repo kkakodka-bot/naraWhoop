@@ -28,11 +28,12 @@ Deno.test('steps project observed counter and activity without manufacturing mis
     record: { key: { ts: 100 }, data: { counter: 0, activityClass: null } },
   });
   assert.equal(row?.counter, 0);
-  assert.equal(row?.activityClass, null);
+  assert.equal(row?.activity_class, null);
   assert.equal(row?.device_id, owner.deviceId);
   assert.equal(row?.user_id, owner.userId);
   for (const counter of [null, undefined, -1, 0.5, 'bad']) {
-    assert.equal(projection.mapRow({ ...owner, record: { key: { ts: 100 }, data: { counter } } }), null);
+    assert.throws(() => projection.mapRow({ ...owner,
+      record: { key: { ts: 100 }, data: { counter } } }), /invalid_scalar_record/);
   }
 });
 
