@@ -550,7 +550,7 @@ class AccountFencedSnapshot(
     override suspend fun binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Long) =
         admission.fenced { base.binaryRecordAt(table, deviceId, rowId) }
     override suspend fun binaryRows(table: PushBinaryTable, deviceId: String, afterRowId: Long, limit: Int) =
-        admission.fenced { base.binaryRows(table, deviceId, rowId) }
+        admission.fenced { base.binaryRows(table, deviceId, afterRowId, limit) }
     override suspend fun acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: List<PushBinaryRow>) =
         admission.fenced { base.acknowledgeBinary(table, deviceId, rows) }
 }
