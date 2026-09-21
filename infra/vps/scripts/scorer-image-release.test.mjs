@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { prepare, publish, readRelease, validateRelease, verifyImage, imageReference, hash, runCommand, deployPinned } from './scorer-image-release.mjs';
-import { fixture, releaseFixture } from './sync-evidence-fixtures.mjs';
+import { fixture, releaseFixture, copyMigrationCatalog } from './sync-evidence-fixtures.mjs';
 import { verifyEvidence } from './verify-sync-evidence.mjs';
 
 const scripts = path.dirname(fileURLToPath(import.meta.url));
@@ -265,7 +265,8 @@ test('fixed command runner rejects nonzero, signal, timeout and oversized succes
 });
 test('actual deploy CLI rejects invalid image manifest before deployment configuration can execute', t => {
   const root = local(t), repo = path.join(root, 'repo'), dir = path.join(repo, 'infra/vps/scripts'); fs.mkdirSync(dir, { recursive: true });
-  for (const name of ['deploy-scoring-service.sh', 'scorer-image-release.mjs', 'sync-evidence-contract.mjs', 'scoring-migration-catalog.mjs', 'scoring-migration-catalog.json']) fs.copyFileSync(path.join(scripts, name), path.join(dir, name));
+  for (const name of ['deploy-scoring-service.sh', 'scorer-image-release.mjs', 'sync-evidence-contract.mjs', 'scoring-migration-catalog.mjs']) fs.copyFileSync(path.join(scripts, name), path.join(dir, name));
+  copyMigrationCatalog(repo);
   fs.writeFileSync(path.join(repo, 'infra/vps/droplet.env'), 'echo CONFIG_EXECUTED; exit 88\n');
   fs.writeFileSync(path.join(root, 'bad.json'), '{}');
   const bin = path.join(root, 'bin'); fs.mkdirSync(bin); fs.symlinkSync(process.execPath, path.join(bin, 'node')); fs.symlinkSync('/usr/bin/dirname', path.join(bin, 'dirname'));
@@ -297,7 +298,8 @@ test('pinned deployment uses the exact digest, preserves pin, never rebuilds or 
 test('actual deployment rejects incompatible single-worker manifests and archives exact source for all three lanes', t => {
   const root = local(t), repo = path.join(root, 'repo'), dir = path.join(repo, 'infra/vps/scripts');
   fs.mkdirSync(dir, { recursive: true });
-  for (const name of ['deploy-scoring-service.sh', 'scorer-image-release.mjs', 'sync-evidence-contract.mjs', 'scoring-migration-catalog.mjs', 'scoring-migration-catalog.json']) fs.copyFileSync(path.join(scripts, name), path.join(dir, name));
+  for (const name of ['deploy-scoring-service.sh', 'scorer-image-release.mjs', 'sync-evidence-contract.mjs', 'scoring-migration-catalog.mjs']) fs.copyFileSync(path.join(scripts, name), path.join(dir, name));
+  copyMigrationCatalog(repo);
   const f = releaseFixture(path.join(root, 'release'));
   fs.writeFileSync(path.join(repo, 'infra/vps/droplet.env'), 'DROPLET_IP=fixture.invalid\n');
   fs.mkdirSync(path.join(repo, 'infra/vps/keys')); fs.writeFileSync(path.join(repo, 'infra/vps/keys/frwhoop_deploy'), 'SYNTHETIC KEY');

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 // Reviewed source identities. Applied history is never renamed to hide timestamp collisions.
 export const MIGRATION_CATALOG = Object.freeze(JSON.parse(fs.readFileSync(
-  new URL('./scoring-migration-catalog.json', import.meta.url), 'utf8')).map(Object.freeze));
+  new URL('../../../scoring-service/service/src/main/resources/scoring-migration-catalog.json', import.meta.url), 'utf8')).map(Object.freeze));
 export const MIGRATION_NAMES = Object.freeze(MIGRATION_CATALOG.map(row => row.basename).sort());
 export const MIGRATION_HASHES = new Map(MIGRATION_CATALOG.map(row => [row.basename, row.sha256]));
 

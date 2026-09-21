@@ -458,5 +458,13 @@
   {
     "basename": "20260921102000_server_baseline_publication.sql",
     "sha256": "e7deccc18dfa26608de916b3bbf43549883befec67daa8a80de1a559d36e531e"
+  },
+  {
+    "basename": "20260921103000_server_publication_conflict_transport.sql",
+    "sha256": "7c3309226da8c6b23e3d966e91f14aef184477e03f245f8c220794e2393d6ead"
+  },
+  {
+    "basename": "20260921104000_server_unrepresentable_clock.sql",
+    "sha256": "0f723d9e2789d45b26e37aad9f6b95bc8f372d85f2441d8b4be3252abab8a014"
   }
 ]

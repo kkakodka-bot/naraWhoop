@@ -27,7 +27,8 @@ this repair does not publish that digest. Physiology and history use the same ex
 
 ## Migration lineage: no timestamp truncation or blind replay
 
-The reviewed catalog is `scripts/scoring-migration-catalog.json`. Each identity is a complete SQL
+The reviewed catalog is `scoring-service/service/src/main/resources/scoring-migration-catalog.json`
+at the repository root. Infra planning and JVM preflight share this same packaged catalog. Each identity is a complete SQL
 basename plus SHA-256, not just its first 14 digits. Six historical timestamp collisions are real
 independent files. No original migration is renamed, changed or inferred to have run because a
 different file shares its timestamp. `verifyMigrationSources` rejects missing, extra, symlinked or
@@ -37,9 +38,13 @@ Fresh install has one explicit dependency exception: the existing forward repair
 `20260921060000_production_intake_durability.sql` executes before
 `20260918040000_production_projection_debt.sql`. It provides intake fields required by projection
 debt. It executes once, under its original identity. An already applied repair is never replayed.
-The three new additive repairs are `20260921100000_server_score_read_contract.sql`,
-`20260921101000_server_pipeline_diagnostics.sql`, and
-`20260921102000_server_baseline_publication.sql`.
+The five new additive repairs are `20260921100000_server_score_read_contract.sql`,
+`20260921101000_server_pipeline_diagnostics.sql`,
+`20260921102000_server_baseline_publication.sql`,
+`20260921103000_server_publication_conflict_transport.sql`, and
+`20260921104000_server_unrepresentable_clock.sql`. The transport repair maps stale publication
+leases to bounded HTTP 409 without changing private SQL lease/fence behavior. The clock repair
+retains raw input while excluding unrepresentable/nonfinite timestamps from day projection.
 
 Before an authorized upgrade, export the actual target ledger read-only and compare its identities
 with reviewed prior deployment artifacts. The planner does not access a database or execute SQL:

@@ -16,7 +16,7 @@ function subprocessFixture(t) {
   const f = fixture(t), root = path.join(f.directory, 'fake-repo'), bin = path.join(f.directory, 'bin');
   const scriptDir = path.join(root, 'infra/vps/scripts');
   sourceFixture(root); fs.mkdirSync(scriptDir, { recursive: true }); fs.mkdirSync(bin);
-  for (const name of ['phase3-acceptance-checks.sh', 'verify-sync-evidence.mjs', 'sync-evidence-contract.mjs', 'sync-migration-ledger.mjs', 'scoring-migration-catalog.mjs', 'scoring-migration-catalog.json', 'check-sync-sources.mjs', 'check-sync-live.mjs', 'scorer-image-release.mjs']) {
+  for (const name of ['phase3-acceptance-checks.sh', 'verify-sync-evidence.mjs', 'sync-evidence-contract.mjs', 'sync-migration-ledger.mjs', 'scoring-migration-catalog.mjs', 'check-sync-sources.mjs', 'check-sync-live.mjs', 'scorer-image-release.mjs']) {
     fs.copyFileSync(path.join(scripts, name), path.join(scriptDir, name));
   }
   // PATH has NO system directory and thus no real SSH/Gradle fallback.

@@ -8,6 +8,13 @@ import { SOURCE_ROOTS } from './check-sync-sources.mjs';
 import { hash } from './scorer-image-release.mjs';
 
 // Deliberately synthetic descriptor bytes and metadata, never an actual build receipt.
+export function copyMigrationCatalog(root) {
+  const relative = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
+  const target = path.join(root, relative);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(new URL('../../../' + relative, import.meta.url), target);
+}
+
 export function releaseFixture(directory, commit = 'b'.repeat(40), configId = `sha256:${'b'.repeat(64)}`) {
   fs.mkdirSync(directory, { recursive: true });
   const bytes = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
@@ -39,6 +46,7 @@ export function releaseFixture(directory, commit = 'b'.repeat(40), configId = `s
 }
 
 export function sourceFixture(root) {
+  copyMigrationCatalog(root);
   for (const relative of SOURCE_ROOTS) {
     fs.mkdirSync(path.join(root, relative), { recursive: true });
     fs.writeFileSync(path.join(root, relative, 'Synthetic.kt'), 'package fixture\nimport com.noop.data.HrSample\n');
