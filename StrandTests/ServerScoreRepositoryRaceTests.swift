@@ -43,12 +43,49 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
         repo.wire(store: store)
         await repo.refreshVisibleDays(todayKey: day)
         XCTAssertTrue(repo.state.hasServerOwnership)
+        XCTAssertTrue(repo.usesEnrollmentReadback)
+        XCTAssertTrue(repo.state.owns(.sleepSessions), "Tester sleep must never fall back to local session boundaries")
         XCTAssertEqual(repo.state.scalar(.sleepTotal, day: day), 480)
         XCTAssertNil(repo.state.scalar(.hrv, day: day))
         XCTAssertEqual(ServerScoreDisplay.daily(local: nil, day: day, state: repo.state)?.totalSleepMin, 480)
+        XCTAssertEqual(repo.state.days[day]?.phase, .partial)
+        XCTAssertFalse(repo.state.days[day]?.pending ?? true)
+        XCTAssertNil(repo.state.days[day]?.snapshot, "Enrollment must not invent account snapshot provenance")
         repo.signOut()
         XCTAssertFalse(repo.state.hasServerOwnership)
         XCTAssertTrue(repo.state.enrollmentValues.isEmpty)
+    }
+
+    func testCompletedEmptyEnrollmentResultIsNotReportedAsStillComputing() async throws {
+        let auth = Auth(ownerA)
+        let data = try JSONSerialization.data(withJSONObject: ["server_scoring": [
+            "schema_version": 2, "user_id": ownerA, "day": day, "algorithm_version": "per_feature",
+            "features": ["sleep": ["status": "available", "device_id": "device",
+                "algorithm_version": "frwhoop-server-1", "processing_status": "done",
+                "input_revision": 8, "required_revision": 8]],
+            "daily": [:], "nights": [], "stale": false
+        ]])
+        let cache = try ServerScoreCacheCodec.parseSnapshot(data, day: day, ownerId: ownerA)
+        let repo = ServerScoreRepository(dependencies: dependencies(auth) { _, _ in cache })
+        repo.selectDevice(localDeviceId: "strap-a")
+        await repo.refreshVisibleDays(todayKey: day)
+        XCTAssertEqual(repo.state.days[day]?.phase, .noData)
+        XCTAssertFalse(repo.state.days[day]?.pending ?? true)
+        XCTAssertNil(repo.state.scalar(.sleepTotal, day: day))
+    }
+
+    func testEnrollmentPendingAndFailedStatesAreNotFlattenedIntoSuccess() async throws {
+        for (processing, expected) in [("running", ServerScoreDayState.Phase.pending), ("exhausted", .failed)] {
+            let auth = Auth(ownerA)
+            var cache = try snapshot(ownerA)
+            cache.features["sleep"]?.processingStatus = processing
+            let result = cache
+            let repo = ServerScoreRepository(dependencies: dependencies(auth) { _, _ in result })
+            repo.selectDevice(localDeviceId: "strap-a")
+            await repo.refreshVisibleDays(todayKey: day)
+            XCTAssertEqual(repo.state.days[day]?.phase, expected)
+            XCTAssertEqual(repo.state.days[day]?.pending, processing == "running")
+        }
     }
     private final class Auth {
         var owner: String?

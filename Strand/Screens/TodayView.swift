@@ -699,7 +699,7 @@ struct TodayView: View {
     /// night's deviation.
     private var skinTempLeadReading: SkinTempDisplay.Reading? {
         if let metric = ServerScoreDisplay.temperatureMetric(prefersAbsolute: skinTempPreferred == .absolute, state: serverScores.state) {
-            return serverScores.state.days[selectedDayKey]?.snapshot?.value(metric).map {
+            return serverScores.state.scalar(metric, day: selectedDayKey).map {
                 SkinTempDisplay.Reading(value: $0, kind: metric == .skinTemperature ? .absolute : .deviation)
             }
         }

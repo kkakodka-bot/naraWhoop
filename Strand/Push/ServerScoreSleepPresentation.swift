@@ -65,7 +65,7 @@ extension ServerScoreSleepPresentation {
         func metric(_ key: ServerScoreMetric, _ local: SleepModel.Metric) -> SleepModel.Metric {
             guard state.owns(key) else { return local }
             let snapshot = state.days[day]?.snapshot
-            let value = snapshot?.value(key).map { value in
+            let value = state.scalar(key, day: day).map { value in
                 ServerScoreDisplay.seriesValue(key, value: value, unit: snapshot?.metrics?[key.rawValue]?.unit)
             }
             return (value, nil, ServerScoreDisplay.series(key, through: day, state: state).map(\.value))

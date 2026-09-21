@@ -3,6 +3,14 @@ import WhoopStore
 @testable import Strand
 
 final class ServerScoreSleepModelTests: XCTestCase {
+    func testEnrolledScalarTotalsCannotAuthorizeLocalSleepBoundaries() throws {
+        let local = try XCTUnwrap(SleepModel.build(inputs()))
+        var view = state([.sleepSessions, .sleepTotal])
+        view.enrollmentValues[view.currentDay] = [ServerScoreMetric.sleepTotal.rawValue: 420]
+        XCTAssertNil(ServerScoreSleepPresentation.model(day: view.currentDay, state: view, local: local))
+        XCTAssertEqual(view.scalar(.sleepTotal, day: view.currentDay), 420)
+    }
+
     func testOwnedSleepCapabilityWithdrawalReturnsUnavailableWithoutLocalFallback() throws {
         let day = "2026-09-18"
         let local = try XCTUnwrap(SleepModel.build(inputs()))

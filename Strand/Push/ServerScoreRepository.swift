@@ -86,6 +86,7 @@ final class ServerScoreRepository: ObservableObject {
     private var linkInFlight = false
     private var pollingDay: String?
     private var currentOwnerId: String? { legacy?.ownerId()?.lowercased() }
+    var usesEnrollmentReadback: Bool { legacy != nil }
 
     init(dependencies: Dependencies) {
         legacy = dependencies
@@ -886,11 +887,33 @@ final class ServerScoreRepository: ObservableObject {
               owner == session.ownerId else { return }
         let metrics: Set<ServerScoreMetric> = [.hrv, .restingHR, .respiration, .recovery, .strain,
             .sleepPerformance, .sleepTotal, .sleepInBed, .sleepAwake, .sleepLight, .sleepDeep,
-            .sleepREM, .sleepEfficiency, .spo2, .skinTemperature, .skinTemperatureDeviation]
+            .sleepREM, .sleepEfficiency, .sleepSessions, .spo2, .skinTemperature, .skinTemperatureDeviation]
+        var readStates: [String: ServerScoreDayState] = [:]
+        for (day, cache) in enrolledDays where cache.ownerId == owner {
+            let pending = cache.features.values.contains { feature in
+                ["pending", "running", "retry"].contains(feature.processingStatus ?? "") ||
+                    feature.status == "pending" ||
+                    (feature.requiredRevision.map { $0 > (feature.inputRevision ?? 0) } ?? false)
+            }
+            let failed = cache.features.values.contains {
+                ["failed", "exhausted"].contains($0.processingStatus ?? "")
+            }
+            // A completed, empty result is not an indefinitely running calculation.
+            // The endpoint's revision fields stay on the feature envelope, not a fabricated snapshot.
+            let d = cache.daily
+            let hasValues = [d?.hrvRmssdMs, d?.restingHrBpm.map(Double.init), d?.respRateBpm,
+                d?.recovery, d?.strain, d?.rest, d?.sleepTotalMin, d?.sleepInBedMin,
+                d?.sleepAwakeMin, d?.sleepLightMin, d?.sleepDeepMin, d?.sleepRemMin,
+                d?.sleepEfficiency, d?.spo2Pct,
+                d?.skinTempC, d?.skinTempDevC].contains { $0 != nil } || !cache.nights.isEmpty
+            let phase: ServerScoreDayState.Phase = failed ? .failed : pending ? .pending : hasValues ? .partial : .noData
+            readStates[day] = .init(snapshot: nil, phase: phase, fetchedAt: cache.fetchedAt,
+                cached: cache.stale, pending: pending, requestedInputRevision: nil, archiveStatus: nil)
+        }
         var next = ServerScoreViewState(generation: CloudRuntimeIdentity.currentEnrollmentSnapshot()?.generation,
             revision: state.revision &+ 1, currentDay: currentDay, timezone: timeZone.identifier,
             configured: legacy?.ready() == true, authenticated: true, capabilities: metrics,
-            activated: metrics, days: [:])
+            activated: metrics, days: readStates)
         for (day, cache) in enrolledDays where cache.ownerId == owner {
             let d = cache.daily
             let entries: [(ServerScoreMetric, Double?)] = [
@@ -906,7 +929,8 @@ final class ServerScoreRepository: ObservableObject {
         }
         if next.enrollmentValues != state.enrollmentValues || next.currentDay != state.currentDay
             || next.generation != state.generation || next.configured != state.configured
-            || next.authenticated != state.authenticated || next.capabilities != state.capabilities {
+            || next.authenticated != state.authenticated || next.capabilities != state.capabilities
+            || next.days != state.days {
             state = next
         }
     }

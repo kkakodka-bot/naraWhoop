@@ -285,6 +285,14 @@ struct SleepView: View {
     }
 
     var body: some View {
+        if serverScores.usesEnrollmentReadback {
+            ServerSleepScreen(scores: serverScores)
+        } else {
+            snapshotBody
+        }
+    }
+
+    @ViewBuilder private var snapshotBody: some View {
         // Resolve the memoized model for THIS render. `dataKey` is O(1)-ish (counts + last-row
         // identity), so comparing it every render is cheap. When it matches the cached key we
         // reuse the cached model untouched — the many body re-evaluations from hover/animation/
