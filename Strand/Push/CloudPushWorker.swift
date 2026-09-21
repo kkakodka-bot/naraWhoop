@@ -41,7 +41,7 @@ enum CloudPushWorker {
         defer { SyncPipelineTrace.event(.uploadScheduling, outcome: traceOutcome) }
         guard ResourceBudget.shared.permits(.bulk), let endpoint = CloudPushSettings.enabledEndpoint() else { return .deferred }
         guard let binding = CloudPushCaptureBindings.binding(for: db),
-              let initial = CloudAuthClient.currentContext(), binding.scope == initial.scope else {
+              let initial = CloudRuntimeIdentity.snapshot().context, binding.scope == initial.scope else {
             traceOutcome = .authenticationRequired
             // Root must retain debt for the original/unassigned writer. No account is inferred here.
             return .deferred
@@ -72,7 +72,7 @@ enum CloudPushWorker {
             let interval = SyncPipelineTrace.begin(.uploadPreparation)
             var preparationOutcome = SyncPipelineTrace.Outcome.failed
             defer { SyncPipelineTrace.end(interval, outcome: preparationOutcome) }
-            authorization = try await CloudAuthClient.authorizedSession()
+            authorization = try await CloudRuntimeIdentity.authorizedSession()
             guard authorization.context == initial else { throw AccountAuthError.staleOperation }
             try await CloudPushCaptureBindings.validateOwner(db: db, scope: initial.scope)
             if let credential = CloudEnrollment.currentCredential(sourceId: binding.sourceID) {
@@ -84,7 +84,7 @@ enum CloudPushWorker {
             admission = try AccountPushAdmission(
                 context: initial, captureScope: binding.scope, sourceID: binding.sourceID,
                 isCurrent: { context in
-                    CloudAuthClient.isCurrent(context) && CloudPushSettings.enabledEndpoint()?.url == endpoint.url
+                    CloudRuntimeIdentity.isCurrent(context) && CloudPushSettings.enabledEndpoint()?.url == endpoint.url
                 }
             )
             accountTransport = try CloudAccountPushTransport(endpoint: endpoint, authorization: authorization,
@@ -150,7 +150,7 @@ enum CloudPushWorker {
             traceOutcome = .cancelled
             return .deferred
         } catch {
-            traceOutcome = CloudAuthClient.isCurrent(initial) ? .failed : .cancelled
+            traceOutcome = CloudRuntimeIdentity.isCurrent(initial) ? .failed : .cancelled
             return .deferred
         }
 

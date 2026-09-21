@@ -14,7 +14,7 @@ struct CloudAccountPushTransport: PushTransport {
          dependentAdmission: SyncEngine.DependentStageAdmission? = nil) throws {
         try self.init(endpoint: endpoint, context: authorization.context, accessToken: authorization.accessToken,
                       session: CloudPushBackgroundRuntime.current(for: authorization.context).controlSession,
-                      isCurrent: { CloudAuthClient.isCurrent($0) },
+                      isCurrent: { CloudRuntimeIdentity.isCurrent($0) },
                       dependentAdmission: dependentAdmission)
         base.requirePreparedSelections()
     }
@@ -37,6 +37,9 @@ struct CloudAccountPushTransport: PushTransport {
         guard isCurrent(context) else { throw AccountAuthError.staleOperation }
         var request = URLRequest(url: URL(string: endpoint.url)!)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if let fleet = CloudPushSettings.resolvedFleetToken() {
+            request.setValue(fleet, forHTTPHeaderField: CloudPushTransport.fleetTokenHeader)
+        }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(PushProtocol.capabilitiesAcceptVersions, forHTTPHeaderField: CloudPushTransport.acceptVersionHeader)
         let (data, response) = try await session.data(for: request)

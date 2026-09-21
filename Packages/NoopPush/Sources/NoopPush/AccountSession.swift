@@ -57,6 +57,11 @@ public struct AccountIdentitySnapshot: Equatable, Sendable {
     public let projectURL: String?
     public let scope: AccountScope?
     public let generation: UUID
+    public init(projectURL: String?, scope: AccountScope?, generation: UUID) {
+        self.projectURL = projectURL
+        self.scope = scope
+        self.generation = generation
+    }
     public var context: AccountSessionContext? {
         scope.map { AccountSessionContext(scope: $0, generation: generation) }
     }
@@ -93,6 +98,11 @@ public struct AuthorizedCloudSession: Sendable {
     public let context: AccountSessionContext
     public let accessToken: String
     public let expiresAt: Date
+    public init(context: AccountSessionContext, accessToken: String, expiresAt: Date) {
+        self.context = context
+        self.accessToken = accessToken
+        self.expiresAt = expiresAt
+    }
 }
 
 public enum AccountAuthError: Error, Equatable, Sendable {

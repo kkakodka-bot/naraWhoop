@@ -464,6 +464,9 @@ struct ServerScoreViewState: Equatable, Sendable {
     let capabilities: Set<ServerScoreMetric>
     let activated: Set<ServerScoreMetric>
     let days: [String: ServerScoreDayState]
+    /// The enrollment endpoint has scalar results but no account snapshot revision contract.
+    /// Keep those values separate instead of inventing snapshot revisions or provenance.
+    var enrollmentValues: [String: [String: Double]] = [:]
 
     static let empty = Self(generation: nil, revision: 0, currentDay: "", timezone: "UTC", configured: false,
                             authenticated: false, capabilities: [], activated: [], days: [:])
@@ -472,6 +475,7 @@ struct ServerScoreViewState: Equatable, Sendable {
         ServerScoreMetric.sleep.union(ServerScoreMetric.sleepHistory).union([.respiration]).contains(where: owns)
     }
     func hasScalarContent(day: String) -> Bool {
+        if hasServerOwnership, let values = enrollmentValues[day] { return !values.isEmpty }
         guard hasServerOwnership, let snapshot = days[day]?.snapshot else { return false }
         return activated.intersection(capabilities).contains { snapshot.value($0) != nil }
     }
@@ -479,6 +483,11 @@ struct ServerScoreViewState: Equatable, Sendable {
         configured && authenticated && capabilities.contains(metric) && activated.contains(metric)
     }
     func value(_ metric: ServerScoreMetric, day: String, local: @autoclosure () -> Double?) -> Double? {
-        owns(metric) ? days[day]?.snapshot?.value(metric) : local()
+        owns(metric) ? scalar(metric, day: day) : local()
+    }
+
+    func scalar(_ metric: ServerScoreMetric, day: String) -> Double? {
+        if let values = enrollmentValues[day] { return values[metric.rawValue] }
+        return days[day]?.snapshot?.value(metric)
     }
 }

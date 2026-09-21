@@ -1,9 +1,31 @@
 import XCTest
 import GRDB
 import WhoopStore
+import NoopPush
 @testable import Strand
 
 final class CloudCaptureScopeTests: XCTestCase {
+    func testEnrolledStoreUpgradeRequiresExactOwnerAndSourceAndPreservesSamples() async throws {
+        let store = try await WhoopStore.inMemory()
+        let scope = try AccountScope(projectURL: "https://example.test", userID: ownerA)
+        try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: nil, ownerId: ownerA, sourceId: sourceA)
+        try await store.registryWriter.write { db in
+            try db.execute(sql: "INSERT INTO hrSample(deviceId,ts,bpm) VALUES('my-whoop',100,65)")
+        }
+        do {
+            try await CloudCaptureScope.bindEnrolledOwner(store.registryWriter, scope: scope, ownerId: ownerA, sourceId: sourceB)
+            XCTFail("Wrong installation must not bind the store")
+        } catch CloudCaptureScope.ScopeError.ownerMismatch { }
+        try await CloudCaptureScope.bindEnrolledOwner(store.registryWriter, scope: scope, ownerId: ownerA, sourceId: sourceA)
+        try await store.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+        let count = try await store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM hrSample") }
+        XCTAssertEqual(count, 1)
+        let other = try AccountScope(projectURL: "https://other.test", userID: ownerA)
+        do {
+            try await CloudCaptureScope.bindEnrolledOwner(store.registryWriter, scope: other, ownerId: ownerA, sourceId: sourceA)
+            XCTFail("Existing endpoint ownership must remain fixed")
+        } catch CloudCaptureScope.ScopeError.ownerMismatch { }
+    }
     private let ownerA = "11111111-1111-4111-8111-111111111111"
     private let ownerB = "22222222-2222-4222-8222-222222222222"
     private let sourceA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"

@@ -69,6 +69,11 @@ enum ServerScoringSettings {
     /// Pausing uploads or withholding upload consent must not restore local metrics over owned cache.
     /// Fleet-endpoint derivation remains the fallback when no account identity is loaded yet.
     static func supabaseProjectURL() -> URL? {
+        if CloudEnrollment.currentCredential() != nil,
+           let endpoint = CloudPushSettings.configuredEndpoint()?.url,
+           endpoint.hasSuffix("/functions/v1/push") {
+            return URL(string: String(endpoint.dropLast("/functions/v1/push".count)))
+        }
         if let project = CloudAuthClient.identitySnapshot().projectURL,
            let canonical = try? AccountScope.canonicalProjectURL(project) {
             return URL(string: canonical)

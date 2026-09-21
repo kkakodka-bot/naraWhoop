@@ -12,6 +12,7 @@ final class AccountAppRuntime: ObservableObject {
 
     struct ModelRequest {
         let context: AccountSessionContext?
+        let enrollmentScope: AccountScope?
         let layout: AccountStorageLayout?
         let captureAllowed: Bool
         let isCurrent: (AccountSessionContext?) -> Bool
@@ -25,6 +26,7 @@ final class AccountAppRuntime: ObservableObject {
         var layout: (AccountScope?) throws -> AccountStorageLayout
         var makeModel: (ModelRequest) -> AppModel = { request in
             AccountAppRuntime.buildModel(context: request.context, layout: request.layout,
+                enrollmentScope: request.enrollmentScope,
                 captureAllowed: request.captureAllowed, isCurrent: request.isCurrent)
         }
         var retireModel: (AppModel) -> (@MainActor () async -> Bool) = { model in
@@ -39,8 +41,11 @@ final class AccountAppRuntime: ObservableObject {
         var externalEffects: ExternalEffects
 
         static var live: Self {
-            Self(snapshot: { CloudAuthClient.identitySnapshot() }, observeIdentity: { changed in
-                NotificationCenter.default.publisher(for: CloudAuthClient.identityDidChange)
+            Self(snapshot: { CloudRuntimeIdentity.snapshot() }, observeIdentity: { changed in
+                Publishers.Merge(
+                    NotificationCenter.default.publisher(for: CloudAuthClient.identityDidChange),
+                    NotificationCenter.default.publisher(for: .cloudEnrollmentDidChange)
+                )
                     .receive(on: DispatchQueue.main).sink { _ in changed() }
             }, layout: { try StorePaths.accountLayout(scope: $0) }, externalEffects: .live)
         }
@@ -81,9 +86,13 @@ final class AccountAppRuntime: ObservableObject {
         self.generation = identity.generation
         let layout = try? dependencies.layout(identity.scope)
         let snapshot = dependencies.snapshot
-        let candidate = dependencies.makeModel(ModelRequest(context: identity.context, layout: layout,
+        let enrollment = identity.context.flatMap { CloudRuntimeIdentity.isEnrollment($0) ? $0.scope : nil }
+        let candidate = dependencies.makeModel(ModelRequest(
+            context: enrollment == nil ? identity.context : nil,
+            enrollmentScope: enrollment,
+            layout: layout,
             captureAllowed: self.retiredCapture.pendingCount == 0,
-            isCurrent: { snapshot().context == $0 }))
+            isCurrent: { _ in snapshot() == identity }))
         let initialIsCurrent = dependencies.snapshot() == identity
         let rejectedDrain: (@MainActor () async -> Bool)?
         let model: AppModel
@@ -94,7 +103,7 @@ final class AccountAppRuntime: ObservableObject {
             let drain = dependencies.retireModel(candidate)
             rejectedDrain = candidate.captureAdmissionEnabled ? drain : nil
             // Never publish the rejected account's settings, even for the first synchronous read.
-            model = dependencies.makeModel(ModelRequest(context: nil, layout: nil,
+            model = dependencies.makeModel(ModelRequest(context: nil, enrollmentScope: nil, layout: nil,
                 captureAllowed: false, isCurrent: { _ in false }))
             replacementPending = true
         }
@@ -125,12 +134,13 @@ final class AccountAppRuntime: ObservableObject {
     }
 
     static func buildModel(context: AccountSessionContext?, layout: AccountStorageLayout?,
+                           enrollmentScope: AccountScope? = nil,
                            captureAllowed: Bool = true,
                            isCurrent: @escaping (AccountSessionContext?) -> Bool = { $0 == CloudAuthClient.currentContext() },
                            beforeConstruction: (() -> Void)? = nil) -> AppModel {
         beforeConstruction?()
-        return AppModel(storageLayout: layout, context: context,
-                        presentationAllowed: context != nil && layout != nil,
+        return AppModel(storageLayout: layout, context: context, enrollmentScope: enrollmentScope,
+                        presentationAllowed: (context != nil || enrollmentScope != nil) && layout != nil,
                         captureAllowed: captureAllowed, isCurrent: isCurrent)
     }
 
@@ -163,11 +173,16 @@ final class AccountAppRuntime: ObservableObject {
         // Only one capture-enabled generation can await a failed final write. Further account
         // changes remain presentation-only until that exact old writer reports durable success.
         let snapshot = dependencies.snapshot
-        let replacement = dependencies.makeModel(ModelRequest(context: next.context, layout: layout,
-            captureAllowed: retiredCapture.pendingCount == 0, isCurrent: { snapshot().context == $0 }))
+        let enrollment = next.context.flatMap { CloudRuntimeIdentity.isEnrollment($0) ? $0.scope : nil }
+        let replacement = dependencies.makeModel(ModelRequest(
+            context: enrollment == nil ? next.context : nil,
+            enrollmentScope: enrollment,
+            layout: layout,
+            captureAllowed: retiredCapture.pendingCount == 0,
+            isCurrent: { _ in snapshot() == next }))
         guard dependencies.snapshot() == next else {
             retireCapture(of: replacement, generation: next.generation)
-            let neutral = dependencies.makeModel(ModelRequest(context: nil, layout: nil,
+            let neutral = dependencies.makeModel(ModelRequest(context: nil, enrollmentScope: nil, layout: nil,
                 captureAllowed: false, isCurrent: { _ in false }))
             #if os(iOS)
             if dependencies.externalEffects == .live {
@@ -218,19 +233,19 @@ final class AccountAppRuntime: ObservableObject {
                 // Cancelled construction may already own this stable session identifier.
                 await previousPreparation?.value
                 await pendingRetirement?.value
-                guard !Task.isCancelled, CloudAuthClient.isCurrent(context) else { return }
+                guard !Task.isCancelled, CloudRuntimeIdentity.isCurrent(context) else { return }
                 let runtime = try await Task.detached(priority: .utility) {
                     try layout.prepare()
                     return try CloudPushBackgroundRuntime(context: context, layout: layout,
                         authorize: { captured in
-                            let authorized = try await CloudAuthClient.authorizedSession()
+                            let authorized = try await CloudRuntimeIdentity.authorizedSession()
                             guard authorized.context == captured else { throw AccountAuthError.staleOperation }
                             return authorized.accessToken
-                        }, isCurrent: { CloudAuthClient.isCurrent($0) },
+                        }, isCurrent: { CloudRuntimeIdentity.isCurrent($0) },
                         policy: { .current(wifiOnly: CloudPushSettings.wifiOnly,
                             enabled: CloudPushSettings.isEnabled && CloudPushSettings.termsAccepted) })
                 }.value
-                guard let self, !Task.isCancelled, CloudAuthClient.isCurrent(context),
+                guard let self, !Task.isCancelled, CloudRuntimeIdentity.isCurrent(context),
                       self.identity.context == context else {
                     await runtime.retire()
                     return
@@ -238,7 +253,7 @@ final class AccountAppRuntime: ObservableObject {
                 if let previous = CloudPushBackgroundRuntime.install(runtime) {
                     await previous.retire()
                 }
-                guard !Task.isCancelled, CloudAuthClient.isCurrent(context),
+                guard !Task.isCancelled, CloudRuntimeIdentity.isCurrent(context),
                       self.identity.context == context else {
                     await runtime.retire()
                     return
@@ -248,7 +263,7 @@ final class AccountAppRuntime: ObservableObject {
                 self.refreshStorageError()
                 try await runtime.reconcile()
             } catch {
-                guard let self, CloudAuthClient.isCurrent(context) else { return }
+                guard let self, CloudRuntimeIdentity.isCurrent(context) else { return }
                 self.backgroundStorageError = "Account transfer storage is unavailable. Pending data was retained."
                 self.refreshStorageError()
             }

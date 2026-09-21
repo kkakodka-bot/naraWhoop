@@ -82,3 +82,52 @@ enum CloudAuthClient {
         _ = try await controller.authorizedSession(refreshing: context)
     }
 }
+
+/// The app supports two intentionally separate credentials: a normal Supabase account session and
+/// the code-issued tester enrollment used by capture/readback. Root runtime ownership must recognize
+/// both; treating an enrolled tester as signed out opens an unassigned store and leaves the device gate
+/// waiting forever even when its server receipt is already present.
+enum CloudRuntimeIdentity {
+    static func enrollmentSnapshot(
+        credential: CloudEnrollmentCredential?,
+        projectURL: URL?
+    ) -> AccountIdentitySnapshot? {
+        guard let credential,
+              credential.isValid(forSourceId: credential.sourceId),
+              let projectURL,
+              let generation = UUID(uuidString: credential.tokenId),
+              let scope = try? AccountScope(projectURL: projectURL.absoluteString,
+                                            userID: credential.userId) else { return nil }
+        return AccountIdentitySnapshot(projectURL: scope.projectURL, scope: scope,
+                                       generation: generation)
+    }
+
+    static func currentEnrollmentSnapshot() -> AccountIdentitySnapshot? {
+        guard let endpoint = CloudPushSettings.configuredEndpoint()?.url,
+              endpoint.hasSuffix("/functions/v1/push"), CloudCaptureScope.ready else { return nil }
+        return enrollmentSnapshot(credential: CloudEnrollment.currentCredential(),
+            projectURL: URL(string: String(endpoint.dropLast("/functions/v1/push".count))))
+    }
+
+    static func snapshot() -> AccountIdentitySnapshot {
+        currentEnrollmentSnapshot() ?? CloudAuthClient.identitySnapshot()
+    }
+
+    static func isEnrollment(_ context: AccountSessionContext) -> Bool {
+        currentEnrollmentSnapshot()?.context == context
+    }
+
+    static func isCurrent(_ context: AccountSessionContext) -> Bool {
+        snapshot().context == context
+    }
+
+    static func authorizedSession() async throws -> AuthorizedCloudSession {
+        if let context = currentEnrollmentSnapshot()?.context,
+           let credential = CloudEnrollment.currentCredential(),
+           context.generation == UUID(uuidString: credential.tokenId) {
+            return AuthorizedCloudSession(context: context, accessToken: credential.uploadToken,
+                                           expiresAt: .distantFuture)
+        }
+        return try await CloudAuthClient.authorizedSession()
+    }
+}

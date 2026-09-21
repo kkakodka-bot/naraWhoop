@@ -29,7 +29,7 @@ enum CloudPushSettings {
     }
 
     private static func scopedKey(_ key: String) -> String {
-        "account.\(CloudAuthClient.currentContext()?.scope.namespace ?? "signed-out").\(key)"
+        "account.\(CloudRuntimeIdentity.snapshot().scope?.namespace ?? "signed-out").\(key)"
     }
 
     private enum K {
@@ -215,7 +215,9 @@ enum CloudPushSettings {
     }
 
     static func sourceId(scope: AccountScope) -> String {
-        sourceId(key: "account.\(scope.namespace).cloudPush.sourceId")
+        if CloudRuntimeIdentity.currentEnrollmentSnapshot()?.scope == scope,
+           let credential = CloudEnrollment.currentCredential() { return credential.sourceId }
+        return sourceId(key: "account.\(scope.namespace).cloudPush.sourceId")
     }
 
     private static let sourceIDLock = NSLock()
@@ -261,7 +263,7 @@ enum CloudPushSettings {
     /// Worker status always writes to the captured owner, even if an identity changes concurrently.
     static func recordScopedRun(context: AccountSessionContext, state: RunState, message: String? = nil,
                                 batches: Int = 0, records: Int = 0) {
-        guard CloudAuthClient.isCurrent(context) else { return }
+        guard CloudRuntimeIdentity.isCurrent(context) else { return }
         let prefix = "account.\(context.scope.namespace).cloudPush."
         let defaults = UserDefaults.standard
         defaults.set(state.rawValue, forKey: prefix + "runState")

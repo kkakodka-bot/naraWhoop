@@ -33,6 +33,23 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
         }
         func open() { opened = true; continuation?.resume(); continuation = nil }
     }
+
+    func testEnrollmentResultsPopulateDashboardAndSignOutClearsThem() async throws {
+        let auth = Auth(ownerA)
+        let result = try snapshot(ownerA)
+        let repo = ServerScoreRepository(dependencies: dependencies(auth) { _, _ in result })
+        let store = try await WhoopStore.inMemory()
+        repo.selectDevice(localDeviceId: "strap-a")
+        repo.wire(store: store)
+        await repo.refreshVisibleDays(todayKey: day)
+        XCTAssertTrue(repo.state.hasServerOwnership)
+        XCTAssertEqual(repo.state.scalar(.sleepTotal, day: day), 480)
+        XCTAssertNil(repo.state.scalar(.hrv, day: day))
+        XCTAssertEqual(ServerScoreDisplay.daily(local: nil, day: day, state: repo.state)?.totalSleepMin, 480)
+        repo.signOut()
+        XCTAssertFalse(repo.state.hasServerOwnership)
+        XCTAssertTrue(repo.state.enrollmentValues.isEmpty)
+    }
     private final class Auth {
         var owner: String?
         var conditionalClears = 0

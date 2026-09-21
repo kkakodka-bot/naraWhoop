@@ -11,7 +11,19 @@ enum StorePaths {
             for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: false
         )
-        let base = macOSProductionContainerAppSupport(defaultingTo: support)
+        let accountSupport = macOSProductionContainerAppSupport(defaultingTo: support)
+        if let scope,
+           CloudRuntimeIdentity.currentEnrollmentSnapshot()?.scope == scope,
+           let owner = CloudCaptureScope.processOwnerId,
+           owner == scope.userID,
+           !CloudCaptureScope.processSourceId.isEmpty {
+            let directory = accountSupport.appendingPathComponent(
+                CloudCaptureScope.component("OpenWhoop", ownerId: owner,
+                                            sourceId: CloudCaptureScope.processSourceId),
+                isDirectory: true)
+            return AccountStorageLayout(directory: directory, scope: scope)
+        }
+        let base = accountSupport
             .appendingPathComponent("OpenWhoop", isDirectory: true)
         return AccountStorageLayout(baseDirectory: base, scope: scope)
     }
