@@ -1,6 +1,6 @@
 package com.frwhoop.scoring
 
-import com.frwhoop.scoring.db.ScoringWorkQueue
+import com.frwhoop.scoring.db.HistoricalScoringWorkQueue
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -12,7 +12,7 @@ class SleepIdentityIntegrationTest : PgIntegrationBase() {
         val stable = "40000000-0000-4000-8000-000000000001"
         val start = Instant.parse("2026-09-15T00:00:00Z").epochSecond
         for ((version, date) in listOf("identity-a" to day, "identity-b" to day, "identity-b" to "2026-09-16")) {
-            val q = ScoringWorkQueue(pg.db, version)
+            val q = HistoricalScoringWorkQueue(pg.db, version)
             sql("select register_scoring_algorithm_v2('$version')")
             q.dirtyWorkItem(u, device, date)
             sql("select expand_scoring_invalidations_v2(128)")

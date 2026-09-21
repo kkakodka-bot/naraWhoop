@@ -15,14 +15,14 @@ import java.util.UUID
 
 class HistoricalThermalStateTest {
     private val source="20000000-0000-4000-8000-000000000001"
-    private fun input(day:String,anchor:Double,raw:Int):SignalSampleReader.DayInputs {
+    private fun input(day:String,anchor:Double,raw:Int):HistoricalSignalSampleReader.DayInputs {
         val b=UserDayBounds.forDay(day,ZoneId.of("UTC"))
-        return SignalSampleReader.DayInputs(UUID.fromString("10000000-0000-4000-8000-000000000001"),day,source,
+        return HistoricalSignalSampleReader.DayInputs(UUID.fromString("10000000-0000-4000-8000-000000000001"),day,source,
             0,b.dayLo,b.dayHi,UserProfile(),b.nightLo,b.nightHi,List(300) { HrSample(source,b.dayLo+it,60) },
             emptyList(),emptyList(),emptyList(),emptyList(),DeviceFamily.WHOOP4,
             skinTemp=List(300) { SkinTempSample(source,b.dayLo+it,raw) },skinTempAnchorRaw=anchor)
     }
-    private fun result(i:SignalSampleReader.DayInputs):DayResult {
+    private fun result(i:HistoricalSignalSampleReader.DayInputs):DayResult {
         val sleep=DetectedSleep(i.dayLo,i.dayLo+300,1.0,listOf(StageSegment(i.dayLo,i.dayLo+300,"light")),60,50.0)
         val mean=AnalyticsEngine.skinTempFunnel(listOf(sleep),i.hr,i.skinTemp,i.deviceFamily,i.skinTempAnchorRaw).mean
         return DayResult(DailyMetric(source,i.day,skinTempC=mean),listOf(sleep),emptyList(),null,null,nightlySkinTempC=mean)

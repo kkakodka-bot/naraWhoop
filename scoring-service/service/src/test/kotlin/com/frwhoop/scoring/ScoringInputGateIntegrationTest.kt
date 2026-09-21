@@ -265,6 +265,37 @@ class ScoringInputGateIntegrationTest {
         sql(hrInsert(ts+1)); assertEquals(2L,revision())
     }
 
+    @Test fun capturedInputReleasesProjectionGateBeforePublicationAndRejectsSupersededResult() {
+        sql(hrInsert(ts)); makeDue()
+        val incoming = AtomicInteger()
+        val rejected = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/rpc/engine_publish_physiology") { exchange ->
+            try {
+                val payload = JSONObject(exchange.requestBody.bufferedReader().readText()).getJSONObject("p_payload")
+                sql(hrInsert(ts + 1))
+                incoming.incrementAndGet()
+                try { publish(payload) }
+                catch (error: SQLException) {
+                    if (error.sqlState == "40001") rejected.incrementAndGet() else throw error
+                }
+                exchange.sendResponseHeaders(409, -1)
+            } finally { exchange.close() }
+        }
+        server.start()
+        try {
+            val worker = poller(SignalSampleReader(db), "http://127.0.0.1:${server.address.port}", Duration.ofSeconds(5))
+            assertEquals(false, worker.processCandidate(ScoringWorkQueue.Candidate(user, device, day)))
+            assertEquals(1, incoming.get())
+            assertEquals(1, rejected.get())
+            assertEquals(2L, revision())
+            assertEquals(2L, rows("noop_hr_samples"))
+            assertEquals(0L, rows("server_physiology_results"))
+            makeDue()
+            assertNotNull(queue.peekOne(user, device, day))
+        } finally { server.stop(0) }
+    }
+
     @Test fun realReaderBlockedOnProjectionLockIsCancelledWithoutAbortingUnrelatedConnection() {
         sql(hrInsert(ts)); makeDue()
         db.withConnection { blocker ->

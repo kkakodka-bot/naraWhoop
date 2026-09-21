@@ -1,4 +1,5 @@
 import java.security.MessageDigest
+import java.io.ByteArrayOutputStream
 
 plugins {
     kotlin("jvm")
@@ -60,6 +61,48 @@ val physiologySourceFingerprint by tasks.registering {
 }
 sourceSets.main { resources.srcDir(layout.buildDirectory.dir("generated/physiology")) }
 tasks.named("processResources") { dependsOn(physiologySourceFingerprint) }
+
+// installDist has no /app/release.sha. Bind its JAR to the checked-out source rather than
+// accepting a runtime-provided file or trusting SCORING_WORKER_SOURCE_REVISION alone.
+val scoringSourceRevision by tasks.registering {
+    dependsOn(physiologySourceFingerprint)
+    val repository = rootProject.projectDir.parentFile
+    val destination = layout.buildDirectory.file("generated/physiology/scoring-source-revision.txt")
+    val declared = providers.gradleProperty("scoringSourceRevision")
+    inputs.property("declaredRevision", declared.orElse(""))
+    outputs.file(destination)
+    outputs.upToDateWhen { false } // HEAD and Git index changes are not ordinary Gradle source inputs.
+    doLast {
+        fun git(vararg arguments: String): String? {
+            val output = ByteArrayOutputStream()
+            return try {
+                val result = project.exec {
+                    workingDir(repository)
+                    commandLine("git", *arguments)
+                    standardOutput = output
+                    errorOutput = ByteArrayOutputStream()
+                    isIgnoreExitValue = true
+                }
+                if (result.exitValue == 0) output.toString(Charsets.UTF_8).trim() else null
+            } catch (_: Exception) { null }
+        }
+        val head = git("rev-parse", "--verify", "HEAD")
+        val requested = declared.orNull
+        if (requested != null) {
+            require(Regex("[0-9a-f]{40}").matches(requested)) { "scoringSourceRevision must be an immutable revision" }
+            require(head == null || head == requested) { "scoringSourceRevision differs from checked-out HEAD" }
+        }
+        val revision = head ?: requested
+        val sourcePaths = physiologySourceFingerprint.get().inputs.files.files.map {
+            it.relativeTo(repository).invariantSeparatorsPath
+        }.sorted()
+        val clean = head == null && requested != null || head != null &&
+            git("status", "--porcelain", "--untracked-files=all", "--", *sourcePaths.toTypedArray()) == ""
+        val packaged = if (clean && revision != null) revision else "source_identity_unavailable"
+        destination.get().asFile.apply { parentFile.mkdirs(); writeText("$packaged\n") }
+    }
+}
+tasks.named("processResources") { dependsOn(scoringSourceRevision) }
 
 tasks.register<JavaExec>("algorithmManifests") {
     dependsOn("classes")

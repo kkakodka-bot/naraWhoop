@@ -1,9 +1,9 @@
 package com.frwhoop.scoring
 
-import com.frwhoop.scoring.db.EngineIngestWriter
-import com.frwhoop.scoring.db.ScoringWorkQueue
-import com.frwhoop.scoring.db.SignalSampleReader
-import com.frwhoop.scoring.scoring.DayScorer
+import com.frwhoop.scoring.db.HistoricalEngineIngestWriter
+import com.frwhoop.scoring.db.HistoricalScoringWorkQueue
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
+import com.frwhoop.scoring.scoring.HistoricalDayScorer
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -32,7 +32,7 @@ class ScoringReviewRegressionTest : PgIntegrationBase() {
             s.executeQuery().use { r -> r.next(); JSONObject(r.getString(1)) }
         }
 
-    private fun publish(c: Connection, item: ScoringWorkQueue.WorkItem, score: Double): Long =
+    private fun publish(c: Connection, item: HistoricalScoringWorkQueue.WorkItem, score: Double): Long =
         c.prepareStatement("select publish_scoring_snapshot_v2(?, ?, ?::jsonb, 1)").use { s ->
             s.setObject(1, item.leaseToken); s.setLong(2, item.inputRevision)
             s.setString(3, payload(score).toString())
@@ -136,7 +136,7 @@ class ScoringReviewRegressionTest : PgIntegrationBase() {
     }
 
     @Test fun registrationSeesNeitherUncommittedInputNorLegacyWorkButMaintenanceRepairsIt() {
-        val next = ScoringWorkQueue(pg.db, algorithmVersion = "review-version-2")
+        val next = HistoricalScoringWorkQueue(pg.db, algorithmVersion = "review-version-2")
         pg.connection().use { input ->
             input.autoCommit = false
             input.createStatement().use { it.execute("""insert into noop_hr_samples
@@ -172,7 +172,7 @@ class ScoringReviewRegressionTest : PgIntegrationBase() {
             queue.dirtyWorkItem(u, device, java.time.LocalDate.parse(day).plusDays(offset.toLong()).toString())
         }
         val held = queue.claim()!!
-        val next = ScoringWorkQueue(pg.db, algorithmVersion = "review-version-2")
+        val next = HistoricalScoringWorkQueue(pg.db, algorithmVersion = "review-version-2")
         next.maintain(0)
         assertEquals("0", scalar("select count(*) from scoring_jobs_v2 where algorithm_version='review-version-2'"))
         next.maintain(2)
@@ -209,10 +209,10 @@ class ScoringReviewRegressionTest : PgIntegrationBase() {
             values('$u','$device','$u',$ts,$rr,0,$ord,${channel ?: "null"},0,'$u')""")
     }
 
-    private fun historicalInput() = SignalSampleReader(pg.db).loadDay(u, day, device)!!
+    private fun historicalInput() = HistoricalSignalSampleReader(pg.db).loadDay(u, day, device)!!
     private fun beats() = historicalInput().rr.map { listOf(it.ts, it.rrMs.toLong(), it.ord?.toLong(), it.srcChannel?.toLong()) }
     private fun inputRevision() = scalar("select input_revision from scoring_jobs_v2 where day='$day' and algorithm_version='$version'")
-    private fun coverage() = EngineIngestWriter.buildSnapshot(DayScorer().score(historicalInput(), version))
+    private fun coverage() = HistoricalEngineIngestWriter.buildSnapshot(HistoricalDayScorer().score(historicalInput(), "frwhoop-server-2-history"))
         .getJSONObject("coverage").getInt("rrIntervals")
 
     @Test fun futureModernRrInsertionAndDeletionDoNotChangeHistoricalInputsOrCoverage() {
@@ -223,10 +223,15 @@ class ScoringReviewRegressionTest : PgIntegrationBase() {
         assertEquals(2, before.size)
         assertEquals(2, coverage())
         // Publish the actual reader/scorer/writer coverage, then keep that settled revision unchanged.
+        val historical = HistoricalScoringWorkQueue(pg.db, "frwhoop-server-2-history")
+        historical.maintain(128)
         repeat(3) {
-            val item = queue.claim()!!
-            val inputs = SignalSampleReader(pg.db).loadDay(u, item.day, device)!!
-            assertNotNull(EngineIngestWriter(queue).write(item, DayScorer().score(inputs, version), 1))
+            val item = historical.claim()!!
+            val inputs = HistoricalSignalSampleReader(pg.db).loadHistoricalDay(u, item.day, device)!!
+            val prepared = com.frwhoop.scoring.scoring.HistoricalStateMachine.prepare(inputs,
+                com.frwhoop.scoring.db.HistoryCheckpointReader(pg.db).load(item))
+            assertNotNull(HistoricalEngineIngestWriter(historical).write(item,
+                HistoricalDayScorer().score(inputs, item.algorithmVersion, prepared), 1))
         }
         val revision = inputRevision()
         val snapshot = scalar("select payload::text from scoring_snapshots_v2 where day='$day'")

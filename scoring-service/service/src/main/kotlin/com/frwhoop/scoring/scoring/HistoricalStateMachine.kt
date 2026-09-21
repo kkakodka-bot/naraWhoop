@@ -1,7 +1,7 @@
 package com.frwhoop.scoring.scoring
 
 import com.frwhoop.scoring.db.HistoryCheckpointReader
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.noop.analytics.*
 import com.noop.data.DailyMetric
 import org.json.JSONArray
@@ -37,7 +37,7 @@ object HistoricalStateMachine {
     data class Commit(val state: JSONObject, val profileRevision: Long, val configurationRevision: Long,
                       val sleepDebt: SleepDebtLedger, val prepared: Prepared)
 
-    fun prepare(inputs: SignalSampleReader.DayInputs, seed: HistoryCheckpointReader.Seed): Prepared {
+    fun prepare(inputs: HistoricalSignalSampleReader.DayInputs, seed: HistoryCheckpointReader.Seed): Prepared {
         val day = LocalDate.parse(inputs.day)
         val history = seed.history
         require(history.all { it.getString("day") < inputs.day }) { "future_history_observation" }
@@ -109,7 +109,7 @@ object HistoricalStateMachine {
             VitalityEngine.sleepConsistency(hours.takeLast(28)),SleepStageTotals.habitualMidsleepSec(blocks.map { it.first },0),inputs.skinTempAnchorRaw)
     }
 
-    fun finish(inputs: SignalSampleReader.DayInputs, result: DayResult, prepared: Prepared,
+    fun finish(inputs: HistoricalSignalSampleReader.DayInputs, result: DayResult, prepared: Prepared,
                napOverrides: Map<SleepBounds,Boolean>, extraBaselines: Map<String,Double?> = emptyMap()): Commit {
         require(inputs.day==prepared.day)
         val d = result.daily

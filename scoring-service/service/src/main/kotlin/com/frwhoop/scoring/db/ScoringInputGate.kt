@@ -21,13 +21,18 @@ class ScoringInputGate(
         require(acquisitionTimeout.toMillis() in 1..10_000)
     }
 
-    class Guard internal constructor(duration: Duration) {
+    class Guard internal constructor(duration: Duration, private val releaseTransaction: () -> Unit = {}) {
         private val deadline = System.nanoTime() + duration.toNanos()
         @Volatile private var closed = false
         val active: Boolean get() = !closed && System.nanoTime() < deadline
         val remainingDuration: Duration get() = Duration.ofNanos(
             if (closed) 0 else (deadline-System.nanoTime()).coerceAtLeast(0))
         fun requireActive() = check(active) { "Scoring input gate deadline exceeded" }
+        fun releaseAfterSnapshot() {
+            requireActive()
+            releaseTransaction()
+            close()
+        }
         internal fun close() { closed = true }
     }
 
@@ -51,7 +56,10 @@ class ScoringInputGate(
                 if (error.sqlState == "55P03") return@withConnection null
                 throw error
             }
-            val acquired = Guard(maximumDuration)
+            val acquired = Guard(maximumDuration) {
+                timeout?.cancel(false)
+                conn.rollback()
+            }
             guard = acquired
             // The database idle timeout remains a second bound if this process stops making
             // progress. abort closes the physical connection, never returning a live lock to

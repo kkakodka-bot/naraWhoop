@@ -11,12 +11,12 @@ import java.util.concurrent.TimeUnit
 
 class HistoricalQueueIntegrationTest : PgIntegrationBase() {
     private val version="frwhoop-server-2-history"
-    private val historical get()=ScoringWorkQueue(pg.db,version)
-    private fun bundle(item:ScoringWorkQueue.WorkItem): ServerScoreBundle {
-        val input=SignalSampleReader(pg.db).loadHistoricalDay(item.userId,item.day,item.deviceId)!!
-        return DayScorer().score(input,version,HistoricalStateMachine.prepare(input,HistoryCheckpointReader(pg.db).load(item)))
+    private val historical get()=HistoricalScoringWorkQueue(pg.db,version)
+    private fun bundle(item:HistoricalScoringWorkQueue.WorkItem): HistoricalScoreBundle {
+        val input=HistoricalSignalSampleReader(pg.db).loadHistoricalDay(item.userId,item.day,item.deviceId)!!
+        return HistoricalDayScorer().score(input,version,HistoricalStateMachine.prepare(input,HistoryCheckpointReader(pg.db).load(item)))
     }
-    private fun publish(item:ScoringWorkQueue.WorkItem)=EngineIngestWriter(historical).write(item,bundle(item),1)
+    private fun publish(item:HistoricalScoringWorkQueue.WorkItem)=HistoricalEngineIngestWriter(historical).write(item,bundle(item),1)
     private fun start(vararg dates:String) {
         historical.maintain(1000)
         dates.forEach { historical.dirtyWorkItem(u,device,it) }
@@ -49,7 +49,7 @@ class HistoricalQueueIntegrationTest : PgIntegrationBase() {
         assertNotNull(publish(historical.claim()!!))
         val later=historical.claim()!!; val stale=bundle(later)
         pg.connection().use { c -> c.createStatement().use { it.execute("select enqueue_scoring_v2('$u','$device','$day','$version','past_correction')") } }
-        assertNull(EngineIngestWriter(historical).write(later,stale,1))
+        assertNull(HistoricalEngineIngestWriter(historical).write(later,stale,1))
         assertEquals("1",scalar("select count(*) from scoring_history_checkpoints_v3"))
         assertTrue(historical.markFailed(later,"superseded"))
         historical.maintain(1000)
@@ -59,10 +59,10 @@ class HistoricalQueueIntegrationTest : PgIntegrationBase() {
     @Test fun profileRevisionMismatchAndPredecessorMismatchPublishNothing() {
         start(day)
         val item=historical.claim()!!; val b=bundle(item); val commit=b.historyCommit!!
-        assertNull(historical.publishHistory(item,EngineIngestWriter.buildSnapshot(b),commit.state,99,0,1))
-        assertNull(historical.publishHistory(item.copy(predecessorRevision=99),EngineIngestWriter.buildSnapshot(b),commit.state,0,0,1))
+        assertNull(historical.publishHistory(item,HistoricalEngineIngestWriter.buildSnapshot(b),commit.state,99,0,1))
+        assertNull(historical.publishHistory(item.copy(predecessorRevision=99),HistoricalEngineIngestWriter.buildSnapshot(b),commit.state,0,0,1))
         assertEquals("0",scalar("select count(*) from scoring_snapshots_v2"))
-        assertNotNull(EngineIngestWriter(historical).write(item,b,1))
+        assertNotNull(HistoricalEngineIngestWriter(historical).write(item,b,1))
         val payload=JSONObject(scalar("select payload::text from scoring_snapshots_v2")!!)
         assertEquals(item.historyGeneration,payload.getJSONObject("dependency").getLong("generation"))
         assertTrue(payload.getJSONObject("coverage").getBoolean("historicalStateAvailable"))
@@ -90,8 +90,8 @@ class HistoricalQueueIntegrationTest : PgIntegrationBase() {
             pg.connection().use { c ->
                 c.autoCommit=false
                 c.createStatement().use { it.executeQuery("select * from claim_scoring_history_v3('$version',300)").use { r -> assertTrue(r.next()); assertEquals(day,r.getString("day")) } }
-                assertNull(executor.submit<ScoringWorkQueue.WorkItem?> { historical.claim() }.get(5,TimeUnit.SECONDS))
-                assertNull(ScoringWorkQueue(pg.db,version,historyMode=false).claim())
+                assertNull(executor.submit<HistoricalScoringWorkQueue.WorkItem?> { historical.claim() }.get(5,TimeUnit.SECONDS))
+                assertNull(HistoricalScoringWorkQueue(pg.db,version,historyMode=false).claim())
                 c.commit()
             }
         } finally { executor.shutdownNow() }
@@ -99,7 +99,7 @@ class HistoricalQueueIntegrationTest : PgIntegrationBase() {
 
     @Test fun historyReaderNeverBorrowsMutableProfileWithoutEligibleJournal() {
         sql("update profiles set reported_age_years=85,timezone='Pacific/Auckland' where id='$u'")
-        val input=SignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
+        val input=HistoricalSignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
         assertEquals(30.0,input.profile.age,0.0); assertEquals("UTC",input.timezone)
     }
 
@@ -114,7 +114,7 @@ class HistoricalQueueIntegrationTest : PgIntegrationBase() {
             insert into noop_hr_samples(user_id,device_id,source_id,ts,bpm,batch_id)
             values('$u','$device',gen_random_uuid(),$ts,65,gen_random_uuid())
         """.trimIndent()) } }
-        assertNull(EngineIngestWriter(historical).write(later,stale,1))
+        assertNull(HistoricalEngineIngestWriter(historical).write(later,stale,1))
         assertEquals("2026-09-14",scalar("select dirty_from from scoring_history_heads_v3 where user_id='$u' and device_id='$device' and algorithm_version='$version'"))
         assertEquals("1",scalar("select count(*) from scoring_history_checkpoints_v3"))
     }

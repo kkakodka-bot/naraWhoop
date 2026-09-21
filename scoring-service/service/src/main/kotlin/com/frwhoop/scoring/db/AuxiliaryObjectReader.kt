@@ -50,8 +50,11 @@ class AuxiliaryObjectReader(private val objects: B2ObjectStore.ReadClient?) {
                 compressed.toLong()==m.getLong("compressed_bytes") && decoded.toLong()==m.getLong("uncompressed_bytes")) { "candidate_object_size_limit" }
             decodedBytes+=decoded
             check(decodedBytes<=256L*1024*1024) { "candidate_window_size_limit" }
-            val wire = checkNotNull(objects) { "candidate_object_reader_unconfigured" }
-                .readObject(m.getString("bucket"),m.getString("object_key"),compressed)
+            if (objects == null) {
+                gaps += "candidate_object_reader_unconfigured"
+                continue
+            }
+            val wire = objects.readObject(m.getString("bucket"),m.getString("object_key"),compressed)
             check(wire.size==compressed && B2ObjectStore.sha256Hex(wire)==receipt.getString("wireSha256")) { "candidate_wire_digest_mismatch" }
             val unpacked=decode(wire,m.getString("format"),decoded)
             check(B2ObjectStore.sha256Hex(unpacked)==receipt.getString("contentSha256")) { "candidate_content_digest_mismatch" }

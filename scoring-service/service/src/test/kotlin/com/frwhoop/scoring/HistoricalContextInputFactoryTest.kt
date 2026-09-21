@@ -2,7 +2,7 @@ package com.frwhoop.scoring
 
 import com.frwhoop.scoring.db.HistoryCheckpointReader
 import com.frwhoop.scoring.db.HistoryInputReader
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.frwhoop.scoring.scoring.*
 import com.noop.analytics.*
 import com.noop.data.DailyMetric
@@ -20,15 +20,15 @@ import java.util.UUID
 class HistoricalContextInputFactoryTest {
     private val owner = UUID.fromString("10000000-0000-4000-8000-000000000001")
     private val source = "20000000-0000-4000-8000-000000000001"
-    private fun input(day: String, zone: String = "UTC"): SignalSampleReader.DayInputs {
+    private fun input(day: String, zone: String = "UTC"): HistoricalSignalSampleReader.DayInputs {
         val bounds = UserDayBounds.forDay(day, ZoneId.of(zone))
-        return SignalSampleReader.DayInputs(owner, day, source, bounds.tzOffsetSeconds, bounds.dayLo, bounds.dayHi,
+        return HistoricalSignalSampleReader.DayInputs(owner, day, source, bounds.tzOffsetSeconds, bounds.dayLo, bounds.dayHi,
             UserProfile(), bounds.nightLo, bounds.nightHi, emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
             DeviceFamily.WHOOP5, timezone = zone)
     }
-    private fun result(input: SignalSampleReader.DayInputs, sleep: List<DetectedSleep> = emptyList()) =
+    private fun result(input: HistoricalSignalSampleReader.DayInputs, sleep: List<DetectedSleep> = emptyList()) =
         DayResult(DailyMetric(source, input.day), sleep, emptyList(), null, null, null, null)
-    private fun prepared(input: SignalSampleReader.DayInputs, previous: JSONObject? = null) = HistoricalStateMachine.prepare(
+    private fun prepared(input: HistoricalSignalSampleReader.DayInputs, previous: JSONObject? = null) = HistoricalStateMachine.prepare(
         input, HistoryCheckpointReader.Seed(previous, listOfNotNull(previous?.getJSONObject("observation"))))
     private fun sleep(start: Long, end: Long, observed: Boolean = true) = DetectedSleep(start, end, 1.0,
         if (observed) listOf(StageSegment(start, end, "light")) else emptyList(), null, null)

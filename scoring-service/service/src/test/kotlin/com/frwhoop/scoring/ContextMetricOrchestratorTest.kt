@@ -2,7 +2,7 @@ package com.frwhoop.scoring
 
 import com.frwhoop.scoring.db.HistoryCheckpointReader
 import com.frwhoop.scoring.db.HistoryInputReader
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.frwhoop.scoring.scoring.*
 import com.noop.analytics.*
 import com.noop.data.DailyMetric
@@ -235,9 +235,9 @@ class ContextMetricOrchestratorTest {
     }
 
     @Test fun checkpointRestartAndReplayFeedIdenticalEligibleSignalsAcrossEachReset() {
-        fun inputs(date: String, config: JSONObject): SignalSampleReader.DayInputs {
+        fun inputs(date: String, config: JSONObject): HistoricalSignalSampleReader.DayInputs {
             val bounds = UserDayBounds.forDay(date, ZoneOffset.UTC)
-            return SignalSampleReader.DayInputs(UUID.fromString("10000000-0000-4000-8000-000000000001"), date, source,
+            return HistoricalSignalSampleReader.DayInputs(UUID.fromString("10000000-0000-4000-8000-000000000001"), date, source,
                 bounds.tzOffsetSeconds, bounds.dayLo, bounds.dayHi, UserProfile(), bounds.nightLo, bounds.nightHi,
                 emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), DeviceFamily.WHOOP5, "UTC",
                 HistoryInputReader.Day(listOf(HistoryInputReader.Input("config", "primary", 1, false, config),

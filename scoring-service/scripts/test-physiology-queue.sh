@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+test_scope="${1:-test}"
+[[ "$test_scope" == test || "$test_scope" == schema ]] || { printf 'Use test or schema\n' >&2; exit 2; }
 
 service_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_dir="$(cd "$service_dir/.." && pwd)"
@@ -18,12 +20,14 @@ psql_cmd=("$pg_bin/psql" "$PHYSIOLOGY_TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1)
 for migration in \
   20260907133000_noop_hr_samples.sql \
   20260907133100_noop_append_stream_projections.sql \
+  20260907140000_noop_ingest_tokens.sql \
   20260907170000_noop_raw_object_lane.sql \
   20260911120000_noop_remaining_append_projections.sql \
   20260916160000_scoring_service_state.sql \
   20260916170000_scoring_work_items_device_id.sql \
   20260917190000_scoring_derived_artifact.sql \
-  20260918010000_physiology_revisions.sql; do
+  20260918010000_physiology_revisions.sql \
+  20260918010000_production_scoring_durability.sql; do
   if [[ "$migration" == 20260918010000_physiology_revisions.sql ]]; then
     "${psql_cmd[@]}" -f "$service_dir/service/src/test/resources/physiology_queue_legacy_fixture.sql" >>"$pg_test_dir/migrations.log"
   fi
@@ -35,6 +39,7 @@ fi
 if [[ -f "$repo_dir/supabase/migrations/20260918030000_physiology_hrv_dependencies.sql" ]]; then
   "${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260918030000_physiology_hrv_dependencies.sql" >>"$pg_test_dir/migrations.log"
 fi
+"${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260918030000_production_scoring_review_repairs.sql" >>"$pg_test_dir/migrations.log"
 if [[ -f "$repo_dir/supabase/migrations/20260918040000_rr_packet_provenance.sql" ]]; then
   "${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260918040000_rr_packet_provenance.sql" >>"$pg_test_dir/migrations.log"
 fi
@@ -58,7 +63,20 @@ for migration in "$repo_dir"/supabase/migrations/*.sql; do
   fi
   "${psql_cmd[@]}" -f "$migration" >>"$pg_test_dir/migrations.log"
 done
+if [[ "$test_scope" == schema ]]; then
+  printf 'Disposable PostgreSQL focused schema applied (tests not run): %s\n' "$pg_test_dir"
+  exit 0
+fi
 cd "$service_dir"
+if [[ "${PHYSIOLOGY_ALL_JVM_TESTS:-0}" == 1 ]]; then
+  # The whole-day Swift oracle remains mandatory in this mode. test-server-jvm.sh produces it
+  # from the actual current Swift sources before entering this disposable database harness.
+  : "${W4_SWIFT_DAY_FIXTURE_DIR:?Run test-server-jvm.sh or provide a current actual-Swift corpus}"
+  : "${W3_TEST_ARTIFACTS:?Provide an output directory for the real context snapshot fixture}"
+  "$pg_bin/createdb" -h 127.0.0.1 -p "$pg_test_port" -U postgres runtime_preflight_test
+  export RUNTIME_PREFLIGHT_TEST_DATABASE_URL="postgresql://postgres@127.0.0.1:$pg_test_port/runtime_preflight_test"
+  ./gradlew clean test :service:installDist --no-daemon
+else
 ./gradlew :service:test --tests com.frwhoop.scoring.ScoringWorkQueueIntegrationTest \
   --tests com.frwhoop.scoring.WorkerHeartbeatIntegrationTest \
   --tests com.frwhoop.scoring.PostgresDeadlineIntegrationTest \
@@ -79,6 +97,7 @@ cd "$service_dir"
   --tests com.frwhoop.scoring.LegacySleepContinuationIntegrationTest \
   --tests com.frwhoop.scoring.SignalInventoryIntegrationTest \
   --tests com.frwhoop.scoring.CalendarOwnershipIntegrationTest --rerun-tasks
+fi
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ScoringWorkQueueIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.WorkerHeartbeatIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.PostgresDeadlineIntegrationTest.xml" "$pg_test_dir/"

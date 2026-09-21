@@ -26,9 +26,9 @@ class VendorImportIntegrationTest:PgIntegrationBase() {
             s.executeQuery().use { it.next();JSONObject(it.getString(1)).getLong("revision") }
         }
     }
-    private fun score():ServerScoreBundle {
-        val i=SignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
-        return DayScorer().score(i,"frwhoop-server-2-history",HistoricalStateMachine.prepare(i,HistoryCheckpointReader.Seed(null,emptyList())))
+    private fun score():HistoricalScoreBundle {
+        val i=HistoricalSignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
+        return HistoricalDayScorer().score(i,"frwhoop-server-2-history",HistoricalStateMachine.prepare(i,HistoryCheckpointReader.Seed(null,emptyList())))
     }
     @Test fun strictVendorSourceUnitsRangesUnknownsAndExistingConsentAreRequired() {
         fun reject(p:JSONObject)=assertEquals("22023",assertThrows(SQLException::class.java) { put(p) }.sqlState)
@@ -72,14 +72,14 @@ class VendorImportIntegrationTest:PgIntegrationBase() {
     }
 
     @Test fun sameCountCorrectionFromAnotherConnectionFencesClaimAndTombstoneRemovesVendorOutput() {
-        val first=put(body());val q=ScoringWorkQueue(pg.db,"frwhoop-server-2-history")
+        val first=put(body());val q=HistoricalScoringWorkQueue(pg.db,"frwhoop-server-2-history")
         q.maintain(1000);q.dirtyWorkItem(u,device,day);q.maintain(1000)
         val item=q.claim()!!
-        val i=SignalSampleReader(pg.db).loadHistoricalDay(u,item.day,device)!!
-        val stale=DayScorer().score(i,q.algorithmVersion,HistoricalStateMachine.prepare(i,HistoryCheckpointReader(pg.db).load(item)))
+        val i=HistoricalSignalSampleReader(pg.db).loadHistoricalDay(u,item.day,device)!!
+        val stale=HistoricalDayScorer().score(i,q.algorithmVersion,HistoricalStateMachine.prepare(i,HistoryCheckpointReader(pg.db).load(item)))
         val changed=body().apply { getJSONObject("values").getJSONObject("miband_stress_score_0_100").put("value",75) }
         val second=put(changed,first)
-        assertNull(EngineIngestWriter(q).write(item,stale,1))
+        assertNull(HistoricalEngineIngestWriter(q).write(item,stale,1))
         assertEquals(75.0,score().derived!!.metrics.getJSONObject("imported_miband_stress_score_0_100").getDouble("value"),0.0)
         put(JSONObject(),second,deleted=true)
         assertFalse(score().derived!!.metrics.keySet().any { it.startsWith("imported_miband_") })

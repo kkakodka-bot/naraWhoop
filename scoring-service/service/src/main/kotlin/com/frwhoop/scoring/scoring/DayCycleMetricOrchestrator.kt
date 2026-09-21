@@ -1,6 +1,6 @@
 package com.frwhoop.scoring.scoring
 
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.noop.analytics.*
 import org.json.JSONObject
 import java.time.ZoneId
@@ -23,7 +23,7 @@ object DayCycleMetricOrchestrator {
             } ?: JSONObject.NULL)
     }
 
-    fun evaluate(input:SignalSampleReader.DayInputs,result:DayResult,p:HistoricalStateMachine.Prepared,
+    fun evaluate(input:HistoricalSignalSampleReader.DayInputs,result:DayResult,p:HistoricalStateMachine.Prepared,
                  identities:Map<SleepBounds,SleepIdentity> = emptyMap(),naps:Map<SleepBounds,Boolean> = emptyMap()):Result {
         val mode=DayCycleMode.fromPersisted(input.history.configuration.optString("dayCycleMode","sleep_onset"))
         val end=input.dayHi+1

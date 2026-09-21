@@ -1,6 +1,6 @@
 package com.frwhoop.scoring
 
-import com.frwhoop.scoring.db.ScoringWorkQueue
+import com.frwhoop.scoring.db.HistoricalScoringWorkQueue
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -111,7 +111,7 @@ class ScoringDurabilityIntegrationTest : PgIntegrationBase() {
         queue.maintain(1)
         assertNotNull(queue.publish(queue.claim()!!,payload(),1))
         queue.maintain(1); assertNull(queue.claim())
-        val newer=ScoringWorkQueue(pg.db,"frwhoop-server-2")
+        val newer=HistoricalScoringWorkQueue(pg.db,"frwhoop-server-2")
         newer.maintain(1); val item=newer.claim()!!
         assertEquals("frwhoop-server-2",item.algorithmVersion)
         assertNotNull(newer.publish(item,payload(),1))

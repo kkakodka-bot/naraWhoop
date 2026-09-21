@@ -1,6 +1,6 @@
 package com.frwhoop.scoring
 
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.Instant
@@ -14,7 +14,7 @@ class HistoricalThermalInputIntegrationTest : PgIntegrationBase() {
             select '$u','$source',gen_random_uuid(),$ts+n,$raw,gen_random_uuid() from generate_series(0,299) n
         """.trimIndent())
         insert(start,1100);insert(start,1800,device2.toString())
-        val reader=SignalSampleReader(pg.db)
+        val reader=HistoricalSignalSampleReader(pg.db)
         assertEquals(1100.0,reader.loadHistoricalDay(u,day,device)!!.skinTempAnchorRaw!!,0.0)
         insert(start+86400,1500)
         assertEquals(1100.0,reader.loadHistoricalDay(u,day,device)!!.skinTempAnchorRaw!!,0.0)
@@ -25,7 +25,7 @@ class HistoricalThermalInputIntegrationTest : PgIntegrationBase() {
 
     @Test fun canonicalDeviceRetainsOriginalOuraProvenanceForRespirationShape() {
         sql("update devices set external_device_id='oura-fixture-ring' where id='$device'")
-        val input=SignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
+        val input=HistoricalSignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
         assertTrue(input.isOura)
         assertEquals(device.toString(),input.deviceId)
         val rows=listOf(com.noop.data.RespSample(input.deviceId,input.dayLo,14375))

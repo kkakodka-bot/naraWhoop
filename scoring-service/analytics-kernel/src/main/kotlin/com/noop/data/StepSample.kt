@@ -12,4 +12,5 @@ data class StepSample(
     val counter: Int,
     val activityClass: Int? = null,
     val synced: Int = 0,
+    val provenanceJSON: String? = null,
 )

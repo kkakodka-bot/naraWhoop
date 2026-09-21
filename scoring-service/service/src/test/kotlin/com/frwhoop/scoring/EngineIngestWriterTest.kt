@@ -50,7 +50,7 @@ class EngineIngestWriterTest {
 
     @Test
     fun payloadHasAlgorithmVersionAtRootAndOmitsForbiddenKeys() {
-        val bundle = ServerScoreBundle(
+        val bundle = com.frwhoop.scoring.scoring.HistoricalScoreBundle(
             userId = UUID.fromString("00000000-0000-4000-8000-000000000001"),
             day = "2026-06-15",
             deviceId = "test-device",
@@ -86,7 +86,7 @@ class EngineIngestWriterTest {
             ),
         )
 
-        val payload = EngineIngestWriter.buildPayload(bundle)
+        val payload = com.frwhoop.scoring.db.HistoricalEngineIngestWriter.buildPayload(bundle)
         assertEquals("frwhoop-server-1", payload.getString("algorithm_version"))
         assertEquals("00000000-0000-4000-8000-000000000001", payload.getString("user_id"))
 

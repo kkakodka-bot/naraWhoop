@@ -1,11 +1,11 @@
 package com.frwhoop.scoring
 
-import com.frwhoop.scoring.db.EngineIngestWriter
+import com.frwhoop.scoring.db.HistoricalEngineIngestWriter
 import com.frwhoop.scoring.db.HistoryCheckpointReader
-import com.frwhoop.scoring.db.ScoringWorkQueue
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalScoringWorkQueue
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.frwhoop.scoring.scoring.ContextMetricOrchestrator
-import com.frwhoop.scoring.scoring.DayScorer
+import com.frwhoop.scoring.scoring.HistoricalDayScorer
 import com.frwhoop.scoring.scoring.HistoricalContextInputFactory
 import com.frwhoop.scoring.scoring.HistoricalStateMachine
 import org.json.JSONArray
@@ -54,13 +54,27 @@ class PopulatedContextSnapshotFixtureIntegrationTest : PgIntegrationBase() {
     private fun seedRawObservations() {
         val first = firstDay.atStartOfDay(ZoneOffset.UTC).toEpochSecond()
         // HR also supplies exact-second worn evidence for every thermal sample. Last two nights
-        // contain an observed HR rise and RR-variability fall; no derived row is inserted.
+        // contain observed HR and temperature rises. RR variability changes remain unqualified
+        // without verified beat timing; no derived row is inserted.
         sql("""
             insert into noop_hr_samples(user_id,device_id,source_id,ts,bpm,batch_id)
             select '$u','$device',gen_random_uuid(),$first+d*86400+n,
               round(70+14*cos(2*pi()*(n/3600.0-15)/24)+case when d>=${count - 2} then 8 else 0 end)::integer,
               gen_random_uuid()
             from generate_series(0,${count - 1}) d cross join generate_series(0,86370,30) n
+        """.trimIndent())
+        // A sleep edit supplies bounds, never observed sleep. Give the last two nights genuine
+        // dense HR and quiet on-wrist motion so current staging can qualify observed epochs.
+        sql("""
+            insert into noop_hr_samples(user_id,device_id,source_id,ts,bpm,batch_id)
+            select '$u','$device',gen_random_uuid(),$first+d*86400+n,
+              round(78+14*cos(2*pi()*(n/3600.0-15)/24)+(n%3))::integer,gen_random_uuid()
+            from generate_series(${count - 2},${count - 1}) d cross join generate_series(0,25199,1) n
+            where n%30<>0;
+            insert into noop_gravity_samples(user_id,device_id,source_id,ts,x,y,z,batch_id)
+            select '$u','$device',gen_random_uuid(),$first+d*86400+n,
+              0.005*sin(n),0,sqrt(1-power(0.005*sin(n),2)),gen_random_uuid()
+            from generate_series(${count - 2},${count - 1}) d cross join generate_series(0,25199,1) n
         """.trimIndent())
         // Same synthetic RSA construction as RespRateRsaTest: beat timestamps advance by RR,
         // not a five-second sampling grid. Missing the rest of the night remains missing.
@@ -99,10 +113,10 @@ class PopulatedContextSnapshotFixtureIntegrationTest : PgIntegrationBase() {
         sql("""
             insert into noop_skin_temp_samples(user_id,device_id,source_id,ts,raw,batch_id)
             select '$u','$device',gen_random_uuid(),$first+d*86400+n,
-              round(3400+50*sin(2*pi()*d/28))::integer,gen_random_uuid()
+              round(3400+50*sin(2*pi()*d/28)+case when d>=${count - 2} then 120 else 0 end)::integer,gen_random_uuid()
             from generate_series(0,${count - 1}) d cross join generate_series(0,25170,30) n
         """.trimIndent())
-        assertEquals((count * 2880).toString(), scalar("select count(*) from noop_hr_samples where user_id='$u' and device_id='$device'"))
+        assertEquals((count * 2880 + 2 * (25200 - 840)).toString(), scalar("select count(*) from noop_hr_samples where user_id='$u' and device_id='$device'"))
         assertEquals((count * 5040).toString(), scalar("select count(*) from noop_rr_intervals where user_id='$u' and device_id='$device'"))
         assertEquals((count * 840).toString(), scalar("select count(*) from noop_skin_temp_samples where user_id='$u' and device_id='$device'"))
     }
@@ -156,7 +170,7 @@ class PopulatedContextSnapshotFixtureIntegrationTest : PgIntegrationBase() {
         })
         seedRawObservations()
         val (profileRevision, configurationRevision) = seedInputs()
-        val queue = ScoringWorkQueue(pg.db, "frwhoop-server-2-history")
+        val queue = HistoricalScoringWorkQueue(pg.db, "frwhoop-server-2-history")
         queue.maintain(1000)
         repeat(count) { queue.dirtyWorkItem(u, device, firstDay.plusDays(it.toLong()).toString()) }
         var passes = 0
@@ -165,10 +179,10 @@ class PopulatedContextSnapshotFixtureIntegrationTest : PgIntegrationBase() {
             queue.maintain(1000)
         } while (scalar("select count(*) from scoring_invalidations_v2") != "0")
 
-        val reader = SignalSampleReader(pg.db)
+        val reader = HistoricalSignalSampleReader(pg.db)
         assertNull(reader.loadHistoricalDay(other, day, device))
         val checkpoints = HistoryCheckpointReader(pg.db)
-        val writer = EngineIngestWriter(queue)
+        val writer = HistoricalEngineIngestWriter(queue)
         var previousDay: String? = null
         var previousRevision: Long? = null
         val observedDays = mutableSetOf<String>()
@@ -186,17 +200,18 @@ class PopulatedContextSnapshotFixtureIntegrationTest : PgIntegrationBase() {
             val seed = checkpoints.load(item)
             assertTrue(seed.history.all { it.getString("day") < item.day })
             val prepared = HistoricalStateMachine.prepare(input, seed)
-            val bundle = DayScorer().score(input, queue.algorithmVersion, prepared)
+            val bundle = HistoricalDayScorer().score(input, queue.algorithmVersion, prepared)
             if (item.day in firstDay.toString()..day) {
                 observedDays += item.day
                 assertNotNull("earned RHR for ${item.day}", bundle.result.daily.restingHr)
-                assertNotNull("earned HRV for ${item.day}", bundle.result.daily.avgHrv)
+                assertNull("Coarse RR rows cannot establish verified beat timing for ${item.day}", bundle.result.daily.avgHrv)
                 assertNotNull("wear-gated temperature for ${item.day}", bundle.result.nightlySkinTempC)
             }
             if (item.day == day) {
                 assertEquals(profileRevision, input.history.profile!!.revision)
                 assertEquals(configurationRevision, input.history.config!!.revision)
-                for (key in listOf("hrv", "resting_hr", "skin_temp")) {
+                assertFalse("Unverified RR cannot create a trusted HRV baseline", prepared.baselines.getValue("hrv").trusted)
+                for (key in listOf("resting_hr", "skin_temp")) {
                     assertTrue("earned trusted $key baseline", prepared.baselines.getValue(key).trusted)
                     assertTrue(prepared.baselines.getValue(key).nValid >= 14)
                 }
@@ -260,7 +275,7 @@ class PopulatedContextSnapshotFixtureIntegrationTest : PgIntegrationBase() {
         val capabilities = payload.getJSONArray("capabilities").toList().toSet()
         for ((key, unit) in mapOf("illness_score" to "score_0_100", "illness_distance" to "dimensionless",
             "circadian_phase_hour" to "local_hour", "circadian_offset_min" to "min")) {
-            assertTrue(key in capabilities)
+            assertTrue("missing $key from actual capabilities: $capabilities", key in capabilities)
             val metric = payload.getJSONObject("metrics").getJSONObject(key)
             assertEquals(unit, metric.getString("unit"))
             assertTrue(metric.getDouble("value").isFinite())
@@ -272,7 +287,9 @@ class PopulatedContextSnapshotFixtureIntegrationTest : PgIntegrationBase() {
         assertTrue((0 until sleep.length()).any { sleep.getJSONObject(it).getJSONArray("stages").length() > 0 })
         assertTrue(payload.getJSONObject("coverage").getBoolean("historicalStateAvailable"))
         val gaps = payload.getJSONObject("coverage").getJSONArray("gaps").toList()
-        for (gap in listOf("journal_context_not_shared", "journal_context_incomplete", "illness_baseline_learning",
+        assertTrue("Unqualified HRV must retain its baseline learning state even with observed RHR and temperature signals",
+            "illness_baseline_learning" in gaps)
+        for (gap in listOf("journal_context_not_shared", "journal_context_incomplete",
             "cycle_context_not_shared", "cycle_history_learning", "cycle_temperature_baseline_unavailable",
             "circadian_hourly_history_unavailable", "circadian_rhythm_unreadable", "sleep_schedule_unavailable"))
             assertFalse("unexpected context gap: $gap", gap in gaps)

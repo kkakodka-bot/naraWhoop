@@ -1,6 +1,6 @@
 package com.frwhoop.scoring.scoring
 
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.noop.analytics.DayResult
 import com.noop.data.DailyMetric
 import org.json.JSONObject
@@ -8,7 +8,7 @@ import java.time.LocalDate
 
 /** Only checkpoint observations from this source era; each night keeps its own before-state. */
 object HistoricalContextInputFactory {
-    fun build(input:SignalSampleReader.DayInputs,result:DayResult,p:HistoricalStateMachine.Prepared,
+    fun build(input:HistoricalSignalSampleReader.DayInputs,result:DayResult,p:HistoricalStateMachine.Prepared,
               napOverrides:Map<SleepBounds,Boolean> = emptyMap()):HistoricalContextInputs {
         val end=LocalDate.parse(input.day)
         val cutoff=end.minusDays(364).toString()

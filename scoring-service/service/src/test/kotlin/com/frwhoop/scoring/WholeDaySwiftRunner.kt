@@ -44,7 +44,7 @@ internal class WholeDaySwiftRunner {
     fun run(c:WholeDaySwiftCorpus.Case):JSONObject {
         val input=c.input;load(input)
         val owner=UUID.fromString(input.getString("userId"));val device=UUID.fromString(input.getString("deviceId"))
-        val reader=SignalSampleReader(pg.db)
+        val reader=HistoricalSignalSampleReader(pg.db)
         // The frozen kernel_calendar producer uses bounded ordinary Store reads. Historical
         // predecessor/thermal loading belongs only to the separately declared server_day lane.
         val i=when(c.mode) {
@@ -57,11 +57,11 @@ internal class WholeDaySwiftRunner {
         require(i.timezone==input.getString("timezone")) { "${c.id}: eligible profile journal does not select input.timezone" }
         val history=input.getJSONArray("history").toList().map { completed[it] ?: error("history case must run first: $it") }
         val p=HistoricalStateMachine.prepare(i,HistoryCheckpointReader.Seed(history.lastOrNull()?.state,history.map { it.state.getJSONObject("observation") }))
-        val bundle=if(c.mode=="server_day") DayScorer().score(i,"frwhoop-server-2-history",p) else null
+        val bundle=if(c.mode=="server_day") HistoricalDayScorer().score(i,"frwhoop-server-2-history",p) else null
         val result=bundle?.result ?: kernel(i,p)
         val commit=bundle?.historyCommit ?: HistoricalStateMachine.finish(i,result,p,emptyMap())
         completed[c.id]=requireNotNull(commit)
-        val actual=j("selection" to selection(input.getJSONObject("raw"),i,result,p,bundle),"result" to encode(result,i.deviceId))
+        val actual=j("selection" to selection(input.getJSONObject("raw"),i,result,p,bundle,c.recipe),"result" to encode(result,i.deviceId))
         if(c.mode=="server_day") {
             val debt=commit.sleepDebt
             actual.put("history",j("baselinesBefore" to HistoricalStateMachine.encodeBaselines(p.baselines),
@@ -69,7 +69,7 @@ internal class WholeDaySwiftRunner {
                 "habitualMidsleepSec" to p.habitualMidsleep,"sleepDebt" to j("needMin" to debt.needMin,"balanceMin" to debt.balanceMin,
                     "magnitudeMin" to debt.magnitudeMin,"nightCount" to debt.nightCount,
                     "nights" to JSONArray(debt.nights.map { j("day" to it.day,"sleptMin" to it.sleptMin,"deltaMin" to it.deltaMin) }))))
-            val snapshot=EngineIngestWriter.buildSnapshot(requireNotNull(bundle))
+            val snapshot=HistoricalEngineIngestWriter.buildSnapshot(requireNotNull(bundle))
             val normalized=JSONObject()
             for(key in listOf("metrics","details","charts","chartMetadata","capabilities","sleep")) normalized.put(key,snapshot.get(key))
             normalized.put("dependency",j("stateSchemaVersion" to 1,"profileRevision" to commit.profileRevision,
@@ -78,7 +78,7 @@ internal class WholeDaySwiftRunner {
         }
         return actual
     }
-    private fun kernel(i:SignalSampleReader.DayInputs,p:HistoricalStateMachine.Prepared):DayResult {
+    private fun kernel(i:HistoricalSignalSampleReader.DayInputs,p:HistoricalStateMachine.Prepared):DayResult {
         val config=i.history.configuration
         return AnalyticsEngine.analyzeDay(day=i.day,hr=i.hr,rr=i.rr,resp=i.scoringResp,vendorResp=i.vendorResp,
             gravity=i.gravity,steps=i.steps,skinTemp=i.skinTemp,spo2=i.spo2,bandSleepState=i.bandSleepState,
@@ -93,7 +93,7 @@ internal class WholeDaySwiftRunner {
             deepHrvWindow=config.optBoolean("deepHrvWindow",false),effortMethod=StrainScorer.Method.valueOf(config.optString("effortMethod","EDWARDS")),
             providedSleep=if(i.gravity.isEmpty()) SleepStager.hrOnlySessions(i.hr,i.rr,i.scoringResp) else emptyList())
     }
-    private fun selection(raw:JSONObject,i:SignalSampleReader.DayInputs,r:DayResult,p:HistoricalStateMachine.Prepared,b:ServerScoreBundle?):JSONObject {
+    private fun selection(raw:JSONObject,i:HistoricalSignalSampleReader.DayInputs,r:DayResult,p:HistoricalStateMachine.Prepared,b:HistoricalScoreBundle?,recipe:String):JSONObject {
         fun ids(stream:String,keys:List<List<Any?>>):JSONArray {
             return selectedRowIds(raw.getJSONArray(stream), stream, i.userId.toString(), i.deviceId, keys)
         }
@@ -108,8 +108,14 @@ internal class WholeDaySwiftRunner {
             i.tzOffsetSeconds,p.habitualMidsleep,if(b==null) null else ZoneId.of(i.timezone))?.map { candidates[it].index } ?: emptyList()
         val physiology=r.sleepSessions.indices.filter { !r.sleepSessions[it].hrOnly }.ifEmpty { r.sleepSessions.indices.toList() }
         val windows=physiology.flatMap { index -> val s=r.sleepSessions[index]
-            SleepStager.sessionHrvWindows(s.start,s.end,i.rr,s.stages).map { w ->
-                j("sessionStart" to s.start,"start" to w.startTs,"stage" to w.stage,"cleanBeats" to w.cleanBeats,"rmssd" to w.rmssd) } }
+            ServerAuxiliaryMetrics.hrvWindows(s.start,s.end,i.rr,s.stages).map { w ->
+                j("sessionStart" to s.start,"start" to w.startTs,"stage" to w.stage,"cleanBeats" to w.cleanBeats,"rmssd" to w.rmssd).also {
+                    if (recipe == "w4-whole-day-v2") {
+                        val measurement = requireNotNull(w.measurement) { "canonical HRV window lacks measurement state" }
+                        it.put("measurementValid",measurement.measurementValid).put("reason",measurement.reason ?: JSONObject.NULL)
+                            .put("baselineEligible",measurement.baselineEligible).put("baselineReason",measurement.baselineReason ?: JSONObject.NULL)
+                    }
+                } } }
         return j("bounds" to j("dayLo" to i.dayLo,"dayHi" to i.dayHi,"nightLo" to i.nightLo,"nightHi" to i.nightHi,"tzOffsetSeconds" to i.tzOffsetSeconds),
             "streams" to streams,"dayHr" to ts("hr",i.hr.filter { it.ts in i.dayLo..i.dayHi }.map { it.ts }),
             "daySteps" to ts("steps",i.steps.filter { it.ts in i.dayLo..i.dayHi }.map { it.ts }),

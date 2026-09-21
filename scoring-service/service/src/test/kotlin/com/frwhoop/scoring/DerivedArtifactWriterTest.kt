@@ -28,7 +28,7 @@ class DerivedArtifactWriterTest {
             userId = userId,
             day = "2026-06-15",
             deviceId = deviceId,
-            algorithmVersion = "frwhoop-server-1",
+            algorithmVersion = "frwhoop-physiology-2",
             result = DayResult(
                 daily = DailyMetric(
                     deviceId = deviceId,
@@ -72,7 +72,7 @@ class DerivedArtifactWriterTest {
     @Test
     fun payloadOmitsForbiddenKeysAndUsesDailyNightsShape() {
         val payload = DerivedArchivePayload.build(sampleBundle(), Instant.parse("2026-06-15T12:00:00Z"))
-        assertEquals("frwhoop-server-1", payload.getString("algorithm_version"))
+        assertEquals("frwhoop-physiology-2", payload.getString("algorithm_version"))
         assertEquals(userId.toString(), payload.getString("user_id"))
         assertEquals(deviceId, payload.getString("device_id"))
         assertEquals("2026-06-15", payload.getString("day"))
@@ -82,7 +82,8 @@ class DerivedArtifactWriterTest {
         assertFalse(payload.has("sleep_nights"))
         for (key in listOf("charge", "effort", "rest", "Charge", "Effort", "Rest")) {
             assertFalse("forbidden key: $key", payload.has(key))
-            assertFalse("forbidden in daily: $key", payload.getJSONObject("daily").has(key))
+            if (key == "rest") assertTrue("Unobserved stages cannot supply Rest", payload.getJSONObject("daily").isNull(key))
+            else assertFalse("forbidden in daily: $key", payload.getJSONObject("daily").has(key))
         }
     }
 
@@ -149,7 +150,7 @@ class DerivedArtifactWriterTest {
         }
         assertEquals(1, keys.size)
         assertTrue(keys[0].contains("/devices/$deviceId/"))
-        assertTrue(keys[0].contains("/frwhoop-server-1/revisions/0/"))
+        assertTrue(keys[0].contains("/frwhoop-physiology-2/revisions/0/"))
         assertTrue(keys[0].endsWith(".json.zst"))
     }
 

@@ -1,17 +1,18 @@
 package com.frwhoop.scoring.scoring
 
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.noop.analytics.DetectedSleep
 import com.noop.analytics.SleepStager
 import com.noop.analytics.SleepStagerV2
 import com.noop.analytics.StageSegment
+import com.noop.analytics.SleepStageSemantics
 
 /** Pure application of the already as-of-selected input journal. Never writes raw/local outputs. */
 object SleepEditResolver {
     data class Result(val sessions: List<DetectedSleep>, val identities: Map<SleepBounds,SleepIdentity>,
                       val naps: Map<SleepBounds,Boolean>, val gaps: List<String>)
 
-    fun resolve(detected: List<DetectedSleep>, inputs: SignalSampleReader.DayInputs, useV2: Boolean): Result {
+    fun resolve(detected: List<DetectedSleep>, inputs: HistoricalSignalSampleReader.DayInputs, useV2: Boolean): Result {
         val edits = inputs.history.sleepEdits.filterNot { it.deleted }.sortedByDescending { it.revision }
         val identities = linkedMapOf<SleepBounds,SleepIdentity>()
         val naps = linkedMapOf<SleepBounds,Boolean>()
@@ -36,7 +37,7 @@ object SleepEditResolver {
                 } }
             } else restage(bounds,inputs,useV2)
             if (stages.isEmpty()) gaps += "edited_sleep_raw_staging_unavailable"
-            val asleep = stages.filter { it.stage != "wake" }.sumOf { it.end-it.start }
+            val asleep = stages.filter(SleepStageSemantics::isSleep).sumOf { it.end-it.start }
             supplied += DetectedSleep(bounds.start,bounds.end,asleep.toDouble()/(bounds.end-bounds.start),
                 stages,null,null,hrOnly=inputs.gravity.none { it.ts in bounds.start until bounds.end })
             identities[bounds] = SleepIdentity(original.start,original.end,edit.entity)
@@ -51,7 +52,7 @@ object SleepEditResolver {
 
     private fun overlaps(a: SleepBounds,b: SleepBounds) = a.start<b.end && b.start<a.end
 
-    private fun restage(b: SleepBounds, inputs: SignalSampleReader.DayInputs, useV2: Boolean): List<StageSegment> {
+    private fun restage(b: SleepBounds, inputs: HistoricalSignalSampleReader.DayInputs, useV2: Boolean): List<StageSegment> {
         val hr = inputs.hr.filter { it.ts in b.start until b.end && it.bpm > 0 }
         val grav = inputs.gravity.filter { it.ts in b.start until b.end }
         // Both stagers have compatibility fallbacks which label missing inputs "light". Never invoke
@@ -69,13 +70,11 @@ object SleepEditResolver {
                 val epoch = Math.floorDiv(t-b.start,30L)
                 val end = minOf(s.end,b.end,b.start+(epoch+1)*30)
                 if (epoch in observed) {
-                    val last = out.lastOrNull()
-                    if (last?.end == t && last.stage == s.stage) last.end=end
-                    else out += StageSegment(t,end,s.stage)
+                    out += s.copy(start = t, end = end)
                 }
                 t=end
             }
         }
-        return out
+        return SleepStageSemantics.coalesced(out)
     }
 }

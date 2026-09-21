@@ -96,10 +96,14 @@ class CanonicalScorePayloadTest {
     }
 
     @Test fun restUsesCanonicalSleepTotalsInsteadOfAnEarlierComposite() {
-        val original = bundle(listOf(StageSegment(start,start+300,"light")))
+        val short = bundle(listOf(StageSegment(start,start+300,"light")))
+        assertTrue(CanonicalScorePayload.build(short).getJSONObject("daily").isNull("rest"))
+        val end = start + 2 * 3600
+        val original = short.copy(result = short.result.copy(sleepSessions = listOf(
+            short.result.sleepSessions.single().copy(end = end, stages = listOf(StageSegment(start, end, "light"))))))
         val stale = original.copy(result = original.result.copy(rest = 99.0))
         val daily = CanonicalScorePayload.build(stale).getJSONObject("daily")
-        val expected = com.noop.analytics.RestScorer.rest(300.0, 1.0, 0.0, 0.0)!!
+        val expected = com.noop.analytics.RestScorer.rest(7200.0, 1.0, 0.0, 0.0)!!
         assertEquals(expected, daily.getDouble("rest"), 0.0)
         val deleted = stale.copy(result = stale.result.copy(sleepSessions = emptyList()))
         assertTrue(CanonicalScorePayload.build(deleted).getJSONObject("daily").isNull("rest"))

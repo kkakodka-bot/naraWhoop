@@ -12,8 +12,8 @@
 //   * The scoped twin tests are copied BYTE-VERBATIM from ../android/app/src/test/... and run
 //     UNMODIFIED on the JVM — they are the parity oracle (FRWHOOP migration locked decision #2).
 //
-// Scope (locked): RR/HRV pipeline + sleep staging/sleep score. Charge/Effort/Rest and insights
-// engines are NOT synced. Anything importing android.* / androidx.* is excluded by construction
+// Includes the physiology and historical worker dependency closures. Pure Android sources stay
+// byte-identical; Android runtime and Room dependencies remain excluded
 // and guarded by the verifyKernelScope task.
 
 plugins {
@@ -73,6 +73,28 @@ val kernelAnalyticsFiles = listOf(
     "StrainScorer.kt",
     "WakeMotionRefinement.kt",
     "WorkoutDetector.kt",
+    "PhysiologicalSteps.kt",
+    "SleepAwareStepCounter.kt",
+    "SleepDebt.kt",
+    "VitalityEngine.kt",
+    "TrainingLoadEngine.kt",
+    "ReadinessTrainingLoad.kt",
+    "ReadinessEngine.kt",
+    "RecoveryDrivers.kt",
+    "FitnessAgeEngine.kt",
+    "HrZones.kt",
+    "HeartRateRecovery.kt",
+    "ActivityCostEngine.kt",
+    "StepsEstimateEngine.kt",
+    "IllnessSignalEngine.kt",
+    "IllnessDistance.kt",
+    "CyclePhaseEngine.kt",
+    "CircadianEngine.kt",
+    "DaytimeStress.kt",
+    "DaytimeBaselines.kt",
+    "StressIndex.kt",
+    "StressOnsetDetector.kt",
+    "SedentaryDetector.kt",
 )
 
 /** Pure protocol types the kernel references (DeviceFamily, ParsedFrame, Whoop4SkinTemp /
@@ -212,6 +234,28 @@ val kernelTestFiles = listOf(
     "agreement/RealDataRundownTest.kt",
     "agreement/RecoveryAgreementTest.kt",
     "agreement/RrVersionRundownTest.kt",
+    "HeartRateRecoveryTest.kt",
+    "ActivityCostEngineTest.kt",
+    "SleepDebtTest.kt",
+    "VitalityEngineTest.kt",
+    "TrainingLoadEngineTest.kt",
+    "ReadinessEngineTest.kt",
+    "ReadinessTrainingLoadTest.kt",
+    "RecoveryDriversTest.kt",
+    "FitnessAgeEngineTest.kt",
+    "StepsEstimateEngineTest.kt",
+    "HrZonesTest.kt",
+    "IllnessSignalEngineTest.kt",
+    "IllnessDistanceTest.kt",
+    "CyclePhaseEngineTest.kt",
+    "CircadianEngineTest.kt",
+    "DaytimeStressTest.kt",
+    "DaytimeBaselinesTest.kt",
+    "StressIndexTest.kt",
+    "StressOnsetDetectorTest.kt",
+    "SedentaryDetectorTest.kt",
+    "PhysiologicalStepsTest.kt",
+    "SleepAwareStepCounterTest.kt",
 )
 
 /** Test resources the scoped tests load from the classpath. */

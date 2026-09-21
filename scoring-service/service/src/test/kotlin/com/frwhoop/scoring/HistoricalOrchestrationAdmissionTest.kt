@@ -17,21 +17,21 @@ import java.util.UUID
 import kotlin.math.exp
 import kotlin.math.ln
 
-/** Checkpoint inputs are synthetic; prepare/finish, DayScorer and metric engines are production code. */
+/** Checkpoint inputs are synthetic; prepare/finish, HistoricalDayScorer and metric engines are production code. */
 class HistoricalOrchestrationAdmissionTest {
     private val owner=UUID.fromString("10000000-0000-4000-8000-000000000001")
     private val device="20000000-0000-4000-8000-000000000001"
     private fun date(n:Int)=LocalDate.parse("2026-01-01").plusDays(n.toLong()).toString()
     private fun epoch(day:String)=LocalDate.parse(day).atStartOfDay(ZoneOffset.UTC).toEpochSecond().toDouble()
-    private fun input(day:String,config:JSONObject=JSONObject()):SignalSampleReader.DayInputs {
+    private fun input(day:String,config:JSONObject=JSONObject()):HistoricalSignalSampleReader.DayInputs {
         val b=UserDayBounds.forDay(day,ZoneOffset.UTC)
         val profile=HistoryInputReader.Input("profile","primary",1,false,JSONObject().put("schemaVersion",1)
             .put("age",40).put("sex","female").put("timezone","UTC").put("heightCm",170).put("weightKg",60))
-        return SignalSampleReader.DayInputs(owner,day,device,0,b.dayLo,b.dayHi,UserProfile(age=40.0,sex="female"),
+        return HistoricalSignalSampleReader.DayInputs(owner,day,device,0,b.dayLo,b.dayHi,UserProfile(age=40.0,sex="female"),
             b.nightLo,b.nightHi,emptyList(),emptyList(),emptyList(),emptyList(),emptyList(),DeviceFamily.WHOOP5,
             history=HistoryInputReader.Day(listOf(profile,HistoryInputReader.Input("config","primary",2,false,config))))
     }
-    private fun result(i:SignalSampleReader.DayInputs,n:Int):DayResult {
+    private fun result(i:HistoricalSignalSampleReader.DayInputs,n:Int):DayResult {
         val temp=33.0+if(n%28>=14) .3 else -.3
         val d=DailyMetric(device,i.day,totalSleepMin=420.0,efficiency=1.0,restingHr=55+n%3,avgHrv=50.0+n%3,
             skinTempC=temp,strain=30.0+n%4,respRateBpm=15.0+n%3*.1,steps=9000)
@@ -50,11 +50,11 @@ class HistoricalOrchestrationAdmissionTest {
         } }
         return states
     }
-    private fun derive(i:SignalSampleReader.DayInputs,r:DayResult,states:List<HistoricalStateMachine.Commit>):ServerDerivedMetrics {
+    private fun derive(i:HistoricalSignalSampleReader.DayInputs,r:DayResult,states:List<HistoricalStateMachine.Commit>):ServerDerivedMetrics {
         val p=HistoricalStateMachine.prepare(i,seed(states))
         return ServerMetricOrchestrator.evaluate(i,r,HistoricalStateMachine.finish(i,r,p,emptyMap()))
     }
-    private fun measured(i:SignalSampleReader.DayInputs):SignalSampleReader.DayInputs {
+    private fun measured(i:HistoricalSignalSampleReader.DayInputs):HistoricalSignalSampleReader.DayInputs {
         val lo=i.dayLo-3600;val hi=i.dayLo+6*3600
         val edit=HistoryInputReader.Input("sleep_edit","sleep:40000000-0000-4000-8000-000000000010",3,false,
             JSONObject().put("schemaVersion",1).put("originalStart",lo).put("originalEnd",hi).put("start",lo).put("end",hi)
@@ -66,7 +66,7 @@ class HistoricalOrchestrationAdmissionTest {
         (0 until it.length()).map(it::getJSONObject)
     }
     private fun assertNullMetric(d:ServerDerivedMetrics,key:String)=assertTrue("$key: ${d.metrics.get(key)}",d.metrics.getJSONObject(key).isNull("value"))
-    private fun context(i:SignalSampleReader.DayInputs,r:DayResult,states:List<HistoricalStateMachine.Commit>):HistoricalContextResult {
+    private fun context(i:HistoricalSignalSampleReader.DayInputs,r:DayResult,states:List<HistoricalStateMachine.Commit>):HistoricalContextResult {
         val p=HistoricalStateMachine.prepare(i,seed(states))
         return ContextMetricOrchestrator.evaluate(HistoricalContextInputFactory.build(i,r,p))
     }
@@ -77,7 +77,7 @@ class HistoricalOrchestrationAdmissionTest {
         for(base in listOf(input("2026-09-18"),input(date(45),reset))) {
             val i=measured(base);val p=HistoricalStateMachine.prepare(i,seed(states))
             assertFalse(p.baselines.getValue("hrv").usable);assertFalse(p.baselines.getValue("resting_hr").usable)
-            val scored=DayScorer().score(i,"frwhoop-server-2-history",p)
+            val scored=HistoricalDayScorer().score(i,"frwhoop-server-2-history",p)
             assertNotNull(scored.result.daily.restingHr)
             val d=scored.derived!!
             assertTrue(signals(d).isEmpty())
@@ -100,8 +100,8 @@ class HistoricalOrchestrationAdmissionTest {
 
     @Test fun missingCurrentDayNeverPublishesOldWeeklyOrReadinessOutputs() {
         val i=input(date(45));val p=HistoricalStateMachine.prepare(i,seed(warm(45)))
-        val scored=DayScorer().score(i,"frwhoop-server-2-history",p)
-        assertEquals("no_data",EngineIngestWriter.buildSnapshot(scored).getString("status"))
+        val scored=HistoricalDayScorer().score(i,"frwhoop-server-2-history",p)
+        assertEquals("no_data",HistoricalEngineIngestWriter.buildSnapshot(scored).getString("status"))
         assertTrue(signals(scored.derived!!).isEmpty())
         for(key in listOf("fitness_age","vo2max_est","vitality","body_age","stress","acwr")) assertNullMetric(scored.derived!!,key)
     }
@@ -170,8 +170,8 @@ class HistoricalOrchestrationAdmissionTest {
         val prior=input(date(73),config)
         assertEquals("luteal",context(prior,result(prior,73),states.dropLast(1)).details.getJSONObject("cycle").getString("phase"))
         val i=input(date(74),config);val p=HistoricalStateMachine.prepare(i,seed(states))
-        val scored=DayScorer().score(i,"frwhoop-server-2-history",p)
-        assertEquals("no_data",EngineIngestWriter.buildSnapshot(scored).getString("status"))
+        val scored=HistoricalDayScorer().score(i,"frwhoop-server-2-history",p)
+        assertEquals("no_data",HistoricalEngineIngestWriter.buildSnapshot(scored).getString("status"))
         val cycle=scored.derived!!.details.getJSONObject("cycle")
         assertEquals("learning",cycle.getString("phase"));assertEquals("learning",cycle.getString("confidence"))
         assertTrue(scored.coverageGaps.contains("cycle_current_physiology_unavailable"))

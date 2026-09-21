@@ -6,7 +6,7 @@ import java.sql.Connection
 /** Immutable predecessor and its strictly earlier observations, from one database snapshot. */
 class HistoryCheckpointReader(private val db: PostgresClient) {
     data class Seed(val predecessor: JSONObject?, val history: List<JSONObject>)
-    fun load(item: ScoringWorkQueue.WorkItem): Seed = db.withConnection { c ->
+    fun load(item: HistoricalScoringWorkQueue.WorkItem): Seed = db.withConnection { c ->
         requireNotNull(item.historyGeneration)
         c.transactionIsolation=Connection.TRANSACTION_REPEATABLE_READ; c.autoCommit=false
         try {

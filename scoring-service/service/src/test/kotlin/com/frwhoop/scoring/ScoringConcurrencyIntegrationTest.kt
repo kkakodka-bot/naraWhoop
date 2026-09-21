@@ -1,7 +1,7 @@
 package com.frwhoop.scoring
 
 import com.frwhoop.scoring.db.LeaseHeartbeat
-import com.frwhoop.scoring.db.ScoringWorkQueue
+import com.frwhoop.scoring.db.HistoricalScoringWorkQueue
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.Duration
@@ -32,7 +32,7 @@ class ScoringConcurrencyIntegrationTest : PgIntegrationBase() {
     }
 
     @Test fun renewalThreadKeepsRealOneSecondLeaseAliveDuringSlowWork() {
-        val q=ScoringWorkQueue(pg.db,claimLease=Duration.ofSeconds(1))
+        val q=HistoricalScoringWorkQueue(pg.db,claimLease=Duration.ofSeconds(1))
         q.dirtyWorkItem(u,device,day); val item=q.claim()!!
         val renewed=CountDownLatch(4)
         LeaseHeartbeat(q.claimLease) {

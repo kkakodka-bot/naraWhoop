@@ -26,6 +26,32 @@ class B2ObjectStore(
         fun getObject(key: String, maximumBytes: Int): ByteArray
     }
 
+    fun interface ReadClient {
+        fun readObject(bucket: String, key: String, maxBytes: Int): ByteArray
+    }
+
+    private val readHttp = http.newBuilder().followRedirects(false).followSslRedirects(false)
+        .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS).build()
+
+    fun readObject(bucket: String, key: String, maxBytes: Int): ByteArray {
+        require(bucket == config.bucket && maxBytes in 1..64 * 1024 * 1024)
+        require(key.isNotBlank() && !key.startsWith('/') && key.split('/').none { it == "." || it == ".." })
+        val signed = signRequest("GET", key, byteArrayOf(), null)
+        val request = Request.Builder().url(signed.url).get().apply {
+            signed.headers.forEach { (name, value) -> header(name, value) }
+            header("Accept-Encoding", "identity")
+        }.build()
+        readHttp.newCall(request).execute().use { response ->
+            check(response.code == 200) { "candidate_object_http_${response.code}" }
+            val body = checkNotNull(response.body) { "candidate_object_body_missing" }
+            check(body.contentLength() <= maxBytes) { "candidate_object_size_limit" }
+            val bytes = body.byteStream().readNBytes(maxBytes + 1)
+            check(bytes.size <= maxBytes) { "candidate_object_size_limit" }
+            return bytes
+        }
+    }
+
     data class PutResult(val etag: String?, val bytes: Int)
 
     fun putObject(key: String, body: ByteArray, contentType: String): PutResult {

@@ -18,20 +18,20 @@ import java.util.UUID
 class ServerMetricOrchestratorTest {
     private val owner=UUID.fromString("10000000-0000-4000-8000-000000000001")
     private val source="20000000-0000-4000-8000-000000000001"
-    private fun input(day:String,extra:List<HistoryInputReader.Input> = emptyList()):SignalSampleReader.DayInputs {
+    private fun input(day:String,extra:List<HistoryInputReader.Input> = emptyList()):HistoricalSignalSampleReader.DayInputs {
         val bounds=UserDayBounds.forDay(day,ZoneId.of("UTC"))
-        return SignalSampleReader.DayInputs(owner,day,source,0,bounds.dayLo,bounds.dayHi,UserProfile(age=40.0,sex="female"),
+        return HistoricalSignalSampleReader.DayInputs(owner,day,source,0,bounds.dayLo,bounds.dayHi,UserProfile(age=40.0,sex="female"),
             bounds.nightLo,bounds.nightHi,List(12) { HrSample(source,bounds.dayLo+3600+it*30,80+it%2) },emptyList(),emptyList(),emptyList(),emptyList(),DeviceFamily.WHOOP5,
             history=HistoryInputReader.Day(listOf(HistoryInputReader.Input("profile","primary",1,false,JSONObject()
                 .put("schemaVersion",1).put("age",40).put("sex","female").put("timezone","UTC").put("weightKg",60).put("heightCm",170)))+extra))
     }
-    private fun result(input:SignalSampleReader.DayInputs,hrv:Double=50.0)=DayResult(
+    private fun result(input:HistoricalSignalSampleReader.DayInputs,hrv:Double=50.0)=DayResult(
         DailyMetric(source,input.day,totalSleepMin=420.0,efficiency=.875,deepMin=80.0,remMin=100.0,lightMin=240.0,disturbances=2,
             restingHr=55,avgHrv=hrv,recovery=75.0,strain=40.0,exerciseCount=0,skinTempDevC=.1,respRateBpm=15.0,steps=9000,
             activeKcalEst=750.0,spo2Red=800,spo2Ir=900,avgSdnn=60.0,skinTempC=33.0,sleepHrOnly=false),
         listOf(DetectedSleep(input.dayLo,input.dayLo+8*3600,.875,listOf(StageSegment(input.dayLo,input.dayLo+7*3600,"light")),55,hrv)),
         emptyList(),75.0,40.0,85.0,33.0)
-    private fun evaluate(input:SignalSampleReader.DayInputs,result:DayResult,seed:HistoryCheckpointReader.Seed=HistoryCheckpointReader.Seed(null,emptyList())):Pair<HistoricalStateMachine.Commit,ServerDerivedMetrics> {
+    private fun evaluate(input:HistoricalSignalSampleReader.DayInputs,result:DayResult,seed:HistoryCheckpointReader.Seed=HistoryCheckpointReader.Seed(null,emptyList())):Pair<HistoricalStateMachine.Commit,ServerDerivedMetrics> {
         val prepared=HistoricalStateMachine.prepare(input,seed)
         val commit=HistoricalStateMachine.finish(input,result,prepared,emptyMap())
         return commit to ServerMetricOrchestrator.evaluate(input,result,commit)
@@ -39,9 +39,9 @@ class ServerMetricOrchestratorTest {
 
     @Test fun completeDailyAndModelOutputsUseExistingNamesUnitsAndExplicitCapabilities() {
         val input=input("2026-09-18"); val result=result(input); val (commit,derived)=evaluate(input,result)
-        val bundle=ServerScoreBundle(owner,input.day,source,"frwhoop-server-2-history",result,dataThrough=input.dayLo+7200,
+        val bundle=HistoricalScoreBundle(owner,input.day,source,"frwhoop-server-2-history",result,dataThrough=input.dayLo+7200,
             historyCommit=commit,derived=derived)
-        val snapshot=EngineIngestWriter.buildSnapshot(bundle)
+        val snapshot=HistoricalEngineIngestWriter.buildSnapshot(bundle)
         for(key in listOf("recovery","strain","steps","active_kcal_est","spo2_red","spo2_ir","skin_temp_c","skin_temp_dev_c")) {
             assertTrue(key,snapshot.getJSONObject("daily").has(key))
             assertTrue(key,snapshot.getJSONArray("capabilities").toList().contains(key))
@@ -72,9 +72,9 @@ class ServerMetricOrchestratorTest {
         assertEquals("established",d.details.getJSONObject("training_load").getString("state"))
         assertFalse(d.metrics.getJSONObject("fitness_age").isNull("value"))
         assertFalse(d.metrics.getJSONObject("body_age").isNull("value"))
-        val bundle=ServerScoreBundle(owner,"2026-02-14",source,"frwhoop-server-2-history",result(input("2026-02-14")),
+        val bundle=HistoricalScoreBundle(owner,"2026-02-14",source,"frwhoop-server-2-history",result(input("2026-02-14")),
             historyCommit=states.last(),derived=d,dataThrough=1)
-        assertTrue(EngineIngestWriter.buildSnapshot(bundle).toString().toByteArray().size<512*1024)
+        assertTrue(HistoricalEngineIngestWriter.buildSnapshot(bundle).toString().toByteArray().size<512*1024)
     }
 
     @Test fun chartsOnlyContainObservedBucketsWithCountsAndBounds() {

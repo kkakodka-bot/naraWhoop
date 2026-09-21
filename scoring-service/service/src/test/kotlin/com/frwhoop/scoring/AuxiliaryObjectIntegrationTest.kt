@@ -84,6 +84,15 @@ class AuxiliaryObjectIntegrationTest : PgIntegrationBase() {
         assertEquals("candidate_wire_digest_mismatch",error.message)
     }
 
+    @Test fun unconfiguredOptionalArchiveReaderReportsCapabilityGapWithoutPretendingToReadObjects() {
+        archive(95)
+        val result = pg.connection().use { AuxiliaryObjectReader(null).load(it,u,device,lo,lo+3600) }
+        assertTrue(result.rows.isEmpty())
+        assertEquals(setOf("candidate_object_reader_unconfigured"),result.gaps)
+        assertTrue(requested.isEmpty())
+        assertEquals("verified_indexed",scalar("select durability_receipt->>'state' from object_manifests"))
+    }
+
     @Test fun unverifiedIndexedLegacyObjectIsAnExplicitGapAndNeverFetched() {
         val key=archive(95)
         sql("update object_manifests set sha256_source='client_claimed',durability_receipt=null,indexed_at=null where object_key='$key'")

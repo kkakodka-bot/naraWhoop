@@ -26,13 +26,13 @@ class CurrentHrvTest {
     fun freshWindowProducesValue() {
         val now = 1_700_000_000
         val snap = CurrentHrv.derive(steadyRows(now, 30), now)
-        assertNotNull(snap)
-        assertEquals(30, snap!!.cleanBeats)
-        assertTrue(snap.coverage > 0.5)
-        // Swift oracle: rmssd=0.0 clean=30 cov=0.8482758620689655
-        assertEquals(0.0, snap.rmssdMs, 1e-9)
-        assertEquals(0.8482758620689655, snap.coverage, 1e-12)
-        assertEquals(now, snap.computedAtUnix)
+        assertNull("Fresh legacy rows still lack beat identity and measured spans", snap)
+        val completed = CurrentHrv.completedWindow(now)
+        val qualified = CurrentHrv.deriveObservations(hrvEvidence(start = completed.first), now)!!
+        assertEquals(300, qualified.cleanBeats)
+        assertEquals(0.0, qualified.rmssdMs, 1e-9)
+        assertEquals(1.0, qualified.coverage, 1e-12)
+        assertEquals(now, qualified.computedAtUnix)
     }
 
     @Test
@@ -42,15 +42,15 @@ class CurrentHrvTest {
         rrMs[12] = 5000
         val rows = rrMs.mapIndexed { i, ms -> rr((now - (rrMs.size - 1 - i)).toLong(), ms) }
         val snap = CurrentHrv.derive(rows, now)
-        assertNotNull(snap)
+        assertNull("Cleaning an ectopic interval cannot create missing acquisition proof", snap)
         // Actual Swift export: raw sum 23400 ms / 23000 ms span, not 23*800/23000.
         assertEquals(23_400, rrMs.sum())
         assertEquals(23L, rows.last().ts - rows.first().ts)
-        assertEquals(23, snap!!.cleanBeats)
-        assertEquals(0.0, snap.rmssdMs, 1e-9)
-        assertEquals(1.017391304347826, snap.coverage, 1e-12)
-        assertEquals(23_400.0 / 23_000.0, snap.coverage, 0.0)
-        assertEquals(now, snap.computedAtUnix)
+        val completed = CurrentHrv.completedWindow(now)
+        val evidence = hrvEvidence(start = completed.first, mode = "rejected_beat")
+        val qualified = CurrentHrv.deriveObservations(evidence, now)!!
+        assertTrue(qualified.cleanBeats < evidence.size)
+        assertEquals(0.0, qualified.rmssdMs, 1e-9)
     }
 
     @Test
@@ -83,8 +83,11 @@ class CurrentHrvTest {
         val inside = steadyRows(now, 25)
         val outside = steadyRows(now - CurrentHrv.WINDOW_SECONDS - 60, 25)
         val snap = CurrentHrv.derive(inside + outside, now)
-        assertNotNull(snap)
-        assertEquals(25, snap!!.cleanBeats)
+        assertNull(snap)
+        val start = CurrentHrv.completedWindow(now).first
+        val qualified = CurrentHrv.deriveObservations(hrvEvidence(start = start) +
+            hrvEvidence(start = start - 600, deviceId = "older-device"), now)!!
+        assertEquals(300, qualified.cleanBeats)
     }
 
     @Test fun queryWindowMatchesCompletedUtcMeasurement() {

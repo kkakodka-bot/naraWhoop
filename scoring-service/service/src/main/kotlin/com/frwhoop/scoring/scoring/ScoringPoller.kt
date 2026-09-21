@@ -53,7 +53,7 @@ class ScoringPoller(
                     pollOnce()
                 } catch (err: Exception) {
                     if (err is UnresponsiveAttempt) throw err
-                    log.error("poll cycle failed: {}", err.message, err)
+                    log.error("poll cycle failed: {}", err.javaClass.simpleName)
                     heartbeat.recordError(err.javaClass.simpleName)
                 }
                 Thread.sleep(config.pollInterval.toMillis())
@@ -101,28 +101,29 @@ class ScoringPoller(
         val deadline = started + budget.toNanos().coerceAtLeast(0)
         val cancelled = AtomicBoolean(false)
         val leaseLost = AtomicBoolean(false)
+        val snapshotCaptured = AtomicBoolean(false)
         val finished = CountDownLatch(1)
         val renewalThread = AtomicReference<Thread>()
         fun requireActive() {
             check(!cancelled.get() && !leaseLost.get() && !Thread.currentThread().isInterrupted &&
                 System.nanoTime() < deadline) { "scoring_attempt_cancelled" }
-            guard.requireActive()
+            if (!snapshotCaptured.get()) guard.requireActive()
         }
         val work = FutureTask {
             requireActive()
             val input = inputs.loadDay(item.userId, item.day, item.deviceId, item.timezoneId)
             requireActive()
+            guard.releaseAfterSnapshot()
+            snapshotCaptured.set(true)
             if (input == null) {
                 queue.markWaiting(item, "no device/inputs")
                 false
             } else {
                 // Deleted inputs must still publish an unavailable snapshot instead of retaining old physiology.
                 val bundle = scorer.score(input, config.algorithmVersion,item.inputRevision.toString(),
-                    shadowBudget = { minOf(guard.remainingDuration,
-                        Duration.ofNanos((deadline-System.nanoTime()).coerceAtLeast(0))).minusSeconds(15) })
+                    shadowBudget = { Duration.ofNanos((deadline-System.nanoTime()).coerceAtLeast(0)).minusSeconds(15) })
                 requireActive()
-                writer.write(bundle, item, minOf(guard.remainingDuration,
-                    Duration.ofNanos((deadline-System.nanoTime()).coerceAtLeast(0))))
+                writer.write(bundle, item, Duration.ofNanos((deadline-System.nanoTime()).coerceAtLeast(0)))
                 requireActive()
                 queue.markDone(item, ((System.nanoTime()-started)/1_000_000).toInt())
             }
@@ -183,7 +184,7 @@ class ScoringPoller(
             if (!stopped) throw UnresponsiveAttempt()
             if (done) {
                 heartbeat.recordScore(item.userId, item.day)
-                log.info("scored {} {} {} ({}ms)", item.userId, item.deviceId, item.day,
+                log.info("published scoring run {} ({}ms)", item.runId,
                     (System.nanoTime()-started)/1_000_000)
             }
             return done

@@ -1,8 +1,12 @@
 package com.frwhoop.scoring
 
-import com.frwhoop.scoring.db.EngineIngestWriter
-import com.frwhoop.scoring.db.SignalSampleReader
-import com.frwhoop.scoring.scoring.DayScorer
+import com.frwhoop.scoring.db.HistoricalEngineIngestWriter
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
+import com.frwhoop.scoring.db.HistoricalScoringWorkQueue
+import com.frwhoop.scoring.db.HistoryCheckpointReader
+import com.frwhoop.scoring.scoring.HistoricalStateMachine
+import com.frwhoop.scoring.scoring.HistoricalScoringPoller
+import com.frwhoop.scoring.scoring.HistoricalDayScorer
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -10,6 +14,14 @@ import java.time.Instant
 import java.util.UUID
 
 class SleepEditScoringIntegrationTest : PgIntegrationBase() {
+    override val queue get() = HistoricalScoringWorkQueue(pg.db, HistoricalScoringPoller.VERSION)
+    @org.junit.Before fun registerHistory() { queue.maintain(128) }
+
+    private fun score(item: HistoricalScoringWorkQueue.WorkItem): com.frwhoop.scoring.scoring.HistoricalScoreBundle {
+        val inputs = HistoricalSignalSampleReader(pg.db).loadHistoricalDay(item.userId, item.day, item.deviceId)!!
+        return HistoricalDayScorer().score(inputs, item.algorithmVersion,
+            HistoricalStateMachine.prepare(inputs, HistoryCheckpointReader(pg.db).load(item)))
+    }
     private val entity = "sleep:40000000-0000-4000-8000-000000000001"
     private val originalStart = Instant.parse("${day}T18:00:00Z").epochSecond
     private fun edit(shift: Long = 0, dismissed: Boolean = false) = JSONObject()
@@ -34,8 +46,7 @@ class SleepEditScoringIntegrationTest : PgIntegrationBase() {
         while (true) {
             val item = queue.claim() ?: break
             check(count++ < 32)
-            val inputs = SignalSampleReader(pg.db).loadDay(item.userId,item.day,item.deviceId)!!
-            assertNotNull(EngineIngestWriter(queue).write(item,DayScorer().score(inputs,item.algorithmVersion),1))
+            assertNotNull(HistoricalEngineIngestWriter(queue).write(item,score(item),1))
         }
     }
     private fun snapshot(date: String = day) = JSONObject(scalar("select payload::text from scoring_snapshots_v2 where day='$date' order by result_revision desc limit 1")!!)
@@ -85,7 +96,7 @@ class SleepEditScoringIntegrationTest : PgIntegrationBase() {
             first,kind="profile",key="primary",effective="2026-10-01")
         val config = put(JSONObject().put("schemaVersion",1).put("effortMethod","EDWARDS"),kind="config",key="primary")
         put(JSONObject().put("schemaVersion",1).put("effortMethod","BANISTER"),config,kind="config",key="primary",effective="2026-10-01")
-        val reader = SignalSampleReader(pg.db)
+        val reader = HistoricalSignalSampleReader(pg.db)
         val current = reader.loadDay(u,day,device)!!
         assertEquals(31.0,current.profile.age,0.0); assertEquals("UTC",current.timezone)
         assertEquals(first,current.history.profile!!.revision)
@@ -98,18 +109,25 @@ class SleepEditScoringIntegrationTest : PgIntegrationBase() {
 
     @Test fun newEditFencesAlreadyClaimedWorkerBeforeRangeExpansion() {
         queue.dirtyWorkItem(u,device,day)
+        queue.maintain(128)
         val stale = queue.claim()!!
-        val staleBundle = DayScorer().score(SignalSampleReader(pg.db).loadDay(u,day,device)!!,stale.algorithmVersion)
+        val staleBundle = score(stale)
         put(edit())
-        assertNull(EngineIngestWriter(queue).write(stale,staleBundle,1))
+        assertNull(HistoricalEngineIngestWriter(queue).write(stale,staleBundle,1))
         assertEquals("0",scalar("select count(*) from scoring_snapshots_v2"))
         assertTrue(queue.markFailed(stale,"superseded"))
         drain()
         assertEquals(entity,snapshot().getJSONArray("sleep").getJSONObject(0).getString("editEntity"))
     }
 
-    private fun hr(from:Long,to:Long) = sql("""insert into noop_hr_samples(user_id,device_id,source_id,ts,bpm,batch_id)
-        select '$u','$device','$device',ts,58,'50000000-0000-4000-8000-000000000001' from generate_series($from,$to,30) ts""")
+    private fun hr(from:Long,to:Long) = sql("""
+        insert into noop_hr_samples(user_id,device_id,source_id,ts,bpm,batch_id)
+        select '$u','$device','$device',ts,58+(ts%3)::integer,'50000000-0000-4000-8000-000000000001'
+        from generate_series($from,$to+29,1) ts;
+        insert into noop_gravity_samples(user_id,device_id,source_id,ts,x,y,z,batch_id)
+        select '$u','$device','$device',ts,0.005*sin(ts),0,sqrt(1-power(0.005*sin(ts),2)),
+          '50000000-0000-4000-8000-000000000001' from generate_series($from,$to+29,1) ts
+    """)
 
     @Test fun rawBackedManualNapIsRestagedByServerAndKeepsObservedGapEmpty() {
         hr(originalStart,originalStart+870)
@@ -133,7 +151,7 @@ class SleepEditScoringIntegrationTest : PgIntegrationBase() {
         val body=edit().put("originalStart",start).put("originalEnd",end).put("start",start).put("end",end)
         assertFalse(body.has("stages"))
         put(body,effective=date); drain()
-        val input=SignalSampleReader(pg.db).loadDay(u,date,device)!!
+        val input=HistoricalSignalSampleReader(pg.db).loadDay(u,date,device)!!
         assertEquals(25*3600L,input.dayHi-input.dayLo+1)
         val sleep=snapshot(date).getJSONArray("sleep").getJSONObject(0)
         assertEquals(120.0,sleep.getDouble("in_bed_min"),0.0)

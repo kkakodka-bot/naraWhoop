@@ -18,16 +18,16 @@ import java.util.UUID
 class DayCycleMetricOrchestratorTest {
     private val owner=UUID.fromString("10000000-0000-4000-8000-000000000001")
     private val source="20000000-0000-4000-8000-000000000001"
-    private fun input(day:String="2026-09-18",zone:String="UTC",config:JSONObject=JSONObject()):SignalSampleReader.DayInputs {
+    private fun input(day:String="2026-09-18",zone:String="UTC",config:JSONObject=JSONObject()):HistoricalSignalSampleReader.DayInputs {
         val b=UserDayBounds.forDay(day,ZoneId.of(zone))
-        return SignalSampleReader.DayInputs(owner,day,source,b.tzOffsetSeconds,b.dayLo,b.dayHi,UserProfile(),
+        return HistoricalSignalSampleReader.DayInputs(owner,day,source,b.tzOffsetSeconds,b.dayLo,b.dayHi,UserProfile(),
             b.nightLo,b.nightHi,emptyList(),emptyList(),emptyList(),emptyList(),emptyList(),DeviceFamily.WHOOP5,zone,
             HistoryInputReader.Day(listOf(HistoryInputReader.Input("config","primary",1,false,config))))
     }
     private fun night(start:Long,end:Long)=DetectedSleep(start,end,1.0,listOf(StageSegment(start,end,"light")),60,null)
-    private fun result(i:SignalSampleReader.DayInputs,sleeps:List<DetectedSleep>)=DayResult(
+    private fun result(i:HistoricalSignalSampleReader.DayInputs,sleeps:List<DetectedSleep>)=DayResult(
         DailyMetric(source,i.day,restingHr=60,strain=7.0,steps=999,activeKcalEst=888.0),sleeps,emptyList(),null,7.0)
-    private fun prepared(i:SignalSampleReader.DayInputs,previous:JSONObject?=null)=HistoricalStateMachine.prepare(i,
+    private fun prepared(i:HistoricalSignalSampleReader.DayInputs,previous:JSONObject?=null)=HistoricalStateMachine.prepare(i,
         HistoryCheckpointReader.Seed(previous,listOfNotNull(previous?.getJSONObject("observation"))))
 
     @Test fun cycleUsesOneWindowExistingFormulasAndIgnoresFutureSignalsAndFutureNight() {

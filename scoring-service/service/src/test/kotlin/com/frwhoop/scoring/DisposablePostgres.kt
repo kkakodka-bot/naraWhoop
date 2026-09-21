@@ -1,7 +1,7 @@
 package com.frwhoop.scoring
 
 import com.frwhoop.scoring.db.PostgresClient
-import com.frwhoop.scoring.db.ScoringWorkQueue
+import com.frwhoop.scoring.db.HistoricalScoringWorkQueue
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Before
@@ -61,6 +61,7 @@ object DisposablePostgres {
         migration("20260921060000_production_intake_durability.sql")
         migration("20260918030000_production_scoring_review_repairs.sql")
         migration("20260918050000_production_scoring_history.sql")
+        migration("20260919020000_physiology_worker_heartbeats.sql")
         println("W3 disposable PostgreSQL artifacts: $directory")
     }
 
@@ -85,7 +86,7 @@ abstract class PgIntegrationBase {
     protected val device2: UUID = UUID.fromString("20000000-0000-4000-8000-000000000002")
     protected val day = "2026-09-15"
     protected val pg get() = DisposablePostgres
-    protected val queue get() = ScoringWorkQueue(pg.db)
+    protected open val queue get() = HistoricalScoringWorkQueue(pg.db)
     protected fun sql(text: String) = pg.sql(text)
     protected fun scalar(text: String) = pg.scalar(text)
 

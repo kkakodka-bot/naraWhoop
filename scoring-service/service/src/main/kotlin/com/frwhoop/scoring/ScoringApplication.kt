@@ -59,6 +59,34 @@ fun main(args: Array<String>) {
         println(RuntimePreflightCommand.run(config))
         return
     }
+    if (mode == ScoringRunMode.HISTORY) {
+        require(config.algorithmVersion == com.frwhoop.scoring.scoring.HistoricalScoringPoller.VERSION)
+        val identity = config.workerIdentity()
+        PostgresClient(config.databaseUrl, queryTimeoutSeconds = 15).use { db ->
+            val store = config.b2Config?.let(::B2ObjectStore)
+            val objects = store?.let { B2ObjectStore.ReadClient(it::readObject) }
+            val reader = com.frwhoop.scoring.db.HistoricalSignalSampleReader(db,
+                com.frwhoop.scoring.db.AuxiliaryObjectReader(objects))
+            val queue = com.frwhoop.scoring.db.HistoricalScoringWorkQueue(db, config.algorithmVersion)
+            val heartbeat = HeartbeatReporter(db, config.algorithmVersion, identity)
+            val archive = if (store == null) null else com.frwhoop.scoring.derived.SnapshotArchiveWorker(db,
+                object : B2ObjectStore.PutClient {
+                    override fun putObject(key: String, body: ByteArray, contentType: String) =
+                        store.putObject(key, body, contentType)
+                }, requireNotNull(config.b2Config).bucket)
+            val retry = archive?.let {
+                com.frwhoop.scoring.derived.ArchiveRetryWorker(config.pollInterval, it::runOne,
+                    onError = { error -> log.warn("Historical archive retry failed: {}", error.javaClass.simpleName) })
+            }
+            try {
+                ScoringWorkerProcess.run {
+                    com.frwhoop.scoring.scoring.HistoricalScoringPoller(db, queue, reader, heartbeat)
+                        .runForever(config.pollInterval)
+                }
+            } finally { retry?.close() }
+        }
+        return
+    }
     if (mode == ScoringRunMode.PERSISTENT &&
         listOf(config.replayUserId, config.replayDay, config.replayDeviceId).any { it != null }) {
         log.warn("Ignoring REPLAY_* environment in persistent mode; use --replay-day for an explicit one-shot replay")
@@ -103,7 +131,7 @@ fun main(args: Array<String>) {
                 val userId = UUID.fromString(config.replayUserId ?: error("REPLAY_USER_ID required for --replay-day"))
                 val day = config.replayDay ?: error("REPLAY_DAY required for --replay-day")
                 val deviceId = resolveReplayDeviceId(reader, userId, config.replayDeviceId)
-                log.info("replay mode: user={} device={} day={}", userId, deviceId, day)
+                log.info("Explicit one-shot replay requested")
                 poller.scoreDay(userId, deviceId, day)
             } else poller.runForever()
         }
@@ -123,8 +151,7 @@ private fun resolveReplayDeviceId(
         0 -> error("REPLAY_DEVICE_ID required — user has no devices")
         1 -> devices.single()
         else -> error(
-            "REPLAY_DEVICE_ID required — user has ${devices.size} devices; " +
-                "set REPLAY_DEVICE_ID to one of: ${devices.joinToString()}",
+            "REPLAY_DEVICE_ID required — user has ${devices.size} devices; select an owned device explicitly",
         )
     }
 }

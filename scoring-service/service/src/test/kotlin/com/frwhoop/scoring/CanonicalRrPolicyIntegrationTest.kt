@@ -1,6 +1,6 @@
 package com.frwhoop.scoring
 
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.noop.data.RrInterval
 import com.noop.protocol.RrSourceChannel
 import org.json.JSONArray
@@ -71,7 +71,7 @@ class CanonicalRrPolicyIntegrationTest : PgIntegrationBase() {
                         tsSuspect = r.getObject("tsSuspect") as? Int))
                 } }
             }
-            val actual = SignalSampleReader(pg.db).loadRr(c, owner, source, lo, hi)
+            val actual = HistoricalSignalSampleReader(pg.db).loadRr(c, owner, source, lo, hi)
             val expected = if (intended == null) old else {
                 assertTrue("intentional policy difference must not disguise equality", intended.historical != intended.current)
                 assertEquals("frozen historical query's complete ordered rows", intended.historical, old)
@@ -258,7 +258,7 @@ class CanonicalRrPolicyIntegrationTest : PgIntegrationBase() {
                     catch (error: InvocationTargetException) { throw error.targetException }
                 } as Connection
                 val started = System.nanoTime()
-                val rows = SignalSampleReader(pg.db).loadRr(capturing, u, device.toString(), 100, 28_899)
+                val rows = HistoricalSignalSampleReader(pg.db).loadRr(capturing, u, device.toString(), 100, 28_899)
                 val elapsedMs = (System.nanoTime() - started) / 1_000_000.0
                 assertEquals(28_800, rows.size)
                 rows.forEachIndexed { index, r ->

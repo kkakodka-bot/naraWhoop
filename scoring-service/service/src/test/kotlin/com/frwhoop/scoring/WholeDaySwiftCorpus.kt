@@ -13,7 +13,8 @@ import java.util.UUID
 
 /** Actual-Swift fixtures are externally owned. Absence, stale hashes and sparse assertions fail closed. */
 internal object WholeDaySwiftCorpus {
-    data class Case(val id:String,val mode:String,val input:JSONObject,val expected:JSONObject)
+    data class Case(val id:String,val mode:String,val input:JSONObject,val expected:JSONObject,
+                    val recipe:String = "w4-whole-day-v1")
     val streamFields=linkedMapOf(
         "hr" to "ts bpm", "rr" to "ts rrMs seq ord srcChannel tsSuspect", "resp" to "ts raw",
         "gravity" to "ts x y z", "events" to "ts kind payloadJSON", "steps" to "ts counter activityClass provenance",
@@ -39,7 +40,7 @@ internal object WholeDaySwiftCorpus {
         val manifest=JSONObject(readFile(directory,"manifest.json",1024*1024).toString(Charsets.UTF_8))
         keys(manifest,"schemaVersion producer recipe sourceRevision sourceHashes cases","manifest")
         require(integer(manifest.get("schemaVersion"),"schemaVersion")==1L && manifest.get("producer")=="actual-swift" &&
-            manifest.get("recipe")=="w4-whole-day-v1") { "unsupported Swift corpus" }
+            manifest.get("recipe") in setOf("w4-whole-day-v1", "w4-whole-day-v2")) { "unsupported Swift corpus" }
         require(Regex("[0-9a-f]{40}").matches(manifest.getString("sourceRevision"))) { "invalid sourceRevision" }
         val hashes=manifest.getJSONObject("sourceHashes")
         require(hashes.has("Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift")) { "missing Swift engine hash" }
@@ -61,7 +62,7 @@ internal object WholeDaySwiftCorpus {
             require(bytes<=512L*1024*1024 && B2ObjectStore.sha256Hex(raw)==entry.getString("sha256")) { "fixture digest/size: $id" }
             val c=JSONObject(raw.toString(Charsets.UTF_8));keys(c,"schemaVersion id mode input expected",id)
             require(integer(c.get("schemaVersion"),"$id.schemaVersion")==1L && c.get("id")==id && c.get("mode")==mode)
-            validate(Case(id,mode,c.getJSONObject("input"),c.getJSONObject("expected")))
+            validate(Case(id,mode,c.getJSONObject("input"),c.getJSONObject("expected"),manifest.getString("recipe")))
         }
         val byId=cases.associateBy { it.id }
         for(c in cases) {
@@ -135,9 +136,16 @@ internal object WholeDaySwiftCorpus {
         require(selection.getJSONArray("sleepEditEntities").toList().all { it is String })
         objects(selection.getJSONArray("wristOff")).forEach { keys(it,"start end","wristOff");interval(it) }
         objects(selection.getJSONArray("hrvWindows")).forEach {
-            keys(it,"sessionStart start stage cleanBeats rmssd","hrvWindow")
+            val availability = if (c.recipe == "w4-whole-day-v2") " measurementValid reason baselineEligible baselineReason" else ""
+            keys(it,"sessionStart start stage cleanBeats rmssd$availability","hrvWindow")
             listOf("sessionStart","start","cleanBeats").forEach { key -> integer(it.get(key),key) }
-            require(it.getString("stage") in setOf("wake","light","deep","rem","?"));numeric(it,"rmssd")
+            require(it.getString("stage") in setOf("wake","light","deep","rem","unknown","sleep_unstaged","?"));numeric(it,"rmssd")
+            if (c.recipe == "w4-whole-day-v2") {
+                for (key in listOf("measurementValid", "baselineEligible")) require(it.get(key) is Boolean)
+                for (key in listOf("reason", "baselineReason")) require(it.isNull(key) || it.get(key) is String)
+                require(it.getBoolean("measurementValid") || it.isNull("rmssd"))
+                require(!it.getBoolean("baselineEligible") || it.getBoolean("measurementValid"))
+            }
         }
         val r=expected.getJSONObject("result")
         keys(r,"daily sleep workouts scores sessionMotionByStart sessionSleepStateByStart detectionFunnel","result")
@@ -155,7 +163,7 @@ internal object WholeDaySwiftCorpus {
             listOf("efficiency","restingHR","avgHRV").forEach { numeric(s,it) }
             objects(s.getJSONArray("stages")).forEach { stage ->
                 keys(stage,"start end stage","stage");interval(stage)
-                require(stage.getString("stage") in setOf("wake","light","deep","rem"))
+                require(stage.getString("stage") in setOf("wake","light","deep","rem","unknown","sleep_unstaged"))
             }
         }
         listOf("mainNightIndices","physiologySessionIndices").forEach { key ->

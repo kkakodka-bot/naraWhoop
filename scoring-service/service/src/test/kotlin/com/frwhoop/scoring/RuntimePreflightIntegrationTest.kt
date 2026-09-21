@@ -67,6 +67,14 @@ class RuntimePreflightIntegrationTest {
         assertEquals(RuntimePreflightCommand.Stage.DATABASE_SCHEMA, error.stage)
     }
 
+    @Test fun physiologyDependenciesCannotSatisfyTheHistoricalWorkerContract() {
+        val error = assertThrows(RuntimePreflightCommand.Failure::class.java) {
+            RuntimePreflightCommand.checkDatabase(connection, "fixture-secret", "frwhoop-server-2-history")
+        }
+        assertEquals(RuntimePreflightCommand.Stage.DATABASE_SCHEMA, error.stage)
+        assertEquals(7, sentinel())
+    }
+
     @Test fun ingestSecretIsBoundAndDatabaseErrorCannotDiscloseIt() {
         val secret = "'); update internal.preflight_sentinel set value=99; --"
         val error = assertThrows(RuntimePreflightCommand.Failure::class.java) {

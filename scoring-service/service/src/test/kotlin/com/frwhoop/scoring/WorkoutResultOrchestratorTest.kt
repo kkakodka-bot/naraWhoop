@@ -16,18 +16,18 @@ class WorkoutResultOrchestratorTest {
     private val source="20000000-0000-4000-8000-000000000001"
     private val b=UserDayBounds.forDay("2026-09-18",ZoneId.of("UTC"))
     private val start=b.dayLo+3600
-    private fun input(sport:String="Running",end:Long=start+4):SignalSampleReader.DayInputs {
+    private fun input(sport:String="Running",end:Long=start+4):HistoricalSignalSampleReader.DayInputs {
         val edit=HistoryInputReader.Input("manual_workout","workout:40000000-0000-4000-8000-000000000001",1,false,JSONObject()
             .put("start",start).put("end",end).put("originalStart",start).put("originalSport",sport)
             .put("sport",sport).put("dismissed",false).put("steps",999))
-        return SignalSampleReader.DayInputs(UUID.randomUUID(),"2026-09-18",source,0,b.dayLo,b.dayHi,UserProfile(stepTicksPerStep=2.0),
+        return HistoricalSignalSampleReader.DayInputs(UUID.randomUUID(),"2026-09-18",source,0,b.dayLo,b.dayHi,UserProfile(stepTicksPerStep=2.0),
             b.nightLo,b.nightHi,emptyList(),emptyList(),emptyList(),emptyList(),emptyList(),DeviceFamily.WHOOP5,
             history=HistoryInputReader.Day(listOf(edit)),steps=listOf(
                 StepSample(source,start-1,65530,1),StepSample(source,start,65534,1),StepSample(source,start+1,0,1),
                 StepSample(source,start+2,2,0),StepSample(source,start+3,4,2),StepSample(source,start+4,6,2),
                 StepSample(source,start+5,8,1)))
     }
-    private fun output(i:SignalSampleReader.DayInputs)=WorkoutResultOrchestrator.evaluate(i,
+    private fun output(i:HistoricalSignalSampleReader.DayInputs)=WorkoutResultOrchestrator.evaluate(i,
         DayResult(DailyMetric(source,i.day),emptyList(),emptyList(),null,null))
 
     @Test fun inclusiveWorkoutCounterWrapActivityAndScaleMatchExistingSwiftDetailPolicy() {
@@ -51,7 +51,7 @@ class WorkoutResultOrchestratorTest {
         val out=output(i)
         assertEquals(0,out.sessions.length());assertNull(out.count);assertNull(out.strengthMin)
         assertTrue(out.gaps.contains("manual_workout_ends_after_asof_cutoff"))
-        val scored=DayScorer().score(i,"frwhoop-server-2-history",HistoricalStateMachine.prepare(i,HistoryCheckpointReader.Seed(null,emptyList())))
+        val scored=HistoricalDayScorer().score(i,"frwhoop-server-2-history",HistoricalStateMachine.prepare(i,HistoryCheckpointReader.Seed(null,emptyList())))
         assertFalse(scored.hasNonRawObservations)
         assertFalse(scored.coverageGaps.contains("context_derived_algorithms_not_integrated"))
     }

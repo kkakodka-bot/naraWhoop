@@ -41,6 +41,7 @@ class ScoringRunModeTest {
         assertEquals(ScoringRunMode.ARCHIVE_ONLY, stale.runMode(arrayOf("--archive-only")))
         assertEquals(ScoringRunMode.CHECK_CONFIG, stale.runMode(arrayOf("--check-config")))
         assertEquals(ScoringRunMode.MODELS_ONLY, stale.runMode(arrayOf("--models-only")))
+        assertEquals(ScoringRunMode.HISTORY, stale.runMode(arrayOf("--history")))
         assertEquals(ScoringRunMode.ACTIVATE_MODELS, stale.runMode(arrayOf("--activate-models")))
     }
 

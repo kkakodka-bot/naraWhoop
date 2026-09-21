@@ -7,8 +7,10 @@ import java.nio.file.Path
 class WholeDaySwiftParityTest {
     @Test fun actualSwiftWholeDays() {
         val root = Path.of("../..").toAbsolutePath().normalize()
-        val directory = Path.of(System.getenv("W4_SWIFT_DAY_FIXTURE_DIR")
-            ?: root.resolve("Tests/Fixtures/w4-whole-day-swift-v1").toString())
+        val directory = Path.of(requireNotNull(System.getenv("W4_SWIFT_DAY_FIXTURE_DIR")) {
+            "Run bash scoring-service/scripts/test-server-jvm.sh to export the current actual-Swift corpus; " +
+                "historical v1 fixtures are not a current-source oracle"
+        })
         val cases = WholeDaySwiftCorpus.read(directory, root)
         val runner = WholeDaySwiftRunner()
         for (case in cases.sortedWith(compareBy({ it.input.getString("day") }, { it.id }))) {

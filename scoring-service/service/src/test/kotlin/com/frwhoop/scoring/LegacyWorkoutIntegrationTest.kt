@@ -23,7 +23,7 @@ class LegacyWorkoutIntegrationTest:PgIntegrationBase() {
         val foreign=UUID.randomUUID()
         sql("insert into devices(id,user_id,source_kind) values('$foreign','$other','noop_push')")
         insert(d=foreign,owner=other)
-        val input=SignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
+        val input=HistoricalSignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
         assertEquals(listOf(id.toString()),input.legacyWorkouts.map { it.id })
         val result=DayResult(DailyMetric(device.toString(),day),emptyList(),emptyList(),null,null)
         val out=WorkoutResultOrchestrator.evaluate(input,result)
@@ -41,7 +41,7 @@ class LegacyWorkoutIntegrationTest:PgIntegrationBase() {
         val id=insert()
         sql("""insert into noop_hr_samples(user_id,device_id,source_id,ts,bpm,batch_id)
             select '$u','$device',gen_random_uuid(),$start+n,100,gen_random_uuid() from generate_series(0,3540,60) n""")
-        val input=SignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
+        val input=HistoricalSignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
         val result=DayResult(DailyMetric(device.toString(),day,restingHr=60),emptyList(),emptyList(),null,null)
         val out=WorkoutResultOrchestrator.evaluate(input,result).sessions.getJSONObject(0)
         assertEquals(100.0,out.getDouble("avgHr"),0.0)
@@ -56,14 +56,14 @@ class LegacyWorkoutIntegrationTest:PgIntegrationBase() {
     }
     @Test fun pastUploadedWorkoutCorrectionFencesClaimedHistoryFromSecondConnection() {
         val id=insert()
-        val q=ScoringWorkQueue(pg.db,"frwhoop-server-2-history")
+        val q=HistoricalScoringWorkQueue(pg.db,"frwhoop-server-2-history")
         q.maintain(1000)
         q.dirtyWorkItem(u,device,day);q.maintain(1000)
         val item=q.claim()!!
-        val input=SignalSampleReader(pg.db).loadHistoricalDay(u,item.day,device)!!
-        val scored=DayScorer().score(input,q.algorithmVersion,HistoricalStateMachine.prepare(input,HistoryCheckpointReader(pg.db).load(item)))
+        val input=HistoricalSignalSampleReader(pg.db).loadHistoricalDay(u,item.day,device)!!
+        val scored=HistoricalDayScorer().score(input,q.algorithmVersion,HistoricalStateMachine.prepare(input,HistoryCheckpointReader(pg.db).load(item)))
         pg.connection().use { c -> c.createStatement().use { it.execute("update sessions set end_at=end_at+interval '60 seconds' where id='$id'") } }
-        assertNull(EngineIngestWriter(q).write(item,scored,1))
+        assertNull(HistoricalEngineIngestWriter(q).write(item,scored,1))
         assertEquals("0",scalar("select count(*) from scoring_history_checkpoints_v3"))
     }
 }

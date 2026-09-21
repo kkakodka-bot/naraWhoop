@@ -3,6 +3,7 @@ package com.frwhoop.scoring
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.UUID
+import java.nio.file.Files
 
 class WorkerHeartbeatIdentityTest {
     private val revision = "a".repeat(40)
@@ -41,5 +42,33 @@ class WorkerHeartbeatIdentityTest {
         }
         assertEquals(RuntimePreflightCommand.Stage.WORKER_IDENTITY, error.stage)
         assertNull(error.cause)
+    }
+
+    @Test fun nativeDistributionRequiresItsImmutableBundledRevision() {
+        val absent = Files.createTempDirectory("scoring-native-identity-").resolve("release.sha")
+        val valid = config.workerIdentity { ScoringConfig.packagedSourceRevision(absent) { "$revision\n" } }
+        assertEquals(revision, valid.sourceRevision)
+        for (bundled in listOf(null, "source_identity_unavailable", "b".repeat(40))) {
+            val error = assertThrows(IllegalArgumentException::class.java) {
+                config.workerIdentity { ScoringConfig.packagedSourceRevision(absent) { bundled } }
+            }
+            assertNull(error.cause)
+        }
+    }
+
+    @Test fun anExistingImageMarkerNeverFallsBackToTheBundledRevision() {
+        val marker = Files.createTempFile("scoring-image-identity-", ".sha")
+        Files.writeString(marker, "b".repeat(40))
+        var fallbackCalled = false
+        assertThrows(IllegalArgumentException::class.java) {
+            config.workerIdentity {
+                ScoringConfig.packagedSourceRevision(marker) { fallbackCalled = true; revision }
+            }
+        }
+        assertFalse(fallbackCalled)
+        val directory = Files.createTempDirectory("scoring-invalid-image-marker-")
+        assertThrows(IllegalArgumentException::class.java) {
+            config.workerIdentity { ScoringConfig.packagedSourceRevision(directory) { revision } }
+        }
     }
 }

@@ -109,7 +109,7 @@ class ContextInputIntegrationTest : PgIntegrationBase() {
         val first=put("config","primary",body("dayCycleMode","midnight"))
         put("config","primary",body("dayCycleMode","sleep_onset").put("hrvBaselineEpoch",JSONObject.NULL)
             .put("recoveryBaselineEpoch",JSONObject.NULL),first)
-        val input=com.frwhoop.scoring.db.SignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
+        val input=com.frwhoop.scoring.db.HistoricalSignalSampleReader(pg.db).loadHistoricalDay(u,day,device)!!
         val p=com.frwhoop.scoring.scoring.HistoricalStateMachine.prepare(input,com.frwhoop.scoring.db.HistoryCheckpointReader.Seed(null,emptyList()))
         assertEquals(0.0,p.hrvEpoch,0.0)
         assertEquals(0.0,p.recoveryEpoch,0.0)

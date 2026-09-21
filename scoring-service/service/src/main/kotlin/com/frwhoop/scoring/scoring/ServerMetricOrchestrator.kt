@@ -1,6 +1,6 @@
 package com.frwhoop.scoring.scoring
 
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.noop.analytics.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -38,7 +38,7 @@ data class ServerDerivedMetrics(
 
 /** Adapts existing kernel engines and existing Swift presentation formulas; never reads current time. */
 object ServerMetricOrchestrator {
-    fun evaluate(input: SignalSampleReader.DayInputs, result: DayResult, commit: HistoricalStateMachine.Commit,
+    fun evaluate(input: HistoricalSignalSampleReader.DayInputs, result: DayResult, commit: HistoricalStateMachine.Commit,
                  sleepIdentities:Map<SleepBounds,SleepIdentity> = emptyMap(),napOverrides:Map<SleepBounds,Boolean> = emptyMap(),
                  cycle:DayCycleMetricOrchestrator.Result? = null): ServerDerivedMetrics {
         val metrics=JSONObject(); val details=JSONObject(); val charts=JSONObject(); val metadata=JSONObject()
@@ -79,8 +79,8 @@ object ServerMetricOrchestrator {
         metric("spo2_red",d.spo2Red,"adc","raw_red_adc")
         metric("spo2_ir",d.spo2Ir,"adc","raw_ir_adc")
         if(config.optBoolean("spo2CandidateDisplayEnabled",false)) {
-            val candidate=if(input.isOura) AnalyticsEngine.nightlySpo2CeilingMean(result.sleepSessions,input.spo2)
-                else AnalyticsEngine.nightlySpo2CandidateMean(result.sleepSessions,input.v18Aux)
+            val candidate=if(input.isOura) ServerAuxiliaryMetrics.ceiling(result.sleepSessions,input.spo2)
+                else ServerAuxiliaryMetrics.candidate(result.sleepSessions,input.v18Aux)
             val candidateMethod=if(input.isOura) "experimental_oura_0x6f_ceiling_100_mean" else "experimental_v18_aux82_plausibility_mean"
             metric("spo2_candidate",candidate?.first,"percent",candidateMethod,
                 if(candidate==null) "unavailable" else "experimental")

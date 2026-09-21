@@ -22,7 +22,10 @@ class HistoricalSnapshotFixtureIntegrationTest:PgIntegrationBase() {
     @Test fun immutableOutputFixtureHasRealLeaseCheckpointAndServerRestagedSleep() {
         val start=Instant.parse("${day}T00:00:00Z").epochSecond
         sql("""insert into noop_hr_samples(user_id,device_id,source_id,ts,bpm,batch_id)
-            select '$u','$device',gen_random_uuid(),$start+n,58,gen_random_uuid() from generate_series(0,25170,30) n""")
+            select '$u','$device',gen_random_uuid(),$start+n,58+(n%3),gen_random_uuid() from generate_series(0,25199,1) n;
+            insert into noop_gravity_samples(user_id,device_id,source_id,ts,x,y,z,batch_id)
+            select '$u','$device',gen_random_uuid(),$start+n,0.005*sin(n),0,sqrt(1-power(0.005*sin(n),2)),gen_random_uuid()
+            from generate_series(0,25199,1) n""")
         put("profile","primary",JSONObject().put("schemaVersion",1).put("age",40).put("sex","female")
             .put("weightKg",65).put("heightCm",170).put("timezone","UTC"))
         put("config","primary",JSONObject().put("schemaVersion",1).put("dayCycleMode","sleep_onset")
@@ -30,15 +33,15 @@ class HistoricalSnapshotFixtureIntegrationTest:PgIntegrationBase() {
         put("sleep_edit","sleep:40000000-0000-4000-8000-000000000001",JSONObject().put("schemaVersion",1)
             .put("originalStart",start).put("originalEnd",start+7*3600).put("start",start).put("end",start+7*3600)
             .put("isNap",false).put("dismissed",false))
-        val q=ScoringWorkQueue(pg.db,"frwhoop-server-2-history")
+        val q=HistoricalScoringWorkQueue(pg.db,"frwhoop-server-2-history")
         q.maintain(1000);q.dirtyWorkItem(u,device,day);q.maintain(1000)
         var count=0
         while(true) {
             val item=q.claim() ?: break
             check(++count<32)
-            val i=SignalSampleReader(pg.db).loadHistoricalDay(u,item.day,device)!!
+            val i=HistoricalSignalSampleReader(pg.db).loadHistoricalDay(u,item.day,device)!!
             val p=HistoricalStateMachine.prepare(i,HistoryCheckpointReader(pg.db).load(item))
-            assertNotNull(EngineIngestWriter(q).write(item,DayScorer().score(i,q.algorithmVersion,p),1))
+            assertNotNull(HistoricalEngineIngestWriter(q).write(item,HistoricalDayScorer().score(i,q.algorithmVersion,p),1))
         }
         val payload=JSONObject(scalar("select payload::text from scoring_snapshots_v2 where day='$day' and algorithm_version='${q.algorithmVersion}' order by result_revision desc limit 1")!!)
         assertEquals(2,payload.getInt("schemaVersion"));assertEquals(device.toString(),payload.getString("sourceDeviceId"))

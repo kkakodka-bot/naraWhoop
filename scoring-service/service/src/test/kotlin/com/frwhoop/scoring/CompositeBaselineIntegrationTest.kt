@@ -29,9 +29,15 @@ class CompositeBaselineIntegrationTest {
         sql("insert into auth.users values('$user')")
         sql("insert into profiles(id,timezone) values('$user','UTC')")
         sql("insert into devices(id,user_id) values('$device','$user')")
+        for (feature in listOf("hrv", "sleep", "respiration")) {
+            SignedPromotionFixtures.register(db, SignedPromotionFixtures.prepare(db, feature))
+            SignedPromotionFixtures.qualify(db, feature)
+        }
+        sql("insert into physiology_source_selection(user_id,feature,device_id,algorithm_version) " +
+            "select '$user',feature,'$device','frwhoop-physiology-2' from physiology_feature_defaults")
     }
 
-    @After fun close() { if (::db.isInitialized) db.close() }
+    @After fun close() { if (::db.isInitialized) { SignedPromotionFixtures.reset(db); db.close() } }
 
     @Test fun priorCalendarBaselinesRespectGapsCutoffAndExactDevice() {
         for (offset in 1L..4L) publish(claim(day.minusDays(offset)), daily())
@@ -126,7 +132,7 @@ class CompositeBaselineIntegrationTest {
             assertEquals(0, load(day).hrv!!.nValid)
             assertTrue(revision(day) > target.inputRevision)
         } finally {
-            sql("update physiology_feature_qualifications set qualification='published' where algorithm_version='frwhoop-physiology-2' and feature='hrv'")
+            SignedPromotionFixtures.qualify(db, "hrv")
         }
     }
 
@@ -146,6 +152,7 @@ class CompositeBaselineIntegrationTest {
             .put("day", item.day).put("algorithm_version", "frwhoop-physiology-2").put("input_revision", item.inputRevision)
             .put("lease_token", item.leaseToken.toString()).put("run_id", item.runId.toString())
             .put("computed_at", "2026-09-18T00:00:00Z").put("publication_status", "provisional").put("period_closed", closed)
+            .put("feature_manifest_hashes", SignedPromotionFixtures.hashes(db))
             .put("daily", daily.put("day", item.day).put("source_device_id", item.deviceId.toString()))
             .put("nights", JSONArray()).put("measurements", JSONArray())
         if (unavailable != null) payload.put("unavailable_reason", unavailable)

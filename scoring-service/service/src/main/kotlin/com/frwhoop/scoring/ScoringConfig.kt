@@ -4,10 +4,11 @@ import com.frwhoop.scoring.b2.B2Config
 import com.frwhoop.scoring.health.WorkerHeartbeatIdentity
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.time.Duration
 import java.util.UUID
 
-enum class ScoringRunMode { PERSISTENT, REPLAY, INVENTORY, ARCHIVE_ONLY, CHECK_CONFIG, MODELS_ONLY, ACTIVATE_MODELS }
+enum class ScoringRunMode { PERSISTENT, HISTORY, REPLAY, INVENTORY, ARCHIVE_ONLY, CHECK_CONFIG, MODELS_ONLY, ACTIVATE_MODELS }
 
 /** Env-only configuration for the VPS scoring container. */
 data class ScoringConfig(
@@ -38,9 +39,7 @@ data class ScoringConfig(
     }
 
     /** Check image provenance before opening the worker database or mutating its queue. */
-    fun workerIdentity(packagedRevision: () -> String = {
-        Files.readString(Path.of("/app/release.sha"))
-    }): WorkerHeartbeatIdentity {
+    fun workerIdentity(packagedRevision: () -> String = { packagedSourceRevision() }): WorkerHeartbeatIdentity {
         val instance = workerInstanceId
         require(instance != null && instance.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))) {
             "SCORING_WORKER_INSTANCE_ID must be a canonical UUID"
@@ -56,15 +55,28 @@ data class ScoringConfig(
     }
 
     companion object {
+        /** An existing image marker is authoritative, including malformed/unreadable markers. */
+        internal fun packagedSourceRevision(imageMarker: Path = Path.of("/app/release.sha"),
+                                            bundled: () -> String? = {
+                                                ScoringConfig::class.java.getResourceAsStream("/scoring-source-revision.txt")
+                                                    ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                                            }): String = if (Files.notExists(imageMarker, NOFOLLOW_LINKS)) {
+            requireNotNull(bundled()) { "Packaged scoring source revision unavailable" }
+        } else {
+            require(Files.isRegularFile(imageMarker, NOFOLLOW_LINKS)) { "Packaged scoring source marker invalid" }
+            Files.readString(imageMarker)
+        }
+
         fun runModeFromArgs(args: Array<String>): ScoringRunMode = when {
             args.isEmpty() -> ScoringRunMode.PERSISTENT
+            args.contentEquals(arrayOf("--history")) -> ScoringRunMode.HISTORY
             args.contentEquals(arrayOf("--replay-day")) -> ScoringRunMode.REPLAY
             args.contentEquals(arrayOf("--inventory-signals")) -> ScoringRunMode.INVENTORY
             args.contentEquals(arrayOf("--archive-only")) -> ScoringRunMode.ARCHIVE_ONLY
             args.contentEquals(arrayOf("--check-config")) -> ScoringRunMode.CHECK_CONFIG
             args.contentEquals(arrayOf("--models-only")) -> ScoringRunMode.MODELS_ONLY
             args.contentEquals(arrayOf("--activate-models")) -> ScoringRunMode.ACTIVATE_MODELS
-            else -> throw IllegalArgumentException("Use no arguments, --replay-day, --inventory-signals, --archive-only, --check-config, --models-only, or --activate-models; commands cannot be combined")
+            else -> throw IllegalArgumentException("Use no arguments, --history, --replay-day, --inventory-signals, --archive-only, --check-config, --models-only, or --activate-models; commands cannot be combined")
         }
 
         fun fromEnv(): ScoringConfig {

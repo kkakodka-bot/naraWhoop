@@ -1,6 +1,6 @@
 package com.frwhoop.scoring.scoring
 
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.noop.analytics.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -13,7 +13,7 @@ import java.util.UUID
 object WorkoutResultOrchestrator {
     data class Result(val sessions:JSONArray,val count:Int?,val strengthMin:Double?,val gaps:Set<String>)
     private data class Entry(val entity:String,val payload:JSONObject,val manual:Boolean,val legacySource:String? = null)
-    fun evaluate(input:SignalSampleReader.DayInputs,result:DayResult,cycle:DayCycleMetricOrchestrator.Result? = null):Result {
+    fun evaluate(input:HistoricalSignalSampleReader.DayInputs,result:DayResult,cycle:DayCycleMetricOrchestrator.Result? = null):Result {
         val config=input.history.configuration
         val method=StrainScorer.Method.valueOf(config.optString("effortMethod","EDWARDS"))
         val manual=input.history.values.filter { it.kind=="manual_workout" && !it.deleted }.sortedByDescending { it.revision }

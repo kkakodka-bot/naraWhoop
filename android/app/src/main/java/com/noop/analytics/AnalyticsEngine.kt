@@ -1274,6 +1274,21 @@ object AnalyticsEngine {
     private const val SKIN_TEMP_MIN_C: Double = 28.0
     private const val SKIN_TEMP_MAX_C: Double = 42.0
 
+    /** Histogram of already wear/window-gated samples, evaluated on ONE common anchor scale.
+     * Historical orchestration uses this to refold prior thermal observations without re-reading HR.
+     * Gates, conversion and minimum count are the same as skinTempFunnel, not a new temperature model. */
+    fun skinTempHistogramMean(rawCounts: Map<Int,Int>, family: DeviceFamily, anchorRaw: Double?): Double? {
+        var sum=0.0; var count=0L
+        for((raw,n) in rawCounts.toSortedMap()) {
+            require(n>=0)
+            if(family==DeviceFamily.WHOOP4 && raw !in Whoop4SkinTemp.WORN_MIN_RAW..Whoop4SkinTemp.WORN_MAX_RAW) continue
+            val c=skinTempCelsius(raw,family,anchorRaw ?: Whoop4SkinTemp.ANCHOR_RAW)
+            if(c<SKIN_TEMP_MIN_C || c>SKIN_TEMP_MAX_C) continue
+            sum+=c*n; count+=n
+        }
+        return if(count>=MIN_SKIN_TEMP_SAMPLES_INLINE) sum/count else null
+    }
+
     // ── Skin-temp funnel diagnostic (#752) ──────────────────────────────────────────────────────────
 
     /**

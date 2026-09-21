@@ -1,6 +1,6 @@
 package com.frwhoop.scoring.scoring
 
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.noop.analytics.*
 import com.noop.protocol.DeviceFamily
 import com.noop.protocol.Whoop4SkinTemp
@@ -10,7 +10,7 @@ import java.time.ZoneOffset
 
 /** Re-evaluates strictly earlier thermal evidence on today's as-of window-wide WHOOP4 anchor. */
 internal object HistoricalThermalState {
-    fun observedRawHistogram(input:SignalSampleReader.DayInputs,result:DayResult):JSONObject {
+    fun observedRawHistogram(input:HistoricalSignalSampleReader.DayInputs,result:DayResult):JSONObject {
         val worn=input.hr.filter { it.bpm in 30..220 }.map { it.ts }.toHashSet()
         val counts=input.skinTemp.filter { t -> t.ts in worn && t.raw in Whoop4SkinTemp.WORN_MIN_RAW..Whoop4SkinTemp.WORN_MAX_RAW &&
             result.sleepSessions.any { t.ts in it.start..it.end } }.groupingBy { it.raw }.eachCount()

@@ -33,7 +33,7 @@ class HeartbeatReporter(
 
     fun recordScore(userId: UUID, day: String) {
         record("last_score_at", null)
-        log.debug("scored {} {}", userId, day)
+        log.debug("Recorded successful score publication")
     }
 
     fun recordError(message: String) {
@@ -59,8 +59,10 @@ class HeartbeatReporter(
                     statement.setString(5, version)
                     check(statement.executeUpdate() == 1) { "Scoring process heartbeat identity unavailable" }
                 }
+                val singleton = if (version == "frwhoop-server-2-history") "scoring_service_heartbeats"
+                    else "physiology_service_heartbeats"
                 connection.prepareStatement("""
-                    update public.physiology_service_heartbeats set ${progress}last_error=?,version=? where id=1
+                    update public.$singleton set ${progress}last_error=?,version=? where id=1
                 """.trimIndent()).use { statement ->
                     statement.setString(1, errorCode)
                     statement.setString(2, version)

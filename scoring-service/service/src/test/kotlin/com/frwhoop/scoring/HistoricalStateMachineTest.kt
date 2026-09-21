@@ -2,7 +2,7 @@ package com.frwhoop.scoring
 
 import com.frwhoop.scoring.db.HistoryCheckpointReader
 import com.frwhoop.scoring.db.HistoryInputReader
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.frwhoop.scoring.scoring.*
 import com.noop.analytics.*
 import com.noop.data.DailyMetric
@@ -17,9 +17,9 @@ import java.util.UUID
 class HistoricalStateMachineTest {
     private val owner=UUID.fromString("10000000-0000-4000-8000-000000000001")
     private val device="20000000-0000-4000-8000-000000000001"
-    private fun inputs(day: String,config: JSONObject=JSONObject(),zone:String="UTC"): SignalSampleReader.DayInputs {
+    private fun inputs(day: String,config: JSONObject=JSONObject(),zone:String="UTC"): HistoricalSignalSampleReader.DayInputs {
         val b=UserDayBounds.forDay(day,ZoneId.of(zone))
-        return SignalSampleReader.DayInputs(owner,day,device,b.tzOffsetSeconds,b.dayLo,b.dayHi,UserProfile(),
+        return HistoricalSignalSampleReader.DayInputs(owner,day,device,b.tzOffsetSeconds,b.dayLo,b.dayHi,UserProfile(),
             b.nightLo,b.nightHi,emptyList(),emptyList(),emptyList(),emptyList(),emptyList(),DeviceFamily.WHOOP5,zone,
             HistoryInputReader.Day(listOf(HistoryInputReader.Input("config","primary",1,false,config))))
     }

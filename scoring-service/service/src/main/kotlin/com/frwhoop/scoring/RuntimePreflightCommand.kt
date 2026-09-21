@@ -74,7 +74,7 @@ object RuntimePreflightCommand {
             val (url, properties) = databaseConnectionParameters(config)
             DriverManager.getConnection(url, properties)
         }
-        try { checkDatabase(connection, config.ingestSecret) }
+        try { checkDatabase(connection, config.ingestSecret, config.algorithmVersion) }
         finally { runCatching { connection.close() } }
         checkRest(endpoint, config.serviceRoleKey)
         return "runtime_preflight_ok"
@@ -93,7 +93,7 @@ object RuntimePreflightCommand {
         return PostgresClient.boundedJdbcUrl(config.databaseUrl) to properties
     }
 
-    internal fun checkDatabase(connection: Connection, ingestSecret: String) {
+    internal fun checkDatabase(connection: Connection, ingestSecret: String, algorithmVersion: String = "frwhoop-physiology-2") {
         checked(Stage.DATABASE_CONNECTION) {
             require(connection.autoCommit)
             connection.isReadOnly = true
@@ -110,14 +110,22 @@ object RuntimePreflightCommand {
                 }
                 connection.prepareStatement("select to_regclass(?) is not null").use { statement ->
                     statement.queryTimeout = 10
-                    for (table in requiredTables) {
+                    val historyTables = if (algorithmVersion == "frwhoop-server-2-history") listOf(
+                        "public.scoring_jobs_v2", "public.scoring_snapshots_v2", "public.scoring_history_inputs_v3",
+                        "public.scoring_history_checkpoints_v3", "public.scoring_history_heads_v3", "public.scoring_archive_jobs_v2") else emptyList()
+                    for (table in requiredTables + historyTables) {
                         statement.setString(1, table)
                         statement.executeQuery().use { rows -> require(rows.next() && rows.getBoolean(1)) }
                     }
                 }
                 connection.prepareStatement("select to_regprocedure(?) is not null").use { statement ->
                     statement.queryTimeout = 10
-                    for (function in requiredFunctions) {
+                    val historyFunctions = if (algorithmVersion == "frwhoop-server-2-history") listOf(
+                        "public.register_scoring_history_v3(text)", "public.claim_scoring_history_v3(text,integer)",
+                        "public.publish_scoring_history_v3(uuid,bigint,bigint,bigint,jsonb,jsonb,bigint,bigint,bigint)",
+                        "public.renew_scoring_v2(uuid,integer)", "public.fail_scoring_v2(uuid,bigint,text)",
+                        "public.expand_scoring_history_v3(integer)") else emptyList()
+                    for (function in requiredFunctions + historyFunctions) {
                         statement.setString(1, function)
                         statement.executeQuery().use { rows -> require(rows.next() && rows.getBoolean(1)) }
                     }

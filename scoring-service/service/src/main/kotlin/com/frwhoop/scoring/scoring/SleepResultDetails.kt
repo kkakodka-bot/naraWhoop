@@ -1,6 +1,6 @@
 package com.frwhoop.scoring.scoring
 
-import com.frwhoop.scoring.db.SignalSampleReader
+import com.frwhoop.scoring.db.HistoricalSignalSampleReader
 import com.noop.analytics.DayResult
 import com.noop.analytics.SleepStager
 import org.json.JSONArray
@@ -8,7 +8,7 @@ import org.json.JSONObject
 
 /** Complete existing session diagnostics, keyed by the same immutable edit identity as `sleep`. */
 internal object SleepResultDetails {
-    fun build(input: SignalSampleReader.DayInputs, result: DayResult, prepared: HistoricalStateMachine.Prepared,
+    fun build(input: HistoricalSignalSampleReader.DayInputs, result: DayResult, prepared: HistoricalStateMachine.Prepared,
               identities: Map<SleepBounds, SleepIdentity>, naps: Map<SleepBounds, Boolean>): JSONArray {
         val main = HistoricalObservationWindows.mainNightIndices(input,result,prepared.habitualMidsleep,naps)
         return JSONArray(result.sleepSessions.mapIndexed { index, s ->
