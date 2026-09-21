@@ -44,7 +44,7 @@ export function sourceFixture(root) {
     fs.writeFileSync(path.join(root, relative, 'Synthetic.kt'), 'package fixture\nimport com.noop.data.HrSample\n');
   }
   const migrations = path.join(root, 'supabase/migrations'); fs.mkdirSync(migrations, { recursive: true });
-  for (const id of REQUIRED_MIGRATIONS) fs.writeFileSync(path.join(migrations, `${id}_synthetic.sql`), '-- synthetic source-presence fixture only\n');
+  for (const id of REQUIRED_MIGRATIONS) fs.writeFileSync(path.join(migrations, id), '-- synthetic source-presence fixture only\n');
   fs.writeFileSync(path.join(migrations, '20260916160000_scoring_service_state.sql'), '-- scoring_service_heartbeats scoring_work_items engine_ingest_scored\n');
   return migrations;
 }

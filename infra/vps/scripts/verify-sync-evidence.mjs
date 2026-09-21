@@ -121,7 +121,7 @@ export function verifyEvidence(e, directory, now = Date.now()) {
   return { status: 'EVIDENCE_VALIDATED', artifacts: names.size, productionReadiness: 'requires exact candidate review' };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
   try {
     const filename = process.argv[2];
     const result = verifyEvidence(readJSON(filename), path.dirname(path.resolve(filename)));

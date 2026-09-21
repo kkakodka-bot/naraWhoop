@@ -25,9 +25,16 @@ docker inspect "$container" --format '{{json .HostConfig.NetworkMode}} {{json .N
 docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
   'select version(); select current_user,rolsuper from pg_roles where rolname=current_user;' > "$evidence/platform.txt"
 docker exec "$container" sh -c 'sha256sum /workspace-migrations/*.sql' > "$evidence/migration-sha256.txt"
+docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
+  'create schema if not exists supabase_migrations; create table supabase_migrations.scoring_source_identities (basename text primary key, sha256 text not null);' > "$evidence/ledger-init.log"
+catalog_rows="$(node --input-type=module -e '
+  const { pathToFileURL } = await import("node:url");
+  const { MIGRATION_CATALOG, verifyMigrationSources } = await import(pathToFileURL(process.argv[1]));
+  verifyMigrationSources(process.argv[2]);
+  for (const row of MIGRATION_CATALOG) console.log(row.basename + "|" + row.sha256);
+' "$repo_dir/infra/vps/scripts/scoring-migration-catalog.mjs" "$repo_dir/supabase/migrations")"
 seeded=false
-for migration in "$repo_dir"/supabase/migrations/*.sql; do
-  name="${migration##*/}"
+while IFS='|' read -r name source_sha; do
   if [[ "$mode" == populated && "$seeded" == false && "$name" == 20260918010000* ]]; then
     docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f /seed.sql > "$evidence/seed.log" 2>&1
     seeded=true
@@ -37,10 +44,18 @@ for migration in "$repo_dir"/supabase/migrations/*.sql; do
     tail -40 "$evidence/$name.log"; exit 1
   fi
   printf 'PASS %s\n' "$name" >> "$evidence/results.txt"
+  docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
+    "insert into supabase_migrations.scoring_source_identities values ('$name','$source_sha');" >> "$evidence/ledger-init.log"
   if [[ "$mode" == populated && "$name" == 20260918010000_physiology_revisions.sql ]]; then
     docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f /steps.sql > "$evidence/steps.log" 2>&1
   fi
-done
+done <<<"$catalog_rows"
+docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -Atc \
+  "select json_agg(json_build_object('version',basename,'sha256',sha256) order by basename) from supabase_migrations.scoring_source_identities;" > "$evidence/applied-ledger.json"
+node "$repo_dir/infra/vps/scripts/scoring-migration-plan.mjs" "$repo_dir/supabase/migrations" \
+  "$evidence/applied-ledger.json" > "$evidence/lineage-plan.json"
+node -e 'const p=require(process.argv[1]); if(p.pending.length || p.applied.length !== Number(process.argv[2])) process.exit(1);' \
+  "$evidence/lineage-plan.json" "$(printf '%s\n' "$catalog_rows" | wc -l | tr -d ' ')"
 if [[ "$mode" == populated ]]; then
   docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f /verify.sql > "$evidence/verify.log" 2>&1
 fi

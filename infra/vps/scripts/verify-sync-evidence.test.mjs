@@ -33,7 +33,7 @@ test('migration evidence cannot be a substring, number list or duplicate ledger'
 });
 test('schema2 records raw ledger entries separately and rejects inconsistent canonical evidence', t => {
   const f = fixture(t), ids = [...f.evidence.server.migrations];
-  const names = ids.map(id => SUPPORTED_LEDGER_BASENAMES.find(name => name.startsWith(id + '_')));
+  const names = ids.map(id => ({version:id.slice(0,14), name:id.slice(15,-4)}));
   f.evidence.server.migrationLedgerRaw = [...names];
   assert.equal(verifyEvidence(f.evidence, f.directory, f.now).status, 'EVIDENCE_VALIDATED');
   assert.deepEqual(f.evidence.server.migrationLedgerRaw, names); // No in-place normalization.
@@ -42,7 +42,7 @@ test('schema2 records raw ledger entries separately and rejects inconsistent can
     assert.throws(() => verifyEvidence(f.evidence, f.directory, f.now), /NOT_READY/);
   }
   f.evidence.server.migrationLedgerRaw = names;
-  f.evidence.server.migrations = names;
+  f.evidence.server.migrations = names.map(row => row.version);
   assert.throws(() => verifyEvidence(f.evidence, f.directory, f.now), /distinct applied migration IDs/);
 });
 test('container ID is explicit full lowercase hex, not a service name, short ID or image digest', t => {

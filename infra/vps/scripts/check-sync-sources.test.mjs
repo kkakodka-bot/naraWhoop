@@ -34,28 +34,29 @@ test('only exact existing Editor use may reference the JVM shim', () => {
   assert.throws(() => checkKotlin('val x = com.noop.data.WhoopDatabase.open()', 'fixture.kt'), /qualified reference/);
   assert.throws(() => checkKotlin('import android.content.SharedPreferences', 'scoring-service/analytics-kernel/src/main/kotlin/android/content/SharedPreferences.kt'), /forbidden/);
 });
-test('complete eight-ID source chain plus unrelated migrations passes', t => {
+test('complete full-identity source chain plus unrelated migrations passes', t => {
   const f = fixture(t); const directory = sourceFixture(f.directory);
   fs.writeFileSync(path.join(directory, '20260801000000_other.sql'), '-- unrelated\n');
-  assert.equal(checkSources(f.directory).requiredMigrations, 8);
-  assert.deepEqual(REQUIRED_MIGRATIONS, Array.from({ length: 8 }, (_, i) => `20260918${String(i + 1).padStart(2, '0')}0000`));
+  assert.equal(checkSources(f.directory).requiredMigrations, REQUIRED_MIGRATIONS.length);
+  assert.ok(REQUIRED_MIGRATIONS.includes('20260918010000_physiology_revisions.sql'));
+  assert.ok(REQUIRED_MIGRATIONS.includes('20260918010000_production_scoring_durability.sql'));
 });
 test('each missing ID, duplicate prefix and old base alone fail closed', t => {
   const f = fixture(t); const directory = sourceFixture(f.directory);
   for (const id of REQUIRED_MIGRATIONS) {
-    const filename = path.join(directory, `${id}_synthetic.sql`);
+    const filename = path.join(directory, id);
     const bytes = fs.readFileSync(filename); fs.unlinkSync(filename);
     assert.throws(() => checkMigrations(f.directory), /exactly one/);
     fs.writeFileSync(filename, bytes);
-    const duplicate = path.join(directory, `${id}_duplicate.sql`); fs.writeFileSync(duplicate, '-- duplicate');
-    assert.throws(() => checkMigrations(f.directory), /exactly one/); fs.unlinkSync(duplicate);
+    const duplicate = path.join(directory, `${id.slice(0,14)}_duplicate.sql`); fs.writeFileSync(duplicate, '-- duplicate');
+    assert.throws(() => checkMigrations(f.directory), /unreviewed migration/); fs.unlinkSync(duplicate);
   }
-  for (const id of REQUIRED_MIGRATIONS) fs.unlinkSync(path.join(directory, `${id}_synthetic.sql`));
+  for (const id of REQUIRED_MIGRATIONS) fs.unlinkSync(path.join(directory, id));
   assert.throws(() => checkMigrations(f.directory), /exactly one/);
 });
 test('empty, whitespace-only, unreadable and non-regular required migrations fail', t => {
   const f = fixture(t); const directory = sourceFixture(f.directory);
-  const filename = path.join(directory, `${REQUIRED_MIGRATIONS[0]}_synthetic.sql`);
+  const filename = path.join(directory, REQUIRED_MIGRATIONS[0]);
   for (const bytes of ['', ' \n\t']) {
     fs.writeFileSync(filename, bytes); assert.throws(() => checkMigrations(f.directory), /nonempty|empty/);
   }

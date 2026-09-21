@@ -9,11 +9,14 @@ import { fixture } from './sync-evidence-fixtures.mjs';
 import { candidateSelector, checkLive } from './check-sync-live.mjs';
 import { migrationLedger, REQUIRED_MIGRATIONS } from './sync-evidence-contract.mjs';
 import { canonicalMigrationLedger, SUPPORTED_LEDGER_BASENAMES } from './sync-migration-ledger.mjs';
+import { MIGRATION_CATALOG, verifyMigrationSources } from './scoring-migration-catalog.mjs';
+import { migrationPlan } from './scoring-migration-plan.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const source = relative => fs.readFileSync(path.join(root, relative), 'utf8');
-const filenames = REQUIRED_MIGRATIONS.map(id => SUPPORTED_LEDGER_BASENAMES.find(name => name.startsWith(id + '_')));
-function replies(f, ledger = [...REQUIRED_MIGRATIONS]) {
+const filenames = [...REQUIRED_MIGRATIONS];
+const appliedRows = () => MIGRATION_CATALOG.map(({basename,sha256}) => ({version:basename,sha256})).sort((a,b)=>a.version.localeCompare(b.version));
+function replies(f, ledger = appliedRows()) {
   const c = f.evidence.canary;
   return [
     { workItems: true, heartbeats: true, ingest: true }, ledger,
@@ -38,27 +41,34 @@ test('control: native IDs and coherent replies pass only narrow read-only checks
   }, () => {}, () => f.now);
   assert.equal(result.status, 'READ_ONLY_CHECKS_PASSED');
   assert.match(result.productionReadiness, /^NOT_READY:/);
-  assert.deepEqual(result.migrationLedger.observedRaw, REQUIRED_MIGRATIONS);
+  assert.deepEqual(result.migrationLedger.observedRaw, appliedRows());
   assert.equal(calls.length, 8);
-  assert.match(calls[1].command, /json_agg\(version order by version\)/);
+  assert.match(calls[1].command, /source_sha256/);
+  assert.match(calls[1].command, /read-scoring-query.sh/);
+  assert.doesNotMatch(calls[1].command, /supabase-db/);
   assert.match(calls[6].command, /s\.input_revision=1 and s\.result_revision=2/);
 });
 
-test('P1-1 closure: exact supported catalogue matches current migration-runner basename contract', () => {
+test('P1-1 closure: complete source hashes and full basenames preserve both collision streams', () => {
   const runner = source('infra/vps/scripts/apply-migrations.sh');
   assert.ok(runner.includes('base=$(basename "$f")'));
-  assert.ok(runner.includes("INSERT INTO supabase_migrations.schema_migrations (version) VALUES ('${base}')"));
+  assert.ok(runner.includes("INSERT INTO supabase_migrations.schema_migrations (version,source_sha256) VALUES ('${base}','${source_sha}')"));
+  assert.match(runner, /scoring_execution_receipts/);
+  assert.ok(runner.indexOf('scoring-migration-plan.mjs" "$MIG_DIR"') < runner.indexOf('CREATE SCHEMA IF NOT EXISTS'));
+  assert.match(runner, /StrictHostKeyChecking=yes/);
+  assert.doesNotMatch(runner, /StrictHostKeyChecking=accept-new/);
   assert.deepEqual([...SUPPORTED_LEDGER_BASENAMES], fs.readdirSync(path.join(root, 'supabase/migrations')).filter(name => name.endsWith('.sql')).sort());
   assert.ok(SUPPORTED_LEDGER_BASENAMES.every(name => /^\d{14}_[a-z0-9_]+\.sql$/.test(name)));
-  assert.equal(new Set(SUPPORTED_LEDGER_BASENAMES.map(name => name.slice(0, 14))).size, SUPPORTED_LEDGER_BASENAMES.length);
+  assert.equal(SUPPORTED_LEDGER_BASENAMES.length - new Set(SUPPORTED_LEDGER_BASENAMES.map(name => name.slice(0, 14))).size, 6);
+  assert.equal(verifyMigrationSources(path.join(root, 'supabase/migrations')), filenames.length);
   assert.deepEqual(canonicalMigrationLedger(filenames), [...REQUIRED_MIGRATIONS]);
-  assert.deepEqual(canonicalMigrationLedger([...REQUIRED_MIGRATIONS]), [...REQUIRED_MIGRATIONS]);
-  // Evidence itself still takes IDs, not ledger basenames.
-  assert.throws(() => migrationLedger(filenames), /distinct applied migration IDs/);
+  assert.deepEqual(canonicalMigrationLedger(MIGRATION_CATALOG.map(({basename,sha256}) => ({version:basename,sha256}))), [...REQUIRED_MIGRATIONS]);
+  assert.throws(() => canonicalMigrationLedger(filenames.map(name => name.slice(0, 14))), /ambiguous/);
+  migrationLedger(filenames);
 });
 
 test('P1-1 closure: complete runner ledger reaches all checks and remains unchanged in evidence/result', t => {
-  const f = fixture(t), raw = [...SUPPORTED_LEDGER_BASENAMES].reverse();
+  const f = fixture(t), raw = appliedRows().reverse();
   f.evidence.server.migrationLedgerRaw = [...raw];
   f.evidence.server.migrations = canonicalMigrationLedger(raw);
   const responses = replies(f, raw), calls = [];
@@ -71,16 +81,20 @@ test('P1-1 closure: complete runner ledger reaches all checks and remains unchan
   assert.deepEqual(result.migrationLedger.canonicalIDs, f.evidence.server.migrations);
   assert.deepEqual(f.evidence.server.migrationLedgerRaw, raw);
   // Raw representation need not be identical if the complete canonical set is unchanged.
-  const native = replies(f, f.evidence.server.migrations);
+  const nativeRows = raw.map(row => ({version:row.version.slice(0,14),name:row.version.slice(15,-4),sha256:row.sha256}));
+  const native = replies(f, nativeRows);
   const second = checkLive(f.evidence, f.directory, candidateSelector(f.evidence), () => JSON.stringify(native.shift()), () => {}, () => f.now);
-  assert.deepEqual(second.migrationLedger.observedRaw, f.evidence.server.migrations);
+  assert.deepEqual(second.migrationLedger.observedRaw, nativeRows);
   assert.deepEqual(second.migrationLedger.recordedRaw, raw);
 });
 
-test('P1-2 closure: Compose-generated instance is inspected by the independently selected full ID', t => {
+test('P1-2 closure: versioned Compose instance is inspected by the independently selected full ID', t => {
   const compose = source('infra/vps/templates/docker-compose.scoring-override.yml');
-  assert.match(compose, /^  scoring:$/m); assert.doesNotMatch(compose, /^\s*container_name:/m);
-  assert.match(source('infra/vps/scripts/deploy-scoring-service.sh'), /docker-compose\.scoring\.yml up -d scoring/);
+  assert.match(compose, /^  scoring-physiology-v2:$/m);
+  assert.match(compose, /SCORING_ALGORITHM_VERSION: frwhoop-physiology-2/);
+  assert.match(source('infra/vps/scripts/deploy-scoring-service.sh'), /--name "\$SCORING_SERVICE" "\$SCORING_SERVICE"/);
+  assert.match(compose, /SCORING_ALGORITHM_VERSION: frwhoop-server-1/);
+  assert.match(compose, /command: \["--history"\]/);
   const f = fixture(t), responses = replies(f), calls = [];
   const instances = new Map([[f.evidence.server.containerId, { name: 'synthetic-scoring-1' }],
     ['d'.repeat(64), { name: 'scoring' }]]);
@@ -106,27 +120,43 @@ test('control: each required omission in either format and canonical duplicates 
   }
   assert.throws(() => canonicalMigrationLedger([...filenames, REQUIRED_MIGRATIONS[0]]), /distinct/);
   assert.throws(() => canonicalMigrationLedger([...REQUIRED_MIGRATIONS, filenames[0]]), /distinct/);
-  const mixed = REQUIRED_MIGRATIONS.map((id, index) => index % 2 ? filenames[index] : id);
+  const mixed = REQUIRED_MIGRATIONS.map((id, index) => index % 2 ? {version:id.slice(0,14),name:id.slice(15,-4)} : id);
   assert.deepEqual(canonicalMigrationLedger(mixed), [...REQUIRED_MIGRATIONS]);
 });
 
 test('adapter rejects malformed/unknown basenames instead of truncating arbitrary strings', () => {
-  const id = REQUIRED_MIGRATIONS[0], name = filenames[0];
+  const name = filenames[0], id = name.slice(0,14);
   for (const invalid of [null, Number(id), true, '', id + '0', id.slice(1), id + '\n', ' ' + id,
     name + '\n', name + '.bak', name.replace('.sql', '.SQL'), '../' + name, '/tmp/' + name,
-    id + '_arbitrary.sql', name.replace('_production_', '_wrong_'), '20260101000000_unknown.sql']) {
+    id + '_arbitrary.sql', name.replace('_frwhoop_', '_wrong_'), '20260101000000_unknown.sql']) {
     assert.throws(() => canonicalMigrationLedger([invalid, ...REQUIRED_MIGRATIONS.slice(1)]), /NOT_READY/);
   }
   for (const invalid of [null, {}, REQUIRED_MIGRATIONS.join(',')]) assert.throws(() => canonicalMigrationLedger(invalid), /array/);
 });
 
-test('full canonical set comparison includes extra IDs, not just the required eight', t => {
-  const f = fixture(t), extra = SUPPORTED_LEDGER_BASENAMES[0];
-  let responses = replies(f, [...filenames, extra]);
-  assert.throws(() => checkLive(f.evidence, f.directory, candidateSelector(f.evidence), () => JSON.stringify(responses.shift()), () => {}, () => f.now), /live migration ledger differs/);
-  f.evidence.server.migrations.push(extra.slice(0, 14)); f.evidence.server.migrationLedgerRaw.push(extra);
-  responses = replies(f, filenames);
-  assert.throws(() => checkLive(f.evidence, f.directory, candidateSelector(f.evidence), () => JSON.stringify(responses.shift()), () => {}, () => f.now), /live migration ledger differs/);
+test('full set validation rejects unknown live history, duplicate identities and hash drift', t => {
+  const f = fixture(t);
+  for (const raw of [[...filenames, '20260922000000_unknown.sql'], [...filenames, filenames[0]],
+    filenames.map((name,index) => index ? name : {version:name,sha256:'0'.repeat(64)})]) {
+    const responses = replies(f, raw);
+    assert.throws(() => checkLive(f.evidence, f.directory, candidateSelector(f.evidence), () => JSON.stringify(responses.shift()), () => {}, () => f.now), /NOT_READY/);
+  }
+});
+
+test('fresh plan orders the intake repair before its projection dependency without renaming it', () => {
+  const plan = migrationPlan([]);
+  const names = plan.pending.map(row => row.basename);
+  assert.equal(plan.status, 'PLAN_REVIEWABLE');
+  assert.ok(names.indexOf('20260921060000_production_intake_durability.sql') < names.indexOf('20260918040000_production_projection_debt.sql'));
+  assert.equal(plan.mutationPerformed, false);
+});
+
+test('upgrade plans need applied hash evidence and never replay applied repair identities', () => {
+  const rows = MIGRATION_CATALOG.map(({basename,sha256}) => ({version:basename,sha256}));
+  assert.equal(migrationPlan(rows).pending.length, 0);
+  assert.throws(() => migrationPlan(filenames), /hash not attested/);
+  assert.equal(migrationPlan(filenames, rows).pending.length, 0);
+  assert.equal(migrationPlan(rows.slice(1)).status, 'REVIEW_REQUIRED');
 });
 
 test('selected-ID mismatch stops before reads; returned-ID mismatch stops before image inspection', t => {

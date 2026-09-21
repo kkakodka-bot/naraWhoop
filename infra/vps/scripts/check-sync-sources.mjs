@@ -76,8 +76,11 @@ function readableFile(filename) {
 export function checkMigrations(root) {
   const directory = path.join(root, 'supabase/migrations');
   const names = fs.readdirSync(directory);
+  const prefixes = new Set(REQUIRED_MIGRATIONS.map(name => name.slice(0,14)));
+  requireThat(!names.some(name => prefixes.has(name.slice(0,14)) && !REQUIRED_MIGRATIONS.includes(name)),
+    'unreviewed migration shares a required prefix');
   for (const id of REQUIRED_MIGRATIONS) {
-    const matches = names.filter(name => name.startsWith(`${id}_`) && name.endsWith('.sql'));
+    const matches = names.filter(name => name === id);
     requireThat(matches.length === 1, `exactly one source migration required: ${id}`);
     const filename = path.join(directory, matches[0]);
     readableFile(filename);
@@ -116,7 +119,7 @@ export function checkSources(root) {
   }
   return { status: 'SOURCE_CHECKS_PASSED', kotlinFiles: count, requiredMigrations: checkMigrations(root) };
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
   try { requireThat(process.argv.length === 3, 'provide repository root'); console.log(JSON.stringify(checkSources(path.resolve(process.argv[2])))); }
   catch (error) { reportError(error); }
 }

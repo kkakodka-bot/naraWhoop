@@ -1,10 +1,8 @@
 import fs from 'node:fs';
+import { MIGRATION_NAMES } from './scoring-migration-catalog.mjs';
 
 // One canonical required chain for source presence, evidence, and the live ledger.
-export const REQUIRED_MIGRATIONS = Object.freeze([
-  '20260918010000', '20260918020000', '20260918030000', '20260918040000',
-  '20260918050000', '20260918060000', '20260918070000', '20260918080000',
-]);
+export const REQUIRED_MIGRATIONS = MIGRATION_NAMES;
 export const CANARY_STAGES = Object.freeze(['committed', 'accepted', 'archiveVerified', 'indexed', 'computed', 'displayed']);
 export const SCENARIOS = Object.freeze(['twoHourLockedReconnect', 'overnightThroughWake', 'forceQuitRecovery', 'twoAccounts', 'twoDevices', 'backlog72Hours']);
 export const fail = reason => { throw new Error(`NOT_READY: ${reason}`); };
@@ -19,7 +17,7 @@ export function instant(value) {
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === value ? parsed : NaN;
 }
 export function migrationLedger(values) {
-  requireThat(Array.isArray(values) && values.every(value => typeof value === 'string' && value.length === 14 && /^\d{14}$/.test(value)) &&
+  requireThat(Array.isArray(values) && values.every(value => typeof value === 'string' && /^\d{14}_[a-z0-9_]+\.sql$/.test(value)) &&
     new Set(values).size === values.length, 'record distinct applied migration IDs as an array');
   for (const id of REQUIRED_MIGRATIONS) requireThat(values.includes(id), `deployed migration missing: ${id}`);
 }

@@ -43,13 +43,15 @@ export function checkLive(e, directory, selector, ssh, pause = () => command('sl
     }
     return value;
   };
-  const sql = (query, label) => json(`docker exec -e 'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=10000' supabase-db psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -tAc ${quote(query)}`, label);
+  const sql = (query, label) => json(`printf '%s' ${quote(query)} | /opt/frwhoop/scoring/read-scoring-query.sh`, label);
   const objects = sql(`select json_build_object(
     'workItems',to_regclass('public.scoring_work_items') is not null,
     'heartbeats',to_regclass('public.scoring_service_heartbeats') is not null,
     'ingest',exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='engine_ingest_scored'))`, 'schema objects');
   sameFields(objects, { workItems: true, heartbeats: true, ingest: true }, 'schema objects');
-  const ledger = sql('select coalesce(json_agg(version order by version),\'[]\'::json) from supabase_migrations.schema_migrations', 'migration ledger');
+  const ledger = sql("select coalesce(json_agg(json_build_object('version',version,'name',to_jsonb(m)->>'name','sha256',to_jsonb(m)->>'source_sha256') order by version),'[]'::json) from supabase_migrations.schema_migrations m", 'migration ledger');
+  requireThat(Array.isArray(ledger) && ledger.every(row => row && typeof row === 'object' && /^[0-9a-f]{64}$/.test(row.sha256)),
+    'live migration source hashes require reviewed historical attestation');
   const canonicalLedger = canonicalMigrationLedger(ledger);
   requireThat(JSON.stringify(canonicalLedger) === JSON.stringify([...e.server.migrations].sort()), 'live migration ledger differs from evidence');
   const format = '{"containerId":{{json .Id}},"running":{{json .State.Running}},"imageId":{{json .Image}},"imageReference":{{json .Config.Image}},"revision":{{json (index .Config.Labels "org.opencontainers.image.revision")}},"ports":{{json .NetworkSettings.Ports}},"networkMode":{{json .HostConfig.NetworkMode}}}';
@@ -104,7 +106,7 @@ export function checkLive(e, directory, selector, ssh, pause = () => command('sl
     productionReadiness: 'NOT_READY: independent review, whole-day parity and physical/deployment acceptance remain separate' };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
   try {
     const e = readJSON(process.env.SYNC_ACCEPTANCE_EVIDENCE);
     const directory = path.dirname(path.resolve(process.env.SYNC_ACCEPTANCE_EVIDENCE));
