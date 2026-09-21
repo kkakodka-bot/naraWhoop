@@ -286,11 +286,22 @@ Deno.test('housing: intent retry repairs a failed durable receipt before duplica
   };
   await assert.rejects(() => h.objects.completeObject({ userId: USER, objectId: manifest.objectId }));
   assert.equal(h.rest.manifests.get(manifest.objectId).status, 'ready');
+  const durabilityReceipt = structuredClone(h.rest.manifests.get(manifest.objectId).durability_receipt);
   await assert.rejects(() => h.objects.createIntent({ userId: USER, manifest }));
   assert.equal(h.rest.rowCount('noop_upload_receipts'), 0);
   reject = false;
-  assert.equal((await h.objects.createIntent({ userId: USER, manifest })).duplicate, true);
+  await assert.rejects(() => h.objects.createIntent({ userId: OTHER_USER, manifest }),
+    (error: any) => error.code === 'forbidden' && error.status === 403);
+  assert.equal(h.rest.rowCount('noop_upload_receipts'), 0, 'an unauthorized retry cannot repair another owner receipt');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const retry = await h.objects.createIntent({ userId: USER, manifest });
+    assert.equal(retry.duplicate, true);
+    assert.deepEqual(retry.durabilityReceipt, durabilityReceipt);
+    assert.equal(retry.uploadUrl, undefined);
+  }
   assert.equal(h.rest.rowCount('noop_upload_receipts'), 1);
+  assert.equal(h.rest.rowCount('noop_push_acks'), 0, 'object acceptance is not an inline projection ACK');
+  assert.deepEqual(h.b2.objects.get(durabilityReceipt.objectKey)!.body, wire);
 });
 
 Deno.test('housing: scoring gate refusal keeps object unacknowledged and retries the same archived bytes', async () => {

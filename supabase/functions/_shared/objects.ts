@@ -24,7 +24,7 @@ import type { UploadAuthMode } from './tokens.ts';
 /** Presigned PUT lifetime. Long enough for a large object on a slow link, short enough to expire. */
 export const UPLOAD_URL_TTL_SEC = 15 * 60;
 
-const SHA_RE = /^[0-9a-f]{64}$/i;
+const SHA_RE = /^[0-9a-f]{64}$/;
 const MIN_PLAUSIBLE_UNIX = 1_400_000_000;
 
 /**
@@ -319,6 +319,22 @@ export function createPushObjects({
         }));
         if (reserved.durability_receipt) {
           const durabilityReceipt = await completeDurableObject({ rest, raw, row: reserved });
+          if (receiptStore) {
+            await receiptStore.recordAccepted({
+              userId,
+              sourceId: reserved.source_id || effectiveSourceId,
+              deviceId: reserved.device_id,
+              tokenId: tokenId || null,
+              authMode: effectiveAuthMode,
+              lane: 'object',
+              stream: reserved.object_kind,
+              batchId: reserved.batch_id,
+              objectId: reserved.id,
+              bodySha256: reserved.sha256,
+              acceptedStatus: 'ready',
+              acceptedRows: Number(reserved.sample_count ?? 0),
+            });
+          }
           return {
             protocolVersion: reserved.push_protocol_version ?? '1.2',
             objectId: reserved.id,
