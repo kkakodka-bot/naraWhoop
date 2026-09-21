@@ -33,7 +33,9 @@ enum CloudScoreIdentity {
 
     static func overlayIsLive(_ cache: ServerScoreDayCache) -> Bool {
         guard cache.daily != nil, !cache.stale else { return false }
-        return cache.features.values.contains { $0.status == "available" }
+        return cache.features.values.contains {
+            $0.status == "available" && $0.hasCanonicalAuthorization
+        }
     }
 
     static var hasIngestToken: Bool {

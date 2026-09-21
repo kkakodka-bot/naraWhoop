@@ -885,17 +885,21 @@ final class ServerScoreRepository: ObservableObject {
     private func publishEnrolledDays() {
         guard !retired, legacy != nil, let owner = currentOwnerId,
               owner == session.ownerId else { return }
-        let metrics: Set<ServerScoreMetric> = [.hrv, .restingHR, .respiration, .recovery, .strain,
-            .sleepPerformance, .sleepTotal, .sleepInBed, .sleepAwake, .sleepLight, .sleepDeep,
-            .sleepREM, .sleepEfficiency, .sleepSessions, .spo2, .skinTemperature, .skinTemperatureDeviation]
+        // Enrollment readback can contain shadow results for diagnostics. Only a feature carrying
+        // canonical authorization may take ownership away from the existing local/default path.
+        // Otherwise a sparse shadow response turns every dashboard card into an empty server field.
+        let metrics = enrolledDays.values.reduce(into: Set<ServerScoreMetric>()) { result, cache in
+            result.formUnion(Self.authorizedEnrollmentMetrics(cache))
+        }
         var readStates: [String: ServerScoreDayState] = [:]
         for (day, cache) in enrolledDays where cache.ownerId == owner {
-            let pending = cache.features.values.contains { feature in
+            let authorizedFeatures = cache.features.values.filter(\.hasCanonicalAuthorization)
+            let pending = authorizedFeatures.contains { feature in
                 ["pending", "running", "retry"].contains(feature.processingStatus ?? "") ||
                     feature.status == "pending" ||
                     (feature.requiredRevision.map { $0 > (feature.inputRevision ?? 0) } ?? false)
             }
-            let failed = cache.features.values.contains {
+            let failed = authorizedFeatures.contains {
                 ["failed", "exhausted"].contains($0.processingStatus ?? "")
             }
             // A completed, empty result is not an indefinitely running calculation.
@@ -916,6 +920,7 @@ final class ServerScoreRepository: ObservableObject {
             activated: metrics, days: readStates)
         for (day, cache) in enrolledDays where cache.ownerId == owner {
             let d = cache.daily
+            let authorized = Self.authorizedEnrollmentMetrics(cache)
             let entries: [(ServerScoreMetric, Double?)] = [
                 (.hrv, d?.hrvRmssdMs), (.restingHR, d?.restingHrBpm.map(Double.init)),
                 (.respiration, d?.respRateBpm), (.recovery, d?.recovery), (.strain, d?.strain),
@@ -923,9 +928,11 @@ final class ServerScoreRepository: ObservableObject {
                 (.sleepAwake, d?.sleepAwakeMin), (.sleepLight, d?.sleepLightMin), (.sleepDeep, d?.sleepDeepMin),
                 (.sleepREM, d?.sleepRemMin), (.sleepEfficiency, d?.sleepEfficiency), (.spo2, d?.spo2Pct),
                 (.skinTemperature, d?.skinTempC), (.skinTemperatureDeviation, d?.skinTempDevC)]
-            next.enrollmentValues[day] = Dictionary(uniqueKeysWithValues: entries.compactMap { metric, value in
-                value.map { (metric.rawValue, $0) }
-            })
+            var values: [String: Double] = [:]
+            for (metric, value) in entries where authorized.contains(metric) {
+                if let value { values[metric.rawValue] = value }
+            }
+            if !values.isEmpty { next.enrollmentValues[day] = values }
         }
         if next.enrollmentValues != state.enrollmentValues || next.currentDay != state.currentDay
             || next.generation != state.generation || next.configured != state.configured
@@ -933,6 +940,22 @@ final class ServerScoreRepository: ObservableObject {
             || next.days != state.days {
             state = next
         }
+    }
+
+    private static func authorizedEnrollmentMetrics(_ cache: ServerScoreDayCache) -> Set<ServerScoreMetric> {
+        var result = Set<ServerScoreMetric>()
+        if cache.features["hrv"]?.hasCanonicalAuthorization == true {
+            result.formUnion([.hrv, .restingHR, .recovery, .strain, .spo2,
+                              .skinTemperature, .skinTemperatureDeviation])
+        }
+        if cache.features["respiration"]?.hasCanonicalAuthorization == true {
+            result.insert(.respiration)
+        }
+        if cache.features["sleep"]?.hasCanonicalAuthorization == true {
+            result.formUnion([.sleepPerformance, .sleepTotal, .sleepInBed, .sleepAwake,
+                              .sleepLight, .sleepDeep, .sleepREM, .sleepEfficiency, .sleepSessions])
+        }
+        return result
     }
 
     private func restoreDeviceLink() {

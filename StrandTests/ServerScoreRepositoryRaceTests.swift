@@ -74,6 +74,31 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
         XCTAssertNil(repo.state.scalar(.sleepTotal, day: day))
     }
 
+    func testUnqualifiedV2ResultCannotBlankExistingDashboardFields() async throws {
+        let auth = Auth(ownerA)
+        let data = try JSONSerialization.data(withJSONObject: ["server_scoring": [
+            "schema_version": 2, "user_id": ownerA, "day": day, "algorithm_version": "per_feature",
+            "features": [
+                "hrv": ["status": "available", "device_id": "device",
+                    "algorithm_version": "frwhoop-physiology-2", "processing_status": "done"],
+                "sleep": ["status": "available", "device_id": "device",
+                    "algorithm_version": "frwhoop-physiology-2", "processing_status": "done"]
+            ],
+            "daily": ["sleep_total_min": 480, "strain": 12.5], "nights": [], "stale": false
+        ]])
+        let cache = try ServerScoreCacheCodec.parseSnapshot(data, day: day, ownerId: ownerA)
+        let repo = ServerScoreRepository(dependencies: dependencies(auth) { _, _ in cache })
+        repo.selectDevice(localDeviceId: "strap-a")
+        await repo.refreshVisibleDays(todayKey: day)
+
+        XCTAssertFalse(repo.state.hasServerOwnership)
+        XCTAssertFalse(repo.state.owns(.sleepTotal))
+        XCTAssertFalse(repo.state.owns(.strain))
+        XCTAssertEqual(repo.state.value(.sleepTotal, day: day, local: 321), 321)
+        XCTAssertTrue(repo.state.enrollmentValues.isEmpty)
+        XCTAssertFalse(CloudScoreIdentity.overlayLive)
+    }
+
     func testEnrollmentPendingAndFailedStatesAreNotFlattenedIntoSuccess() async throws {
         for (processing, expected) in [("running", ServerScoreDayState.Phase.pending), ("exhausted", .failed)] {
             let auth = Auth(ownerA)
