@@ -42,7 +42,8 @@ object ServerScoreCacheCodec {
             require(n.str("user_id") == null || n.str("user_id").equals(ownerId, ignoreCase = true)) { "night owner scope mismatch" }
             val sourceVersion = n.str("algorithm_version") ?: sleep?.algorithmVersion
             require(sleep?.algorithmVersion == null || sourceVersion == sleep.algorithmVersion) { "night algorithm scope mismatch" }
-            if (!nestedHrv) listOf("hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "overnight_hr_bpm", "hrv_summary", "heart_rate_windows").forEach(n::remove)
+            if (!nestedHrv) listOf("hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "overnight_hr_bpm", "hrv_summary", "heart_rate_windows",
+                "recovery", "strain", "spo2_pct", "skin_temp_c", "skin_temp_dev_c").forEach(n::remove)
             if (!nestedRespiration) listOf("resp_rate_bpm", "respiration_summary", "respiration_unavailable_reason").forEach(n::remove)
             val legacy = sourceVersion == "frwhoop-server-1"
             val stages = (n.optJSONArray("stages") ?: n.optJSONArray("hypnogram") ?: JSONArray()).objects().map { s ->

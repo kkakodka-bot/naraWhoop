@@ -53,7 +53,8 @@ for expectation in expectations {
     let raw = root["server_scoring"] as! [String: Any]
     let nights = raw["nights"] as? [[String: Any]] ?? []
     for night in nights {
-        let fields = (expectation.nestedHrvAvailable ? [] : ["hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "overnight_hr_bpm", "hrv_summary", "heart_rate_windows"]) +
+        let fields = (expectation.nestedHrvAvailable ? [] : ["hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "overnight_hr_bpm", "hrv_summary", "heart_rate_windows",
+            "recovery", "strain", "spo2_pct", "skin_temp_c", "skin_temp_dev_c"]) +
             (expectation.nestedRespirationAvailable ? [] : ["resp_rate_bpm", "respiration_summary"])
         for field in fields {
             try require(night[field] == nil || night[field] is NSNull, "\(expectation.file): real Edge envelope leaked \(field)")

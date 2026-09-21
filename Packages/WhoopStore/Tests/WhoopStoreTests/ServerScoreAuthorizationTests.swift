@@ -12,7 +12,8 @@ final class ServerScoreAuthorizationTests: XCTestCase {
             "features": ["sleep": feature, "hrv": feature, "respiration": feature],
             "daily": ["hrv_rmssd_ms": 0, "sleep_total_min": 480, "resp_rate_bpm": 12],
             "nights": [["id": "episode", "device_id": "device-a", "start_at": "2026-09-16T00:00:00Z", "end_at": "2026-09-16T08:00:00Z",
-                "hrv_rmssd_ms": 42, "resting_hr_bpm": 51, "resp_rate_bpm": 12, "hrv_summary": ["value": 42], "respiration_summary": ["value": 12]]]]]
+                "hrv_rmssd_ms": 42, "resting_hr_bpm": 51, "resp_rate_bpm": 12, "hrv_summary": ["value": 42], "respiration_summary": ["value": 12],
+                "recovery": 77, "strain": 12, "spo2_pct": 98, "skin_temp_c": 34, "skin_temp_dev_c": 0.2]]]]
     }
 
     private func parse(_ root: [String: Any]) throws -> ServerScoreDayCache {
@@ -63,7 +64,8 @@ final class ServerScoreAuthorizationTests: XCTestCase {
             XCTAssertNil(cache.nights.first?.respRateBpm)
             let sanitized = try JSONSerialization.jsonObject(with: Data(cache.rawSnapshotJSON!.utf8)) as! [String: Any]
             let night = ((sanitized["server_scoring"] as! [String: Any])["nights"] as! [[String: Any]])[0]
-            for field in ["hrv_rmssd_ms", "resting_hr_bpm", "hrv_summary", "resp_rate_bpm", "respiration_summary"] {
+            for field in ["hrv_rmssd_ms", "resting_hr_bpm", "hrv_summary", "resp_rate_bpm", "respiration_summary",
+                          "recovery", "strain", "spo2_pct", "skin_temp_c", "skin_temp_dev_c"] {
                 XCTAssertNil(night[field], "\(key): \(field)")
             }
         }

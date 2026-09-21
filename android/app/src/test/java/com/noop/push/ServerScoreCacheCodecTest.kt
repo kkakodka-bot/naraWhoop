@@ -18,6 +18,7 @@ class ServerScoreCacheCodecTest {
             .put("start_at", "2026-09-16T00:00:00Z").put("end_at", "2026-09-16T08:00:00Z")
             .put("hrv_rmssd_ms", 42).put("resting_hr_bpm", 51).put("resp_rate_bpm", 12)
             .put("hrv_summary", JSONObject().put("value", 42)).put("respiration_summary", JSONObject().put("value", 12))
+            .put("recovery", 77).put("strain", 12).put("spo2_pct", 98).put("skin_temp_c", 34).put("skin_temp_dev_c", 0.2)
         return JSONObject().put("server_scoring", JSONObject().put("schema_version", 2).put("user_id", owner).put("day", day)
             .put("algorithm_version", "frwhoop-physiology-2").put("features", features).put("nights", JSONArray().put(night))
             .put("daily", JSONObject().put("hrv_rmssd_ms", 0).put("sleep_total_min", 480).put("resp_rate_bpm", 12)))
@@ -63,7 +64,8 @@ class ServerScoreCacheCodecTest {
             assertNull(cache.nights.single().restingHrBpm)
             assertNull(cache.nights.single().respRateBpm)
             val night = JSONObject(cache.rawSnapshotJSON!!).getJSONObject("server_scoring").getJSONArray("nights").getJSONObject(0)
-            for (field in listOf("hrv_rmssd_ms", "resting_hr_bpm", "hrv_summary", "resp_rate_bpm", "respiration_summary")) {
+            for (field in listOf("hrv_rmssd_ms", "resting_hr_bpm", "hrv_summary", "resp_rate_bpm", "respiration_summary",
+                "recovery", "strain", "spo2_pct", "skin_temp_c", "skin_temp_dev_c")) {
                 assertFalse("$key: $field", night.has(field))
             }
         }

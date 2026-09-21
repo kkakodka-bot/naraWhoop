@@ -284,7 +284,8 @@ public enum ServerScoreCacheCodec {
             let sourceVersion = (n["algorithm_version"] as? String) ?? features["sleep"]?.algorithmVersion
             if let selectedVersion = sleep?.algorithmVersion, sourceVersion != selectedVersion { throw DecodeError.invalidScope }
             if !nestedHrv {
-                for key in ["hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "overnight_hr_bpm", "hrv_summary", "heart_rate_windows"] {
+                for key in ["hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "overnight_hr_bpm", "hrv_summary", "heart_rate_windows",
+                            "recovery", "strain", "spo2_pct", "skin_temp_c", "skin_temp_dev_c"] {
                     n.removeValue(forKey: key)
                 }
             }
