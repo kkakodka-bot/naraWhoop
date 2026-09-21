@@ -67,7 +67,9 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
     await t.step('immutable owner registration precedes object writes', async () => {
       await registerDevice(db.rest, { id: DEVICE, user_id: USER_A, external_device_id: DEVICE });
       const f = objectFixture();
-      await assert.rejects(objects.createIntent({ userId: USER_B, manifest: f.manifest }), /device_owner_conflict/);
+      const foreignDevice = createPushObjects({ cfg, rest: db.rest, raw: bucket.raw,
+        resolveDeviceId: async () => DEVICE });
+      await assert.rejects(foreignDevice.createIntent({ userId: USER_B, manifest: f.manifest }), /device_owner_conflict/);
       assert.equal(await get(f.manifest.objectId), undefined);
       assert.equal(bucket.objects.size, 0);
       await assert.rejects(db.rest.patch('devices', { user_id: USER_B }, `id=eq.${DEVICE}`), /device_owner_immutable/);
@@ -233,6 +235,24 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
       assert.deepEqual(await commitArchivedBatch(db.rest,ack.durabilityReceipt,body(60)),ack);
       assert.equal((await reconcileProjections(db.rest,bucket.raw,1)).scanned,0);
       assert.equal(await db.sql('select sum(input_revision) from scoring_jobs_v2'),settledRevision);
+    });
+    await t.step('retry upgrades a legacy success ACK before the phone may release local rows', async () => {
+      const f = inline(SECOND + 5);
+      const first = await nativeIngest().acceptBatch({ userId: USER_A, sourceId: null,
+        tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body });
+      assert.equal(first.durabilityReceipt.state, 'verified_indexed');
+      await db.sql(`update noop_push_acks set ack=ack-'durabilityReceipt' where batch_id='${f.header.batchId}';
+        update object_manifests set durability_receipt=null,indexed_at=null,status='ready',object_key=upload_object_key
+          where id='${f.header.batchId}';
+        delete from noop_signal_windows where object_id='${f.header.batchId}';`);
+      const legacy = (await db.rest.select('noop_push_acks', `batch_id=eq.${f.header.batchId}`))[0].ack;
+      assert.equal(legacy.durabilityReceipt, undefined);
+      const repaired = await nativeIngest().acceptBatch({ userId: USER_A, sourceId: null,
+        tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body });
+      assert.equal(repaired.durabilityReceipt.state, 'verified_indexed');
+      assert.equal(repaired.durabilityReceipt.contentSha256, sha256Hex(f.body));
+      assert.equal((await db.rest.select('noop_signal_windows', `object_id=eq.${f.header.batchId}`)).length, 1);
+      assert.deepEqual((await db.rest.select('noop_push_acks', `batch_id=eq.${f.header.batchId}`))[0].ack, repaired);
     });
     await t.step('projection, scoring invalidation, ACK and debt roll back together then server replay recovers', async () => {
       const f = inline(SECOND+10);

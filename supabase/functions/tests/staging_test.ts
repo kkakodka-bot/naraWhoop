@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { createPushReplacementStaging } from '../_shared/staging.ts';
 import { createPushIngest } from '../_shared/ingest.ts';
+import { fakeDurableArchive } from './helpers.ts';
 import { PushProtocolError } from '../_shared/registry.ts';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -191,7 +192,7 @@ Deno.test('ingest: a newer generation repairs a complete unacknowledged generati
   };
   const projected: any[][] = [];
   const ingest = createPushIngest({ walStore: walStore as any, replacementStaging: staging,
-    archiveObject: async () => ({ ready: true }),
+    archiveObject: async (args) => fakeDurableArchive(args),
     upsertRows: async (_table, rows) => { projected.push(rows as any[]); },
     deleteRows: async () => {},
   });
@@ -240,7 +241,7 @@ Deno.test('ingest: an acknowledged first part completes after a receiver upgrade
   };
   const staging = createPushReplacementStaging({ rest: rest as any });
   const ingest = createPushIngest({ walStore: walStore as any, replacementStaging: staging,
-    archiveObject: async () => ({ ready: true }),
+    archiveObject: async (args) => fakeDurableArchive(args),
     upsertRows: async (_table, rows) => { projected.push(rows as any[]); },
     deleteRows: async () => {},
   });

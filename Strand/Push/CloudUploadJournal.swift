@@ -49,6 +49,8 @@ struct CloudUploadJob: Codable, Sendable {
     var responseAttempt: UUID?
     var authenticationRefreshCount: Int?
     var authenticationRefreshPending: Bool?
+    /// One persisted retry for ACKs produced by the pre-durability receiver contract.
+    var receiptUpgradeRetryCount: Int?
     var fleetAuthorizationApplied: Bool?
     var acknowledged = false
     var receiverStateID: String = ""

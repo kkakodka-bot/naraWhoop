@@ -71,6 +71,21 @@ final class CloudUploadOutcomeTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: ["type": "error", "protocolVersion": "1.0", "code": code])
     }
 
+    private func legacyAck(_ batch: PushBatch) throws -> Data {
+        let cursor: Any = batch.endCursor.map {
+            ["rowId": $0.rowId, "keySha256": $0.naturalKeyFingerprint] as [String: Any]
+        } ?? NSNull()
+        return try JSONSerialization.data(withJSONObject: [
+            "protocolVersion": batch.protocolVersion,
+            "batchId": batch.batchId,
+            "stream": batch.table.wireName,
+            "deviceId": batch.deviceId,
+            "endCursor": cursor,
+            "acceptedRows": batch.recordCount,
+            "status": "accepted",
+        ])
+    }
+
     private func persisted(_ f: Fixture, file: StaticString = #filePath, line: UInt = #line) throws -> CloudUploadJob {
         try XCTUnwrap(f.journal.load()[f.job.id], file: file, line: line)
     }
@@ -271,6 +286,58 @@ final class CloudUploadOutcomeTests: XCTestCase {
         XCTAssertEqual(reopenedAdapter.count, 0)
         XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
         XCTAssertEqual(try persisted(f).failures, 1)
+    }
+
+    func testLegacySuccessAckReplaysExactBytesOnceAfterReceiverUpgrade() async throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let clock = OutcomeClock()
+        let firstAdapter = OutcomeSessionAdapter()
+        let firstQueue = try queue(f, adapter: firstAdapter, clock: clock)
+        try await firstQueue.reconcile()
+        let firstTask = try XCTUnwrap(firstAdapter.last).task
+        firstAdapter.finish(firstTask.identifier)
+        let legacy = try legacyAck(f.batch)
+        await firstQueue.receive(firstTask, status: 200, body: legacy, error: false)
+        do {
+            try await firstQueue.validateResponse(batch: f.batch,
+                response: .init(statusCode: 200, body: legacy), captured: f.context,
+                receiverStateID: receiver)
+            XCTFail("receipt-less ACK passed validation")
+        } catch let error as PushTransportException {
+            XCTAssertEqual(error.failure.code, .ackInvalid)
+        }
+        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        XCTAssertNil(try persisted(f).receiptUpgradeRetryCount)
+        await firstQueue.suspend()
+
+        let upgradedContext = AccountSessionContext(scope: f.context.scope, generation: UUID())
+        let upgradedAdapter = OutcomeSessionAdapter()
+        let upgradedQueue = try queue(f, adapter: upgradedAdapter, clock: clock, context: upgradedContext)
+        try await upgradedQueue.reconcile()
+        let replay = try XCTUnwrap(upgradedAdapter.last)
+        XCTAssertEqual(try Data(contentsOf: replay.file), f.batch.body)
+        XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 1)
+        upgradedAdapter.finish(replay.task.identifier)
+        await upgradedQueue.receive(replay.task, status: 200, body: legacy, error: false)
+        do {
+            try await upgradedQueue.validateResponse(batch: f.batch,
+                response: .init(statusCode: 200, body: legacy), captured: upgradedContext,
+                receiverStateID: receiver)
+            XCTFail("second receipt-less ACK passed validation")
+        } catch let error as PushTransportException {
+            XCTAssertEqual(error.failure.code, .ackInvalid)
+        }
+        await upgradedQueue.suspend()
+
+        let finalAdapter = OutcomeSessionAdapter()
+        let finalQueue = try queue(f, adapter: finalAdapter, clock: clock,
+            context: .init(scope: f.context.scope, generation: UUID()))
+        try await finalQueue.reconcile()
+        XCTAssertEqual(finalAdapter.count, 0, "legacy receipt recovery must run only once")
+        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 1)
+        try assertSourceRetained(f)
     }
 
     func testExplicitResolutionReusesExactBytesAndFencesPriorAttempt() async throws {

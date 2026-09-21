@@ -257,9 +257,25 @@ export function createPushObjects({
       const priorBatch = await manifests.byUserBatch(userId, manifest.batchId);
       if (priorBatch && priorBatch.id !== manifest.objectId) throw fail('batch_id_conflict', 409);
 
-      const deviceId = typeof resolveDeviceId === 'function'
+      let deviceId = typeof resolveDeviceId === 'function'
         ? await resolveDeviceId({ userId, externalDeviceId: manifest.deviceId, sourceId: effectiveSourceId })
         : noopDeviceId(userId, manifest.deviceId);
+
+      if (typeof resolveDeviceId !== 'function' && typeof ensureDevice === 'function') {
+        const registered = await ingestStep('device', manifest.stream, () => ensureDevice!({
+          id: deviceId,
+          user_id: userId,
+          source_kind: 'noop_push',
+          external_device_id: String(manifest.deviceId || ''),
+          last_seen_at: now().toISOString(),
+        }));
+        if (typeof registered === 'string' && isUuid(registered)) deviceId = registered.toLowerCase();
+      } else if (typeof resolveDeviceId !== 'function') {
+        const registered = await ingestStep('device', manifest.stream, () => registerDevice(rest, {
+          id: deviceId, user_id: userId, external_device_id: String(manifest.deviceId),
+        }));
+        if (typeof registered === 'string' && isUuid(registered)) deviceId = registered.toLowerCase();
+      }
       const key = rawObjectKeyV3({
         userId,
         deviceId,
@@ -267,20 +283,6 @@ export function createPushObjects({
         startAt,
         objectId: manifest.objectId,
       });
-
-      if (typeof resolveDeviceId !== 'function' && typeof ensureDevice === 'function') {
-        await ingestStep('device', manifest.stream, () => ensureDevice!({
-          id: deviceId,
-          user_id: userId,
-          source_kind: 'noop_push',
-          external_device_id: String(manifest.deviceId || ''),
-          last_seen_at: now().toISOString(),
-        }));
-      } else if (typeof resolveDeviceId !== 'function') {
-        await ingestStep('device', manifest.stream, () => registerDevice(rest, {
-          id: deviceId, user_id: userId, external_device_id: String(manifest.deviceId),
-        }));
-      }
 
       const spec = pushArchiveSpecForStream(manifest.stream);
       try {

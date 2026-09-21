@@ -6,7 +6,7 @@
 //
 // Unit doubles only. SQL atomicity and authorization are proved separately by native Postgres
 // and PostgREST in intake_integration_test.ts, not by the RPC responses below.
-import { gzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { createS3 } from '../_shared/s3.ts';
 
@@ -16,6 +16,34 @@ export const B2_REGION = 'us-west-004';
 
 export function sha256Hex(buf: Uint8Array): string {
   return createHash('sha256').update(buf).digest('hex');
+}
+
+/** A structurally real inline archive result for receiver unit tests. */
+export function fakeDurableArchive(args: any) {
+  const decoded = new Uint8Array(gunzipSync(args.body));
+  const stamp = '2026-09-20T12:00:00.000Z';
+  return {
+    ready: true,
+    durabilityReceipt: {
+      version: 1 as const,
+      state: 'verified_indexed' as const,
+      receiptId: crypto.randomUUID(),
+      ownerUserId: args.userId,
+      deviceId: args.deviceId,
+      objectId: args.objectId,
+      batchId: args.batchId ?? null,
+      sourceId: args.sourceId ?? null,
+      stream: args.stream,
+      schemaVersion: args.schemaVersion,
+      objectKey: args.key,
+      contentSha256: sha256Hex(decoded),
+      wireSha256: sha256Hex(args.body),
+      compressedBytes: args.body.length,
+      uncompressedBytes: decoded.length,
+      verifiedAt: stamp,
+      indexedAt: stamp,
+    },
+  };
 }
 
 export function compressFor(compression: string, buf: Uint8Array): Uint8Array {

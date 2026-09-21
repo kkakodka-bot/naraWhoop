@@ -532,6 +532,26 @@ actor CloudUploadQueue {
                 continue
             }
             job.generation = context.generation
+            // Build 365 correctly retained rows when the older receiver returned an otherwise
+            // matching 2xx ACK without a durability receipt, but those jobs became terminal. After
+            // the receiver upgrade, replay those exact persisted bytes once. A second legacy ACK
+            // stays terminal, so this cannot become an unbounded relaunch loop.
+            if job.operation == .request, job.phase == .pausedTerminal,
+               job.responseCode == "receipt_mismatch", (job.receiptUpgradeRetryCount ?? 0) == 0,
+               let status = job.responseStatus, (200...299).contains(status),
+               let body = job.responseBody, let ack = try? PushAck.parse(body),
+               ack.durabilityReceipt == nil, ack.batchId == job.batchID,
+               ack.deviceId == job.deviceID, ack.status == "accepted" {
+                job.receiptUpgradeRetryCount = 1
+                job.phase = .retryPending
+                job.responseStatus = nil
+                job.responseBody = nil
+                job.responseRetryAfter = nil
+                job.responseCode = nil
+                job.responseDisposition = nil
+                job.nextAttemptAt = nil
+                job.validatedReceipt = nil
+            }
             // Recover pre-fleet-header failures once, without changing payloads or receipts.
             if job.operation != .objectPut, job.phase == .pausedTerminal,
                job.responseDisposition == .authentication, job.fleetAuthorizationApplied != true,

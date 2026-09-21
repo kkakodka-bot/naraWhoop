@@ -8,6 +8,14 @@ enum CloudAuthClient {
     }
 }
 
+enum CloudRuntimeIdentity {
+    static func isEnrollment(_ context: AccountSessionContext) -> Bool { false }
+}
+
+enum CloudPushSettings {
+    static func resolvedFleetToken() -> String? { nil }
+}
+
 // These suites inject queue admission directly and do not construct app SyncEngine admissions.
 enum SyncEngine {
     @MainActor final class DependentStageAdmission {

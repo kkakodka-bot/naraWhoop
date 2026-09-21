@@ -35,7 +35,12 @@ import { createPushIngestQuota, createPushWal, type PushWalStore } from './wal.t
 import { createPushReplacementStaging, type PushReplacementStaging } from './staging.ts';
 import type { SupabaseRest } from './rest.ts';
 import { ingestStep } from './pushDiagnostics.ts';
-import { validateAppendProjectionRows } from './appendProjection.ts';
+import {
+  createProjectionRetry,
+  validateAppendProjectionRows,
+  type EnrolledAppendProjection,
+  type ProjectionRetryClock,
+} from './appendProjection.ts';
 import type { PushFunctionConfig } from './config.ts';
 import type { UploadReceiptStore } from './receipts.ts';
 import type { UploadAuthMode } from './tokens.ts';
@@ -237,6 +242,8 @@ export function createPushIngest({
   replacementStaging,
   receiptStore,
   commitProjection,
+  projectionRetryClock,
+  projectAppend,
   quotaConfig,
   now = () => new Date(),
 }: {
@@ -249,6 +256,8 @@ export function createPushIngest({
   replacementStaging?: PushReplacementStaging;
   receiptStore?: UploadReceiptStore;
   commitProjection?: (receipt: DurabilityReceipt, decodedBody: Uint8Array) => Promise<any>;
+  projectionRetryClock?: ProjectionRetryClock;
+  projectAppend?: (batch: EnrolledAppendProjection) => Promise<void>;
   quotaConfig?: { maxBatches: number; maxBytes: number; windowSec: number };
   now?: () => Date;
 }) {
@@ -269,6 +278,7 @@ export function createPushIngest({
       authMode: UploadAuthMode;
       decodedBody: Uint8Array;
     }) {
+      const retryProjection = createProjectionRetry(projectionRetryClock);
       const bodySha256 = sha256Hex(decodedBody);
       const { header, records } = parseNdjsonEntity(decodedBody);
       const wal = createPushWal({ userId, store: walStore });
@@ -312,20 +322,31 @@ export function createPushIngest({
         }
         const fallback = noopDeviceId(userId, header.deviceId);
         if (typeof ensureDevice === 'function') {
-          await ensureDevice({
+          const registered = await ensureDevice({
             id: fallback,
             user_id: userId,
             source_kind: 'noop_push',
             external_device_id: String(header.deviceId || ''),
             last_seen_at: now().toISOString(),
           });
+          if (typeof registered === 'string' && isUuid(registered)) return registered.toLowerCase();
         }
         return fallback;
       };
 
       const prior = await ingestStep('receipt_lookup', header.stream, () => wal.getAck(header.batchId));
-      if (prior?.bodySha256 === bodySha256 && prior?.ack) {
+      const priorReceipt = prior?.ack?.durabilityReceipt as DurabilityReceipt | undefined;
+      const priorIsDurable = prior?.bodySha256 === bodySha256 && prior?.ack
+        && priorReceipt?.version === 1 && priorReceipt.state === 'verified_indexed'
+        && priorReceipt.ownerUserId === userId && priorReceipt.batchId === header.batchId
+        && priorReceipt.objectId === header.batchId && priorReceipt.sourceId === effectiveSourceId
+        && priorReceipt.stream === header.stream && priorReceipt.contentSha256 === bodySha256
+        && ackMatchesBatch(prior.ack, stampedHeader);
+      if (priorIsDurable) {
         const priorDeviceId = await resolveCanonicalDevice();
+        if (priorReceipt.deviceId !== priorDeviceId) {
+          throw new PushProtocolError('device_owner_conflict', 403);
+        }
         if (receiptStore) {
           await receiptStore.recordAccepted({
             userId,
@@ -433,10 +454,16 @@ export function createPushIngest({
 
       if (header.delivery === 'append') {
         const projection = appendProjection;
-        if (projection && typeof upsertRows === 'function') {
+        if (projection && (typeof upsertRows === 'function' || projectAppend)) {
           const rows = appendRows;
           if (rows.length) {
             await ingestStep('projection', header.stream, async () => {
+              if (projectAppend && authMode === 'installation' && effectiveSourceId) {
+                await retryProjection(() => projectAppend({ userId, deviceId, sourceId: effectiveSourceId,
+                  batchId: header.batchId, stream: header.stream, rows }));
+                return;
+              }
+              if (!upsertRows) throw new Error('append_projection_unavailable');
               for (let start = 0; start < rows.length; start += APPEND_PROJECTION_ROWS_PER_STATEMENT) {
                 await upsertRows!(projection.table, rows.slice(start, start + APPEND_PROJECTION_ROWS_PER_STATEMENT),
                   { onConflict: projection.onConflict });
@@ -483,11 +510,11 @@ export function createPushIngest({
         throw new PushProtocolError('unsupported_delivery', 422);
       }
 
-      if (!manifest?.ready) {
+      if (!manifest?.ready || !manifest.durabilityReceipt) {
         throw new PushProtocolError('archive_not_ready', 503);
       }
 
-      const ack = buildAck(header);
+      const ack = { ...buildAck(header), durabilityReceipt: manifest.durabilityReceipt };
       if (!ackMatchesBatch(ack, header)) {
         throw new PushProtocolError('ack_internal_mismatch', 500);
       }

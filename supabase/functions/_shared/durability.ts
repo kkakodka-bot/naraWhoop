@@ -36,7 +36,7 @@ export function intakeError(err: unknown): never {
   for (const code of ['device_owner_conflict', 'object_owner_conflict']) {
     if (message.includes(code)) throw new PushProtocolError(code, 403);
   }
-  for (const code of ['batch_id_conflict', 'object_id_conflict', 'receipt_immutable']) {
+  for (const code of ['batch_id_conflict', 'object_id_conflict', 'receipt_immutable', 'device_registration_conflict']) {
     if (message.includes(code)) throw new PushProtocolError(code, 409);
   }
   throw err;

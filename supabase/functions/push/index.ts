@@ -44,7 +44,7 @@ import {
 import { createEnrollmentService, EnrollmentError } from '../_shared/enrollment.ts';
 import { createNoopDeviceResolver } from '../_shared/devices.ts';
 import { createUploadReceiptStore } from '../_shared/receipts.ts';
-import { commitArchivedBatch } from '../_shared/projections.ts';
+import { projectEnrolledAppend } from '../_shared/appendProjection.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024 + 64 * 1024;
 
@@ -87,6 +87,7 @@ const pushIngest = createPushIngest({
   walStore: pushWalStore!,
   archiveObject: (args: unknown) => pushArchive.archiveObject(args),
   upsertRows: pushUpsertRows,
+  projectAppend: (batch) => projectEnrolledAppend(rest, batch),
   deleteRows: (table: string, filter: unknown) => {
     if (!rest.configured) return Promise.resolve();
     return deleteReplacementRows(rest, table, filter);
@@ -95,7 +96,6 @@ const pushIngest = createPushIngest({
   resolveDeviceId,
   replacementStaging: pushStaging,
   receiptStore,
-  commitProjection: (receipt, body) => commitArchivedBatch(rest, receipt, body),
 });
 const pushObjects = createPushObjects({
   cfg,
