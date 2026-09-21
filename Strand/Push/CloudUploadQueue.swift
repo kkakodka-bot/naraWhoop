@@ -552,6 +552,56 @@ actor CloudUploadQueue {
                 job.nextAttemptAt = nil
                 job.validatedReceipt = nil
             }
+            // Build 366 can have a valid upgraded receipt saved locally but reject it because the
+            // server preserved an existing owned device UUID instead of the deterministic fallback.
+            // Re-present that already durable response once under the registry-aware validator;
+            // do not send the health payload over the network again.
+            if job.operation == .request, job.phase == .pausedTerminal,
+               job.responseCode == "receipt_mismatch", job.receiptUpgradeRetryCount == 1,
+               let status = job.responseStatus, (200...299).contains(status),
+               let body = job.responseBody, let ack = try? PushAck.parse(body),
+               ack.durabilityReceipt?.isValid == true, ack.batchId == job.batchID,
+               ack.deviceId == job.deviceID, ack.status == "accepted" {
+                job.receiptUpgradeRetryCount = 2
+                job.phase = .responseSaved
+                job.responseDisposition = .awaitingReceipt
+                job.responseCode = nil
+                job.nextAttemptAt = nil
+                job.validatedReceipt = nil
+            }
+            // Object-lane jobs from the legacy receiver either lack a receipt or contain the same
+            // preserved canonical device UUID. Upgrade a receipt-less completion once; otherwise
+            // accept the saved response only after full manifest, digest, owner and object-key checks.
+            if job.operation == .objectComplete, job.phase == .pausedTerminal,
+               job.responseCode == "receipt_mismatch", let status = job.responseStatus,
+               (200...299).contains(status) {
+                let savedManifestVersion = job.manifest.flatMap {
+                    try? JSONDecoder().decode(PushObjectManifest.self, from: $0).protocolVersion
+                } ?? PushProtocol.objectVersion
+                if let ack = try? parseReceipt(job), ack.releasesLocalRows {
+                    job.verifiedObjectKey = ack.objectKey
+                    job.validatedReceipt = ack.durabilityReceipt
+                    job.phase = .receiptSaved
+                    job.responseDisposition = .verified
+                    job.failures = 0
+                    job.nextAttemptAt = nil
+                } else if (job.receiptUpgradeRetryCount ?? 0) == 0,
+                          let body = job.responseBody,
+                          let objectID = job.objectID,
+                          let ack = try? PushObjectAck.parse(body, expectedObjectId: objectID,
+                              expectedVersion: savedManifestVersion),
+                          ack.durabilityReceipt == nil {
+                    job.receiptUpgradeRetryCount = 1
+                    job.phase = .retryPending
+                    job.responseStatus = nil
+                    job.responseBody = nil
+                    job.responseRetryAfter = nil
+                    job.responseCode = nil
+                    job.responseDisposition = nil
+                    job.nextAttemptAt = nil
+                    job.validatedReceipt = nil
+                }
+            }
             // Recover pre-fleet-header failures once, without changing payloads or receipts.
             if job.operation != .objectPut, job.phase == .pausedTerminal,
                job.responseDisposition == .authentication, job.fleetAuthorizationApplied != true,

@@ -86,6 +86,33 @@ final class CloudUploadOutcomeTests: XCTestCase {
         ])
     }
 
+    private func durableAck(_ batch: PushBatch, owner: AccountScope) throws -> Data {
+        let cursor: Any = batch.endCursor.map {
+            ["rowId": $0.rowId, "keySha256": $0.naturalKeyFingerprint] as [String: Any]
+        } ?? NSNull()
+        let canonicalDevice = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        let receipt: [String: Any] = [
+            "version": 1, "state": "verified_indexed",
+            "receiptId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ownerUserId": owner.userID, "deviceId": canonicalDevice,
+            "objectId": batch.batchId, "batchId": batch.batchId, "sourceId": batch.sourceId,
+            "stream": batch.table.wireName,
+            "schemaVersion": PushProtocol.schemaVersion(stream: batch.table.wireName,
+                protocolVersion: batch.protocolVersion),
+            "objectKey": "v3/core/users/\(owner.userID)/devices/\(canonicalDevice)/\(batch.table.wireName)/fixture/verified",
+            "contentSha256": PushDurabilityReceipt.sha256(batch.body),
+            "wireSha256": String(repeating: "a", count: 64),
+            "compressedBytes": 128, "uncompressedBytes": batch.body.count,
+            "verifiedAt": "2026-09-18T00:00:00Z", "indexedAt": "2026-09-18T00:00:01Z",
+        ]
+        return try JSONSerialization.data(withJSONObject: [
+            "protocolVersion": batch.protocolVersion, "batchId": batch.batchId,
+            "stream": batch.table.wireName, "deviceId": batch.deviceId,
+            "endCursor": cursor, "acceptedRows": batch.recordCount, "status": "accepted",
+            "durabilityReceipt": receipt,
+        ])
+    }
+
     private func persisted(_ f: Fixture, file: StaticString = #filePath, line: UInt = #line) throws -> CloudUploadJob {
         try XCTUnwrap(f.journal.load()[f.job.id], file: file, line: line)
     }
@@ -338,6 +365,36 @@ final class CloudUploadOutcomeTests: XCTestCase {
         XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
         XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 1)
         try assertSourceRetained(f)
+    }
+
+    func testBuild366ReceiptMismatchRevalidatesSavedReceiptWithoutReupload() async throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let ack = try durableAck(f.batch, owner: f.context.scope)
+        var saved = try persisted(f)
+        saved.phase = .pausedTerminal
+        saved.responseStatus = 200
+        saved.responseBody = ack
+        saved.responseCode = "receipt_mismatch"
+        saved.responseDisposition = .terminal
+        saved.receiptUpgradeRetryCount = 1
+        try f.journal.save(saved)
+
+        let context = AccountSessionContext(scope: f.context.scope, generation: UUID())
+        let adapter = OutcomeSessionAdapter()
+        let q = try queue(f, adapter: adapter, clock: OutcomeClock(), context: context)
+        try await q.reconcile()
+        XCTAssertEqual(adapter.count, 0, "a durable saved response must not re-upload health bytes")
+        XCTAssertEqual(try persisted(f).phase, .responseSaved)
+        XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 2)
+
+        try await q.validateResponse(batch: f.batch,
+            response: .init(statusCode: 200, body: ack), captured: context,
+            receiverStateID: receiver)
+        let verified = try persisted(f)
+        XCTAssertEqual(verified.phase, .responseSaved)
+        XCTAssertEqual(verified.responseDisposition, .verified)
+        XCTAssertTrue(try XCTUnwrap(verified.validatedReceipt).isValid)
     }
 
     func testExplicitResolutionReusesExactBytesAndFencesPriorAttempt() async throws {

@@ -145,7 +145,7 @@ final class PushObjectLaneTests: XCTestCase {
             onComplete: { _ in
                 completeCalls += 1
                 return PushObjectAck(
-                    objectId: batch.objectId, status: "ready", objectKey: "k/verified", duplicate: false,
+                    objectId: batch.objectId, status: "ready", objectKey: objectReceiptKey(batch), duplicate: false,
                     durabilityReceipt: try objectReceiptFixture(batch)
                 )
             }
@@ -234,7 +234,7 @@ final class PushObjectLaneTests: XCTestCase {
             onComplete: { _ in
                 completeCalls += 1
                 return PushObjectAck(
-                    objectId: batch.objectId, status: "ready", objectKey: "k/verified", duplicate: false,
+                    objectId: batch.objectId, status: "ready", objectKey: objectReceiptKey(batch), duplicate: false,
                     durabilityReceipt: try objectReceiptFixture(batch)
                 )
             }
@@ -405,12 +405,17 @@ private struct FakePpgSource: PushSnapshotSource {
 }
 
 private let objectReceiptOwner = try! AccountScope(projectURL: "https://fixture.invalid", userID: "11111111-1111-4111-8111-111111111111")
+private let objectReceiptCanonicalDevice = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+private func objectReceiptKey(_ batch: PushBinaryBatch) -> String {
+    "v3/research/users/\(objectReceiptOwner.userID)/devices/\(objectReceiptCanonicalDevice)/\(batch.wireName)/fixture/verified"
+}
 private func objectReceiptFixture(_ batch: PushBinaryBatch) throws -> PushDurabilityReceipt {
     let object: [String: Any] = ["version": 1, "state": "verified_indexed",
         "receiptId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "ownerUserId": objectReceiptOwner.userID,
-        "deviceId": PushDurabilityReceipt.canonicalDevice(owner: objectReceiptOwner.userID, device: batch.deviceId),
+        "deviceId": objectReceiptCanonicalDevice,
         "objectId": batch.objectId, "batchId": batch.batchId, "sourceId": batch.sourceId,
-        "stream": batch.wireName, "schemaVersion": 1, "objectKey": "k/verified",
+        "stream": batch.wireName, "schemaVersion": 1,
+        "objectKey": objectReceiptKey(batch),
         "contentSha256": batch.contentSha256, "wireSha256": PushDurabilityReceipt.sha256(batch.payload),
         "compressedBytes": batch.payload.count, "uncompressedBytes": batch.uncompressedBytes,
         "verifiedAt": "2026-09-18T00:00:00Z", "indexedAt": "2026-09-18T00:00:01Z"]
