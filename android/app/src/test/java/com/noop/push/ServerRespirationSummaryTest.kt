@@ -33,7 +33,8 @@ class ServerRespirationSummaryTest {
             .put("method_version", "resp-spectrum-acf-1").put("calibration_status", "not_reference_validated")
         val overlay = JSONObject().put("schema_version", 2).put("user_id", "owner").put("day", "2026-09-18")
             .put("algorithm_version", version).put("features", JSONObject().put("respiration", JSONObject()
-                .put("status", status).put("device_id", "strap").put("algorithm_version", version)))
+                .put("status", status).put("device_id", "strap").put("algorithm_version", version)
+                .put("canonical_qualification", "signed_reference_approval").put("feature_manifest_hash", "f".repeat(64))))
             .put("daily", JSONObject().put("resp_rate_bpm", scalar).put("respiration_summary", summary)).put("nights", JSONArray())
         return ServerScoreClient.parseSnapshot(JSONObject().put("server_scoring", overlay).toString(), "2026-09-18", "owner")
     }

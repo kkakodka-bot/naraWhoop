@@ -20,6 +20,7 @@ class ServerHrvSeriesTest {
     private fun cache(rows: List<Any>, status: String = "fresh", version: String = "frwhoop-physiology-2"): ServerScoreDayCache {
         val feature = JSONObject().put("status", status).put("device_id", "device").put("algorithm_version", version)
             .put("input_revision", 42).put("observed_through", "2026-09-18T00:30:00Z")
+            .put("canonical_qualification", "signed_reference_approval").put("feature_manifest_hash", "f".repeat(64))
         val overlay = JSONObject().put("schema_version", 2).put("user_id", "owner").put("day", day)
             .put("algorithm_version", "per_feature").put("features", JSONObject().put("hrv", feature))
             .put("daily", JSONObject().put("hrv_rmssd_ms", 999)).put("measurements", JSONArray(rows)).put("nights", JSONArray())

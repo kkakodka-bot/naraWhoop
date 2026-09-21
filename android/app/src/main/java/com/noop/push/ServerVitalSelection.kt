@@ -5,6 +5,9 @@ data class ServerVitalSelection(
     val value: Double?, val fromServer: Boolean, val day: String, val status: String?, val stale: Boolean,
     val sourceFeature: String? = null, val deviceId: String? = null, val algorithmVersion: String? = null,
 ) {
+    val displayDiagnostic: ServerScoreStageDiagnostic get() = ServerScoreStageDiagnostic("displayed",
+        if (value != null) "available" else "unavailable", if (!fromServer) "local_producer_retained"
+            else if (value == null) "metric_unavailable" else "server_metric_selected")
     enum class Metric { HRV, RESTING_HR, RESPIRATORY, SLEEP, CHARGE, STRAIN, SPO2, SKIN_TEMP }
 
     companion object {
@@ -29,7 +32,7 @@ data class ServerVitalSelection(
             }
             val feature = overlay.features[featureKey]
             val status = feature?.status ?: "unavailable"
-            val available = status == "available" || status == "stale"
+            val available = feature?.isCanonicalAvailable == true
             // A published feature with this metric still null is not live for the card.
             // Missing sleep can be a deletion or an unknown state. Local episodes cannot resurrect it.
             if (!available || value == null) {

@@ -19,7 +19,7 @@ data class ServerHrvSeries(
             fun result(rows: List<Window>) = ServerHrvSeries(rows, feature?.status, feature?.reason, feature?.deviceId,
                 feature?.algorithmVersion, feature?.observedThrough, cache?.stale ?: true)
             if (cache == null || cache.day != day || cache.ownerId.isBlank() || cache.schemaVersion != 2 || feature == null ||
-                feature.algorithmVersion != "frwhoop-physiology-2" || feature.deviceId.isNullOrEmpty() || feature.inputRevision == null) {
+                !feature.hasCanonicalAuthorization || feature.algorithmVersion != "frwhoop-physiology-2" || feature.deviceId.isNullOrEmpty() || feature.inputRevision == null) {
                 return result(emptyList())
             }
             val overlay = runCatching { JSONObject(cache.rawSnapshotJSON ?: "{}").optJSONObject("server_scoring") }.getOrNull()

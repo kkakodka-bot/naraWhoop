@@ -108,6 +108,7 @@ public struct ServerScoreDailyCache: Equatable, Codable {
 }
 
 public struct ServerScoreNightCache: Equatable, Codable {
+    public var respRateBpm: Double?
     public var startTimezoneId: String?
     public var endTimezoneId: String?
     public var stages: [ServerScoreStageCache] = []
@@ -219,8 +220,8 @@ public enum ServerScoreCacheCodec {
     public static func parseSnapshot(_ data: Data, day: String, ownerId: String,
                                      fetchedAt: Date = Date()) throws -> ServerScoreDayCache {
         guard !ownerId.isEmpty,
-              let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let o = root["server_scoring"] as? [String: Any],
+              var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var o = root["server_scoring"] as? [String: Any],
               (o["schema_version"] as? NSNumber)?.intValue == schemaVersion,
               (o["user_id"] as? String)?.lowercased() == ownerId.lowercased(),
               o["day"] as? String == day,
@@ -269,19 +270,35 @@ public enum ServerScoreCacheCodec {
             daily?.skinTempC = number(d["skin_temp_c"])
             daily?.skinTempDevC = number(d["skin_temp_dev_c"])
         }
+        let sleep = features["sleep"]
+        let nestedHrv = features["hrv"]?.matchesCanonicalSnapshot(sleep) == true
+        let nestedRespiration = features["respiration"]?.matchesCanonicalSnapshot(sleep) == true
         var nights: [ServerScoreNightCache] = []
-        for n in (o["nights"] as? [[String: Any]]) ?? [] {
+        var authorizedNights: [[String: Any]] = []
+        for var n in (o["nights"] as? [[String: Any]]) ?? [] {
             guard let id = n["id"] as? String, !id.isEmpty,
                   let start = n["start_at"] as? String, let end = n["end_at"] as? String else { throw DecodeError.invalidPayload }
             let device = n["device_id"] as? String
             if let selectedDevice = features["sleep"]?.deviceId, device != selectedDevice { throw DecodeError.invalidScope }
+            if let episodeOwner = n["user_id"] as? String, episodeOwner.lowercased() != ownerId.lowercased() { throw DecodeError.invalidScope }
             let sourceVersion = (n["algorithm_version"] as? String) ?? features["sleep"]?.algorithmVersion
+            if let selectedVersion = sleep?.algorithmVersion, sourceVersion != selectedVersion { throw DecodeError.invalidScope }
+            if !nestedHrv {
+                for key in ["hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "overnight_hr_bpm", "hrv_summary", "heart_rate_windows"] {
+                    n.removeValue(forKey: key)
+                }
+            }
+            if !nestedRespiration {
+                for key in ["resp_rate_bpm", "respiration_summary", "respiration_unavailable_reason"] { n.removeValue(forKey: key) }
+            }
+            authorizedNights.append(n)
             let legacy = sourceVersion == "frwhoop-server-1"
             var night = ServerScoreNightCache(id: id, startAt: start, endAt: end, isNap: n["is_nap"] as? Bool ?? false,
                 asleepMin: number(n["asleep_min"]), inBedMin: number(n["in_bed_min"]), lightMin: number(n["light_min"]),
                 deepMin: number(n["deep_min"]), remMin: number(n["rem_min"]), awakeMin: number(n["awake_min"]),
                 efficiency: number(n["efficiency"]), hrvRmssdMs: number(n["hrv_rmssd_ms"]), restingHrBpm: integer(n["resting_hr_bpm"]))
             night.deviceId = device; night.episodeType = (n["episode_type"] as? String) ?? (legacy ? (night.isNap ? "nap" : "main_sleep") : nil)
+            night.respRateBpm = number(n["resp_rate_bpm"])
             night.mainSleepGroupId = n["main_sleep_group_id"] as? String
             night.boundaryProvenance = n["boundary_provenance"] as? String
             night.opportunityKind = n["opportunity_kind"] as? String
@@ -325,7 +342,9 @@ public enum ServerScoreCacheCodec {
                     contextKind: s["context_kind"] as? String, contextProvenance: s["context_provenance"] as? String)
             }
         }
-        result.rawSnapshotJSON = String(data: data, encoding: .utf8)
+        o["nights"] = authorizedNights
+        root["server_scoring"] = o
+        result.rawSnapshotJSON = String(data: try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys]), encoding: .utf8)
         return result
     }
 
@@ -453,9 +472,32 @@ public struct ServerScoreFeatureCache: Equatable, Codable {
     public var canonicalQualification: String? = nil
     public var featureManifestHash: String? = nil
     public var hasCanonicalAuthorization: Bool {
+        if ["shadow", "revoked"].contains(publicationStatus ?? "") { return false }
         if algorithmVersion == "frwhoop-server-1" { return true }
         guard canonicalQualification == "signed_reference_approval", let featureManifestHash else { return false }
         return featureManifestHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+    }
+    public var isCanonicalAvailable: Bool {
+        ["available", "fresh", "stale"].contains(status) && hasCanonicalAuthorization
+    }
+    public func matchesCanonicalSnapshot(_ other: ServerScoreFeatureCache?) -> Bool {
+        guard let other, isCanonicalAvailable, other.isCanonicalAvailable else { return false }
+        return deviceId == other.deviceId && algorithmVersion == other.algorithmVersion && inputRevision == other.inputRevision
+    }
+    public var decodeDiagnostic: ServerScoreStageDiagnostic {
+        ServerScoreStageDiagnostic(stage: "decoded", status: isCanonicalAvailable ? "available" : "unavailable",
+            reason: ["shadow", "revoked"].contains(publicationStatus ?? "") ? "publication_not_canonical" :
+                !hasCanonicalAuthorization ? "canonical_qualification_missing" : reason)
+    }
+}
+
+/// Local stage metadata intentionally excludes identities, credentials and physiological values.
+public struct ServerScoreStageDiagnostic: Equatable, Codable {
+    public let stage: String, status: String
+    public let reason: String?
+    public init(stage: String, status: String, reason: String?) {
+        self.stage = stage; self.status = status
+        self.reason = reason.map { $0.range(of: "^[a-z0-9_]{1,96}$", options: .regularExpression) == nil ? "unclassified_reason" : $0 }
     }
 }
 

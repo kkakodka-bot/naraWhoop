@@ -44,8 +44,7 @@ public struct ServerSleepEpisode: Identifiable {
         return "unknown"
     }
     public static func episodes(_ cache: ServerScoreDayCache?, day: String) -> [Self] {
-        guard let cache, cache.day == day, let feature = cache.features["sleep"], feature.hasCanonicalAuthorization,
-              feature.status != "unavailable" else { return [] }
+        guard let cache, cache.day == day, let feature = cache.features["sleep"], feature.isCanonicalAvailable else { return [] }
         let parser = ISO8601DateFormatter()
         func epoch(_ value: String) -> Int? {
             parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

@@ -12,6 +12,10 @@ public struct ServerVitalSelection: Equatable {
     public let sourceFeature: String?
     public let deviceId: String?
     public let algorithmVersion: String?
+    public var displayDiagnostic: ServerScoreStageDiagnostic {
+        ServerScoreStageDiagnostic(stage: "displayed", status: value == nil ? "unavailable" : "available",
+            reason: !fromServer ? "local_producer_retained" : value == nil ? "metric_unavailable" : "server_metric_selected")
+    }
 
     public static func resolve(_ metric: Metric, serverEnabled: Bool, selectedDay: String,
                                overlay: ServerScoreDayCache?, localValue: Double?) -> Self {
@@ -39,7 +43,7 @@ public struct ServerVitalSelection: Equatable {
         }
         let feature = overlay.features[featureKey]
         let status = feature?.status ?? "unavailable"
-        let available = (status == "available" || status == "stale") && feature?.hasCanonicalAuthorization == true
+        let available = feature?.isCanonicalAvailable == true
         // Missing/unqualified server results remain unavailable rather than falling back locally.
         if !available || value == nil {
             return Self(value: nil, fromServer: true,

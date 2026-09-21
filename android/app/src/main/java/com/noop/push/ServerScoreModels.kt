@@ -51,6 +51,7 @@ data class ServerScoreNightCache(
     val manualEdit: Boolean? = null,
     val startTimezoneId: String? = null,
     val endTimezoneId: String? = null,
+    val respRateBpm: Double? = null,
 )
 
 data class ServerScoreDayCache(
@@ -89,7 +90,26 @@ data class ServerScoreFeatureCache(
     val processingStatus: String? = null,
     val timezoneId: String? = null,
     val timezoneIds: List<String>? = null,
-)
+    val canonicalQualification: String? = null,
+    val featureManifestHash: String? = null,
+) {
+    val hasCanonicalAuthorization: Boolean get() = publicationStatus !in setOf("shadow", "revoked") &&
+        (algorithmVersion == "frwhoop-server-1" ||
+            (canonicalQualification == "signed_reference_approval" && featureManifestHash?.matches(Regex("^[a-f0-9]{64}$")) == true))
+    val isCanonicalAvailable: Boolean get() = status in setOf("available", "fresh", "stale") && hasCanonicalAuthorization
+
+    fun matchesCanonicalSnapshot(other: ServerScoreFeatureCache?): Boolean = isCanonicalAvailable &&
+        other?.isCanonicalAvailable == true && deviceId == other.deviceId &&
+        algorithmVersion == other.algorithmVersion && inputRevision == other.inputRevision
+
+    val decodeDiagnostic: ServerScoreStageDiagnostic get() = ServerScoreStageDiagnostic("decoded",
+        if (isCanonicalAvailable) "available" else "unavailable",
+        if (publicationStatus in setOf("shadow", "revoked")) "publication_not_canonical" else if (!hasCanonicalAuthorization)
+            "canonical_qualification_missing" else reason?.let { if (it.matches(Regex("^[a-z0-9_]{1,96}$"))) it else "unclassified_reason" })
+}
+
+/** Bounded local diagnostic metadata; no account, device, credentials or physiological values. */
+data class ServerScoreStageDiagnostic(val stage: String, val status: String, val reason: String?)
 
 val ServerScoreDayCache.sleepMetadataLines: List<String> get() {
     val feature = features["sleep"] ?: return emptyList()

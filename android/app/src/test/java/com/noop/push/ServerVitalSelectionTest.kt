@@ -16,6 +16,8 @@ class ServerVitalSelectionTest {
             if (status != "unavailable") {
                 if (!entry.has("device_id")) entry.put("device_id", scope.getString("device_id"))
                 if (!entry.has("algorithm_version")) entry.put("algorithm_version", scope.getString("algorithm_version"))
+                entry.put("canonical_qualification", "signed_reference_approval")
+                entry.put("feature_manifest_hash", "f".repeat(64))
             }
             features.put(key, entry)
         }

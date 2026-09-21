@@ -13,6 +13,7 @@ data class ServerRespirationSummary(
         fun project(cache: ServerScoreDayCache?, day: String): ServerRespirationSummary? {
             if (cache == null || cache.day != day || cache.ownerId.isBlank()) return null
             val feature = cache.features["respiration"] ?: return null
+            if (!feature.hasCanonicalAuthorization) return null
             val device = feature.deviceId?.takeIf { it.isNotBlank() } ?: return null
             val version = feature.algorithmVersion?.takeIf { it.isNotBlank() } ?: return null
             val overlay = runCatching { JSONObject(cache.rawSnapshotJSON ?: "").getJSONObject("server_scoring") }.getOrNull() ?: return null

@@ -28,7 +28,7 @@ object ServerScoringSettings {
         prefs.edit().putBoolean(OVERLAY_LIVE_KEY, live).apply()
     }
     fun overlayIsLive(cache: ServerScoreDayCache): Boolean =
-        cache.daily != null && !cache.stale && cache.features.values.any { it.status == "available" }
+        cache.daily != null && !cache.stale && cache.features.values.any { it.status == "available" && it.hasCanonicalAuthorization }
 
     fun prefs(context: Context): SharedPreferences =
         com.noop.account.AccountStorageContext.capture(context)

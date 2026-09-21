@@ -26,7 +26,7 @@ internal fun serverSleepState(stage: String, state: String): String = when (stat
 }
 /** Identity and ownership are supplied by the canonical snapshot, never a fixed overnight heuristic. */
 internal fun serverSleepEpisodes(cache: com.noop.push.ServerScoreDayCache?, day: String): List<ServerSleepEpisode> {
-    if (cache?.day != day || cache.features["sleep"]?.status in listOf(null, "unavailable")) return emptyList()
+    if (cache?.day != day || cache.features["sleep"]?.isCanonicalAvailable != true) return emptyList()
     return cache.nights.mapNotNull { night ->
         val start = runCatching { java.time.Instant.parse(night.startAt).epochSecond }.getOrNull() ?: return@mapNotNull null
         val end = runCatching { java.time.Instant.parse(night.endAt).epochSecond }.getOrNull() ?: return@mapNotNull null

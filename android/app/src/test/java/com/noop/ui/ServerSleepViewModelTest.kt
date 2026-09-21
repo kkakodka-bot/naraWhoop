@@ -10,7 +10,8 @@ class ServerSleepViewModelTest {
         nights = listOf(ServerScoreNightCache("night", "2026-09-18T14:00:00Z", "2026-09-18T14:01:30Z", true,
             asleepMin = 0.0, episodeType = type, mainSleepGroupId = "canonical-group", measurementAvailable = available)),
         computedAt = null, stale = false, fetchedAtMs = 0,
-        features = mapOf("sleep" to ServerScoreFeatureCache("fresh", null, "device", "sleep-v2", null, null, null, null, null, null, null)))
+        features = mapOf("sleep" to ServerScoreFeatureCache("fresh", null, "device", "sleep-v2", null, null, null, null, null, null, null,
+            canonicalQualification = "signed_reference_approval", featureManifestHash = "f".repeat(64))))
     @Test fun canonicalStatesDoNotBecomeLightSleep() {
         assertEquals("unknown", serverSleepState("light", "state_unknown"))
         assertEquals("sleep_unstaged", serverSleepState("unknown", "sleep_unstaged"))
@@ -20,7 +21,8 @@ class ServerSleepViewModelTest {
     @Test fun eventTimeZonesSurviveCodecAndDoNotUseTheCurrentPhoneZone() {
         val body="""{"server_scoring":{"schema_version":2,"user_id":"owner","day":"2026-09-18",
             "algorithm_version":"frwhoop-physiology-2","features":{"sleep":{"status":"available",
-            "device_id":"device","algorithm_version":"frwhoop-physiology-2"}},"nights":[{"id":"night",
+            "device_id":"device","algorithm_version":"frwhoop-physiology-2",
+            "canonical_qualification":"signed_reference_approval","feature_manifest_hash":"${"f".repeat(64)}"}},"nights":[{"id":"night",
             "device_id":"device","start_at":"2026-09-18T14:00:00Z","end_at":"2026-09-18T14:01:30Z",
             "start_timezone_id":"America/Los_Angeles","end_timezone_id":"America/New_York","stages":[]}]}}"""
         val parsed=ServerScoreClient.parseSnapshot(body,"2026-09-18","owner")
@@ -98,12 +100,21 @@ class ServerSleepViewModelTest {
         assertTrue(value.sleepMetadataLines.contains("Processing: pending · archive: unavailable"))
         assertTrue(value.sleepMetadataLines.contains("Time zones: UTC · America/Los_Angeles"))
         val v2 = ServerScoreClient.parseSnapshot(body.replace("frwhoop-server-1", "frwhoop-physiology-2"), value.day, "owner")
-        val unknown = serverSleepEpisodes(v2, v2.day).single()
-        assertNull(unknown.asleepMin)
-        assertEquals(listOf("unknown", "unknown", "unknown"), unknown.bands.map { it.state })
+        assertTrue(serverSleepEpisodes(v2, v2.day).isEmpty())
+        assertNull(v2.nights.single().measurementAvailable)
+        assertEquals(listOf("state_unknown", "state_unknown", "state_unknown"), v2.nights.single().stages.map { it.state })
         val explicit = ServerScoreClient.parseSnapshot(body.replace("\"stage\":\"deep\"", "\"stage\":\"deep\",\"state\":\"state_unknown\"")
             .replace("\"asleep_min\":1", "\"asleep_min\":1,\"measurement_available\":false"), value.day, "owner")
         assertNull(serverSleepEpisodes(explicit, explicit.day).single().asleepMin)
         assertEquals("unknown", serverSleepEpisodes(explicit, explicit.day).single().bands[1].state)
+    }
+
+    @Test fun unqualifiedOrShadowSleepCannotReachPresentation() {
+        val value = cache()
+        val feature = value.features.getValue("sleep")
+        for (denied in listOf(feature.copy(canonicalQualification = null), feature.copy(featureManifestHash = "wrong"),
+            feature.copy(publicationStatus = "shadow"), feature.copy(publicationStatus = "revoked"))) {
+            assertTrue(serverSleepEpisodes(value.copy(features = mapOf("sleep" to denied)), value.day).isEmpty())
+        }
     }
 }
