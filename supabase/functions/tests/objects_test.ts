@@ -243,11 +243,11 @@ Deno.test('housing: projection failure never acknowledges ready and identical co
     objectId: '1a2a3a4a-1a1a-4a1a-8a1a-1a1a1a1a1a1a' });
   const intent = await h.objects.createIntent({ userId: USER, manifest });
   h.b2.putViaPresignedUrl(intent.uploadUrl!, wire, { contentType: intent.requiredHeaders!['content-type'] });
-  const upsert = h.rest.upsert.bind(h.rest);
+  const rpc = h.rest.rpc.bind(h.rest);
   let reject = true;
-  h.rest.upsert = async (table, rows, options) => {
-    if (table === 'noop_signal_windows' && reject) throw new Error('synthetic_projection_failure');
-    return upsert(table, rows, options);
+  h.rest.rpc = async (name, args) => {
+    if (name === 'noop_commit_object_receipt' && reject) throw new Error('synthetic_projection_failure');
+    return rpc(name, args);
   };
   await assert.rejects(() => h.objects.completeObject({ userId: USER, objectId: manifest.objectId }),
     (error: unknown) => {
@@ -255,14 +255,16 @@ Deno.test('housing: projection failure never acknowledges ready and identical co
       const diagnostic = unexpectedIngestDiagnostic(error, '1.2');
       assert.equal(diagnostic.protocolVersion, '1.2');
       assert.equal(diagnostic.stream, 'ppgWaveformSample');
-      assert.equal(diagnostic.stage, 'projection');
+      assert.equal(diagnostic.stage, 'archive_verify');
       for (const secret of [USER, STRAP, manifest.objectId, 'synthetic_projection_failure']) {
         assert.ok(!JSON.stringify(diagnostic).includes(secret));
       }
       return true;
     });
-  assert.equal(h.rest.manifests.get(manifest.objectId).status, 'uploading');
+  assert.equal(h.rest.manifests.get(manifest.objectId).status, 'pending');
+  assert.equal(h.rest.manifests.get(manifest.objectId).durability_receipt, undefined);
   assert.equal(h.rest.rowCount('noop_signal_windows'), 0);
+  assert.equal(h.rest.rowCount('noop_upload_receipts'), 0);
   reject = false;
   const ack = await h.objects.completeObject({ userId: USER, objectId: manifest.objectId });
   assert.equal(ack.status, 'ready');
@@ -304,6 +306,35 @@ Deno.test('housing: intent retry repairs a failed durable receipt before duplica
   assert.deepEqual(h.b2.objects.get(durabilityReceipt.objectKey)!.body, wire);
 });
 
+Deno.test('housing: post-commit index metadata failure preserves durable bytes and retries without duplicate rows', async () => {
+  const h = harness();
+  const { manifest, wire } = manifestFor({ stream: 'ppgWaveformSample', payload: payloadOf(10),
+    startTs: SECOND, endTs: SECOND + 10, sampleCount: 10, compression: 'gzip',
+    objectId: '1a2a3a4a-1a1a-4a1a-8a1a-1a1a1a1a1a1c' });
+  const intent = await h.objects.createIntent({ userId: USER, manifest });
+  h.b2.putViaPresignedUrl(intent.uploadUrl!, wire);
+  const upsert = h.rest.upsert.bind(h.rest);
+  let reject = true;
+  h.rest.upsert = async (table, rows, options) => {
+    if (table === 'noop_signal_windows' && reject) throw new Error('synthetic_metadata_failure');
+    return upsert(table, rows, options);
+  };
+  await assert.rejects(() => h.objects.completeObject({ userId: USER, objectId: manifest.objectId }),
+    (error: unknown) => error instanceof PushIngestFailure && error.stage === 'projection');
+  const saved = h.rest.manifests.get(manifest.objectId);
+  const receipt = structuredClone(saved.durability_receipt);
+  assert.equal(saved.status, 'ready', 'the atomic durability commit already succeeded');
+  assert.equal(h.rest.rowCount('noop_signal_windows'), 1);
+  assert.equal(h.rest.rowCount('noop_push_acks'), 0);
+  reject = false;
+  const ack = await h.objects.completeObject({ userId: USER, objectId: manifest.objectId });
+  assert.equal(ack.duplicate, true);
+  assert.deepEqual(ack.durabilityReceipt, receipt);
+  assert.equal(h.rest.rowCount('noop_signal_windows'), 1);
+  assert.equal(h.rest.rowCount('noop_upload_receipts'), 1);
+  assert.deepEqual(h.b2.objects.get(receipt.objectKey)!.body, wire);
+});
+
 Deno.test('housing: scoring gate refusal keeps object unacknowledged and retries the same archived bytes', async () => {
   const h = harness();
   const { manifest, wire } = manifestFor({ stream: 'ppgWaveformSample', payload: payloadOf(10),
@@ -311,15 +342,15 @@ Deno.test('housing: scoring gate refusal keeps object unacknowledged and retries
     objectId: '8a2a3a4a-1a1a-4a1a-8a1a-1a1a1a1a1a1a' });
   const intent = await h.objects.createIntent({ userId: USER, manifest });
   h.b2.putViaPresignedUrl(intent.uploadUrl!, wire, { contentType: intent.requiredHeaders!['content-type'] });
-  const upsert = h.rest.upsert.bind(h.rest);
+  const rpc = h.rest.rpc.bind(h.rest);
   let busy = true;
-  h.rest.upsert = async (table, rows, options) => {
-    if (table === 'noop_signal_windows' && busy) {
+  h.rest.rpc = async (name, args) => {
+    if (name === 'noop_commit_object_receipt' && busy) {
       const error = new Error('private SQL detail') as Error & { receiverCode: string };
       error.receiverCode = 'scoring_input_gate_busy';
       throw error;
     }
-    return upsert(table, rows, options);
+    return rpc(name, args);
   };
   await assert.rejects(() => h.objects.completeObject({ userId: USER, objectId: manifest.objectId }),
     (error: unknown) => {
@@ -329,8 +360,10 @@ Deno.test('housing: scoring gate refusal keeps object unacknowledged and retries
       assert.equal(response.headers.get('retry-after'), '2');
       return error.code === 'scoring_input_gate_busy';
     });
-  assert.equal(h.rest.manifests.get(manifest.objectId).status, 'uploading');
+  assert.equal(h.rest.manifests.get(manifest.objectId).status, 'pending');
+  assert.equal(h.rest.manifests.get(manifest.objectId).durability_receipt, undefined);
   assert.equal(h.rest.rowCount('noop_signal_windows'), 0);
+  assert.equal(h.rest.rowCount('noop_upload_receipts'), 0);
   assert.deepEqual(h.b2.objects.get(intent.objectKey!)!.body, wire);
   busy = false;
   const ack = await h.objects.completeObject({ userId: USER, objectId: manifest.objectId });

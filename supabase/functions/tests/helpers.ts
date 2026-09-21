@@ -264,6 +264,12 @@ export function makeMemRest() {
       }
       if (name === 'noop_commit_object_receipt') {
         const row = manifests.get(args.p_object_id);
+        if (!row || row.user_id !== args.p_user_id ||
+          !rowsFor('devices').some((device) => device.id === row.device_id && device.user_id === row.user_id)) {
+          throw new Error('object_owner_conflict');
+        }
+        if (row.durability_receipt && (row.durability_receipt.wireSha256 !== args.p_wire_sha256 ||
+          row.durability_receipt.contentSha256 !== args.p_content_sha256)) throw new Error('receipt_immutable');
         const stamp = new Date().toISOString();
         const receipt = row.durability_receipt ?? {
           version: 1, state: 'verified_indexed', receiptId: crypto.randomUUID(),
@@ -274,15 +280,26 @@ export function makeMemRest() {
           compressedBytes: args.p_compressed_bytes, uncompressedBytes: args.p_uncompressed_bytes,
           verifiedAt: stamp, indexedAt: stamp,
         };
-        row.durability_receipt = receipt; row.object_key = receipt.objectKey;
-        row.status = 'ready'; row.sha256_source = 'server_verified';
         const windows = rowsFor('noop_signal_windows');
-        const seconds = (Date.parse(row.end_at) - Date.parse(row.start_at)) / 1000;
-        if (!windows.some((r) => r.object_id === row.id)) windows.push({
-          object_id: row.id, expected_records: seconds, received_records: row.sample_count,
-          missing_records: Math.max(0,seconds-row.sample_count), coverage: Math.min(1,row.sample_count/seconds),
-          interpolated_records: 0,
-        });
+        const start = Math.floor(Date.parse(row.start_at) / 1000);
+        const end = Math.max(start + 1, Math.ceil(Date.parse(row.end_at) / 1000));
+        const expected = ['ppgWaveformSample', 'v18AuxSample', 'rawImuSession'].includes(row.object_kind) ? end - start : null;
+        const window = {
+          user_id: row.user_id, device_id: row.device_id, stream: row.object_kind,
+          hour_start: Math.floor(start / 3600) * 3600, start_ts: start, end_ts: end,
+          object_id: row.id, object_key: receipt.objectKey,
+          expected_records: expected, received_records: row.sample_count ?? 0,
+          missing_records: expected == null ? null : Math.max(0, expected - (row.sample_count ?? 0)),
+          coverage: expected == null ? null : Math.min(1, (row.sample_count ?? 0) / expected),
+          interpolated_records: 0, compressed_bytes: args.p_compressed_bytes, uncompressed_bytes: args.p_uncompressed_bytes,
+        };
+        const index = windows.findIndex((r) => ['user_id', 'device_id', 'stream', 'hour_start', 'object_id']
+          .every((key) => r[key] === window[key as keyof typeof window]));
+        if (index < 0) windows.push(window);
+        else windows[index] = { ...windows[index], ...window };
+        row.durability_receipt = receipt; row.object_key = receipt.objectKey;
+        row.status = 'ready'; row.sha256_source = 'server_verified'; row.wire_sha256 = args.p_wire_sha256;
+        row.indexed_at = stamp; row.verified_at = receipt.verifiedAt;
         return receipt;
       }
       return [];

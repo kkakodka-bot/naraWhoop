@@ -2,7 +2,8 @@
 // Phase 2 worker tests — mirror the retired Node receiver for the Edge ports:
 // reconcileObjects, sweepExpiredManifests, createDeletionService.
 import { assertEquals, assert } from 'jsr:@std/assert';
-import { makeMemRest } from './helpers.ts';
+import { compressFor, makeFakeB2, makeMemRest } from './helpers.ts';
+import { reconcileIntake, verifyStoredObject } from '../_shared/durability.ts';
 import {
   reconcileObjects,
   sweepExpiredManifests,
@@ -11,45 +12,103 @@ import {
 } from '../_shared/workers.ts';
 
 const USER = '7f2c9a10-4b3e-4d8a-9c11-00000000f001';
+const DEVICE = '11111111-1111-4111-8111-111111111111';
 
 async function digest(bytes: Uint8Array): Promise<string> {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes)))].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-Deno.test('append gzip reconciliation uses the original stored-byte digest and rejects changed bytes', async () => {
+function rawManifest(id: string, format: string, compression: string, encoded: Uint8Array, decoded: Uint8Array) {
+  return {
+    id, user_id: USER, device_id: DEVICE, object_key: `v3/core/users/${USER}/devices/${DEVICE}/rawBatch/${id}.bin`,
+    status: 'uploaded', object_class: 'raw', object_kind: 'rawBatch', format, compression,
+    compressed_bytes: encoded.length, uncompressed_bytes: decoded.length, schema_version: 1,
+    start_at: '2026-09-10T12:00:00Z', end_at: '2026-09-10T12:00:01Z', sample_count: 1,
+  };
+}
+
+async function intakeHarness(rows: any[], bytes: Map<string, Uint8Array>) {
+  const rest = await memRest(rows), bucket = makeFakeB2();
+  await rest.upsert('devices', { id: DEVICE, user_id: USER });
+  for (const row of rows) await bucket.s3.putObject(row.object_key, bytes.get(row.id)!);
+  const rpc = rest.rpc.bind(rest);
+  rest.rpc = async (name, args) => {
+    if (name === 'noop_intake_reconcile_page') {
+      // Only the SQL page transport is doubled here. Native integration tests cover its cursor,
+      // authorization and transactionality; real storage reads and byte verification run below.
+      assert(Number.isSafeInteger(args.p_limit) && args.p_limit > 0);
+      return [...rest.manifests.values()].filter((row) => row.object_class === 'raw' && !row.durability_receipt)
+        .slice(0, args.p_limit);
+    }
+    return rpc(name, args);
+  };
+  return { rest, raw: bucket.s3 };
+}
+
+Deno.test('append gzip intake reconciliation uses the original stored-byte digest and rejects changed bytes', async () => {
   const decoded = new TextEncoder().encode('{"fixture":"append archive"}\n');
-  const encoded = new Uint8Array(await new Response(new Blob([decoded]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
-  const changed = encoded.slice(); changed[changed.length - 1] ^= 1;
-  const rows = ['pending', 'uploaded', 'changed'].map(id => ({
-    id, object_key: id, status: id === 'pending' ? 'pending' : 'uploaded', user_id: USER,
-    sha256: '', object_class: 'raw', format: 'ndjson_gzip_noop_push_v1', compression: 'gzip',
-    compressed_bytes: encoded.length,
-  }));
+  const encoded = compressFor('gzip', decoded);
+  // Change only gzip's mtime metadata: decoded content is unchanged, but the legacy wire digest
+  // must still reject the different stored object.
+  const changed = new Uint8Array(encoded); changed[4] ^= 1;
+  const ids = ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'];
+  const rows = ids.map((id, index) => ({ ...rawManifest(id, 'ndjson_gzip_noop_push_v1', 'gzip', encoded, decoded),
+    status: index === 0 ? 'pending' : 'uploaded', sha256: '' }));
   for (const row of rows) row.sha256 = await digest(encoded);
-  const rest = await memRest(rows);
-  const report = await reconcileObjects({ rest: rest as any, verifyChecksums: true,
-    objectStore: { head: async () => ({ exists: true, contentLength: encoded.length }),
-      getObject: async (key: string) => ({ body: key === 'changed' ? changed : encoded }) } as any });
-  assertEquals(report.marked_ready, 2);
-  assertEquals(report.checksum_unverified, 0);
-  assertEquals(report.checksum_mismatch, 1);
-  assertEquals([...rest.manifests.values()].find((r: any) => r.id === 'changed')?.status, 'corrupt');
+  const { rest, raw } = await intakeHarness(rows, new Map([[ids[0], encoded], [ids[1], encoded], [ids[2], changed]]));
+  let mismatch = false;
+  try { await verifyStoredObject(raw, rows[2], rows[2].object_key); }
+  catch (error) { mismatch = (error as Error).message === 'digest_mismatch'; }
+  assert(mismatch, 'unchanged decoded content must not hide a changed legacy stored-byte digest');
+  const report = await reconcileIntake(rest as any, raw);
+  assertEquals(report, { scanned: 3, verifiedIndexed: 2, deferred: 1 });
+  assertEquals(rest.rowCount('noop_signal_windows'), 2);
+  for (const id of ids.slice(0, 2)) {
+    const row = rest.manifests.get(id);
+    assertEquals(row.status, 'ready');
+    assertEquals(row.durability_receipt.wireSha256, await digest(encoded));
+    assertEquals(row.durability_receipt.contentSha256, await digest(decoded));
+  }
+  assertEquals(rest.manifests.get(ids[2]).status, 'failed');
+  assertEquals(rest.manifests.get(ids[2]).durability_receipt, undefined);
 });
 
-Deno.test('raw gzip checksum covers decoded NPB1 content and unsupported zstd stays unverified', async () => {
+Deno.test('raw intake verifies decoded gzip and zstd content while malformed compression stays unverified', async () => {
   const decoded = new TextEncoder().encode('NPB1 synthetic raw compression contract fixture');
-  const encoded = new Uint8Array(await new Response(new Blob([decoded]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
-  const rest = await memRest([
-    { id: 'gzip', object_key: 'gzip', status: 'uploaded', user_id: USER, sha256: await digest(decoded),
-      object_class: 'raw', format: 'bin_gzip_noop_push_v1', compression: 'gzip', compressed_bytes: encoded.length, uncompressed_bytes: decoded.length },
-    { id: 'zstd', object_key: 'zstd', status: 'uploaded', user_id: USER, sha256: await digest(decoded),
-      object_class: 'raw', format: 'bin_zstd_noop_push_v1', compression: 'zstd', compressed_bytes: encoded.length, uncompressed_bytes: decoded.length },
-  ]);
-  const report = await reconcileObjects({ rest: rest as any, verifyChecksums: true,
-    objectStore: { head: async () => ({ exists: true, contentLength: encoded.length }), getObject: async () => ({ body: encoded }) } as any });
-  assertEquals(report.checksum_mismatch, 0); assertEquals(report.checksum_unverified, 1);
-  assertEquals([...rest.manifests.values()].find((r: any) => r.id === 'gzip')?.status, 'ready');
-  assertEquals([...rest.manifests.values()].find((r: any) => r.id === 'zstd')?.status, 'uploaded');
+  const gzip = compressFor('gzip', decoded), zstd = compressFor('zstd', decoded);
+  const ids = ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'];
+  const rows = [rawManifest(ids[0], 'bin_gzip_noop_push_v1', 'gzip', gzip, decoded),
+    rawManifest(ids[1], 'bin_zstd_noop_push_v1', 'zstd', zstd, decoded),
+    rawManifest(ids[2], 'bin_zstd_noop_push_v1', 'zstd', gzip, decoded)]
+    .map((row) => ({ ...row, sha256: '' }));
+  for (const row of rows) row.sha256 = await digest(decoded);
+  const { rest, raw } = await intakeHarness(rows, new Map([[ids[0], gzip], [ids[1], zstd], [ids[2], gzip]]));
+  const report = await reconcileIntake(rest as any, raw);
+  assertEquals(report, { scanned: 3, verifiedIndexed: 2, deferred: 1 });
+  assertEquals(rest.rowCount('noop_signal_windows'), 2);
+  for (const id of ids.slice(0, 2)) {
+    const row = rest.manifests.get(id);
+    assertEquals(row.status, 'ready');
+    assertEquals(row.durability_receipt.contentSha256, await digest(decoded));
+    assertEquals(row.durability_receipt.uncompressedBytes, decoded.length);
+  }
+  assertEquals(rest.manifests.get(ids[2]).status, 'failed');
+  assertEquals(rest.manifests.get(ids[2]).durability_receipt, undefined);
+});
+
+Deno.test('legacy HEAD reconciler cannot promote raw intake or bypass its atomic receipt verifier', async () => {
+  const rest = await memRest(['pending', 'uploaded', 'ready'].map((status) => ({
+    id: status, user_id: USER, object_key: status, object_class: 'raw', status,
+  })));
+  const before = structuredClone([...rest.manifests.values()]);
+  const report = await reconcileObjects({ rest: rest as any, verifyChecksums: true, objectStore: {
+    head: () => { throw new Error('raw intake must not use legacy HEAD reconciliation'); },
+    getObject: () => { throw new Error('raw intake must use the streaming verifier'); },
+  } as any });
+  assertEquals(report.marked_ready, 0);
+  assertEquals(report.marked_failed, 0);
+  assertEquals([...rest.manifests.values()], before);
+  assertEquals(rest.rowCount('noop_signal_windows'), 0);
 });
 
 Deno.test('derived checksum covers stored bytes and unknown digest contracts do not become ready', async () => {

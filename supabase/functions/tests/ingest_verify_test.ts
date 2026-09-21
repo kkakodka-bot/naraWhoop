@@ -1,5 +1,5 @@
 import { assertEquals, assert } from 'jsr:@std/assert';
-import { makeMemRest } from './helpers.ts';
+import { compressFor, fakeDurableArchive, makeFakeB2, makeMemRest } from './helpers.ts';
 import { buildIngestVerifyReport } from '../_shared/ingestVerify.ts';
 import { authorizeWorkerRequest } from '../_shared/workerAuth.ts';
 
@@ -130,7 +130,26 @@ async function physiologyFixture({ worker = { version: PHYSIOLOGY, last_poll_at:
   last_score_at: null, last_error: null } as any, work = [] as any[], result = snapshot() as any,
   failedRead = '' } = {}) {
   const memory = makeMemRest();
-  await memory.upsert('noop_push_acks', { user_id: USER, batch_id: 'receipt', saved_at: NOW.toISOString() });
+  const objectId = '33333333-3333-4333-8333-333333333333';
+  const key = `v3/core/users/${USER}/devices/${PRIVATE_DEVICE}/hrSample/verified/${objectId}/archive.json.gz`;
+  const bytes = compressFor('gzip', new TextEncoder().encode('{"type":"batch","stream":"hrSample"}\n{"ts":1789041600,"bpm":60}\n'));
+  const b2 = makeFakeB2({ now: () => NOW });
+  await b2.s3.putObject(key, bytes);
+  const archive = fakeDurableArchive({ body: bytes, key, userId: USER, deviceId: PRIVATE_DEVICE,
+    objectId, batchId: objectId, sourceId: '44444444-4444-4444-8444-444444444444', stream: 'hrSample', schemaVersion: 1 });
+  const receipt = { ...archive.durabilityReceipt, verifiedAt: NOW.toISOString(), indexedAt: NOW.toISOString() };
+  await memory.upsert('object_manifests', {
+    id: objectId, user_id: USER, device_id: PRIVATE_DEVICE, period_day: DAY, object_key: key,
+    object_class: 'raw', object_kind: 'hrSample', format: 'ndjson_gzip_noop_push_v1', status: 'ready',
+    compressed_bytes: bytes.length, sha256: receipt.wireSha256, sha256_source: 'server_verified',
+    indexed_at: receipt.indexedAt, durability_receipt: receipt,
+  });
+  await memory.upsert('noop_signal_windows', { user_id: USER, device_id: PRIVATE_DEVICE, object_id: objectId, object_key: key });
+  await memory.upsert('noop_projection_debt', { user_id: USER, object_id: objectId, state: 'complete' });
+  await memory.upsert('noop_push_wal', { user_id: USER, batch_id: objectId, device_id: PRIVATE_DEVICE,
+    stream: 'hrSample', record_count: 1, body_sha256: receipt.contentSha256, received_at: NOW.toISOString() });
+  await memory.upsert('noop_push_acks', { user_id: USER, batch_id: objectId, body_sha256: receipt.contentSha256,
+    ack: { status: 'accepted', durabilityReceipt: receipt }, saved_at: NOW.toISOString() });
   await memory.upsert('daily_metrics', { user_id: USER, day: DAY });
   // A live legacy worker must not mask a dead v2 worker.
   await memory.upsert('scoring_service_heartbeats', { id: 1, version: 'frwhoop-server-1', last_poll_at: NOW.toISOString() });
@@ -157,7 +176,7 @@ async function physiologyFixture({ worker = { version: PHYSIOLOGY, last_poll_at:
       return result;
     },
   };
-  const report = await buildIngestVerifyReport({ rest: rest as any, objectStore: null, userId: USER, day: DAY, now: NOW });
+  const report = await buildIngestVerifyReport({ rest: rest as any, objectStore: b2.s3, userId: USER, day: DAY, now: NOW });
   return { report, requests };
 }
 
