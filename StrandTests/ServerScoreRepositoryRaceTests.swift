@@ -99,6 +99,22 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
         XCTAssertFalse(CloudScoreIdentity.overlayLive)
     }
 
+    func testShadowServerKeepsLocalComputationEnabled() {
+        let priorSetting = UserDefaults.standard.object(forKey: ServerScoringSettings.defaultsKey)
+        let priorOverlay = CloudScoreIdentity.overlayLive
+        defer {
+            if let priorSetting { UserDefaults.standard.set(priorSetting, forKey: ServerScoringSettings.defaultsKey) }
+            else { UserDefaults.standard.removeObject(forKey: ServerScoringSettings.defaultsKey) }
+            CloudScoreIdentity.markOverlayLive(priorOverlay)
+        }
+
+        ServerScoringSettings.setEnabled(true)
+        CloudScoreIdentity.markOverlayLive(false)
+        XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
+        CloudScoreIdentity.markOverlayLive(true)
+        XCTAssertTrue(ServerScoringSettings.skipsSyncCoupledRescore)
+    }
+
     func testEnrollmentPendingAndFailedStatesAreNotFlattenedIntoSuccess() async throws {
         for (processing, expected) in [("running", ServerScoreDayState.Phase.pending), ("exhausted", .failed)] {
             let auth = Auth(ownerA)

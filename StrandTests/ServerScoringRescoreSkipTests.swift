@@ -40,10 +40,10 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
         XCTAssertTrue(ServerScoringSettings.isEnabled)
     }
 
-    func testHostedModeSuppressesCompetingAutomaticLocalRescore() {
+    func testOnlyLiveAuthorizedServerOverlaySuppressesLocalRescore() {
         ServerScoringSettings.setEnabled(true)
         CloudScoreIdentity.markOverlayLive(false)
-        XCTAssertTrue(ServerScoringSettings.skipsSyncCoupledRescore)
+        XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
         CloudScoreIdentity.markOverlayLive(true)
         XCTAssertTrue(ServerScoringSettings.skipsSyncCoupledRescore)
         CloudScoreIdentity.markOverlayLive(false)
@@ -54,13 +54,21 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
         XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
     }
 
-    func testHostedModeSettlesObsoleteLocalRescoreDebt() {
+    func testLiveAuthorizedServerOverlaySettlesObsoleteLocalRescoreDebt() {
         ServerScoringSettings.setEnabled(true)
         CloudScoreIdentity.markOverlayLive(true)
         _ = RescoreBackgroundScheduler.markRescoreOwed()
         XCTAssertFalse(RescoreBackgroundScheduler.isRescoreOwed)
         ServerScoringSettings.settleSkippedLocalRescoreDebt()
         XCTAssertFalse(RescoreBackgroundScheduler.isRescoreOwed)
+    }
+
+    func testShadowServerOverlayPreservesLocalRescoreDebt() {
+        ServerScoringSettings.setEnabled(true)
+        CloudScoreIdentity.markOverlayLive(false)
+        _ = RescoreBackgroundScheduler.markRescoreOwed()
+        ServerScoringSettings.settleSkippedLocalRescoreDebt()
+        XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
     }
 
     func testSettleSkippedLocalRescoreDebtNoOpWhenFlagOff() {

@@ -13,9 +13,10 @@ enum ServerScoringSettings {
     /// During an active offload, flush push at most once per this interval (spec: ≤10 s).
     static let syncPushIntervalSeconds: TimeInterval = 10
 
-    /// In hosted mode, core physiological score computation is owned by the VPS.
-    /// Pending server results must not trigger a competing phone score pass.
-    static var skipsSyncCoupledRescore: Bool { isEnabled }
+    /// Suppress phone computation only after an authorized server overlay is actually live.
+    /// A configured but shadow/unqualified server must keep the existing local path running;
+    /// otherwise an enrollment can permanently blank new days while returning no canonical scores.
+    static var skipsSyncCoupledRescore: Bool { isEnabled && CloudScoreIdentity.overlayLive }
 
     /// Clear any in-flight deferred rescore debt when server scoring owns the score path.
     @MainActor
