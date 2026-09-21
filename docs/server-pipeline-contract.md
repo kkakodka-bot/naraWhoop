@@ -69,6 +69,14 @@ New forward repairs:
   calling the original private serializer; the older history-queue compatibility filter must not
   silently discard an independently claimed baseline day. Immutable retries and private RPC
   permissions remain enforced.
+- `20260921103000_server_publication_conflict_transport.sql`: translate stale publication fences
+  into bounded HTTP 409 responses. The real PostgREST negative test exposed an indefinite retry of
+  SQLSTATE `40001`; private lease/revision helpers retain that code, while public publication
+  wrappers roll back the failed attempt and return `PT409` using
+  [PostgREST's custom error contract](https://docs.postgrest.org/en/stable/references/errors.html#raise-errors-with-http-status-codes).
+- `20260921104000_server_unrepresentable_clock.sql`: preserve durable raw rows when the
+  historical queue cannot represent their sensor timestamp. Invalid or nonfinite clocks
+  produce no fabricated day or score; ordinary date conversion is unchanged.
 
 The local migration suite covers a fresh database and the repository's populated predecessor
 fixture. These fixtures do not establish the lineage of an uninspected hosted project.

@@ -38,7 +38,9 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     .update(`${jwtHeader}.${jwtBody}`).digest('base64url')}`;
   // PostgREST runs without Kong in this isolated test. Only the URL prefix is adapted.
   const rest = createSupabaseRest({ cfg: { supabaseUrl: restUrl!, supabaseServiceRoleKey: token },
-    fetchImpl: (input, init) => fetch(String(input).replace('/rest/v1/', '/'), init) });
+    fetchImpl: (input, init) => fetch(String(input).replace('/rest/v1/', '/'), {
+      ...init,signal:AbortSignal.timeout(15_000),
+    }) });
   for (let attempt = 0; attempt < 60; attempt++) {
     try { await rest.select('devices', 'select=id&limit=1'); break; }
     catch (error) { if (attempt === 59) throw error; await new Promise(resolve => setTimeout(resolve, 250)); }
@@ -161,12 +163,42 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
       assert.equal(result.daily.source_device_id,identity.deviceId);
       for (const feature of allFeatures) assert.equal(result.features[feature].device_id,identity.deviceId);
     }
+    // Serializer regression: the compatibility sleep table has a user/start/version key.
+    // Concurrent owned devices with the same start must retain separate immutable episodes.
+    await Promise.all(identities.slice(0,2).map(async(identity,index)=>{
+      const previous=await rest.rpc('server_scoring_for_device_day',{
+        p_user:owner,p_device:identity.deviceId,p_day:workerDay});
+      await rest.rpc('scoring_enqueue_legacy_fenced',{
+        p_user:owner,p_device:identity.deviceId,p_day:workerDay,p_timezone:'UTC',p_debounce_seconds:0});
+      const [claim]=await rest.rpc('scoring_legacy_claim_one',{
+        p_user:owner,p_device:identity.deviceId,p_day:workerDay});
+      await rest.rpc('engine_publish_legacy_fenced',{p_secret:'isolated-pipeline-only',p_payload:{
+        user_id:owner,device_id:identity.deviceId,day:workerDay,algorithm_version:'frwhoop-server-1',
+        input_revision:claim.input_revision,lease_token:claim.lease_token,run_id:claim.run_id,
+        daily_metrics:[previous.daily],sleep_nights:[{device_id:identity.deviceId,period_day:workerDay,
+          start_at:`${workerDay}T00:00:00Z`,end_at:`${workerDay}T08:00:00Z`,is_nap:false,
+          asleep_min:360+index*30,in_bed_min:480,stages:[],hypnogram:[]}],
+      }});
+      assert.equal(await rest.rpc('scoring_legacy_finish_work',{
+        p_user:owner,p_device:identity.deviceId,p_day:workerDay,p_revision:claim.input_revision,
+        p_lease_token:claim.lease_token,p_run_id:claim.run_id,p_outcome:'done'}),true);
+    }));
+    for (const [index,identity] of identities.slice(0,2).entries()) {
+      const result=await rest.rpc('server_scoring_for_device_day',{
+        p_user:owner,p_device:identity.deviceId,p_day:workerDay});
+      assert.equal(result.nights.length,1);
+      assert.equal(result.nights[0].device_id,identity.deviceId);
+      assert.equal(result.nights[0].asleep_min,360+index*30);
+    }
     // The forward serializer repair must retain private entrypoints, immutable retries,
     // and the same live revision/lease checks even when the history queue owns a key.
     assert.equal(await sql(`select has_function_privilege('service_role',
       'internal.engine_ingest_scored(text,jsonb)','EXECUTE');`),'f');
     assert.equal(await sql(`select has_function_privilege('service_role',
       'public.engine_ingest_scored_legacy_internal(text,jsonb)','EXECUTE');`),'f');
+    for (const name of ['engine_publish_legacy_fenced','engine_publish_physiology']) {
+      assert.equal(await sql(`select has_function_privilege('service_role','internal.${name}(text,jsonb)','EXECUTE');`),'f');
+    }
     await assert.rejects(()=>rest.rpc('engine_ingest_scored',{
       p_secret:'isolated-pipeline-only',p_payload:{}}),/token-aware baseline publication required/);
     const retained=JSON.parse(await sql(`select payload from server_physiology_results where user_id='${owner}'
@@ -186,8 +218,10 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
       and input_revision=${claim.input_revision};`),first.payload_hash,'retry cannot mutate accepted snapshot');
     await rest.rpc('scoring_enqueue_legacy_fenced',{
       p_user:owner,p_device:device,p_day:workerDay,p_timezone:'UTC',p_debounce_seconds:0});
+    const conflictStarted=performance.now();
     await assert.rejects(()=>rest.rpc('engine_publish_legacy_fenced',{
-      p_secret:'isolated-pipeline-only',p_payload:fenced}),/stale scoring lease or input revision/);
+      p_secret:'isolated-pipeline-only',p_payload:fenced}),/\(409\) stale scoring lease or input revision/);
+    assert.ok(performance.now()-conflictStarted<5000,'stale lease is a bounded conflict, not a PostgREST retry loop');
   }
   // Test-only signed evidence uses the real signature verifier and selection guard.
   await sql(`create schema pipeline_test; revoke all on schema pipeline_test from public;
@@ -238,6 +272,8 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     await rest.rpc('engine_publish_physiology',{p_secret:'isolated-pipeline-only',p_payload:payload});
     assert.equal(await rest.rpc('scoring_finish_work',{p_user:owner,p_device:device,p_day:day,p_revision:claim.input_revision,
       p_lease_token:claim.lease_token,p_run_id:claim.run_id,p_outcome:'done',p_duration_ms:1,p_error:null}),true);
+    await assert.rejects(()=>rest.rpc('engine_publish_physiology',{
+      p_secret:'isolated-pipeline-only',p_payload:payload}),/\(409\) stale scoring lease or input revision/);
   }
   await publish();
   await capture('shadow',[]);
