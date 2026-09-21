@@ -8,13 +8,15 @@ import { fixture, sourceFixture } from './sync-evidence-fixtures.mjs';
 import { candidateSelector, checkLive } from './check-sync-live.mjs';
 import { REQUIRED_MIGRATIONS } from './sync-evidence-contract.mjs';
 import { SUPPORTED_LEDGER_BASENAMES } from './sync-migration-ledger.mjs';
+import { MIGRATION_CATALOG } from './scoring-migration-catalog.mjs';
+const ledgerRows = () => MIGRATION_CATALOG.map(({basename,sha256}) => ({version:basename,sha256}));
 
 const scripts = path.dirname(fileURLToPath(import.meta.url));
 function subprocessFixture(t) {
   const f = fixture(t), root = path.join(f.directory, 'fake-repo'), bin = path.join(f.directory, 'bin');
   const scriptDir = path.join(root, 'infra/vps/scripts');
   sourceFixture(root); fs.mkdirSync(scriptDir, { recursive: true }); fs.mkdirSync(bin);
-  for (const name of ['phase3-acceptance-checks.sh', 'verify-sync-evidence.mjs', 'sync-evidence-contract.mjs', 'sync-migration-ledger.mjs', 'check-sync-sources.mjs', 'check-sync-live.mjs', 'scorer-image-release.mjs']) {
+  for (const name of ['phase3-acceptance-checks.sh', 'verify-sync-evidence.mjs', 'sync-evidence-contract.mjs', 'sync-migration-ledger.mjs', 'scoring-migration-catalog.mjs', 'scoring-migration-catalog.json', 'check-sync-sources.mjs', 'check-sync-live.mjs', 'scorer-image-release.mjs']) {
     fs.copyFileSync(path.join(scripts, name), path.join(scriptDir, name));
   }
   // PATH has NO system directory and thus no real SSH/Gradle fallback.
@@ -35,9 +37,14 @@ function subprocessFixture(t) {
     const file=process.env.FIXTURE_RESPONSES; const responses=JSON.parse(fs.readFileSync(file));
     if (!responses.length) process.exit(99);
     const response=responses.shift(); fs.writeFileSync(file, JSON.stringify(responses));
-    if (response.signal) process.kill(process.pid, response.signal);
-    process.stdout.write(response.raw === undefined ? JSON.stringify(response.value) : response.raw);
-    process.exit(response.exit || 0);`);
+    if (response.signal) {
+      // Let the OS deliver the signal; an immediate process.exit(0) can win that race.
+      process.kill(process.pid, response.signal); setInterval(() => {}, 1000);
+    } else {
+      // Flush oversized output so the parent observes its real maxBuffer failure.
+      process.stdout.write(response.raw === undefined ? JSON.stringify(response.value) : response.raw,
+        () => process.exit(response.exit || 0));
+    }`);
   for (const module of ['android', 'scoring-service']) {
     fs.mkdirSync(path.join(root, module), { recursive: true });
     writeExecutable(path.join(root, module, 'gradlew'), `${recorder}
@@ -51,7 +58,7 @@ function subprocessFixture(t) {
   fs.writeFileSync(key, 'NOT A REAL KEY'); fs.writeFileSync(hosts, 'NOT A REAL HOST KEY');
   const c = f.evidence.canary;
   const replies = [
-    { workItems: true, heartbeats: true, ingest: true }, [...REQUIRED_MIGRATIONS],
+    { workItems: true, heartbeats: true, ingest: true }, ledgerRows(),
     { containerId: f.evidence.server.containerId, running: true, imageId: f.evidence.server.dockerImageId,
       imageReference: f.imageFixture.release.image.reference, revision: f.evidence.server.commit, ports: {}, networkMode: 'synthetic-internal' },
     [`fixture.invalid/scorer@${f.evidence.server.imageDigest}`],
@@ -133,18 +140,18 @@ test('remote success binds reviewed selector, strict SSH identity, image and exa
 
 test('runner-basename ledger passes subprocess boundary and preserves exact raw rows in result', t => {
   const f = subprocessFixture(t);
-  f.replies[1].value = [...SUPPORTED_LEDGER_BASENAMES];
+  f.replies[1].value = ledgerRows();
   f.evidence.server.migrationLedgerRaw = [...SUPPORTED_LEDGER_BASENAMES];
-  f.evidence.server.migrations = SUPPORTED_LEDGER_BASENAMES.map(name => name.slice(0, 14));
+  f.evidence.server.migrations = [...SUPPORTED_LEDGER_BASENAMES];
   const r = f.run('--remote'); assert.equal(r.status, 0, r.output);
   const result = JSON.parse(r.stdout.trim().split('\n').at(-1));
-  assert.deepEqual(result.migrationLedger.observedRaw, SUPPORTED_LEDGER_BASENAMES);
+  assert.deepEqual(result.migrationLedger.observedRaw, ledgerRows());
   assert.deepEqual(result.migrationLedger.recordedRaw, f.evidence.server.migrationLedgerRaw);
   assert.deepEqual(result.migrationLedger.canonicalIDs, f.evidence.server.migrations);
 });
 test('live ledger rejects mixed-representation duplicates, arbitrary truncation and extra canonical IDs', t => {
   const f = subprocessFixture(t);
-  const requiredNames = REQUIRED_MIGRATIONS.map(id => SUPPORTED_LEDGER_BASENAMES.find(name => name.startsWith(id + '_')));
+  const requiredNames = ledgerRows();
   for (const ledger of [[...REQUIRED_MIGRATIONS, requiredNames[0]], [...requiredNames, requiredNames[0]],
     [requiredNames[0] + '.backup', ...requiredNames.slice(1)], [...REQUIRED_MIGRATIONS, '20260801000000'],
     ...requiredNames.map((_, missing) => requiredNames.filter((_, index) => index !== missing))]) {

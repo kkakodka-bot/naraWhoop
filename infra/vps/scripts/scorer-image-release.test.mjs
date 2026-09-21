@@ -265,7 +265,7 @@ test('fixed command runner rejects nonzero, signal, timeout and oversized succes
 });
 test('actual deploy CLI rejects invalid image manifest before deployment configuration can execute', t => {
   const root = local(t), repo = path.join(root, 'repo'), dir = path.join(repo, 'infra/vps/scripts'); fs.mkdirSync(dir, { recursive: true });
-  for (const name of ['deploy-scoring-service.sh', 'scorer-image-release.mjs', 'sync-evidence-contract.mjs']) fs.copyFileSync(path.join(scripts, name), path.join(dir, name));
+  for (const name of ['deploy-scoring-service.sh', 'scorer-image-release.mjs', 'sync-evidence-contract.mjs', 'scoring-migration-catalog.mjs', 'scoring-migration-catalog.json']) fs.copyFileSync(path.join(scripts, name), path.join(dir, name));
   fs.writeFileSync(path.join(repo, 'infra/vps/droplet.env'), 'echo CONFIG_EXECUTED; exit 88\n');
   fs.writeFileSync(path.join(root, 'bad.json'), '{}');
   const bin = path.join(root, 'bin'); fs.mkdirSync(bin); fs.symlinkSync(process.execPath, path.join(bin, 'node')); fs.symlinkSync('/usr/bin/dirname', path.join(bin, 'dirname'));
@@ -294,48 +294,63 @@ test('pinned deployment uses the exact digest, preserves pin, never rebuilds or 
   assert.throws(() => deployPinned({ manifest: f.filename, host: 'fixture.invalid', key, knownHosts }, () => { throw new Error('NOT_READY: pull failed'); }), /NOT_READY/);
 });
 
-test('actual deployment entrypoint supports pinned and legacy modes on a PATH containing only mocks', t => {
+test('actual deployment rejects incompatible single-worker manifests and archives exact source for all three lanes', t => {
   const root = local(t), repo = path.join(root, 'repo'), dir = path.join(repo, 'infra/vps/scripts');
   fs.mkdirSync(dir, { recursive: true });
-  for (const name of ['deploy-scoring-service.sh', 'scorer-image-release.mjs', 'sync-evidence-contract.mjs']) fs.copyFileSync(path.join(scripts, name), path.join(dir, name));
+  for (const name of ['deploy-scoring-service.sh', 'scorer-image-release.mjs', 'sync-evidence-contract.mjs', 'scoring-migration-catalog.mjs', 'scoring-migration-catalog.json']) fs.copyFileSync(path.join(scripts, name), path.join(dir, name));
   const f = releaseFixture(path.join(root, 'release'));
   fs.writeFileSync(path.join(repo, 'infra/vps/droplet.env'), 'DROPLET_IP=fixture.invalid\n');
   fs.mkdirSync(path.join(repo, 'infra/vps/keys')); fs.writeFileSync(path.join(repo, 'infra/vps/keys/frwhoop_deploy'), 'SYNTHETIC KEY');
   const hosts = path.join(root, 'known-hosts'); fs.writeFileSync(hosts, 'SYNTHETIC HOSTS');
   const bin = path.join(root, 'bin'); fs.mkdirSync(bin); fs.symlinkSync(process.execPath, path.join(bin, 'node')); fs.symlinkSync('/usr/bin/dirname', path.join(bin, 'dirname'));
   const record = path.join(root, 'calls.jsonl');
-  for (const name of ['ssh', 'scp', 'rsync']) fs.writeFileSync(path.join(bin, name), `#!${process.execPath}\n
+  for (const name of ['ssh', 'scp', 'rsync', 'python3', 'git']) fs.writeFileSync(path.join(bin, name), `#!${process.execPath}\n
     const fs=require('node:fs'); const args=process.argv.slice(2); const command=args.at(-1);
     const stdin=fs.readFileSync(0,'utf8');
     fs.appendFileSync(${JSON.stringify(record)},JSON.stringify({program:${JSON.stringify(name)},args,stdin})+'\\n');
-    if(command.includes('ps -q')) process.stdout.write('${'c'.repeat(64)}\\n');
+    if(${JSON.stringify(name)}==='python3') process.stdout.write('fixture.invalid|22\\n');
+    else if(${JSON.stringify(name)}==='git'&&args.includes('rev-parse')) process.stdout.write('${'a'.repeat(40)}\\n');
+    else if(${JSON.stringify(name)}==='git'&&args.includes('archive')) process.stdout.write('EXACT_COMMITTED_ARCHIVE');
+    else if(command.includes('mktemp -d')) process.stdout.write('/opt/frwhoop/build/frwhoop-scoring/${'a'.repeat(40)}.aaaaaa\\n');
+    else if(command.includes('ps -q')) process.stdout.write('${'c'.repeat(64)}\\n');
     else if(command.startsWith('docker image inspect')) process.stdout.write(${JSON.stringify(JSON.stringify(f.inspection))});
     else if(command.startsWith('docker inspect --type container')) process.stdout.write(${JSON.stringify(JSON.stringify({ id: 'c'.repeat(64), running: true, imageId: f.release.image.configId, imageReference: f.release.image.reference }))});
   `, { mode: 0o700 });
   const env = { PATH: bin, TMPDIR: root, SCORER_KNOWN_HOSTS: hosts };
-  const invoke = args => {
+  const invoke = (args, expectedStatus = 0) => {
     fs.writeFileSync(record, '');
     const r = spawnSync('/bin/bash', [path.join(dir, 'deploy-scoring-service.sh'), ...args], { env, encoding: 'utf8', timeout: 10_000 });
-    assert.equal(r.status, 0, r.stderr); assert.equal(r.signal, null);
-    return { ...r, calls: fs.readFileSync(record, 'utf8').trim().split('\n').map(JSON.parse) };
+    assert.equal(r.status, expectedStatus, r.stderr); assert.equal(r.signal, null);
+    const lines = fs.readFileSync(record, 'utf8').trim();
+    return { ...r, calls: lines ? lines.split('\n').map(JSON.parse) : [] };
   };
-  const pinned = invoke(['--image-manifest', f.filename]);
-  assert.match(pinned.stdout, /PINNED_DEPLOYMENT_SELECTED/); assert.match(pinned.stdout, /NOT_READY/);
-  assert.ok(pinned.calls.every(c => c.program === 'ssh'));
-  assert.ok(pinned.calls.some(c => c.args.at(-1).endsWith('up -d --no-build --no-deps --pull never scoring')));
-  assert.ok(pinned.calls.every(c => !c.args.at(-1).includes('docker build')));
-  const legacy = invoke([]);
-  assert.match(legacy.stderr, /Legacy mutable-image deployment: NOT_READY/);
-  assert.deepEqual(legacy.calls.map(c => c.program), ['ssh', 'rsync', 'rsync', 'scp', 'ssh']);
-  assert.match(legacy.calls.at(-1).stdin, /docker build -t frwhoop\/scoring-service:latest/);
-  assert.match(legacy.calls.at(-1).stdin, /docker-compose\.scoring\.yml up -d scoring/);
+  const pinned = invoke(['--image-manifest', f.filename], 3);
+  assert.match(pinned.stdout, /IMAGE_PROVENANCE_VALIDATED/); assert.match(pinned.stderr, /single-worker self-hosted/);
+  assert.deepEqual(pinned.calls, []); // No configs, dependency starts, or SSH before rejection.
+  const exact = invoke([]);
+  assert.match(exact.stdout, /Deploy complete: a{40}/);
+  assert.ok(exact.calls.every(c => !['rsync','scp'].includes(c.program)));
+  const archive = exact.calls.find(c => c.program === 'git' && c.args.includes('archive'));
+  assert.equal(archive.args[archive.args.indexOf('archive')+1], 'a'.repeat(40));
+  assert.ok(exact.calls.some(c => c.program === 'ssh' && c.stdin === 'EXACT_COMMITTED_ARCHIVE'));
+  const lanes = exact.calls.filter(c => c.program === 'ssh' && c.args.includes('bash') && c.args.includes('-s') && c.args.length && c.stdin.includes('scoring_wait_for_progress'));
+  assert.deepEqual(lanes.map(c => c.args.at(-1)), ['scoring-physiology-v2','scoring-baseline-v1','scoring-history']);
+  for (const lane of lanes) {
+    assert.doesNotMatch(lane.stdin, /scoring-service:latest|rsync/);
+    assert.match(lane.stdin, /SCORING_EXPECTED_IMAGE_ID/);
+    assert.match(lane.stdin, /--check-config/);
+  }
 });
 
-test('actual Dockerfile final stage has revision and optional legacy-compatible base arguments', () => {
+test('actual Dockerfile binds either release-tool revision and rejects contradictory source labels', () => {
   const dockerfile = fs.readFileSync(path.resolve(scripts, '../../../scoring-service/Dockerfile'), 'utf8');
   assert.match(dockerfile, /ARG BUILD_IMAGE=eclipse-temurin:17-jdk-jammy/);
   assert.match(dockerfile, /ARG RUNTIME_IMAGE=eclipse-temurin:17-jre-jammy/);
-  assert.match(dockerfile, /FROM \$\{RUNTIME_IMAGE\}\nARG VCS_REF\nLABEL org\.opencontainers\.image\.revision="\$\{VCS_REF\}"/);
+  assert.match(dockerfile, /ARG VCS_REF\nARG RELEASE_SHA=\$\{VCS_REF\}/);
+  assert.match(dockerfile, /LABEL org\.opencontainers\.image\.revision=\$RELEASE_SHA/);
+  assert.match(dockerfile, /test -z "\$VCS_REF" \|\| test "\$VCS_REF" = "\$RELEASE_SHA"/);
+  assert.match(dockerfile, /> \/app\/release.sha && chmod 444/);
+  assert.match(dockerfile, /:service:installDist --no-daemon -x test -PscoringSourceRevision="\$RELEASE_SHA"/);
   assert.match(dockerfile, /ENTRYPOINT \["\/app\/bin\/service"\]/);
 });
 

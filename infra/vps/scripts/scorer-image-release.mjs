@@ -371,7 +371,7 @@ function argumentsFor(argv, names) {
   requireThat(names.every(name => name in result), 'required argument missing');
   return result;
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
   try {
     const [mode, ...args] = process.argv.slice(2);
     if (mode === 'validate') {

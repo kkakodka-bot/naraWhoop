@@ -3,6 +3,24 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+case "${1:-}" in
+  --preflight|--local|--remote)
+    [[ $# == 1 ]] || exit 2
+    node "$ROOT/infra/vps/scripts/verify-sync-evidence.mjs" "${SYNC_ACCEPTANCE_EVIDENCE:-}" || exit 3
+    [[ "$1" != --preflight ]] || exit 0
+    for task in :analytics-kernel:verifyKernelScope :analytics-kernel:test :service:test :service:installDist; do
+      (cd "$ROOT/scoring-service" && ./gradlew "$task" --no-daemon) || {
+        echo 'NOT_READY: native scoring command failed' >&2; exit 3;
+      }
+    done
+    node "$ROOT/infra/vps/scripts/check-sync-sources.mjs" "$ROOT" || exit 3
+    if [[ "$1" == --local ]]; then
+      echo 'LOCAL_CHECKS_PASSED; NOT_READY: separate whole-day parity and physical/deployment acceptance remain required'
+      exit 3
+    fi
+    exec node "$ROOT/infra/vps/scripts/check-sync-live.mjs"
+    ;;
+esac
 DROPLET_ENV="${ROOT}/infra/vps/droplet.env"
 SSH_KEY="${ROOT}/infra/vps/keys/frwhoop_deploy"
 LOCAL_ONLY=false
@@ -54,6 +72,9 @@ if [[ "$LOCAL_ONLY" == false ]]; then
     echo 'Cannot accept an exact release from a dirty checkout' >&2; exit 1;
   }
   RELEASE_SHA="$(git -C "$ROOT" rev-parse HEAD)"
+  [[ "${SCORING_IMAGE_ID:-}" =~ ^sha256:[0-9a-f]{64}$ && "${SCORING_BASELINE_IMAGE_ID:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+    echo 'NOT_READY: provide reviewed SCORING_IMAGE_ID and SCORING_BASELINE_IMAGE_ID from release evidence' >&2; exit 3;
+  }
   if ! {
     cat "${ROOT}/infra/vps/scripts/scoring-progress.sh"
     cat <<'REMOTE'
@@ -63,14 +84,20 @@ release_sha="$1"
 source /opt/frwhoop/secrets.env
 : "${SCORING_DATABASE_URL:?}"
 : "${SCORING_SUPABASE_URL:?}"
-candidate_environment="$(timeout 12 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' scoring-physiology-v2)"
-SCORING_WORKER_INSTANCE_ID="$(scoring_environment_value "$candidate_environment" SCORING_WORKER_INSTANCE_ID)"
-SCORING_WORKER_SOURCE_REVISION="$release_sha"
-unset candidate_environment
-scoring_assert_candidate "$release_sha"
-scoring_wait_for_progress "$release_sha"
+for version in frwhoop-server-1 frwhoop-physiology-2 frwhoop-server-2-history; do
+  SCORING_ALGORITHM_VERSION="$version"
+  scoring_lane
+  SCORING_EXPECTED_IMAGE_ID="$2"
+  [[ "$version" != frwhoop-server-1 ]] || SCORING_EXPECTED_IMAGE_ID="$3"
+  candidate_environment="$(timeout 12 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SCORING_CONTAINER_NAME")"
+  SCORING_WORKER_INSTANCE_ID="$(scoring_environment_value "$candidate_environment" SCORING_WORKER_INSTANCE_ID)"
+  SCORING_WORKER_SOURCE_REVISION="$release_sha"
+  unset candidate_environment
+  scoring_assert_candidate "$release_sha"
+  scoring_wait_for_progress "$release_sha"
+done
 REMOTE
-  } | ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA"; then
+  } | ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$SCORING_IMAGE_ID" "$SCORING_BASELINE_IMAGE_ID"; then
     echo 'NOT_READY: VPS identity/configuration/progress acceptance failed' >&2; exit 3
   fi
 else

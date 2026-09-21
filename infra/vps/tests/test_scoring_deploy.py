@@ -82,6 +82,7 @@ elif args[0] == 'inspect':
     elif 'com.docker.compose.project' in field: print(row.get('project','prior-project'))
     elif '.Name' in field: print('/' + row['name'])
     elif '.Id' in field: print(key)
+    elif '.Image' in field: print('sha256:' + 'a'*64)
     else: raise AssertionError(field)
 elif args[0] == 'stop':
     key,row = lookup(args[-1]); row['running'] = False; save()
@@ -106,7 +107,8 @@ elif args[0] == 'run' and 'psql' in args:
     assert 'public.physiology_service_heartbeats' not in body
     assert 'worker_instance_id=' + state['candidate_env']['SCORING_WORKER_INSTANCE_ID'] in args
     assert 'source_revision=' + 'a'*40 in args
-    assert "algorithm_version='frwhoop-physiology-2' limit 2" in body
+    assert "algorithm_version=:'algorithm_version' limit 2" in body
+    assert 'algorithm_version=frwhoop-physiology-2' in args
     assert "status in ('pending','running','retry','exhausted')" in body
     assert 'next_attempt_at<=clock_timestamp()' in body and 'lease_expires_at>clock_timestamp()' in body
     if scenario == 'database': sys.exit(1)
@@ -127,7 +129,8 @@ elif args[0] == 'run' and 'psql' in args:
     if n > 1 and scenario == 'two-processes': processes = 2; process_id = 'none'; poll = 0; score = 0
     if n > 2 and scenario == 'process-changed': process_id = '44444444-4444-4444-8444-444444444444'
     publication = 11 if score > 0 else 10
-    print('|'.join(map(str,[processes,process_id,poll,score,'t',int(debt),0,0,0,publication,1000])))
+    print('|'.join(map(str,[processes,process_id,poll,score,'t',int(debt),0,0,0,publication,1000,0,0])))
+elif args[0] == 'image' and args[1] == 'inspect': print('sha256:' + 'a'*64)
 elif args[0] == 'update':
     key,row = lookup(args[-1]); assert key == 'new-v2' and args[-1] == key
     if scenario == 'restart-policy': sys.exit(1)
@@ -147,6 +150,8 @@ class ScoringDeployTest(unittest.TestCase):
             (build / "infra/vps/templates").mkdir(parents=True)
             shutil.copy(VPS / "scripts/scoring-progress.sh", build / "infra/vps/scripts")
             shutil.copy(VPS / "scripts/remote/verify-scoring-runtime.sh", build / "infra/vps/scripts/remote")
+            shutil.copy(VPS / "scripts/scoring-hosted-query.py", build / "infra/vps/scripts")
+            shutil.copy(VPS / "scripts/remote/read-scoring-query.sh", build / "infra/vps/scripts/remote")
             shutil.copy(VPS / "templates/docker-compose.scoring-override.yml", build / "infra/vps/templates")
             compose = base / "scoring/docker-compose.yml"
             compose.parent.mkdir(parents=True)
@@ -157,6 +162,7 @@ class ScoringDeployTest(unittest.TestCase):
                 "SCORING_INGEST_SECRET='hosted-ingest'\n"
                 "INGEST_SECRET='wrong-local-ingest'\nSERVICE_ROLE_KEY='wrong-local-key'\n"
                 "SCORING_ACCEPT_SECONDS=15\n"
+                "SCORING_BASELINE_IMAGE=fixture.invalid/baseline@sha256:" + 'a'*64 + "\n"
             )
             if not missing_hosted_key:
                 secrets += "SCORING_SUPABASE_SERVICE_ROLE_KEY='hosted-key'\n"

@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 
@@ -15,6 +16,7 @@ ALLOWED = {
     PREFIX + "main/kotlin/com/frwhoop/scoring/db/ScoringWorkQueue.kt",
     PREFIX + "main/kotlin/com/frwhoop/scoring/derived/DerivedArtifactWriter.kt",
     PREFIX + "main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt",
+    PREFIX + "main/kotlin/com/frwhoop/scoring/health/HeartbeatReporter.kt",
     PREFIX + "test/kotlin/com/frwhoop/scoring/DerivedArtifactWriterTest.kt",
     PREFIX + "test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt",
     PREFIX + "test/kotlin/com/frwhoop/scoring/LegacyTransportTest.kt",
@@ -49,14 +51,15 @@ def mapper_digest(context):
     return hashlib.sha256(mapper).hexdigest()
 
 
-def prepare(repository, context, patch):
+def prepare(repository, context, patch, identity_patch=None):
     head = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()
     if head != BASELINE:
         raise ValueError(f"Expected exact baseline checkout {BASELINE}; got {head}")
     # A dirty input worktree cannot leak into this context: only committed baseline bytes are archived.
     if context.exists():
         raise ValueError(f"Build context must be a new directory: {context}")
-    numstat = subprocess.check_output(["git", "apply", "--numstat", "-z", str(patch)])
+    patches = [patch] + ([identity_patch] if identity_patch is not None else [])
+    numstat = b"".join(subprocess.check_output(["git", "apply", "--numstat", "-z", str(item)]) for item in patches)
     changed = set()
     for record in numstat.decode().split("\0"):
         if record:
@@ -73,8 +76,9 @@ def prepare(repository, context, patch):
         raise RuntimeError("Baseline git archive failed")
     before = frozen_digest(context)
     mapper_before = mapper_digest(context)
-    run(["git", "apply", "--check", str(patch)], cwd=context)
-    run(["git", "apply", str(patch)], cwd=context)
+    for item in patches:
+        run(["git", "apply", "--check", str(item)], cwd=context)
+        run(["git", "apply", str(item)], cwd=context)
     after = frozen_digest(context)
     if mapper_digest(context) != mapper_before:
         raise RuntimeError("Frozen baseline result mapping changed")
@@ -83,6 +87,7 @@ def prepare(repository, context, patch):
     provenance = {
         "baseline_commit": BASELINE,
         "transport_patch_sha256": hashlib.sha256(patch.read_bytes()).hexdigest(),
+        "identity_patch_sha256": hashlib.sha256(identity_patch.read_bytes()).hexdigest() if identity_patch else None,
         "frozen_files_sha256": before,
         "baseline_result_mapper_sha256": mapper_before,
         "changed_paths": sorted(changed),
@@ -101,9 +106,20 @@ def main():
     parser.add_argument("--context", type=Path, required=True, help="New isolated output directory; never overwritten")
     parser.add_argument("--build", action="store_true", help="Run baseline kernel/service tests and installDist")
     parser.add_argument("--image", help="Also build this local Docker image after Gradle succeeds; never push it")
+    parser.add_argument("--release-sha", help="Exact repair source commit for immutable image identity")
     args = parser.parse_args()
+    if args.image:
+        if not args.release_sha or not re.fullmatch(r"[0-9a-f]{40}", args.release_sha):
+            raise ValueError("--image requires the exact --release-sha of this repair")
+        repair_root = Path(__file__).resolve().parents[2]
+        for relative in ("scoring-service/legacy-baseline/build.py", "scoring-service/legacy-baseline/transport.patch",
+                         "scoring-service/legacy-baseline/runtime-identity.patch", "infra/vps/templates/Dockerfile.baseline"):
+            committed = subprocess.check_output(["git", "-C", str(repair_root), "show", args.release_sha + ":" + relative])
+            if committed != (repair_root / relative).read_bytes():
+                raise ValueError("Baseline build input differs from declared repair revision: " + relative)
     context = args.context.resolve()
-    provenance = prepare(args.repository.resolve(), context, Path(__file__).resolve().with_name("transport.patch"))
+    provenance = prepare(args.repository.resolve(), context, Path(__file__).resolve().with_name("transport.patch"),
+                         Path(__file__).resolve().with_name("runtime-identity.patch"))
     if args.build or args.image:
         run(["./gradlew", "--no-daemon", "--max-workers=1", ":analytics-kernel:test", ":service:test", ":service:installDist"],
             cwd=context / "scoring-service")
@@ -111,7 +127,11 @@ def main():
         provenance["database_integration_environment"] = bool(os.environ.get("PHYSIOLOGY_TEST_DATABASE_URL"))
         (context / "baseline-transport-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     if args.image:
-        run(["docker", "build", "-t", args.image, "-f", "scoring-service/Dockerfile", "."], cwd=context)
+        dockerfile = Path(__file__).resolve().parents[2] / "infra/vps/templates/Dockerfile.baseline"
+        run(["docker", "build", "-t", args.image, "-f", str(dockerfile),
+             "--build-arg", "RELEASE_SHA=" + args.release_sha,
+             "--build-arg", "TRANSPORT_PATCH_SHA256=" + provenance["transport_patch_sha256"],
+             "--build-arg", "IDENTITY_PATCH_SHA256=" + provenance["identity_patch_sha256"], "."], cwd=context)
     print(json.dumps(provenance, indent=2))
 
 

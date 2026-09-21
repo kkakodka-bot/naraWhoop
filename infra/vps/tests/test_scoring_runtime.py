@@ -17,14 +17,15 @@ WORKER = '11111111-1111-4111-8111-111111111111'
 PROCESS = '33333333-3333-4333-8333-333333333333'
 
 
-def snapshot(poll="p0", score="s0", healthy="t", eligible=0, lease=0, exhausted=0, delayed=0, publication=10):
+def snapshot(poll="p0", score="s0", healthy="t", eligible=0, lease=0, exhausted=0, delayed=0, publication=10, projection_pending=0, projection_age=0):
     return "|".join(map(str, [1, PROCESS, int(poll[1:])*10, int(score[1:])*10, healthy,
-                             eligible, lease, exhausted, delayed, publication, 1000]))
+                             eligible, lease, exhausted, delayed, publication, 1000, projection_pending, projection_age]))
 
 
 class ScoringRuntimeTest(unittest.TestCase):
     def run_check(self, rows, query_fails=False, duplicate=False, other_project=False, database_url=None,
-                  real_psql=None, expected_password="fixture-secret", query_seconds=0, expected_ssl=None, peer_url=None):
+                  real_psql=None, expected_password="fixture-secret", query_seconds=0, expected_ssl=None, peer_url=None,
+                  algorithm_version='frwhoop-physiology-2'):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "snapshots.json").write_text(json.dumps(rows))
@@ -39,10 +40,11 @@ if args[0] == 'inspect':
     if 'org.opencontainers.image.revision' in args[2]: print('a' * 40)
     elif '.State.Running' in args[2]: print('true')
     elif '.RestartCount' in args[2]: print('0')
-    elif '.Config.Cmd' in args[2]: print('[]')
+    elif '.Config.Cmd' in args[2]: print('["--history"]' if os.environ['MOCK_VERSION']=='frwhoop-server-2-history' else '[]')
     elif '.Id' in args[2]: print('current-id')
+    elif '.Image' in args[2]: print('sha256:' + 'a'*64)
     elif '.Config.Env' in args[2]:
-        print('SCORING_ALGORITHM_VERSION=frwhoop-physiology-2')
+        print('SCORING_ALGORITHM_VERSION=' + os.environ['MOCK_VERSION'])
         print('DATABASE_URL=' + os.environ['MOCK_DATABASE_URL'])
         print('SCORING_WORKER_INSTANCE_ID=11111111-1111-4111-8111-111111111111')
         print('SCORING_WORKER_SOURCE_REVISION=' + 'a'*40)
@@ -60,7 +62,7 @@ elif args[0] == 'run':
     if os.environ.get('EXPECTED_SSL'): assert os.environ['PGSSLMODE'] == os.environ['EXPECTED_SSL']
     (root / 'clock').write_text(str(int((root / 'clock').read_text()) + int(os.environ['QUERY_SECONDS'])))
     query = sys.stdin.read()
-    assert 'physiology_archive_outbox' in query
+    assert ('scoring_snapshots_v2' if os.environ['MOCK_VERSION']=='frwhoop-server-2-history' else 'physiology_archive_outbox') in query
     if os.environ.get('REAL_PSQL'):
         result = subprocess.run([os.environ['REAL_PSQL']] + args[args.index('psql') + 1:],
                                 input=query, text=True, capture_output=True)
@@ -86,6 +88,7 @@ else: raise AssertionError(args)
                        OTHER_PROJECT=str(int(other_project)), SCORING_VERIFY_TIMEOUT_SECONDS="15",
                        EXPECTED_PASSWORD=expected_password, QUERY_SECONDS=str(query_seconds), EXPECTED_SSL=expected_ssl or "",
                        PEER_URL=peer_url or "",
+                       MOCK_VERSION=algorithm_version,
                        MOCK_DATABASE_URL=database_url or 'postgresql://postgres:fixture-secret@db.example/postgres?sslmode=require')
             if real_psql:
                 env['REAL_PSQL'] = real_psql
@@ -95,7 +98,7 @@ else: raise AssertionError(args)
                                "SCORING_SUPABASE_URL='https://" + 'a'*20 + ".supabase.co/rest/v1'\n")
             wrapper = root / 'verify.sh'
             wrapper.write_text(SCRIPT.read_text().replace('source /opt/frwhoop/secrets.env', 'source "' + str(secrets) + '"'))
-            result = subprocess.run(["bash", str(wrapper), SHA], text=True, capture_output=True, env=env, timeout=20)
+            result = subprocess.run(["bash", str(wrapper), SHA, 'sha256:' + 'a'*64, algorithm_version], text=True, capture_output=True, env=env, timeout=20)
             commands = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
             result.local_psql_error = (root / "local-psql-error").read_text() if (root / "local-psql-error").exists() else "client was not reached"
             result.mock_commands = commands
@@ -155,6 +158,19 @@ else: raise AssertionError(args)
         result = self.run_check([snapshot(eligible=1), snapshot(poll="p1", score="s1", healthy="f", publication=11),
                                  snapshot(poll="p2", score="s2", healthy="f", publication=12)])
         self.assertNotEqual(result.returncode, 0)
+
+    def test_healthy_polls_cannot_hide_projection_stall(self):
+        result = self.run_check([snapshot(projection_pending=1, projection_age=300)])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Projection stalled', result.stderr)
+
+    def test_baseline_and_history_have_separate_version_bound_progress(self):
+        for version in ('frwhoop-server-1','frwhoop-server-2-history'):
+            result = self.run_check([snapshot(eligible=1),snapshot(poll='p1',eligible=1),
+                                     snapshot(poll='p2',score='s1',publication=11)], algorithm_version=version)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            queries = [command for command in result.mock_commands if command[0]=='run']
+            self.assertTrue(all('algorithm_version=' + version in command for command in queries))
 
     def test_query_failure_does_not_leak_uri_or_pass(self):
         result = self.run_check([snapshot()], query_fails=True)
@@ -221,13 +237,18 @@ class RuntimeQueryTest(unittest.TestCase):
                         "-o", f"-h 127.0.0.1 -p {cls.port} -k /tmp", "-w", "start"], check=True, capture_output=True)
         cls.addClassCleanup(cls.cleanup_database)
         cls.query = HELPER.read_text().split("<<'SQL'\n", 1)[1].split("\nSQL\n", 1)[0]
-        cls.query = cls.query.replace(":'worker_instance_id'", "'" + WORKER + "'").replace(":'source_revision'", "'" + SHA + "'")
+        cls.query = cls.query.replace(":'worker_instance_id'", "'" + WORKER + "'").replace(":'source_revision'", "'" + SHA + "'").replace(":'algorithm_version'", "'frwhoop-physiology-2'")
         cls.sql("""create table physiology_service_heartbeats(id integer,version text,last_poll_at timestamptz,
           last_score_at timestamptz,last_error text);
           insert into physiology_service_heartbeats values(1,'frwhoop-physiology-2',now(),null,null);
           create table physiology_work_items(status text,done_at timestamptz,failure_revision bigint,
             input_revision bigint,consecutive_failures integer,lease_expires_at timestamptz,next_attempt_at timestamptz);
           create table physiology_archive_outbox(id bigint,algorithm_version text);
+          create table noop_projection_debt(state text,created_at timestamptz);
+          create table scoring_work_items(like physiology_work_items);
+          create table scoring_jobs_v2(algorithm_version text,dead_letter boolean,lease_until timestamptz,
+            input_revision bigint,completed_revision bigint,consecutive_failures integer,not_before timestamptz);
+          create table scoring_snapshots_v2(result_revision bigint,algorithm_version text);
           create table physiology_worker_heartbeats(worker_instance_id uuid,process_instance_id uuid,
             source_revision text,algorithm_version text,last_poll_at timestamptz,last_score_at timestamptz,last_error text);""")
         cls.sql(f"insert into physiology_worker_heartbeats values('{WORKER}','{PROCESS}','{SHA}','frwhoop-physiology-2',now(),null,null);")
@@ -265,6 +286,16 @@ class RuntimeQueryTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("retry-exhausted scoring debt remains (1 items)", result.stderr.lower(),
                       result.local_psql_error + repr(result.mock_commands))
+
+    def test_real_postgres_baseline_and_history_queries_read_their_own_debt(self):
+        self.sql("""insert into scoring_work_items values
+          ('exhausted',null,1,1,8,null,now()-interval '1 second');
+          insert into scoring_jobs_v2 values('frwhoop-server-2-history',true,null,1,0,8,now());""")
+        for version in ('frwhoop-server-1','frwhoop-server-2-history'):
+            self.sql(f"insert into physiology_worker_heartbeats values('{WORKER}','{PROCESS}','{SHA}','{version}',now(),null,null);")
+            result = ScoringRuntimeTest().run_check([], database_url=f"postgresql://postgres:fixture-secret@127.0.0.1:{self.port}/postgres",
+                                                   real_psql=shutil.which('psql'),algorithm_version=version)
+            self.assertIn('retry-exhausted scoring debt remains (1 items)', result.stderr.lower(),result.local_psql_error)
 
 
 if __name__ == "__main__":

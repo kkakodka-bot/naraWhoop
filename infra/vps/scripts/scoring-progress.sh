@@ -11,14 +11,25 @@ scoring_project_host() {
 
 scoring_monotonic_seconds() { python3 -c 'import time; print(int(time.monotonic()))'; }
 
+scoring_lane() {
+  case "${SCORING_ALGORITHM_VERSION:-frwhoop-physiology-2}" in
+    frwhoop-server-1) SCORING_ALGORITHM_VERSION=frwhoop-server-1; SCORING_CONTAINER_NAME=scoring-baseline-v1 ;;
+    frwhoop-physiology-2) SCORING_ALGORITHM_VERSION=frwhoop-physiology-2; SCORING_CONTAINER_NAME=scoring-physiology-v2 ;;
+    frwhoop-server-2-history) SCORING_ALGORITHM_VERSION=frwhoop-server-2-history; SCORING_CONTAINER_NAME=scoring-history ;;
+    *) return 1 ;;
+  esac
+  export SCORING_ALGORITHM_VERSION SCORING_CONTAINER_NAME
+}
+
 scoring_worker_ids() {
+  scoring_lane || return 1
   local id mode environment ids endpoint host intended
   intended="$(scoring_project_host "${SCORING_SUPABASE_URL:-}")" || return 1
   ids="$(timeout 12 docker ps --no-trunc "$1")" || return 1
   while read -r id; do
     [[ -n "$id" ]] || continue
     environment="$(timeout 12 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$id")" || return 1
-    if grep -Fxq 'SCORING_ALGORITHM_VERSION=frwhoop-physiology-2' <<<"$environment"; then
+    if grep -Fxq "SCORING_ALGORITHM_VERSION=$SCORING_ALGORITHM_VERSION" <<<"$environment"; then
       mode="$(timeout 12 docker inspect -f '{{json .Config.Cmd}}' "$id")" || return 1
       # Optional-model and archive lanes are independent processes, not replacement targets.
       case "$mode" in
@@ -51,12 +62,17 @@ scoring_identity_valid() {
 }
 
 scoring_assert_candidate() {
-  local release_sha="$1" container="scoring-physiology-v2" ports running candidate_id mode environment
+  scoring_lane || return 1
+  local release_sha="$1" container="$SCORING_CONTAINER_NAME" ports running candidate_id mode environment
   [[ "$(timeout 12 docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container")" == "$release_sha" ]] || return 1
   [[ "$(timeout 12 docker inspect -f '{{.State.Running}}' "$container")" == true ]] || return 1
   [[ "$(timeout 12 docker inspect -f '{{.RestartCount}}' "$container")" == 0 ]] || return 1
   mode="$(timeout 12 docker inspect -f '{{json .Config.Cmd}}' "$container")" || return 1
-  [[ "$mode" == '[]' || "$mode" == null ]] || return 1
+  if [[ "$SCORING_ALGORITHM_VERSION" == frwhoop-server-2-history ]]; then
+    [[ "$mode" == '["--history"]' ]] || return 1
+  else [[ "$mode" == '[]' || "$mode" == null ]] || return 1; fi
+  [[ "${SCORING_EXPECTED_IMAGE_ID:-}" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+  [[ "$(timeout 12 docker inspect -f '{{.Image}}' "$container")" == "$SCORING_EXPECTED_IMAGE_ID" ]] || return 1
   ports="$(timeout 12 docker port "$container")" || return 1
   [[ -z "$ports" ]] || return 1
   environment="$(timeout 12 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container")" || return 1
@@ -77,6 +93,7 @@ scoring_assert_candidate() {
 }
 
 scoring_progress_snapshot() {
+  scoring_lane || return 1
   scoring_identity_valid || return 1
   local database_url="${SCORING_DATABASE_URL#jdbc:}"
   export SCORING_WORKER_INSTANCE_ID SCORING_WORKER_SOURCE_REVISION
@@ -121,9 +138,18 @@ try:
     command = ["docker", "run", "--rm", "-i"]
     for name in fields: command.extend(["--env", name])
     command.extend(["postgres:17-alpine", "psql", "-X", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|", "-f", "-"])
+    version = os.environ["SCORING_ALGORITHM_VERSION"]
     command.extend(["-v", "worker_instance_id=" + os.environ["SCORING_WORKER_INSTANCE_ID"],
-                    "-v", "source_revision=" + os.environ["SCORING_WORKER_SOURCE_REVISION"]])
-    sys.exit(subprocess.run(command, env=env, input=sys.stdin.buffer.read(), timeout=budget).returncode)
+                    "-v", "source_revision=" + os.environ["SCORING_WORKER_SOURCE_REVISION"],
+                    "-v", "algorithm_version=" + version])
+    query = sys.stdin.buffer.read().decode()
+    if version == "frwhoop-server-1":
+        query = query.replace("public.physiology_work_items", "public.scoring_work_items")
+    elif version == "frwhoop-server-2-history":
+        q = chr(39)
+        query = query.replace("public.physiology_work_items", f"(select case when dead_letter then {q}exhausted{q} when lease_until>clock_timestamp() then {q}running{q} else {q}pending{q} end as status, null::timestamptz as done_at, input_revision as failure_revision, input_revision, consecutive_failures, lease_until as lease_expires_at, not_before as next_attempt_at from public.scoring_jobs_v2 where completed_revision<input_revision and algorithm_version=:{q}algorithm_version{q}) history")
+        query = query.replace("max(id)", "max(result_revision)").replace("public.physiology_archive_outbox", "public.scoring_snapshots_v2")
+    sys.exit(subprocess.run(command, env=env, input=query.encode(), timeout=budget).returncode)
 except Exception:
     sys.exit(1)
 ' 2>/dev/null <<'SQL'
@@ -131,7 +157,7 @@ with candidates as materialized (
   select process_instance_id,last_poll_at,last_score_at,last_error
   from public.physiology_worker_heartbeats
   where worker_instance_id=:'worker_instance_id'::uuid and source_revision=:'source_revision'
-    and algorithm_version='frwhoop-physiology-2' limit 2
+    and algorithm_version=:'algorithm_version' limit 2
 ), cardinality as (select count(*) as processes from candidates), debt as (
   select *, (status='exhausted' or (failure_revision=input_revision and consecutive_failures>=8)) as exhausted,
     coalesce((status='running' and lease_expires_at>clock_timestamp())
@@ -151,8 +177,11 @@ with candidates as materialized (
 select n.processes,coalesce(h.process_instance_id::text,'none'),
   coalesce(extract(epoch from h.last_poll_at)::bigint,0),coalesce(extract(epoch from h.last_score_at)::bigint,0),
   (h.last_error is null),c.eligible,c.lease_wait,c.exhausted,c.delayed,
-  (select coalesce(max(id),0) from public.physiology_archive_outbox where algorithm_version='frwhoop-physiology-2'),
-  extract(epoch from clock_timestamp())::bigint
+  (select coalesce(max(id),0) from public.physiology_archive_outbox where algorithm_version=:'algorithm_version'),
+  extract(epoch from clock_timestamp())::bigint,
+  (select count(*) from public.noop_projection_debt where state<>'complete'),
+  (select coalesce(max(greatest(0,extract(epoch from clock_timestamp()-created_at)))::bigint,0)
+    from public.noop_projection_debt where state<>'complete')
 from cardinality n cross join counts c left join candidates h on n.processes=1;
 SQL
 }
@@ -160,12 +189,12 @@ SQL
 scoring_parse_snapshot() {
   local snapshot="$1" extra
   [[ "$snapshot" != *$'\n'* ]] || return 1
-  IFS='|' read -r progress_processes progress_process progress_poll progress_score progress_healthy progress_eligible progress_lease progress_exhausted progress_delayed progress_publication progress_now extra <<<"$snapshot"
+  IFS='|' read -r progress_processes progress_process progress_poll progress_score progress_healthy progress_eligible progress_lease progress_exhausted progress_delayed progress_publication progress_now progress_projection_pending progress_projection_age extra <<<"$snapshot"
   [[ -z "$extra" && "$progress_processes" =~ ^[01]$ &&
      "$progress_poll" =~ ^[0-9]+$ && "$progress_score" =~ ^[0-9]+$ &&
      "$progress_now" =~ ^[0-9]+$ && "$progress_healthy" =~ ^[tf]$ ]] || return 1
   local value
-  for value in "$progress_eligible" "$progress_lease" "$progress_exhausted" "$progress_delayed" "$progress_publication"; do
+  for value in "$progress_eligible" "$progress_lease" "$progress_exhausted" "$progress_delayed" "$progress_publication" "$progress_projection_pending" "$progress_projection_age"; do
     [[ "$value" =~ ^[0-9]+$ ]] || return 1
   done
   if [[ "$progress_processes" == 0 ]]; then
@@ -174,6 +203,15 @@ scoring_parse_snapshot() {
     [[ "$progress_process" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || return 1
   fi
   ((progress_poll <= progress_now + 60 && progress_score <= progress_now + 60))
+}
+
+scoring_projection_healthy() {
+  local max_age="${SCORING_MAX_PROJECTION_AGE_SECONDS:-120}"
+  [[ "$max_age" =~ ^[0-9]+$ ]] && ((max_age > 0)) || return 1
+  if ((progress_projection_pending > 0 && progress_projection_age > max_age)); then
+    echo "Projection stalled: pending=$progress_projection_pending oldest_seconds=$progress_projection_age" >&2
+    return 1
+  fi
 }
 
 scoring_wait_for_progress() {
@@ -185,6 +223,7 @@ scoring_wait_for_progress() {
     baseline="$(scoring_progress_snapshot "$seconds")" || { echo 'Hosted runtime query failed' >&2; return 1; }
   fi
   scoring_parse_snapshot "$baseline" || return 1
+  scoring_projection_healthy || return 1
   previous_poll="$progress_poll"; initial_score="$progress_score"
   initial_publication="$progress_publication"
   [[ "$progress_processes" == 0 ]] || process_id="$progress_process"
@@ -204,6 +243,7 @@ scoring_wait_for_progress() {
     ((remaining > 0)) || break
     snapshot="$(scoring_progress_snapshot "$remaining")" || { echo 'Hosted runtime query failed' >&2; return 1; }
     scoring_parse_snapshot "$snapshot" || { echo 'Invalid hosted progress response' >&2; return 1; }
+    scoring_projection_healthy || return 1
     ((progress_eligible + progress_delayed == 0)) || require_score=true
     ((progress_exhausted == 0)) || { echo "Retry-exhausted scoring debt remains ($progress_exhausted items)" >&2; return 1; }
     [[ "$progress_processes" != 0 ]] || continue

@@ -6,6 +6,8 @@ It remains `frwhoop-server-1`. It does not relabel the v2 kernel as v1 or promot
 
 `transport.patch` changes only the baseline application wiring, work queue, lease renewal,
 publication transport, retirement of the old mutable archive writer, and transport tests.
+`runtime-identity.patch` adds per-process, per-version heartbeat identity and explicit replay
+argument validation. It changes no scoring, input, qualification, or result-mapping formula.
 The entire Android tree, analytics-kernel source/configuration, DayScorer, input reader,
 UserDayBounds, and original result mapping remain byte-identical to the baseline.
 The builder archives the exact Git commit, rejects any other input checkout HEAD, refuses an
@@ -27,14 +29,18 @@ python3 scoring-service/legacy-baseline/build.py \
 
 `--build` runs the unchanged baseline kernel suite, service suite, and `installDist`. Without a
 disposable database, six explicit legacy integration cases skip; they are not passes. To execute
-them, first create the repair branch's disposable PostgreSQL schema through migration
-`20260918120000_fenced_baseline_transport.sql`, then set `PHYSIOLOGY_TEST_DATABASE_URL` to that
+them, first create the repair branch's disposable PostgreSQL schema through the reviewed full
+migration catalog (including the worker-identity and final baseline-publication repairs), then set
+`PHYSIOLOGY_TEST_DATABASE_URL` to that
 localhost `physiology_queue_test` database before building. Never use a deployed database for tests.
 The queue migration suite separately covers more than 350 revisions, v1/v2 independence,
 publication races, owner/device fences, and archive retries.
 
-Append `--image frwhoop/scoring-baseline-fenced:reviewed` to build a local Docker image after tests
-pass. The builder never starts, pushes, or deploys that image. Inspect the resulting
+Append `--image frwhoop/scoring-baseline-fenced:reviewed --release-sha <full-repair-commit>` to build
+a local Docker image after tests pass. Builder, both patches and baseline Dockerfile must match
+that committed repair exactly; dirty build inputs cannot carry its source label. The image labels
+retain both the original numerical baseline commit and the repair SHA. The builder never starts,
+pushes, or deploys that image. Inspect the resulting
 `baseline-transport-provenance.json`, test XML, patch hash, and image identity before authorized use.
 
 ## Runtime contract
@@ -54,6 +60,12 @@ keeps v1 work independent from the v2 shadow lane. The old `engine_ingest_scored
 queue mutations reject unpatched workers once the fence migration is installed. The v1 worker
 refuses a different algorithm-version configuration.
 
+Production startup requires `SCORING_WORKER_INSTANCE_ID` (a fresh UUID per deployment) and
+`SCORING_WORKER_SOURCE_REVISION` (the repair SHA). A separate process UUID distinguishes restarts.
+In the image, the configured source must match `/app/release.sha`; standalone local integration
+binaries have no `/app` requirement. Replay requires explicit `--replay-day` plus `REPLAY_USER_ID`,
+`REPLAY_DEVICE_ID` and `REPLAY_DAY`. A daemon rejects inherited replay selectors.
+
 Original mutable-key B2 publication is retired. The repaired service's archive worker drains the
 shared durable outbox for either version. During a baseline-only rollback, run its `--archive-only`
 mode alongside the patched baseline image; this executes archive retries without v2 scoring.
@@ -65,6 +77,9 @@ unpatched workers before an authorized migration and start the reviewed patched 
 with the independent shadow worker only after exact-version integration checks. Preserve existing
 results, raw inputs, and immutable archives. Numerical baseline defects remain the baseline;
 transport hardening does not make it physiologically validated.
+
+The hosted Compose contract runs this image, physiology v2, and the separate historical shadow
+worker. See [the deployment and rollback guide](../../infra/vps/SERVER_PIPELINE_DEPLOYMENT.md).
 
 ## Evidence
 

@@ -1,6 +1,25 @@
 # Standalone project installed as /opt/frwhoop/scoring/docker-compose.yml.
 # /opt/frwhoop/scoring.env holds the hosted database and PostgREST destinations.
 services:
+  scoring-baseline-v1:
+    image: ${SCORING_BASELINE_IMAGE:?A reviewed patched baseline image digest is required}
+    container_name: scoring-baseline-v1
+    restart: unless-stopped
+    init: true
+    cpus: "${SCORING_BASELINE_CPUS:-1.0}"
+    mem_limit: "${SCORING_BASELINE_MEMORY_LIMIT:-1g}"
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    env_file:
+      - ${SCORING_BASELINE_ENV_FILE:-/opt/frwhoop/scoring-baseline.env}
+    environment:
+      SCORING_ALGORITHM_VERSION: frwhoop-server-1
+    command: []
+    network_mode: bridge
   scoring-physiology-v2:
     image: frwhoop/scoring-service:${SCORING_IMAGE_TAG:?SCORING_IMAGE_TAG is required}
     container_name: scoring-physiology-v2
@@ -23,3 +42,24 @@ services:
     network_mode: bridge
     # Container/process existence is not scoring health. The acceptance script verifies
     # advancing hosted poll/publication timestamps; ingest-verify reports processing separately.
+  scoring-history:
+    image: frwhoop/scoring-service:${SCORING_IMAGE_TAG:?SCORING_IMAGE_TAG is required}
+    container_name: scoring-history
+    restart: unless-stopped
+    init: true
+    cpus: "${SCORING_HISTORY_CPUS:-1.0}"
+    mem_limit: "${SCORING_HISTORY_MEMORY_LIMIT:-2g}"
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    env_file:
+      - ${SCORING_HISTORY_ENV_FILE:-/opt/frwhoop/scoring-history.env}
+      - /opt/frwhoop/b2.env
+    environment:
+      SCORING_ALGORITHM_VERSION: frwhoop-server-2-history
+      SCORING_VERSION: frwhoop-server-2-history
+    command: ["--history"]
+    network_mode: bridge

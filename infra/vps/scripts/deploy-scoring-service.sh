@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
-# Build and start the persistent physiology-v2 JVM scoring container on the VPS.
+# Build and start retained v1, physiology v2, and historical shadow workers on the VPS.
 # Run from laptop with repo checkout. Does not print secrets.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+# The older manifest helper targets a different self-hosted, single-worker topology. Validate
+# its artifact before any configuration access, but never silently substitute it for this
+# hosted three-lane deployment or fall back to a mutable-image build.
+if [[ "${1:-}" == --image-manifest ]]; then
+  [[ "$#" == 2 ]] || { echo 'NOT_READY: --image-manifest requires one manifest path' >&2; exit 3; }
+  node "$ROOT/infra/vps/scripts/scorer-image-release.mjs" validate --manifest "$2"
+  echo 'NOT_READY: single-worker self-hosted image manifests cannot deploy the hosted three-lane pipeline' >&2
+  exit 3
+fi
+[[ "$#" == 0 ]] || { echo 'NOT_READY: unsupported deployment argument' >&2; exit 3; }
 DROPLET_ENV="${ROOT}/infra/vps/droplet.env"
 SSH_KEY="${ROOT}/infra/vps/keys/frwhoop_deploy"
 
@@ -31,23 +41,33 @@ echo "========== sync exact scoring build context =========="
 # shellcheck disable=SC2029
 git -C "$ROOT" archive "$RELEASE_SHA" android scoring-service \
   infra/vps/scripts/scoring-progress.sh infra/vps/scripts/remote/verify-scoring-runtime.sh \
+  infra/vps/scripts/scoring-hosted-query.py infra/vps/scripts/remote/read-scoring-query.sh \
   infra/vps/templates/docker-compose.scoring-override.yml | \
   ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" \
     "tar -xf - -C '${REMOTE_BUILD}'"
 
 echo "========== configure scoring env + build image =========="
-ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$REMOTE_BUILD" <<'REMOTE'
+deploy_lane() {
+ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$REMOTE_BUILD" "$1" <<'REMOTE'
 set -euo pipefail
 RELEASE_SHA="$1"
 BASE="/opt/frwhoop"
 COMPOSE_DIR="${BASE}/scoring"
 BUILD="$2"
+SCORING_SERVICE="${3:-scoring-physiology-v2}"
 SECRETS="${BASE}/secrets.env"
 SCORING_ENV="${BASE}/scoring.env"
 COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
 CANDIDATE_COMPOSE="${BUILD}/infra/vps/templates/docker-compose.scoring-override.yml"
 # shellcheck disable=SC1091
 source "${BUILD}/infra/vps/scripts/scoring-progress.sh"
+case "$SCORING_SERVICE" in
+  scoring-physiology-v2) SCORING_ALGORITHM_VERSION=frwhoop-physiology-2 ;;
+  scoring-baseline-v1) SCORING_ALGORITHM_VERSION=frwhoop-server-1; SCORING_ENV="${BASE}/scoring-baseline.env" ;;
+  scoring-history) SCORING_ALGORITHM_VERSION=frwhoop-server-2-history; SCORING_ENV="${BASE}/scoring-history.env" ;;
+  *) echo 'Unknown scoring service' >&2; exit 1 ;;
+esac
+scoring_lane
 install -d -m 700 "$COMPOSE_DIR"
 exec 9>"${BASE}/scoring-deploy.lock"
 flock -n 9 || { echo 'Another scoring deployment is active' >&2; exit 1; }
@@ -58,6 +78,9 @@ source "$SECRETS"
 : "${SCORING_SUPABASE_URL:?Set the hosted Supabase PostgREST URL in /opt/frwhoop/secrets.env}"
 : "${SCORING_INGEST_SECRET:?Set the hosted project's SCORING_INGEST_SECRET in /opt/frwhoop/secrets.env}"
 : "${SCORING_SUPABASE_SERVICE_ROLE_KEY:?Set the hosted project's SCORING_SUPABASE_SERVICE_ROLE_KEY in /opt/frwhoop/secrets.env}"
+: "${SCORING_BASELINE_IMAGE:?Provide the reviewed patched baseline image digest}"
+[[ "$SCORING_BASELINE_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || { echo 'Baseline image must be pinned by digest' >&2; exit 1; }
+export SCORING_BASELINE_IMAGE
 
 case "$SCORING_DATABASE_URL" in
   *"@db:"*|*"//db:"*|*localhost*|*127.0.0.1*) echo "Refusing a local scoring database destination" >&2; exit 1 ;;
@@ -80,7 +103,7 @@ finish() {
   if [[ "$cutover" == true && "$accepted" == false ]]; then
     # Prior containers are retained by ID; Compose must not recreate/delete their labels.
     if [[ "$candidate_attempted" == true ]]; then
-      if candidate_id="$(timeout 12 docker ps --no-trunc -aq --filter 'name=^/scoring-physiology-v2$')"; then
+      if candidate_id="$(timeout 12 docker ps --no-trunc -aq --filter "name=^/${SCORING_SERVICE}$")"; then
         if [[ -n "$candidate_id" ]]; then
           candidate_project="$(timeout 12 docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$candidate_id")" || candidate_project=""
           if [[ "$candidate_project" != "$compose_project" ]]; then
@@ -132,16 +155,35 @@ scoring_identity_valid
   printf 'SCORING_POLL_SECONDS=%s\n' "${SCORING_POLL_SECONDS:-8}"
   printf 'SCORING_WORKER_INSTANCE_ID=%s\n' "$SCORING_WORKER_INSTANCE_ID"
   printf 'SCORING_WORKER_SOURCE_REVISION=%s\n' "$SCORING_WORKER_SOURCE_REVISION"
+  printf 'SCORING_ALGORITHM_VERSION=%s\n' "$SCORING_ALGORITHM_VERSION"
 } >"$candidate_env"
 unset REPLAY_USER_ID REPLAY_DAY REPLAY_DEVICE_ID
 
 cd "$BUILD"
 docker build --build-arg "RELEASE_SHA=${RELEASE_SHA}" \
   -t "frwhoop/scoring-service:${RELEASE_SHA}" -f scoring-service/Dockerfile .
+candidate_image="frwhoop/scoring-service:${RELEASE_SHA}"
+if [[ "$SCORING_SERVICE" == scoring-baseline-v1 ]]; then
+  candidate_image="$SCORING_BASELINE_IMAGE"
+  [[ "$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$candidate_image")" == "$RELEASE_SHA" ]] || exit 1
+  [[ "$(docker image inspect -f '{{ index .Config.Labels "io.frwhoop.baseline.commit" }}' "$candidate_image")" == 5caa31689da0023e111beb36850d3f81d67e1be2 ]] || exit 1
+  for patch_name in transport runtime-identity; do
+    patch_sha="$(sha256sum "${BUILD}/scoring-service/legacy-baseline/${patch_name}.patch" | cut -d ' ' -f 1)"
+    label_name=transport; [[ "$patch_name" != runtime-identity ]] || label_name=identity
+    [[ "$(docker image inspect -f "{{ index .Config.Labels \"io.frwhoop.baseline.${label_name}-sha256\" }}" "$candidate_image")" == "$patch_sha" ]] || exit 1
+  done
+fi
+SCORING_EXPECTED_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$candidate_image")"
+[[ "$SCORING_EXPECTED_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+export SCORING_EXPECTED_IMAGE_ID
 
-# Check the actual candidate image's hosted database, migrations, ingest secret and REST key
-# without writing any scores. A failed check leaves the current workers and their env file intact.
+# Check the repaired image's version-specific hosted schema, ingest secret and REST key.
+# The frozen baseline has no preflight command; its fenced SQL is checked by the v2 preflight.
+# A failed check leaves current workers and their environment files intact.
+preflight_version="$SCORING_ALGORITHM_VERSION"
+[[ "$preflight_version" != frwhoop-server-1 ]] || preflight_version=frwhoop-physiology-2
 docker run --rm --env-file "$candidate_env" --env-file "${BASE}/b2.env" \
+  -e "SCORING_ALGORITHM_VERSION=$preflight_version" \
   "frwhoop/scoring-service:${RELEASE_SHA}" --check-config
 
 cd "$COMPOSE_DIR"
@@ -149,7 +191,7 @@ export SCORING_IMAGE_TAG="$RELEASE_SHA"
 export SCORING_CPUS="${SCORING_CPUS:-2.0}"
 export SCORING_MEMORY_LIMIT="${SCORING_MEMORY_LIMIT:-2g}"
 compose_project="frwhoop-scoring-${SCORING_WORKER_INSTANCE_ID}"
-SCORING_ENV_FILE="$candidate_env" docker compose \
+SCORING_ENV_FILE="$candidate_env" SCORING_BASELINE_ENV_FILE="$candidate_env" SCORING_HISTORY_ENV_FILE="$candidate_env" docker compose \
   -p "$compose_project" -f "$CANDIDATE_COMPOSE" config --quiet
 
 prior_ids="$(scoring_worker_ids -aq)"
@@ -161,7 +203,7 @@ while read -r id; do
   stopped+=(false); renamed+=(false)
 done <<<"$prior_ids"
 # Refuse a same-name container outside the precisely selected physiology worker set.
-if existing_id="$(timeout 12 docker inspect -f '{{.Id}}' scoring-physiology-v2 2>/dev/null)"; then
+if existing_id="$(timeout 12 docker inspect -f '{{.Id}}' "$SCORING_SERVICE" 2>/dev/null)"; then
   grep -Fxq "$existing_id" <<<"$prior_ids" || { echo 'Candidate container name is occupied' >&2; exit 1; }
 fi
 cutover=true
@@ -180,9 +222,10 @@ install -m 600 "$candidate_env" "$SCORING_ENV"
 install -m 600 "$CANDIDATE_COMPOSE" "$COMPOSE_FILE"
 unset SCORING_ENV_FILE
 candidate_attempted=true
+export SCORING_ENV_FILE="$SCORING_ENV" SCORING_BASELINE_ENV_FILE="$SCORING_ENV" SCORING_HISTORY_ENV_FILE="$SCORING_ENV"
 timeout 60 docker compose -p "$compose_project" -f docker-compose.yml \
-  run -d --no-deps --name scoring-physiology-v2 scoring-physiology-v2
-candidate_id="$(timeout 12 docker inspect -f '{{.Id}}' scoring-physiology-v2)"
+  run -d --no-deps --name "$SCORING_SERVICE" "$SCORING_SERVICE"
+candidate_id="$(timeout 12 docker inspect -f '{{.Id}}' "$SCORING_SERVICE")"
 candidate_project="$(timeout 12 docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$candidate_id")"
 [[ "$candidate_project" == "$compose_project" ]] || { echo 'Candidate ownership changed before restart policy update' >&2; exit 1; }
 timeout 12 docker update --restart unless-stopped "$candidate_id" >/dev/null
@@ -190,7 +233,32 @@ scoring_wait_for_progress "$RELEASE_SHA" "$baseline"
 accepted=true
 install -m 700 "${BUILD}/infra/vps/scripts/scoring-progress.sh" "${COMPOSE_DIR}/scoring-progress.sh"
 install -m 700 "${BUILD}/infra/vps/scripts/remote/verify-scoring-runtime.sh" "${COMPOSE_DIR}/verify-scoring-runtime.sh"
+install -m 700 "${BUILD}/infra/vps/scripts/scoring-hosted-query.py" "${COMPOSE_DIR}/scoring-hosted-query.py"
+install -m 700 "${BUILD}/infra/vps/scripts/remote/read-scoring-query.sh" "${COMPOSE_DIR}/read-scoring-query.sh"
 echo "Prior worker/configuration retained for rollback: ${rollback_dir}"
 REMOTE
+}
+
+for lane in scoring-physiology-v2 scoring-baseline-v1 scoring-history; do
+  deploy_lane "$lane"
+done
+
+ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" <<'VERIFY'
+set -euo pipefail
+revision="$1"
+[[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 1
+unserved="$(/opt/frwhoop/scoring/read-scoring-query.sh <<SQL
+select count(*) from (
+  select algorithm_version from public.physiology_feature_defaults
+  union select algorithm_version from public.physiology_source_selection
+) selected where not exists (
+  select 1 from public.physiology_worker_heartbeats h
+  where h.algorithm_version=selected.algorithm_version and h.source_revision='$revision'
+    and h.last_poll_at>clock_timestamp()-interval '120 seconds' and h.last_error is null
+);
+SQL
+)"
+[[ "$unserved" == 0 ]] || { echo 'NOT_READY: selected algorithm version lacks a healthy exact-source producer' >&2; exit 3; }
+VERIFY
 
 echo "Deploy complete: ${RELEASE_SHA}"

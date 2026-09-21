@@ -39,6 +39,34 @@ class BaselineBuilderTests(unittest.TestCase):
                     builder.prepare(Path(scratch), output, Path(scratch) / "unused.patch")
             self.assertFalse(output.exists())
 
+    def test_identity_patch_cannot_change_the_numerical_baseline(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            output = Path(scratch) / "new-context"
+            transport = builder.PREFIX + "main/kotlin/com/frwhoop/scoring/ScoringApplication.kt"
+            numerical = builder.PREFIX + "main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt"
+            with mock.patch.object(builder.subprocess, "check_output", side_effect=[builder.BASELINE,
+                    ("1\t1\t" + transport + "\0").encode(), ("1\t1\t" + numerical + "\0").encode()]):
+                with self.assertRaisesRegex(ValueError, "outside the transport allowlist"):
+                    builder.prepare(Path(scratch), output, Path("transport.patch"), Path("identity.patch"))
+            self.assertFalse(output.exists())
+
+    def test_image_requires_explicit_exact_repair_revision_before_building(self):
+        with mock.patch("sys.argv", ["build.py", "--repository", "/unused", "--context", "/unused-context",
+                                     "--image", "fixture.invalid/baseline:reviewed"]):
+            with mock.patch.object(builder, "prepare") as prepare:
+                with self.assertRaisesRegex(ValueError, "exact --release-sha"):
+                    builder.main()
+                prepare.assert_not_called()
+
+    def test_image_refuses_dirty_inputs_mislabeled_as_a_release(self):
+        with mock.patch("sys.argv", ["build.py", "--repository", "/unused", "--context", "/unused-context",
+                                     "--image", "fixture.invalid/baseline:reviewed", "--release-sha", "a" * 40]):
+            with mock.patch.object(builder.subprocess, "check_output", return_value=b"different source"), \
+                    mock.patch.object(builder, "prepare") as prepare:
+                with self.assertRaisesRegex(ValueError, "differs from declared repair revision"):
+                    builder.main()
+                prepare.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
