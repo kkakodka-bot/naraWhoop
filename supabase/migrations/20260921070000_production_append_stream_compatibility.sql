@@ -16,10 +16,14 @@ do $$ begin
   end if;
 end $$;
 
+-- This copies an already-stored field into its compatibility alias. Suppress scoring triggers
+-- for the metadata backfill so deployment cannot contend with an active scorer input gate.
+set local session_replication_role = replica;
 update public.noop_step_samples
 set activity_class = coalesce(activity_class, "activityClass"),
     "activityClass" = coalesce("activityClass", activity_class)
 where activity_class is distinct from "activityClass";
+set local session_replication_role = origin;
 
 create or replace function public.noop_step_activity_compat() returns trigger
 language plpgsql set search_path=pg_catalog,public as $$
