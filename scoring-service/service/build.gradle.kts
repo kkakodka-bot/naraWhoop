@@ -44,6 +44,7 @@ val physiologySourceFingerprint by tasks.registering {
             repository.resolve("android/app/src/main/java/com/noop/$it") },
         fileTree(rootProject.file("analytics-kernel/src/main/kotlin")) { include("**/*.kt") },
         fileTree(projectDir.resolve("src/main/kotlin")) { include("**/*.kt") },
+        fileTree(projectDir.resolve("src/main/resources")) { include("**/*") },
         projectDir.resolve("build.gradle.kts"),rootProject.file("analytics-kernel/build.gradle.kts"),
         rootProject.file("build.gradle.kts"),rootProject.file("settings.gradle.kts"),rootProject.file("gradle.properties"),
         rootProject.file("gradle/wrapper/gradle-wrapper.properties"),rootProject.file("gradle/wrapper/gradle-wrapper.jar"))

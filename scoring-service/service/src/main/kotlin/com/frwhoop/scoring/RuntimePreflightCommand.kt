@@ -17,15 +17,7 @@ object RuntimePreflightCommand {
     enum class Stage { WORKER_IDENTITY, PROJECT_BINDING, DATABASE_CONNECTION, DATABASE_SCHEMA, INGEST_AUTH, REST_AUTH }
     class Failure(val stage: Stage) : IllegalStateException("runtime_preflight_failed:${stage.name.lowercase()}")
 
-    // Every physiology migration this binary depends on, including the restored revision fence and gate.
-    internal val requiredMigrations = setOf(
-        "20260918010000", "20260918020000", "20260918030000", "20260918040000",
-        "20260918050000", "20260918060000", "20260918070000", "20260918100000",
-        "20260918110000", "20260918120000", "20260918130000", "20260918140000",
-        "20260918150000", "20260918180000", "20260918190000", "20260918200000",
-        "20260918210000", "20260918220000", "20260918230000", "20260918233000", "20260918234000",
-        "20260919010000", "20260919020000",
-    )
+    internal val requiredMigrationHashes get() = MigrationSourceCatalog.hashes
     internal val requiredTables = listOf("public.physiology_service_heartbeats", "public.physiology_work_items",
         "public.server_physiology_results", "public.noop_rr_packet_provenance", "public.noop_standard_hr_receipts",
         "public.physiology_feature_manifests", "public.physiology_promotion_approvals", "public.physiology_model_acquisition_contracts",
@@ -35,7 +27,14 @@ object RuntimePreflightCommand {
         "public.scoring_acquire_input_gate(uuid,uuid)", "public.engine_publish_physiology(text,jsonb)",
         "public.scoring_renew_lease(uuid,uuid,date,bigint,uuid,uuid,integer)",
         "public.scoring_finish_work(uuid,uuid,date,bigint,uuid,uuid,text,integer,text)",
-        "public.physiology_feature_is_canonical(text,text)")
+        "public.physiology_feature_is_canonical(text,text)",
+        "public.scoring_legacy_claim_one(integer,integer,uuid,uuid,date)",
+        "public.scoring_legacy_renew_lease(uuid,uuid,date,bigint,uuid,uuid,integer)",
+        "public.scoring_legacy_finish_work(uuid,uuid,date,bigint,uuid,uuid,text,integer,text)",
+        "public.engine_publish_legacy_fenced(text,jsonb)",
+        "internal.engine_publish_legacy_fenced(text,jsonb)", "internal.engine_publish_physiology(text,jsonb)",
+        "public.server_scoring_read_contract(uuid,date,uuid)",
+        "public.server_pipeline_diagnostics(uuid,uuid,uuid,date)", "public.scoring_local_day_v2(text,text)")
 
     private fun <T> checked(stage: Stage, block: () -> T): T = try { block() }
         catch (_: Exception) { throw Failure(stage) } // A JDBC/HTTP exception may contain credentials or server data.
@@ -101,13 +100,7 @@ object RuntimePreflightCommand {
         }
         try {
             checked(Stage.DATABASE_SCHEMA) {
-                connection.createStatement().use { statement ->
-                    statement.queryTimeout = 10
-                    statement.executeQuery("select version from supabase_migrations.schema_migrations").use { rows ->
-                        val versions = buildSet { while (rows.next()) add(rows.getString(1)) }
-                        require(versions.containsAll(requiredMigrations))
-                    }
-                }
+                MigrationSourceCatalog.verify(connection)
                 connection.prepareStatement("select to_regclass(?) is not null").use { statement ->
                     statement.queryTimeout = 10
                     val historyTables = if (algorithmVersion == "frwhoop-server-2-history") listOf(
