@@ -619,6 +619,17 @@ actor CloudUploadQueue {
                 job.nextAttemptAt = nil
                 job.validatedReceipt = nil
             }
+            // Retryable 5xx responses may have accumulated a long exponential delay while the
+            // receiver or its database schema was unavailable. On the next authorized process
+            // start, replay the exact retained bytes once without waiting for that stale delay.
+            // Persist the allowance before delivery so repeated relaunches cannot bypass backoff.
+            if job.operation == .request, job.phase == .retryPending,
+               job.responseDisposition == .retryable,
+               (job.serverRetryRecoveryCount ?? 0) == 0,
+               let status = job.responseStatus, (500...599).contains(status) {
+                job.serverRetryRecoveryCount = 1
+                job.nextAttemptAt = nil
+            }
             // Recover pre-fleet-header failures once, without changing payloads or receipts.
             if job.operation != .objectPut, job.phase == .pausedTerminal,
                job.responseDisposition == .authentication, job.fleetAuthorizationApplied != true,
@@ -1040,9 +1051,19 @@ actor CloudUploadQueue {
 
     private func backoff(_ job: inout CloudUploadJob) {
         job.failures += 1
+        let date = now()
+        // The scoring gate is a short, explicit server coordination signal. Exponential client
+        // backoff turned its Retry-After: 2 response into delays of tens of minutes after several
+        // otherwise healthy retries. Keep a small jitter without overriding the server cadence.
+        if job.responseCode == "scoring_input_gate_busy" {
+            let requested = job.responseRetryAfter.flatMap(Double.init).flatMap {
+                $0.isFinite && $0 >= 0 ? min($0, 30) : nil
+            } ?? 2
+            job.nextAttemptAt = date.addingTimeInterval(requested + min(1, max(0, randomUnit())))
+            return
+        }
         let ceiling = min(3600, 5 * pow(2, Double(min(job.failures, 10))))
         let jitter = min(1, max(0, randomUnit())) * ceiling
-        let date = now()
         var retryDate = date.addingTimeInterval(jitter)
         if let value = job.responseRetryAfter {
             if let seconds = Double(value), seconds.isFinite, seconds >= 0 {

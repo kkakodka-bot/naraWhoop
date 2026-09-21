@@ -245,6 +245,63 @@ final class CloudUploadOutcomeTests: XCTestCase {
         }
     }
 
+    func testScoringGateRetryAfterDoesNotGrowIntoExponentialDelay() async throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        var retained = try persisted(f)
+        retained.failures = 9
+        try f.journal.save(retained)
+        let clock = OutcomeClock()
+        let adapter = OutcomeSessionAdapter()
+        let q = try queue(f, adapter: adapter, clock: clock, randomUnit: 0.5)
+        try await q.reconcile()
+        let task = try XCTUnwrap(adapter.last).task
+        adapter.finish(task.identifier)
+        await q.receive(task, status: 503, body: try errorBody("scoring_input_gate_busy"),
+            error: false, retryAfter: "2")
+        let saved = try persisted(f)
+        XCTAssertEqual(saved.failures, 10)
+        XCTAssertEqual(saved.responseCode, "scoring_input_gate_busy")
+        XCTAssertEqual(try XCTUnwrap(saved.nextAttemptAt).timeIntervalSince(clock.value), 2.5, accuracy: 0.001)
+        try assertSourceRetained(f)
+    }
+
+    func testRelaunchReplaysRetainedRetryableServerFailureOnceWithoutStaleDelay() async throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let clock = OutcomeClock()
+        var retained = try persisted(f)
+        retained.phase = .retryPending
+        retained.responseStatus = 500
+        retained.responseCode = "push_failed"
+        retained.responseDisposition = .retryable
+        retained.nextAttemptAt = clock.value.addingTimeInterval(3_600)
+        try f.journal.save(retained)
+
+        let firstAdapter = OutcomeSessionAdapter()
+        let first = try queue(f, adapter: firstAdapter, clock: clock,
+            context: .init(scope: f.context.scope, generation: UUID()))
+        try await first.reconcile()
+        XCTAssertEqual(firstAdapter.count, 1)
+        XCTAssertEqual(try persisted(f).serverRetryRecoveryCount, 1)
+        XCTAssertNil(try persisted(f).nextAttemptAt)
+        await first.suspend()
+
+        retained = try persisted(f)
+        retained.phase = .retryPending
+        retained.taskIdentifier = nil
+        retained.attempt = nil
+        retained.nextAttemptAt = clock.value.addingTimeInterval(3_600)
+        try f.journal.save(retained)
+        let secondAdapter = OutcomeSessionAdapter()
+        let second = try queue(f, adapter: secondAdapter, clock: clock,
+            context: .init(scope: f.context.scope, generation: UUID()))
+        try await second.reconcile()
+        XCTAssertEqual(secondAdapter.count, 0, "persisted recovery allowance must not reset on every relaunch")
+        XCTAssertEqual(try persisted(f).serverRetryRecoveryCount, 1)
+        try assertSourceRetained(f)
+    }
+
     func testHTTPFailureIsNotRecountedAsReceiptMismatch() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.root) }
