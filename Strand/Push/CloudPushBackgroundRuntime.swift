@@ -47,7 +47,7 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
             }, now: now, refreshCredentials: {
                 guard !CloudRuntimeIdentity.isEnrollment($0) else { throw AccountAuthError.sessionRevoked }
                 try await CloudAuthClient.refreshRejectedCredentials($0)
-            })
+            }, fleetToken: { CloudPushSettings.resolvedFleetToken() })
         } catch {
             let identifier = self.identifier
             let completion = self.completion

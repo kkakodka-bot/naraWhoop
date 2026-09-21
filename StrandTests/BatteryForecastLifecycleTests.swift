@@ -6,6 +6,18 @@ import StrandAnalytics
 final class BatteryForecastLifecycleTests: XCTestCase {
     private let end = 1_700_000_000
 
+    func testCommonFamilySetupRepairsWrongRestoredBatteryModel() throws {
+        let suite = "battery-family-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(WhoopModel.whoop5mg.rawValue, forKey: "selectedWhoopModel")
+        let live = LiveState(defaults: defaults)
+        let manager = BLEManager(state: live, startCentral: false, defaults: defaults)
+        live.batteryRatedHours = 108
+        manager.configureCollectorFamily()
+        XCTAssertEqual(live.batteryRatedHours, 288)
+    }
+
     func testMGModelIsConfiguredBeforeAnyConnectionCallback() {
         let key = "selectedWhoopModel"
         let previous = UserDefaults.standard.object(forKey: key)

@@ -9,3 +9,11 @@ The runtime now recognizes validated enrollment identity and replaces its model 
 The link gate explicitly confirms registration independently of score fetches. Sign-out clears enrollment and fences pending publication. Tester score scalars feed the current dashboard through a separate presentation field rather than fabricated account snapshot revisions. Null server results remain unavailable. Registered-device selection precedes score bootstrap.
 
 Validation during implementation: 17 identity/storage package tests passed; 38 focused application tests passed; iPhone Release compilation passed. The full app test target has pre-existing compile failures in `ExploreRangeGatingTests.swift` and `ServerScoringRescoreSkipTests.swift`; those files were excluded for the focused app run. Final build and handset verification are recorded in the PR handoff. This change does not establish fleet latency, overnight continuity, or physiological validation.
+
+## Build 363 follow-up
+
+Physical follow-up found a retained upload completion with HTTP 401, `unauthorized`, and no fleet header. Capabilities used both credentials, but prepared background completion and intent renewal omitted the fleet credential. The upload queue now injects the current fleet credential at receiver-request dispatch, never on bucket PUTs and never into newly persisted job metadata. A journal flag permits one recovery of older authentication-paused receiver jobs without altering their immutable payloads or acknowledging them prematurely. Repeated genuine rejections remain paused.
+
+The integration also omitted PR19's battery-rated-life assignment from the common family configuration method. Restored and service-detected MG connections could retain the WHOOP4 model. The common assignment is restored; a regression test seeds the wrong model and exercises this setup.
+
+Build 364 focused verification: 42 battery/upload tests passed. The broader upload run exposed an existing incompatible test expectation that the now-supported unscoped enrollment HTTP adapter throws `staleOwner`; `testCloudPushTransportActuallyUsesScopedFileBackedRuntime` was excluded from the passing run, not changed. The two existing test-source compilation exclusions above remain. Physical upload completion, server publication, and rendered dashboard acceptance must be recorded separately from these tests.

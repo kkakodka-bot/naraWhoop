@@ -3679,7 +3679,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// straps, which would otherwise mis-stamp WHOOP4 device-epoch frames as wall-clock. Idempotent;
     /// called from connect() AND after the async store bootstrap builds the collector, so the
     /// configuration lands regardless of which finishes first.
-    private func configureCollectorFamily() {
+    func configureCollectorFamily() {
+        state.batteryRatedHours = selectedModel.deviceFamily == .whoop5
+            ? BatteryEstimator.ratedLifeHoursWhoop5 : BatteryEstimator.ratedLifeHoursWhoop4
         collector?.family = selectedModel.deviceFamily
         if selectedModel.deviceFamily == .whoop5 {
             let now = Int(Date().timeIntervalSince1970)

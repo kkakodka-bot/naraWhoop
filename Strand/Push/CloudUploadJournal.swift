@@ -49,6 +49,7 @@ struct CloudUploadJob: Codable, Sendable {
     var responseAttempt: UUID?
     var authenticationRefreshCount: Int?
     var authenticationRefreshPending: Bool?
+    var fleetAuthorizationApplied: Bool?
     var acknowledged = false
     var receiverStateID: String = ""
     var batchID: String?

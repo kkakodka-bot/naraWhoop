@@ -24,6 +24,7 @@ actor CloudUploadQueue {
     private let journal: CloudUploadJournal
     private let adapter: any CloudUploadSessionAdapter
     private let authorize: Authorize
+    private let fleetToken: @Sendable () -> String?
     private let isCurrent: Current
     private let policy: @Sendable () -> CloudUploadPolicy
     private let control: @Sendable (URLRequest) async throws -> PushTransportResponse
@@ -51,11 +52,13 @@ actor CloudUploadQueue {
          maximumBytes: Int = 1_073_741_824, now: @escaping @Sendable () -> Date = { Date() },
          journalWriteObserver: (@Sendable (URL) throws -> Void)? = nil,
          randomUnit: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
-         refreshCredentials: (@Sendable (AccountSessionContext) async throws -> Void)? = nil) throws {
+         refreshCredentials: (@Sendable (AccountSessionContext) async throws -> Void)? = nil,
+         fleetToken: @escaping @Sendable () -> String? = { nil }) throws {
         guard layout.scope == context.scope else { throw CloudUploadError.staleOwner }
         self.context = context
         self.adapter = adapter
         self.authorize = authorize
+        self.fleetToken = fleetToken
         self.isCurrent = isCurrent
         self.policy = policy
         self.control = control
@@ -529,6 +532,19 @@ actor CloudUploadQueue {
                 continue
             }
             job.generation = context.generation
+            // Recover pre-fleet-header failures once, without changing payloads or receipts.
+            if job.operation != .objectPut, job.phase == .pausedTerminal,
+               job.responseDisposition == .authentication, job.fleetAuthorizationApplied != true,
+               fleetToken()?.isEmpty == false {
+                job.fleetAuthorizationApplied = true
+                job.phase = .retryPending
+                job.responseStatus = nil
+                job.responseBody = nil
+                job.responseCode = nil
+                job.responseDisposition = nil
+                job.nextAttemptAt = nil
+                job.authenticationRefreshPending = false
+            }
             job.correlation = job.correlation ?? (job.objectID ?? job.batchID).flatMap(UUID.init(uuidString:)) ?? UUID()
             if job.phase == .responseSaved, job.operation == .objectComplete,
                let status = job.responseStatus, (200...299).contains(status),
@@ -749,6 +765,10 @@ actor CloudUploadQueue {
                     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     request.setValue("application/json", forHTTPHeaderField: "Accept")
                     for (key, value) in job.headers { request.setValue(value, forHTTPHeaderField: key) }
+                    if let fleet = fleetToken(), !fleet.isEmpty {
+                        request.setValue(fleet, forHTTPHeaderField: CloudPushTransport.fleetTokenHeader)
+                        job.fleetAuthorizationApplied = true
+                    }
                     if job.operation == .objectComplete { file = try journal.emptyBodyURL() }
                     else { try journal.verifyBody(job); file = try journal.bodyURL(job) }
                 }
@@ -805,6 +825,9 @@ actor CloudUploadQueue {
         try check(context)
         guard policy().concurrency > 0 else { throw CloudUploadError.retryScheduled }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let fleet = fleetToken(), !fleet.isEmpty {
+            request.setValue(fleet, forHTTPHeaderField: CloudPushTransport.fleetTokenHeader)
+        }
         let response = try await control(request)
         try check(context)
         guard (200...299).contains(response.statusCode) else {

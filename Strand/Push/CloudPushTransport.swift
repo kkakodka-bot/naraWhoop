@@ -253,7 +253,6 @@ struct CloudPushTransport: PushTransport {
                 headers["NOOP-Push-Manifest"] = manifestHeader
             }
             if let contentEncoding { headers["Content-Encoding"] = contentEncoding }
-            if let fleetToken { headers[Self.fleetTokenHeader] = fleetToken }
             return try await queue.request(endpoint: endpoint.url, body: body, headers: headers, captured: captured, receiverStateID: state, batchID: batchID, selectionID: selectionID)
         }
         var request = URLRequest(url: URL(string: endpoint.url)!)
