@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { verifyEvidence } from './verify-sync-evidence.mjs';
 import { readJSON, requireThat, reportError } from './sync-evidence-contract.mjs';
-import { canonicalMigrationLedger } from './sync-migration-ledger.mjs';
+import { canonicalMigrationLedger, migrationIdentity } from './sync-migration-ledger.mjs';
 import { packetRelease, verifyImage, IMAGE_FORMAT } from './scorer-image-release.mjs';
 
 // Independently reviewed selector: values, never executable shell configuration.
@@ -47,12 +47,37 @@ export function checkLive(e, directory, selector, ssh, pause = () => command('sl
   const objects = sql(`select json_build_object(
     'workItems',to_regclass('public.scoring_work_items') is not null,
     'heartbeats',to_regclass('public.scoring_service_heartbeats') is not null,
+    'sourceLedger',to_regclass('supabase_migrations.scoring_source_identities') is not null,
     'ingest',exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='engine_ingest_scored'))`, 'schema objects');
-  sameFields(objects, { workItems: true, heartbeats: true, ingest: true }, 'schema objects');
-  const ledger = sql("select coalesce(json_agg(json_build_object('version',version,'name',to_jsonb(m)->>'name','sha256',to_jsonb(m)->>'source_sha256') order by version),'[]'::json) from supabase_migrations.schema_migrations m", 'migration ledger');
-  requireThat(Array.isArray(ledger) && ledger.every(row => row && typeof row === 'object' && /^[0-9a-f]{64}$/.test(row.sha256)),
-    'live migration source hashes require reviewed historical attestation');
-  const canonicalLedger = canonicalMigrationLedger(ledger);
+  requireThat(typeof objects?.sourceLedger === 'boolean', 'source ledger availability must be explicit');
+  sameFields(objects, { workItems: true, heartbeats: true, ingest: true, sourceLedger: objects.sourceLedger }, 'schema objects');
+  const appliedQuery = "select coalesce(json_agg(json_build_object('version',version,'name',to_jsonb(m)->>'name,'sha256',to_jsonb(m)->>'source_sha256','exportHash',to_jsonb(m)->>'sha256') order by version),'[]'::json) from supabase_migrations.schema_migrations m";
+  const observed = sql(objects.sourceLedger
+    ? `select json_build_object('applied',(${appliedQuery}),'attestations',(select coalesce(json_agg(json_build_object('version',basename,'sha256',sha256) order by basename),'[]'::json) from supabase_migrations.scoring_source_identities))`
+    : appliedQuery, 'migration ledger');
+  const ledger = objects.sourceLedger ? observed?.applied : observed;
+  const attestations = objects.sourceLedger ? observed?.attestations : [];
+  requireThat(Array.isArray(ledger) && Array.isArray(attestations), 'live migration ledgers must be arrays');
+  const attested = new Map(), applied = new Map();
+  for (const row of attestations) {
+    requireThat(row && typeof row === 'object' && /^[0-9a-f]{64}$/.test(row.sha256), 'reviewed source hash required');
+    const basename = migrationIdentity(row);
+    requireThat(!attested.has(basename), 'duplicate reviewed source identity');
+    attested.set(basename, row.sha256);
+  }
+  for (const row of ledger) {
+    requireThat(row && typeof row === 'object' && !Array.isArray(row), 'live migration entries must be rows');
+    const basename = migrationIdentity({...row,sha256:undefined});
+    requireThat(row.sha256 == null || row.exportHash == null || row.sha256 === row.exportHash,
+      'live migration source hashes contradict');
+    const hash = row.sha256 ?? row.exportHash ?? attested.get(basename);
+    requireThat(/^[0-9a-f]{64}$/.test(hash), 'live migration source hashes require reviewed historical attestation');
+    migrationIdentity({...row,sha256:hash});
+    requireThat(!applied.has(basename), 'duplicate applied migration identity');
+    applied.set(basename, hash);
+  }
+  const canonicalLedger = canonicalMigrationLedger([...new Map([...attested,...applied])]
+    .map(([version,sha256]) => ({version,sha256})));
   requireThat(JSON.stringify(canonicalLedger) === JSON.stringify([...e.server.migrations].sort()), 'live migration ledger differs from evidence');
   const format = '{"containerId":{{json .Id}},"running":{{json .State.Running}},"imageId":{{json .Image}},"imageReference":{{json .Config.Image}},"revision":{{json (index .Config.Labels "org.opencontainers.image.revision")}},"ports":{{json .NetworkSettings.Ports}},"networkMode":{{json .HostConfig.NetworkMode}}}';
   const container = json(`docker inspect --type container --format ${quote(format)} ${quote(e.server.containerId)}`, 'scorer inspection');
@@ -102,7 +127,7 @@ export function checkLive(e, directory, selector, ssh, pause = () => command('sl
     imageProvenance: { imageReference: container.imageReference, image, registryDigest: release.image.registryDigest,
       platformManifestDigest: release.image.platformManifestDigest, sourceCommit: release.source.commit,
       contextSha256: release.source.contextSha256, nativeInputSha256: release.source.nativeInputSha256 },
-    migrationLedger: { observedRaw: [...ledger], canonicalIDs: canonicalLedger, recordedRaw: [...e.server.migrationLedgerRaw] },
+    migrationLedger: { observedRaw: [...ledger], observedSourceAttestations: [...attestations], canonicalIDs: canonicalLedger, recordedRaw: [...e.server.migrationLedgerRaw] },
     productionReadiness: 'NOT_READY: independent review, whole-day parity and physical/deployment acceptance remain separate' };
 }
 

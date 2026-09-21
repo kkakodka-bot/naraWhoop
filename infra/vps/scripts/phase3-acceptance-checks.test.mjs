@@ -58,7 +58,7 @@ function subprocessFixture(t) {
   fs.writeFileSync(key, 'NOT A REAL KEY'); fs.writeFileSync(hosts, 'NOT A REAL HOST KEY');
   const c = f.evidence.canary;
   const replies = [
-    { workItems: true, heartbeats: true, ingest: true }, ledgerRows(),
+    { workItems: true, heartbeats: true, ingest: true, sourceLedger: false }, ledgerRows(),
     { containerId: f.evidence.server.containerId, running: true, imageId: f.evidence.server.dockerImageId,
       imageReference: f.imageFixture.release.image.reference, revision: f.evidence.server.commit, ports: {}, networkMode: 'synthetic-internal' },
     [`fixture.invalid/scorer@${f.evidence.server.imageDigest}`],

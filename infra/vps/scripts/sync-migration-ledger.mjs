@@ -24,6 +24,10 @@ export function migrationIdentity(value) {
     }
   }
   requireThat(MIGRATION_HASHES.has(basename), 'unsupported migration ledger basename');
+  if (!/^\d{14}$/.test(row.version) && typeof row.name === 'string') {
+    const named = row.name.endsWith('.sql') ? row.name : `${row.version.slice(0,14)}_${row.name}.sql`;
+    requireThat(named === basename, 'migration ledger name contradicts its full version');
+  }
   if (row.sha256 !== undefined) requireThat(row.sha256 === MIGRATION_HASHES.get(basename), `applied migration hash differs: ${basename}`);
   return basename;
 }

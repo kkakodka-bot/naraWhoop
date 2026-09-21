@@ -19,7 +19,7 @@ const appliedRows = () => MIGRATION_CATALOG.map(({basename,sha256}) => ({version
 function replies(f, ledger = appliedRows()) {
   const c = f.evidence.canary;
   return [
-    { workItems: true, heartbeats: true, ingest: true }, ledger,
+    { workItems: true, heartbeats: true, ingest: true, sourceLedger: false }, ledger,
     { containerId: f.evidence.server.containerId, running: true, imageId: f.evidence.server.dockerImageId,
       imageReference: f.imageFixture.release.image.reference,
       revision: f.evidence.server.commit, ports: {}, networkMode: 'synthetic-internal' },
@@ -65,6 +65,31 @@ test('P1-1 closure: complete source hashes and full basenames preserve both coll
   assert.deepEqual(canonicalMigrationLedger(MIGRATION_CATALOG.map(({basename,sha256}) => ({version:basename,sha256}))), [...REQUIRED_MIGRATIONS]);
   assert.throws(() => canonicalMigrationLedger(filenames.map(name => name.slice(0, 14))), /ambiguous/);
   migrationLedger(filenames);
+});
+
+test('reviewed source-identity ledgers use the same full-name/hash validation as runtime preflight', t => {
+  const f = fixture(t), responses = replies(f), calls = [];
+  responses[0].sourceLedger = true;
+  responses[1] = {applied: [], attestations: appliedRows()};
+  const result = checkLive(f.evidence, f.directory, candidateSelector(f.evidence), (command, label) => {
+    calls.push({command,label}); return JSON.stringify(responses.shift());
+  }, () => {}, () => f.now);
+  assert.equal(result.status, 'READ_ONLY_CHECKS_PASSED');
+  assert.match(calls[1].command, /supabase_migrations.scoring_source_identities/);
+  assert.match(calls[1].command, /from supabase_migrations.schema_migrations/);
+  assert.deepEqual(result.migrationLedger.observedRaw, []);
+  assert.deepEqual(result.migrationLedger.observedSourceAttestations, appliedRows());
+  for (const ledger of [
+    {applied: [],attestations: appliedRows().slice(1)},
+    {applied: [],attestations: appliedRows().map(row => ({...row,sha256:'0'.repeat(64)}))},
+    {applied: [{version:'20260922000000_unknown.sql'}],attestations: appliedRows()},
+    {applied: [{...appliedRows()[0],name:'contradictory_name'}],attestations: appliedRows()},
+    {applied: [{...appliedRows()[0],exportHash:'0'.repeat(64)}],attestations: appliedRows()},
+  ]) {
+    const invalid = replies(f, ledger); invalid[0].sourceLedger = true;
+    assert.throws(() => checkLive(f.evidence, f.directory, candidateSelector(f.evidence),
+      () => JSON.stringify(invalid.shift()), () => {}, () => f.now), /NOT_READY/);
+  }
 });
 
 test('P1-1 closure: complete runner ledger reaches all checks and remains unchanged in evidence/result', t => {
