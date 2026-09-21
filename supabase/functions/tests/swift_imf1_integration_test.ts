@@ -7,6 +7,7 @@ import { noopDeviceId } from '../_shared/keys.ts';
 import { sha256Hex } from '../_shared/s3.ts';
 import { startLocalPostgres, USER_B } from './local_postgres.ts';
 import { startObjectHttp } from './local_objects.ts';
+import { ingestFailure } from './native_assertions.ts';
 
 /** Test-only reversible archive inspection. Production retains the opaque NPB1 without BLE decoding. */
 function unpackImf1(wire: Uint8Array) {
@@ -73,10 +74,11 @@ Deno.test('actual Swift imf1 session/continuous bytes cross real070/PostgREST/ob
         await assert.rejects(objects.completeObject({ userId: USER_B, objectId: manifest.objectId }), /forbidden/);
         await db.sql(`create or replace function fixture_imf_index_failure() returns trigger language plpgsql as $$begin raise exception 'fixture_imf_index'; end$$;
           create trigger fixture_imf_index_failure before insert on noop_signal_windows for each row execute function fixture_imf_index_failure();`);
-        await assert.rejects(objects.completeObject({ userId: fixture.ownerUserId, objectId: manifest.objectId }), /fixture_imf_index/);
-        assert.equal((await get(manifest.objectId)).durability_receipt, null);
-        assert.equal((await db.rest.select('noop_signal_windows', `object_id=eq.${manifest.objectId}`)).length, 0);
-        await db.sql('drop trigger fixture_imf_index_failure on noop_signal_windows');
+        try {
+          await assert.rejects(objects.completeObject({ userId: fixture.ownerUserId, objectId: manifest.objectId }), ingestFailure('archive_verify', 'rawBatch'));
+          assert.equal((await get(manifest.objectId)).durability_receipt, null);
+          assert.equal((await db.rest.select('noop_signal_windows', `object_id=eq.${manifest.objectId}`)).length, 0);
+        } finally { await db.sql('drop trigger fixture_imf_index_failure on noop_signal_windows'); }
         for (let page = 0; page < 8 && !(await get(manifest.objectId)).durability_receipt; page++) await reconcileIntake(db.rest, bucket.raw, 1);
         const saved = await get(manifest.objectId), receipt = saved.durability_receipt;
         assert.equal(receipt.state, 'verified_indexed'); assert.equal(receipt.schemaVersion, 1);

@@ -24,7 +24,10 @@ export function startObjectHttp() {
     const bytes = objects.get(key);
     if (!bytes) return new Response(null, { status: 404 });
     const headers: Record<string, string> = omitLength ? {} : { 'content-length': String(bytes.length) };
-    if (req.method === 'HEAD') return new Response(null, { headers });
+    // Deno emits Content-Length: 0 for a null response body. An unknown-length
+    // stream exercises a genuinely absent length on the wire for HEAD too.
+    if (req.method === 'HEAD') return new Response(omitLength
+      ? new ReadableStream({ start(controller) { controller.close(); } }) : null, { headers });
     return new Response(new ReadableStream({ start(controller) {
       for (let i = 0; i < bytes.length; i += 31) controller.enqueue(bytes.slice(i, i + 31));
       controller.close();

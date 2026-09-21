@@ -7,6 +7,7 @@ import { noopDeviceId } from '../_shared/keys.ts';
 import { sha256Hex } from '../_shared/s3.ts';
 import { startLocalPostgres, USER_A, USER_B } from './local_postgres.ts';
 import { startObjectHttp } from './local_objects.ts';
+import { ingestFailure } from './native_assertions.ts';
 
 Deno.test('actual Swift auxiliary1.4 whole070 intake: exact siblings, atomic rollback, server-only recovery', async (t) => {
   const directory = `${Deno.env.get('EDGE_TEST_ARTIFACTS')}/aux14-swift-intake-v1`;
@@ -47,11 +48,12 @@ Deno.test('actual Swift auxiliary1.4 whole070 intake: exact siblings, atomic rol
     await t.step('real index fault rolls back validation, receipt and index without changing the producer object', async () => {
       await db.sql(`create function fixture_swift_aux_index() returns trigger language plpgsql as $$begin raise exception 'fixture_swift_aux_index'; end$$;
         create trigger fixture_swift_aux_index before insert on noop_signal_windows for each row execute function fixture_swift_aux_index();`);
-      await assert.rejects(objects.completeObject({ userId: USER_A, objectId: manifest.objectId }), /fixture_swift_aux_index/);
-      assert.equal((await get()).durability_receipt, null); assert.notEqual((await get()).status, 'ready');
-      assert.equal((await validation()).length, 0); assert.equal((await windows()).length, 0);
-      assert.deepEqual(bucket.objects.get(intent.objectKey), wire);
-      await db.sql('drop trigger fixture_swift_aux_index on noop_signal_windows');
+      try {
+        await assert.rejects(objects.completeObject({ userId: USER_A, objectId: manifest.objectId }), ingestFailure('archive_verify', 'v18AuxSample'));
+        assert.equal((await get()).durability_receipt, null); assert.notEqual((await get()).status, 'ready');
+        assert.equal((await validation()).length, 0); assert.equal((await windows()).length, 0);
+        assert.deepEqual(bucket.objects.get(intent.objectKey), wire);
+      } finally { await db.sql('drop trigger fixture_swift_aux_index on noop_signal_windows'); }
     });
     await t.step('bounded server-only reconciliation publishes one exact owner/source/object receipt and all three identities', async () => {
       const result = await reconcileIntake(db.rest, bucket.raw, 1);

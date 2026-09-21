@@ -8,6 +8,7 @@ import { advertisedStreams, capabilitiesBody } from '../_shared/registry.ts';
 import { sha256Hex } from '../_shared/s3.ts';
 import { startLocalPostgres, USER_A, USER_B } from './local_postgres.ts';
 import { startObjectHttp } from './local_objects.ts';
+import { ingestFailure } from './native_assertions.ts';
 
 const DEVICE = '33333333-3333-4333-8333-333333333333';
 const SOURCE = '44444444-4444-4444-8444-444444444444';
@@ -36,6 +37,9 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
   const ackRows = (id: string) => db.rest.select('noop_push_acks', `batch_id=eq.${id}`);
   const proofs: unknown[] = [];
   try {
+    // Exercise preservation of an existing owned foreign key through the real
+    // registrar, rather than assuming a phone UUID is the canonical device.
+    assert.equal(await registerDevice(db.rest, { id: DEVICE, user_id: USER_A, external_device_id: DEVICE }), DEVICE);
     await t.step('capabilities expose all three at existing versions without an object-lane change', () => {
       for (const version of ['1.0', '1.1', '1.2', '1.3']) {
         const caps = capabilitiesBody({ receiverStateId: 'scalar-fixture', protocolVersion: version,
@@ -95,15 +99,23 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
           assert.equal(privileged.status, 403);
         }
         const beforeForeign = bucket.objects.size;
-        await assert.rejects(ingest().acceptBatch({ userId: USER_B, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body }), /device_owner_conflict/);
+        await assert.rejects(registerDevice(db.rest, { id: DEVICE, user_id: USER_B, external_device_id: DEVICE }),
+          (error: any) => error.code === 'device_owner_conflict' && error.status === 403);
+        // A phone-local UUID is scoped to its owner; replaying another owner's
+        // immutable object is rejected at the object boundary, not by aliasing devices.
+        await assert.rejects(ingest().acceptBatch({ userId: USER_B, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body }),
+          (error: any) => error.code === 'object_owner_conflict' && error.status === 403);
         assert.equal(bucket.objects.size, beforeForeign);
+        assert.equal((await db.rest.select(table, `user_id=eq.${USER_B}&batch_id=eq.${f.header.batchId}`)).length, 0);
+        assert.equal((await db.rest.select('noop_push_acks', `user_id=eq.${USER_B}&batch_id=eq.${f.header.batchId}`)).length, 0);
+        assert.deepEqual((await select(ts))[0], row);
         proofs.push({ stream, receipt: ack.durabilityReceipt, ownerRead: own.status, otherOwnerRows: other.body.length });
       });
 
       await t.step(`${stream}: server-only replay repairs verified archive crash and dirties settled scores`, async () => {
         const f = batch(ts + 10);
         await assert.rejects(ingest(() => { throw new Error('fixture_after_verified_archive'); })
-          .acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body }), /fixture_after_verified_archive/);
+          .acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body }), ingestFailure('projection', stream));
         assert.equal((await manifest(f.header.batchId)).durability_receipt.state, 'verified_indexed');
         assert.equal((await select(ts + 10)).length, 0);
         assert.equal((await ackRows(f.header.batchId)).length, 0); assert.equal(await debt(f.header.batchId), 'pending');
@@ -129,14 +141,15 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
           if new.reason='${table}' then raise exception 'fixture_scalar_invalidation'; end if; return new; end$$;
           create trigger fixture_scalar_abort before update on scoring_jobs_v2 for each row execute function fixture_scalar_abort();`);
         let afterArchive = 0;
-        await assert.rejects(ingest(async (receipt, bytes) => {
-          afterArchive = await revision(); return commitArchivedBatch(db.rest, receipt, bytes);
-        }).acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body }), /fixture_scalar_invalidation/);
-        assert.equal(await revision(), afterArchive); assert.equal((await select(ts + 20)).length, 0);
-        assert.equal((await ackRows(f.header.batchId)).length, 0); assert.equal(await debt(f.header.batchId), 'pending');
-        assert.equal((await reconcileProjections(db.rest, bucket.raw, 1)).deferred, 1);
-        await db.sql(`drop trigger fixture_scalar_abort on scoring_jobs_v2;
-          update noop_projection_debt set not_before=clock_timestamp() where object_id='${f.header.batchId}';`);
+        try {
+          await assert.rejects(ingest(async (receipt, bytes) => {
+            afterArchive = await revision(); return commitArchivedBatch(db.rest, receipt, bytes);
+          }).acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body }), ingestFailure('projection', stream));
+          assert.equal(await revision(), afterArchive); assert.equal((await select(ts + 20)).length, 0);
+          assert.equal((await ackRows(f.header.batchId)).length, 0); assert.equal(await debt(f.header.batchId), 'pending');
+          assert.equal((await reconcileProjections(db.rest, bucket.raw, 1)).deferred, 1);
+        } finally { await db.sql('drop trigger fixture_scalar_abort on scoring_jobs_v2'); }
+        await db.sql(`update noop_projection_debt set not_before=clock_timestamp() where object_id='${f.header.batchId}';`);
         assert.equal((await reconcileProjections(db.rest, bucket.raw, 1)).settled, 1);
         assert.equal((await select(ts + 20)).length, 1); assert((await revision()) > afterArchive);
         assert.equal((await ackRows(f.header.batchId)).length, 1); assert.equal(await debt(f.header.batchId), 'complete');
@@ -145,11 +158,11 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
       await t.step(`${stream}: changed same-second values retain the original projection and explicit replay debt`, async () => {
         const old = batch(ts + 30);
         await assert.rejects(ingest(() => { throw new Error('fixture_before_projection'); })
-          .acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: old.body }), /fixture_before_projection/);
+          .acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: old.body }), ingestFailure('projection', stream));
         const newer = batch(ts + 30, value - 1);
         await assert.rejects(ingest(async (receipt, bytes) => {
           await commitArchivedBatch(db.rest, receipt, bytes); throw new Error('fixture_lost_ack');
-        }).acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: newer.body }), /fixture_lost_ack/);
+        }).acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: newer.body }), ingestFailure('projection', stream));
         const before = await revision();
         assert.equal((await reconcileProjections(db.rest, bucket.raw, 1)).deferred, 1);
         assert.equal((await select(ts + 30))[0][required], value - 1);

@@ -10,6 +10,7 @@ import { sweepExpiredManifests } from '../_shared/workers.ts';
 import { startLocalPostgres, USER_A, USER_B } from './local_postgres.ts';
 import { compressFor } from './helpers.ts';
 import { startObjectHttp } from './local_objects.ts';
+import { ingestFailure } from './native_assertions.ts';
 
 const DEVICE = '33333333-3333-4333-8333-333333333333';
 const SOURCE = '44444444-4444-4444-8444-444444444444';
@@ -38,7 +39,7 @@ function objectFixture(over: Record<string, unknown> = {}) {
 }
 
 Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback object HTTP', async (t) => {
-  const db = await startLocalPostgres();
+  const db = await startLocalPostgres({ scalarProjections: true, appendCompatibility: true });
   const bucket = startObjectHttp();
   const cfg: any = { b2KeyId: 'fixture', b2ApplicationKey: 'fixture', b2Bucket: 'fixture', rawStore: 'b2' };
   const objects = createPushObjects({ cfg, rest: db.rest, raw: bucket.raw });
@@ -133,20 +134,27 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
         f.wire = new Uint8Array(compressFor('zstd', f.payload));
         f.manifest.compressedBytes = f.wire.length;
         const shipped = await upload(f);
+        const head = await fetch(shipped.intent.uploadUrl!, { method: 'HEAD' });
+        await head.body?.cancel();
+        assert.equal(head.status, 200);
+        assert.equal(head.headers.get('content-length'), null, 'the fixture must omit length on the real HTTP response');
+        assert.equal((await bucket.raw.head(shipped.intent.objectKey))?.contentLength, null);
         assert.equal((await objects.completeObject({ userId: USER_A, objectId: shipped.manifest.objectId })).durabilityReceipt.contentSha256, sha256Hex(f.payload));
       } finally { bucket.setOmitLength(false); }
     });
     await t.step('COPY HTTP 200 error and index transaction failure recover without a phone reupload', async () => {
       const f = await upload();
       bucket.setFailCopy(true);
-      await assert.rejects(objects.completeObject({ userId: USER_A, objectId: f.manifest.objectId }), /object copy failed/);
-      bucket.setFailCopy(false);
+      try {
+        await assert.rejects(objects.completeObject({ userId: USER_A, objectId: f.manifest.objectId }), ingestFailure('archive_verify', 'ppgWaveformSample'));
+      } finally { bucket.setFailCopy(false); }
       await db.sql(`create function public.fixture_index_failure() returns trigger language plpgsql as $$begin raise exception 'fixture_index_failure'; end$$;
         create trigger fixture_index_failure before insert on public.noop_signal_windows for each row execute function public.fixture_index_failure();`);
-      await assert.rejects(objects.completeObject({ userId: USER_A, objectId: f.manifest.objectId }), /fixture_index_failure/);
-      const failed = await get(f.manifest.objectId);
-      assert.notEqual(failed.status, 'ready'); assert.equal(failed.durability_receipt, null);
-      await db.sql('drop trigger fixture_index_failure on public.noop_signal_windows;');
+      try {
+        await assert.rejects(objects.completeObject({ userId: USER_A, objectId: f.manifest.objectId }), ingestFailure('archive_verify', 'ppgWaveformSample'));
+        const failed = await get(f.manifest.objectId);
+        assert.notEqual(failed.status, 'ready'); assert.equal(failed.durability_receipt, null);
+      } finally { await db.sql('drop trigger fixture_index_failure on public.noop_signal_windows;'); }
       const races = await Promise.all([
         objects.completeObject({ userId: USER_A, objectId: f.manifest.objectId }),
         objects.completeObject({ userId: USER_A, objectId: f.manifest.objectId }),
@@ -199,7 +207,7 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
       const common = { walStore: wal, archiveObject: (args: any) => archive.archiveObject(args), ensureDevice: (row: any) => registerDevice(db.rest,row),
         commitProjection: (receipt: any, body: Uint8Array) => commitArchivedBatch(db.rest, receipt, body) };
       const crashing = createPushIngest({ ...common, commitProjection: () => { throw new Error('fixture_projection_crash'); } });
-      await assert.rejects(crashing.acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body(60) }), /fixture_projection_crash/);
+      await assert.rejects(crashing.acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body(60) }), ingestFailure('projection', 'hrSample'));
       assert.equal((await db.rest.select('noop_push_acks', `batch_id=eq.${batchId}`)).length, 0);
       const saved = await get(batchId);
       assert.equal(saved.durability_receipt.state, 'verified_indexed');
@@ -244,6 +252,8 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
       await db.sql(`update noop_push_acks set ack=ack-'durabilityReceipt' where batch_id='${f.header.batchId}';
         update object_manifests set durability_receipt=null,indexed_at=null,status='ready',object_key=upload_object_key
           where id='${f.header.batchId}';
+        -- A pre-durability archive never had a modern completed projection ledger.
+        delete from noop_projection_debt where object_id='${f.header.batchId}';
         delete from noop_signal_windows where object_id='${f.header.batchId}';`);
       const legacy = (await db.rest.select('noop_push_acks', `batch_id=eq.${f.header.batchId}`))[0].ack;
       assert.equal(legacy.durabilityReceipt, undefined);
@@ -265,15 +275,16 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
         afterArchive=await inputRevision();
         return commitArchivedBatch(db.rest,receipt,body);
       });
-      await assert.rejects(ingest.acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:f.body}),/fixture_invalidation_failure/);
-      assert.equal(await inputRevision(),afterArchive);
-      assert.equal((await db.rest.select('noop_hr_samples',`ts=eq.${SECOND+10}`)).length,0);
-      assert.equal((await db.rest.select('noop_push_acks',`batch_id=eq.${f.header.batchId}`)).length,0);
-      assert.equal(await db.sql(`select state from noop_projection_debt where object_id='${f.header.batchId}'`),'pending');
-      assert.equal((await reconcileProjections(db.rest,bucket.raw,1)).deferred,1);
-      assert.equal(await inputRevision(),afterArchive);
-      await db.sql(`drop trigger fixture_projection_invalidation_failure on scoring_jobs_v2;
-        update noop_projection_debt set not_before=clock_timestamp() where object_id='${f.header.batchId}';`);
+      try {
+        await assert.rejects(ingest.acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:f.body}),ingestFailure('projection', 'hrSample'));
+        assert.equal(await inputRevision(),afterArchive);
+        assert.equal((await db.rest.select('noop_hr_samples',`ts=eq.${SECOND+10}`)).length,0);
+        assert.equal((await db.rest.select('noop_push_acks',`batch_id=eq.${f.header.batchId}`)).length,0);
+        assert.equal(await db.sql(`select state from noop_projection_debt where object_id='${f.header.batchId}'`),'pending');
+        assert.equal((await reconcileProjections(db.rest,bucket.raw,1)).deferred,1);
+        assert.equal(await inputRevision(),afterArchive);
+      } finally { await db.sql('drop trigger fixture_projection_invalidation_failure on scoring_jobs_v2'); }
+      await db.sql(`update noop_projection_debt set not_before=clock_timestamp() where object_id='${f.header.batchId}';`);
       assert.equal((await reconcileProjections(db.rest,bucket.raw,1)).settled,1);
       assert.equal((await db.rest.select('noop_hr_samples',`ts=eq.${SECOND+10}`)).length,1);
       assert(Number(await inputRevision())>Number(afterArchive));
@@ -286,7 +297,7 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
         return result;
       }};
       await assert.rejects(nativeIngest((receipt,body)=>commitArchivedBatch(ambiguousRest,receipt,body))
-        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:original.body}),/fixture_lost_committed_response/);
+        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:original.body}),ingestFailure('projection', 'hrSample'));
       assert.equal(await db.sql(`select state from noop_projection_debt where object_id='${original.header.batchId}'`),'complete');
       const receipt = (await get(original.header.batchId)).durability_receipt;
       const correction = inline(SECOND+20,75);
@@ -301,7 +312,7 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
     await t.step('older unprojected archive cannot overwrite a newer correction; stale lease is fenced', async () => {
       const older = inline(SECOND+30,60);
       await assert.rejects(nativeIngest(()=>{throw new Error('fixture_pre_projection');})
-        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:older.body}),/fixture_pre_projection/);
+        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:older.body}),ingestFailure('projection', 'hrSample'));
       const first = await db.rest.rpc('noop_claim_projection_debt',{});
       assert.equal(first.manifest.id,older.header.batchId);
       await db.sql(`update noop_projection_debt set lease_until=clock_timestamp()-interval '1 second' where object_id='${older.header.batchId}'`);
@@ -320,7 +331,7 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
     await t.step('concurrent pending settlement commits one projection and one invalidation generation', async () => {
       const f=inline(SECOND+35);
       await assert.rejects(nativeIngest(()=>{throw new Error('fixture_pending_race');})
-        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:f.body}),/fixture_pending_race/);
+        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:f.body}),ingestFailure('projection', 'hrSample'));
       const [a,b]=await Promise.all([db.rest.rpc('noop_claim_projection_debt',{}),db.rest.rpc('noop_claim_projection_debt',{})]);
       assert.equal([a,b].filter(Boolean).length,1);
       const job=a||b;
@@ -337,20 +348,21 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
     await t.step('bounded upgrade scan repairs indexed legacy debt; archive corruption never settles projections', async () => {
       const f = inline(SECOND+40);
       await assert.rejects(nativeIngest(()=>{throw new Error('fixture_pre_projection');})
-        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:f.body}),/fixture_pre_projection/);
+        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:f.body}),ingestFailure('projection', 'hrSample'));
       const row = await get(f.header.batchId);
       await db.sql(`delete from noop_projection_debt where object_id='${f.header.batchId}'; update noop_projection_scan set cursor_id=null;`);
       const wire = bucket.objects.get(row.object_key)!;
       bucket.objects.set(row.object_key,new Uint8Array(wire.length));
       let sawFailure = false;
-      for(let i=0;i<32;i++) {
-        const report=await reconcileProjections(db.rest,bucket.raw,1);
-        assert(report.scanned<=1);
-        if(report.deferred) { sawFailure=true; break; }
-      }
-      assert(sawFailure);
-      assert.equal((await db.rest.select('noop_hr_samples',`ts=eq.${SECOND+40}`)).length,0);
-      bucket.objects.set(row.object_key,wire);
+      try {
+        for(let i=0;i<32;i++) {
+          const report=await reconcileProjections(db.rest,bucket.raw,1);
+          assert(report.scanned<=1);
+          if(report.deferred) { sawFailure=true; break; }
+        }
+        assert(sawFailure);
+        assert.equal((await db.rest.select('noop_hr_samples',`ts=eq.${SECOND+40}`)).length,0);
+      } finally { bucket.objects.set(row.object_key,wire); }
       await db.sql(`update noop_projection_debt set not_before=clock_timestamp() where object_id='${f.header.batchId}'`);
       assert.equal((await reconcileProjections(db.rest,bucket.raw,1)).settled,1);
     });
@@ -371,7 +383,7 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
       const ack=await nativeIngest().acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:first.body});
       assert.equal(await db.sql(`select state from noop_projection_debt where object_id='${first.header.batchId}'`),'staged');
       await assert.rejects(nativeIngest(()=>{throw new Error('fixture_final_part_crash');})
-        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:last.body}),/fixture_final_part_crash/);
+        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:last.body}),ingestFailure('projection', 'journal'));
       assert.equal((await db.rest.select('noop_journal_entries',`device_id=eq.${DEVICE}`)).length,1);
       assert.equal((await reconcileProjections(db.rest,bucket.raw,1)).settled,1);
       assert.deepEqual((await db.rest.select('noop_journal_entries',`device_id=eq.${DEVICE}&order=question.asc`)).map(r=>r.question),['first','last']);
@@ -404,7 +416,7 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
         {day:'2026-09-28',question:'outside'},{day:'2026-09-29',question:'obsolete'},
       ]);
       await assert.rejects(nativeIngest(()=>{throw new Error('fixture_old_window');})
-        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:older.body}),/fixture_old_window/);
+        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:older.body}),ingestFailure('projection', 'journal'));
       const newer=journalWindow('2026-09-29','2026-10-01',[{day:'2026-09-29',question:'newer'}]);
       await nativeIngest().acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:newer.body});
       assert.equal((await reconcileProjections(db.rest,bucket.raw,1)).settled,1);
@@ -415,7 +427,7 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
     await t.step('retention holds the only archive while projection recovery is pending', async () => {
       const f=inline(SECOND+50);
       await assert.rejects(nativeIngest(()=>{throw new Error('fixture_before_projection');})
-        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:f.body}),/fixture_before_projection/);
+        .acceptBatch({userId:USER_A,sourceId:null,tokenId:null,authMode:'legacy_fleet',decodedBody:f.body}),ingestFailure('projection', 'hrSample'));
       const row=await get(f.header.batchId);
       await db.rest.patch('object_manifests',{expires_at:'2000-01-01T00:00:00Z'},`id=eq.${row.id}`);
       await sweepExpiredManifests({rest:db.rest,objectStore:bucket.raw});
@@ -484,23 +496,31 @@ Deno.test('native intake durability: PostgreSQL, PostgREST roles, and loopback o
       const failed = createPushIngest({ ...common, walStore: wal, commitProjection: async (receipt,body) => {
         await commitArchivedBatch(db.rest,receipt,body); throw new Error('fixture_ack_failure');
       } });
-      await assert.rejects(failed.acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body }), /fixture_ack_failure/);
+      await assert.rejects(failed.acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body }), ingestFailure('projection', 'hrSample'));
       const original = await get(batchId);
       const retry = createPushIngest({ ...common, walStore: wal, now: () => new Date('2030-01-01'),
         commitProjection:(receipt,body)=>commitArchivedBatch(db.rest,receipt,body) });
       await retry.acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body });
       assert.deepEqual((await get(batchId)).durability_receipt, original.durability_receipt);
     });
-    await t.step('legacy provenance is bound once on intent retry after background receipt repair', async () => {
+    await t.step('legacy null-source archive requires an explicit migration and cannot bind identity from a retry', async () => {
       const f = await upload();
       await db.rest.patch('object_manifests', { status: 'ready', batch_id: null, source_id: null, uncompressed_bytes: null, digest_scope: null }, `id=eq.${f.manifest.objectId}`);
       const first = await objects.completeObject({ userId: USER_A, objectId: f.manifest.objectId });
       assert.equal(first.durabilityReceipt.batchId, null);
-      const retry = await objects.createIntent({ userId: USER_A, manifest: f.manifest });
-      assert.equal(retry.durabilityReceipt?.receiptId, first.durabilityReceipt.receiptId);
-      assert.equal(retry.durabilityReceipt?.batchId, f.manifest.batchId);
-      assert.equal(retry.durabilityReceipt?.sourceId, SOURCE);
-      await assert.rejects(objects.createIntent({ userId: USER_A, manifest: { ...f.manifest, sourceId: crypto.randomUUID() } }), /object_id_conflict/);
+      assert.equal(first.durabilityReceipt.sourceId, null);
+      const prior = await get(f.manifest.objectId);
+      const windows = await db.rest.select('noop_signal_windows', `object_id=eq.${f.manifest.objectId}`);
+      const archivedObjects = bucket.objects.size;
+      for (const sourceId of [SOURCE, crypto.randomUUID()]) {
+        await assert.rejects(objects.createIntent({ userId: USER_A, manifest: { ...f.manifest, sourceId } }),
+          (error: any) => error.code === 'forbidden' && error.status === 403);
+        assert.deepEqual(await get(f.manifest.objectId), prior, 'a retry cannot rebind legacy provenance or replace its receipt');
+        assert.deepEqual(await db.rest.select('noop_signal_windows', `object_id=eq.${f.manifest.objectId}`), windows);
+        assert.equal((await db.rest.select('noop_push_acks', `batch_id=eq.${f.manifest.batchId}`)).length, 0);
+        assert.equal(bucket.objects.size, archivedObjects);
+      }
+      assert.deepEqual(bucket.objects.get(first.durabilityReceipt.objectKey), f.wire);
     });
   } finally { await bucket.close(); await db.close(); }
 });

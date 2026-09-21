@@ -9,6 +9,7 @@ import { sweepExpiredManifests } from '../_shared/workers.ts';
 import { sha256Hex } from '../_shared/s3.ts';
 import { startLocalPostgres, USER_A, USER_B } from './local_postgres.ts';
 import { startObjectHttp } from './local_objects.ts';
+import { ingestFailure } from './native_assertions.ts';
 import { buildIngestVerifyReport } from '../_shared/ingestVerify.ts';
 
 const DEVICE = '33333333-3333-4333-8333-333333333333';
@@ -72,7 +73,7 @@ Deno.test('070 native receiver: provenance, auxiliary identity debt, transaction
         const bytes = (h = header, pr: unknown = p) => new TextEncoder().encode([h,
           { type: 'record', key: { ts: SECOND + i }, data: { ...data, provenance: pr } }].map((v) => JSON.stringify(v)).join('\n') + '\n');
         const body = bytes();
-        await assert.rejects(ingest(true).acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body }), /fixture_after_archive/);
+        await assert.rejects(ingest(true).acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body }), ingestFailure('projection', stream));
         assert.equal((await get(header.batchId)).durability_receipt.schemaVersion, 2);
         assert.equal((await db.rest.select(table, `ts=eq.${SECOND + i}`)).length, 0);
         assert.equal((await reconcileProjections(db.rest, bucket.raw, 1)).settled, 1);
@@ -150,9 +151,10 @@ Deno.test('070 native receiver: provenance, auxiliary identity debt, transaction
       const f = await upload();
       await db.sql(`create function fixture_aux_index_failure() returns trigger language plpgsql as $$begin raise exception 'fixture_aux_index'; end$$;
         create trigger fixture_aux_index_failure before insert on noop_signal_windows for each row execute function fixture_aux_index_failure();`);
-      await assert.rejects(objects.completeObject({ userId: USER_A, objectId: f.manifest.objectId }), /fixture_aux_index/);
-      assert.equal(await validation(f.manifest.objectId), undefined); assert.equal((await get(f.manifest.objectId)).durability_receipt, null);
-      await db.sql('drop trigger fixture_aux_index_failure on noop_signal_windows');
+      try {
+        await assert.rejects(objects.completeObject({ userId: USER_A, objectId: f.manifest.objectId }), ingestFailure('archive_verify', 'v18AuxSample'));
+        assert.equal(await validation(f.manifest.objectId), undefined); assert.equal((await get(f.manifest.objectId)).durability_receipt, null);
+      } finally { await db.sql('drop trigger fixture_aux_index_failure on noop_signal_windows'); }
       for (let page = 0; page < 10 && !(await get(f.manifest.objectId)).durability_receipt; page++) await reconcileIntake(db.rest, bucket.raw, 2);
       assert.equal((await get(f.manifest.objectId)).durability_receipt.state, 'verified_indexed');
       assert.equal((await validation(f.manifest.objectId)).state, 'validated');
