@@ -397,6 +397,42 @@ final class CloudUploadOutcomeTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(verified.validatedReceipt).isValid)
     }
 
+    func testLegacyInvalidRecordRetriesOnceAfterBoundedReceiverUpgrade() async throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let rejection = try JSONSerialization.data(withJSONObject: [
+            "type": "error", "protocolVersion": PushProtocol.binaryVersion, "code": "invalid_record",
+        ])
+        let firstAdapter = OutcomeSessionAdapter()
+        let first = try queue(f, adapter: firstAdapter, clock: OutcomeClock())
+        try await first.reconcile()
+        let original = try XCTUnwrap(firstAdapter.last).task
+        firstAdapter.finish(original.identifier)
+        await first.receive(original, status: 422, body: rejection, error: false)
+        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        await first.suspend()
+
+        let secondAdapter = OutcomeSessionAdapter()
+        let second = try queue(f, adapter: secondAdapter, clock: OutcomeClock(),
+            context: .init(scope: f.context.scope, generation: UUID()))
+        try await second.reconcile()
+        let replay = try XCTUnwrap(secondAdapter.last)
+        XCTAssertEqual(try Data(contentsOf: replay.file), f.batch.body)
+        XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 1)
+        secondAdapter.finish(replay.task.identifier)
+        await second.receive(replay.task, status: 422, body: rejection, error: false)
+        await second.suspend()
+
+        let finalAdapter = OutcomeSessionAdapter()
+        let final = try queue(f, adapter: finalAdapter, clock: OutcomeClock(),
+            context: .init(scope: f.context.scope, generation: UUID()))
+        try await final.reconcile()
+        XCTAssertEqual(finalAdapter.count, 0)
+        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 1)
+        try assertSourceRetained(f)
+    }
+
     func testExplicitResolutionReusesExactBytesAndFencesPriorAttempt() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.root) }

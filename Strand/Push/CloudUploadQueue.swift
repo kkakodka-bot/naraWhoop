@@ -602,6 +602,23 @@ actor CloudUploadQueue {
                     job.validatedReceipt = nil
                 }
             }
+            // Receiver v12 accepts the older standard-HR wire representation when its monotonic
+            // clock is still an exact JSON safe integer. Retry one previously terminal 422 after
+            // that bounded compatibility upgrade; any still-invalid payload remains fail-closed.
+            if job.operation == .request, job.phase == .pausedTerminal,
+               (job.receiptUpgradeRetryCount ?? 0) == 0, job.responseStatus == 422,
+               let body = job.responseBody,
+               (PushError.parseCode(body, expectedVersion: PushProtocol.binaryVersion) ?? job.responseCode) == "invalid_record" {
+                job.receiptUpgradeRetryCount = 1
+                job.phase = .retryPending
+                job.responseStatus = nil
+                job.responseBody = nil
+                job.responseRetryAfter = nil
+                job.responseCode = nil
+                job.responseDisposition = nil
+                job.nextAttemptAt = nil
+                job.validatedReceipt = nil
+            }
             // Recover pre-fleet-header failures once, without changing payloads or receipts.
             if job.operation != .objectPut, job.phase == .pausedTerminal,
                job.responseDisposition == .authentication, job.fleetAuthorizationApplied != true,

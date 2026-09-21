@@ -206,16 +206,22 @@ export const APPEND_STREAM_PROJECTIONS: Record<string, {
       for (const field of ['ts', 'notificationOrdinal', 'receivedUnixMs']) {
         if (!Number.isSafeInteger(d[field]) || d[field] < 0) return null;
       }
-      // Nanosecond host uptime crosses JavaScript's safe-integer boundary after ~104 days.
-      // Require a decimal string on the wire, retain it exactly for PostgreSQL bigint parsing.
-      if (typeof d.receivedMonotonicNs !== 'string' || !/^(0|[1-9][0-9]{0,18})$/.test(d.receivedMonotonicNs) ||
-          BigInt(d.receivedMonotonicNs) > 9223372036854775807n ||
+      // Nanosecond host uptime crosses JavaScript's safe-integer boundary after ~104 days. New
+      // clients send a decimal string. Preserve legacy numeric values only while JavaScript can
+      // represent them exactly; never round an oversized number into a PostgreSQL bigint.
+      const monotonicNs = typeof d.receivedMonotonicNs === 'string'
+        ? d.receivedMonotonicNs
+        : Number.isSafeInteger(d.receivedMonotonicNs) && d.receivedMonotonicNs >= 0
+        ? String(d.receivedMonotonicNs)
+        : null;
+      if (monotonicNs == null || !/^(0|[1-9][0-9]{0,18})$/.test(monotonicNs) ||
+          BigInt(monotonicNs) > 9223372036854775807n ||
           receiptId !== `${d.sessionId}:${d.notificationOrdinal}` ||
           d.ts !== Math.floor(d.receivedUnixMs / 1000)) return null;
       // Arrival clocks and consecutive notifications do not assert sensor beat timing/continuity.
       return { user_id: userId, device_id: deviceId, source_id: sourceId, batch_id: batchId, receiptId,
         ts: d.ts, sessionId: d.sessionId, notificationOrdinal: d.notificationOrdinal,
-        receivedUnixMs: d.receivedUnixMs, receivedMonotonicNs: d.receivedMonotonicNs,
+        receivedUnixMs: d.receivedUnixMs, receivedMonotonicNs: monotonicNs,
         rawHex: d.rawHex, schemaVersion: d.schemaVersion, clockVersion: d.clockVersion };
     },
   },
