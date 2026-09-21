@@ -17,6 +17,7 @@ printf 'Local pipeline evidence: %s\n' "$evidence"
 docker network create "$network" > "$evidence/network.txt"
 docker run --detach --name "$database" --network "$network" --network-alias database \
   --label nara.test=server-pipeline --memory 2g --cpus 2 \
+  --log-opt max-size=20m --log-opt max-file=2 \
   -p 127.0.0.1::5432 -e POSTGRES_PASSWORD=isolated-pipeline-only \
   public.ecr.aws/supabase/postgres:17.6.1.127@sha256:be60aee15997daca475b710b734bc6bfe52cd544dcd7e9fd2ff58210b6747d83 > "$evidence/database.txt"
 ready=false
@@ -40,6 +41,7 @@ while IFS= read -r migration; do
     -f "/migrations/$migration" > "$evidence/$migration.log" 2>&1 || { tail -40 "$evidence/$migration.log"; exit 1; }
 done < "$evidence/migration-order.txt"
 docker run --detach --name "$rest" --network "$network" --label nara.test=server-pipeline \
+  --log-opt max-size=20m --log-opt max-file=2 \
   -p 127.0.0.1::3000 -e PGRST_DB_URI=postgres://supabase_admin:isolated-pipeline-only@database:5432/postgres \
   -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon \
   -e PGRST_JWT_SECRET=isolated-pipeline-jwt-secret-never-used-outside-tests \

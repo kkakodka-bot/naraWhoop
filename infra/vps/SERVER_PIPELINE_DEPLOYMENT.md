@@ -78,6 +78,8 @@ confirm that all selected defaults remain v1. These tests do not establish the p
    bytes. Record both image IDs; a source label alone is insufficient.
 2. Review the hosted ledger and apply only the separately authorized forward plan. Preserve raw
    inputs, immutable results, queue revisions, leases and prior image/configuration identities.
+   If any unpatched v1 producer is running, stop it and prevent restart before installing the
+   fencing migrations; resume only with the reviewed patched baseline.
 3. Configure only dedicated `SCORING_DATABASE_URL`, `SCORING_SUPABASE_URL`,
    `SCORING_SUPABASE_SERVICE_ROLE_KEY` and `SCORING_INGEST_SECRET` for the same hosted project.
    VPS-local Supabase credentials are not substitutes. Never put credentials into evidence.

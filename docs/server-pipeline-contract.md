@@ -50,7 +50,7 @@ Phone local producers remain in place until Issue 3's replacement gates pass.
 
 ## Migration lineage
 
-`infra/vps/scripts/scoring-migration-catalog.json` records complete basenames, SHA-256 hashes,
+`scoring-service/service/src/main/resources/scoring-migration-catalog.json` records complete basenames, SHA-256 hashes,
 and reviewed application order. The six duplicate timestamp groups remain distinct identities.
 No applied SQL file is renamed or edited by this repair.
 
