@@ -11,8 +11,8 @@ import {
   rawObjectKeyV3,
 } from './keys.ts';
 import { MAX_OBJECT_LANE_BYTES, MAX_RANGE_MS, expiresAt } from './retention.ts';
-import { createManifestStore, READY_STATUSES, type ManifestStore } from './manifests.ts';
-import { completeDurableObject, reserveManifest, MAX_DECODED_OBJECT_BYTES } from './durability.ts';
+import { createManifestStore, type ManifestStore } from './manifests.ts';
+import { completeDurableObject, reserveManifest, registerDevice, MAX_DECODED_OBJECT_BYTES } from './durability.ts';
 import { PushProtocolError, schemaVersionFor } from './registry.ts';
 import type { SupabaseRest } from './rest.ts';
 import type { S3Store } from './s3.ts';
@@ -250,45 +250,32 @@ export function createPushObjects({
         if (prior.sha256 && prior.sha256 !== manifest.contentSha256) {
           throw fail('object_id_conflict', 409);
         }
-        if (READY_STATUSES.has(prior.status)) {
-          // Older receivers marked ready before projecting the window. Repair a partially
-          // completed object before a duplicate ACK lets the phone release its local rows.
-          await writeManifestWindow(prior);
-          if (receiptStore) {
-            await receiptStore.recordAccepted({ userId, sourceId: effectiveSourceId,
-              deviceId: prior.device_id, tokenId: tokenId || null, authMode: effectiveAuthMode,
-              lane: 'object', stream: prior.object_kind, batchId: prior.batch_id,
-              objectId: prior.id, bodySha256: prior.sha256, acceptedStatus: prior.status,
-              acceptedRows: Number(prior.sample_count ?? 0) });
-          }
-          return {
-            objectId: prior.id,
-            status: prior.status,
-            objectKey: prior.object_key,
-            duplicate: true,
-          };
-        }
-        const resumed = await ingestStep('archive_write', manifest.stream,
-          async () => raw.presignPut(prior.object_key, urlTtlSec, now()));
-        return {
-          objectId: prior.id,
-          status: prior.status,
-          objectKey: prior.object_key,
-          uploadUrl: resumed.url,
-          requiredHeaders: { 'content-type': prior.content_type || 'application/octet-stream' },
-          expiresAt: resumed.expiresAt,
-          duplicate: false,
-        };
       }
 
       // batchId is the receipt/idempotency key for one accepted upload. A second object cannot
       // wear the same batch id or its receipt would alias the first object's acceptance record.
       const priorBatch = await manifests.byUserBatch(userId, manifest.batchId);
-      if (priorBatch) throw fail('batch_id_conflict', 409);
+      if (priorBatch && priorBatch.id !== manifest.objectId) throw fail('batch_id_conflict', 409);
 
-      const deviceId = typeof resolveDeviceId === 'function'
+      let deviceId = typeof resolveDeviceId === 'function'
         ? await resolveDeviceId({ userId, externalDeviceId: manifest.deviceId, sourceId: effectiveSourceId })
         : noopDeviceId(userId, manifest.deviceId);
+
+      if (typeof resolveDeviceId !== 'function' && typeof ensureDevice === 'function') {
+        const registered = await ingestStep('device', manifest.stream, () => ensureDevice!({
+          id: deviceId,
+          user_id: userId,
+          source_kind: 'noop_push',
+          external_device_id: String(manifest.deviceId || ''),
+          last_seen_at: now().toISOString(),
+        }));
+        if (typeof registered === 'string' && isUuid(registered)) deviceId = registered.toLowerCase();
+      } else if (typeof resolveDeviceId !== 'function') {
+        const registered = await ingestStep('device', manifest.stream, () => registerDevice(rest, {
+          id: deviceId, user_id: userId, external_device_id: String(manifest.deviceId),
+        }));
+        if (typeof registered === 'string' && isUuid(registered)) deviceId = registered.toLowerCase();
+      }
       const key = rawObjectKeyV3({
         userId,
         deviceId,
@@ -296,16 +283,6 @@ export function createPushObjects({
         startAt,
         objectId: manifest.objectId,
       });
-
-      if (typeof resolveDeviceId !== 'function' && typeof ensureDevice === 'function') {
-        await ingestStep('device', manifest.stream, () => ensureDevice!({
-          id: deviceId,
-          user_id: userId,
-          source_kind: 'noop_push',
-          external_device_id: String(manifest.deviceId || ''),
-          last_seen_at: now().toISOString(),
-        }));
-      }
 
       const spec = pushArchiveSpecForStream(manifest.stream);
       try {

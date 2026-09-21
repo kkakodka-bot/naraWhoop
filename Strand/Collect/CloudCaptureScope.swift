@@ -1,5 +1,7 @@
 import Foundation
 import GRDB
+import NoopPush
+import WhoopStore
 
 /// A process never changes the owner of open SQLite handles or file-backed recordings.
 enum CloudCaptureScope {
@@ -43,6 +45,34 @@ enum CloudCaptureScope {
     }
 
     enum ScopeError: Error { case ownerMismatch, unownedHistory, enrollmentRequired }
+
+    /// Enrollment stores already contain an explicit owner/source witness. Upgrade only that
+    /// exact witnessed store; ordinary legacy and unassigned history cannot acquire an owner here.
+    static func bindRuntimeOwner(_ store: WhoopStore, scope: AccountScope) async throws {
+        if let credential = CloudEnrollment.currentCredential(),
+           CloudRuntimeIdentity.currentEnrollmentSnapshot()?.scope == scope {
+            try await bindEnrolledOwner(store.registryWriter, scope: scope, ownerId: credential.userId,
+                                        sourceId: credential.sourceId)
+        }
+        try await store.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+    }
+
+    static func bindEnrolledOwner(_ writer: any DatabaseWriter, scope: AccountScope,
+                                  ownerId: String, sourceId: String) async throws {
+        guard scope.userID == ownerId, UUID(uuidString: sourceId) != nil else { throw ScopeError.ownerMismatch }
+        try await writer.write { db in
+            guard try db.tableExists("cloudCaptureIdentity"),
+                  try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM cloudCaptureIdentity WHERE id=1 AND ownerId=? AND sourceId=?)",
+                                    arguments: [ownerId, sourceId]) == true else { throw ScopeError.ownerMismatch }
+            if let row = try Row.fetchOne(db, sql: "SELECT projectURL,userID FROM localAccountOwner WHERE singleton=1") {
+                guard row["projectURL"] as String == scope.projectURL,
+                      row["userID"] as String == scope.userID else { throw ScopeError.ownerMismatch }
+            } else {
+                try db.execute(sql: "INSERT INTO localAccountOwner(singleton,projectURL,userID) VALUES(1,?,?)",
+                               arguments: [scope.projectURL, scope.userID])
+            }
+        }
+    }
 
     /// Copy pairing metadata once. Health rows, read caches, upload cursors and sync debt stay
     /// in the original file; their historical owner cannot be established from a fleet token.

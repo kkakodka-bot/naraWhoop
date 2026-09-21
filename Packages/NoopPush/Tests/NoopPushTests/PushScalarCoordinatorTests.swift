@@ -113,12 +113,14 @@ private actor ScalarFixtureState: PushProgressStore, PushTransport {
     func post(_ batch: PushBatch) throws -> PushTransportResponse {
         events.append("post:" + batch.table.wireName + ":" + batch.protocolVersion)
         bodies.append(batch.body)
+        let canonicalDevice = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
         let receipt: [String: Any] = ["version": 1, "state": "verified_indexed",
             "receiptId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "ownerUserId": owner.userID,
-            "deviceId": PushDurabilityReceipt.canonicalDevice(owner: owner.userID, device: batch.deviceId),
+            "deviceId": canonicalDevice,
             "objectId": batch.batchId, "batchId": batch.batchId, "sourceId": batch.sourceId,
             "stream": batch.table.wireName, "schemaVersion": fault == .schema ? 1 : 2,
-            "objectKey": "fixture/verified", "contentSha256": PushDurabilityReceipt.sha256(batch.body),
+            "objectKey": "v3/core/users/\(owner.userID)/devices/\(canonicalDevice)/\(batch.table.wireName)/fixture/verified",
+            "contentSha256": PushDurabilityReceipt.sha256(batch.body),
             "wireSha256": String(repeating: "a", count: 64), "compressedBytes": 128,
             "uncompressedBytes": batch.body.count, "verifiedAt": "2026-09-18T00:00:00Z", "indexedAt": "2026-09-18T00:00:01Z"]
         let cursor = batch.endCursor!

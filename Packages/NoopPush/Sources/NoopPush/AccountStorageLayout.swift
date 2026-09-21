@@ -12,6 +12,13 @@ public struct AccountStorageLayout: Equatable, Sendable {
             .appendingPathComponent(scope?.namespace ?? "unassigned", isDirectory: true)
     }
 
+    /// Opens an already owner-scoped directory without adding another accounts-v1 namespace.
+    /// Callers must derive `directory` from a validated account/source identity.
+    public init(directory: URL, scope: AccountScope) {
+        self.scope = scope
+        self.directory = directory
+    }
+
     public var databaseURL: URL { directory.appendingPathComponent("whoop.sqlite") }
     public var uploadDirectory: URL { directory.appendingPathComponent("uploads", isDirectory: true) }
     public var imuDirectory: URL { directory.appendingPathComponent("imu", isDirectory: true) }

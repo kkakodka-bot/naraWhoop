@@ -141,7 +141,7 @@ test('selected-ID mismatch stops before reads; returned-ID mismatch stops before
 
 test('control: snapshot/receipt SQL still agrees with checked-in declarations and publication', t => {
   const snapshots = source('supabase/migrations/20260918010000_production_scoring_durability.sql');
-  const receipt = source('supabase/migrations/20260918020000_production_intake_durability.sql');
+  const receipt = source('supabase/migrations/20260921060000_production_intake_durability.sql');
   assert.match(snapshots, /create table public\.scoring_snapshots_v2/);
   for (const column of ['result_revision', 'user_id', 'device_id', 'day', 'algorithm_version', 'input_revision', 'computed_at']) {
     assert.match(snapshots.slice(snapshots.indexOf('create table public.scoring_snapshots_v2'), snapshots.indexOf('create index scoring_snapshot_read_v2')), new RegExp(`\\b${column}\\b`));

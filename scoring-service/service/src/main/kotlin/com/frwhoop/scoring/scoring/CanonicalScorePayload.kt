@@ -14,7 +14,7 @@ object CanonicalScorePayload {
     const val SCHEMA_VERSION = 2
     const val ALGORITHM_VERSION = "frwhoop-physiology-2"
 
-    fun build(bundle: ServerScoreBundle, computedAt: Instant = bundle.computedAt): JSONObject {
+    private fun dailyAndNights(bundle: ServerScoreBundle, computedAt: Instant): Pair<JSONObject, JSONArray> {
         val sessions = bundle.result.sleepSessions.sortedWith(compareBy({ it.start }, { it.end }))
         require(sessions.all { it.end > it.start && it.end - it.start <= 172800 }) { "invalid sleep bounds" }
         require(sessions.zipWithNext().all { (a,b) -> a.end <= b.start }) { "overlapping sleep episodes" }
@@ -125,6 +125,7 @@ object CanonicalScorePayload {
             for (key in listOf("sleep_total_min","sleep_awake_min","sleep_light_min","sleep_deep_min",
                 "sleep_rem_min","sleep_unstaged_min","sleep_efficiency")) daily.put(key,JSONObject.NULL)
         }
+        daily.putNullable("rest", restFromDaily(daily))
         daily.putNullable("sleep_onset_at", lo?.let { Instant.ofEpochSecond(it).toString() })
         daily.putNullable("wake_onset_at", hi?.let { Instant.ofEpochSecond(it).toString() })
         daily.put("provenance", JSONObject()
@@ -136,6 +137,11 @@ object CanonicalScorePayload {
             .put("sleep_opportunity_detector",com.noop.analytics.SleepOpportunityDetector.VERSION)
             .put("sleep_policy_status","engineering_shadow_not_reference_validated")
             .put("respiration_auxiliary_channel_status","semantics_unverified_not_used_as_reference_waveform"))
+        return daily to nights
+    }
+
+    fun build(bundle: ServerScoreBundle, computedAt: Instant = bundle.computedAt): JSONObject {
+        val (daily, nights) = dailyAndNights(bundle, computedAt)
         return JSONObject()
             .put("schema_version", SCHEMA_VERSION)
             .put("algorithm_version", bundle.algorithmVersion)
@@ -170,6 +176,19 @@ object CanonicalScorePayload {
             .put("measurements", JSONArray(bundle.result.hrvMeasurements.mapIndexed { index,window ->
                 HrvPayloadCodec.encode(window,bundle.userId.toString(),bundle.deviceId,bundle.result.hrvBaselines.getOrNull(index))
             }))
+    }
+
+    // Composite recomputation does not serialize the large per-window archive a second time.
+    fun finalRest(bundle: ServerScoreBundle): Double? = restFromDaily(dailyAndNights(bundle, bundle.computedAt).first)
+
+    /** Uses exactly the final published sleep totals, including edits, unknown gaps and tombstones. */
+    fun restFromDaily(daily: JSONObject): Double? {
+        fun number(key: String) = (daily.opt(key) as? Number)?.toDouble()?.takeIf { it.isFinite() }
+        val asleep = number("sleep_total_min") ?: return null
+        val efficiency = number("sleep_efficiency") ?: return null
+        val deep = number("sleep_deep_min") ?: return null
+        val rem = number("sleep_rem_min") ?: return null
+        return com.noop.analytics.RestScorer.rest(asleep * 60.0, efficiency, deep * 60.0, rem * 60.0)
     }
 
     private fun session(

@@ -6,18 +6,17 @@ enum ServerScoringSettings {
     static let defaultsKey = "noop.serverScoring"
     static let authEmailKey = "noop.serverScoring.authEmail"
     static let settingsDidChange = Notification.Name("noop.serverScores.settingsDidChange")
-    static let pollIntervalSeconds = 60
+    static let pollIntervalSeconds = 15
     static let staleAfterSeconds = 6 * 60 * 60
     /// Foreground idle push cadence when server scoring is on (spec: 30–60 s).
     static let idlePushIntervalSeconds: TimeInterval = 45
     /// During an active offload, flush push at most once per this interval (spec: ≤10 s).
     static let syncPushIntervalSeconds: TimeInterval = 10
 
-    /// The hosted snapshot owns individual physiology fields, not the whole local analysis pass.
-    /// Even a fresh overlay cannot settle local-only metrics or their history. Keep the existing
-    /// coalesced, fingerprint-gated local schedule; fetching a score adds no new analysis timer.
-    /// The local pass still produces Charge/Effort/Rest and other unmigrated fields.
-    static var skipsSyncCoupledRescore: Bool { false }
+    /// Suppress phone computation only after an authorized server overlay is actually live.
+    /// A configured but shadow/unqualified server must keep the existing local path running;
+    /// otherwise an enrollment can permanently blank new days while returning no canonical scores.
+    static var skipsSyncCoupledRescore: Bool { isEnabled && CloudScoreIdentity.overlayLive }
 
     /// Clear any in-flight deferred rescore debt when server scoring owns the score path.
     @MainActor
@@ -71,6 +70,11 @@ enum ServerScoringSettings {
     /// Pausing uploads or withholding upload consent must not restore local metrics over owned cache.
     /// Fleet-endpoint derivation remains the fallback when no account identity is loaded yet.
     static func supabaseProjectURL() -> URL? {
+        if CloudEnrollment.currentCredential() != nil,
+           let endpoint = CloudPushSettings.configuredEndpoint()?.url,
+           endpoint.hasSuffix("/functions/v1/push") {
+            return URL(string: String(endpoint.dropLast("/functions/v1/push".count)))
+        }
         if let project = CloudAuthClient.identitySnapshot().projectURL,
            let canonical = try? AccountScope.canonicalProjectURL(project) {
             return URL(string: canonical)

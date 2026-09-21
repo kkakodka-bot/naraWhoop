@@ -269,7 +269,7 @@ struct LiquidTodayView: View {
         if let metric = ServerScoreDisplay.temperatureMetric(
             prefersAbsolute: (SkinTempDisplay.Kind(rawValue: skinTempDisplayRaw) ?? .absolute) == .absolute,
             state: serverScores.state) {
-            return serverScores.state.days[selectedDayKey]?.snapshot?.value(metric).map {
+            return serverScores.state.scalar(metric, day: selectedDayKey).map {
                 SkinTempDisplay.Reading(value: $0, kind: metric == .skinTemperature ? .absolute : .deviation)
             }
         }

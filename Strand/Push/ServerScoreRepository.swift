@@ -82,8 +82,11 @@ final class ServerScoreRepository: ObservableObject {
     private var cacheStore: ServerScoreCacheStore?
     private var session = ServerScoreSessionState()
     private var visibleDays = Set<String>()
+    private var enrolledDays: [String: ServerScoreDayCache] = [:]
+    private var linkInFlight = false
     private var pollingDay: String?
     private var currentOwnerId: String? { legacy?.ownerId()?.lowercased() }
+    var usesEnrollmentReadback: Bool { legacy != nil }
 
     init(dependencies: Dependencies) {
         legacy = dependencies
@@ -114,6 +117,7 @@ final class ServerScoreRepository: ObservableObject {
             .sink { [weak self] _ in
                 guard let self, !self.retired else { return }
                 self.synchronizeIdentity()
+                self.restoreDeviceLink()
             }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: CloudAuthClient.identityDidChange)
             .receive(on: DispatchQueue.main).sink { [weak self] _ in
@@ -220,6 +224,8 @@ final class ServerScoreRepository: ObservableObject {
         invalidations.removeAll()
         hydratedEpoch = nil
         signedIn = false
+        deviceLinked = false
+        session.activate(ownerId: nil)
         lastFetchedAt = nil
         lastError = nil
         state = .empty
@@ -270,6 +276,8 @@ final class ServerScoreRepository: ObservableObject {
 
     func signOut() {
         if let dependencies = legacy {
+            enrolledDays.removeAll()
+            state = .empty
             dependencies.clearSession()
             CloudScoreIdentity.clearIngestOwner()
             signedIn = false
@@ -293,6 +301,47 @@ final class ServerScoreRepository: ObservableObject {
         }
     }
 
+    /// The linking screen owns enrollment, regardless of which dashboard reader is installed.
+    func signOutEnrollment() {
+        stopPolling()
+        cancelRequests()
+        enrolledDays.removeAll()
+        state = .empty
+        session.activate(ownerId: nil)
+        deviceLinked = false
+        do {
+            try CloudEnrollment.clear()
+            CloudScoreIdentity.clearIngestOwner()
+            lastError = nil
+        } catch {
+            lastError = "Sign-out could not be saved. Please try again before closing NARA."
+        }
+    }
+
+    func retryDeviceLink() async {
+        guard !retired, !linkInFlight else { return }
+        restoreDeviceLink()
+        guard !deviceLinked else { return }
+        guard let local = activeDeviceId,
+              let owner = CloudEnrollment.currentCredential()?.userId else {
+            lastError = "Your account or strap is still loading. Retry in a moment."
+            return
+        }
+        do {
+            linkInFlight = true
+            defer { linkInFlight = false }
+            _ = try await ServerScoreClient.confirmDeviceLink(localDeviceId: local, expectedOwnerId: owner)
+            guard !retired, !Task.isCancelled, activeDeviceId == local,
+                  CloudEnrollment.currentCredential()?.userId == owner else { return }
+            restoreDeviceLink()
+            if deviceLinked { lastError = nil }
+        } catch {
+            guard !retired, !Task.isCancelled, activeDeviceId == local,
+                  CloudEnrollment.currentCredential()?.userId == owner else { return }
+            lastError = "Could not confirm this strap. Check your internet connection and retry."
+        }
+    }
+
     private func restoreSignOutFailure() {
         // The identity notification can replace this repository before the caller catches.
         if context == nil, CloudAuthClient.lastPersistenceError == .credentialUnavailable {
@@ -313,6 +362,7 @@ final class ServerScoreRepository: ObservableObject {
     }
 
     func startPolling(todayKey: String) {
+        guard !retired else { return }
         if let dependencies = legacy {
             pollingDay = todayKey
             guard dependencies.ready(), dependencies.automaticPolling else { return }
@@ -351,6 +401,7 @@ final class ServerScoreRepository: ObservableObject {
     }
 
     func refreshVisibleDays(todayKey: String? = nil, reason: RefreshReason = .automatic) async {
+        guard !retired else { return }
         if legacy != nil {
             synchronizeOwner()
             guard let dependencies = legacy, dependencies.ready(), signedIn, activeDeviceId != nil else { return }
@@ -363,6 +414,8 @@ final class ServerScoreRepository: ObservableObject {
         synchronizeIdentity()
         if let day = todayKey, ServerScoreDate.isDay(day) { selectedDay = day }
         guard foreground else { return }
+        await confirmSelectedDeviceLink()
+        guard deviceLinked else { return }
         publish(days: state.days)
         guard signedIn, state.configured else { return }
         let current = currentDay
@@ -438,6 +491,7 @@ final class ServerScoreRepository: ObservableObject {
         hydratedEpoch = nil
         context = next
         signedIn = next != nil
+        restoreDeviceLink()
         selectedDay = nil
         lastFetchedAt = nil
         lastError = nil
@@ -713,12 +767,19 @@ final class ServerScoreRepository: ObservableObject {
         activeDeviceId = next
         deviceLinked = false
         if legacy != nil {
+            enrolledDays.removeAll()
+            state = .empty
             session.activate(ownerId: currentOwnerId)
             lastFetchedAt = nil
             lastError = nil
             sleepEditMessage = nil
             preloadFromDisk()
             if let day = pollingDay { startPolling(todayKey: day) }
+        } else {
+            // PR 22 moved the primary reader to account-scoped snapshots, but the gate still
+            // relies on the enrolled-device receipt. Restore it before a score read so an
+            // already-confirmed strap never waits on an unrelated result request.
+            restoreDeviceLink()
         }
     }
 
@@ -766,7 +827,7 @@ final class ServerScoreRepository: ObservableObject {
     }
 
     private func legacyFetch(day: String) async {
-        guard let dependencies = legacy else { return }
+        guard !retired, let dependencies = legacy else { return }
         synchronizeOwner()
         guard let owner = session.ownerId, let device = activeDeviceId else { return }
         let generation = session.generation
@@ -781,6 +842,8 @@ final class ServerScoreRepository: ObservableObject {
             deviceLinked = cache.features.values.contains { $0.deviceId != nil }
             CloudScoreIdentity.markOverlayLive(CloudScoreIdentity.overlayIsLive(cache))
             try cacheStore?.upsert(cache)
+            enrolledDays[day] = cache
+            publishEnrolledDays()
             lastFetchedAt = cache.fetchedAt
             lastError = nil
         } catch ServerScoreClient.FetchError.unauthorized {
@@ -805,7 +868,7 @@ final class ServerScoreRepository: ObservableObject {
 
     private func preloadFromDisk() {
         restoreDeviceLink()
-        guard cacheStore != nil, let owner = session.ownerId else { return }
+        guard let owner = session.ownerId else { return }
         let cal = Calendar.current
         let today = Date()
         for offset in 0..<14 {
@@ -813,16 +876,127 @@ final class ServerScoreRepository: ObservableObject {
             let key = Repository.dayString(date)
             if let row = cachedDay(ownerId: owner, day: key) {
                 session.accept(row, generation: session.generation, currentOwnerId: currentOwnerId)
+                enrolledDays[key] = row
             }
+        }
+        publishEnrolledDays()
+    }
+
+    private func publishEnrolledDays() {
+        guard !retired, legacy != nil, let owner = currentOwnerId,
+              owner == session.ownerId else { return }
+        // Enrollment readback can contain shadow results for diagnostics. Only a feature carrying
+        // canonical authorization may take ownership away from the existing local/default path.
+        // Otherwise a sparse shadow response turns every dashboard card into an empty server field.
+        let metrics = enrolledDays.values.reduce(into: Set<ServerScoreMetric>()) { result, cache in
+            result.formUnion(Self.authorizedEnrollmentMetrics(cache))
+        }
+        var readStates: [String: ServerScoreDayState] = [:]
+        for (day, cache) in enrolledDays where cache.ownerId == owner {
+            let authorizedFeatures = cache.features.values.filter(\.hasCanonicalAuthorization)
+            let pending = authorizedFeatures.contains { feature in
+                ["pending", "running", "retry"].contains(feature.processingStatus ?? "") ||
+                    feature.status == "pending" ||
+                    (feature.requiredRevision.map { $0 > (feature.inputRevision ?? 0) } ?? false)
+            }
+            let failed = authorizedFeatures.contains {
+                ["failed", "exhausted"].contains($0.processingStatus ?? "")
+            }
+            // A completed, empty result is not an indefinitely running calculation.
+            // The endpoint's revision fields stay on the feature envelope, not a fabricated snapshot.
+            let d = cache.daily
+            let hasValues = [d?.hrvRmssdMs, d?.restingHrBpm.map(Double.init), d?.respRateBpm,
+                d?.recovery, d?.strain, d?.rest, d?.sleepTotalMin, d?.sleepInBedMin,
+                d?.sleepAwakeMin, d?.sleepLightMin, d?.sleepDeepMin, d?.sleepRemMin,
+                d?.sleepEfficiency, d?.spo2Pct,
+                d?.skinTempC, d?.skinTempDevC].contains { $0 != nil } || !cache.nights.isEmpty
+            let phase: ServerScoreDayState.Phase = failed ? .failed : pending ? .pending : hasValues ? .partial : .noData
+            readStates[day] = .init(snapshot: nil, phase: phase, fetchedAt: cache.fetchedAt,
+                cached: cache.stale, pending: pending, requestedInputRevision: nil, archiveStatus: nil)
+        }
+        var next = ServerScoreViewState(generation: CloudRuntimeIdentity.currentEnrollmentSnapshot()?.generation,
+            revision: state.revision &+ 1, currentDay: currentDay, timezone: timeZone.identifier,
+            configured: legacy?.ready() == true, authenticated: true, capabilities: metrics,
+            activated: metrics, days: readStates)
+        for (day, cache) in enrolledDays where cache.ownerId == owner {
+            let d = cache.daily
+            let authorized = Self.authorizedEnrollmentMetrics(cache)
+            let entries: [(ServerScoreMetric, Double?)] = [
+                (.hrv, d?.hrvRmssdMs), (.restingHR, d?.restingHrBpm.map(Double.init)),
+                (.respiration, d?.respRateBpm), (.recovery, d?.recovery), (.strain, d?.strain),
+                (.sleepPerformance, d?.rest), (.sleepTotal, d?.sleepTotalMin), (.sleepInBed, d?.sleepInBedMin),
+                (.sleepAwake, d?.sleepAwakeMin), (.sleepLight, d?.sleepLightMin), (.sleepDeep, d?.sleepDeepMin),
+                (.sleepREM, d?.sleepRemMin), (.sleepEfficiency, d?.sleepEfficiency), (.spo2, d?.spo2Pct),
+                (.skinTemperature, d?.skinTempC), (.skinTemperatureDeviation, d?.skinTempDevC)]
+            var values: [String: Double] = [:]
+            for (metric, value) in entries where authorized.contains(metric) {
+                if let value { values[metric.rawValue] = value }
+            }
+            if !values.isEmpty { next.enrollmentValues[day] = values }
+        }
+        if next.enrollmentValues != state.enrollmentValues || next.currentDay != state.currentDay
+            || next.generation != state.generation || next.configured != state.configured
+            || next.authenticated != state.authenticated || next.capabilities != state.capabilities
+            || next.days != state.days {
+            state = next
         }
     }
 
+    private static func authorizedEnrollmentMetrics(_ cache: ServerScoreDayCache) -> Set<ServerScoreMetric> {
+        var result = Set<ServerScoreMetric>()
+        if cache.features["hrv"]?.hasCanonicalAuthorization == true {
+            result.formUnion([.hrv, .restingHR, .recovery, .strain, .spo2,
+                              .skinTemperature, .skinTemperatureDeviation])
+        }
+        if cache.features["respiration"]?.hasCanonicalAuthorization == true {
+            result.insert(.respiration)
+        }
+        if cache.features["sleep"]?.hasCanonicalAuthorization == true {
+            result.formUnion([.sleepPerformance, .sleepTotal, .sleepInBed, .sleepAwake,
+                              .sleepLight, .sleepDeep, .sleepREM, .sleepEfficiency, .sleepSessions])
+        }
+        return result
+    }
+
     private func restoreDeviceLink() {
-        guard let owner = currentOwnerId, owner == session.ownerId, let local = activeDeviceId else {
-            deviceLinked = false
+        if let dependencies = legacy {
+            deviceLinked = Self.hasConfirmedDeviceLink(
+                ownerId: currentOwnerId == session.ownerId ? currentOwnerId : nil,
+                localDeviceId: activeDeviceId,
+                canonicalDeviceId: dependencies.canonicalDeviceId)
             return
         }
-        deviceLinked = legacy?.canonicalDeviceId(owner, local) != nil
+        deviceLinked = Self.hasConfirmedDeviceLink(
+            ownerId: CloudEnrollment.currentCredential()?.userId.lowercased(),
+            localDeviceId: activeDeviceId,
+            canonicalDeviceId: { ServerScoreClient.canonicalDeviceId(ownerId: $0, localDeviceId: $1) })
+    }
+
+    /// A positive value is a server-issued canonical id, not merely an active BLE peripheral.
+    static func hasConfirmedDeviceLink(ownerId: String?, localDeviceId: String?,
+                                       canonicalDeviceId: (String, String) -> String?) -> Bool {
+        guard let ownerId, let localDeviceId,
+              !ownerId.isEmpty, !localDeviceId.isEmpty else { return false }
+        return canonicalDeviceId(ownerId, localDeviceId) != nil
+    }
+
+    private func confirmSelectedDeviceLink() async {
+        guard legacy == nil else { return }
+        restoreDeviceLink()
+        guard !deviceLinked,
+              let owner = CloudEnrollment.currentCredential()?.userId.lowercased(),
+              let local = activeDeviceId else { return }
+        do {
+            _ = try await ServerScoreClient.confirmDeviceLink(localDeviceId: local, expectedOwnerId: owner)
+            guard !retired, activeDeviceId == local,
+                  CloudEnrollment.currentCredential()?.userId.lowercased() == owner else { return }
+            restoreDeviceLink()
+            if deviceLinked { lastError = nil }
+        } catch {
+            guard !retired, activeDeviceId == local,
+                  CloudEnrollment.currentCredential()?.userId.lowercased() == owner else { return }
+            lastError = "Could not confirm this strap with the server. Check your connection and try again."
+        }
     }
 
     private func cachedDay(ownerId: String, day: String) -> ServerScoreDayCache? {
@@ -834,6 +1008,8 @@ final class ServerScoreRepository: ObservableObject {
     private func synchronizeOwner() {
         guard legacy != nil, session.ownerId != currentOwnerId else { return }
         stopPolling()
+        enrolledDays.removeAll()
+        state = .empty
         session.activate(ownerId: currentOwnerId)
         signedIn = currentOwnerId != nil
         deviceLinked = false

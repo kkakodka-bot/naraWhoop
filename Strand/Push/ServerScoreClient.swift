@@ -33,7 +33,7 @@ enum ServerScoreClient {
         guard let credential = CloudEnrollment.currentCredential(), credential.userId == ownerId.lowercased(),
               CloudCaptureScope.isActive(for: credential.userId),
               let fleet = CloudPushSettings.resolvedFleetToken() else { throw FetchError.sessionChanged }
-        try await ensureDevice(base: base, anon: anon, fleetToken: fleet, credential: credential, deviceId: deviceId)
+        _ = try await ensureDevice(base: base, anon: anon, fleetToken: fleet, credential: credential, deviceId: deviceId)
         let request = try scoreRequest(base: base, anon: anon, fleetToken: fleet,
                                        credential: credential, day: day, deviceId: deviceId)
         do {
@@ -58,10 +58,33 @@ enum ServerScoreClient {
         }
     }
 
+    /// Confirms the selected strap independently of score availability. A persisted receipt is
+    /// owner/source/endpoint/device scoped, so it is safe to restore offline; a new selection
+    /// performs the one bounded registration request before the dashboard is admitted.
+    static func confirmDeviceLink(localDeviceId: String, expectedOwnerId: String) async throws -> String {
+        guard let base = ServerScoringSettings.supabaseProjectURL(),
+              let anon = ServerScoringSettings.anonKey(),
+              let credential = CloudEnrollment.currentCredential(),
+              credential.userId == expectedOwnerId.lowercased(),
+              CloudCaptureScope.isActive(for: credential.userId),
+              let fleet = CloudPushSettings.resolvedFleetToken() else {
+            throw FetchError.sessionChanged
+        }
+        return try await ensureDevice(base: base, anon: anon, fleetToken: fleet,
+                                      credential: credential, deviceId: localDeviceId)
+    }
+
     private static func ensureDevice(base: URL, anon: String, fleetToken: String,
-                                      credential: CloudEnrollmentCredential, deviceId: String) async throws {
+                                      credential: CloudEnrollmentCredential, deviceId: String) async throws -> String {
         let key = deviceMappingKey(credential, deviceId, base: base) + "." + credential.tokenId
-        if registrationLock.withLock({ registeredBindings.contains(key) }) { return }
+        if registrationLock.withLock({ registeredBindings.contains(key) }),
+           let canonical = cachedDeviceId(credential, localDeviceId: deviceId, base: base) {
+            return canonical
+        }
+        if let canonical = cachedDeviceId(credential, localDeviceId: deviceId, base: base) {
+            registrationLock.withLock { _ = registeredBindings.insert(key) }
+            return canonical
+        }
         var request = try scoreRequest(base: base, anon: anon, fleetToken: fleetToken,
                                         credential: credential, day: "", deviceId: deviceId)
         request.url = base.appendingPathComponent("functions/v1/scores/devices")
@@ -81,6 +104,7 @@ enum ServerScoreClient {
               let canonical = try identityDevice(root, credential: credential, deviceId: deviceId) else { throw FetchError.decode }
         UserDefaults.standard.set(canonical, forKey: deviceMappingKey(credential, deviceId, base: base))
         registrationLock.withLock { _ = registeredBindings.insert(key) }
+        return canonical
     }
 
     static func scoreRequest(base: URL, anon: String, fleetToken: String,
@@ -122,8 +146,12 @@ enum ServerScoreClient {
 
     static func canonicalDeviceId(ownerId: String, localDeviceId: String) -> String? {
         guard let credential = CloudEnrollment.currentCredential(), credential.userId == ownerId,
-              let base = ServerScoringSettings.supabaseProjectURL(),
-              let canonical = UserDefaults.standard.string(forKey: deviceMappingKey(credential, localDeviceId, base: base)),
+              let base = ServerScoringSettings.supabaseProjectURL() else { return nil }
+        return cachedDeviceId(credential, localDeviceId: localDeviceId, base: base)
+    }
+
+    private static func cachedDeviceId(_ credential: CloudEnrollmentCredential, localDeviceId: String, base: URL) -> String? {
+        guard let canonical = UserDefaults.standard.string(forKey: deviceMappingKey(credential, localDeviceId, base: base)),
               UUID(uuidString: canonical) != nil else { return nil }
         return canonical
     }

@@ -1719,7 +1719,7 @@ public final class BLEManager: NSObject, ObservableObject {
             else { store = try await WhoopStore(path: path) }
             try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
             if let accountScope {
-                try await store.bindAccountOwner(projectURL: accountScope.projectURL, userID: accountScope.userID)
+                try await CloudCaptureScope.bindRuntimeOwner(store, scope: accountScope)
                 let imuSource = try await prepareImuPushSource()
                 guard !accountShutdown else { return }
                 try CloudPushCaptureBindings.bind(db: store.registryWriter, scope: accountScope,
@@ -2476,6 +2476,11 @@ public final class BLEManager: NSObject, ObservableObject {
         } else if !intentionalDisconnect, !accountShutdown {
             connect(model: selectedModel)
         }
+    }
+
+    static func restoredPeripheralID(preferred: UUID?, candidates: [UUID]) -> UUID? {
+        guard let preferred, candidates.contains(preferred) else { return nil }
+        return preferred
     }
 
     static func acceptsInboundPeripheral(_ candidate: UUID, current: UUID?, preferred: UUID?,
@@ -3674,7 +3679,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// straps, which would otherwise mis-stamp WHOOP4 device-epoch frames as wall-clock. Idempotent;
     /// called from connect() AND after the async store bootstrap builds the collector, so the
     /// configuration lands regardless of which finishes first.
-    private func configureCollectorFamily() {
+    func configureCollectorFamily() {
+        state.batteryRatedHours = selectedModel.deviceFamily == .whoop5
+            ? BatteryEstimator.ratedLifeHoursWhoop5 : BatteryEstimator.ratedLifeHoursWhoop4
         collector?.family = selectedModel.deviceFamily
         if selectedModel.deviceFamily == .whoop5 {
             let now = Int(Date().timeIntervalSince1970)
@@ -7811,7 +7818,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 else { store = try await WhoopStore(path: path) }
                 try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
                 if let scope = self.accountScope {
-                    try await store.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+                    try await CloudCaptureScope.bindRuntimeOwner(store, scope: scope)
                 }
                 guard !self.accountShutdown, !Task.isCancelled,
                       self.restorationGeneration == restoreGeneration else { return }
@@ -7829,7 +7836,9 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                   let active = try? registry.activeDeviceId(),
                   let row = (try? registry.all())?.first(where: { $0.id == active }),
                   SourceIdentity.isWhoop(row), let registeredID = row.peripheralId,
-                  let selected = peripherals.first(where: { $0.identifier.uuidString == registeredID }),
+                  let selectedID = Self.restoredPeripheralID(preferred: UUID(uuidString: registeredID),
+                                                            candidates: peripherals.map(\.identifier)),
+                  let selected = peripherals.first(where: { $0.identifier == selectedID }),
                   self.whoopConnectAllowed("restore-identity") else {
                 for candidate in peripherals { central.cancelPeripheralConnection(candidate) }
                 self.connectionOwner.restorationFailed()

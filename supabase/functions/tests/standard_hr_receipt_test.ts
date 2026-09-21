@@ -23,6 +23,13 @@ Deno.test('standard HR receipt projection retains identity and clocks without ti
   assert.equal(row.ts, second.ts);
 });
 
+Deno.test('standard HR receipt accepts exact legacy numeric monotonic clocks without rounding', () => {
+  const legacy = projection.mapRow({ ...context, record: { ...record, data: {
+    ...record.data, receivedMonotonicNs: 541454619081916,
+  } } })!;
+  assert.equal(legacy.receivedMonotonicNs, '541454619081916');
+});
+
 Deno.test('standard HR receipt rejects corrupt identity or imprecise clocks', () => {
   for (const patch of [
     { receivedMonotonicNs: 9007199254740992 }, { receivedMonotonicNs: '9223372036854775808' },

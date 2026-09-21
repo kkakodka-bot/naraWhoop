@@ -22,6 +22,37 @@ private func uploadQueueFixtureBaseDirectory() throws -> URL {
 }
 
 final class CloudUploadQueueTests: XCTestCase {
+    func testMissingFleetCompletionRecoversOnceAndDoesNotPersistCredential() async throws {
+        let (root, context, layout) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory)
+        var job = CloudUploadJob(id: AccountScope.digest("missing-fleet"), owner: context.scope,
+            generation: context.generation, endpoint: endpoint, deviceID: "", createdAt: Date(),
+            operation: .request, method: "POST", headers: [:])
+        try journal.persistBody(Data([1, 2, 3]), job: &job)
+        job.phase = .pausedTerminal
+        job.responseStatus = 401
+        job.responseDisposition = .authentication
+        try journal.save(job)
+        let adapter = UploadAdapter()
+        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+            authorize: { _ in "installation-test-token" }, isCurrent: { _ in true },
+            policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
+            control: { _ in throw CloudUploadError.unavailable }, fleetToken: { "fleet-test-secret" })
+        try await q.reconcile()
+        let created = try XCTUnwrap(adapter.first)
+        XCTAssertEqual(created.request.value(forHTTPHeaderField: "X-NOOP-Fleet-Token"), "fleet-test-secret")
+        XCTAssertEqual(created.request.value(forHTTPHeaderField: "Authorization"), "Bearer installation-test-token")
+        XCTAssertEqual(try Data(contentsOf: created.file), Data([1, 2, 3]))
+        let metadata = try String(contentsOf: layout.uploadDirectory.appendingPathComponent(job.id + ".json"), encoding: .utf8)
+        XCTAssertFalse(metadata.contains("fleet-test-secret"))
+        XCTAssertFalse(metadata.contains("installation-test-token"))
+        await q.receive(created.task, status: 401, body: Data(), error: false)
+        try await q.reconcile()
+        XCTAssertEqual(adapter.count, 1, "A real rejection must remain paused, not retry forever")
+        XCTAssertEqual(try journal.load()[job.id]?.phase, .pausedTerminal)
+    }
+
     private let endpoint = "https://project.example/functions/v1/push"
     private func fixture() throws -> (URL, AccountSessionContext, AccountStorageLayout) {
         let url = try uploadQueueFixtureBaseDirectory().appendingPathComponent("w5-" + UUID().uuidString)

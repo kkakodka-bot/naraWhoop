@@ -44,7 +44,7 @@ import {
 import { createEnrollmentService, EnrollmentError } from '../_shared/enrollment.ts';
 import { createNoopDeviceResolver } from '../_shared/devices.ts';
 import { createUploadReceiptStore } from '../_shared/receipts.ts';
-import { commitArchivedBatch } from '../_shared/projections.ts';
+import { projectEnrolledAppend } from '../_shared/appendProjection.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024 + 64 * 1024;
 
@@ -87,6 +87,7 @@ const pushIngest = createPushIngest({
   walStore: pushWalStore!,
   archiveObject: (args: unknown) => pushArchive.archiveObject(args),
   upsertRows: pushUpsertRows,
+  projectAppend: (batch) => projectEnrolledAppend(rest, batch),
   deleteRows: (table: string, filter: unknown) => {
     if (!rest.configured) return Promise.resolve();
     return deleteReplacementRows(rest, table, filter);
@@ -95,7 +96,6 @@ const pushIngest = createPushIngest({
   resolveDeviceId,
   replacementStaging: pushStaging,
   receiptStore,
-  commitProjection: (receipt, body) => commitArchivedBatch(rest, receipt, body),
 });
 const pushObjects = createPushObjects({
   cfg,
@@ -206,7 +206,7 @@ async function handleObjectIntent(req: Request): Promise<Response> {
       authMode: user.authMode,
       manifest,
     });
-    return json({ type: 'objectIntent', protocolVersion: '1.2', ...intent });
+    return json({ type: 'objectIntent', ...intent });
   } catch (err: any) {
     if (err instanceof Response) return err;
     if (err instanceof PushProtocolError) return ingestProtocolErrorResponse(err, '1.2');
@@ -231,7 +231,7 @@ async function handleObjectComplete(req: Request, objectId: string): Promise<Res
     });
     void enqueueScoringAfterIngest({ rest, userId: user.id, deviceId: ack?.deviceId })
       .catch(() => console.error('[push] scoring enqueue failed'));
-    return json({ type: 'objectAck', protocolVersion: '1.2', ...ack });
+    return json({ type: 'objectAck', ...ack });
   } catch (err: any) {
     if (err instanceof Response) return err;
     if (err instanceof PushProtocolError) return ingestProtocolErrorResponse(err, '1.2');

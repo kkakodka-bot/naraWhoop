@@ -3,6 +3,7 @@ import { createPushIngest } from '../_shared/ingest.ts';
 import { createSupabaseRest } from '../_shared/rest.ts';
 import { PushProtocolError } from '../_shared/registry.ts';
 import { inlineRequestProtocol, ingestStep, ingestProtocolErrorResponse, PushIngestFailure, unexpectedIngestDiagnostic } from '../_shared/pushDiagnostics.ts';
+import { fakeDurableArchive, sha256Hex } from './helpers.ts';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const HR_BATCH = '22222222-2222-4222-8222-222222222222';
@@ -42,7 +43,7 @@ Deno.test('HR success and packet projection failure are distinguishable; identic
   const store = wal();
   let failPacket = true;
   const projections = new Map<string, unknown[]>();
-  const ingest = createPushIngest({ walStore: store, archiveObject: async () => ({ ready: true }),
+  const ingest = createPushIngest({ walStore: store, archiveObject: async (args) => fakeDurableArchive(args),
     upsertRows: async (table, rows) => {
       if (table === 'noop_rr_packet_provenance' && failPacket) {
         throw new Error(`SQL failed user=${USER} rawHex=private-waveform token=secret`);
@@ -86,7 +87,7 @@ Deno.test('large append batches bound projection statements and acknowledge only
   let fail = true;
   let writes = 0;
   let largestStatement = 0;
-  const ingest = createPushIngest({ walStore: store, archiveObject: async () => ({ ready: true }),
+  const ingest = createPushIngest({ walStore: store, archiveObject: async (args) => fakeDurableArchive(args),
     upsertRows: async (_table, rows) => {
       largestStatement = Math.max(largestStatement, rows.length);
       assert.ok(!store.acks.has(HR_BATCH), 'ACK must follow every projection statement');
@@ -112,6 +113,59 @@ Deno.test('large append batches bound projection statements and acknowledge only
   assert.deepEqual([...stored.entries()], beforeReplay);
 });
 
+Deno.test('enrolled append projects all 5000 rows atomically and ACKs the verified archive receipt', async () => {
+  const count = 5000;
+  const header = JSON.parse(new TextDecoder().decode(batch('hrSample')).split('\n')[0]);
+  header.recordCount = count;
+  header.endCursor.rowId = count;
+  const body = new TextEncoder().encode([JSON.stringify(header), ...Array.from({ length: count }, (_, index) =>
+    JSON.stringify({ type: 'record', key: { ts: 1700100000 + index }, data: { bpm: 55 + index % 30 } }))].join('\n') + '\n');
+  const store = wal();
+  let atomicCalls = 0;
+  let fallbackCalls = 0;
+  const ingest = createPushIngest({
+    walStore: store,
+    archiveObject: async (args) => fakeDurableArchive(args),
+    resolveDeviceId: async () => '55555555-5555-4555-8555-555555555555',
+    projectAppend: async (projection) => {
+      atomicCalls++;
+      assert.equal(projection.rows.length, count);
+      assert.equal(projection.sourceId, header.sourceId);
+      assert.equal(projection.batchId, header.batchId);
+    },
+    upsertRows: async () => { fallbackCalls++; },
+  });
+  const ack = await ingest.acceptBatch({ userId: USER, sourceId: header.sourceId,
+    tokenId: crypto.randomUUID(), authMode: 'installation', decodedBody: body });
+  assert.equal(atomicCalls, 1);
+  assert.equal(fallbackCalls, 0);
+  assert.equal(ack.acceptedRows, count);
+  assert.equal(ack.durabilityReceipt?.batchId, header.batchId);
+  assert.equal(ack.durabilityReceipt?.contentSha256, sha256Hex(body));
+});
+
+Deno.test('retry replaces a matching legacy ACK with a durable ACK before local rows can release', async () => {
+  const bodyBytes = batch('hrSample');
+  const header = JSON.parse(new TextDecoder().decode(bodyBytes).split('\n')[0]);
+  const store = wal();
+  store.acks.set(header.batchId, { ack: {
+    protocolVersion: header.protocolVersion, batchId: header.batchId, stream: header.stream,
+    deviceId: header.deviceId, endCursor: header.endCursor, acceptedRows: header.recordCount, status: 'accepted',
+  }, bodySha256: sha256Hex(bodyBytes) });
+  let projected = 0;
+  const ingest = createPushIngest({
+    walStore: store,
+    archiveObject: async (args) => fakeDurableArchive(args),
+    resolveDeviceId: async () => '55555555-5555-4555-8555-555555555555',
+    projectAppend: async () => { projected++; },
+  });
+  const ack = await ingest.acceptBatch({ userId: USER, sourceId: header.sourceId,
+    tokenId: crypto.randomUUID(), authMode: 'installation', decodedBody: bodyBytes });
+  assert.equal(projected, 1);
+  assert.equal(ack.durabilityReceipt?.state, 'verified_indexed');
+  assert.equal(store.acks.get(header.batchId).ack.durabilityReceipt?.contentSha256, sha256Hex(bodyBytes));
+});
+
 Deno.test('duplicate projected keys across a chunk boundary reject the whole batch before durable side effects', async () => {
   // Wire representations differ, but PostgreSQL receives the same mapped bigint key.
   for (const [duplicateTimestamp, duplicateBpm] of [
@@ -128,7 +182,7 @@ Deno.test('duplicate projected keys across a chunk boundary reject the whole bat
     let quota = 0, archives = 0, devices = 0, projections = 0;
     store.consumeQuota = async () => { quota++; };
     const ingest = createPushIngest({ walStore: store,
-      archiveObject: async () => { archives++; return { ready: true }; },
+      archiveObject: async (args) => { archives++; return fakeDurableArchive(args); },
       ensureDevice: async () => { devices++; },
       upsertRows: async () => { projections++; },
     });
@@ -150,7 +204,7 @@ Deno.test('RR composite identities preserve equal intervals with distinct sequen
     [JSON.stringify(header), JSON.stringify(row(0)), JSON.stringify(row(seq))].join('\n') + '\n');
   const accepted: any[] = [];
   const store = wal();
-  const ingest = createPushIngest({ walStore: store, archiveObject: async () => ({ ready: true }),
+  const ingest = createPushIngest({ walStore: store, archiveObject: async (args) => fakeDurableArchive(args),
     upsertRows: async (_table, rows) => { accepted.push(...rows); },
   });
   const ack = await ingest.acceptBatch({ userId: USER, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body(1) });
@@ -207,7 +261,7 @@ Deno.test('exact scoring gate contention returns retryable503 without ACK; retry
       ? new Response(JSON.stringify({ code: '55P03', message: 'scoring_input_gate_busy' }), { status: 500 })
       : new Response('[]', { status: 200 }),
   });
-  const ingest = createPushIngest({ walStore: store, archiveObject: async () => ({ ready: true }),
+  const ingest = createPushIngest({ walStore: store, archiveObject: async (args) => fakeDurableArchive(args),
     upsertRows: (table, rows, opts) => rest.upsert(table, rows, opts),
   });
   let failure: unknown;
@@ -234,7 +288,7 @@ Deno.test('unrelated SQL lock errors do not become scoring gate responses', asyn
 });
 
 Deno.test('failed1.0 HR and1.1 packet requests retain their exact validated diagnostic version', async () => {
-  const ingest = createPushIngest({ walStore: wal(), archiveObject: async () => ({ ready: true }),
+  const ingest = createPushIngest({ walStore: wal(), archiveObject: async (args) => fakeDurableArchive(args),
     upsertRows: async () => { throw new Error('private SQL detail'); },
   });
   for (const stream of ['hrSample', 'rrPacketProvenance'] as const) {

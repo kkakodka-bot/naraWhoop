@@ -71,6 +71,48 @@ final class CloudUploadOutcomeTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: ["type": "error", "protocolVersion": "1.0", "code": code])
     }
 
+    private func legacyAck(_ batch: PushBatch) throws -> Data {
+        let cursor: Any = batch.endCursor.map {
+            ["rowId": $0.rowId, "keySha256": $0.naturalKeyFingerprint] as [String: Any]
+        } ?? NSNull()
+        return try JSONSerialization.data(withJSONObject: [
+            "protocolVersion": batch.protocolVersion,
+            "batchId": batch.batchId,
+            "stream": batch.table.wireName,
+            "deviceId": batch.deviceId,
+            "endCursor": cursor,
+            "acceptedRows": batch.recordCount,
+            "status": "accepted",
+        ])
+    }
+
+    private func durableAck(_ batch: PushBatch, owner: AccountScope) throws -> Data {
+        let cursor: Any = batch.endCursor.map {
+            ["rowId": $0.rowId, "keySha256": $0.naturalKeyFingerprint] as [String: Any]
+        } ?? NSNull()
+        let canonicalDevice = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        let receipt: [String: Any] = [
+            "version": 1, "state": "verified_indexed",
+            "receiptId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ownerUserId": owner.userID, "deviceId": canonicalDevice,
+            "objectId": batch.batchId, "batchId": batch.batchId, "sourceId": batch.sourceId,
+            "stream": batch.table.wireName,
+            "schemaVersion": PushProtocol.schemaVersion(stream: batch.table.wireName,
+                protocolVersion: batch.protocolVersion),
+            "objectKey": "v3/core/users/\(owner.userID)/devices/\(canonicalDevice)/\(batch.table.wireName)/fixture/verified",
+            "contentSha256": PushDurabilityReceipt.sha256(batch.body),
+            "wireSha256": String(repeating: "a", count: 64),
+            "compressedBytes": 128, "uncompressedBytes": batch.body.count,
+            "verifiedAt": "2026-09-18T00:00:00Z", "indexedAt": "2026-09-18T00:00:01Z",
+        ]
+        return try JSONSerialization.data(withJSONObject: [
+            "protocolVersion": batch.protocolVersion, "batchId": batch.batchId,
+            "stream": batch.table.wireName, "deviceId": batch.deviceId,
+            "endCursor": cursor, "acceptedRows": batch.recordCount, "status": "accepted",
+            "durabilityReceipt": receipt,
+        ])
+    }
+
     private func persisted(_ f: Fixture, file: StaticString = #filePath, line: UInt = #line) throws -> CloudUploadJob {
         try XCTUnwrap(f.journal.load()[f.job.id], file: file, line: line)
     }
@@ -203,6 +245,63 @@ final class CloudUploadOutcomeTests: XCTestCase {
         }
     }
 
+    func testScoringGateRetryAfterDoesNotGrowIntoExponentialDelay() async throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        var retained = try persisted(f)
+        retained.failures = 9
+        try f.journal.save(retained)
+        let clock = OutcomeClock()
+        let adapter = OutcomeSessionAdapter()
+        let q = try queue(f, adapter: adapter, clock: clock, randomUnit: 0.5)
+        try await q.reconcile()
+        let task = try XCTUnwrap(adapter.last).task
+        adapter.finish(task.identifier)
+        await q.receive(task, status: 503, body: try errorBody("scoring_input_gate_busy"),
+            error: false, retryAfter: "2")
+        let saved = try persisted(f)
+        XCTAssertEqual(saved.failures, 10)
+        XCTAssertEqual(saved.responseCode, "scoring_input_gate_busy")
+        XCTAssertEqual(try XCTUnwrap(saved.nextAttemptAt).timeIntervalSince(clock.value), 2.5, accuracy: 0.001)
+        try assertSourceRetained(f)
+    }
+
+    func testRelaunchReplaysRetainedRetryableServerFailureOnceWithoutStaleDelay() async throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let clock = OutcomeClock()
+        var retained = try persisted(f)
+        retained.phase = .retryPending
+        retained.responseStatus = 500
+        retained.responseCode = "push_failed"
+        retained.responseDisposition = .retryable
+        retained.nextAttemptAt = clock.value.addingTimeInterval(3_600)
+        try f.journal.save(retained)
+
+        let firstAdapter = OutcomeSessionAdapter()
+        let first = try queue(f, adapter: firstAdapter, clock: clock,
+            context: .init(scope: f.context.scope, generation: UUID()))
+        try await first.reconcile()
+        XCTAssertEqual(firstAdapter.count, 1)
+        XCTAssertEqual(try persisted(f).serverRetryRecoveryCount, 1)
+        XCTAssertNil(try persisted(f).nextAttemptAt)
+        await first.suspend()
+
+        retained = try persisted(f)
+        retained.phase = .retryPending
+        retained.taskIdentifier = nil
+        retained.attempt = nil
+        retained.nextAttemptAt = clock.value.addingTimeInterval(3_600)
+        try f.journal.save(retained)
+        let secondAdapter = OutcomeSessionAdapter()
+        let second = try queue(f, adapter: secondAdapter, clock: clock,
+            context: .init(scope: f.context.scope, generation: UUID()))
+        try await second.reconcile()
+        XCTAssertEqual(secondAdapter.count, 0, "persisted recovery allowance must not reset on every relaunch")
+        XCTAssertEqual(try persisted(f).serverRetryRecoveryCount, 1)
+        try assertSourceRetained(f)
+    }
+
     func testHTTPFailureIsNotRecountedAsReceiptMismatch() async throws {
         let f = try fixture()
         defer { try? FileManager.default.removeItem(at: f.root) }
@@ -271,6 +370,124 @@ final class CloudUploadOutcomeTests: XCTestCase {
         XCTAssertEqual(reopenedAdapter.count, 0)
         XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
         XCTAssertEqual(try persisted(f).failures, 1)
+    }
+
+    func testLegacySuccessAckReplaysExactBytesOnceAfterReceiverUpgrade() async throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let clock = OutcomeClock()
+        let firstAdapter = OutcomeSessionAdapter()
+        let firstQueue = try queue(f, adapter: firstAdapter, clock: clock)
+        try await firstQueue.reconcile()
+        let firstTask = try XCTUnwrap(firstAdapter.last).task
+        firstAdapter.finish(firstTask.identifier)
+        let legacy = try legacyAck(f.batch)
+        await firstQueue.receive(firstTask, status: 200, body: legacy, error: false)
+        do {
+            try await firstQueue.validateResponse(batch: f.batch,
+                response: .init(statusCode: 200, body: legacy), captured: f.context,
+                receiverStateID: receiver)
+            XCTFail("receipt-less ACK passed validation")
+        } catch let error as PushTransportException {
+            XCTAssertEqual(error.failure.code, .ackInvalid)
+        }
+        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        XCTAssertNil(try persisted(f).receiptUpgradeRetryCount)
+        await firstQueue.suspend()
+
+        let upgradedContext = AccountSessionContext(scope: f.context.scope, generation: UUID())
+        let upgradedAdapter = OutcomeSessionAdapter()
+        let upgradedQueue = try queue(f, adapter: upgradedAdapter, clock: clock, context: upgradedContext)
+        try await upgradedQueue.reconcile()
+        let replay = try XCTUnwrap(upgradedAdapter.last)
+        XCTAssertEqual(try Data(contentsOf: replay.file), f.batch.body)
+        XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 1)
+        upgradedAdapter.finish(replay.task.identifier)
+        await upgradedQueue.receive(replay.task, status: 200, body: legacy, error: false)
+        do {
+            try await upgradedQueue.validateResponse(batch: f.batch,
+                response: .init(statusCode: 200, body: legacy), captured: upgradedContext,
+                receiverStateID: receiver)
+            XCTFail("second receipt-less ACK passed validation")
+        } catch let error as PushTransportException {
+            XCTAssertEqual(error.failure.code, .ackInvalid)
+        }
+        await upgradedQueue.suspend()
+
+        let finalAdapter = OutcomeSessionAdapter()
+        let finalQueue = try queue(f, adapter: finalAdapter, clock: clock,
+            context: .init(scope: f.context.scope, generation: UUID()))
+        try await finalQueue.reconcile()
+        XCTAssertEqual(finalAdapter.count, 0, "legacy receipt recovery must run only once")
+        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 1)
+        try assertSourceRetained(f)
+    }
+
+    func testBuild366ReceiptMismatchRevalidatesSavedReceiptWithoutReupload() async throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let ack = try durableAck(f.batch, owner: f.context.scope)
+        var saved = try persisted(f)
+        saved.phase = .pausedTerminal
+        saved.responseStatus = 200
+        saved.responseBody = ack
+        saved.responseCode = "receipt_mismatch"
+        saved.responseDisposition = .terminal
+        saved.receiptUpgradeRetryCount = 1
+        try f.journal.save(saved)
+
+        let context = AccountSessionContext(scope: f.context.scope, generation: UUID())
+        let adapter = OutcomeSessionAdapter()
+        let q = try queue(f, adapter: adapter, clock: OutcomeClock(), context: context)
+        try await q.reconcile()
+        XCTAssertEqual(adapter.count, 0, "a durable saved response must not re-upload health bytes")
+        XCTAssertEqual(try persisted(f).phase, .responseSaved)
+        XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 2)
+
+        try await q.validateResponse(batch: f.batch,
+            response: .init(statusCode: 200, body: ack), captured: context,
+            receiverStateID: receiver)
+        let verified = try persisted(f)
+        XCTAssertEqual(verified.phase, .responseSaved)
+        XCTAssertEqual(verified.responseDisposition, .verified)
+        XCTAssertTrue(try XCTUnwrap(verified.validatedReceipt).isValid)
+    }
+
+    func testLegacyInvalidRecordRetriesOnceAfterBoundedReceiverUpgrade() async throws {
+        let f = try fixture()
+        defer { try? FileManager.default.removeItem(at: f.root) }
+        let rejection = try JSONSerialization.data(withJSONObject: [
+            "type": "error", "protocolVersion": PushProtocol.binaryVersion, "code": "invalid_record",
+        ])
+        let firstAdapter = OutcomeSessionAdapter()
+        let first = try queue(f, adapter: firstAdapter, clock: OutcomeClock())
+        try await first.reconcile()
+        let original = try XCTUnwrap(firstAdapter.last).task
+        firstAdapter.finish(original.identifier)
+        await first.receive(original, status: 422, body: rejection, error: false)
+        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        await first.suspend()
+
+        let secondAdapter = OutcomeSessionAdapter()
+        let second = try queue(f, adapter: secondAdapter, clock: OutcomeClock(),
+            context: .init(scope: f.context.scope, generation: UUID()))
+        try await second.reconcile()
+        let replay = try XCTUnwrap(secondAdapter.last)
+        XCTAssertEqual(try Data(contentsOf: replay.file), f.batch.body)
+        XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 1)
+        secondAdapter.finish(replay.task.identifier)
+        await second.receive(replay.task, status: 422, body: rejection, error: false)
+        await second.suspend()
+
+        let finalAdapter = OutcomeSessionAdapter()
+        let final = try queue(f, adapter: finalAdapter, clock: OutcomeClock(),
+            context: .init(scope: f.context.scope, generation: UUID()))
+        try await final.reconcile()
+        XCTAssertEqual(finalAdapter.count, 0)
+        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        XCTAssertEqual(try persisted(f).receiptUpgradeRetryCount, 1)
+        try assertSourceRetained(f)
     }
 
     func testExplicitResolutionReusesExactBytesAndFencesPriorAttempt() async throws {

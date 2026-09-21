@@ -24,7 +24,8 @@ enum RepositoryServerScores {
     static func daily(_ local: [DailyMetric], state: ServerScoreViewState) -> [DailyMetric] {
         guard state.hasServerOwnership else { return local }
         let byDay = Dictionary(local.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
-        let keys = Set(byDay.keys).union(state.days.keys).union(state.currentDay.isEmpty ? [] : [state.currentDay])
+        let keys = Set(byDay.keys).union(state.days.keys).union(state.enrollmentValues.keys)
+            .union(state.currentDay.isEmpty ? [] : [state.currentDay])
         return keys.sorted().compactMap { ServerScoreDisplay.daily(local: byDay[$0], day: $0, state: state) }
     }
 

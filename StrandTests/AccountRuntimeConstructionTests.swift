@@ -6,6 +6,35 @@ import XCTest
 
 @MainActor
 final class AccountRuntimeConstructionTests: XCTestCase {
+    func testEnrollmentIdentityRotatesWithCredentialAndRejectsMalformedIdentity() throws {
+        let owner = UUID().uuidString.lowercased(), source = UUID().uuidString.lowercased()
+        let first = CloudEnrollmentCredential(userId: owner, sourceId: source,
+            tokenId: UUID().uuidString.lowercased(), uploadToken: "noop_" + String(repeating: "a", count: 43))
+        let rotated = CloudEnrollmentCredential(userId: owner, sourceId: source,
+            tokenId: UUID().uuidString.lowercased(), uploadToken: "noop_" + String(repeating: "b", count: 43))
+        let url = try XCTUnwrap(URL(string: "https://tester.invalid"))
+        let a = try XCTUnwrap(CloudRuntimeIdentity.enrollmentSnapshot(credential: first, projectURL: url))
+        let b = try XCTUnwrap(CloudRuntimeIdentity.enrollmentSnapshot(credential: rotated, projectURL: url))
+        XCTAssertEqual(a.scope, b.scope)
+        XCTAssertNotEqual(a.context, b.context)
+        XCTAssertNil(CloudRuntimeIdentity.enrollmentSnapshot(credential: nil, projectURL: url))
+        let invalid = CloudEnrollmentCredential(userId: owner, sourceId: "unassigned", tokenId: first.tokenId, uploadToken: first.uploadToken)
+        XCTAssertNil(CloudRuntimeIdentity.enrollmentSnapshot(credential: invalid, projectURL: url))
+    }
+    func testTesterRuntimeAdmitsCaptureWithoutPasswordSessionAndRetiresOnRevocation() throws {
+        let scope = try AccountScope(projectURL: "https://tester.invalid", userID: UUID().uuidString)
+        let layout = AccountStorageLayout(baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), scope: scope)
+        var current = true
+        let model = AccountAppRuntime.buildModel(context: nil, layout: layout, enrollmentScope: scope,
+                                                 isCurrent: { _ in current })
+        defer { model.shutdownForAccountChange() }
+        XCTAssertTrue(model.captureAdmissionEnabled)
+        XCTAssertTrue(model.isAccountRuntimeActive)
+        XCTAssertEqual(model.accountStorage?.scope, scope)
+        XCTAssertNil(model.accountContext)
+        current = false
+        XCTAssertFalse(model.isAccountRuntimeActive)
+    }
     func testStorageRecoveryBlocksCaptureWithoutBlockingNewOwnerPresentation() throws {
         let scope = try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid", userID: UUID().uuidString)
         let context = AccountSessionContext(scope: scope, generation: UUID())

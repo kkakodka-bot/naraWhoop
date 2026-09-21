@@ -58,7 +58,7 @@ object DisposablePostgres {
         migration("20260916170000_scoring_work_items_device_id.sql")
         migration("20260917190000_scoring_derived_artifact.sql")
         migration("20260918010000_production_scoring_durability.sql")
-        migration("20260918020000_production_intake_durability.sql")
+        migration("20260921060000_production_intake_durability.sql")
         migration("20260918030000_production_scoring_review_repairs.sql")
         migration("20260918050000_production_scoring_history.sql")
         println("W3 disposable PostgreSQL artifacts: $directory")

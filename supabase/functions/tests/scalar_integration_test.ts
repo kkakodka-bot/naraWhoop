@@ -62,7 +62,7 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
 
       await t.step(`${stream}: exact values/nulls, owner RLS, atomic ACK/debt and duplicate receipt`, async () => {
         const f = batch(ts, value, true);
-        const ack = await ingest().acceptBatch({ userId: USER_A, decodedBody: f.body });
+        const ack = await ingest().acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body });
         assert.equal(ack.acceptedRows, 2); assert.deepEqual(ack.endCursor, f.header.endCursor);
         assert.equal(ack.durabilityReceipt.state, 'verified_indexed');
         assert.equal(ack.durabilityReceipt.contentSha256, sha256Hex(f.body));
@@ -78,7 +78,7 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
         assert.equal((await ackRows(f.header.batchId)).length, 1);
         assert.equal((await db.rest.select('noop_push_wal', `batch_id=eq.${f.header.batchId}`)).length, 0);
         const before = await revision(); assert(before > 0);
-        assert.deepEqual(await ingest().acceptBatch({ userId: USER_A, decodedBody: f.body }), ack);
+        assert.deepEqual(await ingest().acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body }), ack);
         assert.deepEqual(await commitArchivedBatch(db.rest, ack.durabilityReceipt, f.body), ack);
         assert.equal(await revision(), before);
         const own = await db.request(`${table}?device_id=eq.${DEVICE}&ts=eq.${ts}`, 'authenticated', USER_A);
@@ -95,7 +95,7 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
           assert.equal(privileged.status, 403);
         }
         const beforeForeign = bucket.objects.size;
-        await assert.rejects(ingest().acceptBatch({ userId: USER_B, decodedBody: f.body }), /device_owner_conflict/);
+        await assert.rejects(ingest().acceptBatch({ userId: USER_B, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body }), /device_owner_conflict/);
         assert.equal(bucket.objects.size, beforeForeign);
         proofs.push({ stream, receipt: ack.durabilityReceipt, ownerRead: own.status, otherOwnerRows: other.body.length });
       });
@@ -103,7 +103,7 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
       await t.step(`${stream}: server-only replay repairs verified archive crash and dirties settled scores`, async () => {
         const f = batch(ts + 10);
         await assert.rejects(ingest(() => { throw new Error('fixture_after_verified_archive'); })
-          .acceptBatch({ userId: USER_A, decodedBody: f.body }), /fixture_after_verified_archive/);
+          .acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body }), /fixture_after_verified_archive/);
         assert.equal((await manifest(f.header.batchId)).durability_receipt.state, 'verified_indexed');
         assert.equal((await select(ts + 10)).length, 0);
         assert.equal((await ackRows(f.header.batchId)).length, 0); assert.equal(await debt(f.header.batchId), 'pending');
@@ -131,7 +131,7 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
         let afterArchive = 0;
         await assert.rejects(ingest(async (receipt, bytes) => {
           afterArchive = await revision(); return commitArchivedBatch(db.rest, receipt, bytes);
-        }).acceptBatch({ userId: USER_A, decodedBody: f.body }), /fixture_scalar_invalidation/);
+        }).acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body }), /fixture_scalar_invalidation/);
         assert.equal(await revision(), afterArchive); assert.equal((await select(ts + 20)).length, 0);
         assert.equal((await ackRows(f.header.batchId)).length, 0); assert.equal(await debt(f.header.batchId), 'pending');
         assert.equal((await reconcileProjections(db.rest, bucket.raw, 1)).deferred, 1);
@@ -145,11 +145,11 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
       await t.step(`${stream}: changed same-second values retain the original projection and explicit replay debt`, async () => {
         const old = batch(ts + 30);
         await assert.rejects(ingest(() => { throw new Error('fixture_before_projection'); })
-          .acceptBatch({ userId: USER_A, decodedBody: old.body }), /fixture_before_projection/);
+          .acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: old.body }), /fixture_before_projection/);
         const newer = batch(ts + 30, value - 1);
         await assert.rejects(ingest(async (receipt, bytes) => {
           await commitArchivedBatch(db.rest, receipt, bytes); throw new Error('fixture_lost_ack');
-        }).acceptBatch({ userId: USER_A, decodedBody: newer.body }), /fixture_lost_ack/);
+        }).acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: newer.body }), /fixture_lost_ack/);
         const before = await revision();
         assert.equal((await reconcileProjections(db.rest, bucket.raw, 1)).deferred, 1);
         assert.equal((await select(ts + 30))[0][required], value - 1);
@@ -157,10 +157,10 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
           where object_id='${old.header.batchId}'`);
         assert.equal((await select(ts + 30))[0].batch_id, newer.header.batchId);
         assert.equal(await revision(), before);
-        await ingest().acceptBatch({ userId: USER_A, decodedBody: newer.body });
+        await ingest().acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: newer.body });
         assert.equal(await revision(), before);
         assert.equal(await debt(old.header.batchId), 'pending'); assert.equal(await debt(newer.header.batchId), 'complete');
-        await assert.rejects(ingest().acceptBatch({ userId: USER_A, decodedBody: old.body }),
+        await assert.rejects(ingest().acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: old.body }),
           (error: any) => error.code === 'scalar_identity_conflict' && error.status === 409);
         assert.equal((await ackRows(old.header.batchId)).length, 0);
         assert.equal((await manifest(old.header.batchId)).durability_receipt.state, 'verified_indexed');
@@ -175,7 +175,7 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
           const [one, two] = await Promise.all([commitArchivedBatch(db.rest, receipt, bytes), commitArchivedBatch(db.rest, receipt, bytes)]);
           assert.deepEqual(one, two); return one;
         });
-        await concurrent.acceptBatch({ userId: USER_A, decodedBody: f.body });
+        await concurrent.acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: f.body });
         assert.equal((await select(ts + 40)).length, 1);
         assert.equal((await revision()) - afterArchive, 3, 'one projection invalidation per affected wake day');
         assert.equal((await ackRows(f.header.batchId)).length, 1); assert.equal(await debt(f.header.batchId), 'complete');
@@ -186,7 +186,7 @@ Deno.test('scalar intake: actual 050000/060000, PostgreSQL projections, HTTP arc
         f.records[1].data = { [required]: null } as any;
         const bytes = new TextEncoder().encode([f.header, ...f.records].map((row) => JSON.stringify(row)).join('\n') + '\n');
         const objectsBefore = bucket.objects.size;
-        await assert.rejects(ingest().acceptBatch({ userId: USER_A, decodedBody: bytes }), /invalid_scalar_record/);
+        await assert.rejects(ingest().acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: bytes }), /invalid_scalar_record/);
         assert.equal(bucket.objects.size, objectsBefore);
         assert.equal((await ackRows(f.header.batchId)).length, 0);
         assert.equal((await db.rest.select('noop_push_reservations', `batch_id=eq.${f.header.batchId}`)).length, 0);

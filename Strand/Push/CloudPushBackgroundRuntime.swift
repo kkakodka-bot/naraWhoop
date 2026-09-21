@@ -44,7 +44,10 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
                 guard data.count <= PushProtocolLimits.maxAckBytes else { throw CloudUploadError.responseTooLarge }
                 return .init(statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0, body: data,
                              retryAfter: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After"))
-            }, now: now, refreshCredentials: { try await CloudAuthClient.refreshRejectedCredentials($0) })
+            }, now: now, refreshCredentials: {
+                guard !CloudRuntimeIdentity.isEnrollment($0) else { throw AccountAuthError.sessionRevoked }
+                try await CloudAuthClient.refreshRejectedCredentials($0)
+            }, fleetToken: { CloudPushSettings.resolvedFleetToken() })
         } catch {
             let identifier = self.identifier
             let completion = self.completion

@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects } from 'jsr:@std/assert';
 import { createPushIngest } from '../_shared/ingest.ts';
+import { fakeDurableArchive } from './helpers.ts';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const SOURCE_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -43,7 +44,7 @@ function harness() {
     archiveObject: async (args: any) => {
       calls.archive += 1;
       calls.archiveArgs = args;
-      return { ready: true };
+      return fakeDurableArchive(args);
     },
     resolveDeviceId: async () => {
       calls.device += 1;

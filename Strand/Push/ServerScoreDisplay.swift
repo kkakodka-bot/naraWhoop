@@ -75,13 +75,15 @@ enum ServerScoreDisplay {
                       carry: Bool = false) -> DailyMetric? {
         guard state.hasServerOwnership else { return local }
         func value(_ metric: ServerScoreMetric, _ local: Double?) -> Double? {
-            if state.owns(metric) { return carry ? nil : state.days[day]?.snapshot?.value(metric) }
+            if state.owns(metric) { return carry ? nil : state.scalar(metric, day: day) }
             return local
         }
         return DailyMetric(day: day,
             totalSleepMin: value(.sleepTotal, local?.totalSleepMin),
             efficiency: state.owns(.sleepEfficiency)
-                ? (carry ? nil : efficiencyFraction(state.days[day]?.snapshot)) : local?.efficiency,
+                ? (carry ? nil : (state.enrollmentValues[day] != nil
+                    ? state.scalar(.sleepEfficiency, day: day).map { $0 > 1 ? $0 / 100 : $0 }
+                    : efficiencyFraction(state.days[day]?.snapshot))) : local?.efficiency,
             deepMin: value(.sleepDeep, local?.deepMin), remMin: value(.sleepREM, local?.remMin),
             lightMin: value(.sleepLight, local?.lightMin), disturbances: value(.disturbances, local?.disturbances.map(Double.init)).map { Int($0.rounded()) },
             restingHr: value(.restingHR, local?.restingHr.map(Double.init)).map { Int($0.rounded()) },
@@ -120,6 +122,9 @@ enum ServerScoreDisplay {
             if let snapshot = entry.snapshot, let value = snapshot.value(metric) {
                 values[key] = seriesValue(metric, value: value, unit: snapshot.metrics?[metric.rawValue]?.unit)
             }
+        }
+        for (key, entry) in state.enrollmentValues where key <= day {
+            if let value = entry[metric.rawValue] { values[key] = seriesValue(metric, value: value, unit: nil) }
         }
         return values.keys.sorted().map { (day: $0, value: values[$0]!) }
     }

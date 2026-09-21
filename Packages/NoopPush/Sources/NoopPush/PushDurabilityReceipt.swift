@@ -36,7 +36,7 @@ public struct PushDurabilityReceipt: Codable, Equatable, Sendable {
     public func matches(_ manifest: PushObjectManifest, owner: AccountScope,
                         wireSHA256: String, wireBytes: Int) -> Bool {
         isValid && ownerUserId == owner.userID
-            && deviceId == Self.canonicalDevice(owner: owner.userID, device: manifest.deviceId)
+            && Self.objectKeyMatches(objectKey, owner: owner.userID, device: deviceId, stream: manifest.stream)
             && objectId == manifest.objectId && batchId == manifest.batchId && sourceId == manifest.sourceId
             && stream == manifest.stream
             && schemaVersion == PushProtocol.schemaVersion(stream: manifest.stream, protocolVersion: manifest.protocolVersion)
@@ -49,7 +49,7 @@ public struct PushDurabilityReceipt: Codable, Equatable, Sendable {
     /// archive, not the client's gzip representation. The exact decoded bytes are bound here.
     public func matches(_ batch: PushBatch, owner: AccountScope) -> Bool {
         isValid && ownerUserId == owner.userID
-            && deviceId == Self.canonicalDevice(owner: owner.userID, device: batch.deviceId)
+            && Self.objectKeyMatches(objectKey, owner: owner.userID, device: deviceId, stream: batch.table.wireName)
             && objectId == batch.batchId && batchId == batch.batchId && sourceId == batch.sourceId
             && stream == batch.table.wireName
             && schemaVersion == PushProtocol.schemaVersion(stream: batch.table.wireName, protocolVersion: batch.protocolVersion)
@@ -71,6 +71,13 @@ public struct PushDurabilityReceipt: Codable, Equatable, Sendable {
         if let date = f.date(from: value) { return date }
         f.formatOptions.remove(.withFractionalSeconds)
         return f.date(from: value)
+    }
+    /// Device UUIDs are owned by the server registry. Existing installations may retain an older
+    /// owned UUID instead of the deterministic fallback derived from the strap alias. The signed
+    /// receipt binds that canonical UUID back to its owner and stream through the immutable object
+    /// key; the top-level ACK independently binds the external alias to the exact request batch.
+    private static func objectKeyMatches(_ key: String, owner: String, device: String, stream: String) -> Bool {
+        key.contains("/users/\(owner)/devices/\(device)/\(stream)/")
     }
     private static func uuid(_ value: String) -> Bool { UUID(uuidString: value)?.uuidString.lowercased() == value }
     private static func digest(_ value: String) -> Bool { value.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) } }

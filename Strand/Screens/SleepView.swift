@@ -285,6 +285,14 @@ struct SleepView: View {
     }
 
     var body: some View {
+        if serverScores.usesEnrollmentReadback {
+            ServerSleepScreen(scores: serverScores)
+        } else {
+            snapshotBody
+        }
+    }
+
+    @ViewBuilder private var snapshotBody: some View {
         // Resolve the memoized model for THIS render. `dataKey` is O(1)-ish (counts + last-row
         // identity), so comparing it every render is cheap. When it matches the cached key we
         // reuse the cached model untouched — the many body re-evaluations from hover/animation/
@@ -437,10 +445,10 @@ struct SleepView: View {
                                               newStartTs: newBedTs, newEndTs: newWakeTs)
                     // Re-score the day so the dashboard aggregates (Rest / recovery) honor the corrected
                     // sleep window, not just the Sleep tab's session view; then refresh the read cache.
-                    if !ServerScoringSettings.isEnabled && !ServerScoringSettings.skipsSyncCoupledRescore {
+                    if !ServerScoringSettings.skipsSyncCoupledRescore {
                         await intelligence.analyzeRecent()
                     }
-                    // serverScoring on: edits persist; VPS rescores HRV/sleep — local analyzeRecent deferred.
+                    // A canonically authorized VPS overlay rescores the edit; shadow mode retains local scoring.
                     await repo.refresh()
                 }, onDelete: {
                     // Delete = the edit path minus the re-insert: drop this session so every metric
@@ -450,7 +458,7 @@ struct SleepView: View {
                     // deleted row into its ORIGINAL namespace and lifts the tombstone.
                     let snapshot = await repo.deleteSleepSession(detectedStartTs: edit.detectedStartTs,
                                                                  endTs: edit.wakeTs)
-                    if !ServerScoringSettings.isEnabled && !ServerScoringSettings.skipsSyncCoupledRescore {
+                    if !ServerScoringSettings.skipsSyncCoupledRescore {
                         await intelligence.analyzeRecent()
                     }
                     await repo.refresh()
@@ -474,7 +482,7 @@ struct SleepView: View {
                                 blurb: "Pick when the nap started and ended. NARA stages it from your data as its own session, separate from the night's sleep.",
                                 bedLabel: "Nap started", wakeLabel: "Nap ended") { startTs, endTs in
                     await repo.addManualNap(startTs: startTs, endTs: endTs)
-                    if !ServerScoringSettings.isEnabled && !ServerScoringSettings.skipsSyncCoupledRescore {
+                    if !ServerScoringSettings.skipsSyncCoupledRescore {
                         await intelligence.analyzeRecent()
                     }
                     await repo.refresh()
@@ -514,7 +522,7 @@ struct SleepView: View {
     private func undoSleepDelete(_ banner: SleepUndoBanner) async {
         sleepUndoTask?.cancel()
         await repo.undoDeleteSleepSession(banner.snapshot)
-        if !ServerScoringSettings.isEnabled && !ServerScoringSettings.skipsSyncCoupledRescore {
+        if !ServerScoringSettings.skipsSyncCoupledRescore {
             await intelligence.analyzeRecent()
         }
         await repo.refresh()

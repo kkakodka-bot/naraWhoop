@@ -79,7 +79,7 @@ export const SUPPORTED_LEDGER_BASENAMES = Object.freeze([
   '20260917180000_server_score_user_reads.sql',
   '20260917190000_scoring_derived_artifact.sql',
   '20260918010000_production_scoring_durability.sql',
-  '20260918020000_production_intake_durability.sql',
+  '20260921060000_production_intake_durability.sql',
   '20260918030000_production_scoring_review_repairs.sql',
   '20260918040000_production_projection_debt.sql',
   '20260918050000_production_scoring_history.sql',

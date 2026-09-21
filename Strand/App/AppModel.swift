@@ -95,7 +95,7 @@ final class AppModel: ObservableObject {
     let syncEngine = SyncEngine()
 
     /// Phase 4: authenticated server HRV/sleep readback (default on for this fork).
-    let serverScores = ServerScoreRepository()
+    let serverScores: ServerScoreRepository
 
     /// Observable cache over the paired-device registry; `activeDeviceId` drives the source coordinator.
     /// Built lazily once the store opens (see `wireSourceCoordinator`). nil until then , with no generic
@@ -257,6 +257,7 @@ final class AppModel: ObservableObject {
     let accountDefaults: UserDefaults
     let accountPreferences: AccountPreferences
     let accountContext: AccountSessionContext?
+    let enrollmentScope: AccountScope?
     private let currentAccountCheck: (AccountSessionContext?) -> Bool
     private let nativePreferenceCurrent: @Sendable (AccountSessionContext) -> Bool
     private let preferenceScoringEnabled: () -> Bool
@@ -380,7 +381,7 @@ final class AppModel: ObservableObject {
         self.init(storageLayout: try? StorePaths.accountLayout(scope: context?.scope), context: context)
     }
 
-    init(storageLayout: AccountStorageLayout?, context: AccountSessionContext?, presentationAllowed: Bool = true,
+    init(storageLayout: AccountStorageLayout?, context: AccountSessionContext?, enrollmentScope: AccountScope? = nil, presentationAllowed: Bool = true,
          captureAllowed: Bool = true,
          capturePreparationHooks: CapturePreparationHooks = .init(),
          openStore: (@Sendable () async throws -> WhoopStore)? = nil,
@@ -394,6 +395,8 @@ final class AppModel: ObservableObject {
          isCurrent: @escaping (AccountSessionContext?) -> Bool = { $0 == CloudAuthClient.currentContext() }) {
         _ = CloudCaptureScope.processOwnerId
         self.accountContext = context
+        self.enrollmentScope = enrollmentScope
+        self.serverScores = enrollmentScope == nil ? ServerScoreRepository() : ServerScoreRepository(dependencies: .live)
         self.resourceBudget = resourceBudget
         self.capturePreparationHooks = capturePreparationHooks
         self.currentAccountCheck = isCurrent
@@ -401,10 +404,10 @@ final class AppModel: ObservableObject {
         self.preferenceScoringEnabled = preferenceScoringEnabled
         self.preferenceRecomputeEnabled = preferenceRecomputeDriver != nil || !AppRuntimeMode.isUnitTesting
         self.postIllnessNotification = postIllnessNotification
-        let consistent = storageLayout?.scope == context?.scope && isCurrent(context)
+        let consistent = storageLayout?.scope == (context?.scope ?? enrollmentScope) && isCurrent(context)
         let layout = consistent ? storageLayout : (try? StorePaths.accountLayout(scope: nil))
         self.accountCompositionValid = consistent
-        let presentationAllowed = presentationAllowed && consistent && context != nil
+        let presentationAllowed = presentationAllowed && consistent && (context != nil || enrollmentScope != nil)
         self.captureAdmissionEnabled = captureAllowed && presentationAllowed
         self.accountStorage = layout
         // Guest fixtures must not initialize the real signed-out profile domain. Real account
@@ -537,7 +540,7 @@ final class AppModel: ObservableObject {
         // AccountAppRuntime can foreground this model before its startup task opens the cache.
         // Hold network readback until that bounded cache attempt finishes, including view requests.
         serverScores.setForeground(false)
-        guard !AppRuntimeMode.isUnitTesting, consistent, context != nil else { return }
+        guard !AppRuntimeMode.isUnitTesting, consistent, context != nil || enrollmentScope != nil else { return }
         Task { [weak self] in
             guard let self, self.isAccountRuntimeActive else { return }
             do { try await self.prepareScoringPreferences() }
@@ -746,12 +749,19 @@ final class AppModel: ObservableObject {
         // main thread free for SwiftUI during the deep-history pass right after an import / first launch.
         startupTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
+            await self.wireSourceCoordinator()
+            if let active = self.deviceRegistry?.activeDeviceId {
+                _ = self.repo.adoptActiveDeviceId(active)
+            }
             // Cached cloud content is a launch dependency; archive preparation and debt drains aren't.
             if let store = await self.repo.storeHandle() {
                 guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
                 await self.serverScores.wireAndHydrate(store: store)
                 guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
                 self.serverScores.selectDevice(localDeviceId: self.repo.deviceId)
+                if self.enrollmentScope != nil {
+                    self.live.append(log: "Enrollment runtime ready; selected strap receipt \(self.serverScores.deviceLinked ? "confirmed" : "pending").")
+                }
                 if ServerScoringSettings.isEnabled {
                     self.serverScores.startPolling(todayKey: self.repo.today?.day ?? Repository.dayString(Date()))
                 }
@@ -1228,7 +1238,8 @@ final class AppModel: ObservableObject {
         guard let store = await repo.storeHandle(),
               isAccountRuntimeActive, !Task.isCancelled,
               let layout = accountStorage, let scope = layout.scope,
-              let context = accountContext, context.scope == scope else { return }
+              let context = accountContext ?? CloudRuntimeIdentity.currentEnrollmentSnapshot()?.context,
+              context.scope == scope else { return }
         // Repository revokes its presentation writer on retirement. Accepted capture needs its own
         // connection to this exact old-owner database until the final stopped-source drain commits.
         if let previous = genericCapturePreparation, previous.isRetired {
@@ -1248,7 +1259,7 @@ final class AppModel: ObservableObject {
                     try await Task.detached(priority: .utility) { try writer.close() }.value
                 }
                 do {
-                    try await captureStore.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+                    try await CloudCaptureScope.bindRuntimeOwner(captureStore, scope: scope)
                     let owner = try StandardHRCaptureOwner(projectURL: scope.projectURL, userID: scope.userID)
                     let journal = try await GenericCaptureJournal.prepareStandardHR(
                         store: captureStore, owner: owner, runtimeGeneration: context.generation, hooks: hooks.journal)
@@ -1269,7 +1280,8 @@ final class AppModel: ObservableObject {
             if isAccountRuntimeActive { live.append(log: "Generic capture is waiting for its account storage.") }
             return
         }
-        guard isAccountRuntimeActive, accountContext == context, !Task.isCancelled,
+        guard isAccountRuntimeActive,
+              (accountContext ?? CloudRuntimeIdentity.currentEnrollmentSnapshot()?.context) == context, !Task.isCancelled,
               !preparation.isRetired, sourceCoordinator == nil else {
             preparation.retire()
             if await preparation.drain(), genericCapturePreparation === preparation {
@@ -2807,10 +2819,10 @@ final class AppModel: ObservableObject {
     /// Ownership suppresses local fallback even when this revision has no usable value.
     func applyServerScorePresentation(_ state: ServerScoreViewState) {
         guard isAccountRuntimeActive,
-              state.generation == accountContext?.generation ||
+              state.generation == (accountContext ?? CloudRuntimeIdentity.currentEnrollmentSnapshot()?.context)?.generation ||
                 (state.generation == nil && !state.configured && !state.authenticated && state.days.isEmpty) else { return }
         guard state.days.values.allSatisfy({ entry in
-            entry.snapshot.map { $0.userId == accountContext?.scope.userID } ?? true
+            entry.snapshot.map { $0.userId == (accountContext?.scope ?? enrollmentScope)?.userID } ?? true
         }) else { return }
         if repo.applyServerScores(state) {
             refreshServerContextPresentation()

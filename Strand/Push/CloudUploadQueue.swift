@@ -24,6 +24,7 @@ actor CloudUploadQueue {
     private let journal: CloudUploadJournal
     private let adapter: any CloudUploadSessionAdapter
     private let authorize: Authorize
+    private let fleetToken: @Sendable () -> String?
     private let isCurrent: Current
     private let policy: @Sendable () -> CloudUploadPolicy
     private let control: @Sendable (URLRequest) async throws -> PushTransportResponse
@@ -51,11 +52,13 @@ actor CloudUploadQueue {
          maximumBytes: Int = 1_073_741_824, now: @escaping @Sendable () -> Date = { Date() },
          journalWriteObserver: (@Sendable (URL) throws -> Void)? = nil,
          randomUnit: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
-         refreshCredentials: (@Sendable (AccountSessionContext) async throws -> Void)? = nil) throws {
+         refreshCredentials: (@Sendable (AccountSessionContext) async throws -> Void)? = nil,
+         fleetToken: @escaping @Sendable () -> String? = { nil }) throws {
         guard layout.scope == context.scope else { throw CloudUploadError.staleOwner }
         self.context = context
         self.adapter = adapter
         self.authorize = authorize
+        self.fleetToken = fleetToken
         self.isCurrent = isCurrent
         self.policy = policy
         self.control = control
@@ -529,6 +532,117 @@ actor CloudUploadQueue {
                 continue
             }
             job.generation = context.generation
+            // Build 365 correctly retained rows when the older receiver returned an otherwise
+            // matching 2xx ACK without a durability receipt, but those jobs became terminal. After
+            // the receiver upgrade, replay those exact persisted bytes once. A second legacy ACK
+            // stays terminal, so this cannot become an unbounded relaunch loop.
+            if job.operation == .request, job.phase == .pausedTerminal,
+               job.responseCode == "receipt_mismatch", (job.receiptUpgradeRetryCount ?? 0) == 0,
+               let status = job.responseStatus, (200...299).contains(status),
+               let body = job.responseBody, let ack = try? PushAck.parse(body),
+               ack.durabilityReceipt == nil, ack.batchId == job.batchID,
+               ack.deviceId == job.deviceID, ack.status == "accepted" {
+                job.receiptUpgradeRetryCount = 1
+                job.phase = .retryPending
+                job.responseStatus = nil
+                job.responseBody = nil
+                job.responseRetryAfter = nil
+                job.responseCode = nil
+                job.responseDisposition = nil
+                job.nextAttemptAt = nil
+                job.validatedReceipt = nil
+            }
+            // Build 366 can have a valid upgraded receipt saved locally but reject it because the
+            // server preserved an existing owned device UUID instead of the deterministic fallback.
+            // Re-present that already durable response once under the registry-aware validator;
+            // do not send the health payload over the network again.
+            if job.operation == .request, job.phase == .pausedTerminal,
+               job.responseCode == "receipt_mismatch", job.receiptUpgradeRetryCount == 1,
+               let status = job.responseStatus, (200...299).contains(status),
+               let body = job.responseBody, let ack = try? PushAck.parse(body),
+               ack.durabilityReceipt?.isValid == true, ack.batchId == job.batchID,
+               ack.deviceId == job.deviceID, ack.status == "accepted" {
+                job.receiptUpgradeRetryCount = 2
+                job.phase = .responseSaved
+                job.responseDisposition = .awaitingReceipt
+                job.responseCode = nil
+                job.nextAttemptAt = nil
+                job.validatedReceipt = nil
+            }
+            // Object-lane jobs from the legacy receiver either lack a receipt or contain the same
+            // preserved canonical device UUID. Upgrade a receipt-less completion once; otherwise
+            // accept the saved response only after full manifest, digest, owner and object-key checks.
+            if job.operation == .objectComplete, job.phase == .pausedTerminal,
+               job.responseCode == "receipt_mismatch", let status = job.responseStatus,
+               (200...299).contains(status) {
+                let savedManifestVersion = job.manifest.flatMap {
+                    try? JSONDecoder().decode(PushObjectManifest.self, from: $0).protocolVersion
+                } ?? PushProtocol.objectVersion
+                if let ack = try? parseReceipt(job), ack.releasesLocalRows {
+                    job.verifiedObjectKey = ack.objectKey
+                    job.validatedReceipt = ack.durabilityReceipt
+                    job.phase = .receiptSaved
+                    job.responseDisposition = .verified
+                    job.failures = 0
+                    job.nextAttemptAt = nil
+                } else if (job.receiptUpgradeRetryCount ?? 0) == 0,
+                          let body = job.responseBody,
+                          let objectID = job.objectID,
+                          let ack = try? PushObjectAck.parse(body, expectedObjectId: objectID,
+                              expectedVersion: savedManifestVersion),
+                          ack.durabilityReceipt == nil {
+                    job.receiptUpgradeRetryCount = 1
+                    job.phase = .retryPending
+                    job.responseStatus = nil
+                    job.responseBody = nil
+                    job.responseRetryAfter = nil
+                    job.responseCode = nil
+                    job.responseDisposition = nil
+                    job.nextAttemptAt = nil
+                    job.validatedReceipt = nil
+                }
+            }
+            // Receiver v12 accepts the older standard-HR wire representation when its monotonic
+            // clock is still an exact JSON safe integer. Retry one previously terminal 422 after
+            // that bounded compatibility upgrade; any still-invalid payload remains fail-closed.
+            if job.operation == .request, job.phase == .pausedTerminal,
+               (job.receiptUpgradeRetryCount ?? 0) == 0, job.responseStatus == 422,
+               let body = job.responseBody,
+               (PushError.parseCode(body, expectedVersion: PushProtocol.binaryVersion) ?? job.responseCode) == "invalid_record" {
+                job.receiptUpgradeRetryCount = 1
+                job.phase = .retryPending
+                job.responseStatus = nil
+                job.responseBody = nil
+                job.responseRetryAfter = nil
+                job.responseCode = nil
+                job.responseDisposition = nil
+                job.nextAttemptAt = nil
+                job.validatedReceipt = nil
+            }
+            // Retryable 5xx responses may have accumulated a long exponential delay while the
+            // receiver or its database schema was unavailable. On the next authorized process
+            // start, replay the exact retained bytes once without waiting for that stale delay.
+            // Persist the allowance before delivery so repeated relaunches cannot bypass backoff.
+            if job.operation == .request, job.phase == .retryPending,
+               job.responseDisposition == .retryable,
+               (job.serverRetryRecoveryCount ?? 0) == 0,
+               let status = job.responseStatus, (500...599).contains(status) {
+                job.serverRetryRecoveryCount = 1
+                job.nextAttemptAt = nil
+            }
+            // Recover pre-fleet-header failures once, without changing payloads or receipts.
+            if job.operation != .objectPut, job.phase == .pausedTerminal,
+               job.responseDisposition == .authentication, job.fleetAuthorizationApplied != true,
+               fleetToken()?.isEmpty == false {
+                job.fleetAuthorizationApplied = true
+                job.phase = .retryPending
+                job.responseStatus = nil
+                job.responseBody = nil
+                job.responseCode = nil
+                job.responseDisposition = nil
+                job.nextAttemptAt = nil
+                job.authenticationRefreshPending = false
+            }
             job.correlation = job.correlation ?? (job.objectID ?? job.batchID).flatMap(UUID.init(uuidString:)) ?? UUID()
             if job.phase == .responseSaved, job.operation == .objectComplete,
                let status = job.responseStatus, (200...299).contains(status),
@@ -749,6 +863,10 @@ actor CloudUploadQueue {
                     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     request.setValue("application/json", forHTTPHeaderField: "Accept")
                     for (key, value) in job.headers { request.setValue(value, forHTTPHeaderField: key) }
+                    if let fleet = fleetToken(), !fleet.isEmpty {
+                        request.setValue(fleet, forHTTPHeaderField: CloudPushTransport.fleetTokenHeader)
+                        job.fleetAuthorizationApplied = true
+                    }
                     if job.operation == .objectComplete { file = try journal.emptyBodyURL() }
                     else { try journal.verifyBody(job); file = try journal.bodyURL(job) }
                 }
@@ -805,6 +923,9 @@ actor CloudUploadQueue {
         try check(context)
         guard policy().concurrency > 0 else { throw CloudUploadError.retryScheduled }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let fleet = fleetToken(), !fleet.isEmpty {
+            request.setValue(fleet, forHTTPHeaderField: CloudPushTransport.fleetTokenHeader)
+        }
         let response = try await control(request)
         try check(context)
         guard (200...299).contains(response.statusCode) else {
@@ -930,9 +1051,19 @@ actor CloudUploadQueue {
 
     private func backoff(_ job: inout CloudUploadJob) {
         job.failures += 1
+        let date = now()
+        // The scoring gate is a short, explicit server coordination signal. Exponential client
+        // backoff turned its Retry-After: 2 response into delays of tens of minutes after several
+        // otherwise healthy retries. Keep a small jitter without overriding the server cadence.
+        if job.responseCode == "scoring_input_gate_busy" {
+            let requested = job.responseRetryAfter.flatMap(Double.init).flatMap {
+                $0.isFinite && $0 >= 0 ? min($0, 30) : nil
+            } ?? 2
+            job.nextAttemptAt = date.addingTimeInterval(requested + min(1, max(0, randomUnit())))
+            return
+        }
         let ceiling = min(3600, 5 * pow(2, Double(min(job.failures, 10))))
         let jitter = min(1, max(0, randomUnit())) * ceiling
-        let date = now()
         var retryDate = date.addingTimeInterval(jitter)
         if let value = job.responseRetryAfter {
             if let seconds = Double(value), seconds.isFinite, seconds >= 0 {

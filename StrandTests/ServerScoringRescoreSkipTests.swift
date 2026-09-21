@@ -2,7 +2,7 @@ import XCTest
 import WhoopStore
 @testable import Strand
 
-/// A physiology overlay never claims completion of local-only metrics or their history.
+/// Hosted scoring owns the automatic physiology path; the phone retains only its raw cache and UI.
 @MainActor
 final class ServerScoringRescoreSkipTests: XCTestCase {
 
@@ -40,12 +40,12 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
         XCTAssertTrue(ServerScoringSettings.isEnabled)
     }
 
-    func testLiveServerOverlayDoesNotSuppressLocalOnlyMetrics() {
+    func testOnlyLiveAuthorizedServerOverlaySuppressesLocalRescore() {
         ServerScoringSettings.setEnabled(true)
         CloudScoreIdentity.markOverlayLive(false)
         XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
         CloudScoreIdentity.markOverlayLive(true)
-        XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
+        XCTAssertTrue(ServerScoringSettings.skipsSyncCoupledRescore)
         CloudScoreIdentity.markOverlayLive(false)
     }
 
@@ -54,11 +54,19 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
         XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
     }
 
-    func testPartialServerOverlayCannotClearOwedLocalRescore() {
+    func testLiveAuthorizedServerOverlaySettlesObsoleteLocalRescoreDebt() {
         ServerScoringSettings.setEnabled(true)
         CloudScoreIdentity.markOverlayLive(true)
         _ = RescoreBackgroundScheduler.markRescoreOwed()
-        XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
+        XCTAssertFalse(RescoreBackgroundScheduler.isRescoreOwed)
+        ServerScoringSettings.settleSkippedLocalRescoreDebt()
+        XCTAssertFalse(RescoreBackgroundScheduler.isRescoreOwed)
+    }
+
+    func testShadowServerOverlayPreservesLocalRescoreDebt() {
+        ServerScoringSettings.setEnabled(true)
+        CloudScoreIdentity.markOverlayLive(false)
+        _ = RescoreBackgroundScheduler.markRescoreOwed()
         ServerScoringSettings.settleSkippedLocalRescoreDebt()
         XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
     }
@@ -94,14 +102,13 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
         XCTAssertTrue(CloudScoreIdentity.overlayIsLive(try snapshot()))
     }
 
-    func testLocalFallbackDoesNotCarryServerCaption() throws {
+    func testHostedModeDoesNotResurrectLocalVitalWhenServerValueIsUnavailable() throws {
         let cache = try snapshot()
         for overlay in [Optional<ServerScoreDayCache>.none, cache] {
             let selection = ServerVitalSelection.resolve(.restingHR, serverEnabled: true,
                 selectedDay: "2026-09-18", overlay: overlay, localValue: 51)
-            XCTAssertEqual(selection.value, 51)
-            XCTAssertFalse(selection.fromServer)
-            XCTAssertNil(LiquidTodayView.serverVitalCaption(for: selection))
+            XCTAssertNil(selection.value)
+            XCTAssertTrue(selection.fromServer)
         }
     }
 

@@ -19,9 +19,9 @@ struct CloudDeviceLinkGate<Content: View>: View {
                     ProgressView("Waiting for confirmation…")
                 }
                 NoopButton("Retry", fullWidth: true) {
-                    Task { await repository.refreshVisibleDays() }
+                    Task { await repository.retryDeviceLink() }
                 }
-                Button("Sign out") { repository.signOut() }
+                Button("Sign out") { repository.signOutEnrollment() }
             }
             .padding(28)
             .frame(maxWidth: 500)
@@ -29,7 +29,7 @@ struct CloudDeviceLinkGate<Content: View>: View {
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
             .task {
                 while !Task.isCancelled && !repository.deviceLinked {
-                    await repository.refreshVisibleDays()
+                    await repository.retryDeviceLink()
                     try? await Task.sleep(for: .seconds(5))
                 }
             }
