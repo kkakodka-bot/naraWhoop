@@ -182,7 +182,7 @@ export function createPushArchive({ cfg, rest, raw }: {
         sourceId, batchId, tokenId, authMode,
       } = args;
       const spec = pushArchiveSpecForStream(stream);
-      const row = {
+      const row: Record<string, unknown> = {
         id: objectId,
         user_id: userId,
         device_id: deviceId,
@@ -352,15 +352,11 @@ export function createPushIngest({
       let deviceId = noopDeviceId(userId, header.deviceId);
       const appendProjection = header.delivery === 'append' ? APPEND_STREAM_PROJECTIONS[header.stream] : undefined;
       let appendRows: Record<string, unknown>[] = [];
-      if (commitProjection && manifest?.durabilityReceipt) {
-        return await ingestStep('projection', header.stream, () => commitProjection(manifest.durabilityReceipt, decodedBody));
-      }
-
       if (header.delivery === 'append') {
         if (!appendProjection) throw new PushProtocolError('unsupported_delivery', 422);
         appendRows = records.map((record) => {
           const row = appendProjection.mapRow({ userId, deviceId, sourceId: effectiveSourceId,
-            batchId: header.batchId, record });
+            batchId: header.batchId, record, protocolVersion: header.protocolVersion });
           // An ACK's acceptedRows must not count records discarded by a projection mapper.
           if (!row) throw new PushProtocolError('invalid_record', 422);
           return row;
@@ -370,17 +366,18 @@ export function createPushIngest({
 
       await ingestStep('quota', header.stream, () => quota.reserve(userId, decodedBody.length));
 
+      deviceId = await ingestStep('device', header.stream, resolveCanonicalDevice);
       await ingestStep('wal', header.stream, () => wal.appendWal({
         batchId: header.batchId,
         stream: header.stream,
         deviceId: header.deviceId,
+        canonicalDeviceId: deviceId,
         sourceId: effectiveSourceId,
         recordCount: header.recordCount,
         bodySha256,
         receivedAt: now().toISOString(),
       }));
 
-      deviceId = await ingestStep('device', header.stream, resolveCanonicalDevice);
       // Validation precedes durable writes; the canonical lookup may preserve an older owned UUID.
       appendRows = appendRows.map((row) => ({ ...row, device_id: deviceId }));
 
@@ -422,7 +419,16 @@ export function createPushIngest({
       }));
 
       if (commitProjection && manifest?.durabilityReceipt) {
-        return await ingestStep('projection', header.stream, () => commitProjection(manifest.durabilityReceipt, decodedBody));
+        const receipt = manifest.durabilityReceipt;
+        const ack = await ingestStep('projection', header.stream, () => commitProjection(receipt, decodedBody));
+        if (receiptStore) {
+          await receiptStore.recordAccepted({
+            userId, sourceId: effectiveSourceId, deviceId, tokenId, authMode,
+            lane: 'inline', stream: header.stream, batchId: header.batchId, objectId,
+            bodySha256, acceptedStatus: ack.status, acceptedRows: ack.acceptedRows,
+          });
+        }
+        return ack;
       }
 
       if (header.delivery === 'append') {

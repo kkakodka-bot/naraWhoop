@@ -1,6 +1,6 @@
 -- W4: effective-dated inputs and ordered, transactionally published historical state.
 -- Raw step counter projection. Edge's append registry/replay integration is separately owned.
-create table public.noop_step_samples (
+create table if not exists public.noop_step_samples (
   user_id uuid not null references auth.users(id) on delete cascade,
   device_id uuid not null references public.devices(id) on delete cascade,
   source_id uuid not null,
@@ -11,6 +11,44 @@ create table public.noop_step_samples (
   ingested_at timestamptz not null default now(),
   primary key(user_id,device_id,ts)
 );
+-- The physiology branch already owns this table with a camel-case activity field.
+-- Keep both readers compatible during rollout without replacing any stored counter.
+alter table public.noop_step_samples add column if not exists activity_class integer;
+alter table public.noop_step_samples add column if not exists "activityClass" integer;
+do $$ begin
+  if exists(select 1 from public.noop_step_samples where activity_class is not null
+    and "activityClass" is not null and activity_class<>"activityClass") then
+    raise exception 'step_activity_schema_conflict';
+  end if;
+end $$;
+update public.noop_step_samples
+  set activity_class=coalesce(activity_class,"activityClass"),
+      "activityClass"=coalesce("activityClass",activity_class)
+  where activity_class is distinct from "activityClass";
+create function public.noop_step_activity_compat() returns trigger
+language plpgsql set search_path=pg_catalog,public as $$
+begin
+  if tg_op='UPDATE' then
+    if new.activity_class is distinct from old.activity_class
+      and new."activityClass" is not distinct from old."activityClass" then
+      new."activityClass":=new.activity_class;
+    elsif new."activityClass" is distinct from old."activityClass"
+      and new.activity_class is not distinct from old.activity_class then
+      new.activity_class:=new."activityClass";
+    end if;
+  else
+    new.activity_class:=coalesce(new.activity_class,new."activityClass");
+    new."activityClass":=coalesce(new."activityClass",new.activity_class);
+  end if;
+  if new.activity_class is distinct from new."activityClass" then
+    raise exception 'step_activity_schema_conflict';
+  end if;
+  return new;
+end $$;
+create trigger a_step_activity_compat before insert or update on public.noop_step_samples
+  for each row execute function public.noop_step_activity_compat();
+revoke all on function public.noop_step_activity_compat() from public,anon,authenticated;
+grant execute on function public.noop_step_activity_compat() to service_role;
 alter table public.noop_step_samples enable row level security;
 create policy noop_step_samples_read_own on public.noop_step_samples for select using(auth.uid()=user_id);
 create policy noop_step_samples_service on public.noop_step_samples for all

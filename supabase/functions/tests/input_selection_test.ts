@@ -51,12 +51,12 @@ Deno.test('080 PPG selection survives verified archive replay and PostgreSQL con
       const body = new TextEncoder().encode([header,
         { type: 'record', key: { ts }, data: { bpm: 72, conf: 0.8, provenance } }]
         .map((v) => JSON.stringify(v)).join('\n') + '\n');
-      await assert.rejects(ingest(true).acceptBatch({ userId: USER_A, decodedBody: body }), /fixture_selection_after_archive/);
+      await assert.rejects(ingest(true).acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body }), /fixture_selection_after_archive/);
       assert.equal((await db.rest.select('noop_ppg_hr_samples', `ts=eq.${ts}`)).length, 0);
       assert.equal((await reconcileProjections(db.rest, bucket.raw, 1)).settled, 1);
       const row = (await db.rest.select('noop_ppg_hr_samples', `ts=eq.${ts}`))[0];
       assert.deepEqual(row.provenance, provenance);
-      const ack = await ingest().acceptBatch({ userId: USER_A, decodedBody: body });
+      const ack = await ingest().acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body });
       assert.deepEqual(new Uint8Array(gunzipSync(bucket.objects.get(ack.durabilityReceipt.objectKey)!)), body);
       const foreign = await db.request(`noop_ppg_hr_samples?ts=eq.${ts}`, 'authenticated', USER_B);
       assert.deepEqual(foreign.body, []);

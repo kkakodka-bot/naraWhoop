@@ -206,7 +206,7 @@ async function handleObjectIntent(req: Request): Promise<Response> {
       authMode: user.authMode,
       manifest,
     });
-    return json({ type: 'objectIntent', protocolVersion: '1.2', ...intent });
+    return json({ type: 'objectIntent', ...intent });
   } catch (err: any) {
     if (err instanceof Response) return err;
     if (err instanceof PushProtocolError) return ingestProtocolErrorResponse(err, '1.2');
@@ -231,7 +231,7 @@ async function handleObjectComplete(req: Request, objectId: string): Promise<Res
     });
     void enqueueScoringAfterIngest({ rest, userId: user.id, deviceId: ack?.deviceId })
       .catch(() => console.error('[push] scoring enqueue failed'));
-    return json({ type: 'objectAck', protocolVersion: '1.2', ...ack });
+    return json({ type: 'objectAck', ...ack });
   } catch (err: any) {
     if (err instanceof Response) return err;
     if (err instanceof PushProtocolError) return ingestProtocolErrorResponse(err, '1.2');

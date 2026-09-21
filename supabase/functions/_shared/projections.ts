@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { noopDeviceId } from './keys.ts';
 import { APPEND_STREAM_PROJECTIONS, REPLACE_STREAM_PROJECTIONS, parseNdjsonEntity,
   replacementKeys, ackMatchesBatch, PushProtocolError, schemaVersionFor } from './registry.ts';
 import { sha256Hex, type S3Store } from './s3.ts';
@@ -16,13 +15,14 @@ export async function commitArchivedBatch(rest: SupabaseRest, receipt: Durabilit
   if (decodedBody.length > MAX_INLINE_ARCHIVE_BYTES || receipt.state !== 'verified_indexed' || receipt.version !== 1 ||
       receipt.contentSha256 !== digest || receipt.uncompressedBytes !== decodedBody.length ||
       receipt.batchId !== header.batchId || receipt.objectId !== header.batchId || receipt.sourceId !== header.sourceId ||
-      receipt.stream !== header.stream || receipt.schemaVersion !== schemaVersionFor(header.stream, header.protocolVersion) ||
-      receipt.deviceId !== noopDeviceId(receipt.ownerUserId, header.deviceId)) {
+      receipt.stream !== header.stream || receipt.schemaVersion !== schemaVersionFor(header.stream, header.protocolVersion)) {
     throw new Error('projection_archive_mismatch');
   }
   const projection = header.delivery === 'append' ? APPEND_STREAM_PROJECTIONS[header.stream]
     : header.delivery === 'replace_window' ? REPLACE_STREAM_PROJECTIONS[header.stream] : null;
   if (!projection) throw new Error('unsupported_projection');
+  // Device resolution already happened before the verified archive was committed. Preserve that
+  // canonical identity; settlement checks every mapped owner/device against the stored manifest.
   const rows = records.map((record) => projection.mapRow({
     userId: receipt.ownerUserId, deviceId: receipt.deviceId, sourceId: header.sourceId,
     batchId: header.batchId, headerDeviceId: header.deviceId, record,

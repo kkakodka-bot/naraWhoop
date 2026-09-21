@@ -15,4 +15,6 @@ do $$ declare r record; j jsonb; begin
   assert exists(select 1 from scoring_work_items where day='2026-09-16') and
     (select input_revision>1 from scoring_work_items where day='2026-09-17'),'event-day and following-day catchup missing';
   assert not exists(select 1 from physiology_source_selection where algorithm_version<>'frwhoop-server-1');
+  assert (select count(*)=1 and min(counter)=321 and min("activityClass")=2 and min(activity_class)=2
+    from noop_step_samples),'step schema merge changed historical measurements';
 end $$;

@@ -51,7 +51,7 @@ export function createManifestStore({ rest, now = () => new Date() }: { rest: Su
     );
   }
 
-  return { insertPending, mark, get, byKey, byUserBatch, listByUser, listPendingStale, listReady };
+  return { mark, get, byKey, byUserBatch, listByUser, listPendingStale, listReady };
 }
 
 export type ManifestStore = ReturnType<typeof createManifestStore>;

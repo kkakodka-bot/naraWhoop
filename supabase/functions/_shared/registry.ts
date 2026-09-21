@@ -219,27 +219,6 @@ export const APPEND_STREAM_PROJECTIONS: Record<string, {
         rawHex: d.rawHex, schemaVersion: d.schemaVersion, clockVersion: d.clockVersion };
     },
   },
-  stepSample: {
-    table: 'noop_step_samples',
-    onConflict: 'user_id,device_id,ts',
-    tsKey: 'ts',
-    mapRow: ({ userId, deviceId, sourceId, batchId, record }) => {
-      const ts = record.key?.ts;
-      const counter = record.data?.counter;
-      if (ts == null || counter == null || !Number.isSafeInteger(Number(ts)) ||
-          !Number.isSafeInteger(Number(counter)) || Number(counter) < 0) return null;
-      const row: Record<string, unknown> = {
-        user_id: userId, device_id: deviceId, source_id: sourceId,
-        ts: Number(ts), counter: Number(counter), batch_id: batchId,
-      };
-      const activityClass = record.data?.activityClass;
-      if (activityClass === null) row.activityClass = null;
-      else if (activityClass !== undefined && Number.isSafeInteger(Number(activityClass))) {
-        row.activityClass = Number(activityClass);
-      }
-      return row;
-    },
-  },
   event: {
     table: 'noop_events',
     onConflict: 'user_id,device_id,ts,kind',

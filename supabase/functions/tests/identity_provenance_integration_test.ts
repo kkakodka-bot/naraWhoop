@@ -72,22 +72,22 @@ Deno.test('070 native receiver: provenance, auxiliary identity debt, transaction
         const bytes = (h = header, pr: unknown = p) => new TextEncoder().encode([h,
           { type: 'record', key: { ts: SECOND + i }, data: { ...data, provenance: pr } }].map((v) => JSON.stringify(v)).join('\n') + '\n');
         const body = bytes();
-        await assert.rejects(ingest(true).acceptBatch({ userId: USER_A, decodedBody: body }), /fixture_after_archive/);
+        await assert.rejects(ingest(true).acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body }), /fixture_after_archive/);
         assert.equal((await get(header.batchId)).durability_receipt.schemaVersion, 2);
         assert.equal((await db.rest.select(table, `ts=eq.${SECOND + i}`)).length, 0);
         assert.equal((await reconcileProjections(db.rest, bucket.raw, 1)).settled, 1);
         const row = (await db.rest.select(table, `ts=eq.${SECOND + i}`))[0]; assert.deepEqual(row.provenance, p);
-        const ack = await ingest().acceptBatch({ userId: USER_A, decodedBody: body });
+        const ack = await ingest().acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: body });
         assert.equal(ack.protocolVersion, '1.4'); assert.equal(ack.durabilityReceipt.schemaVersion, 2);
         assert.deepEqual(new Uint8Array(gunzipSync(bucket.objects.get(ack.durabilityReceipt.objectKey)!)), body);
         const before = bucket.objects.size;
-        await assert.rejects(ingest().acceptBatch({ userId: USER_A, decodedBody: bytes({ ...header, protocolVersion: '1.3', schemaVersion: 1 }) }), /invalid_scalar_provenance/);
-        await assert.rejects(ingest().acceptBatch({ userId: USER_A, decodedBody: bytes(header, { ...p, extra: 1 }) }), /invalid_scalar_provenance/);
+        await assert.rejects(ingest().acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: bytes({ ...header, protocolVersion: '1.3', schemaVersion: 1 }) }), /invalid_scalar_provenance/);
+        await assert.rejects(ingest().acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: bytes(header, { ...p, extra: 1 }) }), /invalid_scalar_provenance/);
         assert.equal(bucket.objects.size, before);
         const invalid = await db.rest.rpc('noop_valid_scalar_provenance', { p: { ...p, extra: 1 } }); assert.equal(invalid, false);
         await assert.rejects(db.rest.upsert(table, [{ ...row, ts: SECOND + 100 + i, provenance: { ...p, extra: 1 } }], { onConflict: 'user_id,device_id,ts' }), /provenance_valid/);
         const conflictHeader = { ...header, batchId: crypto.randomUUID() };
-        await assert.rejects(ingest().acceptBatch({ userId: USER_A, decodedBody: bytes(conflictHeader, null) }), /scalar_identity_conflict/);
+        await assert.rejects(ingest().acceptBatch({ userId: USER_A, sourceId: null, tokenId: null, authMode: 'legacy_fleet', decodedBody: bytes(conflictHeader, null) }), /scalar_identity_conflict/);
         assert.deepEqual((await db.rest.select(table, `ts=eq.${SECOND + i}`))[0].provenance, p);
         await db.sql(`update noop_projection_debt set not_before=clock_timestamp()+interval '1 hour' where object_id='${conflictHeader.batchId}'`);
         proof.push({ stream, receipt: ack.durabilityReceipt, provenance: p });
