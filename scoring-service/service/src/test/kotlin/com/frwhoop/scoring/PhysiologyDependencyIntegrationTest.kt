@@ -299,6 +299,6 @@ class PhysiologyDependencyIntegrationTest {
     private fun sql(query: String) { db.withConnection { c -> c.createStatement().use { it.execute(query) } } }
     private fun number(query: String)=db.withConnection { c -> c.createStatement().use { s -> s.executeQuery(query).use { r -> r.next(); r.getLong(1) } } }
     private fun expectStale(operation: () -> Unit) {
-        try { operation(); fail("expected SQLSTATE 40001") } catch(error: SQLException) { assertEquals("40001",error.sqlState) }
+        try { operation(); fail("expected non-retryable publication conflict") } catch(error: SQLException) { assertEquals("PT409",error.sqlState) }
     }
 }

@@ -189,8 +189,14 @@ class SkinTemperatureDependencyIntegrationTest {
         for (operation in listOf("insert", "update", "delete")) execute(connection,
             "drop trigger scoring_dirty_$operation on noop_skin_temp_samples")
     }
-    private fun triggerCount(connection: Connection) = number(connection,
-        "select count(*) from pg_trigger where tgrelid='noop_skin_temp_samples'::regclass and not tgisinternal")
+    private fun triggerCount(connection: Connection): Long {
+        assertEquals("Thermal repair must retain all historical invalidation triggers", 3L, number(connection,
+            "select count(*) from pg_trigger where tgrelid='noop_skin_temp_samples'::regclass and not tgisinternal " +
+                "and tgname in ('scoring_insert_v2','scoring_update_v2','scoring_delete_v2')"))
+        return number(connection,
+            "select count(*) from pg_trigger where tgrelid='noop_skin_temp_samples'::regclass and not tgisinternal " +
+                "and tgname in ('scoring_dirty_insert','scoring_dirty_update','scoring_dirty_delete')")
+    }
     private fun failure(state: String, operation: () -> Unit) {
         try { operation(); fail("Expected SQLSTATE $state") }
         catch (error: SQLException) { assertEquals(state, error.sqlState) }

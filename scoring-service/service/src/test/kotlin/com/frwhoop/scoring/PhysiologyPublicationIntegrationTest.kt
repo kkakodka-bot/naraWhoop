@@ -53,11 +53,11 @@ class PhysiologyPublicationIntegrationTest {
 
     @Test fun lateInputRejectsOldPublicationWithoutCreatingRowsOrArchiveWork() {
         val old = claim(); val latest = claim()
-        expectFailure("40001") { publish(payload(old)) }
+        expectFailure("PT409") { publish(payload(old)) }
         assertEquals(0L, count("server_physiology_results"))
         assertEquals(0L, count("physiology_archive_outbox"))
         publish(payload(latest))
-        expectFailure("40001") { publish(payload(old)) }
+        expectFailure("PT409") { publish(payload(old)) }
         assertEquals(latest.inputRevision, number("select input_revision from server_physiology_results where user_id='$user'"))
     }
 

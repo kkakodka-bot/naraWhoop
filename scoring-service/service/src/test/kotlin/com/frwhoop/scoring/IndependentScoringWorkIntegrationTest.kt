@@ -148,7 +148,7 @@ class IndependentScoringWorkIntegrationTest {
         val current=legacyClaim()
         assertEquals(stale.revision,current.revision)
         assertNotEquals(stale.token,current.token)
-        expectState("40001") { legacyPublish(stale) }
+        expectState("PT409") { legacyPublish(stale) }
         assertFalse(legacyDone(stale))
         assertEquals(1L,number("select scoring_legacy_renew_lease(${identity(current)},300)::int"))
         legacyPublish(current);assertTrue(legacyDone(current))
@@ -158,7 +158,7 @@ class IndependentScoringWorkIntegrationTest {
 
     @Test fun newInputFencesBaselineAndLegacyUnpatchedMutationsFailClosed() {
         dirtyBoth();val stale=legacyClaim();dirtyBoth();val current=legacyClaim()
-        expectState("40001") { legacyPublish(stale) }
+        expectState("PT409") { legacyPublish(stale) }
         assertFalse(legacyDone(stale))
         expectState("42501") { sql("update scoring_work_items set claimed_at=null where user_id='$user'") }
         expectState("42501") { sql("select engine_ingest_scored('test','{}'::jsonb)") }

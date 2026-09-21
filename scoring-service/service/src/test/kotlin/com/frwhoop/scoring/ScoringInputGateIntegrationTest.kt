@@ -189,7 +189,7 @@ class ScoringInputGateIntegrationTest {
         makeDue()
         ScoringInputGate(db).withGate(user,device) {
             val successor=queue.claimOne(user,device,day)!!
-            failure("40001") { publish(payload(obsolete!!)) }
+            failure("PT409") { publish(payload(obsolete!!)) }
             assertFalse(queue.markDone(obsolete!!,1)); assertFalse(queue.markFailed(obsolete!!,"old"))
             publish(payload(successor)); assertTrue(queue.markDone(successor,1))
         }
@@ -277,7 +277,7 @@ class ScoringInputGateIntegrationTest {
                 incoming.incrementAndGet()
                 try { publish(payload) }
                 catch (error: SQLException) {
-                    if (error.sqlState == "40001") rejected.incrementAndGet() else throw error
+                    if (error.sqlState == "PT409") rejected.incrementAndGet() else throw error
                 }
                 exchange.sendResponseHeaders(409, -1)
             } finally { exchange.close() }
