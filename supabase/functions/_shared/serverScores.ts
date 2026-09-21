@@ -70,17 +70,18 @@ export async function handleScoresRequest(req: Request, { rest, cfg: _cfg, fetch
   const url = new URL(req.url);
   const route = url.pathname.replace(/^\/functions\/v1/, '').replace(/^\/scores/, '') || '/';
   const isRead = req.method === 'GET' && route === '/';
+  const isDiagnostics = req.method === 'GET' && route === '/diagnostics';
   const isRegister = req.method === 'POST' && route === '/devices';
   const isOverride = req.method === 'POST' && route === '/sleep-overrides';
-  if (!isRead && !isRegister && !isOverride) {
+  if (!isRead && !isDiagnostics && !isRegister && !isOverride) {
     return Response.json({ error: 'method_not_allowed' }, { status: 405 });
   }
   if (!rest.configured) return Response.json({ error: 'service_role_unconfigured' }, { status: 503 });
   try {
     const user = await resolveUploadIdentity({ headers: req.headers, rest, allowLegacyFleetUploads: false });
     if (user.authMode !== 'installation' || !user.sourceId) throw new IdentityError('installation required');
-    const requestBody = isRead ? null : await boundedBody(req);
-    const externalDeviceId = isRead ? url.searchParams.get('deviceId') : requestBody?.deviceId;
+    const requestBody = isRead || isDiagnostics ? null : await boundedBody(req);
+    const externalDeviceId = isRead || isDiagnostics ? url.searchParams.get('deviceId') : requestBody?.deviceId;
     if (!isSafeExternalDeviceId(externalDeviceId)) throw fail('invalid_device_id', 400);
     const lookup = { userId: user.id, sourceId: user.sourceId, externalDeviceId };
     const deviceId = isRegister
@@ -93,6 +94,16 @@ export async function handleScoresRequest(req: Request, { rest, cfg: _cfg, fetch
       const args = sleepArguments(requestBody?.arguments, deviceId);
       const revision = await rest.rpc('enrolled_physiology_sleep_override', { ...args, p_user: user.id });
       return Response.json(revision);
+    }
+    if (isDiagnostics) {
+      const day = url.searchParams.get('day') || utcDay();
+      const parsed = new Date(day);
+      if (!DAY_RE.test(day) || !Number.isFinite(parsed.getTime()) || utcDay(parsed) !== day) throw fail('invalid_day', 400);
+      if (!deviceId) throw fail('device_registration_pending', 409);
+      const diagnostics = await rest.rpc('server_pipeline_diagnostics', {
+        p_user: user.id, p_source: user.sourceId, p_device: deviceId, p_day: day,
+      });
+      return Response.json(diagnostics, { headers: { 'cache-control': 'no-store' } });
     }
     const body = await readOwnerDayScores({ rest, userId: user.id,
       day: url.searchParams.get('day') || utcDay(), deviceId });

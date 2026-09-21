@@ -34,13 +34,16 @@ Deno.serve(async (req: Request) => {
       objectStore: raw,
       userId,
       day,
+      sourceId: url.searchParams.get('source_id') ?? undefined,
+      deviceId: url.searchParams.get('device_id') ?? undefined,
     });
     return Response.json(report);
   } catch (err: any) {
     const code = err?.code;
     if (code === 'unauthorized') return Response.json({ error: 'user required' }, { status: 400 });
     if (code === 'invalid_day') return Response.json({ error: 'invalid day' }, { status: 400 });
-    console.error('[ingest-verify] failed:', err?.stack || err);
+    if (code === 'invalid_scope') return Response.json({ error: 'source and device required' }, { status: 400 });
+    console.error('[ingest-verify] failed');
     return Response.json({ error: 'ingest_verify_failed' }, { status: 500 });
   }
 });

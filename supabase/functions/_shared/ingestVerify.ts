@@ -28,8 +28,7 @@ async function physiologyProcessing(rest: SupabaseRest, userId: string, day: str
       'id=eq.1&select=version,last_poll_at,last_score_at,last_error&limit=1'),
     rest.select('physiology_work_items',
       `user_id=eq.${userId}&day=eq.${day}&select=status,lease_expires_at&order=device_id&limit=${WORK_LIMIT}`),
-    // This is the same owner-scoped selection used by both clients. Only availability/counts
-    // leave this function; physiological values, identities, payloads and errors do not.
+    // Aggregate account summary. Use sourceId + deviceId below for the enrolled-phone trace.
     rest.rpc('server_scoring_for_day', { p_user: userId, p_day: day }),
   ]);
   const [heartbeatRead, workRead, snapshotRead] = reads;
@@ -137,17 +136,28 @@ export async function buildIngestVerifyReport({
   objectStore,
   userId,
   day,
+  sourceId,
+  deviceId,
   now = new Date(),
 }: {
   rest: SupabaseRest;
   objectStore: Pick<S3Store, 'head'> | null;
   userId: string;
   day: string;
+  sourceId?: string;
+  deviceId?: string;
   now?: Date;
 }) {
   if (!isUuid(userId)) throw Object.assign(new Error('user required'), { code: 'unauthorized' });
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+  const parsedDay = new Date(day);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(parsedDay.getTime()) || parsedDay.toISOString().slice(0, 10) !== day) {
     throw Object.assign(new Error('invalid day'), { code: 'invalid_day' });
+  }
+  if (sourceId !== undefined || deviceId !== undefined) {
+    if (!isUuid(sourceId) || !isUuid(deviceId)) throw Object.assign(new Error('source and device required'), { code: 'invalid_scope' });
+    return await rest.rpc('server_pipeline_diagnostics', {
+      p_user: userId, p_source: sourceId, p_device: deviceId, p_day: day,
+    });
   }
 
   const [walRows, ackRows, manifestRows, windows, dailyRows, heartbeatRows, projectionDebt, physiology] = await Promise.all([

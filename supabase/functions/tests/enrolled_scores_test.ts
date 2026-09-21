@@ -80,6 +80,20 @@ Deno.test('enrolled scores: invalid calendar dates do not call the database', as
   assertEquals(calls.length, 0);
 });
 
+Deno.test('enrolled diagnostics: exact installation and registered device scope, no user override', async () => {
+  const { rest, calls } = await fixture();
+  const response = await handleScoresRequest(request(`/diagnostics?day=2026-09-19&deviceId=${LOCAL}&userId=${OTHER}`), { rest, cfg });
+  assertEquals(response.status, 200);
+  assertEquals(response.headers.get('cache-control'), 'no-store');
+  assertEquals(calls, [{ name: 'server_pipeline_diagnostics', args: {
+    p_user: USER, p_source: SOURCE, p_device: DEVICE, p_day: '2026-09-19',
+  } }]);
+  calls.length = 0;
+  assertEquals((await handleScoresRequest(request('/diagnostics?day=2026-09-19&deviceId=whoop-MISSING'), { rest, cfg })).status, 409);
+  assertEquals((await handleScoresRequest(request(`/diagnostics?day=2026-02-30&deviceId=${LOCAL}`), { rest, cfg })).status, 400);
+  assertEquals(calls.length, 0);
+});
+
 Deno.test('enrolled registration: ACK follows atomic owned-device RPC', async () => {
   const { rest, calls } = await fixture();
   const res = await handleScoresRequest(request('/devices', { deviceId: LOCAL }), { rest, cfg });
