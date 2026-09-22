@@ -128,14 +128,14 @@ final class CloudImuPushSourceTests: XCTestCase {
             let retry = try PushProtocol.binaryObjectBatch(table: .rawBatch, sourceId: W5ReceiptFixture.source,
                 deviceId: f.device, startCursor: nil, rows: [wireRow], protocolVersion: PushProtocol.objectVersion)
             XCTAssertEqual(batch.manifestJSON, retry.manifestJSON)
-            XCTAssertEqual(batch.payload, retry.payload)
+            XCTAssertEqual((try batch.payload), (try retry.payload))
             XCTAssertEqual(batch.contentEncoding, "zstd")
-            XCTAssertEqual(batch.payload.prefix(4), Data([0x28, 0xb5, 0x2f, 0xfd]))
+            XCTAssertEqual((try batch.payload).prefix(4), Data([0x28, 0xb5, 0x2f, 0xfd]))
             XCTAssertEqual(batch.contentSha256, PushDurabilityReceipt.sha256(try PushBinaryCodec.pack(table: .rawBatch, rows: [wireRow])))
             XCTAssertEqual(batch.sampleCount, 2, "rawBatch contains descriptor and file, not IMU row count")
             let output = destination.appendingPathComponent(descriptor.origin, isDirectory: true)
             try fm.createDirectory(at: output, withIntermediateDirectories: false)
-            let exports = ["manifest.json": batch.manifestJSON, "payload.zst": batch.payload,
+            let exports = ["manifest.json": batch.manifestJSON, "payload.zst": (try batch.payload),
                            "descriptor.json": try descriptor.encoded(), "source.imus": bytes]
             for (name, data) in exports {
                 let path = output.appendingPathComponent(name)
@@ -145,7 +145,7 @@ final class CloudImuPushSourceTests: XCTestCase {
             cases.append(["origin": descriptor.origin, "objectId": batch.objectId,
                           "batchId": batch.batchId, "archiveBatchId": row.batchId,
                           "recordCount": descriptor.recordCount, "sampleCount": batch.sampleCount,
-                          "wireSHA256": PushDurabilityReceipt.sha256(batch.payload),
+                          "wireSHA256": batch.wireSHA256,
                           "files": exports.mapValues { PushDurabilityReceipt.sha256($0) }])
         }
         XCTAssertEqual(origins, ["session", "continuous"])

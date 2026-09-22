@@ -108,7 +108,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
     private func coordinator(_ f: Fixture, _ p: CloudPushProgressStore, version: String,
                              beforeAssociation: (@Sendable () throws -> Void)? = nil,
                              beforeStage: (@Sendable () throws -> Void)? = nil,
-                             freshSource: Bool = false) -> PushCoordinator {
+                             freshSource: Bool = false, wakeBudget: PushWakeBudget? = nil) -> PushCoordinator {
         let c = committer(f, p)
         let sourceSnapshot: any PushSnapshotSource = freshSource ? f.snapshot : PreparedNoSelectionSource()
         return PushCoordinator(source: sourceSnapshot, transport: f.transport, progress: p,
@@ -129,7 +129,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 try beforeStage?()
                 let id = try await f.transport.preparedSelectionID(batchID: value.batchIDs[0], sourceID: W5ReceiptFixture.source)
                 try await c.commit(value, preparedSelectionID: id)
-            }, prepareSelection: { try await f.transport.prepareSelection($0, progressVersion: version) })
+            }, prepareSelection: { try await f.transport.prepareSelection($0, progressVersion: version) }, wakeBudget: wakeBudget)
     }
     private func raw(_ f: Fixture, key: String = "raw-prepared", ts: Int = 100) async throws -> (PushBinaryBatch, [PushBinaryRow]) {
         let meta = RawBatchMeta(batchId: key, deviceId: device, clockRef: .init(device: ts, wall: ts), capturedAt: ts,
@@ -166,6 +166,41 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
         return try .init(context: f.context, endpoint: endpoint, receiverStateID: receiver, progressVersion: version,
             selection: .init(inline: [batch], commit: .init(kind: .append, table: "hrSample", deviceID: batch.deviceId,
                 batchIDs: [batch.batchId], cursor: batch.endCursor)), inlineGzip: [CloudPushTransport.gzip(batch.body)])
+    }
+
+    func testFreshCoordinatorStreamsToAccountFileBeforeTransferThenSettlesExactReceipt() async throws {
+        let f = try await fixture()
+        do {
+            let (_, rows) = try await raw(f)
+            let oracle = f.root.appendingPathComponent("synthetic-stream-oracle")
+            try FileManager.default.createDirectory(at: oracle, withIntermediateDirectories: false)
+            let expected = try PushProtocol.binaryObjectBatch(table: .rawBatch, sourceId: source, deviceId: device,
+                startCursor: nil, rows: rows, protocolVersion: "1.2", payloadDirectory: oracle)
+            try serveObject(expected)
+            let result = await coordinator(f, try progress(f, version: "1.2"), version: "1.2", beforeAssociation: {
+                let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
+                defer { journal.close() }
+                try journal.loadSelections(owner: f.context.scope)
+                let index = try XCTUnwrap(journal.selectionIndex.values.first)
+                let selection = try XCTUnwrap(journal.selection(index.id))
+                XCTAssertEqual(selection.selection.version, 3)
+                XCTAssertNil(selection.selection.objectPayload)
+                let file = try XCTUnwrap(selection.selection.objectPayloadFile)
+                XCTAssertEqual(file.url.deletingLastPathComponent(), f.layout.uploadDirectory)
+                XCTAssertEqual(file.sha256, expected.wireSHA256)
+                XCTAssertEqual(try journal.load().values.first?.phase, .receiptSaved)
+            }, freshSource: true, wakeBudget: PushWakeBudget(duration: 60)).pushObjects(.rawBatch, deviceId: device, lane: lane)
+            guard case .accepted = result else { return XCTFail("streaming coordinator failed: \(result)") }
+            let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
+            defer { journal.close() }
+            try journal.loadSelections(owner: f.context.scope)
+            XCTAssertTrue(journal.selectionIndex.isEmpty)
+            XCTAssertTrue(try journal.load().isEmpty)
+            XCTAssertEqual(try journal.metadata.names(kind: "packing"), [])
+            let remaining = try await f.snapshot.binaryRows(table: .rawBatch, deviceId: device, afterRowId: 0, limit: 1)
+            XCTAssertTrue(remaining.isEmpty)
+        } catch { await close(f); throw error }
+        await close(f)
     }
 
     func testReceiptSavedBeforeAssociationReopensOldVersionWithoutNetworkOrFreshSelection() async throws {
@@ -581,8 +616,8 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let jobs = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load()
             XCTAssertEqual(jobs.count, 2)
             for job in jobs.values {
-                XCTAssertEqual(job.payloadSHA256, PushDurabilityReceipt.sha256(batch.payload))
-                XCTAssertEqual(try Data(contentsOf: f.layout.uploadDirectory.appendingPathComponent(job.payloadName!)), batch.payload)
+                XCTAssertEqual(job.payloadSHA256, batch.wireSHA256)
+                XCTAssertEqual(try Data(contentsOf: f.layout.uploadDirectory.appendingPathComponent(job.payloadName!)), (try batch.payload))
             }
             var ack = W5ReceiptFixture.object(batch, owner: f.context.scope.userID)
             ack["objectId"] = successor.objectId
@@ -631,7 +666,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let task = try XCTUnwrap(adapter.last)
             XCTAssertEqual(task.request.url?.absoluteString, "https://bucket.example/renewed")
             XCTAssertFalse(task.request.allowsCellularAccess)
-            XCTAssertEqual(try Data(contentsOf: task.file), batch.payload)
+            XCTAssertEqual(try Data(contentsOf: task.file), (try batch.payload))
             await q.receive(task.task, status: 403, body: Data(), error: false)
             await q.suspend()
             let reopened = try CloudUploadQueue(context: .init(scope: f.context.scope, generation: UUID()), layout: layout, adapter: adapter,
@@ -646,7 +681,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let job = try XCTUnwrap(CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget).load().values.first)
             XCTAssertEqual(job.objectID, batch.objectId)
             XCTAssertEqual(job.objectKey, "staging/expiry")
-            XCTAssertEqual(job.payloadSHA256, PushDurabilityReceipt.sha256(batch.payload))
+            XCTAssertEqual(job.payloadSHA256, batch.wireSHA256)
             await reopened.suspend()
         } catch { await close(f); throw error }
         await close(f)
@@ -800,7 +835,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 XCTAssertEqual(identity, successor)
                 let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget)
                 XCTAssertEqual(try journal.load().count, 2)
-                for job in try journal.load().values { try journal.verifyBody(job); XCTAssertEqual(job.payloadSHA256, PushDurabilityReceipt.sha256(batch.payload)) }
+                for job in try journal.load().values { try journal.verifyBody(job); XCTAssertEqual(job.payloadSHA256, batch.wireSHA256) }
                 XCTAssertEqual(adapter.count, 0)
                 await recovered.suspend()
             }

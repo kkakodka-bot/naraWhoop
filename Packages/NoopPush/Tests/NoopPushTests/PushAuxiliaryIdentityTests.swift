@@ -30,7 +30,7 @@ final class PushAuxiliaryIdentityTests: XCTestCase {
         XCTAssertEqual(first.contentSha256, PushBinaryCodec.sha256Hex(data))
         XCTAssertEqual(first.startTs, 100); XCTAssertEqual(first.endTs, 101); XCTAssertEqual(first.sampleCount, 3)
         XCTAssertEqual(first.batchId, retry.batchId); XCTAssertEqual(first.objectId, retry.objectId)
-        XCTAssertEqual(first.payload, retry.payload)
+        XCTAssertEqual((try first.payload), (try retry.payload))
         let fingerprints = try rows.map { try PushProtocol.binaryKeyFingerprint(table: .v18AuxSample,
             deviceId: device, row: $0, v18IdentityV2: true) }
         XCTAssertEqual(Set(fingerprints).count, 3)
@@ -41,7 +41,7 @@ final class PushAuxiliaryIdentityTests: XCTestCase {
             let root = URL(fileURLWithPath: path, isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             try data.write(to: root.appendingPathComponent("payload.npb1"), options: .atomic)
-            try first.payload.write(to: root.appendingPathComponent("payload.gz"), options: .atomic)
+            try (try first.payload).write(to: root.appendingPathComponent("payload.gz"), options: .atomic)
             try PushObjectManifest(batch: first).encode().write(to: root.appendingPathComponent("manifest.json"), options: .atomic)
             try JSONSerialization.data(withJSONObject: ["fingerprints": fingerprints,
                 "hex": expected, "schemaVersion": 2], options: [.sortedKeys])
@@ -82,7 +82,7 @@ final class PushAuxiliaryIdentityTests: XCTestCase {
             }
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             try packed.write(to: root.appendingPathComponent("payload.npb1"), options: .atomic)
-            try object.payload.write(to: root.appendingPathComponent("payload.gz"), options: .atomic)
+            try (try object.payload).write(to: root.appendingPathComponent("payload.gz"), options: .atomic)
             try PushObjectManifest(batch: object).encode().write(to: root.appendingPathComponent("manifest.json"), options: .atomic)
             try JSONSerialization.data(withJSONObject: ["fingerprints": fingerprints,
                 "hex": packed.map { String(format: "%02x", $0) }.joined(), "schemaVersion": 2], options: [.sortedKeys])
@@ -112,7 +112,7 @@ final class PushAuxiliaryIdentityTests: XCTestCase {
         let new = try PushProtocol.binaryObjectBatch(table: .ppgWaveformSample, sourceId: source, deviceId: device,
             startCursor: nil, rows: values, protocolVersion: "1.4")
         XCTAssertEqual(new.contentSha256, old.contentSha256)
-        XCTAssertEqual(new.payload, old.payload); XCTAssertEqual(new.endCursor, old.endCursor)
+        XCTAssertEqual((try new.payload), (try old.payload)); XCTAssertEqual(new.endCursor, old.endCursor)
         XCTAssertEqual(PushProtocol.schemaVersion(stream: "ppgWaveformSample", protocolVersion: "1.4"), 2)
         XCTAssertEqual(PushProtocol.schemaVersion(stream: "v18AuxSample", protocolVersion: "1.4"), 2)
         XCTAssertEqual(PushProtocol.schemaVersion(stream: "v18AuxSample", protocolVersion: "1.3"), 1)

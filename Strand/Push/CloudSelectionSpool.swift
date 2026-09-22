@@ -16,6 +16,8 @@ struct CloudSelectionIndex: Codable, Sendable {
     let reservation: CloudPreparedQuota.Reservation
     let segment: String
     let segmentBytes: Int
+    let wireFile: String?
+    let wireBytes: Int?
     /// Present only for an unconverted legacy JSON selection. It is never spool authority.
     let legacyEncodedBytes: Int?
     var isLegacy: Bool { legacyEncodedBytes != nil }
@@ -25,6 +27,7 @@ struct CloudSelectionIndex: Codable, Sendable {
         endpoint = value.endpoint; receiverStateID = value.receiverStateID; laneID = value.laneID
         commit = value.commit; objectID = value.selection.objectManifest?.objectId
         self.reservation = reservation; self.segment = segment; segmentBytes = bytes
+        wireFile = value.selection.objectPayloadFile?.name; wireBytes = value.selection.objectPayloadFile?.byteCount
         legacyEncodedBytes = nil
     }
 
@@ -76,6 +79,7 @@ struct CloudSelectionIndex: Codable, Sendable {
         reservation = .init(bodyBytes: bytes.count * 4, selectionBytes: bytes.count * 2,
             jobSlots: jobs, completionBytes: jobs * CloudPreparedQuota.jobMetadataBytes + CloudPreparedQuota.groupCompletionBytes)
         segment = ""; segmentBytes = 0; legacyEncodedBytes = bytes.count
+        wireFile = nil; wireBytes = nil
         try validate(owner: expected)
     }
 
@@ -108,7 +112,9 @@ struct CloudSelectionIndex: Codable, Sendable {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         guard id == value.id && laneID == value.laneID && owner == value.owner && sourceID == value.sourceID
             && endpoint == value.endpoint && receiverStateID == value.receiverStateID
-            && objectID == value.selection.objectManifest?.objectId else { return false }
+            && objectID == value.selection.objectManifest?.objectId
+            && wireFile == value.selection.objectPayloadFile?.name
+            && wireBytes == value.selection.objectPayloadFile?.byteCount else { return false }
         if !isLegacy {
             guard reservation == (try CloudPreparedQuota(maximumBytes: Int.max).reservation(for: value)) else { return false }
         }
@@ -130,6 +136,10 @@ struct CloudSelectionIndex: Codable, Sendable {
               segmentBytes >= 0, segmentBytes <= PushPreparedSelection.maximumEncodedBytes,
               reservation.total > 0, reservation.bodyBytes >= 0, reservation.selectionBytes >= 0,
               reservation.completionBytes >= 0, reservation.jobSlots > 0, reservation.jobSlots <= 256 else { throw CloudUploadError.corruptJournal }
+        if let wireFile {
+            guard !isLegacy, wireFile.hasSuffix(".wire"), Self.validHash(String(wireFile.dropLast(5))),
+                  let wireBytes, wireBytes > 0, wireBytes <= PushProtocolLimits.maxObjectWireBytes else { throw CloudUploadError.corruptJournal }
+        } else if wireBytes != nil { throw CloudUploadError.corruptJournal }
         if let legacyEncodedBytes {
             guard legacyEncodedBytes > 0, legacyEncodedBytes <= PushPreparedSelection.maximumEncodedBytes,
                   segment.isEmpty, segmentBytes == 0 else { throw CloudUploadError.corruptJournal }
@@ -242,6 +252,7 @@ enum CloudSelectionSpool {
         let handle = try FileHandle(forReadingFrom: path)
         defer { try? handle.close() }
         let decoder = JSONDecoder()
+        decoder.userInfo[PushImmutablePayloadFile.directoryKey] = directory
         decoder.dataDecodingStrategy = .custom { decoder in
             let reference = try Reference(from: decoder)
             guard reference.offset >= 0, reference.count >= 0,

@@ -182,8 +182,8 @@ final class CloudAuxiliaryIdentityTests: XCTestCase {
     private func receipt(_ batch: PushBinaryBatch) throws -> PushDurabilityReceipt {
         let fields = W5ReceiptFixture.receipt(owner: owner.userID, device: device, object: batch.objectId,
             batch: batch.batchId, source: sourceID, stream: batch.wireName, decoded: batch.contentSha256,
-            wire: PushDurabilityReceipt.sha256(batch.payload), decodedBytes: batch.uncompressedBytes,
-            wireBytes: batch.payload.count, schema: 2)
+            wire: batch.wireSHA256, decodedBytes: batch.uncompressedBytes,
+            wireBytes: batch.wireBytes, schema: 2)
         return try JSONDecoder().decode(PushDurabilityReceipt.self, from: W5ReceiptFixture.bytes(fields))
     }
 }

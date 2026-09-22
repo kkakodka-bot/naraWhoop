@@ -64,6 +64,92 @@ final class CloudUploadQueueTests: XCTestCase {
         throw CloudUploadError.unavailable
     }
 
+    private func streamedSelection(_ context: AccountSessionContext, directory: URL) throws -> CloudPushPreparedSelection {
+        let rows: [PushBinaryRow] = [.rawBatch(.init(rowId: 1, batchId: "synthetic-file-archive", capturedAt: 1,
+            deviceClockRef: 1, wallClockRef: 1, startTs: 1, endTs: 1, frameCount: 1, byteSize: 262144,
+            framesBlob: Data(repeating: 31, count: 262144)))]
+        let batch = try PushProtocol.binaryObjectBatch(table: .rawBatch, sourceId: W5ReceiptFixture.source,
+            deviceId: "synthetic-file-device", startCursor: nil, rows: rows, protocolVersion: "1.2", payloadDirectory: directory)
+        let lane = PushObjectLane(endpoint: "/functions/v1/push/objects", maxObjectBytes: 8_000_000, urlTtlSec: 60, streams: [.rawBatch])
+        return try .init(context: context, endpoint: endpoint, receiverStateID: "synthetic-file-receiver", progressVersion: "1.2",
+            selection: .init(binary: batch, rows: rows, manifest: .init(batch: batch), lane: lane,
+                commit: .init(kind: .binary, table: "rawBatch", deviceID: batch.deviceId, batchIDs: [batch.batchId],
+                    cursor: batch.endCursor, rawBatchIDs: ["synthetic-file-archive"])), inlineGzip: [])
+    }
+
+    func testStreamedWireSurvivesScratchRetirementAndColdQueueReplay() async throws {
+        let (_, context, layout) = try fixture()
+        let q = try queue(context, layout, UploadAdapter(), capacity: 32 * 1_048_576)
+        let preparation = try await q.beginBinaryPreparation(maximumWireBytes: 4 * 1_048_576, captured: context)
+        let saved = try streamedSelection(context, directory: preparation.directory)
+        let wire = try XCTUnwrap(saved.selection.objectPayloadFile), original = try wire.materialized()
+        try await q.prepareSelection(saved, captured: context)
+        try await q.finishBinaryPreparation(preparation, captured: context)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: preparation.directory.path))
+        let restored = try await q.preparedSelection(saved.id, captured: context)
+        XCTAssertEqual(restored.selection.version, 3)
+        XCTAssertEqual(try restored.selection.objectPayloadFile?.materialized(), original)
+        XCTAssertEqual(restored.selection.objectPayloadFile?.url.deletingLastPathComponent(), layout.uploadDirectory)
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget)
+        defer { journal.close() }
+        try journal.loadSelections(owner: context.scope)
+        let jobs = try journal.load()
+        XCTAssertEqual(jobs.count, 1)
+        XCTAssertEqual(journal.selectionIndex[saved.id]?.wireFile, wire.name)
+        let job = try XCTUnwrap(jobs.values.first)
+        XCTAssertFalse(job.acknowledged)
+        XCTAssertNotEqual(job.phase, .receiptSaved)
+        XCTAssertEqual(try Data(contentsOf: journal.bodyURL(job)), original)
+        XCTAssertEqual(try journal.selection(saved.id)?.selection.objectPayloadFile?.materialized(), original)
+        let manifest = try XCTUnwrap(journal.metadata.read(saved.id + ".selection"))
+        XCTAssertLessThan(manifest.count, 16 * 1024)
+        XCTAssertFalse(String(decoding: manifest, as: UTF8.self).contains(preparation.directory.path))
+        XCTAssertEqual(try journal.metadata.names(kind: "packing"), [])
+        XCTAssertEqual(try journal.metadata.names(kind: "wireintent"), [])
+    }
+
+    func testStreamedPublicationSurvivesPostCommitFailureAndNeverLosesSourceMembership() throws {
+        let (_, context, layout) = try fixture()
+        let fault = UploadJournalFault()
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, maximumBytes: 32 * 1_048_576,
+            afterWrite: { url in if url.pathExtension == "selection", fault.take() { throw CloudUploadError.storageFull } },
+            resourceBudget: resourceBudget)
+        try journal.loadSelections(owner: context.scope)
+        let preparation = try journal.beginBinaryPreparation(maximumWireBytes: 4 * 1_048_576)
+        let saved = try streamedSelection(context, directory: preparation.directory)
+        fault.arm()
+        XCTAssertThrowsError(try journal.reserve(saved, legacyJobs: 0))
+        try journal.finishBinaryPreparation(preparation)
+        journal.close()
+        let cold = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget)
+        defer { cold.close() }
+        try cold.loadSelections(owner: context.scope)
+        let restored = try XCTUnwrap(cold.selection(saved.id))
+        XCTAssertEqual(restored.commit.rawBatchIDs, ["synthetic-file-archive"])
+        XCTAssertEqual(restored.selection.objectPayloadFile?.sha256, saved.selection.objectPayloadFile?.sha256)
+        XCTAssertFalse(try XCTUnwrap(cold.continuations[saved.id]).sourceCommitted)
+        XCTAssertThrowsError(try cold.retireSelection(saved.id))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(restored.selection.objectPayloadFile).url.path))
+    }
+
+    func testUnpublishedStreamLeaseRecoversOnlyOwnedScratchAndRejectsOtherAccountRoot() throws {
+        let (_, context, layout) = try fixture(), (_, _, otherLayout) = try fixture()
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget)
+        defer { journal.close() }
+        try journal.loadSelections(owner: context.scope)
+        let other = try CloudUploadJournal(directory: otherLayout.uploadDirectory, resourceBudget: resourceBudget)
+        defer { other.close() }
+        try other.loadSelections(owner: context.scope)
+        let foreign = try other.beginBinaryPreparation(maximumWireBytes: 4 * 1_048_576)
+        let saved = try streamedSelection(context, directory: foreign.directory)
+        XCTAssertThrowsError(try journal.reserve(saved, legacyJobs: 0))
+        XCTAssertNil(try journal.metadata.read(saved.id + ".selection"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(saved.selection.objectPayloadFile).url.path))
+        try other.recoverBinaryPreparations()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: foreign.directory.path))
+        XCTAssertEqual(try other.metadata.names(kind: "packing"), [])
+    }
+
     func testSyntheticLargeBacklogRestorationUsesOnlyOneDecodedLaneAndReportsHostRSS() throws {
         let (_, context, layout) = try fixture()
         let writer = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget)
@@ -1500,4 +1586,11 @@ private final class RuntimeControlURLProtocol: URLProtocol {
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+}
+
+private final class UploadJournalFault: @unchecked Sendable {
+    private let lock = NSLock()
+    private var active = false
+    func arm() { lock.lock(); defer { lock.unlock() }; active = true }
+    func take() -> Bool { lock.lock(); defer { lock.unlock() }; let value = active; active = false; return value }
 }

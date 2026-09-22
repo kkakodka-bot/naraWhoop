@@ -292,7 +292,7 @@ final class CaptureDurabilityTests: XCTestCase {
             let first = try assemble()
             let retry = try assemble()
             XCTAssertEqual(first.manifestJSON, retry.manifestJSON)
-            XCTAssertEqual(first.payload, retry.payload)
+            XCTAssertEqual(try first.payload, try retry.payload)
             XCTAssertEqual(first.endTs - first.startTs, 1)
         }
     }

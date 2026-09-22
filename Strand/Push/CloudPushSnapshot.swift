@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Compression
 import GRDB
 import NoopPush
@@ -420,15 +421,19 @@ struct CloudPushSnapshot: PushSnapshotSource {
         // Object-ID conflict recovery can change the remote object ID, never its payload identity.
         let manifest = PushObjectManifest(batch: batch).replacingObjectId(receipt.objectId)
         guard receipt.matches(manifest, owner: scope,
-                wireSHA256: PushDurabilityReceipt.sha256(batch.payload), wireBytes: batch.payload.count),
+                wireSHA256: batch.wireSHA256, wireBytes: batch.wireBytes),
               let verified = PushDurabilityReceipt.date(receipt.verifiedAt) else { throw CloudUploadError.invalidReceipt }
         // Bind the supplied membership to the attested bytes at the source mutation boundary too.
         // This is bounded packing, not recompression; no unauthenticated row list can release siblings.
-        let packed = try PushBinaryCodec.pack(table: batch.table, rows: rows,
+        var index = 0, digest = SHA256()
+        let size = try PushBinaryStreamEncoder.visitDecodedBytes(table: batch.table, rowCount: rows.count,
             ppgIdentityV2: PushProtocol.hasPPGIdentity(batch.protocolVersion),
-            v18IdentityV2: batch.protocolVersion == PushProtocol.auxiliaryIdentityVersion)
-        guard packed.count == batch.uncompressedBytes,
-              PushDurabilityReceipt.sha256(packed) == receipt.contentSha256 else { throw CloudUploadError.invalidReceipt }
+            v18IdentityV2: batch.protocolVersion == PushProtocol.auxiliaryIdentityVersion,
+            maxDecodedBytes: PushProtocolLimits.maxObjectDecodedBytes, maxRows: PushProtocolLimits.maxRecords,
+            nextRow: { guard index < rows.count else { return nil }; defer { index += 1 }; return rows[index] },
+            consume: { digest.update(bufferPointer: $0) })
+        guard size == batch.uncompressedBytes,
+              digest.finalize().map({ String(format: "%02x", $0) }).joined() == receipt.contentSha256 else { throw CloudUploadError.invalidReceipt }
         let capture = DurableIngestScope(environment: scope.projectURL, accountID: scope.userID, deviceID: batch.deviceId)
         if batch.table == .rawImuSession {
             guard let imuPushSource else { throw ImuPushSourceError.membershipUnavailable }

@@ -306,7 +306,9 @@ public enum PushProtocol {
         startCursor: PushCursor?,
         rows: [PushBinaryRow],
         protocolVersion: String = binaryVersion,
-        decodedLimit: Int = PushProtocolLimits.maxBodyBytes
+        decodedLimit: Int = PushProtocolLimits.maxBodyBytes,
+        payloadDirectory: URL? = nil,
+        allowsWork: @escaping () -> Bool = { true }
     ) throws -> PushBinaryBatch {
         try validateUUID(sourceId, name: "sourceId")
         guard !rows.isEmpty else { throw PushProtocolException("binary object must contain a row") }
@@ -325,17 +327,35 @@ public enum PushProtocol {
                                             v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
         }
 
-        let decoded = try PushBinaryCodec.pack(table: table, rows: selected,
-                                               ppgIdentityV2: hasPPGIdentity(protocolVersion),
-                                               v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
-        guard decoded.count <= decodedLimit else {
-            throw PushProtocolException("binary object exceeds the decoded limit")
-        }
-        let contentSha256 = PushBinaryCodec.sha256Hex(decoded)
         let contentEncoding = table.contentEncoding
-        let payload = isObjectVersion(protocolVersion)
-            ? try PushBinaryCompression.compressObject(decoded, encoding: contentEncoding)
-            : try PushBinaryCompression.compress(decoded, encoding: contentEncoding)
+        let decodedBytes: Int, contentSha256: String
+        let decoded: Data?, payload: Data?, payloadFile: PushImmutablePayloadFile?
+        if let payloadDirectory {
+            guard isObjectVersion(protocolVersion) else { throw PushProtocolException("streaming requires object protocol") }
+            var index = 0
+            let expected = try selected.reduce(PushBinaryCodec.packedHeaderSize(for: table)) {
+                $0 + (try PushBinaryCodec.packedRowSize($1, ppgIdentityV2: hasPPGIdentity(protocolVersion),
+                    v18IdentityV2: protocolVersion == auxiliaryIdentityVersion))
+            }
+            let artifact = try PushBinaryStreamEncoder.encode(table: table, rowCount: selected.count,
+                encoding: contentEncoding, ppgIdentityV2: hasPPGIdentity(protocolVersion),
+                v18IdentityV2: protocolVersion == auxiliaryIdentityVersion, directory: payloadDirectory, requireExistingDirectory: true,
+                maxDecodedBytes: decodedLimit, maxWireBytes: decodedLimit + 64 * 1024,
+                expectedDecodedBytes: expected, allowsWork: allowsWork,
+                nextRow: { guard index < selected.count else { return nil }; defer { index += 1 }; return selected[index] })
+            decodedBytes = artifact.uncompressedBytes; contentSha256 = artifact.contentSha256
+            decoded = nil; payload = nil
+            payloadFile = try .init(url: artifact.fileURL, byteCount: artifact.wireBytes, sha256: artifact.wireSha256)
+        } else {
+            let bytes = try PushBinaryCodec.pack(table: table, rows: selected,
+                ppgIdentityV2: hasPPGIdentity(protocolVersion), v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
+            guard bytes.count <= decodedLimit else { throw PushProtocolException("binary object exceeds the decoded limit") }
+            decodedBytes = bytes.count; contentSha256 = PushBinaryCodec.sha256Hex(bytes); decoded = bytes
+            payload = isObjectVersion(protocolVersion)
+                ? try PushBinaryCompression.compressObject(bytes, encoding: contentEncoding)
+                : try PushBinaryCompression.compress(bytes, encoding: contentEncoding)
+            payloadFile = nil
+        }
         let (startTs, endTs, sampleCount) = try binaryBounds(table: table, rows: selected)
         let endCursor = try binaryEndCursor(table: table, deviceId: deviceId, rows: selected,
                                            v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
@@ -350,15 +370,23 @@ public enum PushProtocol {
             "stream": .string(table.wireName),
             "type": .string("binaryObject"),
         ]
-        let batchId = stableUuid(header: identity, lines: [decoded])
-        let objectId = stableUuid(
-            header: identity.merging(["batchId": .string(batchId)]) { $1 },
-            lines: [decoded]
-        )
+        func identityID(_ header: [String: PushJSONValue]) throws -> String {
+            if let decoded { return stableUuid(header: header, lines: [decoded]) }
+            var hasher = SHA256(), index = 0
+            hasher.update(data: Data(try canonicalJsonMap(header).utf8)); hasher.update(data: Data([0x0A]))
+            try PushBinaryStreamEncoder.visitDecodedBytes(table: table, rowCount: selected.count,
+                ppgIdentityV2: hasPPGIdentity(protocolVersion), v18IdentityV2: protocolVersion == auxiliaryIdentityVersion,
+                maxDecodedBytes: decodedLimit, allowsWork: allowsWork,
+                nextRow: { guard index < selected.count else { return nil }; defer { index += 1 }; return selected[index] },
+                consume: { hasher.update(bufferPointer: $0) })
+            return uuidFromDigest(Array(hasher.finalize()))
+        }
+        let batchId = try identityID(identity)
+        let objectId = try identityID(identity.merging(["batchId": .string(batchId)]) { $1 })
         var manifest = identity
         manifest["batchId"] = .string(batchId)
         manifest["objectId"] = .string(objectId)
-        manifest["uncompressedBytes"] = .int(Int64(decoded.count))
+        manifest["uncompressedBytes"] = .int(Int64(decodedBytes))
         manifest["contentEncoding"] = .string(contentEncoding)
         let manifestJSON = Data(try canonicalJsonMap(manifest).utf8)
         return PushBinaryBatch(
@@ -371,12 +399,13 @@ public enum PushProtocol {
             startTs: startTs,
             endTs: endTs,
             sampleCount: sampleCount,
-            uncompressedBytes: decoded.count,
+            uncompressedBytes: decodedBytes,
             contentSha256: contentSha256,
             contentEncoding: contentEncoding,
             endCursor: endCursor,
             manifestJSON: manifestJSON,
-            payload: payload
+            payload: payload,
+            payloadFile: payloadFile
         )
     }
 
@@ -727,7 +756,11 @@ public enum PushProtocol {
         }
         hasher.update(data: Data([0x0A]))
         for line in lines { hasher.update(data: line) }
-        var bytes = Array(hasher.finalize())
+        return uuidFromDigest(Array(hasher.finalize()))
+    }
+
+    private static func uuidFromDigest(_ digest: [UInt8]) -> String {
+        var bytes = digest
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80
         let uuid = uuid_t(

@@ -143,6 +143,18 @@ public struct AccountFencedTransport: PushTransport {
     public init(transport: any PushTransport, admission: AccountPushAdmission) {
         self.transport = transport; self.admission = admission
     }
+    public func beginBinaryPreparation(maximumWireBytes: Int) async throws -> PushBinaryPreparation? {
+        try admission.check()
+        let result = try await transport.beginBinaryPreparation(maximumWireBytes: maximumWireBytes)
+        do { try admission.check(); return result }
+        catch { if let result { try? await transport.finishBinaryPreparation(result) }; throw error }
+    }
+    public func finishBinaryPreparation(_ preparation: PushBinaryPreparation) async throws {
+        try await transport.finishBinaryPreparation(preparation)
+    }
+    public func uploadObject(_ intent: PushObjectIntent, file: PushImmutablePayloadFile) async throws {
+        try admission.check(); try await transport.uploadObject(intent, file: file); try admission.check()
+    }
     public func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool {
         try admission.check(); let value = try await transport.isPreparationPaused(lane)
         try admission.check(); return value

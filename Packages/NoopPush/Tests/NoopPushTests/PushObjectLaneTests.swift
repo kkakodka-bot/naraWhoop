@@ -348,8 +348,8 @@ private func objectReceiptFixture(_ batch: PushBinaryBatch) throws -> PushDurabi
         "deviceId": PushDurabilityReceipt.canonicalDevice(owner: objectReceiptOwner.userID, device: batch.deviceId),
         "objectId": batch.objectId, "batchId": batch.batchId, "sourceId": batch.sourceId,
         "stream": batch.wireName, "schemaVersion": 1, "objectKey": "k/verified",
-        "contentSha256": batch.contentSha256, "wireSha256": PushDurabilityReceipt.sha256(batch.payload),
-        "compressedBytes": batch.payload.count, "uncompressedBytes": batch.uncompressedBytes,
+        "contentSha256": batch.contentSha256, "wireSha256": batch.wireSHA256,
+        "compressedBytes": batch.wireBytes, "uncompressedBytes": batch.uncompressedBytes,
         "verifiedAt": "2026-09-18T00:00:00Z", "indexedAt": "2026-09-18T00:00:01Z"]
     return try JSONDecoder().decode(PushDurabilityReceipt.self, from: JSONSerialization.data(withJSONObject: object))
 }

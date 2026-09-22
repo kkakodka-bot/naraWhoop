@@ -1,6 +1,6 @@
 import Foundation
 
-public enum PushSourceReadError: Error, Sendable {
+public enum PushSourceReadError: Error, Sendable, Equatable {
     case deferred
     case requiresCompatibleEncoding
 }
@@ -72,5 +72,13 @@ public extension PushSnapshotSource {
             if table == .rawBatch { break }
         }
         return .init(rows: Array(rows.prefix(count)), hasMore: count < rows.count)
+    }
+}
+
+public extension PushTransport {
+    func beginBinaryPreparation(maximumWireBytes: Int) async throws -> PushBinaryPreparation? { nil }
+    func finishBinaryPreparation(_ preparation: PushBinaryPreparation) async throws {}
+    func uploadObject(_ intent: PushObjectIntent, file: PushImmutablePayloadFile) async throws {
+        try await uploadObject(intent, body: file.materialized())
     }
 }

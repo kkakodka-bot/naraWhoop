@@ -132,6 +132,115 @@ final class CloudUploadJournal: @unchecked Sendable {
         try syncDirectory()
     }
 
+    private struct PackingIntent: Codable { let id: UUID; let maximumBytes: Int }
+    private struct WireIntent: Codable { let name: String; let bytes: Int }
+
+    func beginBinaryPreparation(maximumWireBytes: Int) throws -> PushBinaryPreparation {
+        guard permitsPreparation(), maximumWireBytes > 0, maximumWireBytes <= 4 * 1_048_576 + 64 * 1024,
+              try metadata.names(kind: "packing").isEmpty else { throw CloudUploadError.retryScheduled }
+        let accounting = try storageAccounting()
+        guard accounting.used <= maximumBytes - maximumWireBytes,
+              accounting.reserved <= maximumBytes - maximumWireBytes - accounting.used else { throw CloudUploadError.storageFull }
+        let id = UUID(), name = "packing-" + UUID().uuidString.lowercased()
+        let intent = PackingIntent(id: id, maximumBytes: maximumWireBytes)
+        try metadata.transaction {
+            try metadata.put(name + ".packing", data: JSONEncoder().encode(intent))
+            try metadata.recordFile(name, bytes: maximumWireBytes)
+        }
+        let path = directory.appendingPathComponent(name, isDirectory: true)
+        try fm.createDirectory(at: path, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        #if os(iOS)
+        try fm.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: path.path)
+        #endif
+        try syncDirectory()
+        return .init(id: id, directory: path)
+    }
+
+    func finishBinaryPreparation(_ preparation: PushBinaryPreparation) throws {
+        let name = preparation.directory.lastPathComponent
+        guard preparation.directory.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL,
+              name.hasPrefix("packing-"), UUID(uuidString: String(name.dropFirst(8))) != nil else { throw CloudUploadError.invalidRequest }
+        guard let bytes = try metadata.read(name + ".packing") else { return }
+        let intent = try JSONDecoder().decode(PackingIntent.self, from: bytes)
+        guard intent.id == preparation.id else { throw CloudUploadError.staleOwner }
+        if fm.fileExists(atPath: preparation.directory.path) {
+            let info = try preparation.directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard info.isDirectory == true, info.isSymbolicLink != true else { throw CloudUploadError.corruptJournal }
+            for file in try fm.contentsOfDirectory(at: preparation.directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) {
+                let name = file.lastPathComponent
+                let allowed = (name.hasPrefix(".prepare-") && UUID(uuidString: String(name.dropFirst(9))) != nil)
+                    || (name.hasSuffix(".body") && Self.validID(String(name.dropLast(5))))
+                let info = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+                guard allowed, info.isRegularFile == true, info.isSymbolicLink != true else { throw CloudUploadError.corruptJournal }
+                try fm.removeItem(at: file) // Only unpublished encoder scratch; adopted wire files have independent hard links.
+            }
+            try fm.removeItem(at: preparation.directory)
+            try syncDirectory()
+        }
+        try metadata.transaction {
+            try metadata.remove(name + ".packing"); try metadata.forgetFile(name)
+        }
+    }
+
+    func recoverBinaryPreparations() throws {
+        for name in try metadata.names(kind: "packing") {
+            guard let bytes = try metadata.read(name) else { throw CloudUploadError.corruptJournal }
+            let intent = try JSONDecoder().decode(PackingIntent.self, from: bytes)
+            try finishBinaryPreparation(.init(id: intent.id, directory: directory.appendingPathComponent(String(name.dropLast(8)), isDirectory: true)))
+        }
+    }
+
+    private func adoptWire(_ file: PushImmutablePayloadFile, selectionID: String) throws {
+        let parent = file.url.deletingLastPathComponent().standardizedFileURL
+        let isPackingDirectory = parent.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL
+            && parent.lastPathComponent.hasPrefix("packing-")
+        let ownsPackingDirectory = isPackingDirectory ? try metadata.contains(parent.lastPathComponent + ".packing") : false
+        guard parent == directory.standardizedFileURL || ownsPackingDirectory else { throw CloudUploadError.staleOwner }
+        try file.verify()
+        let destination = directory.appendingPathComponent(file.name)
+        try metadata.transaction {
+            try metadata.put(selectionID + ".wireintent", data: JSONEncoder().encode(WireIntent(name: file.name, bytes: file.byteCount)))
+            try metadata.recordFile(file.name, bytes: file.byteCount)
+        }
+        if !fm.fileExists(atPath: destination.path) {
+            guard Darwin.link(file.url.path, destination.path) == 0 else { throw CloudUploadError.storageFull }
+        }
+        _ = try PushImmutablePayloadFile(url: destination, byteCount: file.byteCount, sha256: file.sha256)
+        // Retry directory durability even when a previous attempt already linked the file.
+        try syncDirectory()
+    }
+
+    private func recoverWirePublications() throws {
+        for name in try metadata.names(kind: "wireintent") {
+            guard let bytes = try metadata.read(name) else { throw CloudUploadError.corruptJournal }
+            let intent = try JSONDecoder().decode(WireIntent.self, from: bytes)
+            guard intent.name.hasSuffix(".wire"), Self.validID(String(intent.name.dropLast(5))), intent.bytes > 0 else { throw CloudUploadError.corruptJournal }
+            if !selectionIndex.values.contains(where: { $0.wireFile == intent.name }) {
+                try unlinkFile(directory.appendingPathComponent(intent.name))
+            }
+            try metadata.remove(name)
+        }
+    }
+
+    func persistBody(_ file: PushImmutablePayloadFile, job: inout CloudUploadJob) throws {
+        try file.verify()
+        if let prior = job.payloadSHA256 {
+            guard prior == file.sha256, job.payloadBytes == file.byteCount else { throw CloudUploadError.changedPayload }
+            try verifyBody(job); return
+        }
+        guard !requiresReload, pendingReservationID == nil, let id = job.preparedSelectionID,
+              let index = selectionIndex[id], let state = continuations[id], index.jobIDs(state).contains(job.id),
+              index.wireFile == file.name, index.wireBytes == file.byteCount else { throw CloudUploadError.corruptJournal }
+        let destination = directory.appendingPathComponent(job.id + ".body")
+        try metadata.recordFile(destination.lastPathComponent, bytes: file.byteCount)
+        if !fm.fileExists(atPath: destination.path) {
+            guard Darwin.link(file.url.path, destination.path) == 0 else { throw CloudUploadError.storageFull }
+        }
+        try syncDirectory()
+        job.payloadName = destination.lastPathComponent; job.payloadSHA256 = file.sha256; job.payloadBytes = file.byteCount
+        try verifyBody(job)
+    }
+
     func close() { cachedSelection = nil; metadata.close() }
     func permitsPreparation() -> Bool { allowsPreparation() }
 
@@ -356,6 +465,7 @@ final class CloudUploadJournal: @unchecked Sendable {
         // Validate every lane/version before exposing any queue state. Legacy blobs remain unchanged.
         selectionIndex = indices; continuations = states; reservations = allocations
         cachedSelection = nil; requiresReload = false
+        try recoverWirePublications()
         for name in try metadata.names(kind: "retirement") {
             guard let bytes = try metadata.read(name) else { throw CloudUploadError.corruptJournal }
             let index = try JSONDecoder().decode(CloudSelectionIndex.self, from: bytes)
@@ -398,7 +508,7 @@ final class CloudUploadJournal: @unchecked Sendable {
         guard (0...quota.maximumJobs).contains(legacyJobs) else { throw CloudUploadError.storageFull }
         if let prior = try selection(value.id) {
             guard prior.progressNamespace == value.progressNamespace,
-                  try prior.selection.encoded() == value.selection.encoded(), prior.inlineGzip == value.inlineGzip else { throw CloudUploadError.changedPayload }
+                  try prior.selection.identityData() == value.selection.identityData(), prior.inlineGzip == value.inlineGzip else { throw CloudUploadError.changedPayload }
             if pendingReservationID == prior.id { try finishReservation(prior) }
             return
         }
@@ -429,7 +539,7 @@ final class CloudUploadJournal: @unchecked Sendable {
             let persistedIndex = try JSONDecoder().decode(CloudSelectionIndex.self, from: indexBytes)
             try persistedIndex.validate(owner: value.owner)
             let persisted = try CloudSelectionSpool.decode(bytes, index: persistedIndex, directory: directory)
-            guard try persisted.encoded() == value.encoded() else { throw CloudUploadError.changedPayload }
+            guard try persisted.compactEncoded() == value.compactEncoded() else { throw CloudUploadError.changedPayload }
             existingIndex = persistedIndex
         }
         if let bytes = try metadata.read(value.id + ".continuation") {
@@ -440,11 +550,13 @@ final class CloudUploadJournal: @unchecked Sendable {
         }
         if let index = existingIndex {
             selectionIndex[value.id] = index
+            if value.selection.objectPayloadFile != nil { cachedSelection = nil }
             try afterWrite?(directory.appendingPathComponent(value.id + ".selection"))
             try afterWrite?(continuationURL(value.id))
             pendingReservationID = nil
             return
         }
+        if let file = value.selection.objectPayloadFile { try adoptWire(file, selectionID: value.id) }
         let encoded = try CloudSelectionSpool.encode(value, journal: self, reservation: allocation)
         let index = CloudSelectionIndex(value, reservation: allocation, segment: encoded.segment, bytes: encoded.bytes)
         try metadata.transaction {
@@ -454,8 +566,11 @@ final class CloudUploadJournal: @unchecked Sendable {
             try metadata.recordFile(encoded.segment, bytes: encoded.bytes)
             try metadata.forgetFile(encoded.pending)
             try metadata.remove(value.id + ".spoolintent")
+            try metadata.remove(value.id + ".wireintent")
         }
         selectionIndex[value.id] = index
+        // Decode the published file reference against the account root after scratch is retired.
+        if value.selection.objectPayloadFile != nil { cachedSelection = nil }
         try afterWrite?(directory.appendingPathComponent(value.id + ".selection"))
         try afterWrite?(continuationURL(value.id))
         pendingReservationID = nil
@@ -500,6 +615,9 @@ final class CloudUploadJournal: @unchecked Sendable {
         if !index.isLegacy, !selectionIndex.values.contains(where: { $0.segment == index.segment }) {
             try unlinkFile(directory.appendingPathComponent(index.segment))
         }
+        if let wire = index.wireFile, !selectionIndex.values.contains(where: { $0.wireFile == wire }) {
+            try unlinkFile(directory.appendingPathComponent(wire))
+        }
         try metadata.remove(index.id + ".retirement")
     }
 
@@ -513,6 +631,7 @@ final class CloudUploadJournal: @unchecked Sendable {
             let names = [index.id + ".selection", index.id + ".selection-index", index.id + ".continuation"]
                 + index.jobIDs(state).map { $0 + ".json" }
             var allocated = index.isLegacy ? 0 : try metadata.fileBytes(index.segment)
+            if let wire = index.wireFile { allocated += try metadata.fileBytes(wire) }
             for name in names { allocated += try metadata.metadataBytes(name) }
             for id in index.jobIDs(state) { allocated += try metadata.fileBytes(id + ".body") }
             let remaining = max(0, allocation.total - allocated)

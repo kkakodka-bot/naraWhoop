@@ -26,8 +26,8 @@ enum W5ReceiptFixture {
          "objectKey": key, "status": "ready", "duplicate": false,
          "durabilityReceipt": receipt(owner: owner, device: batch.deviceId, object: batch.objectId,
             batch: batch.batchId, source: batch.sourceId, stream: batch.wireName, decoded: batch.contentSha256,
-            wire: PushDurabilityReceipt.sha256(batch.payload), decodedBytes: batch.uncompressedBytes,
-            wireBytes: batch.payload.count, key: key, schema: batch.protocolVersion == "1.3" && batch.table == .ppgWaveformSample ? 2 : 1)]
+            wire: batch.wireSHA256, decodedBytes: batch.uncompressedBytes,
+            wireBytes: batch.wireBytes, key: key, schema: batch.protocolVersion == "1.3" && batch.table == .ppgWaveformSample ? 2 : 1)]
     }
     static func inline(_ batch: PushBatch, owner: String) -> [String: Any] {
         var cursor: Any = NSNull()
@@ -244,7 +244,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 }
                 XCTAssertEqual(state.0, 0, field); XCTAssertEqual(state.1, 1, field)
                 let job = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().values.first)
-                XCTAssertEqual(try Data(contentsOf: CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).bodyURL(job)), batch.payload)
+                XCTAssertEqual(try Data(contentsOf: CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).bodyURL(job)), (try batch.payload))
             } catch { await close(f); throw error }
             await close(f)
         }
@@ -463,7 +463,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 let old = try XCTUnwrap(journal.load().values.first)
                 XCTAssertEqual(old.phase, .receiptSaved)
                 XCTAssertFalse(old.acknowledged)
-                XCTAssertEqual(try Data(contentsOf: journal.bodyURL(old)), batch.payload)
+                XCTAssertEqual(try Data(contentsOf: journal.bodyURL(old)), (try batch.payload))
                 let before = try await f.store.registryWriter.read { try Int.fetchOne($0,
                     sql: "SELECT COUNT(*) FROM rawBatch WHERE syncedAt IS NOT NULL") }
                 XCTAssertEqual(before, 0)
@@ -518,7 +518,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                     let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
                     let old = try XCTUnwrap(journal.load().values.first)
                     XCTAssertEqual(old.phase, .receiptSaved)
-                    XCTAssertEqual(try Data(contentsOf: journal.bodyURL(old)), batch.payload)
+                    XCTAssertEqual(try Data(contentsOf: journal.bodyURL(old)), (try batch.payload))
                     if promoteBeforeRestart {
                         try await f.progress.recoverAssociatedCommits()
                         let pending = await f.progress.pendingCommits()
@@ -706,8 +706,11 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             XCTAssertTrue(imu.sessions.deleteSegment(id: "window-a", bucket: imu.ts))
             XCTAssertTrue(imu.sessions.deleteSegment(id: "window-b", bucket: imu.ts))
             XCTAssertTrue(try imu.source.archiveRows(deviceID: device, limit: 1).isEmpty)
+            // The keyset sweep may have just visited these still-present files before deletion.
+            // One bounded wake reaches/reset its end cursor; the next revisits the missing files.
+            XCTAssertTrue(try imu.source.archiveRows(deviceID: device, limit: 1).isEmpty)
             XCTAssertEqual(try imu.readIndex { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM segmentCheckpoint") }, 0,
-                           "already-pruned file checkpoints are reclaimed in a bounded sweep")
+                           "already-pruned file checkpoints are reclaimed within two bounded sweep wakes")
             let noData = await coordinator(f).pushObjects(.rawImuSession, deviceId: device, lane: lane)
             guard case .noData = noData else { throw TestFailure.rejected(String(describing: noData)) }
             XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)

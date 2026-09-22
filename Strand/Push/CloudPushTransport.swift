@@ -144,6 +144,20 @@ struct CloudPushTransport: PushTransport {
     /// retroactively acquire source intent merely because a receipt shares a batch identifier.
     func requirePreparedSelections() { destination.requirePrepared() }
 
+    func beginBinaryPreparation(maximumWireBytes: Int) async throws -> PushBinaryPreparation? {
+        let (queue, captured, _) = try durableQueue()
+        return try await queue.beginBinaryPreparation(maximumWireBytes: maximumWireBytes, captured: captured)
+    }
+    func finishBinaryPreparation(_ preparation: PushBinaryPreparation) async throws {
+        let (queue, captured, _) = try durableQueue()
+        try await queue.finishBinaryPreparation(preparation, captured: captured)
+    }
+    func uploadObject(_ intent: PushObjectIntent, file: PushImmutablePayloadFile) async throws {
+        let (queue, captured, state) = try durableQueue()
+        try await queue.uploadObject(endpoint: endpoint.url, objectID: intent.objectId, file: file,
+            captured: captured, receiverStateID: state)
+    }
+
     func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool {
         let (queue, captured, state) = try durableQueue()
         return try await queue.isPreparationPaused(lane, receiverStateID: state, captured: captured)

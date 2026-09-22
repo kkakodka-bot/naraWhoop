@@ -51,6 +51,7 @@ actor CloudUploadQueue {
     private var reconciling = false
     private var reconciliationRequested = false
     private var suspended = false
+    private var binaryPreparation: PushBinaryPreparation?
     private var cancellingTasks: Set<Int> = []
     private struct SavedOutcomeError: Error { let underlying: Error }
     private struct CleanupBatch: Hashable {
@@ -81,6 +82,7 @@ actor CloudUploadQueue {
         journal = try CloudUploadJournal(directory: layout.uploadDirectory, maximumBytes: maximumBytes,
             afterWrite: journalWriteObserver, resourceBudget: resourceBudget)
         try journal.loadSelections(owner: context.scope)
+        try journal.recoverBinaryPreparations()
         jobs = try journal.load()
         controlOutcomes = try journal.loadControlOutcomes(owner: context.scope)
         lastVerifiedReceiptAt = try journal.receiptCheckpoint(owner: context.scope)
@@ -164,6 +166,23 @@ actor CloudUploadQueue {
             return "Retained cloud data needs a compatible app upgrade"
         }
         return "Cloud sync paused for a server or receipt error. Local data is retained; retry after resolution."
+    }
+
+    func beginBinaryPreparation(maximumWireBytes: Int, captured: AccountSessionContext) throws -> PushBinaryPreparation {
+        try check(captured)
+        guard binaryPreparation == nil, resourceBudget.permits(.cloudPreparation) else { throw CloudUploadError.retryScheduled }
+        try journal.recoverBinaryPreparations()
+        let value = try journal.beginBinaryPreparation(maximumWireBytes: maximumWireBytes)
+        binaryPreparation = value
+        return value
+    }
+
+    func finishBinaryPreparation(_ value: PushBinaryPreparation, captured: AccountSessionContext) throws {
+        guard captured == context else { throw CloudUploadError.staleOwner }
+        guard !suspended else { return } // A new runtime recovers the recorded scratch lease.
+        guard binaryPreparation?.id == value.id else { throw CloudUploadError.invalidRequest }
+        defer { binaryPreparation = nil }
+        try journal.finishBinaryPreparation(value)
     }
 
     private func preparationID(_ lane: PushPreparationLane, receiverStateID: String) throws -> String {
@@ -443,7 +462,7 @@ actor CloudUploadQueue {
                     : try object.manifest.replacingObjectId(objectID).encode()
                 job.objectID = objectID; job.batchID = object.batch.batchId; job.lanePath = object.lane.endpoint
                 job.completionMode = object.lane.completionMode
-                try prepare(object.batch.payload, job: &job); try commit(job)
+                try prepare(object.batch, job: &job); try commit(job)
             }
         } else {
             for (index, batch) in try saved.selection.restoredInlineBatches().enumerated() {
@@ -463,18 +482,18 @@ actor CloudUploadQueue {
     }
 
     private func verifyPublished(_ saved: CloudPushPreparedSelection, state: CloudPreparedContinuation) throws {
-        func verify(_ id: String, _ bytes: Data) throws {
+        func verify(_ id: String, byteCount: Int, digest: String) throws {
             guard let job = jobs[id], job.preparedSelectionID == saved.id, job.owner == saved.owner,
                   job.endpoint == saved.endpoint, job.receiverStateID == saved.receiverStateID,
-                  job.payloadBytes == bytes.count, job.payloadSHA256 == CloudUploadJournal.digest(bytes) else { throw CloudUploadError.changedPayload }
+                  job.payloadBytes == byteCount, job.payloadSHA256 == digest else { throw CloudUploadError.changedPayload }
             try journal.verifyBody(job)
         }
         if let object = try saved.selection.restoredObject() {
-            for objectID in state.objectIDs { try verify(saved.jobID(batchID: object.batch.batchId, representation: "object", objectID: objectID), object.batch.payload) }
+            for objectID in state.objectIDs { try verify(saved.jobID(batchID: object.batch.batchId, representation: "object", objectID: objectID), byteCount: object.batch.wireBytes, digest: object.batch.wireSHA256) }
         } else {
             for (index, batch) in try saved.selection.restoredInlineBatches().enumerated() {
-                try verify(saved.jobID(batchID: batch.batchId, representation: "gzip"), saved.inlineGzip[index])
-                try verify(saved.jobID(batchID: batch.batchId, representation: "identity"), batch.body)
+                try verify(saved.jobID(batchID: batch.batchId, representation: "gzip"), byteCount: saved.inlineGzip[index].count, digest: CloudUploadJournal.digest(saved.inlineGzip[index]))
+                try verify(saved.jobID(batchID: batch.batchId, representation: "identity"), byteCount: batch.body.count, digest: CloudUploadJournal.digest(batch.body))
             }
         }
     }
@@ -536,7 +555,7 @@ actor CloudUploadQueue {
             job.manifest = try manifest.encode(); job.objectID = manifest.objectId
             job.batchID = manifest.batchId; job.lanePath = object.lane.endpoint
             job.completionMode = object.lane.completionMode
-            try prepare(object.batch.payload, job: &job); try commit(job)
+            try prepare(object.batch, job: &job); try commit(job)
         }
     }
 
@@ -701,6 +720,16 @@ actor CloudUploadQueue {
         _ = try await wait(id, captured: captured, acceptUploaded: true)
     }
 
+    func uploadObject(endpoint: String, objectID: String, file: PushImmutablePayloadFile,
+                      captured: AccountSessionContext, receiverStateID: String = "") async throws {
+        try check(captured)
+        let id = try self.objectID(endpoint: endpoint, objectID: objectID, receiverStateID: receiverStateID)
+        guard var job = jobs[id] else { throw CloudUploadError.invalidRequest }
+        try journal.persistBody(file, job: &job); try commit(job)
+        if job.phase == .uploaded || job.phase == .receiptSaved || job.operation == .objectComplete { return }
+        _ = try await wait(id, captured: captured, acceptUploaded: true)
+    }
+
     func completeObject(endpoint: String, objectID: String,
                         captured: AccountSessionContext, receiverStateID: String = "") async throws -> PushObjectAck {
         try check(captured)
@@ -815,6 +844,11 @@ actor CloudUploadQueue {
         }
         guard valid, !matching.isEmpty else { throw PushTransportException(PushFailure(code: .ackInvalid)) }
         if let receipt = ack?.durabilityReceipt { try recordVerifiedReceipt(receipt) }
+    }
+
+    private func prepare(_ batch: PushBinaryBatch, job: inout CloudUploadJob) throws {
+        if let file = batch.payloadFile { try journal.persistBody(file, job: &job) }
+        else { try prepare(batch.payload, job: &job) }
     }
 
     private func prepare(_ body: Data, job: inout CloudUploadJob) throws {

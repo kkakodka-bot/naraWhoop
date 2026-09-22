@@ -76,6 +76,24 @@ struct CloudAccountPushTransport: PushTransport {
         return result
     }
     func postBinary(_ batch: PushBinaryBatch) async throws -> PushTransportResponse { try await base.postBinary(batch) }
+    func beginBinaryPreparation(maximumWireBytes: Int) async throws -> PushBinaryPreparation? {
+        guard isCurrent(context) else { throw AccountAuthError.staleOperation }
+        let value = try await base.beginBinaryPreparation(maximumWireBytes: maximumWireBytes)
+        guard isCurrent(context) else {
+            if let value { try? await base.finishBinaryPreparation(value) }
+            throw AccountAuthError.staleOperation
+        }
+        return value
+    }
+    func finishBinaryPreparation(_ preparation: PushBinaryPreparation) async throws {
+        try await base.finishBinaryPreparation(preparation)
+    }
+    func uploadObject(_ intent: PushObjectIntent, file: PushImmutablePayloadFile) async throws {
+        guard isCurrent(context) else { throw AccountAuthError.staleOperation }
+        try await base.uploadObject(intent, file: file)
+        guard isCurrent(context) else { throw AccountAuthError.staleOperation }
+    }
+
     func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool {
         guard isCurrent(context) else { throw AccountAuthError.staleOperation }
         return try await base.isPreparationPaused(lane)

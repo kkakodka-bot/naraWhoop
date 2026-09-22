@@ -322,7 +322,7 @@ public struct PushCoordinator: Sendable {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         }
 
-        guard wakeBudget?.admitPreparation(bytes: batch.payload.count) ?? true else { return pressureDeferred }
+        guard wakeBudget?.admitPreparation(bytes: batch.wireBytes) ?? true else { return pressureDeferred }
         let accepted = await deliverBinary(batch)
         guard case .accepted(let batchId, let recordCount, _, let batchCount) = accepted else { return accepted }
 
@@ -396,22 +396,33 @@ public struct PushCoordinator: Sendable {
             return .noData
         }
 
+        let preparation: PushBinaryPreparation?
+        do {
+            // Production passes a finite wake budget. Unbudgeted legacy adapters keep their
+            // existing in-memory path and cannot implicitly create account-owned spool files.
+            preparation = wakeBudget == nil ? nil : try await transport.beginBinaryPreparation(maximumWireBytes: decodedLimit + 64 * 1024)
+        }
+        catch { return preparationFailure() }
         let batch: PushBinaryBatch
         do {
-            guard allowsActivePreparation() else { return pressureDeferred }
+            guard allowsActivePreparation() else { throw PushSourceReadError.deferred }
             batch = try PushProtocol.binaryObjectBatch(
                 table: table, sourceId: sourceId, deviceId: deviceId, startCursor: effective,
                 rows: table == .rawBatch ? Array(rows.prefix(1)) : Array(rows.prefix(wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords)),
                 protocolVersion: objectProtocolVersion,
-                decodedLimit: decodedLimit
+                decodedLimit: decodedLimit, payloadDirectory: preparation?.directory,
+                allowsWork: allowsActivePreparation
             )
         } catch {
+            if let preparation { try? await transport.finishBinaryPreparation(preparation) }
+            if error is CancellationError || (error as? PushSourceReadError) == .deferred { return pressureDeferred }
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         }
 
         // The negotiated ceiling is enforced before any network I/O; an object too large for the
         // advertised lane can never succeed, so do not burn an intent on it.
-        guard Int64(batch.payload.count) <= lane.maxObjectBytes else {
+        guard Int64(batch.wireBytes) <= lane.maxObjectBytes else {
+            if let preparation { try? await transport.finishBinaryPreparation(preparation) }
             return await sourceReadFailure(.requiresCompatibleEncoding, table: table.wireName, deviceId: deviceId)
         }
 
@@ -425,6 +436,7 @@ public struct PushCoordinator: Sendable {
             }
         }
         let accepted = await deliverObject(batch, rows: selected, lane: lane)
+        if let preparation { try? await transport.finishBinaryPreparation(preparation) }
         guard case .accepted(let batchId, let recordCount, _, let batchCount) = accepted else { return accepted }
 
         do {
@@ -599,7 +611,7 @@ public struct PushCoordinator: Sendable {
     }
 
     private func deliverBinary(_ batch: PushBinaryBatch) async -> PushResult {
-        guard wakeBudget?.admitRequest(bytes: batch.payload.count) ?? true else { return pressureDeferred }
+        guard wakeBudget?.admitRequest(bytes: batch.wireBytes) ?? true else { return pressureDeferred }
         guard destinationStillCurrent() else {
             return .rejected(reason: "cancelled", retryable: true, failure: nil)
         }
@@ -662,6 +674,11 @@ public struct PushCoordinator: Sendable {
 
     private func preparationFailure() -> PushResult {
         .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
+    }
+
+    private func uploadObject(_ intent: PushObjectIntent, batch: PushBinaryBatch) async throws {
+        if let file = batch.payloadFile { try await transport.uploadObject(intent, file: file) }
+        else { try await transport.uploadObject(intent, body: batch.payload) }
     }
 
     private func deliverObject(_ batch: PushBinaryBatch, rows: [PushBinaryRow], lane: PushObjectLane,
@@ -746,8 +763,8 @@ public struct PushCoordinator: Sendable {
                 return .rejected(reason: "cancelled", retryable: true, failure: nil)
             }
             do {
-                guard wakeBudget?.admitRequest(bytes: batch.payload.count, savedObject: restoredManifest != nil) ?? true else { return pressureDeferred }
-                try await transport.uploadObject(intent, body: batch.payload)
+                guard wakeBudget?.admitRequest(bytes: batch.wireBytes, savedObject: restoredManifest != nil) ?? true else { return pressureDeferred }
+                try await uploadObject(intent, batch: batch)
             } catch {
                 // Keep the in-flight record: the next run re-intents for a fresh URL onto the
                 // same objectKey rather than minting a new object.
@@ -785,8 +802,8 @@ public struct PushCoordinator: Sendable {
                         guard refreshed.objectId == manifest.objectId else {
                             return .rejected(reason: PushFailure(code: .ackInvalid).safeCode, retryable: false, failure: PushFailure(code: .ackInvalid))
                         }
-                        guard wakeBudget?.admitRequest(bytes: batch.payload.count, savedObject: restoredManifest != nil) ?? true else { return pressureDeferred }
-                        try await transport.uploadObject(refreshed, body: batch.payload)
+                        guard wakeBudget?.admitRequest(bytes: batch.wireBytes, savedObject: restoredManifest != nil) ?? true else { return pressureDeferred }
+                        try await uploadObject(refreshed, batch: batch)
                         expectedKey = refreshed.objectKey
                     } catch {
                         return objectLaneFailure(error)
@@ -803,7 +820,7 @@ public struct PushCoordinator: Sendable {
                   ack.protocolVersion == manifest.protocolVersion,
                   let receipt = ack.durabilityReceipt,
                   receipt.matches(manifest, owner: receiptOwner,
-                                  wireSHA256: PushDurabilityReceipt.sha256(batch.payload), wireBytes: batch.payload.count) else {
+                                  wireSHA256: batch.wireSHA256, wireBytes: batch.wireBytes) else {
                 return .rejected(reason: PushFailure(code: .ackInvalid).safeCode, retryable: false, failure: PushFailure(code: .ackInvalid))
             }
             do {

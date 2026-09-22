@@ -77,10 +77,10 @@ actor CloudPushProgressStore: PushProgressStore {
                    prepared: CloudPushPreparedSelection? = nil) throws {
         if let prepared {
             guard prepared.progressNamespace == namespace,
-                  let restored = try prepared.selection.restoredObject(), restored.batch.payload == batch.payload,
+                  let restored = try prepared.selection.restoredObject(), restored.batch.wireSHA256 == batch.wireSHA256, restored.batch.wireBytes == batch.wireBytes,
                   restored.batch.manifestJSON == batch.manifestJSON,
                   receipt.matches(restored.manifest.replacingObjectId(receipt.objectId), owner: prepared.owner,
-                    wireSHA256: PushDurabilityReceipt.sha256(batch.payload), wireBytes: batch.payload.count) else { throw CloudUploadError.invalidReceipt }
+                    wireSHA256: batch.wireSHA256, wireBytes: batch.wireBytes) else { throw CloudUploadError.invalidReceipt }
         }
         let ids = rows.map { row -> Int64 in
             switch row {
