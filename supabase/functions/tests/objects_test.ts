@@ -514,6 +514,14 @@ Deno.test('housing: object retries and completion are bound to the authenticated
   });
   const sourceA = first.manifest.sourceId;
   const sourceB = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const rpc=h.rest.rpc.bind(h.rest);
+  h.rest.rpc=async(name,args)=>{
+    if(name==='authorize_noop_object_put') {
+      assert.equal(args.p_user,USER);assert.equal(args.p_source,sourceA);assert.equal(args.p_object,objectId);
+      return new Date(h.now().getTime()-120_000).toISOString();
+    }
+    return rpc(name,args);
+  };
   const intent = await h.objects.createIntent({
     userId: USER,
     sourceId: sourceA,
@@ -521,6 +529,7 @@ Deno.test('housing: object retries and completion are bound to the authenticated
     authMode: 'installation',
     manifest: first.manifest,
   });
+  assert.equal(intent.expiresAt,new Date(h.now().getTime()-120_000+900_000).toISOString());
 
   await assert.rejects(
     () => h.objects.createIntent({

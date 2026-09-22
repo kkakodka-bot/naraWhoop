@@ -233,22 +233,33 @@ Deno.test('sweep deletes expired derived manifest', async () => {
 
 Deno.test('deletion is resumable and deletes b2 before auth', async () => {
   const order: string[] = [];
+  let lateObject=true;
   const rest = {
     configured: true,
     request: async () => [],
-    async select(table: string) { return table === 'object_manifests' ? [{ id: 'm', object_key: 'k', status: 'ready' }] : []; },
+    rpc: async () => null,
+    async select(table: string) {
+      if (table === 'noop_account_retirements') return [{requested_at:'2020-01-01T00:00:00Z'}];
+      return table === 'object_manifests' ? [{ id: 'm', object_key: `v2/users/${USER}/raw/fixture`, status: 'ready' }] : [];
+    },
     async upsert(_t: string, row: any) { order.push(`job:${row.status}:${row.step}`); return row; },
     async delete(table: string) { order.push(`sql:${table}`); return []; },
     async adminDeleteAuthUser(id: string) { order.push(`auth:${id}`); return { deleted: true }; },
   } as any;
   const objectStore = {
     async deleteObject(key: string) { order.push(`b2-obj:${key}`); return {}; },
-    async listPrefix(prefix: string) { order.push(`b2:${prefix}`); return []; },
+    async listPrefix(prefix: string) {
+      order.push(`b2:${prefix}`);
+      if (lateObject && prefix===`v2/users/${USER}/`) {lateObject=false;return [prefix+'late-object'];}
+      return [];
+    },
+    async purgePrefixVersions(prefix: string) { order.push(`versions:${prefix}`); return {deleted:0}; },
   } as any;
   const deletion = createDeletionService({ rest, objectStore, uuid: () => 'job-1' });
-  const result = await deletion.run(USER, {
-    existing: { id: 'job-1', user_id: USER, status: 'pending', step: 'record_job', state: { failures: [], deleted_keys: [] } },
-  });
+  const job={id:'job-1',user_id:USER,status:'pending',step:'record_job',state:{failures:[],deleted_keys:[]}};
+  assertEquals((await deletion.run(USER,{existing:job})).status,'retry');
+  assert(!order.some(s=>s.startsWith('auth:')),'late version must be censused before Auth erasure');
+  const result = await deletion.run(USER, { existing: job });
   assertEquals(result.status, 'deleted');
   assert(order.some((s) => s.startsWith('b2')));
   assert(order.indexOf(`b2:v2/users/${USER}/`) < order.indexOf(`auth:${USER}`));

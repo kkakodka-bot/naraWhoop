@@ -1,0 +1,196 @@
+{
+  "sourceRevision": "d10bf4321c5cc28072fe78da8f7d2fe7328297d6",
+  "owners": 10,
+  "devices": 20,
+  "workers": 4,
+  "inputHrRows": 27001,
+  "seconds": 3.429,
+  "liveSeconds": {
+    "count": 40,
+    "p50": 1.768407,
+    "p95": 2.181854,
+    "p99": 2.233415
+  },
+  "backfillSeconds": {
+    "count": 46,
+    "p50": 2.493597,
+    "p95": 3.167014,
+    "p99": 3.31587
+  },
+  "samples": [
+    {
+      "at": "2026-09-22T02:23:46.128Z",
+      "pending": 86,
+      "running": 0,
+      "liveOwners": 0,
+      "maxPerUser": 0,
+      "connections": 6,
+      "targetDaysDone": 0
+    },
+    {
+      "at": "2026-09-22T02:23:46.381Z",
+      "pending": 86,
+      "running": 0,
+      "liveOwners": 0,
+      "maxPerUser": 0,
+      "connections": 6,
+      "targetDaysDone": 0
+    },
+    {
+      "at": "2026-09-22T02:23:46.571Z",
+      "pending": 86,
+      "running": 0,
+      "liveOwners": 0,
+      "maxPerUser": 0,
+      "connections": 10,
+      "targetDaysDone": 0
+    },
+    {
+      "at": "2026-09-22T02:23:46.748Z",
+      "pending": 86,
+      "running": 3,
+      "liveOwners": 0,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 0
+    },
+    {
+      "at": "2026-09-22T02:23:47.266Z",
+      "pending": 80,
+      "running": 4,
+      "liveOwners": 5,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 6
+    },
+    {
+      "at": "2026-09-22T02:23:47.444Z",
+      "pending": 75,
+      "running": 4,
+      "liveOwners": 8,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 10
+    },
+    {
+      "at": "2026-09-22T02:23:47.612Z",
+      "pending": 68,
+      "running": 2,
+      "liveOwners": 9,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 13
+    },
+    {
+      "at": "2026-09-22T02:23:47.765Z",
+      "pending": 62,
+      "running": 3,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 17
+    },
+    {
+      "at": "2026-09-22T02:23:47.911Z",
+      "pending": 52,
+      "running": 3,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 20
+    },
+    {
+      "at": "2026-09-22T02:23:48.062Z",
+      "pending": 45,
+      "running": 3,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 21
+    },
+    {
+      "at": "2026-09-22T02:23:48.210Z",
+      "pending": 35,
+      "running": 2,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 27
+    },
+    {
+      "at": "2026-09-22T02:23:48.364Z",
+      "pending": 29,
+      "running": 3,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 31
+    },
+    {
+      "at": "2026-09-22T02:23:48.510Z",
+      "pending": 22,
+      "running": 3,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 34
+    },
+    {
+      "at": "2026-09-22T02:23:48.666Z",
+      "pending": 15,
+      "running": 4,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 36
+    },
+    {
+      "at": "2026-09-22T02:23:48.866Z",
+      "pending": 8,
+      "running": 3,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 39
+    },
+    {
+      "at": "2026-09-22T02:23:49.012Z",
+      "pending": 5,
+      "running": 1,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 39
+    },
+    {
+      "at": "2026-09-22T02:23:49.150Z",
+      "pending": 3,
+      "running": 1,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 39
+    },
+    {
+      "at": "2026-09-22T02:23:49.288Z",
+      "pending": 1,
+      "running": 1,
+      "liveOwners": 10,
+      "maxPerUser": 1,
+      "connections": 15,
+      "targetDaysDone": 40
+    },
+    {
+      "at": "2026-09-22T02:23:49.425Z",
+      "pending": 0,
+      "running": 0,
+      "liveOwners": 10,
+      "maxPerUser": 0,
+      "connections": 15,
+      "targetDaysDone": 40
+    }
+  ],
+  "liveArrivalDuringWork": true,
+  "localScalarLiveP95Under60Seconds": true,
+  "scope": "actual JVM load, scoring, publication and completion; synthetic scalar-only data; no B2/model or target-VPS capacity claim"
+}

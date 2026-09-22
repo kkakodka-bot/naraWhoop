@@ -22,12 +22,13 @@ class PostgresClient private constructor(
     internal val dataSource: HikariDataSource,
 ) : AutoCloseable {
 
-    constructor(databaseUrl: String, queryTimeoutSeconds: Int? = null) : this(
+    constructor(databaseUrl: String, queryTimeoutSeconds: Int? = null,
+                connectionBudget: ConnectionBudget = ConnectionBudget.fromEnvironment()) : this(
         HikariDataSource(
             HikariConfig().apply {
                 driverClassName = "org.postgresql.Driver"
                 jdbcUrl = if (queryTimeoutSeconds == null) normalizeJdbcUrl(databaseUrl) else boundedJdbcUrl(databaseUrl)
-                maximumPoolSize = 6
+                maximumPoolSize = connectionBudget.poolSize
                 minimumIdle = 1
                 connectionTimeout = 30_000
                 idleTimeout = 600_000

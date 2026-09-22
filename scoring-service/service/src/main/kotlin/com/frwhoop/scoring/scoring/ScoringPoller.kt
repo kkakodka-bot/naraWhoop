@@ -49,20 +49,22 @@ class ScoringPoller(
             onError={ log.warn("Archive queue unavailable: {}",it.javaClass.simpleName) }) }
         try {
             while (!Thread.currentThread().isInterrupted) {
+                var progressed = false
                 try {
-                    pollOnce()
+                    progressed = pollOnce()
                 } catch (err: Exception) {
                     if (err is UnresponsiveAttempt) throw err
                     log.error("poll cycle failed: {}", err.javaClass.simpleName)
                     heartbeat.recordError(err.javaClass.simpleName)
                 }
-                Thread.sleep(config.pollInterval.toMillis())
+                Thread.sleep(if (progressed) 10 else config.pollInterval.toMillis())
             }
         } finally { archive?.close() }
     }
 
-    fun pollOnce() {
+    fun pollOnce(): Boolean {
         heartbeat.recordPoll()
+        var progressed = false
         val busyDevices = mutableSetOf<ScoringWorkQueue.DeviceKey>()
         repeat(8) {
             var candidate = queue.peekOne(excludedDevices=busyDevices,after=scanAfter)
@@ -72,14 +74,17 @@ class ScoringPoller(
                 scanAfter = null
                 candidate = queue.peekOne(excludedDevices=busyDevices)
             }
-            val selected = candidate ?: return
+            val selected = candidate ?: return progressed
             // Advance even when the later claim loses a race or the device gate is busy.
             scanAfter = selected.cursor
             val attempted = processCandidate(selected)
+            if (attempted != null) progressed = true
+            if (attempted != null) scanAfter = null
             // A slow device must not stop other users from using an available worker.
             // Keep the bounded scan and acquire a gate before claiming any queued work.
             if (attempted == null) busyDevices.add(ScoringWorkQueue.DeviceKey(selected.userId,selected.deviceId))
         }
+        return progressed
     }
 
     fun scoreDay(userId: UUID, deviceId: UUID, day: String) {

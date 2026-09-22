@@ -305,6 +305,40 @@ export function createS3({
       return { deleted: true, missing: false };
     },
 
+    /** Remove versions and delete markers, not just the currently visible object. Re-read page one
+     * after each deletion batch so a bounded retry resumes without skipping a deleted marker. */
+    async purgePrefixVersions(prefix: string) {
+      if (!/^v[123]\/(?:[a-z0-9_-]+\/)?users\/[0-9a-f-]{36}\/$/.test(prefix)) throw new Error('invalid erasure prefix');
+      const unescape = (s: string) => s.replace(/&(amp|lt|gt|quot|apos);/g, (_, e) =>
+        ({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"} as Record<string,string>)[e]);
+      const tag = (xml: string, name: string) => unescape(new RegExp(`<${name}>([^<]*)</${name}>`).exec(xml)?.[1] ?? '');
+      let deleted = 0;
+      for (let page = 0; page < 6; page++) {
+        const signed = signedRequest({method:'GET',...base,key:'',now:new Date(),
+          query:{versions:'',prefix,'max-keys':'200','encoding-type':'url'}});
+        const res = await fetchImpl(signed.url,{method:'GET',headers:signed.headers,signal:AbortSignal.timeout(30_000)});
+        const xml = await res.text();
+        if (!res.ok || !/<ListVersionsResult[\s>]/.test(xml) || /<Error[\s>]/.test(xml)) throw new Error('version census unavailable');
+        const entries = [...xml.matchAll(/<(Version|DeleteMarker)>([\s\S]*?)<\/\1>/g)].map(match => ({
+          key:decodeURIComponent(tag(match[2],'Key')), version:tag(match[2],'VersionId'),
+        }));
+        if (entries.some(e => !e.key.startsWith(prefix) || !e.version)) throw new Error('version census owner mismatch');
+        if (!entries.length) {
+          if (/<IsTruncated>\s*true\s*<\/IsTruncated>/.test(xml)) throw new Error('incomplete version census');
+          return {deleted};
+        }
+        if (page === 5) throw new Error('version erasure requires continuation');
+        for (const entry of entries) {
+          const deletion = signedRequest({method:'DELETE',...base,key:entry.key,now:new Date(),query:{versionId:entry.version}});
+          const result = await fetchImpl(deletion.url,{method:'DELETE',headers:deletion.headers,signal:AbortSignal.timeout(30_000)});
+          await result.body?.cancel();
+          if (!result.ok && result.status !== 404) throw new Error('version erasure unavailable');
+          deleted++;
+        }
+      }
+      throw new Error('version erasure requires continuation');
+    },
+
     async listPrefix(prefix: string) {
       const keys: string[] = [];
       let token: string | null = null;

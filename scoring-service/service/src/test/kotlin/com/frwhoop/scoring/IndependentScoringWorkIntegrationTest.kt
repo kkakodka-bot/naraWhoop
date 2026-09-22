@@ -27,6 +27,7 @@ class IndependentScoringWorkIntegrationTest {
         assumeTrue("Run scripts/test-physiology-queue.sh",url!=null)
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db=PostgresClient(url);shadow=ScoringWorkQueue(db)
+        resetFleetTestState(db)
         sql("insert into auth.users values('$user')")
         sql("insert into profiles(id,timezone) values('$user','UTC')")
         sql("insert into devices(id,user_id) values('$device','$user')")

@@ -152,6 +152,9 @@ export function createPushObjects({
   now?: () => Date;
   urlTtlSec?: number;
 }) {
+  if (!Number.isInteger(urlTtlSec) || urlTtlSec < 1 || urlTtlSec > UPLOAD_URL_TTL_SEC) {
+    throw new Error('upload URL lifetime exceeds retirement policy');
+  }
   const manifests: ManifestStore | null = rest?.configured ? createManifestStore({ rest, now }) : null;
 
   async function writeSignalWindow({ userId, deviceId, row, stream, startTs, endTs, sampleCount }: {
@@ -347,7 +350,12 @@ export function createPushObjects({
         if (['deleted', 'deleting', 'expired'].includes(reserved.status)) throw fail('object_unavailable', 409);
         const uploadKey = reserved.upload_object_key || reserved.object_key || key;
         if (String(uploadKey).includes('/verified/')) throw fail('object_unavailable', 409);
-        const signed = await ingestStep('archive_write', manifest.stream, async () => raw.presignPut(uploadKey, urlTtlSec, now()));
+        const authorizedAt = effectiveAuthMode === 'installation'
+          ? new Date(await rest.rpc('authorize_noop_object_put', {
+            p_user:userId,p_source:effectiveSourceId,p_object:reserved.id,
+          })) : now();
+        if (!Number.isFinite(authorizedAt.getTime())) throw fail('upload_authorization_unavailable',503);
+        const signed = await ingestStep('archive_write', manifest.stream, async () => raw.presignPut(uploadKey, urlTtlSec, authorizedAt));
         return {
           protocolVersion: v.protocolVersion ?? '1.2',
           objectId: manifest.objectId,

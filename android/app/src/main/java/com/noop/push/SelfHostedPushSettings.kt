@@ -19,6 +19,7 @@ class SelfHostedPushSettings private constructor(
     val capturedContext: AccountSessionContext? = null,
     private val stillCurrent: () -> Boolean = { true },
     private val consentCurrent: () -> Boolean = { true },
+    private val installationPrefs: SharedPreferences = prefs,
 ) {
     enum class RunState { IDLE, QUEUED, RUNNING, CONTINUING, RETRYING, COMPLETE, FAILED }
 
@@ -106,11 +107,11 @@ class SelfHostedPushSettings private constructor(
     fun sourceId(): String {
         sourceIdOrNull()?.let { return it }
         val generated = UUID.randomUUID().toString()
-        check(prefs.edit().putString(KEY_SOURCE_ID, generated).commit()) { "Could not persist push source id" }
+        check(installationPrefs.edit().putString(KEY_SOURCE_ID, generated).commit()) { "Could not persist push source id" }
         return generated
     }
 
-    private fun sourceIdOrNull(): String? = prefs.getString(KEY_SOURCE_ID, null)?.let { existing ->
+    private fun sourceIdOrNull(): String? = installationPrefs.getString(KEY_SOURCE_ID, null)?.let { existing ->
         runCatching { UUID.fromString(existing) }.getOrNull()?.toString()?.takeIf { it == existing }
     }
 
@@ -134,6 +135,12 @@ class SelfHostedPushSettings private constructor(
                 .remove(KEY_ENROLLMENT_SOURCE_ID)
                 .commit(),
         ) { "Could not clear enrollment binding" }
+    }
+
+    internal fun replaceInstallationSource(context: Context, fresh: String) {
+        val platform = com.noop.account.AccountStorageContext.platform(context)
+        EnrollmentDataScope.replaceInstallationSource(platform.noBackupFilesDir,
+            platform.getSharedPreferences("noop_installation_epochs",Context.MODE_PRIVATE),fresh)
     }
 
     private fun hasEnrollmentBinding(): Boolean = enrolledSourceId() != null
@@ -351,7 +358,9 @@ class SelfHostedPushSettings private constructor(
             } else {
                 storage.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             }
-            EnrollmentDataScope.installationSource(storage, prefs)
+            val epochs = platform.getSharedPreferences("noop_installation_epochs",Context.MODE_PRIVATE)
+            val installation = if (epochs.contains(KEY_SOURCE_ID)) epochs else prefs
+            EnrollmentDataScope.installationSource(if (installation === epochs) platform else storage, installation)
             val endpoint = captured?.scope?.projectURL?.plus("/functions/v1/push")
                 ?: endpointText()
             return SelfHostedPushSettings(
@@ -364,6 +373,7 @@ class SelfHostedPushSettings private constructor(
                         ?.accessToken
                 },
                 policyPrefs = platform.getSharedPreferences(PREFS, Context.MODE_PRIVATE),
+                installationPrefs = installation,
                 capturedContext = captured,
                 stillCurrent = { captured == null || CloudAuthClient.isCurrent(platform, captured) },
                 consentCurrent = {

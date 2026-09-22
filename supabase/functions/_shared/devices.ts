@@ -25,17 +25,22 @@ export function scopedExternalDeviceId(externalDeviceId: unknown, sourceId?: str
   return `installation:${sourceId.toLowerCase()}:${external}`;
 }
 
-export async function findNoopDevice({ rest, userId, externalDeviceId, sourceId }: {
+export async function findNoopDevice({ rest, userId, externalDeviceId, sourceId, resolveAlias = true }: {
   rest: Pick<SupabaseRest, 'select'>;
   userId: string;
   externalDeviceId: unknown;
   sourceId?: string | null;
+  resolveAlias?: boolean;
 }): Promise<string | null> {
   if (!isUuid(userId)) throw new Error('user id invalid');
   const external = scopedExternalDeviceId(externalDeviceId, sourceId);
   const rows = await rest.select('devices',
     `user_id=eq.${userId}&source_kind=eq.noop_push&external_device_id=eq.${encodeURIComponent(external)}&select=id`);
-  return isUuid(rows?.[0]?.id) ? rows[0].id : null;
+  const id = isUuid(rows?.[0]?.id) ? rows[0].id : null;
+  if (!id || !resolveAlias) return id;
+  const aliases = await rest.select('noop_wearable_aliases',
+    `user_id=eq.${userId}&provisional_device_id=eq.${id}&select=canonical_device_id`);
+  return isUuid(aliases?.[0]?.canonical_device_id) ? aliases[0].canonical_device_id : id;
 }
 
 /** Preserve existing owned foreign keys, then register through the atomic ownership RPC. */
@@ -50,6 +55,7 @@ export function createNoopDeviceResolver({ rest, now = () => new Date() }: {
     if (!isUuid(userId)) throw new Error('user id invalid');
     const external = scopedExternalDeviceId(externalDeviceId, sourceId);
     const prior = rest.configured ? await findNoopDevice({ rest, userId, externalDeviceId, sourceId }) : null;
+    if (prior) return prior;
     const id = prior || noopDeviceId(userId, external);
     if (rest.configured) {
       const registered = await register({ id, user_id: userId, external_device_id: external,

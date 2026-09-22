@@ -26,6 +26,7 @@ fun EnrollmentGate(): Boolean {
     var credential by remember { mutableStateOf<PushEnrollmentCredential?>(null) }
     var code by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
+    var retiring by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
@@ -33,6 +34,7 @@ fun EnrollmentGate(): Boolean {
             try {
                 val current = manager ?: PushEnrollmentManager.from(context).also { manager = it }
                 credential = current.currentCredential()
+                retiring = current.retirementPending()
                 storageAvailable = true
             } catch (_: Exception) { storageAvailable = false }
             delay(500)
@@ -43,8 +45,13 @@ fun EnrollmentGate(): Boolean {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             if (!storageAvailable) {
                 Text("Secure storage is temporarily unavailable. Unlock the phone and keep this screen open to retry.", style = NoopType.body)
-            } else if (credential != null) {
-                Text("Enrollment saved. Close and reopen NARA to start your account's data store. Your strap pairing is kept. Earlier unassigned history stays on this phone and is not uploaded.", style = NoopType.body)
+            } else if (retiring) {
+                Text("Retirement is pending. Collection is paused and previous records retain their original owner.", style = NoopType.body)
+                InstallationRetirementControl(resume = true)
+            } else if (PushEnrollmentManager.requiresRestart || credential != null) {
+                Text(if (PushEnrollmentManager.requiresRestart)
+                    "Installation retired. Close and reopen NARA before enrolling another person. Previous records remain with their original account."
+                    else "Enrollment saved. Close and reopen NARA to start your account's data store. Your strap pairing is kept. Earlier unassigned history stays on this phone and is not uploaded.", style = NoopType.body)
                 NoopButton(text = "Close app", fullWidth = true, onClick = {
                     (context as? Activity)?.finishAndRemoveTask()
                     android.os.Process.killProcess(android.os.Process.myPid())
@@ -82,4 +89,29 @@ fun EnrollmentGate(): Boolean {
         }
     }
     return false
+}
+
+@Composable
+fun InstallationRetirementControl(resume: Boolean = false) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var confirm by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    NoopButton(text = if (busy) "Retiring…" else if (resume) "Retry retirement" else "Retire this installation",
+        fullWidth = true, enabled = !busy, onClick = { confirm = true })
+    error?.let { Text(it,color=Palette.statusWarning) }
+    if (confirm) androidx.compose.material3.AlertDialog(onDismissRequest={ confirm=false },
+        title={ Text("Retire this installation?") },
+        text={ Text("Pending records stay with the original account. Reopen NARA before enrolling another person.") },
+        confirmButton={ androidx.compose.material3.TextButton(onClick={
+            confirm=false; busy=true
+            scope.launch {
+                try { PushEnrollmentManager.from(context).retireInstallation(); error=null }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (_: Exception) { error="Retirement is pending. Check your connection and retry." }
+                finally { busy=false }
+            }
+        }) { Text("Retire installation") } },
+        dismissButton={ androidx.compose.material3.TextButton(onClick={confirm=false}) {Text("Cancel")} })
 }

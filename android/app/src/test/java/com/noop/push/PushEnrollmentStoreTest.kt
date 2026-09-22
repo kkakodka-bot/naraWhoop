@@ -97,6 +97,40 @@ class PushEnrollmentStoreTest {
 
     private fun credential() = PushEnrollmentCredential(USER_ID, SOURCE_ID, TOKEN_ID, UPLOAD_TOKEN)
 
+    @Test fun retirementSurvivesInterruptionAndCreatesAnIndependentOwnerEpoch() {
+        val prefs = SelfHostedPushSettingsTest.FakePushPrefs()
+        val store = PushEnrollmentStore.forTest(prefs)
+        store.save(SOURCE_ID,credential())
+        val generation = store.generation()
+        val pending = store.beginRetirement(credential())
+        assertNull(store.load(SOURCE_ID))
+        assertEquals(USER_ID,store.boundUserId())
+        assertEquals(pending,PushEnrollmentStore.forTest(prefs).pendingRetirement())
+        assertFalse(store.saveIfCurrent(generation,SOURCE_ID,credential()))
+        assertTrue(runCatching {store.save(SOURCE_ID,credential().copy(userId=OTHER_SOURCE_ID))}.isFailure)
+        store.completeRetirement(pending)
+        val b = credential().copy(userId=OTHER_SOURCE_ID,sourceId=pending.nextSourceId)
+        store.save(pending.nextSourceId,b)
+        assertEquals(b,store.load(pending.nextSourceId))
+        assertEquals(USER_ID,prefs.getString("retired_owner.$SOURCE_ID",null))
+    }
+
+    @Test fun serialEvidenceCannotBeRepointedOrReadByAnotherEpoch() {
+        val prefs = SelfHostedPushSettingsTest.FakePushPrefs()
+        val store = WearableAssociationStore(prefs)
+        val a = credential()
+        store.record("local-band","SYNTH001",a)
+        val item = WearableAssociationStore(prefs).pending(a).single()
+        store.acknowledge(item,a)
+        assertTrue(store.pending(a).isEmpty())
+        assertTrue(runCatching {store.record("local-band","SYNTH002",a)}.isFailure)
+        assertTrue(runCatching {store.pending(a)}.isFailure)
+        val b = a.copy(userId=OTHER_SOURCE_ID,sourceId=java.util.UUID.randomUUID().toString())
+        assertTrue(store.pending(b).isEmpty())
+        store.record("local-band","SYNTH002",b)
+        assertEquals("SYNTH002",store.pending(b).single().serial)
+    }
+
     private companion object {
         const val USER_ID = "00000000-0000-4000-8000-000000000010"
         const val SOURCE_ID = "00000000-0000-4000-8000-000000000011"

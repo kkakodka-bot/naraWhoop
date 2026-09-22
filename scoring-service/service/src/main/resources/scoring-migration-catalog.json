@@ -466,5 +466,21 @@
   {
     "basename": "20260921104000_server_unrepresentable_clock.sql",
     "sha256": "0f723d9e2789d45b26e37aad9f6b95bc8f372d85f2441d8b4be3252abab8a014"
+  },
+  {
+    "basename": "20260921110000_installation_retirement.sql",
+    "sha256": "352dd120144c07ef3f9f37bf5b6f90a336957d1f2a39f95281621bbc56b7234b"
+  },
+  {
+    "basename": "20260921111000_wearable_lifecycle.sql",
+    "sha256": "9ed18ae85c98d1eb28f4b9d646b2b91278cead273f72f88c6305147bafa08583"
+  },
+  {
+    "basename": "20260921112000_fleet_scheduler.sql",
+    "sha256": "52743cf103be90ef53815a519e3d49e0cf6bfdeacb3be2a39a6588e2ff3e9a37"
+  },
+  {
+    "basename": "20260921113000_fleet_admission_retention.sql",
+    "sha256": "c393e5236880709ebcf01b7e1390d5b5a8925647b31f03864e4100f524c13369"
   }
 ]

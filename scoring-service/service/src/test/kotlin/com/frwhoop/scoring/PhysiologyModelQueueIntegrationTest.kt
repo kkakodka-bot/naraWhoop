@@ -29,6 +29,7 @@ class PhysiologyModelQueueIntegrationTest {
         assumeTrue("Run scripts/test-physiology-queue.sh",url!=null)
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db=PostgresClient(url);queue=ModelWorkQueue(db,10)
+        resetFleetTestState(db)
         sql("insert into auth.users values('$user')")
         sql("insert into profiles(id,timezone) values('$user','UTC')")
         sql("insert into devices(id,user_id) values('$device','$user')")
@@ -40,6 +41,7 @@ class PhysiologyModelQueueIntegrationTest {
     } }
 
     @Test fun modelLeaseNeverConsumesDeterministicOrOtherModelLease() {
+        sql("update noop_fleet_intake_policy set model_slots=2")
         val first=queue.claim(model)!!
         assertNull(queue.claim(model))
         val other=model("queue-test-${UUID.randomUUID()}");activate(other)

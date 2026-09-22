@@ -4,13 +4,7 @@ import {
   parseServerScoringOverlay,
   SERVER_SCORING_ALGORITHM_VERSION,
   SERVER_SCORING_STALE_AFTER_MS,
-  SERVER_SCORE_RLS_POLICIES,
 } from '../_shared/serverScoring.ts';
-
-const MIGRATION_PATH = new URL(
-  '../../migrations/20260917180000_server_score_user_reads.sql',
-  import.meta.url,
-);
 
 Deno.test('server scoring: parse overlay from get_day_snapshot shape', () => {
   const overlay = parseServerScoringOverlay({
@@ -64,32 +58,4 @@ Deno.test('server scoring: stale threshold is six hours', () => {
   assertEquals(SERVER_SCORING_STALE_AFTER_MS, 6 * 60 * 60 * 1000);
 });
 
-Deno.test('server scoring RLS: migration defines owner-scoped SELECT policies', async () => {
-  const sql = await Deno.readTextFile(MIGRATION_PATH);
-  assert(sql.includes('server_daily_scores_select_own'), 'missing daily scores SELECT policy');
-  assert(sql.includes('server_sleep_nights_select_own'), 'missing sleep nights SELECT policy');
-  assert(sql.includes('grant select on public.server_daily_scores to authenticated'));
-  assert(sql.includes('grant select on public.server_sleep_nights to authenticated'));
-  assert(!sql.includes('grant select on public.server_daily_scores to anon'));
-  for (const [name, expr] of Object.entries(SERVER_SCORE_RLS_POLICIES)) {
-    assert(sql.includes(name), `policy ${name} missing from migration`);
-    assert(sql.includes(expr), `policy ${name} must use ${expr}`);
-  }
-});
-
-Deno.test('server scoring RLS: migration keeps service_role write policies', async () => {
-  const sql = await Deno.readTextFile(MIGRATION_PATH);
-  // Phase 3 service policies must remain (not dropped in this migration).
-  assert(sql.includes('alter publication supabase_realtime add table only public.server_daily_scores'));
-  assert(sql.includes('alter publication supabase_realtime add table only public.server_sleep_nights'));
-  assert(sql.includes("'server_scoring', public.server_scoring_for_day(uid, p_day)"));
-});
-
-Deno.test('server scoring RLS: two-user isolation SQL proof script present', async () => {
-  const proofPath = new URL('./server_scores_rls_proof.sql', import.meta.url);
-  const proof = await Deno.readTextFile(proofPath);
-  assert(proof.includes('user_a'), 'proof script must set user A');
-  assert(proof.includes('user_b'), 'proof script must set user B');
-  assert(proof.includes('server_daily_scores'));
-  assert(proof.includes('request.jwt.claim.sub'));
-});
+// Authorization is executed against the full migration catalogue in multiuser_sql_test.ts.

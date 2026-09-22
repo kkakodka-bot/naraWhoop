@@ -45,6 +45,7 @@ import { createEnrollmentService, EnrollmentError } from '../_shared/enrollment.
 import { createNoopDeviceResolver } from '../_shared/devices.ts';
 import { createUploadReceiptStore } from '../_shared/receipts.ts';
 import { projectEnrolledAppend } from '../_shared/appendProjection.ts';
+import { createInstallationLifecycle } from '../_shared/installationLifecycle.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024 + 64 * 1024;
 
@@ -64,6 +65,7 @@ const enrollmentService = createEnrollmentService({
 });
 const receiptStore = createUploadReceiptStore({ rest });
 const resolveDeviceId = createNoopDeviceResolver({ rest });
+const installationLifecycle = createInstallationLifecycle(rest);
 const raw = cfg.b2KeyId && cfg.b2ApplicationKey && cfg.b2Bucket && cfg.b2S3Endpoint
   ? createS3({
     endpoint: cfg.b2S3Endpoint,
@@ -124,12 +126,19 @@ function authError(err: any): Response {
 
 async function authenticateUpload(req: Request) {
   try {
-    return await resolveUploadIdentity({
+    const identity = await resolveUploadIdentity({
       headers: req.headers,
       rest,
       allowLegacyFleetUploads: cfg.allowLegacyFleetUploads,
     });
+    if (req.method !== 'GET' && identity.sourceId &&
+        !await rest.rpc('admit_noop_request',{p_user:identity.id,p_source:identity.sourceId})) {
+      throw new Response(JSON.stringify({code:'intake_rate_limited'}),{status:429,
+        headers:{'content-type':'application/json','retry-after':'60','cache-control':'no-store'}});
+    }
+    return identity;
   } catch (err) {
+    if (err instanceof Response) throw err;
     throw authError(err);
   }
 }
@@ -330,6 +339,9 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'POST' && sub === '/enroll') {
     return handleEnroll(req);
   }
+  if (req.method === 'POST' && sub === '/installation/retire') return installationLifecycle(req, 'retire');
+  if (req.method === 'POST' && sub === '/wearables/confirm') return installationLifecycle(req, 'confirm');
+  if (req.method === 'POST' && sub === '/wearables/handoff') return installationLifecycle(req, 'handoff');
   if (req.method === 'POST' && sub === '/objects') {
     return handleObjectIntent(req);
   }

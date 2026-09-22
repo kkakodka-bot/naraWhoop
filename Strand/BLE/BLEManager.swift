@@ -6579,13 +6579,26 @@ public final class BLEManager: NSObject, ObservableObject {
     private func adoptWhoopSerialIdentity() {
         guard let rs = registryStore,
               let serialId = WhoopSerialIdentity.adoptedId(serial: adoptableSerial),
-              let active = try? rs.all().first(where: { $0.status == .active }),
-              WhoopSerialIdentity.mayAdopt(currentId: active.id),
-              active.id != serialId
+              let attestingId = peripheral?.identifier.uuidString,
+              let active = try? rs.all().first(where: { $0.status == .active })
         else { return }
+        let paired = (try? rs.all().filter { $0.status != .archived }) ?? []
+        guard active.peripheralId?.caseInsensitiveCompare(attestingId) == .orderedSame
+            || (paired.count == 1 && active.peripheralId == nil) else { return }
+        if let credential = CloudEnrollment.currentCredential() {
+            do {
+                try CloudWearableAssociationStore.system.record(provisional: active.id,
+                    serial: String(serialId.dropFirst(6)), credential: credential)
+            } catch {
+                CloudPushSettings.recordError("Wearable identity needs review. Retire this installation before enrolling again.")
+                return
+            }
+        }
+        guard WhoopSerialIdentity.mayAdopt(currentId: active.id), active.id != serialId else { return }
         let currentId = active.id
         Task { @MainActor [weak self] in
             guard let self, let rs = self.registryStore,
+                  self.peripheral?.identifier.uuidString == attestingId,
                   (try? rs.all().first(where: { $0.status == .active }))?.id == currentId
             else { return }
             guard (try? rs.adoptSerialIdentity(from: currentId, to: serialId)) == true else { return }

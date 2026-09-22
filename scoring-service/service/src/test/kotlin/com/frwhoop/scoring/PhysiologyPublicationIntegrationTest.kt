@@ -27,6 +27,7 @@ class PhysiologyPublicationIntegrationTest {
         assumeTrue("Run scripts/test-physiology-queue.sh", url != null)
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db = PostgresClient(url); queue = ScoringWorkQueue(db)
+        resetFleetTestState(db)
         sql("insert into auth.users values ('$user')")
         sql("insert into profiles(id,timezone) values ('$user','UTC')")
         sql("insert into devices(id,user_id) values ('$device','$user')")
@@ -52,7 +53,10 @@ class PhysiologyPublicationIntegrationTest {
     }
 
     @Test fun lateInputRejectsOldPublicationWithoutCreatingRowsOrArchiveWork() {
-        val old = claim(); val latest = claim()
+        val old = claim()
+        queue.dirtyWorkItem(user,device,day)
+        assertFalse(queue.markDone(old,1))
+        val latest = claim()
         expectFailure("PT409") { publish(payload(old)) }
         assertEquals(0L, count("server_physiology_results"))
         assertEquals(0L, count("physiology_archive_outbox"))

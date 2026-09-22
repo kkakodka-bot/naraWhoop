@@ -40,7 +40,7 @@ data class ScoringConfig(
 
     /** Check image provenance before opening the worker database or mutating its queue. */
     fun workerIdentity(packagedRevision: () -> String = { packagedSourceRevision() }): WorkerHeartbeatIdentity {
-        val instance = workerInstanceId
+        val instance = if (workerInstanceId == "auto") UUID.randomUUID().toString() else workerInstanceId
         require(instance != null && instance.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))) {
             "SCORING_WORKER_INSTANCE_ID must be a canonical UUID"
         }

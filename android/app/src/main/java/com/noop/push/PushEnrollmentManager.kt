@@ -11,8 +11,13 @@ class PushEnrollmentManager internal constructor(
     private val appVersion: String,
     private val onCredentialChanged: () -> Unit,
     private val onEnrolled: () -> Unit = {},
+    private val retireRuntime: () -> Unit = {},
+    private val rotateSource: (String) -> Unit = { error("Retirement requires a device-local source witness") },
 ) {
     suspend fun enroll(code: String): PushEnrollmentResult {
+        if (requiresRestart || store.pendingRetirement() != null) {
+            return PushEnrollmentResult.Failure(PushEnrollmentFailureCode.IDENTITY_CONFLICT)
+        }
         val endpoint = settings.configuredEndpoint()
             ?: return PushEnrollmentResult.Failure(PushEnrollmentFailureCode.NOT_CONFIGURED)
         val fleetToken = settings.fleetToken()
@@ -53,6 +58,7 @@ class PushEnrollmentManager internal constructor(
         if (credential == null) runCatching { settings.clearEnrollmentBinding() }
         return credential
     }
+    fun retirementPending(): Boolean = store.pendingRetirement() != null
 
     fun clearIfCurrent(credential: PushEnrollmentCredential): Boolean {
         synchronized(store) {
@@ -71,9 +77,26 @@ class PushEnrollmentManager internal constructor(
         runCatching(onCredentialChanged)
     }
 
+    suspend fun retireInstallation() {
+        val pending = store.pendingRetirement() ?: store.beginRetirement(
+            checkNotNull(currentCredential()) { "No enrolled installation" })
+        requiresRestart = true
+        settings.clearEnrollmentBinding()
+        onCredentialChanged()
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) { retireRuntime() }
+        val endpoint = checkNotNull(settings.configuredEndpoint())
+        val fleet = checkNotNull(settings.fleetToken())
+        clientFactory(endpoint,fleet,appVersion).retire(pending.credential)
+        rotateSource(pending.nextSourceId)
+        store.completeRetirement(pending)
+        onCredentialChanged()
+    }
+
     companion object {
+        @Volatile var requiresRestart = false
+            private set
         fun from(context: Context): PushEnrollmentManager {
-            val app = context.applicationContext
+            val app = com.noop.account.AccountStorageContext.platform(context)
             return PushEnrollmentManager(
                 settings = SelfHostedPushSettings.from(app),
                 store = PushEnrollmentStore.from(app),
@@ -89,6 +112,11 @@ class PushEnrollmentManager internal constructor(
                     }
                 },
                 onEnrolled = { ServerScoringSettings.setEnabled(app, true) },
+                retireRuntime = {
+                    CloudAuthClient.clearSessionChecked(app)
+                    (app as? com.noop.NoopApplication)?.retireInstallationRuntime()
+                },
+                rotateSource = { fresh -> SelfHostedPushSettings.from(app).replaceInstallationSource(app,fresh) },
             )
         }
     }

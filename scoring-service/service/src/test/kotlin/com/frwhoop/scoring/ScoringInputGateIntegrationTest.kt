@@ -48,6 +48,7 @@ class ScoringInputGateIntegrationTest {
         assumeTrue("Run scripts/test-physiology-queue.sh for real PostgreSQL",url != null)
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db = PostgresClient(url); queue = ScoringWorkQueue(db)
+        resetFleetTestState(db)
         owner(user,device)
     }
     @After fun close() { if (::db.isInitialized) db.close() }
@@ -187,6 +188,7 @@ class ScoringInputGateIntegrationTest {
             sql(hrInsert(ts+1))
         }
         makeDue()
+        assertFalse(queue.markDone(obsolete!!,1))
         ScoringInputGate(db).withGate(user,device) {
             val successor=queue.claimOne(user,device,day)!!
             failure("PT409") { publish(payload(obsolete!!)) }

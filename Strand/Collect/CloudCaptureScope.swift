@@ -77,7 +77,8 @@ enum CloudCaptureScope {
     /// Copy pairing metadata once. Health rows, read caches, upload cursors and sync debt stay
     /// in the original file; their historical owner cannot be established from a fleet token.
     static func prepareStore(_ writer: any DatabaseWriter, legacyPath: String?) async throws {
-        try await prepareStore(writer, legacyPath: legacyPath,
+        let mayImportPairing = (try? CloudInstallationRetirementStore.system.hasRetiredInstallation()) == false
+        try await prepareStore(writer, legacyPath: mayImportPairing ? legacyPath : nil,
                                ownerId: processOwnerId, sourceId: processSourceId)
     }
 

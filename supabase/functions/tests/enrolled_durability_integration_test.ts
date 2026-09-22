@@ -12,10 +12,15 @@ import { gzipSync } from 'node:zlib';
 import { sha256Hex } from '../_shared/s3.ts';
 
 Deno.test('enrolled upload preserves canonical device through WAL, archive, projection and durable replay', async () => {
-  const db = await startLocalPostgres({ scalarProjections: true });
+  const db = await startLocalPostgres({ scalarProjections: true, installationLifecycle: true });
   const bucket = startObjectHttp();
   try {
     const source = '44444444-4444-4444-8444-444444444444';
+    const enrollmentCode = crypto.randomUUID();
+    await db.sql(`insert into noop_enrollment_codes(id,user_id,code_hash,expires_at)
+      values('${enrollmentCode}','${USER_A}',repeat('a',64),now()+interval '1 day');
+      insert into noop_app_installations(source_id,user_id,enrollment_code_id,platform,app_version)
+      values('${source}','${USER_A}','${enrollmentCode}','ios','fixture');`);
     const external = 'my-whoop';
     const scoped = scopedExternalDeviceId(external, source);
     const device = noopDeviceId(USER_A, scoped);

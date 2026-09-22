@@ -1,0 +1,45 @@
+# Standalone opt-in fleet project. Review the database policy and connection worksheet before use.
+# The frozen retained-v1 producer remains a separate, single, source-pinned deployment.
+services:
+  physiology:
+    image: ${SCORING_FLEET_IMAGE:?immutable reviewed image digest required}
+    restart: unless-stopped
+    init: true
+    cpus: "${SCORING_CPUS:-2}"
+    mem_limit: "${SCORING_MEMORY_LIMIT:-2g}"
+    pids_limit: 256
+    deploy:
+      replicas: ${SCORING_FLEET_REPLICAS:-4}
+    env_file:
+      - ${SCORING_ENV_FILE:?reviewed hosted-project configuration required}
+    environment:
+      SCORING_ALGORITHM_VERSION: frwhoop-physiology-2
+      SCORING_WORKER_INSTANCE_ID: auto
+      SCORING_WORKER_SOURCE_REVISION: ${SCORING_SOURCE_REVISION:?exact packaged SHA required}
+      SCORING_DB_POOL_SIZE: 4
+      SCORING_TOTAL_REPLICAS: ${SCORING_TOTAL_REPLICAS:-6}
+      SCORING_DB_CONNECTION_BUDGET: ${SCORING_DB_CONNECTION_BUDGET:-40}
+      SCORING_DB_CONNECTION_RESERVE: ${SCORING_DB_CONNECTION_RESERVE:-16}
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+  history:
+    image: ${SCORING_FLEET_IMAGE:?immutable reviewed image digest required}
+    restart: unless-stopped
+    init: true
+    cpus: "1"
+    mem_limit: 2g
+    pids_limit: 128
+    command: ["--history"]
+    env_file:
+      - ${SCORING_HISTORY_ENV_FILE:?reviewed history configuration required}
+    environment:
+      SCORING_ALGORITHM_VERSION: frwhoop-server-2-history
+      SCORING_WORKER_INSTANCE_ID: auto
+      SCORING_WORKER_SOURCE_REVISION: ${SCORING_SOURCE_REVISION:?exact packaged SHA required}
+      SCORING_DB_POOL_SIZE: 4
+      SCORING_TOTAL_REPLICAS: ${SCORING_TOTAL_REPLICAS:-6}
+      SCORING_DB_CONNECTION_BUDGET: ${SCORING_DB_CONNECTION_BUDGET:-40}
+      SCORING_DB_CONNECTION_RESERVE: ${SCORING_DB_CONNECTION_RESERVE:-16}

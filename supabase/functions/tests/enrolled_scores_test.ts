@@ -96,11 +96,20 @@ Deno.test('enrolled diagnostics: exact installation and registered device scope,
 
 Deno.test('enrolled registration: ACK follows atomic owned-device RPC', async () => {
   const { rest, calls } = await fixture();
+  rest.tables.set('devices', []);
   const res = await handleScoresRequest(request('/devices', { deviceId: LOCAL }), { rest, cfg });
   assertEquals(res.status, 200);
   assertEquals(calls[0].name, 'register_noop_device');
   assertEquals(calls[0].args.p_user, USER);
   assertEquals((await res.json()).identity.deviceId, DEVICE);
+});
+
+Deno.test('enrolled registration: existing identity is reused without rewriting its external id', async () => {
+  const { rest, calls } = await fixture();
+  const res = await handleScoresRequest(request('/devices', { deviceId: LOCAL }), { rest, cfg });
+  assertEquals(res.status, 200);
+  assertEquals((await res.json()).identity.deviceId, DEVICE);
+  assertEquals(calls.length, 0);
 });
 
 Deno.test('enrolled overrides: preserve optimistic revision and reject owner/device overrides', async () => {

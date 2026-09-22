@@ -16,7 +16,8 @@ class ScoringWorkQueue(
     private val inputGate = ScoringInputGate(db)
 
     data class Cursor(val nextAttemptAt: Instant, val dirtyAt: Instant,
-                      val userId: UUID, val deviceId: UUID, val day: String)
+                      val userId: UUID, val deviceId: UUID, val day: String,
+                      val classRank: Int = 0, val lastDispatch: Long = 0)
     data class Candidate(val userId: UUID, val deviceId: UUID, val day: String, val cursor: Cursor? = null)
     data class DeviceKey(val userId: UUID, val deviceId: UUID)
 
@@ -28,9 +29,9 @@ class ScoringWorkQueue(
             // makes its other pending days unavailable too; look for unrelated work first.
             val excluded = excludedDevices.joinToString(" ") { "and not (w.user_id=? and w.device_id=?)" }
             val cursorClause = if(after == null) "" else
-                "and (w.next_attempt_at,w.dirty_at,w.user_id,w.device_id,w.day) > (?::timestamptz,?::timestamptz,?::uuid,?::uuid,?::date)"
+                "and (w.class_rank,w.last_dispatch,w.next_attempt_at,w.dirty_at,w.user_id,w.device_id,w.day) > (?::integer,?::bigint,?::timestamptz,?::timestamptz,?::uuid,?::uuid,?::date)"
             conn.prepareStatement("""
-                select w.user_id,w.device_id,w.day,w.next_attempt_at,w.dirty_at from public.physiology_work_items w
+                select w.user_id,w.device_id,w.day,w.next_attempt_at,w.dirty_at,w.class_rank,w.last_dispatch from public.scoring_fleet_candidates w
                 where w.done_at is null and w.next_attempt_at<=clock_timestamp()
                   and (w.lease_expires_at is null or w.lease_expires_at<=clock_timestamp())
                   and (w.failure_revision<>w.input_revision or w.consecutive_failures<?)
@@ -41,7 +42,7 @@ class ScoringWorkQueue(
                       and active.status='running' and active.lease_expires_at>clock_timestamp())
                   $excluded
                   $cursorClause
-                order by w.next_attempt_at,w.dirty_at,w.user_id,w.device_id,w.day limit 1
+                order by w.class_rank,w.last_dispatch,w.next_attempt_at,w.dirty_at,w.user_id,w.device_id,w.day limit 1
             """.trimIndent()).use { p ->
                 p.setInt(1,maxAttempts); p.setObject(2,userId); p.setObject(3,userId)
                 p.setObject(4,deviceId); p.setObject(5,deviceId); p.setString(6,day); p.setString(7,day)
@@ -50,16 +51,17 @@ class ScoringWorkQueue(
                 }
                 after?.let { cursor ->
                     val index=8+excludedDevices.size*2
-                    p.setTimestamp(index,Timestamp.from(cursor.nextAttemptAt))
-                    p.setTimestamp(index+1,Timestamp.from(cursor.dirtyAt))
-                    p.setObject(index+2,cursor.userId);p.setObject(index+3,cursor.deviceId);p.setString(index+4,cursor.day)
+                    p.setInt(index,cursor.classRank);p.setLong(index+1,cursor.lastDispatch)
+                    p.setTimestamp(index+2,Timestamp.from(cursor.nextAttemptAt))
+                    p.setTimestamp(index+3,Timestamp.from(cursor.dirtyAt))
+                    p.setObject(index+4,cursor.userId);p.setObject(index+5,cursor.deviceId);p.setString(index+6,cursor.day)
                 }
                 p.executeQuery().use { r -> if (r.next()) {
                     val owner=r.getObject("user_id",UUID::class.java)
                     val device=r.getObject("device_id",UUID::class.java)
                     val date=r.getDate("day").toString()
                     Candidate(owner,device,date,Cursor(r.getTimestamp("next_attempt_at").toInstant(),
-                        r.getTimestamp("dirty_at").toInstant(),owner,device,date))
+                        r.getTimestamp("dirty_at").toInstant(),owner,device,date,r.getInt("class_rank"),r.getLong("last_dispatch")))
                 } else null }
             }
         }
