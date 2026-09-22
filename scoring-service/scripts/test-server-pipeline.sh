@@ -62,5 +62,9 @@ cd "$repo_dir/supabase/functions"
 npx --yes deno test --allow-all tests/server_pipeline_sql_test.ts 2>&1 | tee "$evidence/edge.log"
 cd "$repo_dir"
 bash Tools/server-score-contract/run-mobile-decoders.sh "$PIPELINE_TEST_OUTPUT" 2>&1 | tee "$evidence/mobile.log"
+swift_decoder="$(swift build --package-path Tools/server-score-contract/swift --show-bin-path)/DecodeContract"
+node Tools/server-score-contract/test-canonical-runners.mjs "$PIPELINE_TEST_OUTPUT" "$swift_decoder" \
+  "$repo_dir/Tools/server-score-contract/android/build/install/server-score-decoder-contract/bin/server-score-decoder-contract" \
+  2>&1 | tee "$evidence/canonical-mutations.log"
 git rev-parse HEAD > "$evidence/source-sha.txt"
 printf 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed. Evidence: %s\n' "$evidence"

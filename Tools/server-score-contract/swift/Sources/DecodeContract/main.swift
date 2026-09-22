@@ -7,6 +7,7 @@ struct Expectation: Decodable {
     let nestedHrvAvailable: Bool, nestedRespirationAvailable: Bool
     let expectedDeviceId: String?
     let expectedValues: [String: Double]?
+    let expectedCanonicalValues: [String: Double]?
 }
 
 struct ContractFailure: Error, CustomStringConvertible {
@@ -25,6 +26,7 @@ try require(!expectations.isEmpty, "No real Edge envelopes were supplied")
 for expectation in expectations {
     let bytes = try Data(contentsOf: directory.appendingPathComponent(expectation.file))
     let cache = try ServerScoreCacheCodec.parseSnapshot(bytes, day: expectation.day, ownerId: expectation.ownerId)
+    try verifyCanonicalSelection(cache, bytes: bytes, expectation: expectation, directory: directory)
     if expectation.file.contains("pending-device") {
         try require(cache.canonicalResults == nil, "Pending device fabricated a canonical result")
         try require(cache.pendingCanonicalResults?.reason == "device_registration_pending", "Pending device state was lost")
@@ -33,6 +35,7 @@ for expectation in expectations {
         let persisted = try JSONDecoder().decode(ServerScoreDayCache.self, from: JSONEncoder().encode(cache))
         try require(persisted.pendingCanonicalResults == cache.pendingCanonicalResults, "Pending receipt did not survive persistence")
     }
+    // Retain legacy projection checks as provenance compatibility; final selection is verified above.
     for key in expectation.availableFeatures {
         try require(cache.features[key]?.isCanonicalAvailable == true, "\(expectation.file): \(key) did not activate")
         if let device = expectation.expectedDeviceId {
@@ -71,3 +74,4 @@ for expectation in expectations {
     print("swift \(expectation.file): decoded and display selection verified")
 }
 print("swift: \(expectations.count) real Edge envelopes passed")
+print("swift: \(expectations.count) canonical persisted selections passed")

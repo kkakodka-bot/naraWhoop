@@ -134,7 +134,9 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     expectations.push({file:`${name}.json`,ownerId:owner,day,availableFeatures:available,
       unavailableFeatures:allFeatures.filter(key=>!available.includes(key)),
       nestedHrvAvailable:nestedHrv,nestedRespirationAvailable:nestedRespiration,expectedDeviceId:body.identity.deviceId,
-      expectedValues:name==='approved-v2'?{hrv:0,sleep:420,respiration:14}:name==='sleep-only'?{sleep:420}:undefined});
+      expectedValues:name==='approved-v2'?{hrv:0,sleep:420,respiration:14}:name==='sleep-only'?{sleep:420}:undefined,
+      expectedCanonicalValues:name==='approved-v2'?{hrv_rmssd_ms:0,hrv_sdnn_ms:0,resting_hr_bpm:60,
+        resp_rate_bpm:14,sleep_total_min:420,sleep_efficiency:87.5}:name==='sleep-only'?{sleep_total_min:420,sleep_efficiency:87.5}:undefined});
     await Deno.writeTextFile(`${output}/account-${name}.json`,accountBytes);
     expectations.push({...expectations.at(-1),file:`account-${name}.json`});
     return score;
