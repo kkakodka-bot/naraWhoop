@@ -148,6 +148,22 @@ enum ExploreRangeGating {
         return [ExploreRange.year, .half, .quarter, .month, .threeWeeks, .twoWeeks, .week]
             .first { $0.days != nil && $0.rawValue <= selection.rawValue && isUnlocked($0) } ?? .week
     }
+
+    static func widened(selection: ExploreRange, effectiveRange: ExploreRange,
+                        isUnlocked: (ExploreRange) -> Bool) -> Bool {
+        effectiveRange != coerced(selection: selection, isUnlocked: isUnlocked)
+    }
+
+    static func readingCaption(count: Int, effectiveRange: ExploreRange, widened: Bool) -> String {
+        if widened {
+            return count == 1
+                ? String(localized: "1 reading · sparse, widened to \(effectiveRange.name)")
+                : String(localized: "\(count) readings · sparse, widened to \(effectiveRange.name)")
+        }
+        return count == 1
+            ? String(localized: "1 reading · \(effectiveRange.name)")
+            : String(localized: "\(count) readings · \(effectiveRange.name)")
+    }
 }
 
 // MARK: - Readings table projection (task #8)
@@ -780,7 +796,7 @@ struct MetricDetailView: View {
         // `windowed` (each of which re-parses + re-filters the full history).
         let effRange = effectiveRange
         let win = slice(for: effRange)
-        let fellBack = effRange != range
+        let fellBack = ExploreRangeGating.widened(selection: range, effectiveRange: effRange, isUnlocked: isUnlocked)
         return ScrollView {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 if metric.key == "rhr" { FiveMinuteHeartRateView() }
@@ -1259,15 +1275,8 @@ struct MetricDetailView: View {
                               windowed: [(day: String, value: Double)],
                               windowFellBack: Bool) -> String {
         guard loaded, !chartSeries.isEmpty else { return "—" }
-        let n = windowed.count
-        if windowFellBack {
-            return n == 1
-                ? String(localized: "1 reading · sparse, widened to \(effectiveRange.name)")
-                : String(localized: "\(n) readings · sparse, widened to \(effectiveRange.name)")
-        }
-        return n == 1
-            ? String(localized: "1 reading · \(range.name)")
-            : String(localized: "\(n) readings · \(range.name)")
+        return ExploreRangeGating.readingCaption(count: windowed.count, effectiveRange: effectiveRange,
+                                                widened: windowFellBack)
     }
 
     // MARK: Hero chart
