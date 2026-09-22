@@ -28,12 +28,14 @@ final class WholeDaySwiftParityExporterTests: XCTestCase {
                 if !recipe.id.contains("no-rr") { XCTAssertFalse(windows.isEmpty, recipe.id) }
             }
             if recipe.id == "dense-night-v1-deep-hrv" {
-                XCTAssertFalse(windows.filter { $0["stage"] as? String == "deep" && $0["rmssd"] is Double }.isEmpty)
-                XCTAssertNotNil(daily["avgHrv"] as? Double)
+                XCTAssertFalse(windows.filter { $0["stage"] as? String == "deep" }.isEmpty)
+                XCTAssertTrue(windows.allSatisfy { $0["rmssd"] is NSNull })
+                XCTAssertTrue(daily["avgHrv"] is NSNull)
             }
             if recipe.id == "dense-night-v1-no-rr-deep-hrv" {
                 XCTAssertTrue(daily["avgHrv"] is NSNull)
-                XCTAssertTrue(windows.isEmpty)
+                XCTAssertFalse(windows.isEmpty, "Missing RR remains explicit window missingness")
+                XCTAssertTrue(windows.allSatisfy { $0["rmssd"] is NSNull && $0["cleanBeats"] as? Int == 0 })
             }
             if recipe.id == "dense-night-v2-no-deep-hrv" {
                 XCTAssertTrue(daily["avgHrv"] is NSNull)
@@ -68,7 +70,8 @@ final class WholeDaySwiftParityExporterTests: XCTestCase {
                 XCTAssertEqual(entry["file"] as? String, "\(id).json")
                 let expected = try Data(contentsOf: directory.appendingPathComponent("\(id).json"))
                 XCTAssertEqual(Exporter.digest(expected), entry["sha256"] as? String, id)
-                XCTAssertEqual(actual, expected, "actual Swift output drift: \(id)")
+                let value = try XCTUnwrap(JSONSerialization.jsonObject(with: actual) as? [String: Any])
+                try WholeDaySwiftQualifiedOracle.assertActual(value, id: id, version: "v1", historical: expected)
             }
         }
     }

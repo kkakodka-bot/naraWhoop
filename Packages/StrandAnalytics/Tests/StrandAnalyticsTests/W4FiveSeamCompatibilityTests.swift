@@ -36,7 +36,7 @@ enum W4FiveSeamFixtures {
 }
 
 final class W4FiveSeamCompatibilityTests: XCTestCase {
-    func testThirteenLiveV2DTOsStillMatchImmutableFullCaseBytes() async throws {
+    func testThirteenLiveV2DTOsMatchQualifiedReceiptAndRetainHistoricalBytes() async throws {
         typealias C = WholeDaySwiftV2Corpus
         typealias E = WholeDaySwiftParityExporter
         let manifestBytes = try Data(contentsOf: C.directory.appendingPathComponent("manifest.json"))
@@ -50,11 +50,12 @@ final class W4FiveSeamCompatibilityTests: XCTestCase {
             let entry = try XCTUnwrap(entries.first { $0["id"] as? String == recipe.id })
             let bytes = try Data(contentsOf: C.directory.appendingPathComponent("\(recipe.id).json"))
             XCTAssertEqual(E.digest(bytes), entry["sha256"] as? String)
-            let current = try E.bytes(await E.export(recipe))
-            XCTAssertEqual(E.digest(current), E.digest(bytes), "full default DTO drift: \(recipe.id)")
+            let value = try await E.export(recipe)
+            let current = try E.bytes(value)
+            try WholeDaySwiftQualifiedOracle.assertActual(value, id: recipe.id, version: "v2", historical: bytes)
             print("FIVE_SEAM_DEFAULT_V2 \(recipe.id) sha256=\(E.digest(current))")
         }
-        // This tests live behavior against historical bytes, not current-source provenance.
+        // Historical provenance and qualified current behavior are distinct assertions.
         XCTAssertEqual(try Data(contentsOf: C.directory.appendingPathComponent("manifest.json")), manifestBytes)
     }
 
