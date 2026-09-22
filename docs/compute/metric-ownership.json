@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "workstream": "feat/vps-only-compute",
   "base": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-  "finalHostedStatus": "NOT_READY",
-  "transitionRule": "Only retire a producer after its entire output/detail dependency closure is real, qualified, selected, revision-bound and consumed. No global overlay switch.",
+  "finalHostedStatus": "SOURCE_CONTRACT_COMPLETE_RUNTIME_RECEIPTS_REQUIRED",
+  "transitionRule": "Final hosted mode admits selected signed immutable server results or explicit server-owned missing states. Numerical phone producers remain reference-only and instrumented. Static eligibility is not runtime/deployment evidence; --require-final requires current-source executed receipts.",
   "phoneAllowed": [
     "BLE protocol/capability handling",
     "durable raw capture and lossless encoding",
@@ -25,29 +25,101 @@
         "RR observations and timing if an inferred fallback is offered",
         "explicit provenance distinguishing device observations from estimates"
       ],
-      "serverProducer": null,
-      "outputContract": {
-        "schema": "UNIMPLEMENTED for phone-derived HR replacement; direct device HR passthrough remains allowed",
-        "metrics": [{ "id": "live_hr_bpm", "unit": "bpm" }],
-        "details": ["observation time, age, provenance, quality and inference method"],
-        "charts": ["live HR series"],
-        "identity": ["project", "owner", "device", "capture session", "source", "window", "algorithm", "input revision"],
-        "nulls": "Absent device HR must not invoke phone RR-to-HR fallback or physiological smoothing in final mode"
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unsupported",
+          "reason": "device_observation_only"
+        }
       },
-      "canonicalReadback": null,
-      "consumers": ["live HR", "workout live HR", "watch HR transfer"],
+      "outputContract": {
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.live_hr_selection",
+        "metrics": [
+          {
+            "id": "live_hr_bpm",
+            "unit": "bpm"
+          }
+        ],
+        "details": [
+          "observation time, age, provenance, quality and inference method"
+        ],
+        "charts": [
+          "live HR series"
+        ],
+        "identity": [
+          "project",
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
+        ],
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
+      },
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
+      "consumers": [
+        "live HR",
+        "workout live HR",
+        "watch HR transfer"
+      ],
       "cutover": {
-        "state": "UNPORTED_PHONE_DERIVED_SELECTION",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "Direct device observations are permitted; phone fallback and smoothing paths remain reachable",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
       }
     },
     {
@@ -63,13 +135,20 @@
         "baseline history"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
         "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
-        "lane": "physiology",
-        "invokedAtBase": true
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "feature": "hrv",
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "selected_result_required"
+        }
       },
       "outputContract": {
-        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.night_hrv",
         "metrics": [
           {
             "id": "hrv_rmssd_ms",
@@ -93,23 +172,32 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Only selected authorized immutable details; absent series remain explicit missing."
       },
       "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
         "feature": "hrv",
-        "accountRPC": "server_scoring_for_day",
-        "enrollmentRoute": "scores -> server_scoring_for_device_day",
-        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+        "contractRevision": 2
       },
       "consumers": [
         "Today",
@@ -120,17 +208,46 @@
         "watch"
       ],
       "cutover": {
-        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "state": "SERVER_QUALIFIED_OR_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -145,13 +262,20 @@
         "owner/device/input revision"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
         "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
-        "lane": "physiology",
-        "invokedAtBase": true
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "feature": "hrv",
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "qualified_closed_window_required"
+        }
       },
       "outputContract": {
-        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.current_hrv",
         "metrics": [
           {
             "id": "current_hrv",
@@ -168,40 +292,79 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Only selected authorized immutable details; absent series remain explicit missing.",
+        "windowPolicy": "Latest closed verified 300s window expires ten minutes after end. Invalid latest never falls back to earlier window."
       },
       "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
         "feature": "hrv",
-        "accountRPC": "server_scoring_for_day",
-        "enrollmentRoute": "scores -> server_scoring_for_device_day",
-        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+        "contractRevision": 2
       },
       "consumers": [
         "Today current HRV",
         "live HRV readout"
       ],
       "cutover": {
-        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "state": "SERVER_QUALIFIED_OR_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -215,9 +378,21 @@
         "session RR observations and packet provenance",
         "capture context"
       ],
-      "serverProducer": null,
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "verified_session_beat_clock_required"
+        }
+      },
       "outputContract": {
-        "schema": "UNIMPLEMENTED",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.spot_hrv",
         "metrics": [
           {
             "id": "spot_hrv_rmssd_ms",
@@ -236,36 +411,73 @@
         "charts": [],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2,
+        "sessionContract": "#/sessionContract"
+      },
       "consumers": [
         "spot HRV session",
         "saved spot readings",
         "Health exports"
       ],
       "cutover": {
-        "state": "UNPORTED",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
       }
     },
     {
@@ -282,13 +494,20 @@
         "manual boundary corrections"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
         "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
-        "lane": "physiology",
-        "invokedAtBase": true
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "feature": "sleep",
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "selected_result_required"
+        }
       },
       "outputContract": {
-        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.sleep",
         "metrics": [
           {
             "id": "sleep_total_min",
@@ -339,23 +558,33 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Only selected authorized immutable details; absent series remain explicit missing.",
+        "units": "compute sleep_efficiency percent; nested sleep_sessions efficiency retains original ratio."
       },
       "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
         "feature": "sleep",
-        "accountRPC": "server_scoring_for_day",
-        "enrollmentRoute": "scores -> server_scoring_for_device_day",
-        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+        "contractRevision": 2
       },
       "consumers": [
         "Sleep variants",
@@ -366,17 +595,46 @@
         "Health sleep"
       ],
       "cutover": {
-        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "state": "SERVER_QUALIFIED_OR_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -393,13 +651,20 @@
         "effective-time edits"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.sleep_history",
         "metrics": [
           {
             "id": "sleep_performance",
@@ -443,19 +708,33 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
       "consumers": [
         "Sleep all variants",
         "Rest",
@@ -464,17 +743,46 @@
         "watch"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -489,13 +797,20 @@
         "source qualification"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
         "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
-        "lane": "physiology",
-        "invokedAtBase": true
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "feature": "respiration",
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "selected_result_required"
+        }
       },
       "outputContract": {
-        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.respiration",
         "metrics": [
           {
             "id": "resp_rate_bpm",
@@ -512,23 +827,32 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Only selected authorized immutable details; absent series remain explicit missing."
       },
       "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
         "feature": "respiration",
-        "accountRPC": "server_scoring_for_day",
-        "enrollmentRoute": "scores -> server_scoring_for_device_day",
-        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+        "contractRevision": 2
       },
       "consumers": [
         "Today",
@@ -538,17 +862,46 @@
         "widgets"
       ],
       "cutover": {
-        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "state": "SERVER_QUALIFIED_OR_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -564,13 +917,20 @@
         "profile"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
         "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
-        "lane": "physiology",
-        "invokedAtBase": true
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "feature": "hrv",
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "selected_result_required"
+        }
       },
       "outputContract": {
-        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.recovery",
         "metrics": [
           {
             "id": "recovery",
@@ -587,23 +947,32 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Only selected authorized immutable details; absent series remain explicit missing."
       },
       "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
         "feature": "hrv",
-        "accountRPC": "server_scoring_for_day",
-        "enrollmentRoute": "scores -> server_scoring_for_device_day",
-        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+        "contractRevision": 2
       },
       "consumers": [
         "Charge",
@@ -613,17 +982,46 @@
         "watch"
       ],
       "cutover": {
-        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "state": "SERVER_QUALIFIED_OR_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -640,13 +1038,20 @@
         "day-cycle configuration"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "feature": "hrv",
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.strain_energy",
         "metrics": [
           {
             "id": "strain",
@@ -693,19 +1098,33 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Only selected authorized immutable details; absent series remain explicit missing."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": "hrv",
+        "contractRevision": 2
+      },
       "consumers": [
         "Effort",
         "Today",
@@ -715,17 +1134,46 @@
         "watch"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_QUALIFIED_OR_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -742,13 +1190,20 @@
         "event-time day-cycle"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.steps",
         "metrics": [
           {
             "id": "steps",
@@ -768,19 +1223,33 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
       "consumers": [
         "Today",
         "steps charts",
@@ -789,17 +1258,46 @@
         "widgets"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -816,13 +1314,20 @@
         "manual correction/tombstone"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/WorkoutResultOrchestrator.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.workouts",
         "metrics": [
           {
             "id": "exercise_count",
@@ -856,19 +1361,34 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2,
+        "sessionContract": "#/sessionContract"
+      },
       "consumers": [
         "Workout list/details",
         "Today",
@@ -876,17 +1396,46 @@
         "watch workout sync"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/WorkoutResultOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -901,9 +1450,21 @@
         "HRmax/profile",
         "freshness and expiry"
       ],
-      "serverProducer": null,
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "qualified_incremental_workout_required"
+        }
+      },
       "outputContract": {
-        "schema": "UNIMPLEMENTED",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.live_workout",
         "metrics": [
           {
             "id": "live_workout_effort",
@@ -920,35 +1481,72 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2,
+        "sessionContract": "#/sessionContract"
+      },
       "consumers": [
         "live workout",
         "watch workout"
       ],
       "cutover": {
-        "state": "UNPORTED",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
       }
     },
     {
@@ -963,13 +1561,20 @@
         "wear/quality"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
         "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
-        "lane": "physiology",
-        "invokedAtBase": true
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "feature": "hrv",
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "calibrated_oxygen_source_required"
+        }
       },
       "outputContract": {
-        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.oxygen",
         "metrics": [
           {
             "id": "spo2_pct",
@@ -998,23 +1603,32 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Only selected authorized immutable details; absent series remain explicit missing."
       },
       "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
         "feature": "hrv",
-        "accountRPC": "server_scoring_for_day",
-        "enrollmentRoute": "scores -> server_scoring_for_device_day",
-        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+        "contractRevision": 2
       },
       "consumers": [
         "Today",
@@ -1023,17 +1637,46 @@
         "Health oxygen"
       ],
       "cutover": {
-        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "state": "SERVER_QUALIFIED_OR_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -1049,13 +1692,20 @@
         "personal prior baseline"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
         "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
-        "lane": "physiology",
-        "invokedAtBase": true
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "feature": "hrv",
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "qualified_temperature_source_required"
+        }
       },
       "outputContract": {
-        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.temperature",
         "metrics": [
           {
             "id": "skin_temp_c",
@@ -1077,23 +1727,32 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Only selected authorized immutable details; absent series remain explicit missing."
       },
       "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
         "feature": "hrv",
-        "accountRPC": "server_scoring_for_day",
-        "enrollmentRoute": "scores -> server_scoring_for_device_day",
-        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+        "contractRevision": 2
       },
       "consumers": [
         "Today",
@@ -1103,17 +1762,46 @@
         "Health"
       ],
       "cutover": {
-        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "state": "SERVER_QUALIFIED_OR_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -1127,9 +1815,21 @@
         "300-second windows",
         "coverage"
       ],
-      "serverProducer": null,
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "qualified_intraday_temperature_required"
+        }
+      },
       "outputContract": {
-        "schema": "UNIMPLEMENTED",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.intraday_temperature",
         "metrics": [
           {
             "id": "temperature_5min_c",
@@ -1145,34 +1845,70 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
       "consumers": [
         "temperature intraday chart"
       ],
       "cutover": {
-        "state": "UNPORTED",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
       }
     },
     {
@@ -1187,9 +1923,21 @@
         "explicit same-second record selection",
         "measured-HR overlap policy"
       ],
-      "serverProducer": null,
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "optical_clock_channel_unqualified"
+        }
+      },
       "outputContract": {
-        "schema": "UNIMPLEMENTED",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.ppg_hr",
         "metrics": [
           {
             "id": "derived_ppg_hr",
@@ -1205,36 +1953,73 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2,
+        "sessionContract": "#/sessionContract"
+      },
       "consumers": [
         "raw HR merged reads",
         "HR charts",
         "downstream physiology"
       ],
       "cutover": {
-        "state": "UNPORTED",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
       }
     },
     {
@@ -1250,13 +2035,20 @@
         "timezone"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.stress",
         "metrics": [
           {
             "id": "stress",
@@ -1290,36 +2082,80 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2,
+        "sessionContract": "#/sessionContract"
+      },
       "consumers": [
         "Stress",
         "Today",
         "advanced HRV"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -1334,9 +2170,21 @@
         "motion/context",
         "event expiry/deduplication"
       ],
-      "serverProducer": null,
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "qualified_live_decision_required"
+        }
+      },
       "outputContract": {
-        "schema": "UNIMPLEMENTED",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.stress_events",
         "metrics": [
           {
             "id": "stress_onset",
@@ -1351,35 +2199,72 @@
         "charts": [],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2,
+        "sessionContract": "#/sessionContract"
+      },
       "consumers": [
         "passive stress nudges",
         "haptics"
       ],
       "cutover": {
-        "state": "UNPORTED",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
       }
     },
     {
@@ -1395,13 +2280,20 @@
         "effective-time medication/symptom inputs"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.illness",
         "metrics": [
           {
             "id": "illness_score",
@@ -1422,36 +2314,79 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
       "consumers": [
         "Health alerts",
         "Today",
         "insights"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -1466,13 +2401,20 @@
         "effective-time corrections"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.cycle",
         "metrics": [
           {
             "id": "cycle_phase",
@@ -1493,36 +2435,79 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
       "consumers": [
         "cycle screens",
         "Today",
         "insights"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -1538,13 +2523,20 @@
         "history checkpoint"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.circadian",
         "metrics": [
           {
             "id": "circadian_phase_hour",
@@ -1564,35 +2556,78 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
       "consumers": [
         "circadian screens",
         "insights"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -1608,13 +2643,20 @@
         "checkpoint generation"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.readiness_load",
         "metrics": [
           {
             "id": "readiness",
@@ -1655,19 +2697,33 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
       "consumers": [
         "readiness",
         "training load",
@@ -1675,17 +2731,46 @@
         "Today"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -1702,13 +2787,20 @@
         "method-specific baseline readiness"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.fitness_longevity",
         "metrics": [
           {
             "id": "fitness_age",
@@ -1737,19 +2829,33 @@
         ],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
       "consumers": [
         "Fitness",
         "Body age",
@@ -1757,17 +2863,46 @@
         "insights"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -1784,13 +2919,20 @@
         "generation"
       ],
       "serverProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalStateMachine.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
-        "lane": "historical",
-        "invokedAtBase": true
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "historical_producer_shadow"
+        }
       },
       "outputContract": {
-        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.baselines",
         "metrics": [
           {
             "id": "historical_baselines",
@@ -1813,19 +2955,33 @@
         "charts": [],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
       "consumers": [
         "all personalized metrics",
         "context",
@@ -1833,17 +2989,46 @@
         "recovery"
       ],
       "cutover": {
-        "state": "SHADOW_PRODUCER",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalStateMachine.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true,
+        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
       }
     },
     {
@@ -1857,9 +3042,21 @@
         "qualified timing",
         "session identity"
       ],
-      "serverProducer": null,
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "qualified_session_response_required"
+        }
+      },
       "outputContract": {
-        "schema": "UNIMPLEMENTED",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.biofeedback",
         "metrics": [
           {
             "id": "resonance_frequency",
@@ -1878,34 +3075,71 @@
         "charts": [],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2,
+        "sessionContract": "#/sessionContract"
+      },
       "consumers": [
         "Biofeedback"
       ],
       "cutover": {
-        "state": "UNPORTED",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
       }
     },
     {
@@ -1919,9 +3153,21 @@
         "session observations",
         "server command expiry/deduplication"
       ],
-      "serverProducer": null,
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unqualified",
+          "reason": "qualified_live_decision_required"
+        }
+      },
       "outputContract": {
-        "schema": "UNIMPLEMENTED",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.live_coaching",
         "metrics": [
           {
             "id": "coaching_hr_band",
@@ -1940,36 +3186,73 @@
         "charts": [],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2,
+        "sessionContract": "#/sessionContract"
+      },
       "consumers": [
         "live coaching",
         "haptics",
         "watch"
       ],
       "cutover": {
-        "state": "UNPORTED",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
       }
     },
     {
@@ -1983,9 +3266,21 @@
         "consented context",
         "history and effective-time preferences"
       ],
-      "serverProducer": null,
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "deterministic publication and independent retry",
+        "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
+        "sqlPublication": "supabase/migrations/20260921110000_final_hosted_compute_contract.sql",
+        "canonicalNumericalProducer": null,
+        "feature": null,
+        "defaultDisposition": {
+          "status": "unsupported",
+          "reason": "qualified_insight_producer_unavailable"
+        }
+      },
       "outputContract": {
-        "schema": "UNIMPLEMENTED",
+        "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.insights",
         "metrics": [
           {
             "id": "insights",
@@ -2000,37 +3295,196 @@
         "charts": [],
         "identity": [
           "project",
-          "owner",
-          "device",
-          "window/day/session",
-          "event timezone",
-          "algorithm",
-          "input revision",
-          "result identity",
-          "manifest",
-          "qualification"
+          "owner_id",
+          "source_id",
+          "device_id",
+          "family",
+          "window",
+          "timezone_id",
+          "algorithm_version",
+          "configuration_version",
+          "input_revision",
+          "result_revision",
+          "computed_at",
+          "observed_through",
+          "freshness",
+          "status",
+          "reason",
+          "manifest_hash",
+          "feature_manifest_hash",
+          "canonical_qualification"
         ],
-        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+        "nulls": "All metrics are server-owned including null/failed/stale/revoked/unsupported/unqualified/processing/unavailable; never legacy/local fallback. Valid zero remains numeric. Missing metadata stays explicit.",
+        "detailsAvailability": "Canonical numeric/detail producer unqualified or unsupported; calendar/source-hash evidence only, no placeholder measured DTO."
       },
-      "canonicalReadback": null,
+      "canonicalReadback": {
+        "sharedContract": "#/sharedReadback",
+        "feature": null,
+        "contractRevision": 2
+      },
       "consumers": [
         "Insights",
         "Today",
         "notifications"
       ],
       "cutover": {
-        "state": "UNPORTED",
+        "state": "SERVER_EXPLICIT_STATE",
         "localProducerRemoved": false,
-        "completeConsumerClosure": false,
-        "finalHostedEligible": false
+        "localProducerDisposition": "Retained reference-only; disabled and instrumented in shipped final hosted runtime",
+        "completeConsumerClosure": true,
+        "finalHostedEligible": true,
+        "eligibilityScope": "Static source eligibility; final acceptance requires executed current-source receipts"
       },
       "validation": {
-        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
-        "referenceQualification": "NOT_MEASURED",
+        "sourcePinnedTo": "Current gate receipt source SHA/content digest, not base test evidence",
+        "functional": "Canonical result or explicit missing state; exercised production paths must execute zero local physiology",
+        "referenceQualification": "Existing signed result qualification only; new sensor-reference evidence NOT_MEASURED",
         "physicalConsumers": "NOT_MEASURED",
-        "deployed": "NOT_MEASURED"
+        "deployed": "NOT_MEASURED",
+        "finalHosted": {
+          "disposition": "qualified_or_explicit_server_state",
+          "consumerFiles": [
+            "Strand/Push/ServerScoreRepository.swift",
+            "Strand/Screens/CanonicalPhysiologySection.swift",
+            "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+          ],
+          "sharedConsumers": "#/sharedConsumers",
+          "testFiles": [
+            "Packages/WhoopStore/Tests/WhoopStoreTests/ServerCanonicalResultTests.swift",
+            "Tools/compute/Tests/FinalHostedRuntimeTests.swift",
+            "StrandTests/CanonicalPhysiologySurfaceTests.swift",
+            "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt",
+            "android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt",
+            "supabase/functions/tests/enrolled_scores_test.ts",
+            "scoring-service/scripts/test-server-pipeline.sh"
+          ],
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+        }
       }
+    }
+  ],
+  "canonicalIdentity": {
+    "requiredKeys": [
+      "project",
+      "owner_id",
+      "source_id",
+      "device_id",
+      "family",
+      "window",
+      "timezone_id",
+      "algorithm_version",
+      "configuration_version",
+      "input_revision",
+      "result_revision",
+      "computed_at",
+      "observed_through",
+      "freshness",
+      "status",
+      "reason",
+      "manifest_hash",
+      "feature_manifest_hash",
+      "canonical_qualification"
+    ],
+    "versionKeys": [
+      "model_version",
+      "preprocessing_version",
+      "quality_version"
+    ],
+    "nullability": "Missing source configuration/model/calendar metadata stays null with explicit reason. Processing before publication has null revision, never a revision fabricated from unrelated fields.",
+    "revisionDomains": [
+      "sha256:<immutable payload hash>",
+      "compute:<immutable disposition revision>",
+      "session:<immutable session revision>"
+    ],
+    "authorization": "Trusted Edge project plus validated owner/source/device and original signed feature manifest/qualification; shadow, revoked, mismatched, other-device and unauthorized nested sleep values are never canonical."
+  },
+  "sharedConsumers": [
+    "Strand/Data/CanonicalConsumerPublication.swift",
+    "Packages/StrandDesign/Sources/StrandDesign/CanonicalConsumerLedger.swift",
+    "StrandiOS/Widgets/WidgetPublish.swift",
+    "StrandiOSShared/WidgetSnapshot.swift",
+    "StrandiOSWidgets/NOOPWidget.swift",
+    "NOOPWatch/WatchScoreStore.swift",
+    "Strand/Data/WatchSessionBridge.swift",
+    "Strand/Data/CanonicalHealthWritebackPlan.swift",
+    "Strand/Data/ShortcutHealthExport.swift",
+    "android/app/src/main/java/com/noop/ui/CanonicalResultExport.kt",
+    "android/app/src/main/java/com/noop/widget/WidgetSnapshot.kt",
+    "android/app/src/main/java/com/noop/ingest/HealthConnectWriter.kt"
+  ],
+  "sharedReadback": {
+    "route": "GET /functions/v1/scores?date=<day>&deviceId=<external-device>",
+    "handler": "supabase/functions/_shared/serverScores.ts",
+    "accountAuthorization": "Bearer account JWT verified via auth/v1/user plus x-noop-source-id account source binding",
+    "enrollmentAuthorization": "Source-bound enrollment installation token",
+    "selection": "server_scoring_for_device_day -> server_scoring_read_contract -> server_scoring_read_contract_v1",
+    "pendingDevice": "server_scoring_pending_contract: all 27 server-owned states, no fabricated device or revision",
+    "contractRevision": 2,
+    "legacySnapshotFallback": false
+  },
+  "sessionContract": {
+    "route": "POST/GET /functions/v1/scores/compute-requests",
+    "sql": "supabase/migrations/20260921111000_compute_session_requests.sql",
+    "identity": "owner/device/source/family/session/event time/timezone/input revision/algorithm/configuration/consent",
+    "replay": "Exact request idempotency, changed payload conflict; time-sensitive decisions expire and deduplicate; expired values clear.",
+    "consumers": [
+      "Strand/Push/ServerComputeSessionCoordinator.swift",
+      "Packages/WhoopStore/Sources/WhoopStore/ServerComputeOutbox.swift",
+      "android/app/src/main/java/com/noop/push/ServerComputeRequests.kt",
+      "android/app/src/main/java/com/noop/ui/CanonicalSessionReadout.kt"
+    ]
+  },
+  "finalVerification": {
+    "checker": "Tools/compute/check-cutover.mjs --require-final",
+    "recorder": "Tools/compute/record-gate.mjs",
+    "receipts": "docs/compute/evidence",
+    "static": "Exact SQL/Swift/Android family maps, entrypoint instrumentation, producer/consumer paths",
+    "executed": "Current clean source SHA/digest, real gate command and hashed successful log; no transferred base evidence",
+    "hardwareDeploymentReference": "NOT_MEASURED"
+  },
+  "retirementExtensions": [
+    {
+      "output": "hydration_goal_ml",
+      "family": "insights",
+      "localProducer": "Packages/StrandAnalytics/Sources/StrandAnalytics/HydrationGoal.swift",
+      "consumerFiles": [
+        "Strand/Screens/HydrationView.swift",
+        "android/app/src/main/java/com/noop/ui/HydrationScreen.kt"
+      ],
+      "allowedLocal": "User water input and totals only",
+      "status": "unsupported",
+      "reason": "qualified_insight_producer_unavailable",
+      "numericContract": false,
+      "resultBinding": "compute.families.insights explicit missing state/revision; not an invented metric value"
+    },
+    {
+      "output": "rhythm_summary",
+      "family": "insights",
+      "localProducer": "Packages/StrandAnalytics/Sources/StrandAnalytics/RhythmScreener.swift",
+      "consumerFiles": [
+        "Strand/Screens/RhythmView.swift",
+        "android/app/src/main/java/com/noop/ui/RhythmScreen.kt"
+      ],
+      "allowedLocal": "Consent and direct observations only",
+      "status": "unsupported",
+      "reason": "qualified_insight_producer_unavailable",
+      "numericContract": false,
+      "resultBinding": "compute.families.insights explicit missing state/revision; not an invented metric value"
+    },
+    {
+      "output": "caffeine_estimate",
+      "family": "insights",
+      "localProducer": "Strand/Screens/CaffeineLogCard.swift",
+      "consumerFiles": [
+        "Strand/Screens/CaffeineLogCard.swift",
+        "android/app/src/main/java/com/noop/ui/CaffeineLog.kt"
+      ],
+      "allowedLocal": "User intake input only; no elimination or active-dose inference",
+      "status": "unsupported",
+      "reason": "qualified_insight_producer_unavailable",
+      "numericContract": false,
+      "resultBinding": "compute.families.insights explicit missing state/revision; not an invented metric value"
     }
   ]
 }
