@@ -16,6 +16,8 @@ targets:
       - ../../StrandTests/CanonicalPhysiologySurfaceTests.swift
       - ../../StrandTests/CanonicalConsumerPublicationTests.swift
       - ../../StrandiOSShared/WidgetSnapshot.swift
+      - path: ../../Tests/Fixtures/compute-account-sleep-only.json
+        buildPhase: resources
     dependencies:
       - target: Strand
       - package: WhoopProtocol
@@ -41,7 +43,7 @@ schemes:
         NOOP_HERMETIC_TESTING: "1"
         NOOP_TEST_DISABLE_BLUETOOTH: "1"
         NOOP_COMPUTE_REFERENCE_TESTS: "0"
-        NARA_TEST_FIXTURE_ROOT: "$(PROJECT_DIR)/../fixtures"
+        NARA_TEST_FIXTURE_ROOT: "$(BUILT_PRODUCTS_DIR)/fixtures"
       targets:
         - ComputeChecksTests
   ComputeChecks:
@@ -54,6 +56,6 @@ schemes:
         NOOP_HERMETIC_TESTING: "1"
         NOOP_TEST_DISABLE_BLUETOOTH: "1"
         NOOP_COMPUTE_REFERENCE_TESTS: "1"
-        NARA_TEST_FIXTURE_ROOT: "$(PROJECT_DIR)/../fixtures"
+        NARA_TEST_FIXTURE_ROOT: "$(BUILT_PRODUCTS_DIR)/fixtures"
       targets:
         - ComputeChecksTests

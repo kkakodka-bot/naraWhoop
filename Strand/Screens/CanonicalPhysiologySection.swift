@@ -55,7 +55,8 @@ struct CanonicalPhysiologySection: View {
                                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                             }
                         } else {
-                            Text("Awaiting an authorized server result for this device and day.")
+                            Text(repo.serverPresentation.pendingCanonicalDays[window]?.reason
+                                 ?? "Awaiting an authorized server result for this device and day.")
                                 .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                         }
                     }

@@ -1,5 +1,6 @@
 import XCTest
 import SwiftUI
+import AppKit
 import GRDB
 import NoopPush
 import WhoopProtocol
@@ -35,6 +36,7 @@ final class FinalHostedRuntimeTests: XCTestCase {
             _ = await generic?.drain()
             await model.scoringPreferences?.waitForRetirement()
             try await model.scoringInputs?.waitForRetirement()
+            try await model.scoringContextConsent?.waitForRetirement()
             try store.registryWriter.close()
             UserDefaults(suiteName: layout.preferencesSuite)?.removePersistentDomain(forName: layout.preferencesSuite)
             try FileManager.default.removeItem(at: base)
@@ -136,7 +138,13 @@ final class FinalHostedRuntimeTests: XCTestCase {
             CoachView().environmentObject(model.coach)
         }.environmentObject(model).environmentObject(model.repo).environmentObject(model.live)
             .environmentObject(model.profile).frame(width: 600, height: 1200)
-        XCTAssertNotNil(ImageRenderer(content: content).nsImage)
+        // Native text inputs are AppKit views and cannot be flattened by SwiftUI ImageRenderer.
+        let host = NSHostingView(rootView: content)
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 1200)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        XCTAssertGreaterThan(bitmap.pixelsWide, 0)
         assertZero("workout_start_end_live_session_biofeedback_spot_advanced_render")
     }
 

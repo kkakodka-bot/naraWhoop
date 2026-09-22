@@ -135,8 +135,7 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
     func testActualDatabaseAccountRouteSleepOnlyEnvelopePassesProductionHealthDecoder() throws {
         // Exact synthetic DB/worker/Edge response captured by the production-route integration gate.
         // This replay does not claim a new live database run or physical HealthKit write.
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Tests/Fixtures/compute-account-sleep-only.json")
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "compute-account-sleep-only", withExtension: "json"))
         struct Envelope: Decodable {
             struct Scoring: Decodable { let compute: ServerCanonicalResults }
             let server_scoring: Scoring
