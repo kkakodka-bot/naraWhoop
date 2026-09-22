@@ -232,25 +232,38 @@ final class ScoringPreferenceRecomputeTests: XCTestCase {
     func testPopulatedResetCannotCompleteBeforeActualScorePersistenceAndDoesNotNeedNewRaw() async throws {
         let f = try await fixture(seed: ["noopExperimentalSleepV2": false])
         try await f.populate()
+        let importedBaseline = try await f.store.dailyMetrics(deviceId: "my-whoop", from: "0000-01-01", to: "9999-12-31")
+        XCTAssertEqual(importedBaseline.count, 15)
+        XCTAssertTrue(importedBaseline.allSatisfy { $0.avgHrv == 50 })
         let model = f.makeModel()
         await model.retryScoringPreferenceRecompute()
         XCTAssertFalse(model.intelligence.hasPendingPreferenceRecompute)
         XCTAssertFalse(model.intelligence.results.isEmpty)
-        XCTAssertTrue(model.intelligence.results.contains { $0.recovery != nil }, "populated baseline must discriminate reset")
+        // The real producer rejects current second-resolution RR even with a populated baseline.
+        // Discriminate the reset through its accepted epochs and durable completion identity.
+        XCTAssertTrue(model.intelligence.results.allSatisfy { $0.avgHrv == nil && $0.recovery == nil })
+        XCTAssertEqual(model.acceptedScoringPreferences?.hrvBaselineEpoch, 0)
+        XCTAssertEqual(model.acceptedScoringPreferences?.recoveryBaselineEpoch, 0)
         let completed = try XCTUnwrap(f.defaults.data(forKey: IntelligenceEngine.preferenceCompletionKey))
         let raw = try await f.store.analysisFingerprint()
         let entered = expectation(description: "accepted reset reached actual persistence")
         f.barrier.entered = entered
-        let reset = try XCTUnwrap(model.recalibrateChargeBaseline(now: Date().timeIntervalSince1970))
-        _ = try await reset.acceptance()
+        let resetAt = Date().timeIntervalSince1970
+        let reset = try XCTUnwrap(model.recalibrateChargeBaseline(now: resetAt))
+        let receipt = try await reset.acceptance()
         await fulfillment(of: [entered], timeout: 15)
         XCTAssertTrue(model.intelligence.hasPendingPreferenceRecompute)
+        XCTAssertEqual(model.acceptedScoringPreferences?.hrvBaselineEpoch, resetAt)
+        XCTAssertEqual(model.acceptedScoringPreferences?.recoveryBaselineEpoch, resetAt)
         XCTAssertEqual(f.defaults.data(forKey: IntelligenceEngine.preferenceCompletionKey), completed)
         f.barrier.release()
         await model.retryScoringPreferenceRecompute()
         XCTAssertFalse(model.intelligence.hasPendingPreferenceRecompute)
         XCTAssertFalse(model.intelligence.results.isEmpty)
-        XCTAssertTrue(model.intelligence.results.allSatisfy { $0.recovery == nil }, "reset must discard the populated old baseline")
+        XCTAssertTrue(model.intelligence.results.allSatisfy { $0.avgHrv == nil && $0.recovery == nil },
+                      "reset must not promote unqualified current RR into HRV or recovery")
+        XCTAssertEqual(model.acceptedScoringPreferences?.position.id, receipt.position.id)
+        XCTAssertNotEqual(try XCTUnwrap(f.defaults.data(forKey: IntelligenceEngine.preferenceCompletionKey)), completed)
         let rawAfter = try await f.store.analysisFingerprint()
         XCTAssertEqual(rawAfter, raw)
         XCTAssertEqual(try f.inputCounts().children, 0)
@@ -513,7 +526,9 @@ final class ScoringPreferenceRecomputeTests: XCTestCase {
 
     func testLowHRSkippedDayStillCarriesItsActualOwnerIntoCanonicalHealing() async throws {
         let f = try await fixture(seed: ["noopExperimentalSleepV2": false])
-        let night = try await editedNight(f, sparseHR: true, bHasHR: false)
+        // A stays sparse and must not be scored. Observed active-device B must produce a distinct
+        // hypnogram so a wrong-owner read cannot accidentally satisfy the canonical healing check.
+        let night = try await editedNight(f, sparseHR: true)
         let model = f.makeModel()
         XCTAssertTrue(model.repo.adoptActiveDeviceId("B"))
         await model.retryScoringPreferenceRecompute()
