@@ -13,7 +13,18 @@ if [[ "${1:-}" == --image-manifest ]]; then
   echo 'NOT_READY: single-worker self-hosted image manifests cannot deploy the hosted three-lane pipeline' >&2
   exit 3
 fi
-[[ "$#" == 0 ]] || { echo 'NOT_READY: unsupported deployment argument' >&2; exit 3; }
+[[ "$#" == 4 && "$1" == --selected-v1-image && "$3" == --shadow-v2-image ]] || {
+  echo 'NOT_READY: use --selected-v1-image REGISTRY/IMAGE@sha256:DIGEST --shadow-v2-image REGISTRY/IMAGE@sha256:DIGEST' >&2
+  exit 3
+}
+SELECTED_V1_IMAGE="$2"
+SHADOW_V2_IMAGE="$4"
+for image in "$SELECTED_V1_IMAGE" "$SHADOW_V2_IMAGE"; do
+  [[ "$image" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] || {
+    echo 'NOT_READY: worker images must be immutable registry digest references' >&2
+    exit 3
+  }
+done
 DROPLET_ENV="${ROOT}/infra/vps/droplet.env"
 SSH_KEY="${ROOT}/infra/vps/keys/frwhoop_deploy"
 
@@ -48,13 +59,16 @@ git -C "$ROOT" archive "$RELEASE_SHA" android scoring-service \
 
 echo "========== configure scoring env + build image =========="
 deploy_lane() {
-ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$REMOTE_BUILD" "$1" <<'REMOTE'
+ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$REMOTE_BUILD" "$1" \
+  "$SELECTED_V1_IMAGE" "$SHADOW_V2_IMAGE" <<'REMOTE'
 set -euo pipefail
 RELEASE_SHA="$1"
 BASE="/opt/frwhoop"
 COMPOSE_DIR="${BASE}/scoring"
 BUILD="$2"
 SCORING_SERVICE="${3:-scoring-physiology-v2}"
+REVIEWED_BASELINE_IMAGE="$4"
+REVIEWED_V2_IMAGE="$5"
 SECRETS="${BASE}/secrets.env"
 SCORING_ENV="${BASE}/scoring.env"
 COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
@@ -78,9 +92,13 @@ source "$SECRETS"
 : "${SCORING_SUPABASE_URL:?Set the hosted Supabase PostgREST URL in /opt/frwhoop/secrets.env}"
 : "${SCORING_INGEST_SECRET:?Set the hosted project's SCORING_INGEST_SECRET in /opt/frwhoop/secrets.env}"
 : "${SCORING_SUPABASE_SERVICE_ROLE_KEY:?Set the hosted project's SCORING_SUPABASE_SERVICE_ROLE_KEY in /opt/frwhoop/secrets.env}"
-: "${SCORING_BASELINE_IMAGE:?Provide the reviewed patched baseline image digest}"
-[[ "$SCORING_BASELINE_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || { echo 'Baseline image must be pinned by digest' >&2; exit 1; }
-export SCORING_BASELINE_IMAGE
+SCORING_BASELINE_IMAGE="$REVIEWED_BASELINE_IMAGE"
+SCORING_V2_IMAGE="$REVIEWED_V2_IMAGE"
+[[ "$SCORING_BASELINE_IMAGE" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ &&
+   "$SCORING_V2_IMAGE" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] || {
+  echo 'Worker images must be pinned registry digest references' >&2; exit 1;
+}
+export SCORING_BASELINE_IMAGE SCORING_V2_IMAGE
 
 case "$SCORING_DATABASE_URL" in
   *"@db:"*|*"//db:"*|*localhost*|*127.0.0.1*) echo "Refusing a local scoring database destination" >&2; exit 1 ;;
@@ -159,19 +177,26 @@ scoring_identity_valid
 } >"$candidate_env"
 unset REPLAY_USER_ID REPLAY_DAY REPLAY_DEVICE_ID
 
-cd "$BUILD"
-docker build --build-arg "RELEASE_SHA=${RELEASE_SHA}" \
-  -t "frwhoop/scoring-service:${RELEASE_SHA}" -f scoring-service/Dockerfile .
-candidate_image="frwhoop/scoring-service:${RELEASE_SHA}"
+for reviewed_image in "$SCORING_BASELINE_IMAGE" "$SCORING_V2_IMAGE"; do
+  timeout 300 docker pull "$reviewed_image" >/dev/null
+  [[ "$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$reviewed_image")" == "$RELEASE_SHA" ]] || exit 1
+  [[ "$(docker image inspect -f '{{ index .Config.Labels "io.frwhoop.heartbeat.contract" }}' "$reviewed_image")" == physiology_worker_heartbeats-v1 ]] || exit 1
+  [[ "$(docker image inspect -f '{{ index .Config.Labels "io.frwhoop.image.platform" }}' "$reviewed_image")" == linux/amd64 ]] || exit 1
+  [[ "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "$reviewed_image")" == linux/amd64 ]] || exit 1
+done
+candidate_image="$SCORING_V2_IMAGE"
 if [[ "$SCORING_SERVICE" == scoring-baseline-v1 ]]; then
   candidate_image="$SCORING_BASELINE_IMAGE"
   [[ "$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$candidate_image")" == "$RELEASE_SHA" ]] || exit 1
+  [[ "$(docker image inspect -f '{{ index .Config.Labels "io.frwhoop.algorithm.version" }}' "$candidate_image")" == frwhoop-server-1 ]] || exit 1
   [[ "$(docker image inspect -f '{{ index .Config.Labels "io.frwhoop.baseline.commit" }}' "$candidate_image")" == 5caa31689da0023e111beb36850d3f81d67e1be2 ]] || exit 1
   for patch_name in transport runtime-identity; do
     patch_sha="$(sha256sum "${BUILD}/scoring-service/legacy-baseline/${patch_name}.patch" | cut -d ' ' -f 1)"
     label_name=transport; [[ "$patch_name" != runtime-identity ]] || label_name=identity
     [[ "$(docker image inspect -f "{{ index .Config.Labels \"io.frwhoop.baseline.${label_name}-sha256\" }}" "$candidate_image")" == "$patch_sha" ]] || exit 1
   done
+else
+  [[ "$(docker image inspect -f '{{ index .Config.Labels "io.frwhoop.algorithm.roles" }}' "$candidate_image")" == frwhoop-physiology-2,frwhoop-server-2-history ]] || exit 1
 fi
 SCORING_EXPECTED_IMAGE_ID="$(docker image inspect -f '{{.Id}}' "$candidate_image")"
 [[ "$SCORING_EXPECTED_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
@@ -184,10 +209,9 @@ preflight_version="$SCORING_ALGORITHM_VERSION"
 [[ "$preflight_version" != frwhoop-server-1 ]] || preflight_version=frwhoop-physiology-2
 docker run --rm --env-file "$candidate_env" --env-file "${BASE}/b2.env" \
   -e "SCORING_ALGORITHM_VERSION=$preflight_version" \
-  "frwhoop/scoring-service:${RELEASE_SHA}" --check-config
+  "$SCORING_V2_IMAGE" --check-config
 
 cd "$COMPOSE_DIR"
-export SCORING_IMAGE_TAG="$RELEASE_SHA"
 export SCORING_CPUS="${SCORING_CPUS:-2.0}"
 export SCORING_MEMORY_LIMIT="${SCORING_MEMORY_LIMIT:-2g}"
 compose_project="frwhoop-scoring-${SCORING_WORKER_INSTANCE_ID}"
@@ -239,7 +263,7 @@ echo "Prior worker/configuration retained for rollback: ${rollback_dir}"
 REMOTE
 }
 
-for lane in scoring-physiology-v2 scoring-baseline-v1 scoring-history; do
+for lane in scoring-baseline-v1 scoring-physiology-v2 scoring-history; do
   deploy_lane "$lane"
 done
 

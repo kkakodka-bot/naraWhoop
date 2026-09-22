@@ -21,7 +21,7 @@ services:
     command: []
     network_mode: bridge
   scoring-physiology-v2:
-    image: frwhoop/scoring-service:${SCORING_IMAGE_TAG:?SCORING_IMAGE_TAG is required}
+    image: ${SCORING_V2_IMAGE:?A reviewed physiology v2 image digest is required}
     container_name: scoring-physiology-v2
     restart: unless-stopped
     init: true
@@ -43,7 +43,7 @@ services:
     # Container/process existence is not scoring health. The acceptance script verifies
     # advancing hosted poll/publication timestamps; ingest-verify reports processing separately.
   scoring-history:
-    image: frwhoop/scoring-service:${SCORING_IMAGE_TAG:?SCORING_IMAGE_TAG is required}
+    image: ${SCORING_V2_IMAGE:?A reviewed physiology v2 image digest is required}
     container_name: scoring-history
     restart: unless-stopped
     init: true

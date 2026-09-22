@@ -10,6 +10,8 @@ import unittest
 VPS = Path(__file__).resolve().parents[1]
 SCRIPT = VPS / "scripts/deploy-scoring-service.sh"
 SHA = "a" * 40
+V1_IMAGE = "fixture.invalid/reviewed-v1@sha256:" + "1" * 64
+V2_IMAGE = "fixture.invalid/reviewed-v2@sha256:" + "2" * 64
 
 DOCKER = r'''#!/usr/bin/env python3
 import json, os, pathlib, sys
@@ -130,7 +132,16 @@ elif args[0] == 'run' and 'psql' in args:
     if n > 2 and scenario == 'process-changed': process_id = '44444444-4444-4444-8444-444444444444'
     publication = 11 if score > 0 else 10
     print('|'.join(map(str,[processes,process_id,poll,score,'t',int(debt),0,0,0,publication,1000,0,0])))
-elif args[0] == 'image' and args[1] == 'inspect': print('sha256:' + 'a'*64)
+elif args[0] == 'pull': pass
+elif args[0] == 'image' and args[1] == 'inspect':
+    field = args[args.index('-f')+1]
+    if 'org.opencontainers.image.revision' in field: print('a'*40)
+    elif 'io.frwhoop.heartbeat.contract' in field: print('physiology_worker_heartbeats-v1')
+    elif 'io.frwhoop.image.platform' in field: print('linux/amd64')
+    elif '.Os' in field and '.Architecture' in field: print('linux/amd64')
+    elif 'io.frwhoop.algorithm.roles' in field: print('frwhoop-physiology-2,frwhoop-server-2-history')
+    elif '.Id' in field: print('sha256:' + 'a'*64)
+    else: raise AssertionError(field)
 elif args[0] == 'update':
     key,row = lookup(args[-1]); assert key == 'new-v2' and args[-1] == key
     if scenario == 'restart-policy': sys.exit(1)
@@ -198,7 +209,8 @@ class ScoringDeployTest(unittest.TestCase):
             env = os.environ.copy()
             env.update(PATH=str(binary_dir) + os.pathsep + env["PATH"], FIXTURE_ROOT=str(root), SCENARIO=scenario)
             bash = "/opt/homebrew/bin/bash" if Path("/opt/homebrew/bin/bash").exists() else "bash"
-            result = subprocess.run([bash, "-s", "--", SHA, str(build)], input=remote, text=True,
+            result = subprocess.run([bash, "-s", "--", SHA, str(build), "scoring-physiology-v2",
+                                     V1_IMAGE, V2_IMAGE], input=remote, text=True,
                                     capture_output=True, env=env, timeout=20)
             log = root / "docker.jsonl"
             commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
@@ -245,6 +257,8 @@ class ScoringDeployTest(unittest.TestCase):
                 self.assertTrue(state["containers"]["old-v1"]["running"])
                 self.assertTrue(state["containers"]["model"]["running"])
                 self.assertFalse(any(c[0] == "rm" for c in commands))
+                self.assertFalse(any(c[0] == "build" for c in commands))
+                self.assertEqual([c[-1] for c in commands if c[0] == "pull"], [V1_IMAGE, V2_IMAGE])
                 self.assertIn("SUPABASE_SERVICE_ROLE_KEY=hosted-key\n", config)
                 self.assertNotIn("wrong-local", config)
                 self.assertIn("scoring-physiology-v2:", compose)

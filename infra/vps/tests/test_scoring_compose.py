@@ -22,7 +22,8 @@ class ScoringComposeTest(unittest.TestCase):
             b2_file.write_text('B2_BUCKET_NAME=fixture\n')
             config.write_text((VPS / 'templates/docker-compose.scoring-override.yml').read_text()
                               .replace('/opt/frwhoop/b2.env', str(b2_file)))
-            env = dict(os.environ, SCORING_IMAGE_TAG='a'*40, SCORING_ENV_FILE=str(env_file),
+            env = dict(os.environ, SCORING_V2_IMAGE='fixture.invalid/v2@sha256:' + 'b'*64,
+                       SCORING_ENV_FILE=str(env_file),
                        SCORING_BASELINE_IMAGE='fixture.invalid/baseline@sha256:' + 'a'*64,
                        SCORING_BASELINE_ENV_FILE=str(env_file), SCORING_HISTORY_ENV_FILE=str(env_file),
                        SCORING_CPUS='2.0', SCORING_MEMORY_LIMIT='2g')
@@ -33,6 +34,8 @@ class ScoringComposeTest(unittest.TestCase):
             self.assertEqual(set(resolved['services']), {'scoring-baseline-v1','scoring-physiology-v2','scoring-history'})
             self.assertEqual(resolved['services']['scoring-baseline-v1']['environment']['SCORING_ALGORITHM_VERSION'], 'frwhoop-server-1')
             self.assertEqual(resolved['services']['scoring-baseline-v1']['image'], env['SCORING_BASELINE_IMAGE'])
+            self.assertEqual(resolved['services']['scoring-physiology-v2']['image'], env['SCORING_V2_IMAGE'])
+            self.assertEqual(resolved['services']['scoring-history']['image'], env['SCORING_V2_IMAGE'])
             self.assertEqual(resolved['services']['scoring-history']['command'], ['--history'])
             worker = resolved['services']['scoring-physiology-v2']
             self.assertEqual(float(worker['cpus']), 2)

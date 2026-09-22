@@ -329,16 +329,24 @@ test('actual deployment rejects incompatible single-worker manifests and archive
   const pinned = invoke(['--image-manifest', f.filename], 3);
   assert.match(pinned.stdout, /IMAGE_PROVENANCE_VALIDATED/); assert.match(pinned.stderr, /single-worker self-hosted/);
   assert.deepEqual(pinned.calls, []); // No configs, dependency starts, or SSH before rejection.
-  const exact = invoke([]);
+  const v1 = `registry.invalid/frwhoop-v1@sha256:${'1'.repeat(64)}`;
+  const v2 = `registry.invalid/frwhoop-v2@sha256:${'2'.repeat(64)}`;
+  for (const args of [[], ['--selected-v1-image', 'registry.invalid/frwhoop-v1:latest', '--shadow-v2-image', v2]]) {
+    const rejected = invoke(args, 3);
+    assert.match(rejected.stderr, /NOT_READY/); assert.deepEqual(rejected.calls, []);
+  }
+  const exact = invoke(['--selected-v1-image', v1, '--shadow-v2-image', v2]);
   assert.match(exact.stdout, /Deploy complete: a{40}/);
   assert.ok(exact.calls.every(c => !['rsync','scp'].includes(c.program)));
   const archive = exact.calls.find(c => c.program === 'git' && c.args.includes('archive'));
   assert.equal(archive.args[archive.args.indexOf('archive')+1], 'a'.repeat(40));
   assert.ok(exact.calls.some(c => c.program === 'ssh' && c.stdin === 'EXACT_COMMITTED_ARCHIVE'));
   const lanes = exact.calls.filter(c => c.program === 'ssh' && c.args.includes('bash') && c.args.includes('-s') && c.args.length && c.stdin.includes('scoring_wait_for_progress'));
-  assert.deepEqual(lanes.map(c => c.args.at(-1)), ['scoring-physiology-v2','scoring-baseline-v1','scoring-history']);
+  assert.deepEqual(lanes.map(c => c.args[c.args.indexOf('--') + 3]),
+    ['scoring-baseline-v1','scoring-physiology-v2','scoring-history']);
   for (const lane of lanes) {
-    assert.doesNotMatch(lane.stdin, /scoring-service:latest|rsync/);
+    assert.doesNotMatch(lane.stdin, /docker build|scoring-service:latest|rsync/);
+    assert.equal(lane.args.at(-2), v1); assert.equal(lane.args.at(-1), v2);
     assert.match(lane.stdin, /SCORING_EXPECTED_IMAGE_ID/);
     assert.match(lane.stdin, /--check-config/);
   }

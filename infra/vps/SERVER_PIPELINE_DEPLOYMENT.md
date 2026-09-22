@@ -22,8 +22,8 @@ the old formulas are physiologically qualified.
 The baseline image is separately built from `5caa31689da0023e111beb36850d3f81d67e1be2` with the two
 reviewed transport patches. Its image labels include the exact repair SHA, original baseline SHA
 and both patch hashes. Build it locally using [the baseline builder](../../scoring-service/legacy-baseline/README.md).
-Authorized deployment requires `SCORING_BASELINE_IMAGE` pinned to its reviewed registry digest;
-this repair does not publish that digest. Physiology and history use the same exact-source image.
+Authorized deployment requires separately reviewed registry digest references for the patched v1
+image and the shared physiology/history image. This repair does not publish either digest.
 
 ## Migration lineage: no timestamp truncation or blind replay
 
@@ -84,9 +84,16 @@ confirm that all selected defaults remain v1. These tests do not establish the p
    `SCORING_SUPABASE_SERVICE_ROLE_KEY` and `SCORING_INGEST_SECRET` for the same hosted project.
    VPS-local Supabase credentials are not substitutes. Never put credentials into evidence.
 4. Run the reviewed exact-source deployment script only with deployment authority. It requires a
-   clean checkout, streams `git archive` rather than local caches, performs read-only preflight,
-   and cuts over each worker lane independently. It never accepts inherited replay selectors,
-   relabels v2 as v1, changes qualification, or exposes scorer ports.
+   clean checkout and both immutable registry digest references, streams `git archive` rather than
+   local caches, pulls and verifies those exact images, performs read-only preflight, then cuts over
+   selected v1 before v2 shadow and history. It never rebuilds on the target, accepts inherited replay
+   selectors, relabels v2 as v1, changes qualification, or exposes scorer ports:
+
+   ```sh
+   infra/vps/scripts/deploy-scoring-service.sh \
+     --selected-v1-image REGISTRY/frwhoop-v1@sha256:REVIEWED_DIGEST \
+     --shadow-v2-image REGISTRY/frwhoop-v2@sha256:REVIEWED_DIGEST
+   ```
 5. Review all three version-specific runtime observations and the enrolled-phone canary. Deployment
    success is not qualification, a decoded phone result, or physical displayed-state evidence.
 
