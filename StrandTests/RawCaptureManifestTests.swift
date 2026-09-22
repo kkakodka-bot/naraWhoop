@@ -56,7 +56,12 @@ final class RawCaptureManifestTests: XCTestCase {
         XCTAssertEqual(meta.endTs, ts + 1)
         XCTAssertEqual(store.operations, ["insert", "raw", "cursor", "ack"])
         let first = try manifest(meta)
-        XCTAssertEqual(first.endTs - first.startTs, 1)
+        // Capture metadata deliberately retains its nonempty ts..ts+1 padding. The unchanged
+        // packed rawBatch wire contract interprets endTs inclusively and wraps it with an exclusive
+        // manifest bound; do not silently subtract a second from retained capture bytes on upload.
+        XCTAssertEqual(first.startTs, Int64(meta.startTs))
+        XCTAssertEqual(first.endTs, Int64(meta.endTs + 1))
+        XCTAssertEqual(first.endTs - first.startTs, 2)
         XCTAssertEqual(first.objectId, try manifest(meta).objectId)
     }
 

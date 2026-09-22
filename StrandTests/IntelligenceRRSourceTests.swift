@@ -46,7 +46,7 @@ final class IntelligenceRRSourceTests: XCTestCase {
     }
 
     // A completed night with distinct cardiac and observed, non-frozen motion evidence.
-    private func night() -> (day: String, hr: [HRSample], rr: [RRInterval], gravity: [GravitySample]) {
+    private func night(observedDaytimeMotion: Bool = true) -> (day: String, hr: [HRSample], rr: [RRInterval], gravity: [GravitySample]) {
         let start = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970) - 86_400
         let day = Repository.localDayKey(Date(timeIntervalSince1970: Double(start)))
         var hr: [HRSample] = []
@@ -60,8 +60,19 @@ final class IntelligenceRRSourceTests: XCTestCase {
             hr.append(HRSample(ts: ts, bpm: bpm))
             rr.append(RRInterval(ts: ts, rrMs: 900 + (i.isMultiple(of: 2) ? 16 : -16)))
         }
-        let gravity = hr.map { GravitySample(ts: $0.ts, x: Double($0.ts % 2) * 0.000001, y: 0, z: 1) }
+        // A full day of uniformly quiet motion is not evidence of a distinct sleep opportunity.
+        // Keep observed waking movement separate from the quiet night instead of loosening the gate.
+        let gravity = hr.enumerated().map { i, sample in
+            let amplitude = observedDaytimeMotion && i < 16 * 3_600 ? 0.2 : 0.000001
+            return GravitySample(ts: sample.ts, x: Double(i % 2) * amplitude, y: 0, z: 1)
+        }
         return (day, hr, rr, gravity)
+    }
+
+    func testUniformQuietDayDoesNotBecomeAQualifiedNight() {
+        let input = night(observedDaytimeMotion: false)
+        XCTAssertTrue(SleepStager.detectSleep(hr: input.hr, rr: input.rr, gravity: input.gravity,
+            useSleepStagerV2: true, timezone: .current).isEmpty)
     }
 
     func testNightlyScoringRejectsLegacyAliasAndRecomputesAfterZeroInsertPromotion() async throws {
