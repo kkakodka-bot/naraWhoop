@@ -188,6 +188,52 @@ final class ScoringPreferenceContainmentTests: XCTestCase {
         return f
     }
 
+    func testFinalHostedExportsUseCanonicalAdmissionWithoutPreferenceProjection() async throws {
+        let f = try await fixture(), model = f.openModel()
+        let token = try await f.store.markJobOwed(kind: "widgetPublish")
+        let starts = f.starts
+        var exports = 0
+        model.syncEngine.dependentStageDriver = .init(perform: { stage, admission in
+            XCTAssertEqual(stage, .widgetPublish)
+            guard await admission.validate() else { return false }
+            do { try admission.checkBoundary() } catch { XCTFail("\(error)"); return false }
+            exports += 1
+            return true
+        })
+        await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            let runnable = await model.syncEngine.hasRunnableWork()
+            XCTAssertTrue(runnable)
+            await model.syncEngine.drain(reason: .foreground)
+            XCTAssertTrue(PhoneComputeRuntime.counters().executions.isEmpty)
+        }
+        XCTAssertEqual(exports, 1)
+        XCTAssertEqual(f.starts, starts, "Export admission must not invoke retired preference scoring")
+        let jobs = try await f.store.owedJobs()
+        XCTAssertFalse(jobs.contains { $0.kind == "widgetPublish" && $0.token == token })
+    }
+
+    func testFinalHostedResultChangeAtAttemptRetainsExactExportToken() async throws {
+        let f = try await fixture(), model = f.openModel()
+        let token = try await f.store.markJobOwed(kind: "healthWriteback")
+        var exports = 0
+        model.syncEngine.dependentStageDriver = .init(afterAttempt: { stage in
+            XCTAssertEqual(stage, .healthWriteback)
+            _ = model.repo.applyServerScores(ServerScoreViewState(generation: UUID(), revision: 42,
+                currentDay: "2026-09-21", timezone: "UTC", configured: true, authenticated: true,
+                capabilities: [], activated: [], days: ["2026-09-21": .empty(.failed)]))
+        }, perform: { _, _ in exports += 1; return true })
+        await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            await model.syncEngine.drain(reason: .foreground)
+            XCTAssertTrue(PhoneComputeRuntime.counters().executions.isEmpty)
+        }
+        XCTAssertEqual(exports, 0)
+        let jobs = try await f.store.owedJobs()
+        XCTAssertEqual(jobs.first { $0.kind == "healthWriteback" }?.token, token)
+        XCTAssertEqual(jobs.first { $0.kind == "healthWriteback" }?.attempts, 1)
+    }
+
     private func row(start: Int, source: String = "manual", strain: Double? = 0,
                      sport: String = "running") -> WorkoutRow {
         WorkoutRow(startTs: start, endTs: start + 600, sport: sport, source: source,
