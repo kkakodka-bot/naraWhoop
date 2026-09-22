@@ -47,6 +47,11 @@ test('commands cannot replace executed gates with echoed success or filtered ful
 test('zero-test runs and route-only tests cannot satisfy executed proof', () => {
   assert.throws(() => validateOutput('swift-analytics', 'Executed 0 tests, with 0 failures'));
   assert.throws(() => validateOutput('server-pipeline', 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed'));
+  const legacyOnly = 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed\n' + ['swift', 'kotlin'].map((platform) =>
+    `${platform}: 22 real Edge envelopes passed\n${platform} worker-0.json: decoded and display selection verified\n` +
+    `${platform} account-sleep-only.json: decoded and display selection verified`).join('\n');
+  assert.throws(() => validateOutput('server-pipeline', legacyOnly), /canonical family selection/);
+  validateOutput('server-pipeline', legacyOnly + '\nswift: 22 canonical persisted selections passed\nkotlin: 22 canonical persisted selections passed');
   assert.throws(() => validateOutput('ios-final-runtime', 'FinalHostedRuntimeTests ** TEST SUCCEEDED **'));
   validateOutput('ios-final-runtime', 'FinalHostedRuntimeTests FINAL_HOSTED_ZERO path=cold_launch executions=0 ** TEST SUCCEEDED **');
   for (const suffix of ['UP-TO-DATE', 'FROM-CACHE', 'SKIPPED', 'NO-SOURCE']) {

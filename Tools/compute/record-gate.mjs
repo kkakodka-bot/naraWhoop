@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { root, evidenceDefault, hash, sourceSnapshot, validateCommand, validateOutput } from './evidence.mjs';
+import { captureAndroidReports } from './gate-artifacts.mjs';
 
 const args = process.argv.slice(2), separator = args.indexOf('--');
 assert(separator > 0, 'Usage: node Tools/compute/record-gate.mjs --gate NAME [--evidence-dir DIR] [--cwd DIR] -- COMMAND ARGS...');
@@ -26,17 +27,21 @@ child.on('error', (error) => { spawnError = error.message; });
 const exitCode = await new Promise((resolve) => child.on('close', resolve));
 await new Promise((resolve) => log.end(resolve));
 const after = sourceSnapshot(), bytes = fs.readFileSync(logPath);
+const finished = new Date().toISOString();
 let failure = spawnError;
+let runtimeReports;
 try {
   assert.equal(exitCode, 0, 'Gate command failed');
   assert.equal(after.source_content_sha256, before.source_content_sha256, 'Source changed during gate');
   assert(after.source_clean, 'Source became dirty during gate');
   validateOutput(gate, bytes.toString('utf8'));
+  if (gate === 'android-app') runtimeReports = captureAndroidReports(root, directory, command, started, finished);
 } catch (error) { failure = error.message; }
 const receipt = { schema_version: 1, gate, status: failure ? 'FAIL' : 'PASS', command,
-  cwd: path.relative(root, cwd) || '.', started_at: started, finished_at: new Date().toISOString(),
+  cwd: path.relative(root, cwd) || '.', started_at: started, finished_at: finished,
   source_before: before, source_after: after, exit_code: exitCode, failure: failure ?? null,
-  log_path: path.basename(logPath), log_sha256: hash(bytes) };
+  log_path: path.basename(logPath), log_sha256: hash(bytes),
+  ...(runtimeReports ? { runtime_reports: runtimeReports } : {}) };
 fs.writeFileSync(path.join(directory, `${gate}.json`), JSON.stringify(receipt, null, 2) + '\n');
 console.log(JSON.stringify({ gate, status: receipt.status, receipt: path.join(directory, `${gate}.json`), failure: receipt.failure }));
 if (failure) process.exitCode = 1;

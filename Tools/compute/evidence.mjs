@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { validateAndroidReports } from './gate-artifacts.mjs';
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const evidenceDefault = 'docs/compute/evidence';
@@ -89,6 +90,8 @@ export function validateOutput(gate, output) {
     assert(output.includes('SQL -> actual Edge -> Swift/Kotlin decoder tests passed'));
     for (const platform of ['swift', 'kotlin']) {
       assert(new RegExp(`${platform}: [2-9][0-9] real Edge envelopes passed`).test(output));
+      assert(new RegExp(`${platform}: [2-9][0-9] canonical persisted selections passed`).test(output),
+        'Actual canonical family selection and persisted ownership must be exercised');
       assert(output.includes(`${platform} worker-0.json: decoded and display selection verified`), 'Actual worker result must reach the production decoder');
       assert(output.includes(`${platform} account-sleep-only.json: decoded and display selection verified`), 'Actual account route must reach the production decoder');
     }
@@ -122,6 +125,7 @@ export function validateReceipts(directory, snapshot = sourceSnapshot()) {
     const log = fs.readFileSync(logPath);
     assert.equal(hash(log), receipt.log_sha256, `${gate}: evidence log changed`);
     validateOutput(gate, log.toString('utf8'));
+    if (gate === 'android-app') validateAndroidReports(directory, receipt);
     assert.equal(receipt.exit_code, 0);
     return { gate, status: 'PASS', source_sha: receipt.source_before.source_sha, source_content_sha256: snapshot.source_content_sha256 };
   });
