@@ -954,7 +954,7 @@ public struct PushCoordinator: Sendable {
                 throw PushProtocolException("mutable day key is invalid")
             }
             return day
-        case .sleepSession, .workout:
+        case .sleepSession, .workout, .eventLabel:
             guard let timestamp = record.key["startTs"]?.int64Value else {
                 throw PushProtocolException("mutable startTs key is not an integer")
             }
