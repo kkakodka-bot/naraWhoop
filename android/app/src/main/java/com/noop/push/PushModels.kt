@@ -24,6 +24,7 @@ enum class PushAppendTable(override val wireName: String) : PushTable {
     PPG_HR_SAMPLE("ppgHrSample");
 
     val isScalarExtension: Boolean get() = this in setOf(STEP_SAMPLE, SLEEP_STATE_SAMPLE, PPG_HR_SAMPLE)
+    val isObservationExtension: Boolean get() = this in setOf(RR_PACKET_PROVENANCE, STANDARD_HR_RECEIPT)
 }
 
 enum class PushMutableTable(override val wireName: String) : PushTable {

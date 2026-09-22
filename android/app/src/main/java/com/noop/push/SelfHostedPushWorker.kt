@@ -90,6 +90,10 @@ class SelfHostedPushWorker(
     override suspend fun doWork(): Result {
         val inputNamespace = inputData.getString(AccountPushJobAdmission.NAMESPACE)
         val inputGeneration = inputData.getString(AccountPushJobAdmission.GENERATION)
+        // A legacy enrollment job cannot borrow a newly signed-in account's stores or credentials.
+        // Enrollment-only capture retains its existing token-scoped scheduling path.
+        if (inputNamespace == null && inputGeneration == null &&
+            CloudAuthClient.identitySnapshot(applicationContext).scope != null) return Result.success()
         if (inputNamespace != null || inputGeneration != null) {
             val current = CloudAuthClient.identitySnapshot(applicationContext).context ?: return Result.success()
             if (!AccountPushJobAdmission.matches(current, inputNamespace, inputGeneration)) return Result.success()

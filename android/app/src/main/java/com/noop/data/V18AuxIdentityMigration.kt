@@ -48,9 +48,14 @@ internal object V18AuxIdentityMigration : Migration(40, 41) {
     }
 
     fun installGuards(db: SupportSQLiteDatabase) {
-        for (event in listOf("INSERT", "UPDATE")) db.execSQL("""CREATE TRIGGER v18Aux_identity_${event.lowercase()} BEFORE $event ON v18AuxSample
+        for (event in listOf("INSERT", "UPDATE")) {
+            // Migration and Room open both install the same invariant. Replace only these known
+            // guards, so repeated opens enforce the current definition without duplicate errors.
+            db.execSQL("DROP TRIGGER IF EXISTS v18Aux_identity_${event.lowercase()}")
+            db.execSQL("""CREATE TRIGGER v18Aux_identity_${event.lowercase()} BEFORE $event ON v18AuxSample
             WHEN typeof(NEW.recordIndex)!='integer' OR NEW.recordIndex NOT BETWEEN -1 AND 4294967295 OR length(NEW.resourceKey)=0
             BEGIN SELECT RAISE(ABORT,'Invalid auxiliary identity'); END""")
+        }
     }
     private fun count(db: SupportSQLiteDatabase, sql: String): Long = db.query(sql).use { check(it.moveToFirst()); it.getLong(0) }
     fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

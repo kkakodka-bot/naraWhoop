@@ -122,7 +122,7 @@ class PushHttpTransportPolicyTest {
         assertEquals(PushFailureCode.HTTP_CLIENT, (result as PushCapabilitiesResult.Rejected).failure?.code)
     }
 
-    @Test fun unknownOnlyCapabilitiesParseToEmptyWithoutRejectingTransport() = runBlocking {
+    @Test fun futureOnlyCapabilitiesParseToEmptyWithoutRejectingTransport() = runBlocking {
         val client = OkHttpClient.Builder().addInterceptor { chain ->
             Response.Builder()
                 .request(chain.request())
@@ -130,7 +130,7 @@ class PushHttpTransportPolicyTest {
                 .code(200)
                 .message("ok")
                 .body(
-                    """{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"00000000-0000-4000-8000-000000000099","userId":"$USER_ID","sourceId":"$SOURCE_ID","streams":["stepSample","futureStream"]}"""
+                    """{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"00000000-0000-4000-8000-000000000099","userId":"$USER_ID","sourceId":"$SOURCE_ID","streams":["futureStream"]}"""
                         .toResponseBody(),
                 )
                 .build()

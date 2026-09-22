@@ -73,7 +73,7 @@ data class PushCapabilities(
                 val name = array.opt(index) as? String
                     ?: throw PushProtocolException("capability stream names must be strings")
                 if (!seen.add(name)) throw PushProtocolException("duplicate capability stream")
-                appendByName[name]?.let { if (!it.isScalarExtension || version != PushProtocol.VERSION) append += it }
+                appendByName[name]?.let { if ((!it.isScalarExtension && !it.isObservationExtension) || version != PushProtocol.VERSION) append += it }
                     ?: mutableByName[name]?.let { mutable += it }
                     ?: binaryByName[name]?.let { binary += it }
             }

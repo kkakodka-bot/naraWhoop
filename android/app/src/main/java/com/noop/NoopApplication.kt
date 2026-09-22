@@ -23,6 +23,8 @@ class NoopApplication : Application() {
     private val presentationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     @Volatile private var runtimeValue: AccountAppRuntime? = null
     val accountRuntime: AccountAppRuntime get() = checkNotNull(runtimeValue)
+    internal fun storageContext(): AccountStorageContext = runtimeValue?.context
+        ?: AccountStorageContext(this, CloudAuthClient.identitySnapshot(this))
     val repository get() = accountRuntime.repository
     val deviceRegistry get() = accountRuntime.deviceRegistry
     val ble get() = accountRuntime.ble

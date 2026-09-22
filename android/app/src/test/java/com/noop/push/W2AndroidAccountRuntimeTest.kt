@@ -235,7 +235,8 @@ class W2AndroidAccountRuntimeTest {
         store.start("fixture-session", "fixture", ts * 1000)
         store.append("fixture", frame)
         val filename = "imu-${com.noop.testcentre.ImuSessionFileStore.utcName(com.noop.testcentre.ImuSessionFileStore.bucketStart(ts))}.imus"
-        val obstruction = File(ca.filesDir, "imu/raw-imu-bounded/fixture-session/$filename")
+        val directory = EnrollmentDataScope.storageName(ca, "raw-imu-sessions")
+        val obstruction = File(ca.filesDir, "$directory/fixture-session/$filename")
         assertTrue(obstruction.mkdir())
         try { store.prepareForRead("fixture-session"); fail("flush unexpectedly succeeded") }
         catch (_: java.io.IOException) { }

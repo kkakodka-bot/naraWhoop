@@ -42,10 +42,10 @@ class AccountStorageContext(base: Context, val identity: AccountIdentitySnapshot
             var cursor = context
             while (cursor is ContextWrapper) {
                 if (cursor is AccountStorageContext) return cursor
-                if (cursor is NoopApplication) return cursor.accountRuntime.context
+                if (cursor is NoopApplication) return cursor.storageContext()
                 cursor = cursor.baseContext
             }
-            (context.applicationContext as? NoopApplication)?.let { return it.accountRuntime.context }
+            (context.applicationContext as? NoopApplication)?.let { return it.storageContext() }
             return AccountStorageContext(context.applicationContext, CloudAuthClient.identitySnapshot(context))
         }
         fun runtime(context: Context): AccountAppRuntime? = capture(context).runtime
