@@ -99,8 +99,8 @@ files without retaining decoded/compressed/base64 copies. The local format is
 versioned separately; saved legacy payloads retain their exact bytes and identities.
 Fresh streamed object identities include the wire digest and encoding, so an older
 compression representation cannot conflict with a fresh object or supply its receipt.
-Decoded batch identity remains stable. Source selection itself is bounded to 2,000
-rows and 4 MiB decoded.
+Decoded batch identity remains stable. Fresh jobs are capped at 2,000 rows and
+4 MiB decoded; bounded lookahead may inspect one additional source row.
 
 Server copy intents are leased and survive account deletion. A conservative,
 bounded sweeper handles copy/index crash windows; exact receipts and publication
@@ -137,6 +137,10 @@ zsh Tests/HistoricalChunkNative/run.sh /private/artifacts 10000
 swift test --package-path Packages/WhoopStore
 swift test --package-path Packages/NoopPush
 ```
+
+The [server fixture instructions](../Tests/ServerFixtureNative/README.md) export
+current Swift payloads before running the disposable database and receiver suite.
+The server integrity workflow uses that same exporter and frozen dependencies.
 
 The persistent-sync workflow also runs hosted manager/FIFO/commit/cloud tests,
 IMU tests, and an unsigned iOS Release build. A native transport test replaces the
