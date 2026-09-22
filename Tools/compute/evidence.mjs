@@ -58,10 +58,16 @@ export function validateCommand(gate, command) {
     assert(assemble && command.some((v) => v === `:app:test${assemble[1]}DebugUnitTest` ||
       v === `app:test${assemble[1]}DebugUnitTest` || v === `test${assemble[1]}DebugUnitTest`),
       'An Android application build and executed unit suite are both required');
+    assert(command.includes('--rerun-tasks'), 'Android application evidence must execute the unit suite again, not reuse UP-TO-DATE or cached tasks');
   }
   if (['ios-build', 'watch-build', 'macos-tests'].includes(gate)) {
     assert(/(^|\/)xcodebuild$/.test(command[0]), 'Use the actual Xcode build/test command');
-    if (gate === 'macos-tests') assert(command.includes('test') && !command.some((v) => v.startsWith('-only-testing') || v.startsWith('-skip-testing')));
+    if (gate === 'macos-tests') {
+      assert(command.includes('test') && !command.some((v) => v.startsWith('-only-testing') || v.startsWith('-skip-testing')));
+      assert.equal(command[command.indexOf('-scheme') + 1], 'Strand', 'The complete macOS Strand test scheme is required');
+      const destination = command[command.indexOf('-destination') + 1];
+      assert(command.includes('-destination') && /(?:^|,)platform=macOS(?:,|$)/.test(destination), 'The macOS destination must be explicit');
+    }
     else assert(command.includes('build') && command.some((v) => gate === 'watch-build' ? /watchOS/.test(v) : /iOS/.test(v)));
   }
 }
@@ -86,7 +92,11 @@ export function validateOutput(gate, output) {
     assert(output.includes('FinalHostedRuntimeTests') && output.includes('** TEST SUCCEEDED **'));
     assert(output.includes('FINAL_HOSTED_ZERO') && output.includes('executions=0'), 'Missing exercised zero-inference counters');
   }
-  if (gate === 'android-app') assert(output.includes('BUILD SUCCESSFUL'));
+  if (gate === 'android-app') {
+    assert(output.includes('BUILD SUCCESSFUL'));
+    assert(/^> Task :app:test[A-Za-z0-9]*DebugUnitTest\s*$/m.test(output),
+      'The Android application unit-test task must actually execute, not be UP-TO-DATE, FROM-CACHE, SKIPPED or NO-SOURCE');
+  }
   if (gate === 'ios-build' || gate === 'watch-build') assert(output.includes('** BUILD SUCCEEDED **'));
   if (gate === 'macos-tests') assert(output.includes('** TEST SUCCEEDED **'));
 }

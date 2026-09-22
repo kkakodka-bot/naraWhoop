@@ -15,15 +15,25 @@ test('commands cannot replace executed gates with echoed success or filtered ful
   assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:compileDebugKotlin']));
   assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-only-testing:A/B']));
   assert.throws(() => validateCommand('ios-final-runtime', ['bash', '-c', 'echo passed']));
-  validateCommand('android-app', ['./gradlew', ':app:assembleDebug', ':app:testDebugUnitTest']);
-  validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testFullDebugUnitTest']);
+  assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testFullDebugUnitTest']), /--rerun-tasks|execute the unit suite/);
+  validateCommand('android-app', ['./gradlew', ':app:assembleDebug', ':app:testDebugUnitTest', '--rerun-tasks']);
+  validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testFullDebugUnitTest', '--rerun-tasks']);
   assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testSlimDebugUnitTest']));
+  assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-scheme', 'ComputeChecks', '-destination', 'platform=macOS']));
+  assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-scheme', 'Strand', '-destination', 'platform=iOS Simulator']));
+  assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-scheme', 'Strand']));
+  validateCommand('macos-tests', ['xcodebuild', 'test', '-scheme', 'Strand', '-destination', 'platform=macOS']);
 });
 test('zero-test runs and route-only tests cannot satisfy executed proof', () => {
   assert.throws(() => validateOutput('swift-analytics', 'Executed 0 tests, with 0 failures'));
   assert.throws(() => validateOutput('server-pipeline', 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed'));
   assert.throws(() => validateOutput('ios-final-runtime', 'FinalHostedRuntimeTests ** TEST SUCCEEDED **'));
   validateOutput('ios-final-runtime', 'FinalHostedRuntimeTests FINAL_HOSTED_ZERO path=cold_launch executions=0 ** TEST SUCCEEDED **');
+  for (const suffix of ['UP-TO-DATE', 'FROM-CACHE', 'SKIPPED', 'NO-SOURCE']) {
+    assert.throws(() => validateOutput('android-app', `> Task :app:testFullDebugUnitTest ${suffix}\nBUILD SUCCESSFUL`));
+  }
+  assert.throws(() => validateOutput('android-app', 'BUILD SUCCESSFUL'));
+  validateOutput('android-app', '> Task :app:testFullDebugUnitTest\nBUILD SUCCESSFUL');
 });
 test('receipt validation rejects stale revision content, changed logs, failures and missing gates', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'compute-receipt-tests-'));
