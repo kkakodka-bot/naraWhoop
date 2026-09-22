@@ -68,6 +68,7 @@ struct CanonicalPhysiologySection: View {
     /// Formatting only. No default numbers, score reconstruction, baseline, or local ranking.
     static func display(result: ServerCanonicalFamilyResult, metric: String) -> String {
         guard result.metrics.contains(metric), result.hasCanonicalAuthorization,
+              !result.isExpired(at: Date()),
               ["available", "stale"].contains(result.status), let value = result.values[metric]
         else { return "—" }
         return display(value)

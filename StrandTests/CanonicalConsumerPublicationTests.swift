@@ -5,7 +5,7 @@ import StrandDesign
 
 @MainActor
 final class CanonicalConsumerPublicationTests: XCTestCase {
-    private func result(revision: String = "immutable-17", status: String = "available",
+    private func result(revision: String = "compute:17", status: String = "available",
                         sleep: Any = NSNull(), hrv: Any = NSNull()) throws -> ServerCanonicalResults {
         let owner = "11111111-1111-4111-8111-111111111111"
         let source = "22222222-2222-4222-8222-222222222222"
@@ -21,6 +21,7 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
                 "reason": status == "available" ? NSNull() : "qualification_pending",
                 "result_revision": revision, "input_revision": 17,
                 "algorithm_version": "frwhoop-server-1", "configuration_version": "config-1",
+                "manifest_hash": String(repeating: "a", count: 64), "canonical_qualification": "retained_legacy",
                 "project": project, "owner_id": owner, "source_id": source, "device_id": device,
                 "window": day, "computed_at": "2026-09-21T01:00:00Z",
                 "observed_through": "2026-09-21T00:00:00Z", "timezone_id": "UTC",
@@ -46,7 +47,7 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
     func testPublicationAndCSVRetainExactRevisionValidZeroAndOwnedNull() throws {
         let result = try result()
         let ledger = try XCTUnwrap(CanonicalConsumerPublication.ledger(result))
-        XCTAssertEqual(ledger.families["recovery"]?.resultRevision, "immutable-17")
+        XCTAssertEqual(ledger.families["recovery"]?.resultRevision, "compute:17")
         XCTAssertEqual(ledger.project, result.project)
         XCTAssertEqual(ledger.ownerID, result.ownerID)
         XCTAssertEqual(ledger.deviceID, result.deviceID)
@@ -56,11 +57,11 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
         let csv = CsvExport.canonicalCSV([result])
         XCTAssertTrue(csv.contains("\"recovery\",\"recovery\",\"0.0\",\"available\""))
         XCTAssertTrue(csv.contains("\"night_hrv\",\"hrv_sdnn_ms\",\"\",\"available\""))
-        XCTAssertTrue(csv.contains("\"17\",\"immutable-17\",\"frwhoop-server-1\",\"config-1\""))
+        XCTAssertTrue(csv.contains("\"17\",\"compute:17\",\"frwhoop-server-1\",\"config-1\""))
     }
 
     func testWidgetChangesOnRevisionEvenWhenValuesAreEqualAndRejectsOldCache() throws {
-        let first = try result(), next = try result(revision: "immutable-18")
+        let first = try result(), next = try result(revision: "compute:18")
         var a = WidgetSnapshot(recovery: 0, bpm: 70, batteryPct: 50, bonded: true, updated: Date(),
             finalHosted: true, canonicalLedger: CanonicalConsumerPublication.ledger(first))
         var b = a; b.canonicalLedger = CanonicalConsumerPublication.ledger(next)
@@ -104,7 +105,7 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
         let result = try result(), failed = state(result, phase: .failed)
         let ledger = try XCTUnwrap(CanonicalConsumerPublication.ledger(result, state: failed))
         XCTAssertEqual(ledger.readState, "failed")
-        XCTAssertEqual(ledger.families["recovery"]?.resultRevision, "immutable-17")
+        XCTAssertEqual(ledger.families["recovery"]?.resultRevision, "compute:17")
         XCTAssertNil(CanonicalConsumerPublication.value("recovery", in: result, state: failed))
         XCTAssertTrue(try CanonicalHealthWritebackPlan.days(state: failed).isEmpty)
         var snapshot = WidgetSnapshot(recovery: 0, bpm: 70, batteryPct: 50, bonded: true, updated: Date(),
