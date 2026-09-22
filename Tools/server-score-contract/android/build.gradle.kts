@@ -12,11 +12,15 @@ sourceSets {
     main {
         kotlin.srcDir("../../../android/app/src/main/java")
         kotlin.include("DecodeContract.kt", "com/noop/push/ServerScoreCacheCodec.kt", "com/noop/push/ServerScoreModels.kt",
-            "com/noop/push/ServerVitalSelection.kt", "com/noop/push/ServerHrvSeries.kt", "com/noop/push/ServerRespirationSummary.kt")
+            "com/noop/push/ServerVitalSelection.kt", "com/noop/push/ServerMetricOwnership.kt",
+            "com/noop/push/ServerHrvSeries.kt", "com/noop/push/ServerRespirationSummary.kt")
     }
     test {
         kotlin.srcDir("../../../android/app/src/test/java")
-        kotlin.include("com/noop/push/ServerScoreCacheCodecTest.kt")
+        kotlin.include("com/noop/push/ServerScoreCacheCodecTest.kt", "com/noop/push/ServerMetricOwnershipTest.kt",
+            "com/noop/push/ServerVitalSelectionTest.kt")
+        resources.srcDir("../../../android/app/src/test/resources")
+        resources.include("server_physiology_snapshot.json")
     }
 }
 application { mainClass.set("DecodeContractKt") }

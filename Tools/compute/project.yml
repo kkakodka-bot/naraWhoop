@@ -1,0 +1,40 @@
+include:
+  - path: ../../project.yml
+name: ComputeChecks
+targets:
+  ComputeChecksTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - ../../StrandTests/SyncDrainPolicyTests.swift
+      - ../../StrandTests/ServerScoreRepositoryRaceTests.swift
+      - ../../StrandTests/ServerScoringRescoreSkipTests.swift
+      - ../../StrandTests/ScoringPreferenceContainmentTests.swift
+      - ../../StrandTests/ScoringPreferenceAppTests.swift
+    dependencies:
+      - target: Strand
+      - package: WhoopProtocol
+      - package: WhoopStore
+      - package: NoopPush
+      - package: StrandAnalytics
+      - package: GRDB
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX).computechecks
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NOOP Staging.app/Contents/MacOS/NOOP Staging"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  ComputeChecks:
+    build:
+      targets:
+        Strand: all
+    test:
+      config: Debug
+      environmentVariables:
+        NOOP_HERMETIC_TESTING: "1"
+        NOOP_TEST_DISABLE_BLUETOOTH: "1"
+        NARA_TEST_FIXTURE_ROOT: "$(PROJECT_DIR)/../fixtures"
+      targets:
+        - ComputeChecksTests

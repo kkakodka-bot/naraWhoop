@@ -169,6 +169,10 @@ public struct ServerScoreNightCache: Equatable, Codable {
 }
 
 public struct ServerScoreDayCache: Equatable, Codable {
+    /// Populated from the separate account/device cutover ledger at read time.
+    public var ownedMetrics: Set<String>? = nil
+    /// Transport state is separate from the server's processing/publication status.
+    public var readFailure: String? = nil
     public var ownerId: String = ""
     public var schemaVersion: Int = 2
     public var features: [String: ServerScoreFeatureCache] = [:]
@@ -208,7 +212,7 @@ public struct ServerScoreDayCache: Equatable, Codable {
     public let daily: ServerScoreDailyCache?
     public let nights: [ServerScoreNightCache]
     public let computedAt: String?
-    public let stale: Bool
+    public var stale: Bool
     public let fetchedAt: Date
 }
 

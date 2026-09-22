@@ -1,5 +1,6 @@
 import Foundation
 import NoopPush
+import WhoopStore
 
 /// Phase 4: server HRV/sleep readback. Default on for this fork; toggled from Settings → Advanced.
 enum ServerScoringSettings {
@@ -13,10 +14,24 @@ enum ServerScoringSettings {
     /// During an active offload, flush push at most once per this interval (spec: ≤10 s).
     static let syncPushIntervalSeconds: TimeInterval = 10
 
-    /// Suppress phone computation only after an authorized server overlay is actually live.
-    /// A configured but shadow/unqualified server must keep the existing local path running;
-    /// otherwise an enrollment can permanently blank new days while returning no canonical scores.
-    static var skipsSyncCoupledRescore: Bool { isEnabled && CloudScoreIdentity.overlayLive }
+    private static let ownershipLock = NSLock()
+    private static var computeOwnership: ServerMetricOwnership?
+
+    static func bindComputeOwnership(_ ownership: ServerMetricOwnership?) {
+        ownershipLock.lock(); defer { ownershipLock.unlock() }
+        computeOwnership = ownership
+    }
+
+    /// Partial feature selection cannot retire the kernel that also computes unported outputs.
+    /// Fetching an empty historical day never changes this producer admission.
+    static var skipsSyncCoupledRescore: Bool {
+        ownershipLock.lock(); defer { ownershipLock.unlock() }
+        guard let ownership = computeOwnership,
+              let context = CloudRuntimeIdentity.snapshot().context,
+              context.scope.userID == ownership.scope.ownerID,
+              context.scope.projectURL == ownership.scope.project else { return false }
+        return ownership.canRetireDailyKernel
+    }
 
     /// Clear any in-flight deferred rescore debt when server scoring owns the score path.
     @MainActor

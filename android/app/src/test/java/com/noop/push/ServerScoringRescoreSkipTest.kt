@@ -24,14 +24,14 @@ class ServerScoringRescoreSkipTest {
     @Test
     fun liveServerOverlayDoesNotSuppressLocalOnlyMetrics() {
         ServerScoringSettings.setEnabled(context, true)
-        assertFalse(ServerScoringSettings.skipsSyncCoupledRescore(context))
+        assertFalse(ServerScoringSettings.skipsSyncCoupledRescore(null))
         ServerScoringSettings.markOverlayLive(context, true)
-        assertFalse(ServerScoringSettings.skipsSyncCoupledRescore(context))
+        assertFalse(ServerScoringSettings.skipsSyncCoupledRescore(null))
     }
 
     @Test
     fun runsSyncCoupledRescoreWhenFlagOff() {
-        assertFalse(ServerScoringSettings.skipsSyncCoupledRescore(context))
+        assertFalse(ServerScoringSettings.skipsSyncCoupledRescore(null))
     }
 
     @Test

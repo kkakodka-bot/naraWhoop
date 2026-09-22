@@ -1,0 +1,2036 @@
+{
+  "schemaVersion": 1,
+  "workstream": "feat/vps-only-compute",
+  "base": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+  "finalHostedStatus": "NOT_READY",
+  "transitionRule": "Only retire a producer after its entire output/detail dependency closure is real, qualified, selected, revision-bound and consumed. No global overlay switch.",
+  "phoneAllowed": [
+    "BLE protocol/capability handling",
+    "durable raw capture and lossless encoding",
+    "owner/source/device fencing",
+    "upload, retry and exact receipt handling",
+    "effective-time user input and consent",
+    "raw device-reported HR passthrough",
+    "timers, unit/date formatting, chart drawing and haptic playback"
+  ],
+  "entries": [
+    {
+      "id": "live_hr_selection",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/ble/WhoopBleClient.kt"
+      },
+      "requiredInputs": [
+        "device-reported HR with original timestamp and source",
+        "RR observations and timing if an inferred fallback is offered",
+        "explicit provenance distinguishing device observations from estimates"
+      ],
+      "serverProducer": null,
+      "outputContract": {
+        "schema": "UNIMPLEMENTED for phone-derived HR replacement; direct device HR passthrough remains allowed",
+        "metrics": [{ "id": "live_hr_bpm", "unit": "bpm" }],
+        "details": ["observation time, age, provenance, quality and inference method"],
+        "charts": ["live HR series"],
+        "identity": ["project", "owner", "device", "capture session", "source", "window", "algorithm", "input revision"],
+        "nulls": "Absent device HR must not invoke phone RR-to-HR fallback or physiological smoothing in final mode"
+      },
+      "canonicalReadback": null,
+      "consumers": ["live HR", "workout live HR", "watch HR transfer"],
+      "cutover": {
+        "state": "UNPORTED_PHONE_DERIVED_SELECTION",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "Direct device observations are permitted; phone fallback and smoothing paths remain reachable",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "night_hrv",
+      "localProducer": {
+        "ios": "Strand/Data/IntelligenceEngine.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "RR intervals with original packet identity and verified beat spans",
+        "worn state",
+        "event-time calendar",
+        "baseline history"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "metrics": [
+          {
+            "id": "hrv_rmssd_ms",
+            "unit": "ms"
+          },
+          {
+            "id": "hrv_sdnn_ms",
+            "unit": "ms"
+          },
+          {
+            "id": "resting_hr_bpm",
+            "unit": "bpm"
+          }
+        ],
+        "details": [
+          "HRV windows with validity and gap reasons",
+          "night baseline eligibility and effective sample count"
+        ],
+        "charts": [
+          "hrv_windows"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": {
+        "feature": "hrv",
+        "accountRPC": "server_scoring_for_day",
+        "enrollmentRoute": "scores -> server_scoring_for_device_day",
+        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+      },
+      "consumers": [
+        "Today",
+        "HRV charts",
+        "sleep details",
+        "Health HRV/RHR",
+        "widgets",
+        "watch"
+      ],
+      "cutover": {
+        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "current_hrv",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/CurrentHrv.kt"
+      },
+      "requiredInputs": [
+        "closed 300-second UTC RR window",
+        "qualified timing/continuity",
+        "owner/device/input revision"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "metrics": [
+          {
+            "id": "current_hrv",
+            "unit": "ms"
+          }
+        ],
+        "details": [
+          "measurement window bounds and age",
+          "measurement_valid",
+          "observed_time_fraction"
+        ],
+        "charts": [
+          "hrv_windows"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": {
+        "feature": "hrv",
+        "accountRPC": "server_scoring_for_day",
+        "enrollmentRoute": "scores -> server_scoring_for_device_day",
+        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+      },
+      "consumers": [
+        "Today current HRV",
+        "live HRV readout"
+      ],
+      "cutover": {
+        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "spot_hrv",
+      "localProducer": {
+        "ios": "Strand/Screens/HRVSnapshotView.swift",
+        "android": "android/app/src/main/java/com/noop/ui/HrvSnapshotScreen.kt"
+      },
+      "requiredInputs": [
+        "durable capture-session boundaries",
+        "session RR observations and packet provenance",
+        "capture context"
+      ],
+      "serverProducer": null,
+      "outputContract": {
+        "schema": "UNIMPLEMENTED",
+        "metrics": [
+          {
+            "id": "spot_hrv_rmssd_ms",
+            "unit": "ms"
+          },
+          {
+            "id": "spot_hrv_sdnn_ms",
+            "unit": "ms"
+          }
+        ],
+        "details": [
+          "session identity",
+          "accepted/excluded beats",
+          "quality and final/pending outcome"
+        ],
+        "charts": [],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "spot HRV session",
+        "saved spot readings",
+        "Health exports"
+      ],
+      "cutover": {
+        "state": "UNPORTED",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "sleep",
+      "localProducer": {
+        "ios": "Strand/Data/IntelligenceEngine.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "device HR",
+        "RR provenance",
+        "gravity/wear/band state",
+        "event-time calendar",
+        "manual boundary corrections"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "metrics": [
+          {
+            "id": "sleep_total_min",
+            "unit": "min"
+          },
+          {
+            "id": "sleep_in_bed_min",
+            "unit": "min"
+          },
+          {
+            "id": "sleep_awake_min",
+            "unit": "min"
+          },
+          {
+            "id": "sleep_light_min",
+            "unit": "min"
+          },
+          {
+            "id": "sleep_deep_min",
+            "unit": "min"
+          },
+          {
+            "id": "sleep_rem_min",
+            "unit": "min"
+          },
+          {
+            "id": "sleep_efficiency",
+            "unit": "percent"
+          },
+          {
+            "id": "disturbances",
+            "unit": "count"
+          },
+          {
+            "id": "sleep_sessions",
+            "unit": "episodes"
+          }
+        ],
+        "details": [
+          "episode identity and stages",
+          "unstaged/unknown/off-body time",
+          "start/end timezone",
+          "boundary provenance",
+          "cross-feature embedded HRV/respiration authorization"
+        ],
+        "charts": [
+          "sleep_stages"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": {
+        "feature": "sleep",
+        "accountRPC": "server_scoring_for_day",
+        "enrollmentRoute": "scores -> server_scoring_for_device_day",
+        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+      },
+      "consumers": [
+        "Sleep variants",
+        "Today",
+        "sleep editor",
+        "widgets",
+        "watch",
+        "Health sleep"
+      ],
+      "cutover": {
+        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "sleep_history",
+      "localProducer": {
+        "ios": "Strand/Screens/SleepModel.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "qualified nightly sleep history",
+        "age",
+        "sleep preferences",
+        "predecessor checkpoint",
+        "effective-time edits"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "sleep_performance",
+            "unit": "score_0_100"
+          },
+          {
+            "id": "hours_vs_needed_pct",
+            "unit": "percent"
+          },
+          {
+            "id": "sleep_consistency",
+            "unit": "percent"
+          },
+          {
+            "id": "restorative_pct",
+            "unit": "percent"
+          },
+          {
+            "id": "restorative_min",
+            "unit": "min"
+          },
+          {
+            "id": "sleep_need_min",
+            "unit": "min"
+          },
+          {
+            "id": "sleep_debt_min",
+            "unit": "min"
+          }
+        ],
+        "details": [
+          "sleep_ledger",
+          "sleep_typicals",
+          "normative vs descriptive need",
+          "context/confidence"
+        ],
+        "charts": [
+          "sleep_need",
+          "sleep_debt",
+          "sleep_consistency"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "Sleep all variants",
+        "Rest",
+        "Today",
+        "widgets",
+        "watch"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "respiration",
+      "localProducer": {
+        "ios": "Strand/Data/IntelligenceEngine.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "qualified device-reported respiration or supported qualified estimator inputs",
+        "sleep windows",
+        "source qualification"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "metrics": [
+          {
+            "id": "resp_rate_bpm",
+            "unit": "breaths/min"
+          }
+        ],
+        "details": [
+          "source/method",
+          "quality reason",
+          "sleep episode binding"
+        ],
+        "charts": [
+          "respiration"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": {
+        "feature": "respiration",
+        "accountRPC": "server_scoring_for_day",
+        "enrollmentRoute": "scores -> server_scoring_for_device_day",
+        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+      },
+      "consumers": [
+        "Today",
+        "Respiration",
+        "Sleep",
+        "Health",
+        "widgets"
+      ],
+      "cutover": {
+        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "recovery",
+      "localProducer": {
+        "ios": "Strand/Data/IntelligenceEngine.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "qualified HRV/RHR/respiration/temperature",
+        "personal baselines",
+        "sleep inputs",
+        "profile"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "metrics": [
+          {
+            "id": "recovery",
+            "unit": "score_0_100"
+          }
+        ],
+        "details": [
+          "recovery drivers",
+          "forecast",
+          "baseline model identity"
+        ],
+        "charts": [
+          "recovery"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": {
+        "feature": "hrv",
+        "accountRPC": "server_scoring_for_day",
+        "enrollmentRoute": "scores -> server_scoring_for_device_day",
+        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+      },
+      "consumers": [
+        "Charge",
+        "Today",
+        "coaching",
+        "widgets",
+        "watch"
+      ],
+      "cutover": {
+        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "strain_energy",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/ui/AppViewModel.kt"
+      },
+      "requiredInputs": [
+        "device HR",
+        "HRmax settings",
+        "age/sex/mass when algorithm requires them",
+        "activity boundaries",
+        "day-cycle configuration"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "strain",
+            "unit": "score_0_100"
+          },
+          {
+            "id": "active_kcal_est",
+            "unit": "kcal"
+          },
+          {
+            "id": "avg_hr",
+            "unit": "bpm"
+          },
+          {
+            "id": "max_hr",
+            "unit": "bpm"
+          },
+          {
+            "id": "hr_zones13_min",
+            "unit": "min"
+          },
+          {
+            "id": "hr_zones45_min",
+            "unit": "min"
+          },
+          {
+            "id": "hr_zones_all_min",
+            "unit": "min"
+          },
+          {
+            "id": "strength_min",
+            "unit": "min"
+          }
+        ],
+        "details": [
+          "method",
+          "HR zones",
+          "workout contributions",
+          "day_cycle"
+        ],
+        "charts": [
+          "heart_rate",
+          "hr_zones"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "Effort",
+        "Today",
+        "workout details",
+        "Health calories",
+        "widgets",
+        "watch"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "steps",
+      "localProducer": {
+        "ios": "Strand/Data/IntelligenceEngine.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "device step counter/ticks",
+        "gravity",
+        "sleep mask",
+        "device family/calibration",
+        "event-time day-cycle"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "steps",
+            "unit": "count"
+          },
+          {
+            "id": "steps_est",
+            "unit": "count"
+          }
+        ],
+        "details": [
+          "measured vs estimated provenance",
+          "cycle bounds"
+        ],
+        "charts": [
+          "steps"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "Today",
+        "steps charts",
+        "workout details",
+        "Health",
+        "widgets"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "workouts",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/ui/AppViewModel.kt"
+      },
+      "requiredInputs": [
+        "HR observations",
+        "detected/manual session bounds",
+        "activity type",
+        "effective-time profile/preferences",
+        "manual correction/tombstone"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/WorkoutResultOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "exercise_count",
+            "unit": "count"
+          },
+          {
+            "id": "workouts",
+            "unit": "episodes"
+          },
+          {
+            "id": "workout_strain",
+            "unit": "score_0_100"
+          },
+          {
+            "id": "workout_kcal",
+            "unit": "kcal"
+          },
+          {
+            "id": "workout_hr_recovery",
+            "unit": "bpm"
+          }
+        ],
+        "details": [
+          "workout identity/boundaries",
+          "strain/calories/zones",
+          "HR recovery",
+          "source and input revision"
+        ],
+        "charts": [
+          "workout_hr"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "Workout list/details",
+        "Today",
+        "Health workout export",
+        "watch workout sync"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "live_workout",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/ui/AppViewModel.kt"
+      },
+      "requiredInputs": [
+        "open session identity",
+        "incremental accepted HR",
+        "HRmax/profile",
+        "freshness and expiry"
+      ],
+      "serverProducer": null,
+      "outputContract": {
+        "schema": "UNIMPLEMENTED",
+        "metrics": [
+          {
+            "id": "live_workout_effort",
+            "unit": "score_0_100"
+          }
+        ],
+        "details": [
+          "incremental result revision",
+          "observed through",
+          "pending/offline state"
+        ],
+        "charts": [
+          "live_workout_hr"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "live workout",
+        "watch workout"
+      ],
+      "cutover": {
+        "state": "UNPORTED",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "oxygen",
+      "localProducer": {
+        "ios": "Strand/Data/IntelligenceEngine.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "qualified calibrated measurement or qualified optical channels/calibration",
+        "actual sample time",
+        "wear/quality"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "metrics": [
+          {
+            "id": "spo2_pct",
+            "unit": "percent"
+          },
+          {
+            "id": "spo2_red",
+            "unit": "adc"
+          },
+          {
+            "id": "spo2_ir",
+            "unit": "adc"
+          },
+          {
+            "id": "spo2_candidate",
+            "unit": "percent"
+          }
+        ],
+        "details": [
+          "experimental optical candidate remains unqualified",
+          "raw ADC is not saturation",
+          "source/calibration evidence"
+        ],
+        "charts": [
+          "spo2"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": {
+        "feature": "hrv",
+        "accountRPC": "server_scoring_for_day",
+        "enrollmentRoute": "scores -> server_scoring_for_device_day",
+        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+      },
+      "consumers": [
+        "Today",
+        "Vitals",
+        "oxygen detail",
+        "Health oxygen"
+      ],
+      "cutover": {
+        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "temperature",
+      "localProducer": {
+        "ios": "Strand/Data/IntelligenceEngine.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "actual qualified temperature readings",
+        "device-family scaling/anchor",
+        "wear",
+        "personal prior baseline"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
+        "lane": "physiology",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "server_scoring schema_version 2, per-feature contract_revision 1",
+        "metrics": [
+          {
+            "id": "skin_temp_c",
+            "unit": "C"
+          },
+          {
+            "id": "skin_temp_dev_c",
+            "unit": "C"
+          }
+        ],
+        "details": [
+          "absolute vs deviation",
+          "calibration",
+          "baseline identity",
+          "quality"
+        ],
+        "charts": [
+          "skin_temperature"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": {
+        "feature": "hrv",
+        "accountRPC": "server_scoring_for_day",
+        "enrollmentRoute": "scores -> server_scoring_for_device_day",
+        "clientAccountRoute": "get_server_score_snapshot_v2 (different historical contract; migration required)"
+      },
+      "consumers": [
+        "Today",
+        "Vitals",
+        "cycle",
+        "illness",
+        "Health"
+      ],
+      "cutover": {
+        "state": "PARTIAL_CANONICAL_CONSUMERS",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "intraday_temperature",
+      "localProducer": {
+        "ios": "Strand/Data/IntelligenceEngine.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "actual timestamped qualified temperature observations",
+        "300-second windows",
+        "coverage"
+      ],
+      "serverProducer": null,
+      "outputContract": {
+        "schema": "UNIMPLEMENTED",
+        "metrics": [
+          {
+            "id": "temperature_5min_c",
+            "unit": "C"
+          }
+        ],
+        "details": [
+          "median/dispersion/observed coverage",
+          "no inferred acquisition"
+        ],
+        "charts": [
+          "temperature_5min"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "temperature intraday chart"
+      ],
+      "cutover": {
+        "state": "UNPORTED",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "ppg_hr",
+      "localProducer": {
+        "ios": "Packages/WhoopProtocol/Sources/WhoopProtocol/HistoricalStreams.swift",
+        "android": "android/app/src/main/java/com/noop/protocol/HistoricalStreams.kt"
+      },
+      "requiredInputs": [
+        "verified raw waveform bytes and packet identity",
+        "qualified channel/rate/clock",
+        "explicit same-second record selection",
+        "measured-HR overlap policy"
+      ],
+      "serverProducer": null,
+      "outputContract": {
+        "schema": "UNIMPLEMENTED",
+        "metrics": [
+          {
+            "id": "derived_ppg_hr",
+            "unit": "bpm"
+          }
+        ],
+        "details": [
+          "server estimator missing: historical lane currently reads uploaded phone estimates",
+          "never recast an estimate as measured device HR"
+        ],
+        "charts": [
+          "derived_ppg_hr"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "raw HR merged reads",
+        "HR charts",
+        "downstream physiology"
+      ],
+      "cutover": {
+        "state": "UNPORTED",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "stress",
+      "localProducer": {
+        "ios": "Strand/Screens/StressView.swift",
+        "android": "android/app/src/main/java/com/noop/ui/StressScreen.kt"
+      },
+      "requiredInputs": [
+        "qualified RR/HR",
+        "motion mask",
+        "personal daytime baseline",
+        "timezone"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "stress",
+            "unit": "score_0_100"
+          },
+          {
+            "id": "daytime_stress_mean",
+            "unit": "score_0_3"
+          },
+          {
+            "id": "daytime_stress_high_min",
+            "unit": "min"
+          },
+          {
+            "id": "baevsky_stress_index",
+            "unit": "dimensionless"
+          },
+          {
+            "id": "frequency_hrv",
+            "unit": "ms2"
+          }
+        ],
+        "details": [
+          "daytimeStress",
+          "frequencyHrv",
+          "personalBaseline",
+          "quality and rejected intervals"
+        ],
+        "charts": [
+          "daytime_stress"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "Stress",
+        "Today",
+        "advanced HRV"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "stress_events",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/ble/WhoopBleClient.kt"
+      },
+      "requiredInputs": [
+        "incremental qualified RR/HR",
+        "personal baseline",
+        "motion/context",
+        "event expiry/deduplication"
+      ],
+      "serverProducer": null,
+      "outputContract": {
+        "schema": "UNIMPLEMENTED",
+        "metrics": [
+          {
+            "id": "stress_onset",
+            "unit": "event"
+          }
+        ],
+        "details": [
+          "decision timestamp",
+          "expiresAt",
+          "deduplication identity"
+        ],
+        "charts": [],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "passive stress nudges",
+        "haptics"
+      ],
+      "cutover": {
+        "state": "UNPORTED",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "illness",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/ui/AppViewModel.kt"
+      },
+      "requiredInputs": [
+        "consented journal/context",
+        "qualified current physiology",
+        "strictly prior personalized baselines",
+        "effective-time medication/symptom inputs"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "illness_score",
+            "unit": "score_0_100"
+          },
+          {
+            "id": "illness_distance",
+            "unit": "dimensionless"
+          }
+        ],
+        "details": [
+          "illness reasons/confidence",
+          "distance components",
+          "consent and baseline eligibility"
+        ],
+        "charts": [
+          "illness"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "Health alerts",
+        "Today",
+        "insights"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "cycle",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/ui/AppViewModel.kt"
+      },
+      "requiredInputs": [
+        "consented period/context history",
+        "qualified temperature/RHR/HRV baselines",
+        "effective-time corrections"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "cycle_phase",
+            "unit": "category"
+          },
+          {
+            "id": "cycle_index",
+            "unit": "dimensionless"
+          }
+        ],
+        "details": [
+          "phase and confidence",
+          "context gaps",
+          "period history"
+        ],
+        "charts": [
+          "cycle_index"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "cycle screens",
+        "Today",
+        "insights"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "circadian",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/ui/AppViewModel.kt"
+      },
+      "requiredInputs": [
+        "qualified HR history",
+        "event-time timezone/travel",
+        "wake schedule",
+        "history checkpoint"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ContextMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "circadian_phase_hour",
+            "unit": "local_hour"
+          },
+          {
+            "id": "circadian_offset_min",
+            "unit": "min"
+          }
+        ],
+        "details": [
+          "circadian fit and confidence",
+          "local offset semantics"
+        ],
+        "charts": [
+          "circadian"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "circadian screens",
+        "insights"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "readiness_load",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/ui/AppViewModel.kt"
+      },
+      "requiredInputs": [
+        "complete calendar history",
+        "training/session load",
+        "qualified recovery inputs",
+        "checkpoint generation"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "readiness",
+            "unit": "category"
+          },
+          {
+            "id": "training_load",
+            "unit": "category"
+          },
+          {
+            "id": "acute_load",
+            "unit": "load"
+          },
+          {
+            "id": "chronic_load",
+            "unit": "load"
+          },
+          {
+            "id": "training_balance",
+            "unit": "load"
+          },
+          {
+            "id": "acwr",
+            "unit": "ratio"
+          },
+          {
+            "id": "training_monotony",
+            "unit": "ratio"
+          }
+        ],
+        "details": [
+          "readiness signals/confidence",
+          "training_load state/reason",
+          "7/28-day causal history"
+        ],
+        "charts": [
+          "training_load"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "readiness",
+        "training load",
+        "insights",
+        "Today"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "fitness_longevity",
+      "localProducer": {
+        "ios": "Strand/Data/IntelligenceEngine.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "consented age/sex/profile",
+        "qualified RHR",
+        "activity history",
+        "sleep history",
+        "method-specific baseline readiness"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "fitness_age",
+            "unit": "years"
+          },
+          {
+            "id": "vo2max_est",
+            "unit": "ml/kg/min"
+          },
+          {
+            "id": "vitality",
+            "unit": "score_0_100"
+          },
+          {
+            "id": "body_age",
+            "unit": "years"
+          }
+        ],
+        "details": [
+          "fitness_age weekly identity and confidence",
+          "model limitations"
+        ],
+        "charts": [
+          "fitness_age",
+          "vitality"
+        ],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "Fitness",
+        "Body age",
+        "Today",
+        "insights"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "baselines",
+      "localProducer": {
+        "ios": "Strand/Data/IntelligenceEngine.swift",
+        "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
+      },
+      "requiredInputs": [
+        "all prior eligible observations",
+        "effective-time profile/config",
+        "source era",
+        "predecessor checkpoint",
+        "generation"
+      ],
+      "serverProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalStateMachine.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
+        "invokedAtBase": true
+      },
+      "outputContract": {
+        "schema": "historical snapshot schemaVersion 2 (separate shadow contract)",
+        "metrics": [
+          {
+            "id": "historical_baselines",
+            "unit": "state"
+          },
+          {
+            "id": "recovery_drivers",
+            "unit": "components"
+          },
+          {
+            "id": "recovery_forecast",
+            "unit": "score_0_100"
+          }
+        ],
+        "details": [
+          "state schema/generation/predecessor",
+          "baseline counts/eligibility/deviation",
+          "replay after late input, edits, DST/travel and device changes"
+        ],
+        "charts": [],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "all personalized metrics",
+        "context",
+        "sleep",
+        "recovery"
+      ],
+      "cutover": {
+        "state": "SHADOW_PRODUCER",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "biofeedback",
+      "localProducer": {
+        "ios": "Strand/Screens/BiofeedbackController.swift",
+        "android": "android/app/src/main/java/com/noop/ui/BiofeedbackPrefs.kt"
+      },
+      "requiredInputs": [
+        "session RR/HR and prescribed stimulus timestamps",
+        "qualified timing",
+        "session identity"
+      ],
+      "serverProducer": null,
+      "outputContract": {
+        "schema": "UNIMPLEMENTED",
+        "metrics": [
+          {
+            "id": "resonance_frequency",
+            "unit": "Hz"
+          },
+          {
+            "id": "resonance_pace",
+            "unit": "breaths/min"
+          }
+        ],
+        "details": [
+          "sweep response",
+          "learned pace",
+          "decision expiry"
+        ],
+        "charts": [],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "Biofeedback"
+      ],
+      "cutover": {
+        "state": "UNPORTED",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "live_coaching",
+      "localProducer": {
+        "ios": "Strand/App/LiveSessionRunner.swift",
+        "android": "android/app/src/main/java/com/noop/ui/LiveSessionRunner.kt"
+      },
+      "requiredInputs": [
+        "fresh qualified recovery/RHR/HRmax",
+        "session observations",
+        "server command expiry/deduplication"
+      ],
+      "serverProducer": null,
+      "outputContract": {
+        "schema": "UNIMPLEMENTED",
+        "metrics": [
+          {
+            "id": "coaching_hr_band",
+            "unit": "bpm"
+          },
+          {
+            "id": "coaching_decision",
+            "unit": "event"
+          }
+        ],
+        "details": [
+          "personalized band",
+          "expiresAt",
+          "command identity"
+        ],
+        "charts": [],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "live coaching",
+        "haptics",
+        "watch"
+      ],
+      "cutover": {
+        "state": "UNPORTED",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    },
+    {
+      "id": "insights",
+      "localProducer": {
+        "ios": "Strand/App/AppModel.swift",
+        "android": "android/app/src/main/java/com/noop/ui/AppViewModel.kt"
+      },
+      "requiredInputs": [
+        "canonical feature revisions",
+        "consented context",
+        "history and effective-time preferences"
+      ],
+      "serverProducer": null,
+      "outputContract": {
+        "schema": "UNIMPLEMENTED",
+        "metrics": [
+          {
+            "id": "insights",
+            "unit": "versioned_messages"
+          }
+        ],
+        "details": [
+          "source result references",
+          "expiry",
+          "context consent"
+        ],
+        "charts": [],
+        "identity": [
+          "project",
+          "owner",
+          "device",
+          "window/day/session",
+          "event timezone",
+          "algorithm",
+          "input revision",
+          "result identity",
+          "manifest",
+          "qualification"
+        ],
+        "nulls": "Keep reason and pending/failed/stale state; zero is valid"
+      },
+      "canonicalReadback": null,
+      "consumers": [
+        "Insights",
+        "Today",
+        "notifications"
+      ],
+      "cutover": {
+        "state": "UNPORTED",
+        "localProducerRemoved": false,
+        "completeConsumerClosure": false,
+        "finalHostedEligible": false
+      },
+      "validation": {
+        "sourcePinnedTo": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+        "functional": "See HANDOFF_server.md; base evidence does not attest this candidate",
+        "referenceQualification": "NOT_MEASURED",
+        "physicalConsumers": "NOT_MEASURED",
+        "deployed": "NOT_MEASURED"
+      }
+    }
+  ]
+}

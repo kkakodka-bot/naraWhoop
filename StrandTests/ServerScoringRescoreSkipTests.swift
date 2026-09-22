@@ -2,7 +2,7 @@ import XCTest
 import WhoopStore
 @testable import Strand
 
-/// Hosted scoring owns the automatic physiology path; the phone retains only its raw cache and UI.
+/// Partial hosted ownership must not retire a daily kernel whose output closure is unported.
 @MainActor
 final class ServerScoringRescoreSkipTests: XCTestCase {
 
@@ -40,12 +40,12 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
         XCTAssertTrue(ServerScoringSettings.isEnabled)
     }
 
-    func testOnlyLiveAuthorizedServerOverlaySuppressesLocalRescore() {
+    func testLegacyGlobalOverlayCannotSuppressUnportedDailyOutputs() {
         ServerScoringSettings.setEnabled(true)
         CloudScoreIdentity.markOverlayLive(false)
         XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
         CloudScoreIdentity.markOverlayLive(true)
-        XCTAssertTrue(ServerScoringSettings.skipsSyncCoupledRescore)
+        XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
         CloudScoreIdentity.markOverlayLive(false)
     }
 
@@ -54,13 +54,13 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
         XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
     }
 
-    func testLiveAuthorizedServerOverlaySettlesObsoleteLocalRescoreDebt() {
+    func testPartialOverlayCannotSettleUnportedLocalRescoreDebt() {
         ServerScoringSettings.setEnabled(true)
         CloudScoreIdentity.markOverlayLive(true)
         _ = RescoreBackgroundScheduler.markRescoreOwed()
-        XCTAssertFalse(RescoreBackgroundScheduler.isRescoreOwed)
+        XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
         ServerScoringSettings.settleSkippedLocalRescoreDebt()
-        XCTAssertFalse(RescoreBackgroundScheduler.isRescoreOwed)
+        XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
     }
 
     func testShadowServerOverlayPreservesLocalRescoreDebt() {
@@ -112,11 +112,13 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
         }
     }
 
-    func testServerCaptionRetainsStaleProvenanceForActualServerValue() throws {
+    func testSelectionRetainsStaleProvenanceForActualServerValue() throws {
         let selection = ServerVitalSelection.resolve(.hrv, serverEnabled: true,
             selectedDay: "2026-09-18", overlay: try snapshot(stale: true), localValue: 51)
         XCTAssertEqual(selection.value, 42)
         XCTAssertTrue(selection.fromServer)
-        XCTAssertEqual(LiquidTodayView.serverVitalCaption(for: selection), "Stale · Server · 2026-09-18 · available")
+        XCTAssertTrue(selection.stale)
+        XCTAssertEqual(selection.day, "2026-09-18")
+        XCTAssertEqual(selection.status, "available")
     }
 }

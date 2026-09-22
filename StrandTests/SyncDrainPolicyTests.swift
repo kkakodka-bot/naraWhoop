@@ -40,9 +40,9 @@ final class SyncDrainPolicyTests: XCTestCase {
     func testExportFailureDoesNotBlockIndependentLaterExports() {
         XCTAssertTrue(SyncDrainPolicy.shouldContinue(
             after: .cloudPush, succeeded: false, rescoreStillOwed: false))
-        XCTAssertFalse(SyncDrainPolicy.shouldContinue(
+        XCTAssertTrue(SyncDrainPolicy.shouldContinue(
             after: .cloudPush, succeeded: true, rescoreStillOwed: true),
-            "a newer productive chunk must block later exports until its rescore runs")
+            "raw transport must not prevent the following rescore stage from running")
     }
 
     func testMatchingBurstVectorsCoalesceToOneTerminalDrain() {
@@ -107,7 +107,7 @@ final class SyncDrainPolicyTests: XCTestCase {
     func testStageOrderIsStable() {
         XCTAssertEqual(
             SyncDrainPolicy.stageOrder,
-            [.rescore, .cloudPush, .healthWriteback, .widgetPublish]
+            [.cloudPush, .rescore, .healthWriteback, .widgetPublish]
         )
     }
 }

@@ -1,0 +1,41 @@
+package com.noop.push
+
+import android.content.Context
+import com.noop.account.AccountStorageContext
+
+class ServerMetricOwnershipStore(context: Context) {
+    private val context = AccountStorageContext.capture(context)
+    private val prefs = this.context.getSharedPreferences("noop_compute_ownership", Context.MODE_PRIVATE)
+
+    private fun scope(): ServerMetricOwnership? {
+        if (!context.isCurrent()) return null
+        val identity = DeviceLinkStore.identity(context) ?: return null
+        val device = DeviceLinkStore.from(context).confirmed(identity) ?: return null
+        val project = identity.endpoint.removeSuffix("/functions/v1/push").trimEnd('/')
+        return ServerMetricOwnership(project, identity.owner.lowercase(), device)
+    }
+
+    private fun key(scope: ServerMetricOwnership) = EnrollmentDataScope.digest(
+        "${scope.project}\u0000${scope.ownerId}\u0000${scope.deviceId}")
+
+    fun load(): ServerMetricOwnership? = synchronized(lock) {
+        val scope = scope() ?: return@synchronized null
+        ServerMetricOwnership.restore(prefs.getString(key(scope), null), scope.project, scope.ownerId, scope.deviceId)
+    }
+
+    fun observe(cache: ServerScoreDayCache): ServerMetricOwnership? = synchronized(lock) {
+        val before = load() ?: return@synchronized null
+        val next = before.observe(cache)
+        if (next != before && context.isCurrent()) {
+            check(prefs.edit().putString(key(next), next.encode()).commit()) { "Ownership could not be persisted" }
+        }
+        next
+    }
+
+    fun presentation(cache: ServerScoreDayCache?, day: String, readFailed: Boolean = false): ServerScoreDayCache? {
+        val ownership = load() ?: return cache
+        return ownership.presentation(cache, day, readFailed)
+    }
+
+    companion object { private val lock = Any() }
+}

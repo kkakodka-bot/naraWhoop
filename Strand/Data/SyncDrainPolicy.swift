@@ -17,9 +17,9 @@ enum SyncDrainPolicy {
         case manual
     }
 
-    /// Fixed stage order: scored data first, then export surfaces.
+    /// Raw transport is independent of derived export readiness.
     static let stageOrder: [SyncJobKind] = [
-        .rescore, .cloudPush, .healthWriteback, .widgetPublish,
+        .cloudPush, .rescore, .healthWriteback, .widgetPublish,
     ]
 
     /// A wake may see debt from an intermediate chunk. Wait until the BLE burst reaches its terminal
@@ -41,6 +41,7 @@ enum SyncDrainPolicy {
     /// leaves all downstream tokens owed for the next foreground or processing wake.
     static func shouldContinue(after stage: SyncJobKind, succeeded: Bool,
                                rescoreStillOwed: Bool) -> Bool {
+        if stage == .cloudPush { return true }
         guard !rescoreStillOwed else { return false }
         if stage == .rescore { return succeeded }
         return true

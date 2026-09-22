@@ -19,7 +19,8 @@ object ServerScoreClient {
     }
 
     internal fun requestIdentity(context: Context): String? = EnrollmentDataScope.credential(context)?.let {
-        "${it.userId}:${it.sourceId}:${it.tokenId}:${localDeviceId(context)}"
+        org.json.JSONArray(listOf(SelfHostedPushSettings.from(context).configuredEndpoint()?.url,
+            it.userId, it.sourceId, it.tokenId, localDeviceId(context))).toString()
     }
 
     suspend fun saveSleepOverride(context: Context, target: ServerSleepEditTarget, start: Long, end: Long, tombstone: Boolean): Long =

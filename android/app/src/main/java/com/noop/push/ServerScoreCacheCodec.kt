@@ -31,7 +31,7 @@ object ServerScoreCacheCodec {
             sleepEfficiency = d.num("sleep_efficiency"), respRateBpm = d.num("resp_rate_bpm"), computedAt = d.str("computed_at"),
             sleepUnstagedMin = d.num("sleep_unstaged_min"), stateUnknownMin = d.num("state_unknown_min"),
             offBodyMin = d.num("off_body_min"), opportunityKind = d.str("opportunity_kind"),
-            recovery = d.num("recovery"), strain = d.num("strain"), spo2Pct = d.num("spo2_pct"),
+            recovery = d.num("recovery"), rest = d.num("rest"), strain = d.num("strain"), spo2Pct = d.num("spo2_pct"),
             skinTempC = d.num("skin_temp_c"), skinTempDevC = d.num("skin_temp_dev_c")) }
         val sleep = features["sleep"]
         val nestedHrv = features["hrv"]?.matchesCanonicalSnapshot(sleep) == true

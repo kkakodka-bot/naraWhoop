@@ -262,8 +262,8 @@ enum CloudPushWorker {
             return .deferred
         }
         guard (try? admission.check()) != nil else { traceOutcome = .cancelled; return .deferred }
-        // Legacy receipt replay is not proof of the current preference evaluation. A guarded
-        // caller settles separately through SyncEngine's captured, permit-fenced transaction.
+        // A guarded caller settles its exact raw job separately through SyncEngine's captured
+        // owner/token boundary. Raw transport has no local preference-evaluation prerequisite.
         // The legacy callback remains unchanged for callers without dependent admission.
         if dependentAdmission == nil { _ = await settleOwed?() }
         guard await validate(dependentAdmission), (try? admission.check()) != nil else {

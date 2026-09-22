@@ -1,5 +1,6 @@
 import Foundation
 import WhoopStore
+import NoopPush
 #if os(iOS)
 import BackgroundTasks
 import UIKit
@@ -100,6 +101,7 @@ final class SyncEngine {
         do {
             let rows = try await store.owedJobs()
             guard !rows.isEmpty else { return false }
+            if rows.contains(where: { $0.kind == SyncJobKind.cloudPush.rawValue }) { return true }
             let state = await host.intelligence.preparePreferenceProjection()
             guard host.isAccountRuntimeActive else { return false }
             return state == .complete || state.hasRunnableWork(at: Int64(Date().timeIntervalSince1970))
@@ -157,7 +159,16 @@ final class SyncEngine {
             #endif
 
             var admission: DependentStageAdmission?
-            if stage != .rescore {
+            if stage == .cloudPush {
+                guard let captured = await captureRawAdmission(token: token, store: store, host: host) else {
+                    stagesHeld.append(stage); continue
+                }
+                do { try await store.recordJobAttempt(kind: stage.rawValue, token: token) }
+                catch { stagesFailed.append(stage); continue }
+                await dependentStageDriver?.afterAttempt?(stage)
+                guard await captured.validate() else { stagesHeld.append(stage); continue }
+                admission = captured
+            } else if stage != .rescore {
                 var state = await host.intelligence.preparePreferenceProjection()
                 guard host.isAccountRuntimeActive, !Task.isCancelled else { return }
                 if !owedKinds.contains(.rescore), !prerequisiteInvoked,
@@ -222,6 +233,29 @@ final class SyncEngine {
     // MARK: - Stage runners
 
     private enum StageOutcome { case completed, held, deferred, failed }
+
+    private func captureRawAdmission(token: String, store: WhoopStore,
+                                     host: AppModel) async -> DependentStageAdmission? {
+        let identity = CloudRuntimeIdentity.snapshot().context
+        let boundary: @Sendable () throws -> Void = {
+            guard !Task.isCancelled, CloudRuntimeIdentity.snapshot().context == identity else {
+                throw AccountAuthError.staleOperation
+            }
+        }
+        // CloudPushWorker independently verifies the captured database owner, source, endpoint,
+        // and durable selections at transport boundaries. No score or preference token is involved.
+        let admission = DependentStageAdmission(current: { [weak host] in
+            host?.isAccountRuntimeActive == true && CloudRuntimeIdentity.snapshot().context == identity
+        }, revalidate: { [weak host] in
+            guard host?.isAccountRuntimeActive == true,
+                  let rows = try? await store.owedJobs() else { return false }
+            return rows.contains { $0.kind == SyncJobKind.cloudPush.rawValue && $0.token == token }
+        }, boundaryCheck: boundary, settleCaptured: { [weak host] in
+            guard host?.isAccountRuntimeActive == true, (try? boundary()) != nil else { return false }
+            return (try? await store.settleJob(kind: SyncJobKind.cloudPush.rawValue, token: token)) ?? false
+        })
+        return await admission.validate() ? admission : nil
+    }
 
     private func captureAdmission(stage: SyncJobKind, token: String, store: WhoopStore,
                                   host: AppModel) async -> DependentStageAdmission? {

@@ -37,6 +37,7 @@ class ServerScoreRepository(
     private val ready: () -> Boolean = { ServerScoringSettings.ready(appContext) },
 ) {
     private val account = AccountStorageContext.capture(appContext)
+    private val ownershipStore = ServerMetricOwnershipStore(appContext)
     private val publicationLock = Any()
     @Volatile private var retired = false
     private fun current() = !retired && account.identity.scope != null && account.isCurrent()
@@ -53,6 +54,7 @@ class ServerScoreRepository(
     )
     private val session = ServerScoreSessionState()
     private val visibleDays = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val readFailures = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private var pollingDay: String? = null
     private fun currentOwnerId() = EnrollmentDataScope.credential(appContext)?.userId
     private fun currentIdentityKey() = ServerScoreClient.requestIdentity(appContext)
@@ -121,10 +123,10 @@ class ServerScoreRepository(
     }
 
     fun overlay(day: String): ServerScoreDayCache? {
-        if (!ServerScoringSettings.isEnabled(appContext)) return null
         synchronizeOwner()
         visibleDays.add(day)
-        session.overlay(day, currentOwnerId())?.let { return it }
+        ownershipStore.presentation(session.overlay(day, currentOwnerId()), day, day in readFailures)?.let { return it }
+        if (!ServerScoringSettings.isEnabled(appContext)) return null
         if (!current()) return null
         val state = _days.value[day] ?: return null
         val snapshot = state.snapshot?.takeIf { it.timezone == timezone() } ?: return null
@@ -138,6 +140,7 @@ class ServerScoreRepository(
     }
 
     fun signOut() {
+        readFailures.clear()
         PushEnrollmentManager.from(appContext).clear()
         CloudAuthClient.clearSession(appContext)
         _signedIn.value = false
@@ -245,11 +248,9 @@ class ServerScoreRepository(
             currentCoroutineContext().ensureActive()
             synchronizeOwner()
             if (!session.accept(cache, generation, currentOwnerId(), request)) return
-            ServerScoringSettings.markOverlayLive(
-                ServerScoringSettings.prefs(appContext),
-                ServerScoringSettings.overlayIsLive(cache),
-            )
+            ownershipStore.observe(cache)
             store.upsert(cache)
+            readFailures.remove(day)
             _lastFetchedAtMs.value = cache.fetchedAtMs
             _lastError.value = null
         }.onFailure { err ->
@@ -262,8 +263,12 @@ class ServerScoreRepository(
                 session.activate(null)
                 _lastError.value = "Enrollment expired — enter a fresh code"
             } else {
+                readFailures.add(day)
                 _lastError.value = "Server scores unavailable"
-                store.load(owner, day)?.let { session.accept(it, generation, currentOwnerId(), request) }
+                store.load(owner, day)?.let {
+                    ownershipStore.observe(it)
+                    session.accept(it, generation, currentOwnerId(), request)
+                }
             }
         }
     }
@@ -312,7 +317,10 @@ class ServerScoreRepository(
             cal.timeInMillis = System.currentTimeMillis()
             cal.add(java.util.Calendar.DAY_OF_YEAR, -offset)
             val key = fmt.format(cal.time)
-            if (identity == currentIdentityKey()) store.load(owner, key)?.let { session.accept(it, session.generation(), currentOwnerId()) }
+            if (identity == currentIdentityKey()) store.load(owner, key)?.let {
+                ownershipStore.observe(it)
+                session.accept(it, session.generation(), currentOwnerId())
+            }
         }
     }
 
@@ -335,7 +343,9 @@ class ServerScoreRepository(
         _signedIn.value = current != null || this.current()
         if (session.ownerId() == current && activeIdentityKey == identity) return
         activeIdentityKey = identity
+        readFailures.clear()
         stopPolling()
+        session.activate(null)
         session.activate(current)
         _lastFetchedAtMs.value = null
         _lastError.value = null
