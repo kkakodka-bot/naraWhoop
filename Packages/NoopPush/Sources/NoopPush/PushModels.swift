@@ -601,6 +601,7 @@ public struct PushRunResult: Sendable {
     public let acceptedRecords: Int
     public let hasRetryableFailure: Bool
     public let nextDeviceIndex: Int
+    public let deviceListFingerprint: String?
     public let hasMoreDevices: Bool
     public let failure: PushFailure?
 
@@ -613,6 +614,7 @@ public struct PushRunResult: Sendable {
         acceptedRecords: Int = 0,
         hasRetryableFailure: Bool = false,
         nextDeviceIndex: Int = 0,
+        deviceListFingerprint: String? = nil,
         hasMoreDevices: Bool = false,
         failure: PushFailure? = nil
     ) {
@@ -624,6 +626,7 @@ public struct PushRunResult: Sendable {
         self.acceptedRecords = acceptedRecords
         self.hasRetryableFailure = hasRetryableFailure
         self.nextDeviceIndex = nextDeviceIndex
+        self.deviceListFingerprint = deviceListFingerprint
         self.hasMoreDevices = hasMoreDevices
         self.failure = failure
     }

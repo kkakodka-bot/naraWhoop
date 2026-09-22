@@ -188,7 +188,9 @@ enum CloudPushWorker {
                     },
                     prepareSelection: { try admission.check(); try await accountTransport.base.prepareSelection($0, progressVersion: version) },
                     allowsPreparation: { ResourceBudget.shared.permits(.cloudPreparation) },
-                    wakeBudget: wakeBudget)
+                    wakeBudget: wakeBudget,
+                    mutableIdentityNamespace: admission.namespace(endpoint: endpoint.url, protocolVersion: version,
+                                                                  receiverStateID: capabilities.receiverStateId))
             }
             _ = try await CloudPushProgressRecovery.recover(admission: admission,
                 endpoint: endpoint.url, receiverStateID: capabilities.receiverStateId,
@@ -208,6 +210,7 @@ enum CloudPushWorker {
         catch { traceOutcome = .failed; return .deferred }
         let run = await coordinator.pushKnownDevices(
             startDeviceIndex: rotation.index,
+            expectedDeviceListFingerprint: rotation.deviceListFingerprint,
             maxDevices: maxDevicesPerRun, capabilities: capabilities,
             binaryEnabled: CloudPushSettings.binaryObjectsEnabled
         )
@@ -221,7 +224,7 @@ enum CloudPushWorker {
                 // A reboot must retain both the next device and debt seen earlier in this cycle.
                 // An absent legacy checkpoint starts at device zero and conservatively replays.
                 try await rotationQueue.saveRotationCheckpoint(namespace: namespace, index: run.nextDeviceIndex,
-                    carryMore: cycleCompleted ? false : more, captured: initial)
+                    carryMore: cycleCompleted ? false : more, deviceListFingerprint: run.deviceListFingerprint, captured: initial)
             } catch { traceOutcome = .failed; return .deferred }
         }
 

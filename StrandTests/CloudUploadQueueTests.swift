@@ -67,13 +67,15 @@ final class CloudUploadQueueTests: XCTestCase {
     func testRotationCheckpointCommitsPairAndReopensPerReceiverWithoutLegacyDefaults() async throws {
         let (_, context, layout) = try fixture()
         let namespace = AccountScope.digest("synthetic-receiver-a"), other = AccountScope.digest("synthetic-receiver-b")
+        let fingerprint = AccountScope.digest("synthetic-sorted-device-list")
         let first = try queue(context, layout, UploadAdapter())
         let initial = try await first.rotationCheckpoint(namespace: namespace, captured: context)
         XCTAssertEqual(initial, .init(index: 0, carryMore: false))
-        try await first.saveRotationCheckpoint(namespace: namespace, index: 9, carryMore: true, captured: context)
+        try await first.saveRotationCheckpoint(namespace: namespace, index: 9, carryMore: true,
+            deviceListFingerprint: fingerprint, captured: context)
         let reopened = try queue(context, layout, UploadAdapter())
         let saved = try await reopened.rotationCheckpoint(namespace: namespace, captured: context)
-        XCTAssertEqual(saved, .init(index: 9, carryMore: true))
+        XCTAssertEqual(saved, .init(index: 9, carryMore: true, deviceListFingerprint: fingerprint))
         let separate = try await reopened.rotationCheckpoint(namespace: other, captured: context)
         XCTAssertEqual(separate, .init(index: 0, carryMore: false))
         do {
@@ -97,6 +99,22 @@ final class CloudUploadQueueTests: XCTestCase {
         })
         let afterFailedTransaction = try await reopened.rotationCheckpoint(namespace: namespace, captured: context)
         XCTAssertEqual(afterFailedTransaction, saved)
+        for invalid in ["", "short", String(repeating: "A", count: 64)] {
+            do {
+                try await reopened.saveRotationCheckpoint(namespace: namespace, index: 0, carryMore: false,
+                    deviceListFingerprint: invalid, captured: context)
+                XCTFail("malformed membership fingerprint accepted")
+            } catch {}
+        }
+        let afterInvalidWrite = try await reopened.rotationCheckpoint(namespace: namespace, captured: context)
+        XCTAssertEqual(afterInvalidWrite, saved)
+        // Legacy pair decodes with no invented fingerprint; coordinator safely restarts it.
+        try journal.metadata.put(name, data: Data(#"{"index":9,"carryMore":true}"#.utf8))
+        let legacy = try await reopened.rotationCheckpoint(namespace: namespace, captured: context)
+        XCTAssertEqual(legacy, .init(index: 9, carryMore: true))
+        try journal.metadata.put(name, data: Data(#"{"index":9,"carryMore":true,"deviceListFingerprint":"bad"}"#.utf8))
+        do { _ = try await reopened.rotationCheckpoint(namespace: namespace, captured: context); XCTFail("corrupt fingerprint accepted") }
+        catch {}
         XCTAssertEqual(try journal.metadata.integrityCheck(), "ok")
     }
 

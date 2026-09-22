@@ -4,6 +4,10 @@ import NoopPush
 struct CloudRotationCheckpoint: Codable, Equatable, Sendable {
     let index: Int
     let carryMore: Bool
+    let deviceListFingerprint: String?
+    init(index: Int, carryMore: Bool, deviceListFingerprint: String? = nil) {
+        self.index = index; self.carryMore = carryMore; self.deviceListFingerprint = deviceListFingerprint
+    }
 }
 
 struct CloudUploadPolicy: Sendable {
@@ -179,15 +183,22 @@ actor CloudUploadQueue {
         guard let bytes = try journal.metadata.read(name) else { return .init(index: 0, carryMore: false) }
         guard bytes.count <= 4096 else { throw CloudUploadError.corruptJournal }
         let value = try JSONDecoder().decode(CloudRotationCheckpoint.self, from: bytes)
-        guard value.index >= 0, value.index <= 1_000_000 else { throw CloudUploadError.corruptJournal }
+        guard value.index >= 0, value.index <= 1_000_000,
+              Self.validRotationFingerprint(value.deviceListFingerprint) else { throw CloudUploadError.corruptJournal }
         return value
     }
-    func saveRotationCheckpoint(namespace: String, index: Int, carryMore: Bool, captured: AccountSessionContext) throws {
+    func saveRotationCheckpoint(namespace: String, index: Int, carryMore: Bool,
+                                deviceListFingerprint: String? = nil, captured: AccountSessionContext) throws {
         try check(captured)
-        guard index >= 0, index <= 1_000_000 else { throw CloudUploadError.invalidRequest }
+        guard index >= 0, index <= 1_000_000, Self.validRotationFingerprint(deviceListFingerprint) else { throw CloudUploadError.invalidRequest }
         let name = try rotationName(namespace)
-        let bytes = try JSONEncoder().encode(CloudRotationCheckpoint(index: index, carryMore: carryMore))
+        let bytes = try JSONEncoder().encode(CloudRotationCheckpoint(index: index, carryMore: carryMore,
+                                                                   deviceListFingerprint: deviceListFingerprint))
         try journal.metadata.transaction { try journal.metadata.put(name, data: bytes) }
+    }
+    private static func validRotationFingerprint(_ value: String?) -> Bool {
+        guard let value else { return true } // Legacy pair restarts at zero in the coordinator.
+        return value.utf8.count == 64 && value.allSatisfy { "0123456789abcdef".contains($0) }
     }
     private func rotationName(_ namespace: String) throws -> String {
         guard namespace.utf8.count == 64, namespace.allSatisfy({ "0123456789abcdef".contains($0) }) else { throw CloudUploadError.invalidRequest }

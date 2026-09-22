@@ -18,6 +18,7 @@ public struct PushCoordinator: Sendable {
     private let allowsPreparation: @Sendable () -> Bool
     private let allowsActivePreparation: @Sendable () -> Bool
     private let wakeBudget: PushWakeBudget?
+    private let mutableIdentityNamespace: String?
     private var pressureDeferred: PushResult { .rejected(reason: "resource_pressure", retryable: true, failure: nil) }
 
     public init(
@@ -35,7 +36,8 @@ public struct PushCoordinator: Sendable {
         commitSource: (@Sendable (PushSourceCommit) async throws -> Void)? = nil,
         prepareSelection: (@Sendable (PushPreparedSelection) async throws -> Void)? = nil,
         allowsPreparation: @escaping @Sendable () -> Bool = { true },
-        wakeBudget: PushWakeBudget? = nil
+        wakeBudget: PushWakeBudget? = nil,
+        mutableIdentityNamespace: String? = nil
     ) {
         self.source = source
         self.transport = transport
@@ -53,6 +55,7 @@ public struct PushCoordinator: Sendable {
         self.allowsPreparation = { allowsPreparation() && (wakeBudget?.permitsPreparation ?? true) }
         self.allowsActivePreparation = { allowsPreparation() && (wakeBudget?.permitsFinishingPreparation ?? true) && destinationStillCurrent() }
         self.wakeBudget = wakeBudget
+        self.mutableIdentityNamespace = mutableIdentityNamespace
     }
 
     public func pushAppend(_ table: PushAppendTable, deviceId: String,
@@ -257,7 +260,14 @@ public struct PushCoordinator: Sendable {
 
         let batches: [PushBatch]
         do {
-            batches = try PushProtocol.mutableBatches(table: table, sourceId: sourceId, deviceId: deviceId, window: window, records: changedRows)
+            // A fresh source revision can return to identical values (A -> B -> A). Its
+            // operation must not reuse A's earlier cached receipt. Prepared selections retain
+            // this generation and exact bytes across retries; only new selection mints a nonce.
+            let generation = try JSONEncoder().encode([mutableIdentityNamespace ?? sourceId,
+                String(capturedFrontier?.revision ?? 0), capturedFrontier?.key ?? "",
+                capturedFrontier?.calendarSignature ?? "", UUID().uuidString.lowercased()])
+            batches = try PushProtocol.mutableBatches(table: table, sourceId: sourceId, deviceId: deviceId,
+                window: window, records: changedRows, replacementGeneration: PushDurabilityReceipt.sha256(generation))
         } catch {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         }
@@ -509,6 +519,7 @@ public struct PushCoordinator: Sendable {
 
     public func pushKnownDevices(
         startDeviceIndex: Int = 0,
+        expectedDeviceListFingerprint: String? = nil,
         maxDevices: Int = .max,
         capabilities: PushCapabilities = .all,
         binaryEnabled: Bool = false
@@ -531,6 +542,9 @@ public struct PushCoordinator: Sendable {
             for id in live { try await progress.rememberDeviceId(id) }
             let known = try await progress.knownDeviceIds()
             devices = (live + known).filter { !$0.isBlank }.uniqued().sorted()
+        } catch PushSourceReadError.deferred {
+            return PushRunResult(acceptedBatches: 0, rejectedBatches: 0, hasMoreAppendRows: true,
+                                 hasRetryableFailure: true)
         } catch {
             let failure = PushFailure(code: .localDatabase)
             return PushRunResult(
@@ -539,11 +553,17 @@ public struct PushCoordinator: Sendable {
             )
         }
 
+        // The index only names a position in this exact ordered set. Discovery can grow
+        // between wakes, so a missing/changed fingerprint conservatively restarts the cycle.
+        let deviceListFingerprint: String
+        do { deviceListFingerprint = PushDurabilityReceipt.sha256(try JSONEncoder().encode(devices)) }
+        catch { return PushRunResult(acceptedBatches: 0, rejectedBatches: 1, hasMoreAppendRows: true, hasRetryableFailure: true) }
         guard !devices.isEmpty else {
-            return PushRunResult(acceptedBatches: 0, rejectedBatches: 0, hasMoreAppendRows: false)
+            return PushRunResult(acceptedBatches: 0, rejectedBatches: 0, hasMoreAppendRows: false,
+                                 deviceListFingerprint: deviceListFingerprint)
         }
 
-        let start = startDeviceIndex % devices.count
+        let start = expectedDeviceListFingerprint == deviceListFingerprint ? startDeviceIndex % devices.count : 0
         let selectedCount = min(maxDevices, devices.count)
         let selectedDevices = (0..<selectedCount).map { devices[(start + $0) % devices.count] }
         let nextDeviceIndex = (start + selectedCount) % devices.count
@@ -635,6 +655,7 @@ public struct PushCoordinator: Sendable {
             acceptedRecords: acceptedRecords,
             hasRetryableFailure: retryableFailure,
             nextDeviceIndex: nextDeviceIndex,
+            deviceListFingerprint: deviceListFingerprint,
             hasMoreDevices: devices.count > selectedCount,
             failure: selectedFailure
         )
@@ -726,7 +747,8 @@ public struct PushCoordinator: Sendable {
         // matching one lets us skip straight to complete when the PUT already landed.
         do {
             if restoredManifest == nil, let inFlight = try await progress.inFlightObject(table: batch.table, deviceId: batch.deviceId) {
-                if inFlight.contentSha256 == manifest.contentSha256 {
+                if inFlight.contentSha256 == manifest.contentSha256 &&
+                    (batch.payloadFile == nil || inFlight.objectId == manifest.objectId) {
                     manifest = manifest.replacingObjectId(inFlight.objectId)
                     uploaded = inFlight.uploaded
                     expectedKey = inFlight.objectKey
