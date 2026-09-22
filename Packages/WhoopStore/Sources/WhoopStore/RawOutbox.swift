@@ -42,7 +42,87 @@ public struct RawBatchMeta: Equatable {
 
 public enum RawCaptureBoundsError: Error { case exclusiveEndOverflow }
 
+/// Optional research bytes that share the historical chunk's SQLite durability boundary.
+public struct HistoricalRawCapture {
+    public let meta: RawBatchMeta
+    public let frames: [[UInt8]]
+
+    public init(meta: RawBatchMeta, frames: [[UInt8]]) {
+        self.meta = meta
+        self.frames = frames
+    }
+}
+
+struct PreparedHistoricalRawCapture {
+    let meta: RawBatchMeta
+    let packed: Data
+    let compressed: Data
+}
+
 extension WhoopStore {
+    nonisolated static func prepareHistoricalRawCapture(_ capture: HistoricalRawCapture,
+                                                        scope: DurableIngestScope) throws -> PreparedHistoricalRawCapture {
+        let meta = capture.meta
+        guard meta.captureScope == scope, meta.deviceId == scope.deviceID,
+              !meta.batchId.isEmpty, meta.startTs < meta.endTs,
+              meta.frameCount == capture.frames.count,
+              meta.byteSize == capture.frames.reduce(0, { $0 + $1.count }) else {
+            throw DurableIngestError.identityConflict
+        }
+        let packed = packFrames(capture.frames)
+        return PreparedHistoricalRawCapture(meta: meta, packed: packed,
+                                            compressed: try zlibCompressWithLength(packed))
+    }
+
+    nonisolated static func insertHistoricalRawCapture(_ db: Database,
+        capture: PreparedHistoricalRawCapture, scope: DurableIngestScope) throws {
+        let meta = capture.meta
+        guard try captureScope(db, deviceID: scope.deviceID) == scope else {
+            throw DurableIngestError.identityConflict
+        }
+        if let existing = try Row.fetchOne(db, sql: "SELECT * FROM rawBatch WHERE batchId = ?",
+                                          arguments: [meta.batchId]) {
+            // Clock observations can change after reconnect, including an identity fallback.
+            // Equal bytes retain their first capture metadata; replay never rewrites provenance.
+            guard (existing["deviceId"] as String) == meta.deviceId,
+                  (existing["frameCount"] as Int) == meta.frameCount,
+                  (existing["byteSize"] as Int) == meta.byteSize,
+                  try zlibDecompressWithLength(existing["framesBlob"]) == capture.packed else {
+                throw DurableIngestError.identityConflict
+            }
+            let hasLedger = try Bool.fetchOne(db, sql: """
+                SELECT EXISTS(SELECT 1 FROM ingestRawResource
+                WHERE lane = 'rawBatch' AND deviceId = ? AND resourceKey = ?)
+                """, arguments: [scope.deviceID, meta.batchId]) ?? false
+            try registerRawResource(db, scope: scope, lane: "rawBatch", key: meta.batchId,
+                                    bytes: capture.packed)
+            if !hasLedger { try markRawUploadOwed(db) }
+            return
+        }
+        // A missing source is safe only when its exact original bytes already earned a receipt.
+        if let resource = try Row.fetchOne(db, sql: """
+            SELECT scopeKey, contentSHA256 FROM ingestRawResource
+            WHERE lane = 'rawBatch' AND deviceId = ? AND resourceKey = ?
+            """, arguments: [scope.deviceID, meta.batchId]) {
+            guard (resource["scopeKey"] as String) == scope.key,
+                  (resource["contentSHA256"] as String) == DurableIngestScope.sha256(capture.packed),
+                  try rawResourceCanPrune(db, lane: "rawBatch", deviceID: scope.deviceID,
+                                         key: meta.batchId, now: Int.max) else {
+                throw DurableIngestError.identityConflict
+            }
+            return
+        }
+        try db.execute(sql: """
+            INSERT INTO rawBatch(batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,
+                startTs, endTs, frameCount, byteSize, framesBlob, syncedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            """, arguments: [meta.batchId, meta.deviceId, meta.capturedAt, meta.clockRef.device,
+                              meta.clockRef.wall, meta.startTs, meta.endTs, meta.frameCount,
+                              meta.byteSize, capture.compressed])
+        try registerRawResource(db, scope: scope, lane: "rawBatch", key: meta.batchId, bytes: capture.packed)
+        try markRawUploadOwed(db)
+    }
+
     // MARK: - frame (de)serialization
     // Layout: [count u32 LE]{ [len u32 LE][bytes] } x count. zlib-compressed as a whole.
 

@@ -277,14 +277,16 @@ extension WhoopStore {
             v18AuxPruneEveryRows: Self.v18AuxPruneEveryRows, captureScope: captureScope)
     }
 
-    /// Commits an ordinary historical chunk and its exact recovery archive before authorizing ACK.
-    /// External research raw/IMU writers keep their separate flush-before-cursor path.
+    /// Commits historical rows, exact raw evidence, debt and cursor before authorizing ACK.
+    /// The caller flushes any touched external IMU files before entering this transaction.
     @discardableResult
     public func commitHistoricalChunk(_ streams: Streams, scope: DurableIngestScope,
                                       family: String, trim: UInt32, recoveryFrames: [[UInt8]],
                                       clockRef: ClockRef, postOffloadJobKinds: [String],
+                                      rawCapture: HistoricalRawCapture? = nil,
                                       note: String? = nil) async throws -> BackfillInsertOutcome {
         guard !scope.deviceID.isEmpty, !family.isEmpty else { throw DurableIngestError.identityConflict }
+        let preparedRaw = try rawCapture.map { try Self.prepareHistoricalRawCapture($0, scope: scope) }
         return try await insertAndMarkIfNeeded(streams, deviceId: scope.deviceID,
             postOffloadJobKinds: postOffloadJobKinds, note: note,
             v18AuxRetentionRows: Self.v18AuxRetentionRows,
@@ -293,6 +295,9 @@ extension WhoopStore {
                 _ = try Self.persistSensorQuarantine(db, frames: recoveryFrames, scope: scope,
                     family: family, trim: trim, clockRef: clockRef, preserveOccurrences: true,
                     maxBytes: 64 * 1_048_576, maxRecords: 100_000, allowPruning: false)
+                if let preparedRaw {
+                    try Self.insertHistoricalRawCapture(db, capture: preparedRaw, scope: scope)
+                }
                 try db.execute(sql: """
                     INSERT INTO cursors (name, value) VALUES (?, ?)
                     ON CONFLICT(name) DO UPDATE SET value = excluded.value

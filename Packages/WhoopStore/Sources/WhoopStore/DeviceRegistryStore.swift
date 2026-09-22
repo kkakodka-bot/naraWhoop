@@ -5,6 +5,10 @@ public enum DeviceIdentityMigrationError: Error, Equatable {
     case capturedIdentityRequiresExplicitMigration
 }
 
+public enum RestorationIdentityError: Error, Equatable {
+    case missingOwner, ambiguousActiveDevice, invalidRegisteredDevice
+}
+
 /// Synchronous GRDB access to the device registry + day-ownership tables. Kept synchronous (its own
 /// queue) to mirror the existing store helpers; the app wraps it behind the WhoopStore actor / a
 /// @MainActor cache. Enforces invariant I1 (at most one .active) inside setActive's transaction.
@@ -20,6 +24,49 @@ public enum DeviceIdentityMigrationError: Error, Equatable {
 public struct DeviceRegistryStore: Sendable {
     let dbQueue: any DatabaseWriter
     public init(dbQueue: any DatabaseWriter) { self.dbQueue = dbQueue }
+
+    /// Minimal restoration admission from an existing account database, including committed WAL
+    /// changes. This never creates a store, runs migrations, binds an owner, or prepares archives.
+    /// Callers must still enforce onboarding approval and their current account/session generation.
+    public static func readRestorationDevice(path: String, projectURL: String,
+                                              userID: String) throws -> PairedDevice? {
+        guard UUID(uuidString: userID) != nil,
+              let url = URL(string: projectURL), url.host != nil else {
+            throw LocalAccountOwnershipError.invalidIdentity
+        }
+        var configuration = Configuration()
+        configuration.readonly = true
+        configuration.busyMode = .timeout(0.1)
+        let reader = try DatabaseQueue(path: path, configuration: configuration)
+        defer { try? reader.close() }
+        return try reader.read { db in
+            guard try db.tableExists("localAccountOwner"),
+                  let owner = try Row.fetchOne(db, sql:
+                    "SELECT projectURL,userID FROM localAccountOwner WHERE singleton=1") else {
+                throw RestorationIdentityError.missingOwner
+            }
+            guard owner["projectURL"] as String == projectURL,
+                  owner["userID"] as String == userID else {
+                throw LocalAccountOwnershipError.mismatchedOwner
+            }
+            let active = try Row.fetchAll(db, sql:
+                "SELECT * FROM pairedDevice WHERE status='active' LIMIT 2")
+            guard active.count <= 1 else { throw RestorationIdentityError.ambiguousActiveDevice }
+            guard let row = active.first else { return nil }
+            let brand: String = row["brand"]
+            let sourceKind: String = row["sourceKind"]
+            guard brand.caseInsensitiveCompare("WHOOP") == .orderedSame,
+                  sourceKind == SourceKind.liveBLE.rawValue || sourceKind == SourceKind.historyBLE.rawValue else {
+                return nil
+            }
+            let deviceID: String = row["id"]
+            let peripheralID: String? = row["peripheralId"]
+            guard !deviceID.isEmpty, let peripheralID, UUID(uuidString: peripheralID) != nil else {
+                throw RestorationIdentityError.invalidRegisteredDevice
+            }
+            return Self.decode(row)
+        }
+    }
 
     public func all() throws -> [PairedDevice] {
         try dbQueue.read { db in

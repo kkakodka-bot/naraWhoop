@@ -1018,6 +1018,9 @@ extension WhoopStore {
         migrator.registerMigration("v54-workout-preference-evaluation") { db in
             try WhoopStore.installWorkoutPreferenceEvaluationSchema(db)
         }
+        migrator.registerMigration("v55-quarantine-maintenance") { db in
+            try WhoopStore.installQuarantineMaintenanceSchema(db)
+        }
         return migrator
     }
 }

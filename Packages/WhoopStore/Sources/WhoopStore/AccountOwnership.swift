@@ -32,7 +32,7 @@ extension WhoopStore {
                 SELECT name FROM sqlite_schema
                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
                 """)
-            let metadata = Set(["grdb_migrations", "device", "pairedDevice", "localAccountOwner"])
+            let metadata = Set(["grdb_migrations", "device", "pairedDevice", "localAccountOwner", "quarantineMaintenance"])
             for table in tables where !metadata.contains(table) {
                 let identifier = "\"" + table.replacingOccurrences(of: "\"", with: "\"\"") + "\""
                 if try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \(identifier) LIMIT 1)") == true {

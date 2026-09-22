@@ -115,4 +115,85 @@ final class ImuSessionFileStoreTests: XCTestCase {
         let after = store.stats("s1", from: Int(ts), to: Int(ts + Int64(ImuSessionFileStore.blockSeconds) - 1))
         XCTAssertEqual(after.coveredSeconds, ImuSessionFileStore.blockSeconds)
     }
+
+    private func records(from: Int, count: Int) -> [(baseTs: Int, columns: [Int16])] {
+        (0..<count).map { (from + $0, [Int16](repeating: Int16($0), count: 600)) }
+    }
+
+    private func segmentURLs() throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("s1"),
+            includingPropertiesForKeys: nil).filter { $0.pathExtension == "imus" }
+    }
+
+    func testHistoricalMultiBlockChunkSynchronizesEachSpoolOnceAndReplaysWithoutDuplicates() {
+        store.register(id: "s1", deviceId: "devA", fromMs: 1_000_000, toMs: 3_000_000)
+        var events: [String] = []
+        store.testSynchronization = { events.append($0) }
+        let offered = records(from: 1_500, count: 95)
+        XCTAssertTrue(store.persistHistoricalImu(deviceId: "devA", records: offered, receivedAtMs: 42))
+        XCTAssertEqual(events.filter { $0 == "segment" }.count, 1,
+                       "Four encoded blocks in one historical chunk need one file durability sync")
+        XCTAssertEqual(events.filter { $0 == "directory" }.count, 3,
+                       "New file and containing directory entries must be synchronized")
+        events.removeAll()
+        XCTAssertTrue(store.persistHistoricalImu(deviceId: "devA", records: offered, receivedAtMs: 43))
+        XCTAssertTrue(events.isEmpty, "Exact replay must not rewrite or resynchronize unchanged bytes")
+        let reopened = ImuSessionFileStore(directory: directory, defaultsKey: "windows", defaults: defaults)
+        XCTAssertEqual(reopened.exportSegments("s1", from: 1_500, to: 1_594).map(\.sampleCount), [9_500])
+    }
+
+    func testHistoricalChunkCrossingSegmentBoundarySynchronizesBothSpoolsOnce() {
+        store.register(id: "s1", deviceId: "devA", fromMs: 1_000_000, toMs: 3_000_000)
+        var fileSyncs = 0
+        store.testSynchronization = { if $0 == "segment" { fileSyncs += 1 } }
+        XCTAssertTrue(store.persistHistoricalImu(deviceId: "devA", records: records(from: 1_780, count: 95)))
+        XCTAssertEqual(fileSyncs, 2)
+        XCTAssertEqual(store.exportSegments("s1", from: 1_780, to: 1_874).map(\.sampleCount), [2_000, 7_500])
+    }
+
+    func testMultiBlockVerificationFailurePreservesOldPrefixAndRetriesEntireAppend() throws {
+        store.register(id: "s1", deviceId: "devA", fromMs: 1_000_000, toMs: 3_000_000)
+        XCTAssertTrue(store.persistHistoricalImu(deviceId: "devA", records: records(from: 1_500, count: 30)))
+        let file = try XCTUnwrap(segmentURLs().first)
+        let original = try Data(contentsOf: file)
+        let offered = records(from: 1_530, count: 95)
+        store.testFailAppendVerification = true
+        XCTAssertFalse(store.persistHistoricalImu(deviceId: "devA", records: offered))
+        XCTAssertEqual(try Data(contentsOf: file), original, "Failed append must retain every old byte")
+        store.testFailAppendVerification = false
+        var fileSyncs = 0
+        store.testSynchronization = { if $0 == "segment" { fileSyncs += 1 } }
+        XCTAssertTrue(store.persistHistoricalImu(deviceId: "devA", records: offered))
+        XCTAssertEqual(fileSyncs, 1)
+        XCTAssertEqual(store.exportSegments("s1", from: 1_500, to: 1_624).map(\.sampleCount), [12_500])
+    }
+
+    func testFileAndDirectorySyncFailuresHoldHistoricalSuccessAndPreserveRetry() {
+        for failDirectory in [false, true] {
+            let id = failDirectory ? "directory-failure" : "file-failure"
+            store.register(id: id, deviceId: id, fromMs: 1_000_000, toMs: 3_000_000)
+            let offered = records(from: 1_500, count: 95)
+            store.testFailDirectorySynchronization = failDirectory
+            store.testFailSegmentSynchronization = !failDirectory
+            XCTAssertFalse(store.persistHistoricalImu(deviceId: id, records: offered))
+            store.testFailDirectorySynchronization = false
+            store.testFailSegmentSynchronization = false
+            XCTAssertTrue(store.persistHistoricalImu(deviceId: id, records: offered))
+            let reopened = ImuSessionFileStore(directory: directory, defaultsKey: "windows", defaults: defaults)
+            XCTAssertEqual(reopened.exportSegments(id, from: 1_500, to: 1_594).map(\.sampleCount), [9_500])
+        }
+    }
+
+    func testPreexistingCorruptSegmentCannotAuthorizeAppendOrBeSilentlyTruncated() throws {
+        store.register(id: "s1", deviceId: "devA", fromMs: 1_000_000, toMs: 3_000_000)
+        XCTAssertTrue(store.persistHistoricalImu(deviceId: "devA", records: records(from: 1_500, count: 30)))
+        let file = try XCTUnwrap(segmentURLs().first)
+        var original = try Data(contentsOf: file)
+        original.append(0xA5)
+        try original.write(to: file)
+        let reopened = ImuSessionFileStore(directory: directory, defaultsKey: "windows", defaults: defaults)
+        XCTAssertFalse(reopened.persistHistoricalImu(deviceId: "devA", records: records(from: 1_530, count: 30)))
+        XCTAssertEqual(try Data(contentsOf: file), original)
+        XCTAssertTrue(reopened.exportSegments("s1", from: 1_500, to: 1_559).isEmpty)
+    }
 }

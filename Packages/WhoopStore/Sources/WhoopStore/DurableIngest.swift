@@ -241,15 +241,17 @@ extension WhoopStore {
         guard try Self.captureScope(db, deviceID: scope.deviceID) == scope else {
             throw DurableIngestError.identityConflict
         }
-        var retained = try Int.fetchOne(db, sql: "SELECT COALESCE(SUM(length(frame)), 0) FROM sensorQuarantine") ?? 0
-        var count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sensorQuarantine") ?? 0
+        var accounting = try Self.quarantineAccounting(db)
+        var retained = accounting.bytes
+        var count = accounting.records
         let offeredBytes = frames.reduce(0) { $0 + $1.count }
         if allowPruning && (offeredBytes > maxBytes - retained || frames.count > maxRecords - count) {
             // Recover capacity only from exact verified receipts whose grace elapsed. Never
             // evict unsent evidence to make the current chunk fit; admission remains atomic.
             _ = try Self.pruneSensorQuarantine(db, now: Int(Date().timeIntervalSince1970))
-            retained = try Int.fetchOne(db, sql: "SELECT COALESCE(SUM(length(frame)), 0) FROM sensorQuarantine") ?? 0
-            count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sensorQuarantine") ?? 0
+            accounting = try Self.quarantineAccounting(db)
+            retained = accounting.bytes
+            count = accounting.records
         }
         var inserted = 0
         let chunkDigest = preserveOccurrences ? DurableIngestScope.sha256(Self.packFrames(frames)) : ""
@@ -293,22 +295,11 @@ extension WhoopStore {
     }
 
     @discardableResult
-    public func pruneSensorQuarantine(now: Int) async throws -> Int {
-        try syncWrite { try Self.pruneSensorQuarantine($0, now: now) }
+    public func pruneSensorQuarantine(now: Int, limit: Int = 512) async throws -> Int {
+        try syncWrite { try Self.pruneQuarantinePage($0, now: now, limit: limit) }
     }
 
     nonisolated static func pruneSensorQuarantine(_ db: Database, now: Int) throws -> Int {
-        let rows = try Row.fetchAll(db, sql: "SELECT * FROM sensorQuarantine")
-        var deleted = 0
-        for row in rows {
-            guard UInt32(exactly: row["trim"] as Int64) != nil else { continue }
-            let key: String = row["id"]
-            if try Self.rawResourceCanPrune(db, lane: "sensorQuarantine", deviceID: row["deviceId"], key: key, now: now)
-                || Self.quarantineArchiveCanPrune(db, row: row, now: now) {
-                try db.execute(sql: "DELETE FROM sensorQuarantine WHERE id = ?", arguments: [key])
-                deleted += db.changesCount
-            }
-        }
-        return deleted
+        try Self.pruneQuarantinePage(db, now: now, limit: 512)
     }
 }

@@ -56,7 +56,8 @@
     "v51-v18-aux-record-identity",
     "v52-scalar-provenance",
     "v53-standard-hr-capture-journal",
-    "v54-workout-preference-evaluation"
+    "v54-workout-preference-evaluation",
+    "v55-quarantine-maintenance"
   ],
   "divergenceReasons": {
     "workout-preference-window-ios-only": "GRDB v54 adds the bounded workout preference evaluation scan index. Android has no equivalent evaluation lane; Room44 remains unchanged. The index does not change workout values or their shared primary key.",
@@ -72,6 +73,31 @@
     "ppg-record-index-default": "Both platforms preserve device/timestamp/recordIndex identity. Room v40 declares DEFAULT -1 for the explicit unknown legacy identity; GRDB retains its deployed no-default column. Both writers bind the index explicitly, and the wire maps unknown to null."
   },
   "tables": {
+    "quarantineMaintenance": {
+      "platform": "ios_only",
+      "columns": [
+        {"name": "singleton", "affinity": "INTEGER", "notNull": true, "default": null},
+        {"name": "retainedBytes", "affinity": "INTEGER", "notNull": true, "default": null},
+        {"name": "retainedRecords", "affinity": "INTEGER", "notNull": true, "default": null},
+        {"name": "pruneAfterID", "affinity": "TEXT", "notNull": true, "default": "''"}
+      ],
+      "primaryKey": ["singleton"],
+      "indices": []
+    },
+    "quarantineArchiveMembership": {
+      "platform": "ios_only",
+      "columns": [
+        {"name": "recordID", "affinity": "TEXT", "notNull": true, "default": null},
+        {"name": "scopeKey", "affinity": "TEXT", "notNull": true, "default": null},
+        {"name": "deviceID", "affinity": "TEXT", "notNull": true, "default": null},
+        {"name": "frameSHA256", "affinity": "TEXT", "notNull": true, "default": null},
+        {"name": "archiveBatchID", "affinity": "TEXT", "notNull": true, "default": null},
+        {"name": "archiveSHA256", "affinity": "TEXT", "notNull": true, "default": null},
+        {"name": "assigned", "affinity": "INTEGER", "notNull": true, "default": null}
+      ],
+      "primaryKey": ["recordID"],
+      "indices": []
+    },
     "workoutPreferenceEvaluation": {
       "platform": "ios_only",
       "reason": "Bounded local workout preference evaluation and revision fencing; no health rows, cloud receipt, or pruning authority.",

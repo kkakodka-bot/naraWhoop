@@ -174,12 +174,18 @@ final class ImuSessionFileStore: @unchecked Sendable {
     /// re-delivery (discard silently) from a conflicting payload (keep first, record evidence).
     private var seen: [String: [Int64: UInt64]] = [:]
     private var pending: [String: [Record]] = [:]
+    private var rollbackOffsets: [String: UInt64] = [:]
+    private var unreadableSegments: Set<String> = []
+    private var durableSegmentEntries: Set<String> = []
     /// Session id → conflicted strap timestamps (mirror of `imu-conflicts.json`; loaded lazily).
     private var conflicts: [String: Set<Int64>] = [:]
 
     /// Test-only: when true, appended-block verification always fails (exercises rollback).
     var testFailAppendVerification = false
     var testFailReceiptPersistence = false
+    var testFailSegmentSynchronization = false
+    var testFailDirectorySynchronization = false
+    var testSynchronization: ((String) -> Void)?
 
     /// `directory` overrides the whole directory (tests); `directoryComponent` + `defaultsKey` pick
     /// the namespace (bounded sessions vs the continuous recorder). Not private so tests can build
@@ -237,6 +243,9 @@ final class ImuSessionFileStore: @unchecked Sendable {
     func remove(id: String) {
         pending.keys.filter { $0.hasPrefix("\(id)/") }.forEach { pending[$0] = nil }
         seen.keys.filter { $0.hasPrefix(sessionDirectory(id).path) }.forEach { seen[$0] = nil }
+        rollbackOffsets.keys.filter { $0.hasPrefix(sessionDirectory(id).path) }.forEach { rollbackOffsets[$0] = nil }
+        unreadableSegments = unreadableSegments.filter { !$0.hasPrefix(sessionDirectory(id).path) }
+        durableSegmentEntries = durableSegmentEntries.filter { !$0.hasPrefix(sessionDirectory(id).path) }
         conflicts[id] = nil
         save(windows().filter { $0.id != id })
     }
@@ -296,7 +305,8 @@ final class ImuSessionFileStore: @unchecked Sendable {
             var touched: Set<String> = []
             for record in records {
                 touched.formUnion(appendRouting(deviceId: deviceId, sourceTs: Int64(record.baseTs),
-                                                columns: record.columns, receivedAtMs: receivedAtMs))
+                                                columns: record.columns, receivedAtMs: receivedAtMs,
+                                                flushWhenFull: false))
             }
             let toFlush = touched.union(pendingSessionIds(deviceId: deviceId))
             guard !toFlush.isEmpty else { return true }
@@ -318,7 +328,8 @@ final class ImuSessionFileStore: @unchecked Sendable {
             var touched: Set<String> = []
             for record in records {
                 touched.formUnion(appendRouting(deviceId: deviceId, sourceTs: Int64(record.baseTs),
-                                                columns: record.columns, receivedAtMs: receivedAtMs))
+                                                columns: record.columns, receivedAtMs: receivedAtMs,
+                                                flushWhenFull: false))
             }
             let toFlush = touched.union(pendingSessionIds(deviceId: deviceId))
             guard !toFlush.isEmpty else { return true }
@@ -335,7 +346,7 @@ final class ImuSessionFileStore: @unchecked Sendable {
     /// Open live windows match by receipt time so the first complete one-second buffer after START
     /// is kept even when its source ts slightly predates the session wall clock.
     private func appendRouting(deviceId: String, sourceTs: Int64, columns: [Int16],
-                               receivedAtMs: Int64) -> Set<String> {
+                               receivedAtMs: Int64, flushWhenFull: Bool = true) -> Set<String> {
         let receivedTs = receivedAtMs / 1_000
         var queued: Set<String> = []
         for window in windows() where window.deviceId == deviceId {
@@ -358,7 +369,7 @@ final class ImuSessionFileStore: @unchecked Sendable {
             seen[url.path] = timestamps
             let pendingKey = "\(window.id)/\(bucket)"
             pending[pendingKey, default: []].append(Record(ts: sourceTs, receivedAtMs: receivedAtMs, columns: columns))
-            if pending[pendingKey]!.count >= Self.blockSeconds { flushKey(pendingKey) }
+            if flushWhenFull && pending[pendingKey]!.count >= Self.blockSeconds { flushKey(pendingKey) }
             queued.insert(window.id)
         }
         return queued
@@ -652,45 +663,67 @@ final class ImuSessionFileStore: @unchecked Sendable {
         guard let tail = key.split(separator: "/").last,
               let bucket = Int64(String(tail)) else { return false }
         let id = String(key.split(separator: "/")[0]), url = segmentFile(id, bucket)
-        while let records = pending[key], !records.isEmpty {
-            // A transient failure leaves the complete batch pending. Later appends may grow that queue
-            // beyond blockSeconds, but the on-disk decoder deliberately rejects blocks >30. Drain only
-            // durable prefixes so one failed 30-row write cannot make every future retry unencodable.
-            let batch = Array(records.prefix(Self.blockSeconds))
-            guard let encoded = block(batch) else { return false }
-            do {
-                try FileManager.default.createDirectory(at: sessionDirectory(id), withIntermediateDirectories: true)
-                if !FileManager.default.fileExists(atPath: url.path) {
-                    try header(bucket).write(to: url, options: .atomic)
-                }
-                let handle = try FileHandle(forWritingTo: url)
-                let originalOffset = try handle.seekToEnd()
-                do {
-                    try handle.write(contentsOf: encoded)
-                    try handle.synchronize()
-                    try handle.close()
-                    guard verifyAppendedBlock(in: url, at: originalOffset, expected: encoded) else {
-                        rollbackSegment(url, to: originalOffset)
-                        return false
-                    }
-                    if records.count == batch.count {
-                        pending.removeValue(forKey: key)
-                    } else {
-                        pending[key] = Array(records.dropFirst(batch.count))
-                    }
-                } catch {
-                    try? handle.truncate(atOffset: originalOffset)
-                    try? handle.synchronize()
-                    try? handle.close()
-                    return false
-                }
-            } catch {
-                // Leave this batch and every later record pending. A later flush retries without
-                // converting an encode/open/write failure into a successful empty block.
-                return false
+        guard !unreadableSegments.contains(url.path) else { return false }
+        guard let records = pending[key], !records.isEmpty else { return true }
+        do {
+            if let offset = rollbackOffsets[url.path] {
+                try rollbackSegment(url, to: offset)
+                rollbackOffsets[url.path] = nil
             }
+            try FileManager.default.createDirectory(at: sessionDirectory(id), withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try header(bucket).write(to: url, options: .atomic)
+                durableSegmentEntries.remove(url.path)
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            let originalOffset = try handle.seekToEnd()
+            rollbackOffsets[url.path] = originalOffset
+            var written: [(offset: UInt64, bytes: Data)] = []
+            var offset = originalOffset
+            // Preserve the existing <=30-record framing, but synchronize a touched spool once.
+            for start in stride(from: 0, to: records.count, by: Self.blockSeconds) {
+                guard let bytes = block(Array(records[start..<min(start + Self.blockSeconds, records.count)])) else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+                try handle.write(contentsOf: bytes)
+                written.append((offset, bytes))
+                offset += UInt64(bytes.count)
+            }
+            if testFailSegmentSynchronization { throw CocoaError(.fileWriteOutOfSpace) }
+            try handle.synchronize()
+            testSynchronization?("segment")
+            for appended in written {
+                guard verifyAppendedBlock(in: url, at: appended.offset, expected: appended.bytes) else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+            }
+            if !durableSegmentEntries.contains(url.path) {
+                try synchronizeDirectory(sessionDirectory(id))
+                try synchronizeDirectory(directory)
+                try synchronizeDirectory(directory.deletingLastPathComponent())
+                durableSegmentEntries.insert(url.path)
+            }
+            rollbackOffsets[url.path] = nil
+            pending.removeValue(forKey: key)
+            return true
+        } catch {
+            // Only this failed append's uncommitted tail is rolled back. Older bytes stay intact.
+            // If rollback fails, its offset remains a prerequisite for every subsequent retry.
+            if let offset = rollbackOffsets[url.path], (try? rollbackSegment(url, to: offset)) != nil {
+                rollbackOffsets[url.path] = nil
+            }
+            return false
         }
-        return true
+    }
+
+    private func synchronizeDirectory(_ url: URL) throws {
+        if testFailDirectorySynchronization { throw CocoaError(.fileWriteUnknown) }
+        let descriptor = Darwin.open(url.path, O_RDONLY)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fsync(descriptor) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        testSynchronization?("directory")
     }
 
     /// Verifies ONLY the block just appended at `offset`. Whole-file revalidation on every flush was
@@ -743,11 +776,12 @@ final class ImuSessionFileStore: @unchecked Sendable {
         return blockRecords
     }
 
-    private func rollbackSegment(_ url: URL, to offset: UInt64) {
-        guard let handle = try? FileHandle(forWritingTo: url) else { return }
+    private func rollbackSegment(_ url: URL, to offset: UInt64) throws {
+        let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
-        try? handle.truncate(atOffset: offset)
-        try? handle.synchronize()
+        try handle.truncate(atOffset: offset)
+        try handle.synchronize()
+        testSynchronization?("rollback")
     }
     private func header(_ bucket: Int64) -> Data {
         var data = Self.magic; data.appendBigEndian(bucket); data.appendBigEndian(Int32(Self.sampleRate)); data.appendBigEndian(Int32(Self.axes)); return data
@@ -772,8 +806,12 @@ final class ImuSessionFileStore: @unchecked Sendable {
     private func scan(_ url: URL) -> [Int64: UInt64] {
         // Fully decodes every complete block on first touch per launch — sufficient validation for
         // pre-existing segment bytes; appended blocks are verified separately in flushKey.
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        guard let data = try? Data(contentsOf: url) else { unreadableSegments.insert(url.path); return [:] }
+        let decoded = decodeFile(data)
+        guard decoded.complete else { unreadableSegments.insert(url.path); return [:] }
         var map: [Int64: UInt64] = [:]
-        for record in decode((try? Data(contentsOf: url)) ?? Data()) {
+        for record in decoded.records {
             map[record.ts] = Self.columnsDigest(record.columns)
         }
         return map
