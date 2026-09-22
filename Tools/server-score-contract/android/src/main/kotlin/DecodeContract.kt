@@ -15,6 +15,14 @@ fun main(args: Array<String>) {
         val bytes = File(directory, name).readText()
         val day = expected.getString("day")
         val cache = ServerScoreCacheCodec.parseSnapshot(bytes, day, expected.getString("ownerId"))
+        if (name.contains("pending-device")) {
+            val compute = requireNotNull(cache.compute)
+            check(compute.families.size == 27 && compute.ownedMetrics == com.noop.push.ServerComputeContract.metricIDs)
+            check(compute.families.values.all { family ->
+                family.deviceId == null && !family.authorized && family.resultRevision == null &&
+                    family.reason == "device_registration_pending" && family.metrics.all { family.value(it) == null }
+            }) { "$name: pending registration must remain explicitly server-owned without a fabricated device or measurement" }
+        }
         val available = expected.getJSONArray("availableFeatures")
         val unavailable = expected.getJSONArray("unavailableFeatures")
         for (i in 0 until available.length()) {

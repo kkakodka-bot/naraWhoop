@@ -295,7 +295,11 @@ private fun CoachChat(vm: CoachViewModel) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            CanonicalFamilyReadout(familyID = "live_coaching")
+            CanonicalFamilyReadout(familyID = "insights")
+        }
+        if (!com.noop.analytics.PhoneComputeRuntime.finalHosted) {
         // Active-provider strip + reset-key affordance.
         NoopCard(padding = 14.dp, tint = Palette.chargeColor) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -323,6 +327,7 @@ private fun CoachChat(vm: CoachViewModel) {
                 )
             }
         }
+        }
 
         if (showClearConfirm) {
             AlertDialog(
@@ -347,7 +352,8 @@ private fun CoachChat(vm: CoachViewModel) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(uiString(R.string.l10n_coach_screen_let_the_coach_use_my_data_405d1188), style = NoopType.subhead, color = Palette.textPrimary)
                     Text(
-                        if (consent) "On: your recovery, sleep, HRV and workouts are shared with the provider for tailored coaching."
+                        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) "Hosted coaching uses authorized VPS results. Unavailable or expired decisions are not reconstructed on this phone."
+                        else if (consent) "On: your recovery, sleep, HRV and workouts are shared with the provider for tailored coaching."
                         else "Off: the coach answers generally and sends none of your metrics.",
                         style = NoopType.footnote, color = Palette.textTertiary,
                     )
@@ -361,7 +367,7 @@ private fun CoachChat(vm: CoachViewModel) {
 
         // Editable system prompt, inline in the settings, collapsed by default. Edits persist and
         // take effect on the next message (the engine reads the stored prompt fresh per send).
-        CoachInstructions(vm = vm)
+        if (!com.noop.analytics.PhoneComputeRuntime.finalHosted) CoachInstructions(vm = vm)
 
         // K5: the scheduled morning-brief notification.
         MorningBriefCard(vm = vm)

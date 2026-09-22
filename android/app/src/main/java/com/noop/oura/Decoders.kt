@@ -70,6 +70,8 @@ object OuraDecoders {
      * with the live ring time). Example subBody[5..6] = `01 04` -> ibi 1025 ms -> ~59 bpm.
      */
     fun decodeLiveHRPush(body: IntArray, ringTimestamp: Long): OuraHR? {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("oura_live_ibi_hr")) return null
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("oura_live_ibi_hr")
         if (body.size < 7) return null
         val ibi = ((body[6] and 0x0F) shl 8) or body[5]
         if (ibi <= 0) return null

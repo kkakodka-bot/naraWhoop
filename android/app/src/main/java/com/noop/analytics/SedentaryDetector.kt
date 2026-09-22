@@ -246,6 +246,7 @@ object SedentaryDetector {
         nowSec: Long,
         tzOffsetSec: Long,
     ): SedentaryDecision {
+        PhoneComputeRuntime.inferenceStarted("SedentaryDetector.evaluate")
         fun noBuzz(next: SedentaryState, bout: InactivityPeriod? = null) =
             SedentaryDecision(shouldBuzz = false, buzzLoops = config.buzzLoops, bout = bout, nextState = next)
 

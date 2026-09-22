@@ -44,6 +44,7 @@ private data class HeartRateWindowLoad(
 /** A single device's completed windows, separate from the cached nightly resting-HR statistic. */
 @Composable
 fun FiveMinuteHeartRateCard(vm: AppViewModel) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { CanonicalFamilyReadout(vm, "night_hrv"); return }
     val deviceId by vm.activeStrapIdFlow.collectAsStateWithLifecycle()
     val lastSyncAt by remember(vm) {
         vm.live.map { it.lastSyncAt }.distinctUntilChanged()

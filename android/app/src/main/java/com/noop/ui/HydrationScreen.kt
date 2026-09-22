@@ -111,7 +111,11 @@ fun HydrationScreen(viewModel: AppViewModel) {
     val strain = today?.strain
 
     val sex = remember { ProfileStore.from(context).sex }
-    val goalMl = remember(sex, strain) { HydrationGoal.dailyGoalMl(sex, strain) }
+    val canonicalDays by viewModel.serverScores.canonicalDays.collectAsStateWithLifecycle()
+    val goalMl: Int? = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        (canonicalDays[java.time.LocalDate.now().toString()]?.compute?.families?.get("insights")
+            ?.detail("hydration_goal_ml") as? Number)?.toInt()?.takeIf { it > 0 }
+    } else remember(sex, strain) { HydrationGoal.dailyGoalMl(sex, strain) }
 
     // The liquid sky backdrop honours the SAME opt-out pref as the liquid Today (a user who turned the
     // day-cycle sky off gets the flat canvas here too). Mirrors iOS `showDayCycleBackground ? ... : nil`.
@@ -157,7 +161,7 @@ fun HydrationScreen(viewModel: AppViewModel) {
         }
     }
 
-    val fraction = if (goalMl > 0) (totalMl / goalMl).toFloat() else 0f
+    val fraction = if (goalMl != null && goalMl > 0) (totalMl / goalMl).toFloat() else 0f
     val accent = hydrationAccent
 
     // #798 - the custom-amount entry. Logs any whole-ml amount the Sip/Cup/Bottle quick buttons don't
@@ -236,7 +240,7 @@ fun HydrationScreen(viewModel: AppViewModel) {
                                 ),
                                 color = Color.White,
                             )
-                            Text(
+                            if (goalMl != null) Text(
                                 String.format(Locale.US, "of %.1f L", goalMl / 1000.0),
                                 style = NoopType.subhead,
                                 color = Color.White.copy(alpha = 0.72f),
@@ -245,7 +249,7 @@ fun HydrationScreen(viewModel: AppViewModel) {
                     }
                     // DAILY GOAL — a genuine single-value progress bar, so it reads as a LiquidTube (static:
                     // it sits in a detail hero, not a live surface). Same goal fraction as the vessel.
-                    LiquidTube(
+                    if (goalMl != null) LiquidTube(
                         frac = fraction.toDouble().coerceIn(0.0, 1.0),
                         tint = accent,
                         height = Metrics.progressHeight,
@@ -257,7 +261,7 @@ fun HydrationScreen(viewModel: AppViewModel) {
                                     uiString(R.string.l10n_hydration_screen_kotlin_math_min_100_fraction_100_416d2889, kotlin.math.min(100, (fraction * 100).toInt()))
                             },
                     )
-                    Text(
+                    if (goalMl != null) Text(
                         uiString(R.string.l10n_hydration_screen_kotlin_math_min_100_fraction_100_72f2dfde, kotlin.math.min(100, (fraction * 100).toInt())),
                         style = NoopType.footnote,
                         color = Color.White.copy(alpha = 0.6f),
@@ -412,7 +416,8 @@ fun HydrationScreen(viewModel: AppViewModel) {
         }
 
         item {
-            Text(
+            if (com.noop.analytics.PhoneComputeRuntime.finalHosted) CanonicalFamilyReadout(viewModel, "insights")
+            else Text(
                 uiString(R.string.l10n_hydration_screen_a_simple_goal_that_adjusts_to_723dc08a),
                 style = NoopType.footnote,
                 color = Palette.textTertiary,
@@ -478,20 +483,20 @@ private fun LiquidLogTile(
 @Composable
 private fun HydrationHistoryBars(
     history: List<Pair<String, Double>>,
-    goalMl: Int,
+    goalMl: Int?,
     accent: Color,
 ) {
     if (history.isEmpty()) {
         Text(uiString(R.string.l10n_hydration_screen_no_history_yet_933f417e), style = NoopType.footnote, color = Palette.textTertiary)
         return
     }
-    val goal = goalMl.coerceAtLeast(1).toDouble()
+    val goal = goalMl?.coerceAtLeast(1)?.toDouble()
     val track = Palette.textPrimary.copy(alpha = 0.10f)
     val priorBar = accent.copy(alpha = 0.45f)
     val lastIndex = history.lastIndex
     val maxMl = history.maxOf { it.second }
     // Scale the bars to the LARGER of the goal and the biggest day, so an over-goal day doesn't clip.
-    val ceiling = kotlin.math.max(goal, maxMl).coerceAtLeast(1.0)
+    val ceiling = kotlin.math.max(goal ?: maxMl, maxMl).coerceAtLeast(1.0)
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Canvas(modifier = Modifier.fillMaxWidth().height(96.dp)) {

@@ -53,9 +53,11 @@ class AiCoach(
      *  [activeStrapId]. */
     private val deviceId = "my-whoop"
     private fun canonicalCoachReply(context: Context): String {
-        val family = com.noop.account.AccountStorageContext.capture(context).runtime?.serverScoreRepository
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        if (!account.isCurrent()) return "Coaching unavailable: account changed."
+        val family = account.runtime?.serverScoreRepository
             ?.overlay(java.time.LocalDate.now().toString())?.compute?.families?.get("live_coaching")
-        return (family?.detail("response") as? String)?.let { "$it\nResult: ${family.resultRevision}" }
+        return (family?.detail("response") ?: family?.value("coaching_decision"))?.let { "$it\nResult: ${family?.resultRevision}" }
             ?: "Coaching: ${family?.reason ?: family?.status ?: "awaiting_server_result"}. Result: ${family?.resultRevision ?: "pending publication"}. Your input is retained; phone inference is disabled."
     }
 
@@ -326,6 +328,7 @@ class AiCoach(
         customAuthHeader: CustomAiAuthHeader = CustomAiAuthHeader.BEARER,
         includeSignals: Boolean = false,
     ): String? {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return canonicalCoachReply(ctx)
         if (!consent) return null
         val key = AiKeyStore.read(ctx, provider)
         if (key == null && provider != AiProvider.CUSTOM) return null

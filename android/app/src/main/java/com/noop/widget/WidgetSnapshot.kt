@@ -72,7 +72,8 @@ object WidgetSnapshotStore {
         val runtime = com.noop.account.AccountStorageContext.capture(context).runtime
         val cache = runtime?.serverScoreRepository?.overlay(java.time.LocalDate.now().toString())
         fun n(metric: String) = com.noop.push.ServerConsumerProjection.number(cache, metric)?.toInt()
-        return snap.copy(recoveryPct = n("recovery"), restPct = n("sleep_performance"), effortPct = n("strain"),
+        val effort = com.noop.push.ServerConsumerProjection.number(cache, "strain")?.let { kotlin.math.round(it / 21.0 * 100).toInt() }
+        return snap.copy(recoveryPct = n("recovery"), restPct = n("sleep_performance"), effortPct = effort,
             resultRevisions = com.noop.push.ServerConsumerProjection.revisions(cache), canonicalJSON = cache?.rawSnapshotJSON)
     }
 

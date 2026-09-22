@@ -31,6 +31,7 @@ object HeartRateRecovery {
     const val maximumContinuousGapSeconds = 10L
 
     fun calculate(samples: List<HrSample>, workoutStart: Long, workoutEnd: Long, maxHr: Double): Result? {
+        PhoneComputeRuntime.inferenceStarted("HeartRateRecovery.calculate")
         if (workoutStart <= 0L || workoutEnd <= workoutStart || maxHr <= 0.0) return null
         val lowerBound = maxOf(workoutStart, workoutEnd - eligibilityLookbackSeconds)
         val upperBound = workoutEnd + 5 * 60 + measurementToleranceSeconds

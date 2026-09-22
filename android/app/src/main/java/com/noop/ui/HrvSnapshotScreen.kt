@@ -569,8 +569,11 @@ internal fun formatHrv(value: Double?, fmt: String): String =
  * Mean heart rate (bpm) from the mean NN interval (ms): 60000 / meanNN. null when meanNN is missing
  * or non-positive. Mirrors HRVSnapshotView.meanHR.
  */
-internal fun meanHr(meanNN: Double?): Double? =
-    if (meanNN == null || meanNN <= 0) null else 60_000.0 / meanNN
+internal fun meanHr(meanNN: Double?): Double? {
+    if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("spot_display_rr_to_hr")) return null
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("spot_display_rr_to_hr")
+    return if (meanNN == null || meanNN <= 0) null else 60_000.0 / meanNN
+}
 
 /** The reading's local calendar day (yyyy-MM-dd) — the `day` of the metric store's natural key. */
 private fun hrvDayKey(date: Date): String =

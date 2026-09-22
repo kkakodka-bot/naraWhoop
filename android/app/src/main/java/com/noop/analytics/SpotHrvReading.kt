@@ -74,6 +74,7 @@ object SpotHrvReading {
         rrMs: List<Int>,
         maxRejectedFraction: Double = HrvAnalyzer.DEFAULT_SPOT_MAX_REJECTED_FRACTION,
     ): Outcome {
+        PhoneComputeRuntime.inferenceStarted("SpotHrvReading.compute")
         val result = HrvAnalyzer.analyzeRaw(rrMs.map { it.toDouble() }, maxRejectedFraction)
         val rmssd = result.rmssd
         return if (rmssd == null) {
@@ -89,8 +90,11 @@ object SpotHrvReading {
     }
 
     /** Mean heart rate (bpm) from the mean NN interval (ms): 60000 / meanNN. null when missing or <= 0. */
-    fun meanHrFromNN(meanNN: Double?): Double? =
-        if (meanNN == null || meanNN <= 0.0) null else 60_000.0 / meanNN
+    fun meanHrFromNN(meanNN: Double?): Double? {
+        if (!PhoneComputeRuntime.allowsLocal("spot_rr_to_hr")) return null
+        PhoneComputeRuntime.inferenceStarted("spot_rr_to_hr")
+        return if (meanNN == null || meanNN <= 0.0) null else 60_000.0 / meanNN
+    }
 
     /**
      * Honest, source-aware caveat for a spot reading. Plain text, US-neutral, no em-dashes. Always

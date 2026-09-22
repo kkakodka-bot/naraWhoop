@@ -563,6 +563,11 @@ class OuraDriver(
      * not a TLV record, so it is stamped with the last seen ring time. Per OURA_PROTOCOL.md s5.6.
      */
     fun ingestLiveHRPush(body: IntArray): List<OuraEvent> {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            if (body.size < 7) return emptyList()
+            val ibi = ((body[6] and 0x0F) shl 8) or body[5]
+            return if (ibi > 0) listOf(OuraEvent.Ibi(OuraIBI(ringTimestamp = lastRingTimestamp, ibiMs = ibi))) else emptyList()
+        }
         val hr = OuraDecoders.decodeLiveHRPush(body, lastRingTimestamp) ?: return emptyList()
         // The push also carries the IBI; surface both so HRV analytics see the R-R.
         return listOf(

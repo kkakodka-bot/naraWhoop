@@ -698,7 +698,8 @@ fun AppRoot(viewModel: AppViewModel = viewModel()) {
                     // EXPERIMENTAL: self-gates on its own consent clickwrap (default OFF). The night
                     // summary + per-window Poincaré results land with the rhythm capture pipeline; until
                     // then it renders its honest "no clear reading yet" empty state behind the gate.
-                    RhythmScreen(night = null, windows = emptyList())
+                    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) CanonicalPhysiologyScreen(viewModel, "Rhythm", setOf("insights", "stress", "night_hrv"))
+                    else RhythmScreen(night = null, windows = emptyList())
                 }
                 composable(Destination.FusedRecord.route) { FusedRecordRoute(viewModel) }
                 composable(Destination.AppleHealth.route) { AppleHealthScreen(viewModel) }
@@ -1263,6 +1264,7 @@ private fun NavHostController.navigateTopLevel(route: String) {
  */
 @Composable
 private fun FusedRecordRoute(viewModel: AppViewModel) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { CanonicalPhysiologyScreen(viewModel, "Your data", com.noop.push.ServerComputeContract.familyIDs); return }
     var record by remember {
         mutableStateOf(FusedRecord(rows = emptyList(), dayOwner = null as FusionSource?, contributingSourceCount = 0))
     }

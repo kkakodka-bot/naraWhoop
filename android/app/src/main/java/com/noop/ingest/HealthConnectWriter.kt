@@ -226,19 +226,42 @@ object HealthConnectWriter {
         val records = ArrayList<Record>()
         val receipts = account.getSharedPreferences("noop_health_compute_revisions", Context.MODE_PRIVATE)
         val pendingReceipts = linkedMapOf<String, String>()
+        val retract = linkedMapOf<kotlin.reflect.KClass<out Record>, MutableList<String>>()
         for (cache in snapshots) {
             for ((familyID, family) in cache.compute?.families.orEmpty()) {
-                if (!family.authorized || cache.stale || cache.readFailure != null) continue
-                val revision = family.resultRevision ?: continue
-                val computed = family.computedAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: continue
-                val observed = family.observedThrough?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                if (familyID !in setOf("night_hrv", "respiration", "oxygen", "sleep") || cache.stale || cache.readFailure != null) continue
                 val identity = "${family.project}:${family.ownerId}:${family.deviceId}:$familyID:${family.window}"
-                val metadata = Metadata(clientRecordId = accountRecordId(context, identity), clientRecordVersion = computed.toEpochMilli())
+                val previous = receipts.getString(identity, null)?.let { runCatching { org.json.JSONObject(it) }.getOrNull() }
+                val exportState = if (family.authorized && !family.expired()) family.status else "unavailable"
+                if (previous?.optString("result_revision") == family.resultRevision && previous?.optString("health_export_state") == exportState) continue
+                previous?.optJSONArray("health_export_ids")?.let { ids ->
+                    for (index in 0 until ids.length()) {
+                        val old = ids.getJSONObject(index)
+                        val type = when (old.getString("type")) {
+                            "hrv" -> HeartRateVariabilityRmssdRecord::class
+                            "rhr" -> RestingHeartRateRecord::class
+                            "respiration" -> RespiratoryRateRecord::class
+                            "oxygen" -> OxygenSaturationRecord::class
+                            "sleep" -> SleepSessionRecord::class
+                            else -> continue
+                        }
+                        retract.getOrPut(type) { mutableListOf() }.add(old.getString("id"))
+                    }
+                }
+                val receipt = org.json.JSONObject(family.json).put("health_export_state", exportState)
+                    .put("health_export_ids", org.json.JSONArray())
+                pendingReceipts[identity] = receipt.toString()
+                if (!family.authorized || family.expired()) continue
+                val revision = family.resultRevision ?: continue
+                val observed = family.observedThrough?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                val resultIdentity = "$identity:$revision"
+                val before = records.size
+                val metadata = Metadata(clientRecordId = accountRecordId(context, resultIdentity), clientRecordVersion = 1)
                 when (familyID) {
                     "night_hrv" -> {
                         if (observed == null) continue
                         family.number("resting_hr_bpm")?.let { records.add(RestingHeartRateRecord(observed, null, it.toLong(), metadata)) }
-                        family.number("hrv_rmssd_ms")?.let { records.add(HeartRateVariabilityRmssdRecord(observed, null, it, Metadata(clientRecordId = accountRecordId(context, "$identity:hrv"), clientRecordVersion = computed.toEpochMilli()))) }
+                        family.number("hrv_rmssd_ms")?.let { records.add(HeartRateVariabilityRmssdRecord(observed, null, it, Metadata(clientRecordId = accountRecordId(context, "$resultIdentity:hrv"), clientRecordVersion = 1))) }
                     }
                     "respiration" -> if (observed != null) family.number("resp_rate_bpm")?.let { records.add(RespiratoryRateRecord(observed, null, it, metadata)) }
                     "oxygen" -> if (observed != null) family.number("spo2_pct")?.let { records.add(OxygenSaturationRecord(observed, null, Percentage(it), metadata)) }
@@ -255,16 +278,32 @@ object HealthConnectWriter {
                             SleepSessionRecord.Stage(Instant.ofEpochSecond(stage.start), Instant.ofEpochSecond(stage.end), kind)
                         }
                         records.add(SleepSessionRecord(start, null, end, null, title = null, notes = "Server result $revision", stages = stages,
-                            metadata = Metadata(clientRecordId = accountRecordId(context, "$identity:${night.id}"), clientRecordVersion = computed.toEpochMilli())))
+                            metadata = Metadata(clientRecordId = accountRecordId(context, "$resultIdentity:${night.id}"), clientRecordVersion = 1)))
                     }
                 }
-                pendingReceipts[identity] = family.json
+                records.subList(before, records.size).forEach { record ->
+                    val type = when (record) {
+                        is HeartRateVariabilityRmssdRecord -> "hrv"
+                        is RestingHeartRateRecord -> "rhr"
+                        is RespiratoryRateRecord -> "respiration"
+                        is OxygenSaturationRecord -> "oxygen"
+                        is SleepSessionRecord -> "sleep"
+                        else -> error("unexpected canonical Health record")
+                    }
+                    receipt.getJSONArray("health_export_ids").put(org.json.JSONObject().put("type", type).put("id", record.metadata.clientRecordId))
+                }
+                pendingReceipts[identity] = receipt.toString()
             }
         }
         return runCatching {
             checkAdmitted(context)
             check(snapshots.all { saved -> source.overlay(saved.day)?.compute == saved.compute }) { "Canonical result changed during Health export" }
             val client = HealthConnectClient.getOrCreate(context)
+            retract.forEach { (type, ids) ->
+                checkAdmitted(context)
+                check(snapshots.all { saved -> source.overlay(saved.day)?.compute == saved.compute })
+                client.deleteRecords(type, recordIdsList = emptyList(), clientRecordIdsList = ids)
+            }
             var count = 0
             records.chunked(1000).forEach { batch ->
                 checkAdmitted(context)

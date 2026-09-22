@@ -12,14 +12,15 @@ import com.noop.push.ServerComputeContract
 import java.time.LocalDate
 
 @Composable
-fun CanonicalFamilyReadout(vm: AppViewModel, familyID: String) {
-    val days by vm.serverScores.canonicalDays.collectAsStateWithLifecycle()
+fun CanonicalFamilyReadout(vm: AppViewModel? = null, familyID: String) {
+    val repository = vm?.serverScores ?: com.noop.account.AccountStorageContext.runtime(androidx.compose.ui.platform.LocalContext.current)?.serverScoreRepository
+    val days = repository?.canonicalDays?.collectAsStateWithLifecycle()?.value.orEmpty()
     val day = LocalDate.now().toString()
     val cache = days[day]
     val family = cache?.compute?.families?.get(familyID)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(familyID.replace('_', ' '))
-        Text(family?.reason ?: family?.status ?: "awaiting_server_result")
+        Text(if (family?.expired() == true) "expired_server_result" else family?.reason ?: family?.status ?: "awaiting_server_result")
         ServerComputeContract.familyMetrics[familyID].orEmpty().forEach { metric ->
             Text("${metric.replace('_', ' ')}: ${family?.value(metric)?.toString() ?: "unavailable"}")
         }
@@ -57,7 +58,7 @@ fun CanonicalPhysiologyScreen(vm: AppViewModel, title: String, families: Set<Str
                 val family = cache?.compute?.families?.get(key)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(key.replace('_', ' '))
-                    Text(family?.reason ?: family?.status ?: "awaiting_server_result")
+                    Text(if (family?.expired() == true) "expired_server_result" else family?.reason ?: family?.status ?: "awaiting_server_result")
                     ServerComputeContract.familyMetrics[key].orEmpty().forEach { metric ->
                         Text("${metric.replace('_', ' ')}: ${family?.value(metric)?.toString() ?: "unavailable"}")
                     }

@@ -4717,6 +4717,7 @@ class WhoopBleClient(
      * user's cadence or alerts a distinct new bout separated by movement.
      */
     private fun maybeBuzzInactivity() {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("passive_activity_coaching")) return
         if (!InactivityPrefs.enabled(context)) return
         ioScope.launch {
             try {

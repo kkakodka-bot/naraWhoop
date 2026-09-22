@@ -14,6 +14,7 @@ object HeartRateWindows {
     /** Caller scopes inputs to one device. Duplicated/conflicting timestamps cannot create coverage. */
     fun windows(start: Long, end: Long, hr: List<HrSample>, gravity: List<GravitySample>,
                 excluded: List<Pair<Long,Long>> = emptyList()): List<Measurement> {
+        PhoneComputeRuntime.inferenceStarted("HeartRateWindows.windows")
         if (end < start || end-start > 172800) return emptyList()
         val first = Math.floorDiv(start+299,300)*300
         val h = hr.filter { it.ts >= first && it.ts < end }.groupBy { it.ts }

@@ -136,12 +136,12 @@ fun LiveScreen(viewModel: AppViewModel, onManageDevices: () -> Unit = {}) {
     // Live HR zone for the focal readout's colour world (presentation only — same shared HrZones model
     // the live-workout screen uses). 0 = below Zone 1 / no HR yet.
     val profile = remember { ProfileStore.from(context.applicationContext) }
-    val zoneSet = remember(profile.hrMax, profile.hrZoneThresholds) { profile.hrZoneSet }
-    val liveZone = bpm?.let { zoneSet.zoneNumber(it.toDouble()) } ?: 0
+    val zoneSet = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else remember(profile.hrMax, profile.hrZoneThresholds) { profile.hrZoneSet }
+    val liveZone = bpm?.let { zoneSet?.zoneNumber(it.toDouble()) } ?: 0
 
     // HR-zone coaching state, shown read-only here; the toggles live in Automations.
     val zoneCoaching by viewModel.zoneCoaching.collectAsStateWithLifecycle()
-    val zone5Bpm = zoneSet.zones.firstOrNull { it.number == 5 }?.lower?.roundToInt() ?: 0
+    val zone5Bpm = zoneSet?.zones?.firstOrNull { it.number == 5 }?.lower?.roundToInt() ?: 0
 
     // PERF (#707): the eager ScreenScaffold built (and accessibility-walked) every section up front; on a
     // live-ticking console that long column is what the Compose semantics copy hits each scroll frame.
@@ -333,7 +333,10 @@ fun LiveScreen(viewModel: AppViewModel, onManageDevices: () -> Unit = {}) {
 
         // Body console — focal live HR VESSEL + live physiology (R-R thread, rolling RMSSD, frame/event).
         item {
-        BodyConsole(live = live, bpm = bpm, activeConnection = activeConnection, zone = liveZone, hrMax = profile.hrMax)
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            Text("Device heart rate: ${live.heartRate ?: "unavailable"}")
+            CanonicalFamilyReadout(viewModel, "current_hrv")
+        } else BodyConsole(live = live, bpm = bpm, activeConnection = activeConnection, zone = liveZone, hrMax = profile.hrMax)
         }
 
         // Signal Trust rail — one tile per signal that has to be current for the console to be trusted.
@@ -343,7 +346,8 @@ fun LiveScreen(viewModel: AppViewModel, onManageDevices: () -> Unit = {}) {
 
         // Max HR + the top-zone entry threshold (read-only; manage coaching in Automations).
         item {
-        MaxHrZoneCard(hrMax = profile.hrMax, zone5Bpm = zone5Bpm, coachingOn = zoneCoaching)
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) CanonicalFamilyReadout(viewModel, "live_coaching")
+        else MaxHrZoneCard(hrMax = profile.hrMax, zone5Bpm = zone5Bpm, coachingOn = zoneCoaching)
         }
 
         // (The Start-workout sheet + HRV-snapshot Dialog were hoisted to the body above — they're overlays
@@ -392,7 +396,9 @@ fun LiveScreen(viewModel: AppViewModel, onManageDevices: () -> Unit = {}) {
                             style = NoopType.number(22f), color = Palette.textPrimary,
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+                    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) CanonicalSessionReadout(viewModel,
+                        viewModel.serverScores.computeRequests.latestId("live_workout", w.startMs / 1000))
+                    else Row(horizontalArrangement = Arrangement.spacedBy(Metrics.gap)) {
                         StatTile(modifier = Modifier.weight(1f), label = uiString(R.string.l10n_live_screen_hr_f187928f), value = bpm?.toString() ?: "—",
                             accent = if (bpm == null) Palette.textPrimary else Palette.metricRose)
                         StatTile(modifier = Modifier.weight(1f), label = uiString(R.string.l10n_live_screen_avg_cdc93143), value = if (w.avgHr > 0) "${w.avgHr}" else "—")
@@ -1278,6 +1284,8 @@ private fun connectionModeDetail(live: LiveState, activeConnection: Boolean): St
 /** A "feel" RMSSD over the recent R-R buffer — time-gap-unaware on purpose (a live indicator, not a
  *  clinical figure; blanked on disconnect by clearedBiometrics). null until ≥3 intervals land. */
 private fun rollingRMSSD(rrRecent: List<Int>): Double? {
+    if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("live_console_hrv")) return null
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("live_console_hrv")
     val values = rrRecent.takeLast(12)
     if (values.size < 3) return null
     val diffs = values.zipWithNext { a, b -> (b - a).toDouble() }

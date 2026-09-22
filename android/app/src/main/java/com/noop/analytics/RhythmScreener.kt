@@ -147,6 +147,7 @@ object RhythmScreener {
      * neutral regularity label. Pure — plain inputs, plain result.
      */
     fun screenWindow(input: WindowInput): WindowResult {
+        PhoneComputeRuntime.inferenceStarted("RhythmScreener.screenWindow")
         // Gate 1: motion. Only a firmly-still window is read; movement masquerades as
         // irregularity and is the single biggest false signal.
         if (!input.motionStill) {
@@ -225,6 +226,7 @@ object RhythmScreener {
      * Counting only — produces no verdict and triggers nothing.
      */
     fun summarizeNight(windows: List<WindowResult>): NightRhythmSummary {
+        PhoneComputeRuntime.inferenceStarted("RhythmScreener.summarizeNight")
         val readable = windows.filter { it.label != RhythmRegularity.UNREADABLE }
         val steady = readable.count { it.label == RhythmRegularity.STEADY }
         val occasional = readable.count { it.label == RhythmRegularity.OCCASIONAL_ECTOPY }
@@ -316,6 +318,7 @@ object RhythmScreener {
      * over an already range-filtered (ectopy-kept) NN series. Reuses [HrvAnalyzer].
      */
     fun computeStats(nn: List<Double>): Stats {
+        PhoneComputeRuntime.inferenceStarted("RhythmScreener.computeStats")
         if (nn.size < 2) {
             return Stats(sd1 = null, sd2 = null, sd1sd2 = null, normRmssd = null,
                 turningPointRate = null, ectopicFraction = ectopicFraction(nn))

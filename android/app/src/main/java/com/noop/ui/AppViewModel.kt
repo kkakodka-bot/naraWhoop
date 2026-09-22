@@ -2055,7 +2055,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             // split and a peak — every one of them derived from the samples the average claimed not to
             // have. The fill's own doc promises "display == graph == zones == effort by construction";
             // this is the line that has to pass the same id for that to hold.
-            val filled = repository.fillWorkoutHrFromStrap(
+            val filled = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) whoop + apple + detected + activityFiles else repository.fillWorkoutHrFromStrap(
                 (whoop + apple + detected + activityFiles),
                 strapDeviceId = deviceId,
                 strainMaxHR = profileStore.hrMax.toDouble(),

@@ -50,6 +50,7 @@ internal object PhysiologicalStepCycleEngine {
         maxHROverride: Double?,
         effortMethod: StrainScorer.Method,
     ): Result {
+        PhoneComputeRuntime.inferenceStarted("PhysiologicalStepCycleEngine.compute")
         if (dayCycleMode == DayCycleMode.MIDNIGHT) {
             return Result(emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap(), null, emptyList())
         }

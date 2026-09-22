@@ -63,6 +63,7 @@ object HydrationGoal {
      * is today's Effort/strain (0..100) or null when not yet scored. Pure — no store reads.
      */
     fun dailyGoalMl(sex: String, effort: Double?): Int {
+        PhoneComputeRuntime.inferenceStarted("HydrationGoal.dailyGoalMl")
         val raw = baselineForSex(sex) + effortBump(effort)
         return roundToNearest(raw, ROUND_TO)
     }

@@ -2554,6 +2554,8 @@ object IntelligenceEngine {
     suspend fun recomputeFitnessAgeOnly(
         repo: WhoopRepository, profile: UserProfile, importedDeviceId: String, maxDays: Int = 21,
     ): Boolean {
+        if (!PhoneComputeRuntime.allowsLocal("profile_fitness_recompute")) return false
+        PhoneComputeRuntime.inferenceStarted("profile_fitness_recompute")
         val computedId = importedDeviceId + "-noop"
         val nowSeconds = System.currentTimeMillis() / 1_000L
         val tzOffsetSeconds = java.util.TimeZone.getDefault().getOffset(nowSeconds * 1_000L) / 1_000L

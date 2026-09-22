@@ -110,6 +110,7 @@ fun buildWeeklyDigest(
  */
 @Composable
 fun WeeklyDigestCard(vm: AppViewModel, modifier: Modifier = Modifier) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { CanonicalFamilyReadout(vm, "insights"); return }
     val days by vm.recentDays.collectAsStateWithLifecycle()
     val factor = effortDisplayFactor(UnitPrefs.effortScale(LocalContext.current))
     val digest = buildWeeklyDigest(days, effortDisplayFactor = factor)
@@ -124,6 +125,7 @@ fun WeeklyDigestCard(vm: AppViewModel, modifier: Modifier = Modifier) {
 /** The weekly digest as a full screen (for a nav destination). */
 @Composable
 fun WeeklyDigestScreen(vm: AppViewModel) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { CanonicalPhysiologyScreen(vm, "Week in review", setOf("insights", "readiness_load")); return }
     val days by vm.recentDays.collectAsStateWithLifecycle()
     val factor = effortDisplayFactor(UnitPrefs.effortScale(LocalContext.current))
     ScreenScaffold(title = uiString(R.string.l10n_weekly_digest_card_week_in_review_66d95a07), subtitle = "Your Monday-to-Sunday, read in one glance.") {

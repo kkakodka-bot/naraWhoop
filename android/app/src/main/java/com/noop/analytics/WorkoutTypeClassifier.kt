@@ -197,6 +197,7 @@ object WorkoutTypeClassifier {
      * complete the inputs were.
      */
     fun classify(features: WorkoutClassFeatures): WorkoutClassPrediction {
+        PhoneComputeRuntime.inferenceStarted("WorkoutTypeClassifier.classify")
         val scores = allScores(features)
         val ranked = scores.entries.sortedByDescending { it.value }
         val top = ranked.firstOrNull()
@@ -383,6 +384,8 @@ object WorkoutTypeFeatureExtractor {
         maxHR: Double? = null,
         caloriesKcal: Double? = null,
     ): WorkoutClassFeatures? {
+        if (!PhoneComputeRuntime.allowsLocal("WorkoutTypeClassifier.extract")) return null
+        PhoneComputeRuntime.inferenceStarted("WorkoutTypeClassifier.extract")
         if (end <= start) return null
         val hrWindow = hr.filter { it.ts in start..end }.sortedBy { it.ts }
         if (hrWindow.isEmpty()) return null

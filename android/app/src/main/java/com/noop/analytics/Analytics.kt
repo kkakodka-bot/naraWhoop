@@ -60,7 +60,10 @@ object Zones {
     /**
      * Tanaka maximum-heart-rate estimate: round(208 - 0.7 * age).
      */
-    fun hrMaxTanaka(age: Int): Int = (208.0 - 0.7 * age).roundToInt()
+    fun hrMaxTanaka(age: Int): Int {
+        PhoneComputeRuntime.inferenceStarted("Zones.hrMaxTanaka")
+        return (208.0 - 0.7 * age).roundToInt()
+    }
 }
 
 /**

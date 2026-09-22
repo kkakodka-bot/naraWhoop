@@ -21,6 +21,7 @@ object CaffeineDecay {
     /** Fraction (0..1) of a single dose still present [hoursElapsed] after intake. A negative elapsed time
      *  (a future-dated log) clamps to 1.0 — nothing has decayed yet — rather than amplifying the dose. */
     fun fractionRemaining(hoursElapsed: Double, halfLifeHours: Double = DEFAULT_HALF_LIFE_HOURS): Double {
+        PhoneComputeRuntime.inferenceStarted("CaffeineDecay.fractionRemaining")
         if (halfLifeHours <= 0) return 0.0
         val t = maxOf(0.0, hoursElapsed)
         return 0.5.pow(t / halfLifeHours)
@@ -39,6 +40,7 @@ object CaffeineDecay {
 
     /** Hours until a single dose decays to [fraction] of itself (default 25%, ~two half-lives). */
     fun hoursUntilFraction(fraction: Double, halfLifeHours: Double = DEFAULT_HALF_LIFE_HOURS): Double {
+        PhoneComputeRuntime.inferenceStarted("CaffeineDecay.hoursUntilFraction")
         if (fraction <= 0 || fraction >= 1 || halfLifeHours <= 0) return 0.0
         return halfLifeHours * (ln(fraction) / ln(0.5))
     }
@@ -136,6 +138,7 @@ data class CaffeineActiveEstimate(
             halfLifeHours: Double = CaffeineDecay.DEFAULT_HALF_LIFE_HOURS,
             activeThreshold: Double = 0.25,
         ): CaffeineActiveEstimate {
+            PhoneComputeRuntime.inferenceStarted("CaffeineActiveEstimate.compute")
             var activeCount = 0
             var mgSum = 0.0
             var anyMg = false
