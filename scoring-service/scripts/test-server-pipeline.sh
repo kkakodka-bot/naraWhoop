@@ -17,7 +17,7 @@ printf 'Local pipeline evidence: %s\n' "$evidence"
 database_mount=()
 if [[ "${PIPELINE_TEST_BIND_DATA:-0}" == 1 ]]; then
   mkdir -p "$evidence/database-data"
-  database_mount=(--mount "type=bind,source=$evidence/database-data,target=/var/lib/postgresql/data")
+  database_mount=(--mount "type=bind,source=${PIPELINE_TEST_DATABASE_DATA:-$evidence/database-data},target=/var/lib/postgresql/data")
 fi
 docker network create "$network" > "$evidence/network.txt"
 docker run --detach --name "$database" --network "$network" --network-alias database \
