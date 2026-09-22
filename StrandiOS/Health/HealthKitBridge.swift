@@ -1033,8 +1033,9 @@ final class HealthKitBridge: ObservableObject {
                 }
                 append(.inBed, start: Int64(sleep.start), end: Int64(sleep.end))
                 for stage in sleep.stages {
+                    guard let exportStage = stage.exportStage else { continue }
                     let value: HKCategoryValueSleepAnalysis
-                    switch stage.stage {
+                    switch exportStage {
                     case "wake", "awake": value = .awake
                     case "light": value = .asleepCore
                     case "deep": value = .asleepDeep

@@ -114,6 +114,24 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
         XCTAssertTrue(snapshot.hasCanonicalAdmission)
     }
 
+    func testCanonicalSleepUnknownGapsRemainUnknownAndCannotBecomeExportStages() throws {
+        let start = 1_789_948_800, end = start + 120
+        let formatter = ISO8601DateFormatter()
+        let sleep: [String: Any] = ["id": "44444444-4444-4444-8444-444444444444",
+            "start_at": formatter.string(from: Date(timeIntervalSince1970: Double(start))),
+            "end_at": formatter.string(from: Date(timeIntervalSince1970: Double(end))), "is_nap": false,
+            "stages": [
+                ["start": start, "end": start + 30, "stage": "light", "state": "sleep"],
+                ["start": start + 30, "end": start + 60, "stage": "unknown", "state": "state_unknown"],
+                ["start": start + 60, "end": start + 90, "stage": "rem", "state": "state_unknown"],
+                ["start": start + 90, "end": end, "stage": "unknown", "state": "sleep_unstaged"]]]
+        let plan = try XCTUnwrap(CanonicalHealthWritebackPlan.days(state: state(result(sleep: [sleep]))).first)
+        XCTAssertEqual(plan.sleeps[0].stages.count, 4)
+        XCTAssertEqual(plan.sleeps[0].stages.compactMap(\.exportStage), ["light"])
+        XCTAssertEqual(plan.sleeps[0].stages[1].start, Int64(start + 30))
+        XCTAssertEqual(plan.sleeps[0].stages[1].end, Int64(start + 60))
+    }
+
     func testActualDatabaseAccountRouteSleepOnlyEnvelopePassesProductionHealthDecoder() throws {
         // Exact synthetic DB/worker/Edge response captured by the production-route integration gate.
         // This replay does not claim a new live database run or physical HealthKit write.
