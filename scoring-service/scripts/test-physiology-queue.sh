@@ -96,6 +96,7 @@ else
   --tests com.frwhoop.scoring.RawSignalCatalogueIntegrationTest \
   --tests com.frwhoop.scoring.LegacySleepContinuationIntegrationTest \
   --tests com.frwhoop.scoring.SignalInventoryIntegrationTest \
+  --tests com.frwhoop.scoring.SensorWindowIntegrationTest \
   --tests com.frwhoop.scoring.CalendarOwnershipIntegrationTest --rerun-tasks
 fi
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.ScoringWorkQueueIntegrationTest.xml" "$pg_test_dir/"
@@ -117,5 +118,6 @@ cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.Physio
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.RawSignalCatalogueIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.LegacySleepContinuationIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.SignalInventoryIntegrationTest.xml" "$pg_test_dir/"
+cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.SensorWindowIntegrationTest.xml" "$pg_test_dir/"
 cp "$service_dir/service/build/test-results/test/TEST-com.frwhoop.scoring.IndependentScoringWorkIntegrationTest.xml" "$pg_test_dir/"
 printf 'Disposable PostgreSQL queue evidence: %s\n' "$pg_test_dir"
