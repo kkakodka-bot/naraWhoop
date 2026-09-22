@@ -5,6 +5,38 @@ import CNoopZstd
 @testable import NoopPush
 
 final class PushBinaryStreamBufferTests: XCTestCase {
+    func testRetiredCallerOwnedDirectoryIsNotRecreatedAfterAdmission() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: path) }
+        var checked = false, pulled = false
+        XCTAssertThrowsError(try PushBinaryStreamEncoder.encode(table: .v18AuxSample, rowCount: 1,
+            encoding: "gzip", directory: path, requireExistingDirectory: true,
+            allowsWork: {
+                // Simulate account-runtime recovery retiring the lease at the admission boundary.
+                if !checked { try? FileManager.default.removeItem(at: path); checked = true }
+                return true
+            }, nextRow: {
+                pulled = true
+                return .v18Aux(.init(rowId: 1, ts: 1, fields: Data([7])))
+            }))
+        XCTAssertTrue(checked)
+        XCTAssertFalse(pulled, "A retired packing lease must fail before materializing source rows")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path.path))
+    }
+
+    func testExistingCallerOwnedDirectoryPublishesNormally() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: path) }
+        var rows = [PushBinaryRow.v18Aux(.init(rowId: 1, ts: 1, fields: Data([7])))].makeIterator()
+        let artifact = try PushBinaryStreamEncoder.encode(table: .v18AuxSample, rowCount: 1,
+            encoding: "gzip", directory: path, requireExistingDirectory: true, nextRow: { rows.next() })
+        XCTAssertEqual(artifact.fileURL.deletingLastPathComponent().path, path.path)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: path.path),
+                       [artifact.fileURL.lastPathComponent])
+    }
+
     func testIncompressibleMultiBufferOutputPreservesBothDigestsAndDecodes() throws {
         var random: UInt64 = 8191
         let blob = Data((0..<1_048_777).map { _ -> UInt8 in

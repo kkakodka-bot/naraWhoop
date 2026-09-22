@@ -25,10 +25,13 @@ public enum PushBinaryStreamEncoder {
     /// The caller supplies the account-scoped directory and an admission closure that also
     /// fences account/device changes. `nextRow` must contain exactly the declared selection.
     /// A published filename is the compressed-byte digest, never a mutable selection name.
+    /// Set `requireExistingDirectory` for a queue-owned packing lease so cancellation/recovery
+    /// can retire that directory without a delayed encoder recreating it.
     public static func encode(
         table: PushBinaryTable, rowCount: Int, encoding: String,
         ppgIdentityV2: Bool = false, v18IdentityV2: Bool = false,
-        directory: URL, maxDecodedBytes: Int = 4 * 1_048_576,
+        directory: URL, requireExistingDirectory: Bool = false,
+        maxDecodedBytes: Int = 4 * 1_048_576,
         maxWireBytes: Int = 4 * 1_048_576 + bufferBytes, maxRows: Int = 2_000,
         expectedDecodedBytes: Int? = nil, compressionLevel: Int = 1,
         allowsWork: @escaping () -> Bool = { true }, nextRow: () throws -> PushBinaryRow?
@@ -39,7 +42,7 @@ public enum PushBinaryStreamEncoder {
               expectedDecodedBytes.map({ $0 > 0 && $0 <= maxDecodedBytes }) ?? true else {
             throw PushProtocolException("invalid streaming encoding limits")
         }
-        let file = try ImmutableOutput(directory: directory)
+        let file = try ImmutableOutput(directory: directory, requireExistingDirectory: requireExistingDirectory)
         defer { file.closeAndRemoveTemporary() }
         let compressor = try Compressor(encoding: encoding, level: compressionLevel,
                                         expectedBytes: expectedDecodedBytes)
@@ -277,11 +280,20 @@ public enum PushBinaryStreamEncoder {
         let temporary: URL
         private var descriptor: Int32 = -1
 
-        init(directory: URL) throws {
+        init(directory: URL, requireExistingDirectory: Bool) throws {
             guard directory.isFileURL else { throw PushProtocolException("binary spool requires a file directory") }
             self.directory = directory
             temporary = directory.appendingPathComponent(".prepare-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            if requireExistingDirectory {
+                // The account queue owns packing-directory creation and retirement. A delayed
+                // encoder must not recreate a directory whose durable lease was already removed.
+                let values = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                guard values.isDirectory == true, values.isSymbolicLink != true else {
+                    throw PushProtocolException("binary packing directory is unavailable")
+                }
+            } else {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            }
             #if os(iOS)
             try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: directory.path)
             #endif
