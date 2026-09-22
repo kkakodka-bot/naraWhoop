@@ -60,6 +60,8 @@ final class FinalHostedRuntimeTests: XCTestCase {
         await model.retryScoringPreferenceRecompute()
         _ = await model.intelligence.recomputeFitnessAgeOnly()
         await model.intelligence.runEffortRescoreIfNeeded()
+        let diagnostics = await DebugDataDiagnostics.dynamicLines(repo: model.repo)
+        XCTAssertTrue(diagnostics.contains("Physiology funnels: server-owned; local analysis disabled"))
         _ = await model.reevaluateIllness()?.value
         model.evaluateStrainTarget()
         model.setForeground(false); model.setForeground(true)
@@ -115,10 +117,23 @@ final class FinalHostedRuntimeTests: XCTestCase {
         XCTAssertNil(biofeedback.calmTargetBpm); XCTAssertFalse(biofeedback.running)
         biofeedback.stop()
         XCTAssertNil(HRVSnapshotView.meanHR(meanNN: 1000))
+        await model.coach.send("How should I recover?")
+        XCTAssertEqual(model.coach.errorText, AICoachError.serverOwnedUnavailable.errorDescription)
+        let brief = await model.coach.generateBrief()
+        let stressContext = await model.coach.stressIndexLine()
+        let context = await model.coach.buildFullContext()
+        XCTAssertNil(brief); XCTAssertNil(stressContext)
+        XCTAssertEqual(context, "Server-owned coaching context unavailable.")
+        XCTAssertTrue(model.coach.suggestions.isEmpty)
+        var legacyBriefCalled = false
+        let scheduled = await CoachBriefScheduler.generateNow { legacyBriefCalled = true; return "obsolete" }
+        XCTAssertNil(scheduled); XCTAssertFalse(legacyBriefCalled)
+        XCTAssertNil(CoachBriefScheduler.consumeStoredBrief())
         let content = VStack {
             CanonicalPhysiologySection(families: Array(ServerCanonicalResults.familyMetrics.keys).sorted())
             LiveWorkoutView(onClose: {})
             HRVSnapshotView()
+            CoachView().environmentObject(model.coach)
         }.environmentObject(model).environmentObject(model.repo).environmentObject(model.live)
             .environmentObject(model.profile).frame(width: 600, height: 1200)
         XCTAssertNotNil(ImageRenderer(content: content).nsImage)

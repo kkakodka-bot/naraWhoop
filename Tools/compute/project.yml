@@ -14,12 +14,15 @@ targets:
       - ../../StrandTests/ScoringPreferenceAppTests.swift
       - Tests/FinalHostedRuntimeTests.swift
       - ../../StrandTests/CanonicalPhysiologySurfaceTests.swift
+      - ../../StrandTests/CanonicalConsumerPublicationTests.swift
+      - ../../StrandiOSShared/WidgetSnapshot.swift
     dependencies:
       - target: Strand
       - package: WhoopProtocol
       - package: WhoopStore
       - package: NoopPush
       - package: StrandAnalytics
+      - package: StrandDesign
       - package: GRDB
     settings:
       base:
