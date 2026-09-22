@@ -228,9 +228,47 @@ enum CsvExport {
         let provenance = "historical_persisted_source_not_canonical"
         let source: String
         let daily: [DailyMetric]
+        let metricSeries: [MetricPoint]
         let sleep: [CachedSleepSession]
         let workouts: [WorkoutRow]
         let journal: [JournalEntry]
+    }
+
+    /// Build the source-labelled historical sidecars before the archive is staged. The source set comes
+    /// from the persisted tables themselves, so Apple Health, Xiaomi, nutrition, mood and future import
+    /// namespaces remain available even though none is a canonical physiology producer.
+    @MainActor
+    static func canonicalHistoricalEntries(repo: Repository, store: WhoopStore) async throws
+        -> [(name: String, data: Data)] {
+        let selected = repo.serverPresentation
+        let device = repo.deviceId
+        let context = CloudRuntimeIdentity.snapshot().context
+        let persisted = try await store.historicalPresentationSourceIds()
+        let sources = Array(Set(repo.importedReadIds + repo.computedReadIds
+            + [Repository.journalDeviceId] + persisted)).sorted()
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        var entries: [(name: String, data: Data)] = []
+        for (index, source) in sources.enumerated() {
+            var series: [MetricPoint] = []
+            for key in try await store.metricKeys(deviceId: source) {
+                series += try await store.metricSeries(deviceId: source, key: key,
+                    from: "0000-01-01", to: "9999-12-31")
+            }
+            series.sort { $0.day == $1.day ? $0.key < $1.key : $0.day < $1.day }
+            let rows = HistoricalRows(source: source,
+                daily: try await store.dailyMetrics(deviceId: source, from: "0000-01-01", to: "9999-12-31"),
+                metricSeries: series,
+                sleep: try await store.sleepSessions(deviceId: source, from: 0,
+                    to: Int(Date().timeIntervalSince1970), limit: 100_000),
+                workouts: try await store.workouts(deviceId: source, from: 0,
+                    to: Int(Date().timeIntervalSince1970), limit: 100_000),
+                journal: try await store.journalEntries(deviceId: source,
+                    from: "0000-01-01", to: "9999-12-31"))
+            guard repo.serverPresentation == selected, repo.deviceId == device,
+                  CloudRuntimeIdentity.snapshot().context == context else { throw AccountAuthError.staleOperation }
+            entries.append(("historical_source_\(index).json", try encoder.encode(rows)))
+        }
+        return entries
     }
 
     @MainActor
@@ -240,18 +278,7 @@ enum CsvExport {
         let context = CloudRuntimeIdentity.snapshot().context
         guard let store = await repo.storeHandle() else { return .failure("Couldn't open the local store.") }
         do {
-            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            var entries: [(name: String, data: Data)] = []
-            for (index, source) in Array(Set(repo.importedReadIds + repo.computedReadIds + [Repository.journalDeviceId])).sorted().enumerated() {
-                let rows = HistoricalRows(source: source,
-                    daily: try await store.dailyMetrics(deviceId: source, from: "0000-01-01", to: "9999-12-31"),
-                    sleep: try await store.sleepSessions(deviceId: source, from: 0, to: Int(Date().timeIntervalSince1970), limit: 100_000),
-                    workouts: try await store.workouts(deviceId: source, from: 0, to: Int(Date().timeIntervalSince1970), limit: 100_000),
-                    journal: try await store.journalEntries(deviceId: source, from: "0000-01-01", to: "9999-12-31"))
-                guard repo.serverPresentation == selected, repo.deviceId == device,
-                      CloudRuntimeIdentity.snapshot().context == context else { throw AccountAuthError.staleOperation }
-                entries.append(("historical_source_\(index).json", try encoder.encode(rows)))
-            }
+            let entries = try await canonicalHistoricalEntries(repo: repo, store: store)
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
             try CanonicalExport.writeArchive(state: selected, historicalEntries: entries, to: tmp)
             defer { try? FileManager.default.removeItem(at: tmp) }

@@ -114,15 +114,14 @@ struct XiaomiBandView: View {
     var body: some View {
         ScreenScaffold(title: "Mi Band", subtitle: spanSubtitle.map { "\($0)" },
                        onRefresh: { await repo.refresh() }, lazy: loaded && hasAnyData) {
-            if PhoneComputeRuntime.isFinalHosted {
-                Text("Imported observations remain source data. Physiological summaries use authorized server results.")
-                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                CanonicalPhysiologySection(families: ["night_hrv", "sleep", "stress", "steps"], history: true)
-            } else if loaded && !hasAnyData {
+            let presentation = DirectObservationPagePresentation.resolve(
+                finalHosted: PhoneComputeRuntime.isFinalHosted, loaded: loaded, hasData: hasAnyData)
+            switch presentation.sourceState {
+            case .empty:
                 ComingSoon(what: "Nothing imported yet. In Data Sources, choose your Mi Fitness export (a .zip of the Mi Fitness app folder from the Files app) to bring in your steps, heart rate, sleep stages, SpO₂ and stress.")
-            } else if !loaded {
+            case .loading:
                 loadingState
-            } else {
+            case .populated:
                 // Flat children (no wrapping VStack) so the scaffold's LazyVStack can defer each
                 // off-screen chart card instead of building all ~15 at once.
                 rangeControl
@@ -140,6 +139,11 @@ struct XiaomiBandView: View {
                         sleepDetailSection   // lazily-built, positioned just before the Sleep charts
                     }
                 }
+            }
+            if presentation.showsCanonical {
+                Text("Imported observations remain source data. Physiological summaries use authorized server results.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                CanonicalPhysiologySection(families: ["night_hrv", "sleep", "stress", "steps"], history: true)
             }
         }
         .task(id: repo.refreshSeq) { await load() }
@@ -203,7 +207,6 @@ struct XiaomiBandView: View {
     // MARK: - Load
 
     private func load() async {
-        guard PhoneComputeRuntime.permitsLocal("XiaomiBandView.source_summary") else { return }
         var fetched: [String: [(day: String, value: Double)]] = [:]
         for key in Self.seriesKeys {
             fetched[key] = await repo.series(key: key, source: Self.source)

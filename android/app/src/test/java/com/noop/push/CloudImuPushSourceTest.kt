@@ -368,9 +368,15 @@ class CloudImuPushSourceTest {
             val config = android.content.res.Configuration(storage.resources.configuration)
             config.setLocale(java.util.Locale.forLanguageTag(language))
             val localized = storage.createConfigurationContext(config)
-            assertTrue(localized.getString(com.noop.R.string.imu_recorder_privacy).contains("account's cloud uploads"))
-            assertTrue(localized.getString(com.noop.R.string.imu_recorder_retention_policy)
-                .contains("A successful upload does not automatically delete them."))
+            val privacy = localized.getString(com.noop.R.string.imu_recorder_privacy)
+            val retention = localized.getString(com.noop.R.string.imu_recorder_retention_policy)
+            if (language == "de") {
+                assertTrue(privacy.contains("Cloud-Uploads deines Kontos"))
+                assertTrue(retention.contains("nicht automatisch gelöscht"))
+            } else {
+                assertTrue(privacy.contains("account's cloud uploads"))
+                assertTrue(retention.contains("A successful upload does not automatically delete them."))
+            }
         }
     }
 

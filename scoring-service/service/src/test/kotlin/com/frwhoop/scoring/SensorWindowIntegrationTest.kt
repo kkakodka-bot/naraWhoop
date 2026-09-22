@@ -154,9 +154,22 @@ class SensorWindowIntegrationTest {
         asRole("service_role", user) { connection ->
             val actual = read(connection, "server_scoring_for_device_day", user, device)
             exportFixture("hrv-score-api.json", actual)
+            val signalAware = read(connection, "server_scoring_read_contract_v1", user, device)
             val previous = read(connection, "server_scoring_read_contract_before_signals", user, device)
-            val unchanged = JSONObject(actual.toString()).apply { remove("signal_windows"); remove("signal_windows_device_id") }
-            assertEquals(previous.toMap(), unchanged.toMap())
+            assertEquals(2, actual.getInt("contract_revision"))
+            val withoutCompute = JSONObject(actual.toString()).apply {
+                remove("compute")
+                remove("contract_revision")
+            }
+            val signalAwareContract = JSONObject(signalAware.toString()).apply {
+                remove("contract_revision")
+            }
+            assertEquals(signalAwareContract.toMap(), withoutCompute.toMap())
+            val withoutSignals = JSONObject(signalAware.toString()).apply {
+                remove("signal_windows")
+                remove("signal_windows_device_id")
+            }
+            assertEquals(previous.toMap(), withoutSignals.toMap())
             assertEquals(device.toString(), actual.getString("signal_windows_device_id"))
             assertEquals(13, actual.getJSONArray("signal_windows").length())
             for (i in 0 until actual.getJSONArray("signal_windows").length()) {
@@ -317,12 +330,15 @@ class SensorWindowIntegrationTest {
             }
 
             sql("update noop_skin_temp_samples set source_id='${UUID.randomUUID()}' where user_id='$user' and ts=${start+10}")
-            val mismatched = window(payload(claimCurrent(),start+300,scorer),"temperature")
+            val mismatchedWork = claimCurrent()
+            val mismatched = window(payload(mismatchedWork,start+300,scorer),"temperature")
             assertEquals("capture_source_mismatch",mismatched.getString("reason"))
             assertTrue(mismatched.isNull("values"))
             sql("update noop_skin_temp_samples set source_id='$source' where user_id='$user'")
             sql("insert into noop_events(user_id,device_id,source_id,ts,kind,\"payloadJSON\",batch_id) " +
                 "values('$user','$device','$source',${start+50},'WRIST_OFF(10)','{}','${UUID.randomUUID()}')")
+            assertFalse("late input fences the old claim while exact settlement releases its fleet slot",
+                queue.markFailed(mismatchedWork,"input superseded"))
             val offBody = window(payload(claimCurrent(),start+300,scorer),"temperature")
             assertEquals("off_body",offBody.getString("reason"))
             assertEquals("unavailable",offBody.getString("measurement_status"))

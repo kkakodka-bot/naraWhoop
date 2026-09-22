@@ -410,19 +410,29 @@ class W2CaptureColdRecoveryNativeTest {
         var failFile = false
         val directoryAttempts = AtomicInteger()
         val fileAttempts = AtomicInteger()
+        // macOS reports /var paths to SecurityManager as their /private/var canonical spelling.
+        // Resolve the expected paths before the manager is installed, then compare paths without
+        // filesystem access inside checkRead so the injection stays limited to these exact files.
+        private val canonicalFolder = folder.canonicalFile.toPath().normalize()
+        private val canonicalFiles = setOf(
+            File(folder, "$id.pending").canonicalFile.toPath().normalize(),
+            File(folder, "$id.ncap").canonicalFile.toPath().normalize(),
+        )
         private val selectedFile = ThreadLocal<Boolean>()
         override fun checkPermission(permission: Permission) = Unit
         override fun checkRead(file: String) {
-            if (Thread.currentThread().stackTrace.none {
+            val stack = Thread.currentThread().stackTrace
+            if (stack.none {
                 it.className == "java.nio.channels.FileChannel" && it.methodName == "open"
             }) return
-            if (file == folder.path) {
+            val path = File(file).toPath().toAbsolutePath().normalize()
+            if (path == canonicalFolder) {
                 if (selectedFile.get() == true) {
                     directoryAttempts.incrementAndGet()
                     if (failDirectory) throw SecurityException("synthetic directory-sync channel failure")
                 }
             } else {
-                val selected = file == File(folder, "$id.pending").path || file == File(folder, "$id.ncap").path
+                val selected = path in canonicalFiles
                 selectedFile.set(selected)
                 if (selected) {
                     fileAttempts.incrementAndGet()

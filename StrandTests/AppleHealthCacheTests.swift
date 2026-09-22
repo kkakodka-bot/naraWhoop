@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import WhoopStore
+import WhoopProtocol
 @testable import Strand
 
 /// #833/v7.7.2 (Apple Health per-source freeze): the load-once contract behind the AppleHealthView re-mount
@@ -100,5 +101,17 @@ final class AppleHealthCacheTests: XCTestCase {
         _ = await repo.performAppleHealthLoad(seriesKeys: seriesKeys, allowCache: true)
         XCTAssertEqual(repo.loadFireCounts["appleHealth"], 2,
                        "after invalidation the next load must re-read, so post-import/delete data is fresh")
+    }
+
+    func testFinalHostedStillLoadsExactAppleHealthObservationsWithoutPhysiology() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            let repo = try await makeRepo()
+            let snapshot = await repo.performAppleHealthLoad(seriesKeys: seriesKeys, allowCache: false)
+            XCTAssertEqual(snapshot.series["steps"]?.first?.value, 8_000)
+            XCTAssertEqual(snapshot.series["weight"]?.last?.value ?? 0, 74.4, accuracy: 0.001)
+            XCTAssertEqual(snapshot.series["body_fat"]?.last?.value ?? 0, 17.6, accuracy: 0.001)
+            XCTAssertTrue(PhoneComputeRuntime.counters().executions.isEmpty)
+        }
     }
 }

@@ -76,6 +76,21 @@ extension WhoopStore {
         }
     }
 
+    /// Every source namespace represented by the persisted presentation/import tables. Used by lossless
+    /// historical exports so an external source is not dropped merely because it is not the active strap.
+    public func historicalPresentationSourceIds() async throws -> [String] {
+        try syncRead { db in
+            try String.fetchAll(db, sql: """
+                SELECT deviceId FROM dailyMetric
+                UNION SELECT deviceId FROM metricSeries
+                UNION SELECT deviceId FROM sleepSession
+                UNION SELECT deviceId FROM workout
+                UNION SELECT deviceId FROM journal
+                ORDER BY deviceId ASC
+                """)
+        }
+    }
+
     /// Earliest and latest day for a given metric `key`, or nil if the key has no points.
     public func metricDays(deviceId: String, key: String) async throws -> (earliest: String, latest: String)? {
         try syncRead { db in

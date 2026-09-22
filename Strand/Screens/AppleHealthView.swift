@@ -39,6 +39,19 @@ struct AppleHealthLoadKey: Equatable {
     let dayKey: String
 }
 
+/// Direct-source pages always keep their persisted observations visible. Final-hosted mode adds the
+/// canonical physiology section after that source content; it never replaces the source page.
+struct DirectObservationPagePresentation: Equatable {
+    enum SourceState: Equatable { case loading, empty, populated }
+    let sourceState: SourceState
+    let showsCanonical: Bool
+
+    static func resolve(finalHosted: Bool, loaded: Bool, hasData: Bool) -> Self {
+        let sourceState: SourceState = !loaded ? .loading : (hasData ? .populated : .empty)
+        return Self(sourceState: sourceState, showsCanonical: finalHosted)
+    }
+}
+
 struct AppleHealthView: View {
     @EnvironmentObject var repo: Repository
 
@@ -203,14 +216,10 @@ struct AppleHealthView: View {
                        // (the scaffold stack is 20pt), so the lazy win is partial until those sections are
                        // promoted to direct children — kept as one node here to stay pixel-identical.
                        lazy: true) {
-            if PhoneComputeRuntime.isFinalHosted {
-                #if os(iOS)
-                liveSyncCard
-                #endif
-                Text("Imported observations remain source data. Physiological summaries use authorized server results.")
-                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                CanonicalPhysiologySection(families: ["night_hrv", "sleep", "strain_energy", "steps"], history: true)
-            } else if loaded && !hasAnyData {
+            let presentation = DirectObservationPagePresentation.resolve(
+                finalHosted: PhoneComputeRuntime.isFinalHosted, loaded: loaded, hasData: hasAnyData)
+            switch presentation.sourceState {
+            case .empty:
                 #if os(iOS)
                 // No data yet, but iOS can grant live access right here — keep the Enable card above
                 // the (now live-aware) empty-state copy so the richer path isn't hidden behind a
@@ -227,9 +236,9 @@ struct AppleHealthView: View {
                 #else
                 ComingSoon(what: "Nothing imported yet. On an iPhone: Health app, tap your photo, Export All Health Data, then import the .zip here in Data Sources.")
                 #endif
-            } else if !loaded {
+            case .loading:
                 loadingState
-            } else {
+            case .populated:
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                     #if os(iOS)
                     liveSyncCard
@@ -241,6 +250,11 @@ struct AppleHealthView: View {
                     bodySection
                     sleepSection
                 }
+            }
+            if presentation.showsCanonical {
+                Text("Imported observations remain source data. Physiological summaries use authorized server results.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                CanonicalPhysiologySection(families: ["night_hrv", "sleep", "strain_energy", "steps"], history: true)
             }
         }
         .task(id: AppleHealthLoadKey(seq: repo.refreshSeq, dayKey: Repository.localDayKey(Date()))) { await load(allowCache: true) }
@@ -269,7 +283,6 @@ struct AppleHealthView: View {
     // MARK: - Load
 
     private func load(allowCache: Bool = false) async {
-        guard PhoneComputeRuntime.permitsLocal("AppleHealthView.source_summary") else { return }
         // Previews inject data directly (store-backed reads can't be seeded). Stays ABOVE the cache path so a
         // preview never touches the repo.
         if let pd = previewData {

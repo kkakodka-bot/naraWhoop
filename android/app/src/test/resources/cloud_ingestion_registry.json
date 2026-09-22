@@ -267,6 +267,22 @@
       "supabaseTable": "object_manifests",
       "why": "Packed 24 Hz PPG waveform BLOBs; gzip/zstd object upload with sidecar manifest, not NDJSON."
     },
+    "bleRawBatch": {
+      "platform": "android_only",
+      "classification": "shipped",
+      "wireStream": "rawBatch",
+      "delivery": "binary_object",
+      "b2Stream": "rawBatch",
+      "b2Extension": "pb.zst",
+      "b2RetentionClass": "research",
+      "supabaseTable": "object_manifests",
+      "why": "Owner- and source-scoped durable Android raw BLE receipt batches. The push coordinator freezes each batch into the rawBatch object lane and marks the exact row delivered only after receiver acknowledgement."
+    },
+    "bleRawMember": {
+      "platform": "android_only",
+      "classification": "local_only",
+      "why": "Immutable Android capture membership used to deduplicate raw receipts and fence exact batch acknowledgement. It is local recovery and pruning metadata; the containing bleRawBatch bytes, rather than these membership rows, are shipped."
+    },
     "rawBatch": {
       "platform": "ios_only",
       "classification": "shipped",

@@ -14,6 +14,18 @@ import { pushConfig } from "../_shared/config.ts";
 const container = Deno.env.get("PIPELINE_TEST_DATABASE_CONTAINER");
 const restUrl = Deno.env.get("PIPELINE_TEST_REST_URL");
 const output = Deno.env.get("PIPELINE_TEST_OUTPUT");
+function capacityCohorts(): number[] {
+  const configured = Deno.env.get("PIPELINE_TEST_CAPACITY_COHORTS");
+  if (!configured) return [10, 100, 1000];
+  const values = configured.split(",").map((value) => {
+    assert.match(value, /^[1-9][0-9]*$/);
+    const cohort = Number(value);
+    assert.ok(Number.isSafeInteger(cohort) && cohort <= 1000);
+    return cohort;
+  });
+  assert.equal(new Set(values).size, values.length);
+  return values;
+}
 function jwt(role: string, sub?: string) {
   const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" })).replaceAll(
     "=",
@@ -992,7 +1004,7 @@ Deno.test({
         p_lease_seconds: seconds,
         p_max_failures: 8,
       });
-    for (const cohort of [10, 100, 1000]) {
+    for (const cohort of capacityCohorts()) {
       const seeded = JSON.parse(
         await sql(`
       create temporary table fleet_fixture as select gen_random_uuid() as u,gen_random_uuid() as d,

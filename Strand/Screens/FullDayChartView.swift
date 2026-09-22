@@ -83,13 +83,7 @@ struct FullDayChartView: View {
     private var visibleWindow: ClosedRange<Date> { zoomDomain ?? dayBounds }
 
     var body: some View {
-        if PhoneComputeRuntime.isFinalHosted {
-            ScreenScaffold(title: "Deep Timeline") {
-                dayNav
-                CanonicalPhysiologySection(families: ["strain_energy", "night_hrv", "oxygen", "respiration", "temperature", "sleep"],
-                    day: ServerScoreDate.day(dayStart, timeZone: TimeZone(identifier: repo.serverPresentation.timezone) ?? .current))
-            }
-        } else { referenceBody }
+        referenceBody
     }
 
     private var referenceBody: some View {
@@ -99,6 +93,10 @@ struct FullDayChartView: View {
             sourcePill
             chartCard
             zoomHint
+            if PhoneComputeRuntime.isFinalHosted {
+                CanonicalPhysiologySection(families: ["strain_energy", "night_hrv", "oxygen", "respiration", "temperature", "sleep"],
+                    day: ServerScoreDate.day(dayStart, timeZone: TimeZone(identifier: repo.serverPresentation.timezone) ?? .current))
+            }
         }
         .task(id: taskKey) { await reload() }
         .task(id: annotationKey) { await reloadAnnotations() }
@@ -140,7 +138,9 @@ struct FullDayChartView: View {
 
     private var metricPills: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            SegmentedPillControl(Repository.TimelineMetric.allCases, selection: $metric) { $0.title }
+            SegmentedPillControl(Repository.TimelineMetric.allCases.filter {
+                !PhoneComputeRuntime.isFinalHosted || $0.isDirectObservation
+            }, selection: $metric) { $0.title }
                 .padding(.vertical, NoopMetrics.space1 / 2)
         }
     }

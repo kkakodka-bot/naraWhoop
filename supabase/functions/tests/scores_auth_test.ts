@@ -76,7 +76,13 @@ Deno.test('scores HTTP: enrolled owner can read own exact strap without a passwo
   assertEquals(res.status, 200);
   const json = await res.json();
   assertEquals(json.server_scoring.daily.hrv_rmssd_ms, 42);
-  assertEquals(json.identity, { userId: USER, sourceId: SOURCE, deviceId: DEVICE, externalDeviceId: LOCAL_DEVICE });
+  assertEquals(json.identity, {
+    userId: USER,
+    sourceId: SOURCE,
+    deviceId: DEVICE,
+    externalDeviceId: LOCAL_DEVICE,
+    project: 'https://example.test',
+  });
 });
 
 Deno.test('scores HTTP: missing bearer is 401', async () => {

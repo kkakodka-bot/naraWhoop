@@ -2148,6 +2148,10 @@ final class Repository: ObservableObject {
         case hr, hrv, spo2, skinTemp, respiration, motion, bandSleepState, ouraMovement
         var id: String { rawValue }
 
+        /// Raw/device-observed lanes remain inspectable in final-hosted mode. Windowed rMSSD is the
+        /// sole timeline lane reconstructed from R-R intervals on the phone and therefore stays server-owned.
+        var isDirectObservation: Bool { self != .hrv }
+
         /// User-facing pill label.
         var title: String {
             switch self {
@@ -2267,7 +2271,7 @@ final class Repository: ObservableObject {
     /// tables (low frequency, no 86k risk) and bin to the same bucket grid when zoomed out.
     func timelineSeries(metric: TimelineMetric, from: Int, to: Int,
                         targetPoints: Int = 600, source: String? = nil) async -> TimelineSeries {
-        guard metric == .hr || PhoneComputeRuntime.permitsLocal("timeline_physiological_reconstruction") else { return .empty }
+        guard metric.isDirectObservation || PhoneComputeRuntime.permitsLocal("timeline_physiological_reconstruction") else { return .empty }
         guard to > from, let store = await ensureStore() else { return .empty }
         // Default (no explicit source) → the complete worn WHOOP timeline: active, every registered prior
         // strap, then canonical history. An explicit per-source page still reads that source verbatim.
@@ -2947,6 +2951,28 @@ final class Repository: ObservableObject {
         // on the first day that carries the key — nothing like the 60 full merges it replaces.
         return Self.nonEmptyMetricIDs(catalog, keysBySource: keysBySource, days: days,
                                       whoopSource: canonicalDeviceId)
+    }
+
+    /// Persisted-series-only availability for final-hosted Explore. This deliberately excludes the
+    /// `DailyMetric` reconstruction layer used by the reference UI: direct Apple/Xiaomi/nutrition/mood
+    /// points remain discoverable, while probing the catalog cannot execute a local physiological model.
+    func nonEmptyPersistedMetricIDs(_ catalog: [MetricDescriptor]) async -> Set<String> {
+        guard let store = await ensureStore() else { return Set(catalog.map(\.id)) }
+        var keysBySource: [String: Set<String>] = [:]
+        for source in Set(catalog.map(\.source)) {
+            var keys = Set<String>()
+            if source == canonicalDeviceId {
+                for id in importedReadIds + computedReadIds {
+                    keys.formUnion((try? await store.metricKeys(deviceId: id)) ?? [])
+                }
+            } else {
+                keys.formUnion((try? await store.metricKeys(deviceId: source)) ?? [])
+            }
+            keysBySource[source] = keys
+        }
+        return Set(catalog.lazy.filter {
+            keysBySource[$0.source]?.contains($0.key) == true
+        }.map(\.id))
     }
 
     /// The decision itself, split out from the queries so it is testable with no store and no app: given

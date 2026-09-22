@@ -7,6 +7,12 @@ import ZIPFoundation
 
 @MainActor
 final class CanonicalConsumerPublicationTests: XCTestCase {
+    private struct HistoricalSidecar: Decodable {
+        let provenance: String
+        let source: String
+        let metricSeries: [MetricPoint]
+    }
+
     private func result(revision: String = "compute:17", inputRevision: Int64 = 17, status: String = "available",
                         sleep: Any = NSNull(), hrv: Any = NSNull(), vitals: [String: Double] = [:]) throws -> ServerCanonicalResults {
         let owner = "11111111-1111-4111-8111-111111111111"
@@ -138,6 +144,40 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
             XCTAssertEqual(csv, CsvExport.canonicalCSV(selected))
             XCTAssertTrue(csv.contains("\"17\",\"compute:17\""))
             XCTAssertTrue(csv.contains("\"recovery\",\"recovery\",\"0.0\""))
+            XCTAssertEqual(PhoneComputeRuntime.counters().executions.values.reduce(0, +), 0)
+        }
+    }
+
+    func testHostedArchiveRetainsEveryPersistedDirectSourceMetricSeries() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            let store = try await WhoopStore.inMemory()
+            let expected: [(String, MetricPoint)] = [
+                ("apple-health", .init(day: "2026-09-20", key: "weight", value: 71.2)),
+                ("xiaomi-band", .init(day: "2026-09-20", key: "steps", value: 0)),
+                ("nutrition-csv", .init(day: "2026-09-20", key: "calories_in", value: 0)),
+                ("noop-mood", .init(day: "2026-09-20", key: "mood", value: 4)),
+            ]
+            for (source, point) in expected {
+                _ = try await store.upsertMetricSeries([point], deviceId: source)
+            }
+            let repo = Repository(deviceId: "my-whoop")
+            repo.setStoreForTesting(store)
+            let entries = try await CsvExport.canonicalHistoricalEntries(repo: repo, store: store)
+            let sidecars = try entries.map { try JSONDecoder().decode(HistoricalSidecar.self, from: $0.data) }
+            let bySource = Dictionary(uniqueKeysWithValues: sidecars.map { ($0.source, $0) })
+            for (source, point) in expected {
+                let sidecar = try XCTUnwrap(bySource[source], source)
+                XCTAssertEqual(sidecar.provenance, "historical_persisted_source_not_canonical")
+                XCTAssertEqual(sidecar.metricSeries, [point], source)
+            }
+
+            let archive = try directory().appendingPathComponent("direct-source-history.zip")
+            try CanonicalExport.writeArchive(state: repo.serverPresentation,
+                historicalEntries: entries, to: archive)
+            for entry in entries {
+                XCTAssertEqual(try archiveEntry(entry.name, at: archive), entry.data)
+            }
             XCTAssertEqual(PhoneComputeRuntime.counters().executions.values.reduce(0, +), 0)
         }
     }

@@ -171,6 +171,37 @@ final class DeepTimelineFacadeTests: XCTestCase {
         XCTAssertEqual(day.points.first?.value ?? 0, 55, accuracy: 0.001)
     }
 
+    /// Final-hosted mode retires reconstructed windowed rMSSD, while the device's verbatim state and
+    /// movement events remain readable without entering a physiological producer.
+    @MainActor
+    func testFinalHostedKeepsDirectTimelineLanesAndBlocksReconstructedHrv() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            let store = try await WhoopStore.inMemory()
+            let dev = "my-whoop", ring = "oura-ring", base = 1_780_000_000
+            _ = try await store.insert(Streams(
+                rr: [RRInterval(ts: base, rrMs: 900), RRInterval(ts: base + 1, rrMs: 910)],
+                sleepState: [SleepStateSample(ts: base, state: 2)]), deviceId: dev)
+            try await store.recordEvent(deviceId: ring, ts: base + 30,
+                kind: OuraStreamMapping.motionEventKind, payloadJSON: #"{"motion_seconds":12}"#)
+            let repo = Repository(deviceId: dev)
+            repo.setStoreForTesting(store)
+
+            let state = await repo.timelineSeries(metric: .bandSleepState,
+                from: base - 1, to: base + 60, source: dev)
+            XCTAssertEqual(state.points.map(\.value), [2])
+            let movement = await repo.timelineSeries(metric: .ouraMovement,
+                from: base - 1, to: base + 60, source: ring)
+            XCTAssertEqual(movement.points.map(\.value), [12])
+            let hrv = await repo.timelineSeries(metric: .hrv,
+                from: base - 1, to: base + 60, source: dev)
+            XCTAssertTrue(hrv.points.isEmpty)
+            let counters = PhoneComputeRuntime.counters()
+            XCTAssertEqual(counters.executions.values.reduce(0, +), 0)
+            XCTAssertEqual(counters.denied["timeline_physiological_reconstruction"], 1)
+        }
+    }
+
     // MARK: - SpO2: two-channel ratio vs single-channel reading
 
     /// A WHOOP 4.0 v24 sample carries BOTH optical channels, so the plotted value stays the unitless

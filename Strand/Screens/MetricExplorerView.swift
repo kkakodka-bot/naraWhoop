@@ -308,6 +308,21 @@ func shouldExplainShortenedSkinTempSeries(leadsAbsolute: Bool, shownReadings: In
     leadsAbsolute && shownReadings < rowsWithEitherNumber
 }
 
+/// Final-hosted mode changes ownership, not whether persisted direct observations exist. A catalog
+/// metric is canonical-only only when the server registry owns that exact source/key pair.
+enum MetricExplorerPresentationPolicy {
+    static func canonicalOnly(finalHosted: Bool, serverOwned: Bool) -> Bool {
+        finalHosted && serverOwned
+    }
+
+    static func showsCorrelations(finalHosted: Bool) -> Bool { !finalHosted }
+
+    static func overlaysCurrentHrv(finalHosted: Bool, serverOwned: Bool,
+                                   source: String, key: String) -> Bool {
+        !finalHosted && !serverOwned && source == Repository.whoopSource && key == "hrv"
+    }
+}
+
 // MARK: - Root: categorized list
 
 /// The "Explore" picker — categories as sections, metrics as rows, each pushing a
@@ -473,7 +488,17 @@ struct MetricExplorerView: View {
     /// without waiting on this — the map only ever ADDS a trailing dot.
     private func probeEmptiness(refreshSeq: Int) async {
         if PhoneComputeRuntime.isFinalHosted {
+            let directMetrics = MetricCatalog.all.filter {
+                !RepositoryServerScores.shouldOwn(key: $0.key, source: $0.source,
+                    deviceId: repo.deviceId, state: repo.serverPresentation)
+            }
+            let nonEmptyDirect = await repo.nonEmptyPersistedMetricIDs(directMetrics)
+            guard !Task.isCancelled else { return }
+            probedRefreshSeq = refreshSeq
             emptyByID = Dictionary(uniqueKeysWithValues: MetricCatalog.all.map { metric in
+                let owned = RepositoryServerScores.shouldOwn(key: metric.key, source: metric.source,
+                    deviceId: repo.deviceId, state: repo.serverPresentation)
+                guard owned else { return (metric.id, !nonEmptyDirect.contains(metric.id)) }
                 let key = RepositoryServerScores.metric(key: metric.key)?.rawValue ?? metric.key
                 let present = repo.serverPresentation.canonicalDays.values.contains {
                     $0.result(for: key)?.number(key) != nil
@@ -629,7 +654,10 @@ struct MetricDetailView: View {
         }
         return metric.key == "in_bed_min" ? .sleepInBed : RepositoryServerScores.metric(key: metric.key)
     }
-    private var serverOwned: Bool { serverMetric.map { serverScores.state.owns($0) } ?? false }
+    private var serverOwned: Bool {
+        RepositoryServerScores.shouldOwn(key: metric.key, source: metric.source,
+            deviceId: repo.deviceId, state: serverScores.state)
+    }
     private var series: [(day: String, value: Double)] {
         get {
             guard serverOwned, let serverMetric else { return localSeries }
@@ -675,7 +703,9 @@ struct MetricDetailView: View {
     /// a current readout. Nightly `avgHrv` stays in `series` for provenance/correlations; only the
     /// chart + headline swap today's point to the fresher trailing-window RMSSD.
     private var chartSeries: [(day: String, value: Double)] {
-        guard !serverOwned, metric.key == "hrv", let current = app.currentHrv else { return series }
+        guard MetricExplorerPresentationPolicy.overlaysCurrentHrv(
+            finalHosted: PhoneComputeRuntime.isFinalHosted, serverOwned: serverOwned,
+            source: metric.source, key: metric.key), let current = app.currentHrv else { return series }
         let todayKey = Repository.localDayKey(Date())
         var out = series.filter { $0.day != todayKey }
         out.append((day: todayKey, value: current.rmssdMs))
@@ -803,7 +833,8 @@ struct MetricDetailView: View {
     // MARK: Body
 
     var body: some View {
-        if PhoneComputeRuntime.isFinalHosted {
+        if MetricExplorerPresentationPolicy.canonicalOnly(
+            finalHosted: PhoneComputeRuntime.isFinalHosted, serverOwned: serverOwned) {
             ScreenScaffold(title: LocalizedStringKey(metric.title)) {
                 let key = RepositoryServerScores.metric(key: metric.key)?.rawValue ?? metric.key
                 if let family = ServerCanonicalResults.familyMetrics.first(where: { $0.value.contains(key) })?.key {
@@ -905,7 +936,8 @@ struct MetricDetailView: View {
                     }
                     statRow(effectiveRange: effRange, windowed: win)
                     readingsTable(windowed: win)
-                    if !serverOwned { correlationCard }
+                    if !serverOwned && MetricExplorerPresentationPolicy.showsCorrelations(
+                        finalHosted: PhoneComputeRuntime.isFinalHosted) { correlationCard }
                 }
             }
             .padding(NoopMetrics.screenPadding)
@@ -962,14 +994,9 @@ struct MetricDetailView: View {
     /// flips there. Phase 2 is the catalog scan, awaited afterwards, and only the correlation card waits
     /// on it. Same reads, same results, same order; only the gate moved.
     private func load() async {
-        guard PhoneComputeRuntime.permitsLocal("MetricDetailView.loadLegacy") else { return }
-        let load = ScoringPreferenceViewLoad(app: app, repo: repo)
         let taskID = loadTaskID
-        let skinTempPreference = skinTempPreferred
-        func isCurrent() -> Bool { load.isCurrent(app: app, repo: repo) && taskID == loadTaskID }
         if serverOwned {
-            guard load.isCurrent(app: app, repo: repo, requiringAcceptedPreferences: false),
-                  taskID == loadTaskID else { return }
+            guard taskID == loadTaskID else { return }
             skinTempNote = nil
             loaded = true
             correlationsLoaded = true
@@ -977,6 +1004,24 @@ struct MetricDetailView: View {
             correlationCache = []
             return
         }
+        if PhoneComputeRuntime.isFinalHosted {
+            let persisted = await repo.series(key: metric.key, source: metric.source)
+            guard taskID == loadTaskID else { return }
+            series = persisted
+            sourceByDay = Dictionary(persisted.map { ($0.day, metric.source) },
+                                     uniquingKeysWith: { first, _ in first })
+            skinTempNote = nil
+            loaded = true
+            correlationsLoaded = true
+            others = []
+            correlationCache = []
+            correlationKey = nil
+            return
+        }
+        guard PhoneComputeRuntime.permitsLocal("MetricDetailView.loadLegacy") else { return }
+        let load = ScoringPreferenceViewLoad(app: app, repo: repo)
+        let skinTempPreference = skinTempPreferred
+        func isCurrent() -> Bool { load.isCurrent(app: app, repo: repo) && taskID == loadTaskID }
         guard isCurrent() else { return }
         let spo2CandidateDisplayEnabled = load.algorithms.spo2CandidateDisplayEnabled
         // Phase 1 — what the screen actually draws.
@@ -1561,6 +1606,12 @@ struct MetricDetailView: View {
     /// when its key (metric id + selected range) actually changed — so re-evals that
     /// don't alter the inputs (hover / HR ticks) are no-ops.
     private func recomputeCorrelations() {
+        guard MetricExplorerPresentationPolicy.showsCorrelations(
+            finalHosted: PhoneComputeRuntime.isFinalHosted) else {
+            correlationCache = []
+            correlationKey = nil
+            return
+        }
         // `others.count` belongs in the key, not just the metric and range. The catalog scan now lands
         // AFTER the screen (see `load()`), so a range change during the scan would otherwise compute
         // against a still-empty `others`, cache that empty result under this key, and then skip the

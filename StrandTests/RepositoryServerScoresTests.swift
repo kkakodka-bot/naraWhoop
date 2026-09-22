@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import WhoopStore
+import WhoopProtocol
 @testable import Strand
 
 @MainActor
@@ -116,6 +117,70 @@ final class RepositoryServerScoresTests: XCTestCase {
         XCTAssertEqual(RepositoryServerScores.metric(key: "energy_kcal"), .activeKcal)
         XCTAssertEqual(RepositoryServerScores.metric(key: "in_bed_min"), .sleepInBed)
         XCTAssertNil(RepositoryServerScores.metric(key: "unrecognized"))
+    }
+
+    func testFinalHostedOwnershipDoesNotInterceptDirectImportNamespaces() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            let store = try await WhoopStore.inMemory()
+            let rows: [(source: String, point: MetricPoint)] = [
+                ("apple-health", .init(day: day, key: "steps", value: 0)),
+                ("apple-health", .init(day: day, key: "weight", value: 71.2)),
+                ("xiaomi-band", .init(day: day, key: "rhr", value: 52)),
+                ("nutrition-csv", .init(day: day, key: "calories_in", value: 0)),
+                ("noop-mood", .init(day: day, key: "mood", value: 4)),
+                ("my-whoop", .init(day: day, key: "hrv", value: 99)),
+            ]
+            for row in rows { _ = try await store.upsertMetricSeries([row.point], deviceId: row.source) }
+            let repo = Repository(deviceId: "my-whoop")
+            repo.setStoreForTesting(store)
+
+            XCTAssertTrue(RepositoryServerScores.shouldOwn(key: "hrv", source: "my-whoop",
+                deviceId: repo.deviceId, state: repo.serverPresentation))
+            for source in ["apple-health", "xiaomi-band", "nutrition-csv", "noop-mood"] {
+                XCTAssertFalse(RepositoryServerScores.shouldOwn(key: "rhr", source: source,
+                    deviceId: repo.deviceId, state: repo.serverPresentation), source)
+            }
+
+            let directCatalog = MetricCatalog.all.filter {
+                ["apple-health", "xiaomi-band", "nutrition-csv", "noop-mood"].contains($0.source)
+            }
+            let nonEmpty = await repo.nonEmptyPersistedMetricIDs(directCatalog)
+            for id in ["apple-health:steps", "apple-health:weight", "xiaomi-band:rhr",
+                       "nutrition-csv:calories_in", "noop-mood:mood"] {
+                XCTAssertTrue(nonEmpty.contains(id), id)
+            }
+
+            for expected in rows where expected.source != "my-whoop" {
+                let actual = await repo.series(key: expected.point.key, source: expected.source, fullHistory: true)
+                XCTAssertEqual(actual.map(\.day), [day], "\(expected.source):\(expected.point.key)")
+                XCTAssertEqual(actual.map(\.value), [expected.point.value], "\(expected.source):\(expected.point.key)")
+            }
+            let owned = await repo.series(key: "hrv", source: "my-whoop", fullHistory: true)
+            XCTAssertTrue(owned.isEmpty, "Missing canonical HRV must not fall back to the persisted phone value")
+            XCTAssertTrue(PhoneComputeRuntime.counters().executions.isEmpty)
+        }
+    }
+
+    func testFinalHostedSurfacePoliciesAddDirectPagesAndRestrictCanonicalReplacement() {
+        let populated = DirectObservationPagePresentation.resolve(
+            finalHosted: true, loaded: true, hasData: true)
+        XCTAssertEqual(populated.sourceState, .populated)
+        XCTAssertTrue(populated.showsCanonical)
+        let empty = DirectObservationPagePresentation.resolve(
+            finalHosted: true, loaded: true, hasData: false)
+        XCTAssertEqual(empty.sourceState, .empty)
+        XCTAssertTrue(empty.showsCanonical)
+
+        XCTAssertTrue(MetricExplorerPresentationPolicy.canonicalOnly(
+            finalHosted: true, serverOwned: true))
+        XCTAssertFalse(MetricExplorerPresentationPolicy.canonicalOnly(
+            finalHosted: true, serverOwned: false))
+        XCTAssertFalse(MetricExplorerPresentationPolicy.showsCorrelations(finalHosted: true))
+        XCTAssertFalse(MetricExplorerPresentationPolicy.overlaysCurrentHrv(
+            finalHosted: true, serverOwned: false, source: "apple-health", key: "hrv"))
+        XCTAssertTrue(MetricExplorerPresentationPolicy.overlaysCurrentHrv(
+            finalHosted: false, serverOwned: false, source: "my-whoop", key: "hrv"))
     }
 
     func testHealthWritebackPreservesNullReplacementAndNeverRelabelsRmssd() throws {

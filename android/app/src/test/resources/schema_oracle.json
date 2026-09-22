@@ -1,6 +1,6 @@
 {
   "_readme": "SHARED Room<->GRDB SCHEMA ORACLE (#775). Two byte-identical copies: Packages/WhoopStore/Tests/WhoopStoreTests/Resources/schema_oracle.json and android/app/src/test/resources/schema_oracle.json. SchemaOracleTests.swift compares GRDB's PRAGMA table_info/index_list against it; SchemaOracleTest.kt compares Room's exported schema JSON against it. `columns` is the iOS/GRDB shape in GRDB column order (macOS is the reference implementation); every way Android differs is spelled out in an `android` / `iosAbsent` / `androidColumnOrder` override naming a key in `divergenceReasons`. Adding a column, reordering one, or changing a type/nullability on one platform only fails both suites until it is either fixed or written down here.",
-  "roomVersion": 46,
+  "roomVersion": 47,
   "grdbMigrations": [
     "v1",
     "v2",
@@ -2269,9 +2269,221 @@
       ],
       "indices": []
     },
+    "bleRawBatch": {
+      "platform": "android_only",
+      "reason": "Android's owner- and source-scoped durable raw BLE receipt batch. iOS retains raw pre-decode frames in its structurally different rawBatch outbox, so this table has no schema twin.",
+      "columns": [
+        {
+          "name": "id",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "batchId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "deviceId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "namespace",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "generation",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "sourceId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "sessionId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "family",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "receivedAtMs",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "receivedMonotonicNs",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "deviceClockRef",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "wallClockRef",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "clockBasis",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "frameCount",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "byteSize",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "framesBlob",
+          "affinity": "BLOB",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "contentHash",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "committedAtMs",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "sealed",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "lastReceivedAtMs",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "syncedAt",
+          "affinity": "INTEGER",
+          "notNull": false,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "id"
+      ],
+      "indices": [
+        {
+          "name": "index_bleRawBatch_batchId",
+          "unique": true,
+          "columns": [
+            "batchId"
+          ]
+        },
+        {
+          "name": "index_bleRawBatch_deviceId_syncedAt",
+          "unique": false,
+          "columns": [
+            "deviceId",
+            "syncedAt"
+          ]
+        }
+      ]
+    },
+    "bleRawMember": {
+      "platform": "android_only",
+      "reason": "Android's immutable membership ledger for raw BLE capture receipts grouped into upload batches. iOS uses its structurally different rawBatch outbox, so this table has no schema twin.",
+      "columns": [
+        {
+          "name": "captureId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "rawBatchId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "captureHash",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "receivedAtMs",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "receivedMonotonicNs",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "deviceClockRef",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "wallClockRef",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "captureId"
+      ],
+      "indices": [
+        {
+          "name": "index_bleRawMember_rawBatchId",
+          "unique": false,
+          "columns": [
+            "rawBatchId"
+          ]
+        }
+      ]
+    },
     "rawBatch": {
       "platform": "ios_only",
-      "reason": "The raw pre-decode frame outbox (GRDB v1). Android decodes frames straight into the stream tables and keeps no raw archive, so it has no twin; nothing in a .noopbak round-trip reads it.",
+      "reason": "The iOS raw pre-decode frame outbox (GRDB v1). Android now keeps raw BLE evidence in the structurally different bleRawBatch and bleRawMember tables, so rawBatch still has no schema twin; nothing in a .noopbak round-trip reads it.",
       "columns": [
         {
           "name": "batchId",

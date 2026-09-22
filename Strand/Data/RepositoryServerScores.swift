@@ -17,7 +17,6 @@ enum RepositoryServerScores {
 
     static func shouldOwn(key: String, source: String, deviceId: String,
                           state: ServerScoreViewState) -> Bool {
-        if PhoneComputeRuntime.isFinalHosted { return true }
         guard ["my-whoop", "my-whoop-noop", deviceId, deviceId + "-noop", "server-snapshot"].contains(source),
               let metric = metric(key: key) else { return false }
         return state.owns(metric)

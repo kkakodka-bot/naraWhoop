@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 mode="${1:-fresh}"
-[[ "$mode" == fresh || "$mode" == populated ]] || { printf 'Use fresh or populated\n' >&2; exit 2; }
+[[ "$mode" == fresh || "$mode" == populated || "$mode" == hosted-upgrade ]] || {
+  printf 'Use fresh, populated, or hosted-upgrade\n' >&2; exit 2;
+}
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 evidence="$(mktemp -d "${TMPDIR:-/tmp}/physiology-chain-$mode.XXXXXX")"
 container="physiology-chain-$(basename "$evidence" | tr '[:upper:]' '[:lower:]')"
@@ -21,6 +23,9 @@ docker cp "$repo_dir/supabase/migrations" "$container:/workspace-migrations"
 docker cp "$repo_dir/scoring-service/service/src/test/resources/physiology_chain_seed.sql" "$container:/seed.sql"
 docker cp "$repo_dir/scoring-service/service/src/test/resources/physiology_chain_verify.sql" "$container:/verify.sql"
 docker cp "$repo_dir/scoring-service/service/src/test/resources/physiology_chain_steps.sql" "$container:/steps.sql"
+docker cp "$repo_dir/scoring-service/service/src/test/resources/release_hosted_upgrade_seed.sql" "$container:/release-upgrade-seed.sql"
+docker cp "$repo_dir/scoring-service/service/src/test/resources/release_hosted_upgrade_verify.sql" "$container:/release-upgrade-verify.sql"
+docker cp "$repo_dir/Tools/release/verify-integrated-schema.sql" "$container:/integrated-schema-verify.sql"
 docker inspect "$container" --format '{{json .HostConfig.NetworkMode}} {{json .NetworkSettings.Ports}} {{json .HostConfig.Binds}}' > "$evidence/isolation.txt"
 docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
   'select version(); select current_user,rolsuper from pg_roles where rolname=current_user;' > "$evidence/platform.txt"
@@ -35,6 +40,17 @@ catalog_rows="$(node --input-type=module -e '
 ' "$repo_dir/infra/vps/scripts/scoring-migration-catalog.mjs" "$repo_dir/supabase/migrations")"
 seeded=false
 while IFS='|' read -r name source_sha; do
+  if [[ "$mode" == hosted-upgrade && "$seeded" == false && "$name" == 20260921110000* ]]; then
+    docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 \
+      -f /release-upgrade-seed.sql > "$evidence/upgrade-seed.log" 2>&1
+    docker exec "$container" psql -U postgres -d postgres -X -qAt -v ON_ERROR_STOP=1 -c \
+      "select jsonb_build_object('full_identity_rows',(select count(*) from supabase_migrations.scoring_source_identities),'next_identity','$name','fixture_users',2,'fixture_devices',2)::text;" \
+      > "$evidence/pre-upgrade-state.json"
+    [[ "$(node -p "require('$evidence/pre-upgrade-state.json').full_identity_rows")" == 117 ]] || {
+      printf 'Hosted upgrade boundary is not the attested 117-identity baseline.\n' >&2; exit 1;
+    }
+    seeded=true
+  fi
   if [[ "$mode" == populated && "$seeded" == false && "$name" == 20260918010000* ]]; then
     docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f /seed.sql > "$evidence/seed.log" 2>&1
     seeded=true
@@ -59,7 +75,14 @@ node -e 'const p=require(process.argv[1]); if(p.pending.length || p.applied.leng
 if [[ "$mode" == populated ]]; then
   docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f /verify.sql > "$evidence/verify.log" 2>&1
 fi
+if [[ "$mode" == hosted-upgrade ]]; then
+  [[ "$seeded" == true ]] || { printf 'Hosted upgrade boundary was not reached.\n' >&2; exit 1; }
+  docker exec "$container" psql -U postgres -d postgres -X -qAt -v ON_ERROR_STOP=1 \
+    -f /release-upgrade-verify.sql > "$evidence/upgrade-verification.json"
+fi
 docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
   "do \$\$ begin assert not exists(select 1 from physiology_feature_defaults where algorithm_version<>'frwhoop-server-1'); assert not public.physiology_feature_is_canonical('frwhoop-physiology-2','hrv'); assert not public.physiology_feature_is_canonical('frwhoop-physiology-2','sleep'); assert not public.physiology_feature_is_canonical('frwhoop-physiology-2','respiration'); end \$\$;" > "$evidence/promotion-defaults.log"
+docker exec "$container" psql -U postgres -d postgres -X -qAt -v ON_ERROR_STOP=1 \
+  -f /integrated-schema-verify.sql > "$evidence/integrated-schema-verification.json"
 docker logs "$container" > "$evidence/platform-init.log" 2>&1
 printf '%s migration chain passed; stopped disposable container and evidence retained: %s\n' "$mode" "$evidence"
