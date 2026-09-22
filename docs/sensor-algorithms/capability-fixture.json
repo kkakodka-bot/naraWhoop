@@ -92,10 +92,17 @@
     "capabilities": [
       {
         "reason": "timing_coverage_unverified",
+        "projection_row_counts": {
+          "rr_packet_receipts": 2,
+          "standard_hr_receipts": 0,
+          "rr_intervals": 0
+        },
         "modality": "ppg_pulse_intervals",
+        "projection_rows_are_not_unique_physical_observations": true,
         "catalogue_object_count": 0,
         "observed_sample_count": null,
         "candidate_channels": [
+          "whoop4_historical_milliseconds",
           "whoop5_historical_original_words",
           "standard_ble_rr"
         ],
@@ -113,7 +120,9 @@
       },
       {
         "reason": "timing_channel_units_and_reference_unverified",
+        "projection_row_counts": {},
         "modality": "optical",
+        "projection_rows_are_not_unique_physical_observations": true,
         "catalogue_object_count": 1,
         "observed_sample_count": null,
         "candidate_channels": [
@@ -133,7 +142,9 @@
       },
       {
         "reason": "timing_axis_units_and_orientation_unverified",
+        "projection_row_counts": {},
         "modality": "inertial",
+        "projection_rows_are_not_unique_physical_observations": true,
         "catalogue_object_count": 1,
         "observed_sample_count": null,
         "candidate_channels": [
@@ -158,7 +169,11 @@
       },
       {
         "reason": "capture_mapping_wear_and_reference_unverified",
+        "projection_row_counts": {
+          "skin_temperature": 2
+        },
         "modality": "skin_temperature",
+        "projection_rows_are_not_unique_physical_observations": true,
         "catalogue_object_count": 0,
         "observed_sample_count": null,
         "candidate_channels": [
@@ -178,7 +193,9 @@
       },
       {
         "reason": "unsupported_source_requires_calibrated_source_or_qualified_optical_method",
+        "projection_row_counts": {},
         "modality": "oxygen_saturation",
+        "projection_rows_are_not_unique_physical_observations": true,
         "catalogue_object_count": 0,
         "observed_sample_count": null,
         "candidate_channels": [],
