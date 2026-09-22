@@ -92,6 +92,9 @@ struct BackfillChunkPhaseSample: Sendable {
     var postAckPresentationMs: Int = 0
     var fifoWaitMs: Int = 0
     var receivedToACKMs: Int?
+    /// Present only after a successful production historical transaction. Nested cursor SQL is
+    /// part of mutation time; commitReturn includes FULL commit and GRDB return, not isolated fsync.
+    var durabilityTiming: HistoricalChunkDurabilityTiming?
 }
 
 /// Ordered observations for one chunk. They do not control durability or BLE acknowledgements.
@@ -563,10 +566,22 @@ final class Backfiller {
         line += " archive p50/p99=\(p(samples.map(\.archiveMs), 50))/\(p(samples.map(\.archiveMs), 99))ms"
         line += " decode p50/p99=\(p(decode, 50))/\(p(decode, 99))ms"
         line += " (parseFrame+extractHistoricalStreams+reject scan, Task.detached)"
-        line += " insert p50/p99=\(p(insert, 50))/\(p(insert, 99))ms (store.insertAndMarkJobsOwed)"
-        line += " raw p50/p99=\(p(raw, 50))/\(p(raw, 99))ms (enqueueRawBatch when enabled, else 0)"
+        line += " insert p50/p99=\(p(insert, 50))/\(p(insert, 99))ms (complete local persistence path, including applicable IMU flush and raw preparation)"
+        let durability = samples.compactMap(\.durabilityTiming)
+        if !durability.isEmpty {
+            line += " durable-store n=\(durability.count)"
+            let timingFields: [(String, KeyPath<HistoricalChunkDurabilityTiming, Double>)] = [
+                ("writer-wait", \.queueWaitMs), ("mutation", \.mutationMs),
+                ("commit-return", \.commitReturnMs), ("cursor-SQL", \.cursorMutationMs)]
+            for (name, key) in timingFields {
+                let values = durability.map { Int($0[keyPath: key]) }
+                line += " \(name) p50/p99=\(p(values, 50))/\(p(values, 99))ms"
+            }
+            line += " (writer-wait covers queue and BEGIN setup; later SQL lock waits and cursor-SQL are within mutation; commit-return includes FULL commit and GRDB return)"
+        }
+        line += " raw p50/p99=\(p(raw, 50))/\(p(raw, 99))ms (legacy enqueueRawBatch path; historical raw preparation is within insert)"
         line += " imu p50/p99=\(p(imu, 50))/\(p(imu, 99))ms (persistHistoricalImu flush when routed)"
-        line += " cursor p50/p99=\(p(samples.map(\.cursorMs), 50))/\(p(samples.map(\.cursorMs), 99))ms (setCursor strap_trim)"
+        line += " cursor p50/p99=\(p(samples.map(\.cursorMs), 50))/\(p(samples.map(\.cursorMs), 99))ms (cursor fallback path; historical cursor-SQL is within mutation)"
         line += " ack p50/p99=\(p(ack, 50))/\(p(ack, 99))ms (ackTrim callback, including main-actor wait; excludes ATT confirmation)"
         line += " frames/chunk p50/p99=\(p(frames, 50))/\(p(frames, 99))"
         if !gaps.isEmpty {
@@ -584,6 +599,11 @@ final class Backfiller {
         line += " totalMs=\(sample.totalMs) diagnosticsMs=\(sample.diagnosticsMs) archiveMs=\(sample.archiveMs)"
         line += " ackSubmissionMs=\(sample.ackSubmissionMs.map(String.init) ?? "none") postAckPresentationMs=\(sample.postAckPresentationMs)"
         line += " fifoWaitMs=\(sample.fifoWaitMs) receivedToACKMs=\(sample.receivedToACKMs.map(String.init) ?? "none")"
+        if let timing = sample.durabilityTiming {
+            line += " writerWaitMs=\(timing.queueWaitMs) mutationMs=\(timing.mutationMs) commitReturnMs=\(timing.commitReturnMs) cursorSQLMs=\(timing.cursorMutationMs)"
+        } else {
+            line += " durableStoreTiming=unavailable"
+        }
         return line
     }
 
@@ -781,6 +801,7 @@ final class Backfiller {
         var diagnosticsMs = 0, archiveMs = 0, cursorMs = 0
         var ackSubmissionMs: Int?
         var postAckPresentationMs = 0
+        var durabilityTiming: HistoricalChunkDurabilityTiming?
         var ordinaryQuarantinedCount = 0
         var cursorCommittedWithChunk = false
         var pendingInfo: [BackfillChunkInfo] = []
@@ -838,7 +859,8 @@ final class Backfiller {
                                           cursorMs: cursorMs, ackSubmissionMs: ackSubmissionMs,
                                           postAckPresentationMs: postAckPresentationMs,
                                           fifoWaitMs: fifoWaitMs,
-                                          receivedToACKMs: ackSubmissionMs.map { $0 + fifoWaitMs })
+                                          receivedToACKMs: ackSubmissionMs.map { $0 + fifoWaitMs },
+                                          durabilityTiming: durabilityTiming)
             chunkPhaseSamples.append(sample)
             await emitConnection(Backfiller.chunkPhaseDetailLine(trim: trim, sample: sample))
         }
@@ -1061,6 +1083,7 @@ final class Backfiller {
                         family: String(describing: family), trim: trim, recoveryFrames: rejected,
                         clockRef: ref, postOffloadJobKinds: postOffloadJobKinds, rawCapture: rawCapture,
                         note: "historical chunk committed")
+                    durabilityTiming = outcome.durabilityTiming
                     cursorCommittedWithChunk = true
                 } else {
                     outcome = try await store.insertAndMarkJobsOwed(
@@ -1242,9 +1265,10 @@ final class Backfiller {
                 if let durableStore = store as? WhoopStore {
                     // Empty END packets still validate the captured owner at the commit boundary.
                     let ref = clockRef ?? ClockRef(device: Int(unix), wall: Int(unix))
-                    _ = try await durableStore.commitHistoricalChunk(Streams(), scope: scope,
+                    let outcome = try await durableStore.commitHistoricalChunk(Streams(), scope: scope,
                         family: String(describing: family), trim: trim, recoveryFrames: [], clockRef: ref,
                         postOffloadJobKinds: postOffloadJobKinds, note: "empty historical chunk committed")
+                    durabilityTiming = outcome.durabilityTiming
                 } else { try await store.setCursor("strap_trim:\(scope.key)", Int(trim)) }
             }
         } catch {

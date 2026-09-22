@@ -76,9 +76,37 @@ final class BackfillerCriticalPathTests: XCTestCase {
         XCTAssertEqual(sample.ackMs, 5_000)
         XCTAssertEqual(sample.postAckPresentationMs, 4_000)
         XCTAssertEqual(sample.totalMs, 9_000)
+        let durability = try XCTUnwrap(sample.durabilityTiming)
+        XCTAssertGreaterThanOrEqual(durability.queueWaitMs, 0)
+        XCTAssertGreaterThanOrEqual(durability.mutationMs, durability.cursorMutationMs)
+        XCTAssertGreaterThanOrEqual(durability.commitReturnMs, 0)
         let summary = try XCTUnwrap(Backfiller.sessionPhaseTimingSummaryLine([sample]))
         XCTAssertTrue(summary.contains("end-to-ACK-submit n=1 p50/p99=2000/2000ms"))
         XCTAssertTrue(summary.contains("excludes FIFO wait and ATT confirmation"))
+        XCTAssertTrue(summary.contains("durable-store n=1 writer-wait p50/p99="))
+        XCTAssertTrue(summary.contains("commit-return includes FULL commit and GRDB return"))
+    }
+
+    func testEmptyChunkReportsItsActualDurableCursorTransaction() async throws {
+        let store = try await WhoopStore.inMemory()
+        let scope = DurableIngestScope.unassigned(deviceID: "synthetic")
+        var acknowledged = false
+        let backfiller = Backfiller(store: store, deviceId: "synthetic", ackTrim: { _, _ in
+            let cursor = try? await store.cursor("strap_trim:\(scope.key)")
+            XCTAssertEqual(cursor, 7)
+            acknowledged = true
+        })
+        backfiller.captureScope = scope
+        backfiller.begin(family: .whoop4)
+        await backfiller.ingest(endFrame())
+        XCTAssertTrue(acknowledged)
+        let sample = try XCTUnwrap(backfiller.sessionPhaseTimingSamples().last)
+        let timing = try XCTUnwrap(sample.durabilityTiming)
+        XCTAssertGreaterThanOrEqual(timing.mutationMs, timing.cursorMutationMs)
+        let line = Backfiller.chunkPhaseDetailLine(trim: 7, sample: sample)
+        XCTAssertTrue(line.contains("writerWaitMs="))
+        XCTAssertTrue(line.contains("commitReturnMs="))
+        XCTAssertFalse(line.contains("durableStoreTiming=unavailable"))
     }
 
     func testOrdinaryLegacyQuarantineCallbackAlsoFollowsAck() async throws {
@@ -105,6 +133,7 @@ final class BackfillerCriticalPathTests: XCTestCase {
         XCTAssertTrue(callbackRan)
         let sample = try XCTUnwrap(backfiller.sessionPhaseTimingSamples().last)
         XCTAssertNil(sample.ackSubmissionMs)
+        XCTAssertNil(sample.durabilityTiming, "a test adapter must not invent production durability timing")
         XCTAssertFalse(Backfiller.sessionPhaseTimingSummaryLine([sample])!.contains("end-to-ACK-submit"))
     }
 

@@ -48,7 +48,12 @@ final class HistoricalChunkCommitTests: XCTestCase {
         let current = try await store(path: path)
         let observer = HistoricalCommitObserver()
         current.registryWriter.add(transactionObserver: observer)
-        try await commit(current)
+        let outcome = try await commit(current)
+        let timing = try XCTUnwrap(outcome.durabilityTiming)
+        XCTAssertGreaterThanOrEqual(timing.queueWaitMs, 0)
+        XCTAssertGreaterThanOrEqual(timing.mutationMs, timing.cursorMutationMs)
+        XCTAssertGreaterThanOrEqual(timing.commitReturnMs, 0)
+        XCTAssertGreaterThanOrEqual(timing.cursorMutationMs, 0)
         XCTAssertEqual(observer.commits, 1)
         XCTAssertEqual(observer.rollbacks, 0)
         current.registryWriter.remove(transactionObserver: observer)
@@ -73,12 +78,85 @@ final class HistoricalChunkCommitTests: XCTestCase {
         let legacy = try await store()
         let baseline = HistoricalCommitObserver()
         legacy.registryWriter.add(transactionObserver: baseline)
-        _ = try await legacy.insertAndMarkJobsOwed(streams, deviceId: scope.deviceID,
+        let legacyOutcome = try await legacy.insertAndMarkJobsOwed(streams, deviceId: scope.deviceID,
             postOffloadJobKinds: ["rescore", "cloudPush"], note: nil, captureScope: scope)
+        XCTAssertNil(legacyOutcome.durabilityTiming, "Non-historical entry points must not emit historical timing")
         _ = try await legacy.persistSensorQuarantine(frames, scope: scope, family: "whoop5",
             trim: 42, clockRef: ref, preserveOccurrences: true)
         try await legacy.setCursor("strap_trim:\(scope.key)", 42)
         XCTAssertEqual(baseline.commits, 3)
+    }
+
+    func testTimingSeparatesWriterQueueCursorMutationAndCommitReturnWithoutAnotherTransaction() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let path = directory.appendingPathComponent("timing.sqlite").path
+        let current = try await store(path: path)
+        let writerEntered = expectation(description: "GRDB writer queue is occupied")
+        let commitStarted = expectation(description: "store actor starts historical call")
+        let releaseExternal = DispatchSemaphore(value: 0)
+        let delays = HistoricalTimingDelays()
+        addTeardownBlock {
+            releaseExternal.signal()
+            try current.registryWriter.close()
+            try FileManager.default.removeItem(at: directory)
+        }
+        try await current.registryWriter.writeWithoutTransaction { db in
+            db.add(function: DatabaseFunction("historical_cursor_delay", argumentCount: 0, pure: false) { _ in
+                delays.delayCursor()
+                return 0
+            })
+            try db.execute(sql: """
+                CREATE TEMP TRIGGER time_historical_cursor BEFORE INSERT ON cursors
+                BEGIN SELECT historical_cursor_delay(); END
+                """)
+
+        }
+        current.registryWriter.add(transactionObserver: delays)
+        let holdingWriter = Task.detached {
+            try current.registryWriter.writeWithoutTransaction { _ in
+                writerEntered.fulfill()
+                guard releaseExternal.wait(timeout: .now() + 5) == .success else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+            }
+        }
+        await fulfillment(of: [writerEntered], timeout: 5)
+        let started = ContinuousClock.now
+        let chunk = Task {
+            try await current.historicalTestTimedCommit(scope: scope, streams: streams,
+                frames: frames, ref: ref, started: commitStarted)
+        }
+        addTeardownBlock {
+            releaseExternal.signal()
+            _ = try? await holdingWriter.value
+            _ = try? await chunk.value
+        }
+        await fulfillment(of: [commitStarted], timeout: 5)
+        // The actor has begun the historical call while its actual GRDB writer is held.
+        // This blocks queue admission without changing production DEFERRED transaction mode.
+        try await Task.sleep(nanoseconds: 100_000_000)
+        releaseExternal.signal()
+        try await holdingWriter.value
+        let outcome = try await chunk.value
+        let elapsed = HistoricalTimingDelays.milliseconds(started.duration(to: .now))
+        let timing = try XCTUnwrap(outcome.durabilityTiming)
+        XCTAssertGreaterThanOrEqual(timing.queueWaitMs, 25, "Writer contention must precede the mutation interval")
+        XCTAssertGreaterThanOrEqual(timing.cursorMutationMs, delays.cursorMs)
+        XCTAssertGreaterThanOrEqual(timing.mutationMs, timing.cursorMutationMs)
+        XCTAssertGreaterThanOrEqual(timing.commitReturnMs, delays.commitMs)
+        XCTAssertLessThanOrEqual(timing.queueWaitMs + timing.mutationMs + timing.commitReturnMs, elapsed)
+        XCTAssertEqual(delays.commits, 1, "Instrumentation must not create another durability transaction")
+        current.registryWriter.remove(transactionObserver: delays)
+        let rows = try await counts(current)
+        XCTAssertEqual(rows["hrSample"], 1)
+        XCTAssertEqual(rows["sensorQuarantine"], 3)
+        let savedCursor = try await current.cursor("strap_trim:\(scope.key)")
+        XCTAssertEqual(savedCursor, 42)
+        let check = try await current.registryWriter.read { db in
+            try String.fetchOne(db, sql: "PRAGMA integrity_check")
+        }
+        XCTAssertEqual(check, "ok")
     }
 
     func testEveryRequiredWriteFailureRollsBackRowsArchiveDebtFrontiersAndCursor() async throws {
@@ -379,6 +457,36 @@ final class HistoricalChunkCommitTests: XCTestCase {
     }
 }
 
+private final class HistoricalTimingDelays: TransactionObserver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var cursorDuration = 0.0
+    private var commitDuration = 0.0
+    private var committed = 0
+    var cursorMs: Double { lock.lock(); defer { lock.unlock() }; return cursorDuration }
+    var commitMs: Double { lock.lock(); defer { lock.unlock() }; return commitDuration }
+    var commits: Int { lock.lock(); defer { lock.unlock() }; return committed }
+    func delayCursor() {
+        let started = ContinuousClock.now
+        Thread.sleep(forTimeInterval: 0.025)
+        let elapsed = Self.milliseconds(started.duration(to: .now))
+        lock.lock(); cursorDuration = elapsed; lock.unlock()
+    }
+    func observes(eventsOfKind eventKind: DatabaseEventKind) -> Bool { true }
+    func databaseDidChange(with event: DatabaseEvent) {}
+    func databaseWillCommit() {
+        let started = ContinuousClock.now
+        Thread.sleep(forTimeInterval: 0.025)
+        let elapsed = Self.milliseconds(started.duration(to: .now))
+        lock.lock(); commitDuration = elapsed; lock.unlock()
+    }
+    func databaseDidCommit(_ db: Database) { lock.lock(); committed += 1; lock.unlock() }
+    func databaseDidRollback(_ db: Database) {}
+    static func milliseconds(_ duration: Duration) -> Double {
+        let parts = duration.components
+        return Double(parts.seconds) * 1_000 + Double(parts.attoseconds) / 1_000_000_000_000_000
+    }
+}
+
 private final class HistoricalCommitObserver: TransactionObserver, @unchecked Sendable {
     private let lock = NSLock()
     private var committed = 0
@@ -397,6 +505,14 @@ private final class HistoricalCommitObserver: TransactionObserver, @unchecked Se
 }
 
 private extension WhoopStore {
+    func historicalTestTimedCommit(scope: DurableIngestScope, streams: Streams,
+                                   frames: [[UInt8]], ref: ClockRef,
+                                   started: XCTestExpectation) async throws -> BackfillInsertOutcome {
+        started.fulfill()
+        return try await commitHistoricalChunk(streams, scope: scope, family: "whoop5",
+            trim: 42, recoveryFrames: frames, clockRef: ref,
+            postOffloadJobKinds: ["rescore", "cloudPush"])
+    }
     func historicalTestStepRevision(_ device: String) -> String {
         stepDataRevision.signature(deviceId: device, from: 0, to: 200)
     }
