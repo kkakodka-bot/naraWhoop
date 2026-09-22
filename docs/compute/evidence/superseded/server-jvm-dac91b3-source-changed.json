@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "gate": "server-jvm",
+  "status": "FAIL",
+  "command": [
+    "bash",
+    "scoring-service/scripts/test-server-jvm.sh"
+  ],
+  "cwd": ".",
+  "started_at": "2026-09-22T09:27:16.205Z",
+  "finished_at": "2026-09-22T09:32:21.835Z",
+  "source_before": {
+    "source_sha": "dac91b360ddf44c5509d165a04eab18bbbc1ab83",
+    "source_content_sha256": "eaee17efe14b967b4eb7d714dd2dd1bb83fa521742d2fbada51e1780ea51c6e7",
+    "source_file_count": 3758,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "source_after": {
+    "source_sha": "dac91b360ddf44c5509d165a04eab18bbbc1ab83",
+    "source_content_sha256": "1b0ae0600b2ce796849bba7a4d71641347ec0f49657ef3737f550414aa8ccc26",
+    "source_file_count": 3758,
+    "source_clean": false,
+    "dirty_source_paths": [
+      "android/app/src/main/java/com/noop/push/ServerScoreCacheCodec.kt",
+      "android/app/src/test/java/com/noop/push/CanonicalConsumersNativeTest.kt",
+      "android/app/src/test/java/com/noop/push/ServerComputeContractTest.kt"
+    ]
+  },
+  "exit_code": 0,
+  "failure": "Source changed during gate\n+ actual - expected\n\n+ '1b0ae0600b2ce796849bba7a4d71641347ec0f49657ef3737f550414aa8ccc26'\n- 'eaee17efe14b967b4eb7d714dd2dd1bb83fa521742d2fbada51e1780ea51c6e7'\n",
+  "log_path": "server-jvm.log",
+  "log_sha256": "be42f3c377f379ce23c51f7325c910c9fe769ad4108f728b74ebe4550914647a"
+}
