@@ -20,8 +20,9 @@ final class ScoringContextConsentTests: XCTestCase {
 
     func testConsentIsDefaultOffDurableAndAccountProjectIsolated() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
+        addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let a = ScoringContextConsent(layout: try layout(root))
+        addTeardownBlock { try await a.waitForRetirement() }
         await a.load()
         XCTAssertTrue(a.loaded)
         XCTAssertFalse(a.enabled(.journal)); XCTAssertFalse(a.enabled(.cycle))
@@ -29,23 +30,27 @@ final class ScoringContextConsentTests: XCTestCase {
         let decision = try XCTUnwrap(a.decisions[.journal])
         let input = try change(decision)
         XCTAssertTrue(a.gate.allows(input))
-        a.retire()
+        try await a.waitForRetirement()
         XCTAssertFalse(a.gate.allows(input))
         let reopened = ScoringContextConsent(layout: try layout(root))
+        addTeardownBlock { try await reopened.waitForRetirement() }
         await reopened.load()
         XCTAssertEqual(reopened.decisions[.journal], decision)
         XCTAssertTrue(reopened.gate.allows(input))
         let b = ScoringContextConsent(layout: try layout(root, user: device))
+        addTeardownBlock { try await b.waitForRetirement() }
         let anotherProject = ScoringContextConsent(layout: try layout(root, project: "https://other.invalid"))
+        addTeardownBlock { try await anotherProject.waitForRetirement() }
         await b.load(); await anotherProject.load()
         XCTAssertFalse(b.gate.allows(input)); XCTAssertFalse(anotherProject.gate.allows(input))
-        reopened.retire(); b.retire(); anotherProject.retire()
+        try await reopened.waitForRetirement(); try await b.waitForRetirement(); try await anotherProject.waitForRetirement()
     }
 
     func testRevocationAndNewDecisionDoNotReleasePreviouslyQueuedSensitiveInput() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
+        addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let consent = ScoringContextConsent(layout: try layout(root))
+        addTeardownBlock { try await consent.waitForRetirement() }
         await consent.load(); await consent.setEnabled(true, purpose: .journal)
         let old = try change(XCTUnwrap(consent.decisions[.journal]))
         await consent.setEnabled(false, purpose: .journal)
@@ -55,21 +60,23 @@ final class ScoringContextConsentTests: XCTestCase {
         XCTAssertFalse(consent.gate.allows(old))
         XCTAssertTrue(consent.gate.allows(renewed))
         XCTAssertNotEqual(old.payload, renewed.payload)
-        consent.retire()
+        try await consent.waitForRetirement()
     }
 
     func testRevokedSQLiteCommitCannotPersistOverSuccessorDecision() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
+        addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let captured = try layout(root)
         let fence = StoreWriteFence()
         let old = try ScoringContextConsentStore(layout: captured, fence: fence)
+        addTeardownBlock { try await old.close() }
         _ = try await old.set(.cycle, enabled: false)
         do {
             _ = try await old.set(.cycle, enabled: true, beforeCommit: { fence.invalidate() })
             XCTFail("revocation must roll back the real SQLite transaction")
         } catch {}
         let successor = try ScoringContextConsentStore(layout: captured, fence: StoreWriteFence())
+        addTeardownBlock { try await successor.close() }
         let values = try await successor.read()
         XCTAssertEqual(values[.cycle]?.enabled, false)
         let saved = try await successor.set(.cycle, enabled: true)
@@ -80,13 +87,15 @@ final class ScoringContextConsentTests: XCTestCase {
 
     func testFailedRevocationRemainsPausedAcrossReloadAndOtherPurposeWrite() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
+        addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let captured = try layout(root)
         let consent = ScoringContextConsent(layout: captured)
+        addTeardownBlock { try await consent.waitForRetirement() }
         await consent.load(); await consent.setEnabled(true, purpose: .journal)
         let old = try change(XCTUnwrap(consent.decisions[.journal]))
         XCTAssertTrue(consent.gate.allows(old))
         let db = try DatabaseQueue(path: captured.directory.appendingPathComponent("scoring-context-consent.sqlite").path)
+        addTeardownBlock { try db.close() }
         try await db.write { database in
             try database.execute(sql: """
                 CREATE TRIGGER reject_revocation BEFORE UPDATE ON consent_decision
@@ -107,22 +116,24 @@ final class ScoringContextConsentTests: XCTestCase {
         let saved = try await db.read { try Bool.fetchOne($0, sql: "SELECT enabled FROM consent_decision WHERE purpose='journal_context'") }
         XCTAssertEqual(saved, true, "the actual failed transaction retained the prior durable grant")
         let beforeRetry = ScoringContextConsent(layout: captured)
+        addTeardownBlock { try await beforeRetry.waitForRetirement() }
         await beforeRetry.load()
         XCTAssertNotNil(beforeRetry.error)
         XCTAssertFalse(beforeRetry.enabled(.journal))
         XCTAssertFalse(beforeRetry.gate.allows(old), "the durable barrier must survive a new runtime before retry")
         XCTAssertTrue(beforeRetry.enabled(.cycle))
-        beforeRetry.retire()
+        try await beforeRetry.waitForRetirement()
         try await db.write { try $0.execute(sql: "DROP TRIGGER reject_revocation") }
         await consent.setEnabled(false, purpose: .journal)
         XCTAssertNil(consent.error)
         await consent.load()
         XCTAssertFalse(consent.enabled(.journal)); XCTAssertFalse(consent.gate.allows(old))
-        consent.retire()
+        try await consent.waitForRetirement()
         let reopened = ScoringContextConsent(layout: captured)
+        addTeardownBlock { try await reopened.waitForRetirement() }
         await reopened.load()
         XCTAssertFalse(reopened.enabled(.journal)); XCTAssertTrue(reopened.enabled(.cycle))
-        reopened.retire()
+        try await reopened.waitForRetirement()
     }
 
     func testUnknownFlagsStayNullAndNoNotesOrLocalOnlyValuesAreExported() throws {
@@ -141,10 +152,11 @@ final class ScoringContextConsentTests: XCTestCase {
 
     func testWrongOwnerDatabaseFailsClosedWithoutRebinding() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
+        addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let captured = try layout(root)
         try captured.prepare()
         let db = try DatabaseQueue(path: captured.directory.appendingPathComponent("scoring-context-consent.sqlite").path)
+        addTeardownBlock { try db.close() }
         try await db.write { database in
             try database.execute(sql: """
                 CREATE TABLE consent_owner(singleton INTEGER PRIMARY KEY,project TEXT,user TEXT);
@@ -153,6 +165,7 @@ final class ScoringContextConsentTests: XCTestCase {
                 """)
         }
         let consent = ScoringContextConsent(layout: captured)
+        addTeardownBlock { try await consent.waitForRetirement() }
         await consent.load()
         XCTAssertFalse(consent.loaded)
         XCTAssertNotNil(consent.error)

@@ -52,6 +52,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
     private func capacity(_ byteLimit: Bool) async throws {
         let layout = try fixture()
         let current = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await current.waitForRetirement() }
         current.configuration = { [self] _, enabled, _ in try config(enabled) }
         await current.load()
         var old: [ScoringInputChange] = []
@@ -91,16 +92,18 @@ final class ScoringConsentCapacityTests: XCTestCase {
         XCTAssertEqual(reserved.count, 4)
         XCTAssertEqual(Set(reserved.map { $0["purpose"] as String }), Set(ScoringContextPurpose.allCases.map(\.rawValue)))
         let ids: [String] = reserved.map { $0["id"] }
-        current.retire()
+        try await current.waitForRetirement()
         let reopened = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await reopened.waitForRetirement() }
         await reopened.load()
         for input in old { XCTAssertFalse(reopened.gate.allows(input)) }
         // A refused grant cannot undo the denial, nor release rows carrying an earlier grant ID.
         reopened.configuration = { [self] _, enabled, _ in try config(enabled) }
         await reopened.setEnabled(true, purpose: .journal)
         XCTAssertNotNil(reopened.error)
-        reopened.retire()
+        try await reopened.waitForRetirement()
         let again = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await again.waitForRetirement() }
         await again.load()
         for input in old { XCTAssertFalse(again.gate.allows(input)) }
         let retained = try await db.read { try String.fetchAll($0, sql: "SELECT id FROM consent_intent WHERE reserved=1 ORDER BY purpose") }
@@ -113,6 +116,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
     func testOccupiedReserveAndFailedVisibleWriteStillPersistIndependentPause() async throws {
         let layout = try fixture()
         let current = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await current.waitForRetirement() }
         current.configuration = { [self] _, enabled, _ in try config(enabled) }
         await current.load(); await current.setEnabled(true, purpose: .journal)
         let old = try sensitive(XCTUnwrap(current.decisions[.journal]))
@@ -132,8 +136,9 @@ final class ScoringConsentCapacityTests: XCTestCase {
         XCTAssertNotNil(current.error)
         let second = try await db.read { try String.fetchOne($0, sql: "SELECT id FROM consent_intent WHERE reserved=1") }
         XCTAssertEqual(first, second)
-        current.retire()
+        try await current.waitForRetirement()
         let reopened = ScoringContextConsent(layout: layout); await reopened.load()
+        addTeardownBlock { try await reopened.waitForRetirement() }
         XCTAssertFalse(reopened.gate.allows(old)); XCTAssertNotNil(reopened.error)
         reopened.retire()
     }
@@ -141,6 +146,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
     func testFullPendingQueueDrainsUnrelatedDeviceThenSameDenialAcrossPartialReopen() async throws {
         let layout = try fixture()
         let seed = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await seed.retire() }
         let blocked = try ScoringInputChange(device: device, kind: .profile, entity: "primary", effectiveDay: "2026-09-18", payload: Data("{\"age\":30}".utf8))
         let other = try ScoringInputChange(device: "cccccccc-cccc-cccc-cccc-cccccccccccc", kind: .profile, entity: "primary", effectiveDay: "2026-09-18", payload: Data("{\"age\":31}".utf8))
         _ = try await seed.enqueue(blocked)
@@ -158,9 +164,11 @@ final class ScoringConsentCapacityTests: XCTestCase {
         _ = try await seed.enqueue(other)
         await seed.retire()
         let consent = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await consent.waitForRetirement() }
         consent.configuration = { [self] _, enabled, _ in try config(enabled) }
         await consent.load(); await consent.setEnabled(false, purpose: .journal)
         let store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         let intents = try await store.pendingIntents(), denial = try XCTUnwrap(intents.first)
         let state = ScoringInputTestState(); state.setReady(true)
         func coordinator(stopAfterFirst: Bool) throws -> ScoringInputCoordinator {
@@ -180,8 +188,9 @@ final class ScoringConsentCapacityTests: XCTestCase {
         XCTAssertEqual(state.sent().map(\.change.device), [other.device])
         let queuedDenial = try await db.read { try String.fetchOne($0, sql: "SELECT id FROM input_change WHERE kind='config'") }
         XCTAssertEqual(queuedDenial, denial.id.uuidString.lowercased())
-        inputs.retire(); consent.retire()
+        try await inputs.waitForRetirement(); try await consent.waitForRetirement()
         let reopened = ScoringContextConsent(layout: layout); await reopened.load()
+        addTeardownBlock { try await reopened.waitForRetirement() }
         let successor = try coordinator(stopAfterFirst: false); connect(reopened, successor)
         state.setReady(true); await successor.reconcile()?.value
         XCTAssertEqual(state.sent().last?.id, denial.id.uuidString.lowercased())
@@ -201,11 +210,14 @@ final class ScoringConsentCapacityTests: XCTestCase {
     func testAcceptedOriginCapacityCompactsReceiptHandshakeWithoutReplayingOldIDs() async throws {
         let layout = try fixture()
         let current = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await current.waitForRetirement() }
         current.configuration = { [self] _, enabled, _ in try config(enabled) }
         await current.load(); await current.setEnabled(true, purpose: .journal)
         let store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         let originals = try await store.pendingIntents(), first = try XCTUnwrap(originals.first)
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         let inputDB = try database(layout, consent: false), consentDB = try database(layout)
         defer { try? inputDB.close(); try? consentDB.close() }
         let scope = try XCTUnwrap(layout.scope), change = first.configuration.change
@@ -259,9 +271,11 @@ final class ScoringConsentCapacityTests: XCTestCase {
         let layout = try fixture()
         let consentFence = StoreWriteFence(), inputFence = StoreWriteFence()
         let store = try ScoringContextConsentStore(layout: layout, fence: consentFence)
+        addTeardownBlock { try await store.close() }
         _ = try await store.set(.journal, enabled: false, configuration: config(false))
         let list = try await store.pendingIntents(), intent = try XCTUnwrap(list.first)
         let journal = try ScoringInputJournal(layout: layout, fence: inputFence)
+        addTeardownBlock { await journal.retire() }
         _ = try await journal.importOrigin(intent.id, change: intent.configuration.change, position: intent.position)
         let value = try await journal.next(), next = try XCTUnwrap(value)
         let receipt = ScoringInputJournalTests.receipt(next, revision: 8)
@@ -280,11 +294,13 @@ final class ScoringConsentCapacityTests: XCTestCase {
             XCTFail("retired writer compacted")
         } catch { XCTAssertEqual(error as? ScoringInputJournal.Failure, .retired) }
         let reopenedInput = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await reopenedInput.retire() }
         let afterRollback = try await reopenedInput.originProgress(intent.id)
         XCTAssertEqual(afterRollback, .accepted(receipt))
         try await reopenedInput.retireOrigin(intent.id, change: intent.configuration.change, position: intent.position, receipt: receipt)
         // Simulated process death between the two stores: accepted consent evidence is still present.
         let reopenedConsent = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await reopenedConsent.close() }
         let copied = try await reopenedConsent.acceptedIntents()
         XCTAssertEqual(copied.first?.0, intent)
         try await reopenedInput.retireOrigin(intent.id, change: intent.configuration.change, position: intent.position, receipt: receipt)
@@ -295,6 +311,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         try await reopenedConsent.finishRetirement(intent, receipt: receipt)
         try await reopenedConsent.finishRetirement(intent, receipt: receipt)
         let replayAfterReopen = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await replayAfterReopen.retire() }
         do { _ = try await replayAfterReopen.importOrigin(intent.id, change: intent.configuration.change, position: intent.position); XCTFail("compacted origin reappeared") }
         catch { XCTAssertEqual(error as? ScoringInputJournal.Failure, .retiredOrigin) }
         _ = try await reopenedConsent.set(.journal, enabled: true, configuration: config(true))
@@ -308,13 +325,16 @@ final class ScoringConsentCapacityTests: XCTestCase {
     func testReentrantTransitionCannotLetFreshConfigOvertakeNewDenial() async throws {
         let layout = try fixture()
         let owner = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await owner.close() }
         _ = try await owner.set(.journal, enabled: true, configuration: config(true, coefficient: 1))
         let pending = try await owner.pendingIntents(), old = try XCTUnwrap(pending.first)
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         let progress = try await journal.importOrigin(old.id, change: old.configuration.change, position: old.position)
         try await owner.recordProgress(progress, for: old)
         await journal.retire()
         let consent = ScoringContextConsent(layout: layout); await consent.load()
+        addTeardownBlock { try await consent.waitForRetirement() }
         consent.configuration = { [self] _, _, _ in try config(false, coefficient: 2) }
         let gate = ScoringInputTestGate()
         let inputs = ScoringInputCoordinator(context: .init(scope: try XCTUnwrap(layout.scope), generation: UUID()), layout: layout,
@@ -349,7 +369,9 @@ final class ScoringConsentCapacityTests: XCTestCase {
     func testLaterAcceptedOriginCompactsBeyond64HeldImportedEntries() async throws {
         let layout = try fixture()
         let owner = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await owner.close() }
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         for _ in 0..<65 {
             let body = try config(false)
             let change = try ScoringInputChange(device: UUID().uuidString, kind: .config, entity: "primary",
@@ -367,6 +389,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         let next = try XCTUnwrap(nextValue)
         try await journal.settle(next, receipt: ScoringInputJournalTests.receipt(next, revision: 3))
         let consent = ScoringContextConsent(layout: layout); await consent.load()
+        addTeardownBlock { try await consent.waitForRetirement() }
         let inputs = try offline(layout); connect(consent, inputs)
         try await consent.relay(to: inputs) // Visits the first 64 retained origins.
         try await consent.relay(to: inputs) // Must reach the later accepted origin.
@@ -387,6 +410,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
     func testCompactingAcceptedDenialCannotEraseFailedDecisionPause() async throws {
         let layout = try fixture()
         let owner = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await owner.close() }
         let grant = try await owner.set(.journal, enabled: true, configuration: config(true))
         let old = try sensitive(grant)
         let db = try database(layout)
@@ -395,6 +419,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         do { _ = try await owner.set(.journal, enabled: false, configuration: config(false)); XCTFail("denial visible write succeeded") } catch {}
         let pending = try await owner.pendingIntents(), intent = try XCTUnwrap(pending.last)
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         for intent in pending { _ = try await journal.importOrigin(intent.id, change: intent.configuration.change, position: intent.position) }
         for _ in 0..<2 {
             let value = try await journal.next(), next = try XCTUnwrap(value)
@@ -411,6 +436,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         let retained = try await db.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM consent_intent WHERE id=?", arguments: [intent.id.uuidString.lowercased()]) }
         XCTAssertEqual(retained, 0)
         let reopened = ScoringContextConsent(layout: layout); await reopened.load()
+        addTeardownBlock { try await reopened.waitForRetirement() }
         XCTAssertFalse(reopened.gate.allows(old)); XCTAssertNotNil(reopened.error)
         reopened.retire(); await journal.retire()
     }
@@ -418,6 +444,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
     func testCancelledRelayProducerDoesNotCancelAnotherWaiterOrReleaseItsOwnConfig() async throws {
         let layout = try fixture()
         let current = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await current.waitForRetirement() }
         current.configuration = { [self] _, enabled, _ in try config(enabled) }
         await current.load(); await current.setEnabled(false, purpose: .journal)
         let gate = ScoringInputTestGate()
@@ -446,6 +473,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
     func testRetiredRelayOpeningCannotWriteIntoSameAccountSuccessor() async throws {
         let layout = try fixture()
         let consent = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await consent.waitForRetirement() }
         consent.configuration = { [self] _, enabled, _ in try config(enabled) }
         await consent.load(); await consent.setEnabled(false, purpose: .journal)
         let gate = ScoringInputTestGate()
@@ -458,6 +486,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         await fulfillment(of: [gate.entered], timeout: 3)
         consent.retire(); inputs.retire()
         let successorConsent = ScoringContextConsent(layout: layout); await successorConsent.load()
+        addTeardownBlock { try await successorConsent.waitForRetirement() }
         let successor = try offline(layout); connect(successorConsent, successor)
         try await successorConsent.relay(to: successor)
         await gate.release()
@@ -511,11 +540,13 @@ final class ScoringConsentCapacityTests: XCTestCase {
                 arguments: [intentID.uuidString.lowercased(), intentID.uuidString.lowercased(), change.device, change.effectiveDay, change.digest])
         }
         let owner = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await owner.close() }
         let values = try await owner.read()
         XCTAssertEqual(values[.journal]?.enabled, false)
         let list = try await owner.pendingIntents(), intent = try XCTUnwrap(list.first)
         XCTAssertEqual(intent.position.sequence, 12)
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         _ = try await journal.importOrigin(intent.id, change: intent.configuration.change, position: intent.position)
         let value = try await journal.next(), next = try XCTUnwrap(value)
         XCTAssertEqual(next.id, intentID.uuidString.lowercased()); XCTAssertEqual(next.clientID, clientID)
@@ -527,6 +558,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         try await journal.retireOrigin(intent.id, change: change, position: intent.position, receipt: receipt)
         try await owner.finishRetirement(intent, receipt: receipt)
         let reopened = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await reopened.close() }
         XCTAssertEqual(reopened.sourceID, owner.sourceID)
         let decisions = try await reopened.read()
         XCTAssertEqual(decisions[.journal]?.enabled, false)
@@ -536,6 +568,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
     func testFixtureRetirementClosesRetainedWriterBeforeRemovingFiles() async throws {
         let layout = try fixture(), fence = StoreWriteFence()
         let journal = try ScoringInputJournal(layout: layout, fence: fence)
+        addTeardownBlock { await journal.retire() }
         let inputs = ScoringInputCoordinator(context: .init(scope: try XCTUnwrap(layout.scope), generation: UUID()), layout: layout,
             dependencies: .init(isCurrent: { _ in true }, canUpload: { false }, openJournal: { _, _ in journal },
                 head: { _, _ in throw ScoringInputRPC.Failure.unavailable }, send: { _, _ in throw ScoringInputRPC.Failure.unavailable }), fence: fence)
@@ -547,6 +580,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         do { _ = try await journal.status(); XCTFail("retired writer remains open") }
         catch { XCTAssertEqual((error as? DatabaseError)?.resultCode, .SQLITE_MISUSE) }
         let successor = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await successor.retire() }
         let status = try await successor.status()
         XCTAssertEqual(status.pending, 1, "resource retirement must not discard durable debt")
         try await successor.close()
@@ -584,7 +618,9 @@ final class ScoringConsentCapacityTests: XCTestCase {
     private func heldCapacity(count: Int, byteCap: Bool = false, allPurposes: Bool = true) async throws {
         let layout = try fixture(), purposes = allPurposes ? ScoringContextPurpose.allCases : [.journal]
         let store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         addTeardownBlock { try await journal.close() }
         var grant: ScoringContextDecision?
         // Settle the actual original grants before filling the sensitive queue. A remote
@@ -608,6 +644,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         let original = try await db.read { try Row.fetchAll($0, sql: "SELECT * FROM input_change ORDER BY sequence") }
         if byteCap { XCTAssertEqual(held.reduce(0) { $0 + $1.payload.count }, 16 * 1_048_576) }
         let current = ScoringContextConsent(layout: layout); await current.load()
+        addTeardownBlock { try await current.waitForRetirement() }
         XCTAssertTrue(current.gate.allows(held[0]))
         current.configuration = { [self] _, enabled, _ in try config(enabled) }
         for purpose in purposes { await current.setEnabled(false, purpose: purpose); XCTAssertNil(current.error) }
@@ -619,7 +656,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         // import result. Reopening must rediscover that same ID, source position and payload.
         _ = try await journal.importOrigin(first.id, change: first.configuration.change,
             position: first.position, denialPurpose: first.denialPurpose)
-        try await journal.close(); current.retire()
+        try await journal.close(); try await current.waitForRetirement()
 
         let state = ScoringInputTestState()
         func coordinator(_ consent: ScoringContextConsent, stopAfterFirst: Bool) throws -> ScoringInputCoordinator {
@@ -637,6 +674,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
             return inputs
         }
         let reopened = ScoringContextConsent(layout: layout); await reopened.load()
+        addTeardownBlock { try await reopened.waitForRetirement() }
         let inputs = try coordinator(reopened, stopAfterFirst: true)
         try await reopened.relay(to: inputs)
         try await reopened.relay(to: inputs)
@@ -653,11 +691,12 @@ final class ScoringConsentCapacityTests: XCTestCase {
         }
         state.setReady(true); await inputs.reconcile()?.value
         XCTAssertEqual(state.sent().map(\.id), [first.id.uuidString.lowercased()])
-        try await inputs.waitForRetirement(); reopened.retire()
+        try await inputs.waitForRetirement(); try await reopened.waitForRetirement()
         let afterPartial = try await db.read { try Row.fetchAll($0, sql: "SELECT * FROM input_change WHERE kind='context' ORDER BY sequence") }
         XCTAssertEqual(afterPartial, original)
 
         let successorConsent = ScoringContextConsent(layout: layout); await successorConsent.load()
+        addTeardownBlock { try await successorConsent.waitForRetirement() }
         let successor = try coordinator(successorConsent, stopAfterFirst: false)
         state.setReady(true)
         for _ in 0..<3 { await successor.reconcile()?.value }
@@ -687,7 +726,9 @@ final class ScoringConsentCapacityTests: XCTestCase {
     func testControlReserveIsBoundedUntilExactReceiptRetirementCommits() async throws {
         let layout = try fixture(), fence = StoreWriteFence()
         let store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         let journal = try ScoringInputJournal(layout: layout, fence: fence)
+        addTeardownBlock { await journal.retire() }
         addTeardownBlock { try await journal.close() }
         let grant = ScoringContextDecision(purpose: .journal, id: UUID(), enabled: true, decidedAt: Date())
         _ = try await seedHeld(layout, decision: grant, count: 4096)
@@ -735,6 +776,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         } catch { XCTAssertEqual(error as? ScoringInputJournal.Failure, .retired) }
         try await journal.close()
         let recovered = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await recovered.retire() }
         addTeardownBlock { try await recovered.close() }
         let db = try database(layout, consent: false)
         defer { try? db.close() }
@@ -776,7 +818,9 @@ final class ScoringConsentCapacityTests: XCTestCase {
 
     func testReservedDenialCannotBypassConfigConflictButOtherDeviceCanProgress() async throws {
         let layout = try fixture(), store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         addTeardownBlock { try await journal.close() }
         _ = try await journal.enqueue(config(true).change)
         let value = try await journal.next(), conflict = try XCTUnwrap(value)
@@ -789,6 +833,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         _ = try await store.set(.cycle, enabled: false, configuration: .init(change: remote, timezone: "UTC"))
         let denials = try await store.pendingIntents()
         let consent = ScoringContextConsent(layout: layout); await consent.load()
+        addTeardownBlock { try await consent.waitForRetirement() }
         let state = ScoringInputTestState(); state.setReady(true)
         let inputs = ScoringInputCoordinator(context: .init(scope: try XCTUnwrap(layout.scope), generation: UUID()), layout: layout,
             dependencies: .init(isCurrent: { _ in true }, canUpload: { state.ready() }, head: {
@@ -818,7 +863,9 @@ final class ScoringConsentCapacityTests: XCTestCase {
 
     func testAcceptedOriginCapCannotConsumeAnyOfTheFourControlReservations() async throws {
         let layout = try fixture(), store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         addTeardownBlock { try await journal.close() }
         let db = try database(layout, consent: false), scope = try XCTUnwrap(layout.scope), change = try config(true).change
         defer { try? db.close() }
@@ -840,6 +887,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         for purpose in ScoringContextPurpose.allCases { _ = try await store.set(purpose, enabled: false, configuration: config(false)) }
         let denials = try await store.pendingIntents()
         let consent = ScoringContextConsent(layout: layout); await consent.load()
+        addTeardownBlock { try await consent.waitForRetirement() }
         let inputs = try offline(layout); connect(consent, inputs)
         try await consent.relay(to: inputs)
         let reserved = try await db.read { try String.fetchAll($0, sql: "SELECT origin_id FROM input_control") }
@@ -850,6 +898,7 @@ final class ScoringConsentCapacityTests: XCTestCase {
         try await inputs.waitForRetirement(); consent.retire()
         try await journal.close()
         let reopened = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await reopened.retire() }
         addTeardownBlock { try await reopened.close() }
         for intent in denials {
             let value = try await reopened.next(allowing: { $0.kind == .config }), pending = try XCTUnwrap(value)

@@ -13,7 +13,7 @@ final class ScoringConsentRelayTests: XCTestCase {
 
     private func fixture() throws -> AccountStorageLayout {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        addTeardownBlock { try FileManager.default.removeItem(at: root) }
         return AccountStorageLayout(baseDirectory: root,
             scope: try AccountScope(projectURL: "https://consent-relay.invalid", userID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
     }
@@ -38,6 +38,7 @@ final class ScoringConsentRelayTests: XCTestCase {
     func testDecisionCompletionPublishesAfterSavingEndsAndNeverAfterRetirement() async throws {
         let layout = try fixture()
         let consent = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await consent.waitForRetirement() }
         await consent.load()
         let frozen = try config(true)
         consent.configuration = { _, _, _ in frozen }
@@ -69,13 +70,15 @@ final class ScoringConsentRelayTests: XCTestCase {
     func testCrashAfterConsentCommitRetainsFrozenDayTimezoneSourceAndPayload() async throws {
         let layout = try fixture()
         let consent = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await consent.waitForRetirement() }
         let frozen = try config(false)
         consent.configuration = { _, _, _ in frozen }
         await consent.load()
         await consent.setEnabled(false, purpose: .journal, now: Date(timeIntervalSince1970: 1_790_000_000))
         XCTAssertNil(consent.error)
-        consent.retire()
+        try await consent.waitForRetirement()
         let reopened = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await reopened.waitForRetirement() }
         await reopened.load()
         reopened.configuration = { _, _, _ in
             XCTFail("recovery must not rebuild an old choice from today's preferences")
@@ -85,11 +88,13 @@ final class ScoringConsentRelayTests: XCTestCase {
         try await reopened.relay(to: inputs)
         try await reopened.relay(to: inputs)
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         let next = try await journal.next()
         XCTAssertEqual(next?.change, frozen.change)
         let status = try await journal.status()
         XCTAssertEqual(status.pending, 1)
         let stored = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await stored.close() }
         let intents = try await stored.pendingIntents()
         XCTAssertEqual(intents.count, 1)
         XCTAssertEqual(intents.first?.configuration, frozen)
@@ -100,11 +105,13 @@ final class ScoringConsentRelayTests: XCTestCase {
     func testRelayCrashAfterImportAndAfterReceiptReusesOriginalMutation() async throws {
         let layout = try fixture()
         let store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         let frozen = try config(false)
         _ = try await store.set(.journal, enabled: false, configuration: frozen)
         let intents = try await store.pendingIntents()
         let intent = try XCTUnwrap(intents.first)
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         _ = try await journal.importOrigin(intent.id, change: frozen.change, position: intent.position)
         let firstValue = try await journal.next()
         let first = try XCTUnwrap(firstValue)
@@ -114,6 +121,7 @@ final class ScoringConsentRelayTests: XCTestCase {
         try await journal.settle(first, receipt: receipt)
         await journal.retire()
         let recovered = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await recovered.retire() }
         let afterLostLocalRelayReceipt = try await recovered.importOrigin(intent.id, change: frozen.change, position: intent.position)
         XCTAssertEqual(afterLostLocalRelayReceipt, .accepted(receipt))
         try await store.recordProgress(afterLostLocalRelayReceipt, for: intent)
@@ -130,11 +138,13 @@ final class ScoringConsentRelayTests: XCTestCase {
     func testRapidToggleRelayPrecedesFreshConfigAndNeverAppendsAnOldChoiceAgain() async throws {
         let layout = try fixture()
         let store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         let first = try config(false)
         let second = try config(true, day: "2026-09-18")
         _ = try await store.set(.journal, enabled: false, configuration: first)
         _ = try await store.set(.journal, enabled: true, configuration: second)
         let consent = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await consent.waitForRetirement() }
         await consent.load()
         let inputs = try offline(layout)
         inputs.prepareAdmission = { [weak consent, weak inputs] in
@@ -147,6 +157,7 @@ final class ScoringConsentRelayTests: XCTestCase {
         // through a second writer. No concurrent drain is part of this ordering assertion.
         await inputs.reconcile()?.value
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         var revision: Int64 = 0
         var ids: [String] = []
         for expected in [first.change, second.change, fresh] {
@@ -167,8 +178,10 @@ final class ScoringConsentRelayTests: XCTestCase {
     func testFailedDecisionTransactionRetainsDenialButNeverRelaysFailedGrant() async throws {
         let layout = try fixture()
         let store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         _ = try await store.set(.journal, enabled: true)
         let database = try DatabaseQueue(path: layout.directory.appendingPathComponent("scoring-context-consent.sqlite").path)
+        defer { try? database.close() }
         try await database.write { db in
             try db.execute(sql: """
                 CREATE TRIGGER reject_decision BEFORE UPDATE ON consent_decision
@@ -177,6 +190,7 @@ final class ScoringConsentRelayTests: XCTestCase {
         }
         do { _ = try await store.set(.journal, enabled: false, configuration: config(false)); XCTFail("denial write unexpectedly passed") } catch {}
         let reopened = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await reopened.close() }
         let values = try await reopened.read()
         XCTAssertEqual(values[.journal]?.enabled, false)
         let denials = try await reopened.pendingIntents()
@@ -192,6 +206,7 @@ final class ScoringConsentRelayTests: XCTestCase {
         let layout = try fixture()
         let fence = StoreWriteFence()
         let journal = try ScoringInputJournal(layout: layout, fence: fence)
+        addTeardownBlock { await journal.retire() }
         let origin = UUID(), change = try config(false).change
         let position = ScoringInputJournal.OriginPosition(source: UUID(), sequence: 1)
         do {
@@ -199,6 +214,7 @@ final class ScoringConsentRelayTests: XCTestCase {
             XCTFail("retired origin committed")
         } catch { XCTAssertEqual(error as? ScoringInputJournal.Failure, .retired) }
         let reopened = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await reopened.retire() }
         let progress = try await reopened.originProgress(origin)
         let status = try await reopened.status()
         XCTAssertNil(progress); XCTAssertEqual(status.pending, 0)
@@ -211,15 +227,18 @@ final class ScoringConsentRelayTests: XCTestCase {
     func testConfigurationCaptureFailureStillPersistsPurposePauseBeforeReopen() async throws {
         let layout = try fixture()
         let consent = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await consent.waitForRetirement() }
         await consent.load(); await consent.setEnabled(true, purpose: .journal)
         consent.configuration = { _, _, _ in throw ScoringInputJournal.Failure.invalidInput }
         await consent.setEnabled(false, purpose: .journal)
         XCTAssertNotNil(consent.error); XCTAssertFalse(consent.enabled(.journal))
         consent.retire()
         let reopened = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await reopened.waitForRetirement() }
         await reopened.load()
         XCTAssertNotNil(reopened.error); XCTAssertFalse(reopened.enabled(.journal))
         let store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         let intents = try await store.pendingIntents()
         XCTAssertTrue(intents.isEmpty, "a missing snapshot is not permission to fabricate a remote payload")
         reopened.retire()
@@ -228,8 +247,10 @@ final class ScoringConsentRelayTests: XCTestCase {
     func testOwnerlessPopulatedConsentOutboxIsNotAdopted() async throws {
         let layout = try fixture()
         let store = try ScoringContextConsentStore(layout: layout, fence: StoreWriteFence())
+        addTeardownBlock { try await store.close() }
         _ = try await store.set(.journal, enabled: false, configuration: config(false))
         let database = try DatabaseQueue(path: layout.directory.appendingPathComponent("scoring-context-consent.sqlite").path)
+        defer { try? database.close() }
         try await database.write { db in
             try db.execute(sql: "DELETE FROM consent_owner; DELETE FROM consent_decision")
         }
@@ -244,6 +265,7 @@ final class ScoringConsentRelayTests: XCTestCase {
     func testReviewedReplacementIsNotMisreportedAsOriginalConsentReceipt() async throws {
         let layout = try fixture()
         let journal = try ScoringInputJournal(layout: layout)
+        addTeardownBlock { await journal.retire() }
         let id = UUID(), change = try config(false).change
         let position = ScoringInputJournal.OriginPosition(source: UUID(), sequence: 1)
         _ = try await journal.importOrigin(id, change: change, position: position)
@@ -263,6 +285,7 @@ final class ScoringConsentRelayTests: XCTestCase {
     func testConsentRelayCannotCrossAccountOrProject() async throws {
         let layout = try fixture(), other = try fixture()
         let consent = ScoringContextConsent(layout: layout)
+        addTeardownBlock { try await consent.waitForRetirement() }
         consent.configuration = { [self] _, enabled, _ in try config(enabled) }
         await consent.load(); await consent.setEnabled(false, purpose: .journal)
         let otherLayout = AccountStorageLayout(baseDirectory: other.directory,
