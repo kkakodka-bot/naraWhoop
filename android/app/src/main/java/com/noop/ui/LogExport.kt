@@ -99,6 +99,7 @@ object LogExport {
                 putExtra(Intent.EXTRA_SUBJECT, suggestedName)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
+            admit()
             context.startActivity(Intent.createChooser(send, "Share report bundle"))
             file
         }.onFailure {

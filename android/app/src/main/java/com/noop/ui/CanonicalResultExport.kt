@@ -31,14 +31,22 @@ object CanonicalResultExport {
         check(account.isCurrent())
         val source = requireNotNull(account.runtime?.serverScoreRepository)
         val days = source.canonicalDays.value.toSortedMap()
+        fun admit() {
+            check(account.isCurrent() && days.all { (day, saved) ->
+                com.noop.push.ServerConsumerProjection.sameReadState(source.overlay(day), saved)
+            }) { "Canonical identity or read state changed during export; retry" }
+        }
         val buffer = java.io.ByteArrayOutputStream()
         java.util.zip.ZipOutputStream(buffer).use { zip ->
             entries(account, days).forEach { (name, bytes) ->
                 zip.putNextEntry(java.util.zip.ZipEntry(name)); zip.write(bytes); zip.closeEntry()
             }
         }
-        check(account.isCurrent() && days.all { (day, saved) -> source.overlay(day)?.compute == saved.compute })
-        requireNotNull(account.contentResolver.openOutputStream(uri)).use { output -> output.write(buffer.toByteArray()) }
+        admit()
+        requireNotNull(account.contentResolver.openOutputStream(uri)).use { output ->
+            admit()
+            output.write(buffer.toByteArray())
+        }
         return "Exported ${days.size} immutable server result envelopes with ownership and revision metadata."
     }
 
@@ -49,8 +57,8 @@ object CanonicalResultExport {
         LogExport.exportBundle(account, entries(account, days),
             "noop-canonical-results-${LogExport.timestamp()}.zip", admit = {
                 check(account.isCurrent()) { "Account changed during export" }
-                check(days.all { (day, saved) -> vm.serverScores.overlay(day)?.compute == saved.compute }) {
-                    "Canonical revision changed during export; retry"
+                check(days.all { (day, saved) -> com.noop.push.ServerConsumerProjection.sameReadState(vm.serverScores.overlay(day), saved) }) {
+                    "Canonical identity or read state changed during export; retry"
                 }
             })
     }

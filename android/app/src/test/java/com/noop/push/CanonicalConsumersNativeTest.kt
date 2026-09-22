@@ -35,6 +35,24 @@ import java.util.zip.ZipFile
 @Config(sdk = [34], application = Application::class,
     instrumentedPackages = ["com.noop.analytics.PhoneComputeRuntime"])
 class CanonicalConsumersNativeTest {
+    private enum class Race { READ_FAILURE, REVOCATION, ACCOUNT, DEVICE }
+
+    private class OpeningProvider(private val target: File, private val whileOpening: () -> Unit) : android.content.ContentProvider() {
+        var opened = 0
+        override fun onCreate() = true
+        override fun getType(uri: Uri) = "application/zip"
+        override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?) = null
+        override fun insert(uri: Uri, values: android.content.ContentValues?) = null
+        override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?) = 0
+        override fun update(uri: Uri, values: android.content.ContentValues?, selection: String?, selectionArgs: Array<out String>?) = 0
+        override fun openFile(uri: Uri, mode: String): android.os.ParcelFileDescriptor {
+            opened++
+            whileOpening()
+            return android.os.ParcelFileDescriptor.open(target, android.os.ParcelFileDescriptor.MODE_CREATE or
+                android.os.ParcelFileDescriptor.MODE_READ_WRITE or android.os.ParcelFileDescriptor.MODE_TRUNCATE)
+        }
+    }
+
     private class Provider {
         val inserted = mutableListOf<Record>()
         val deleted = mutableListOf<String>()
@@ -94,6 +112,17 @@ class CanonicalConsumersNativeTest {
         suspend fun refresh() {
             source.refreshDay(day)
             checkNotNull(source.overlay(day)?.compute) { source.lastError.value.orEmpty() }
+        }
+        suspend fun changeDuringAdmission(race: Race) {
+            when (race) {
+                Race.READ_FAILURE -> { readFailure = true; source.refreshDay(day) }
+                Race.REVOCATION -> {
+                    family("night_hrv").put("status", "revoked").put("canonical_qualification", JSONObject.NULL)
+                    source.refreshDay(day)
+                }
+                Race.ACCOUNT -> auth.controller.clearSession()
+                Race.DEVICE -> check(runtime.sourceCoordinator.reconcileActiveDevice("whoop-consumer-b"))
+            }
         }
         suspend fun health() = HealthConnectWriter.writeCanonical(account, runtime.repository) { provider.client }
         fun widget(): WidgetSnapshot {
@@ -249,6 +278,55 @@ class CanonicalConsumersNativeTest {
             try { f.health(); fail("Retired account reached Health provider") } catch (_: kotlinx.coroutines.CancellationException) { }
             assertNull(f.widget().recoveryPct)
             assertTrue(f.provider.inserted.isEmpty()); assertTrue(f.provider.deleted.isEmpty())
+            assertTrue(PhoneComputeRuntime.evidence().isEmpty()); assertTrue(PhoneComputeRuntime.forbiddenAttempts().isEmpty())
+        }
+    }
+
+    @Test fun providerOpenRechecksAccountDeviceReadFailureAndRevocationBeforeAnyBytes() = runBlocking(Dispatchers.IO) {
+        PhoneComputeRuntime.installFinalHosted()
+        for (race in Race.entries) Fixture().use { f ->
+            f.available("night_hrv", "hrv_rmssd_ms", 42); f.refresh()
+            val before = f.source.overlay(f.day)!!
+            val target = File(f.account.cacheDir, "provider-race-$race.zip")
+            val authority = "com.noop.test.export.${java.util.UUID.randomUUID()}"
+            val provider = OpeningProvider(target) { runBlocking { f.changeDuringAdmission(race) } }
+            provider.attachInfo(f.account, android.content.pm.ProviderInfo().apply { this.authority = authority; exported = true })
+            org.robolectric.shadows.ShadowContentResolver.registerProviderInternal(authority, provider)
+            try {
+                CanonicalResultExport.writeTo(f.account, Uri.parse("content://$authority/result.zip"))
+                fail("Export admitted $race during provider open")
+            } catch (_: IllegalStateException) { }
+            assertEquals("$race callback ran", 1, provider.opened)
+            assertTrue(target.exists()); assertEquals("$race leaked result bytes", 0L, target.length())
+            if (race == Race.READ_FAILURE) {
+                assertEquals(before.compute, f.source.overlay(f.day)!!.compute)
+                assertEquals("server_read_failed", f.source.overlay(f.day)!!.readFailure)
+            }
+            if (race == Race.REVOCATION) assertEquals(before.compute!!.families.getValue("night_hrv").resultRevision,
+                f.source.overlay(f.day)!!.compute!!.families.getValue("night_hrv").resultRevision)
+            assertTrue(PhoneComputeRuntime.evidence().isEmpty()); assertTrue(PhoneComputeRuntime.forbiddenAttempts().isEmpty())
+        }
+    }
+
+    @Test fun healthProviderCreationRechecksReadStateAndIdentityBeforeAnyWrites() = runBlocking(Dispatchers.IO) {
+        PhoneComputeRuntime.installFinalHosted()
+        for (race in Race.entries) Fixture().use { f ->
+            f.available("night_hrv", "hrv_rmssd_ms", 42); f.refresh()
+            var opened = false
+            try {
+                val result = HealthConnectWriter.writeCanonical(f.account, f.runtime.repository) {
+                    opened = true
+                    runBlocking { f.changeDuringAdmission(race) }
+                    f.provider.client
+                }
+                assertFalse("Health admitted $race", result.ok)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                assertEquals(Race.ACCOUNT, race)
+            }
+            assertTrue(opened)
+            assertTrue("$race wrote records", f.provider.inserted.isEmpty())
+            assertTrue("$race deleted records", f.provider.deleted.isEmpty())
+            assertNull(f.receipt("night_hrv"))
             assertTrue(PhoneComputeRuntime.evidence().isEmpty()); assertTrue(PhoneComputeRuntime.forbiddenAttempts().isEmpty())
         }
     }

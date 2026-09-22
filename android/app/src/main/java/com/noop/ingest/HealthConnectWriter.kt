@@ -228,6 +228,12 @@ object HealthConnectWriter {
         val account = AccountStorageContext.capture(context)
         val source = account.runtime?.serverScoreRepository ?: return WritebackResult.UNAVAILABLE
         val snapshots = source.canonicalDays.value.values.toList()
+        fun admit() {
+            checkAdmitted(context)
+            check(snapshots.all { saved -> com.noop.push.ServerConsumerProjection.sameReadState(source.overlay(saved.day), saved) }) {
+                "Canonical identity or read state changed during Health export"
+            }
+        }
         val records = ArrayList<Record>()
         val receipts = account.getSharedPreferences("noop_health_compute_revisions", Context.MODE_PRIVATE)
         val pendingReceipts = linkedMapOf<String, String>()
@@ -312,22 +318,20 @@ object HealthConnectWriter {
             }
         }
         return runCatching {
-            checkAdmitted(context)
-            check(snapshots.all { saved -> source.overlay(saved.day)?.compute == saved.compute }) { "Canonical result changed during Health export" }
+            admit()
             val client = clientFactory()
+            admit()
             retract.forEach { (type, ids) ->
-                checkAdmitted(context)
-                check(snapshots.all { saved -> source.overlay(saved.day)?.compute == saved.compute })
+                admit()
                 client.deleteRecords(type, recordIdsList = emptyList(), clientRecordIdsList = ids)
             }
             var count = 0
             records.chunked(1000).forEach { batch ->
-                checkAdmitted(context)
-                check(snapshots.all { saved -> source.overlay(saved.day)?.compute == saved.compute })
+                admit()
                 client.insertRecords(batch); count += batch.size
             }
             account.runtime?.activeDeviceId?.let { device -> count += writeHeartRate(client, context, repo, device, System.currentTimeMillis()) }
-            checkAdmitted(context)
+            admit()
             val editor = receipts.edit(); pendingReceipts.forEach { (id, json) -> editor.putString(id, json) }
             check(editor.commit()) { "Health result receipt not durable" }
             WritebackResult(count, emptyList())

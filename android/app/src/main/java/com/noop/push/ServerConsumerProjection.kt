@@ -5,6 +5,10 @@ import com.noop.data.SleepSession
 
 /** Typed rendering adapters, not scoring. Every emitted number retains its source envelope. */
 object ServerConsumerProjection {
+    fun sameReadState(current: ServerScoreDayCache?, saved: ServerScoreDayCache): Boolean =
+        current != null && current.day == saved.day && current.ownerId == saved.ownerId &&
+            current.compute == saved.compute && current.stale == saved.stale && current.readFailure == saved.readFailure
+
     fun number(cache: ServerScoreDayCache?, metric: String): Double? = cache?.compute?.familyFor(metric)?.number(metric)
     fun revisions(cache: ServerScoreDayCache?): Map<String, String> = cache?.compute?.families.orEmpty()
         .mapNotNull { (key, family) -> family.resultRevision?.let { key to it } }.toMap()
