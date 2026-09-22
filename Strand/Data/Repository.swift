@@ -942,6 +942,11 @@ final class Repository: ObservableObject {
                 else { s = try await WhoopStore(path: path) }
                 try await s.fenceWrites(untilRevoked: writeFence)
                 if let scope = storageLayout?.scope {
+                    // Bind an empty JWT account store before writing enrollment capture metadata.
+                    // Enrolled stores instead require their existing exact owner/source witness.
+                    if CloudRuntimeIdentity.currentEnrollmentSnapshot()?.scope != scope {
+                        try await s.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+                    }
                     try await CloudCaptureScope.prepareStore(s.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
                     try await CloudCaptureScope.bindRuntimeOwner(s, scope: scope)
                 }

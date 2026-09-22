@@ -459,6 +459,16 @@ final class ScoringPreferenceContainmentTests: XCTestCase {
         let model = f.openModel()
         await model.retryScoringPreferenceRecompute()
         XCTAssertEqual(model.intelligence.preferenceWorkDisposition, .complete)
+        XCTAssertFalse(model.intelligence.results.isEmpty)
+        XCTAssertTrue(model.intelligence.results.allSatisfy { $0.hrv == nil && $0.recovery == nil },
+            "Untimed RR cannot qualify HRV or recovery, even in a race fixture")
+        // Presentation-only sentinel, not a physiological fixture or a qualification override.
+        // The old pass must leave it untouched; the accepted successor must replace it with null.
+        model.intelligence.results = model.intelligence.results.map {
+            IntelligenceEngine.Computed(day: $0.day, recovery: 73.25, strain: $0.strain,
+                sleepMin: $0.sleepMin, hrv: $0.hrv, rhr: $0.rhr, source: $0.source,
+                confidence: $0.confidence, drivers: $0.drivers, skinTempRel: $0.skinTempRel)
+        }
         XCTAssertTrue(model.intelligence.results.contains { $0.recovery != nil })
         let beforeDays = model.intelligence.results.map(\.day)
         let beforeRecovery = model.intelligence.results.map(\.recovery)

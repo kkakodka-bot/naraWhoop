@@ -88,6 +88,22 @@ final class ScoringPreferenceAppTests: XCTestCase {
         XCTAssertNotNil(f.model.resolvedScoringPreferenceSource)
     }
 
+    func testFreshAccountStoreBindsBeforeCaptureMetadataAndRegistryDiscovery() async throws {
+        let f = try fixture()
+        let opened = await f.model.repo.storeHandle()
+        let store = try XCTUnwrap(opened)
+        let owner = try await store.registryWriter.read { db in
+            try Row.fetchOne(db, sql: "SELECT projectURL,userID FROM localAccountOwner WHERE singleton=1")
+        }
+        XCTAssertEqual(owner?["projectURL"] as String?, f.context.scope.projectURL)
+        XCTAssertEqual(owner?["userID"] as String?, f.context.scope.userID)
+        try await connectRegistry(f)
+        do {
+            try await store.bindAccountOwner(projectURL: f.context.scope.projectURL, userID: UUID().uuidString)
+            XCTFail("A new account cannot rebind the initialized store")
+        } catch LocalAccountOwnershipError.mismatchedOwner { }
+    }
+
     func testHydrationUsesOnlyAccountDomainAndCreatesNoAction() async throws {
         let f = try fixture(seed: ["profile.weightKg": 91.5], registration: [
             "noopBanisterEffort": true, "noopExperimentalSleepV2": false,
