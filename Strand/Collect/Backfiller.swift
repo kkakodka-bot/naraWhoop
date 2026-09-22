@@ -350,12 +350,10 @@ final class Backfiller {
          chunkInfo: (([BackfillChunkInfo]) async -> Void)? = nil,
          onQuarantined: ((Int) async -> Void)? = nil,
          monotonic: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         // The default (prod) Extractor reads the opt-in HR-from-PPG sub-lag interpolation flag (Test Centre →
-         // Experimental algorithms) at decode time and threads it into the pure decoder, so the pure package
-         // never reaches for UserDefaults. Default OFF = byte-identical to today. Tests inject their own seam.
+         // Hosted acquisition stores raw PPG for qualified VPS analysis and keeps device-reported HR.
          extract: @escaping Extractor = { extractHistoricalStreams($0, deviceClockRef: $1, wallClockRef: $2,
                                                                     sessionOldestUnix: $3, sessionNewestUnix: $4,
-                                                                    subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled) }) {
+                                                                    derivePpgHeartRate: false) }) {
         self.store = store
         self.onQuarantined = onQuarantined
         self.monotonic = monotonic

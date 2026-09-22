@@ -15,6 +15,18 @@ fun main(args: Array<String>) {
         val bytes = File(directory, name).readText()
         val day = expected.getString("day")
         val cache = ServerScoreCacheCodec.parseSnapshot(bytes, day, expected.getString("ownerId"))
+        expected.optJSONArray("signalWindows")?.let { windows ->
+            check(cache.signalWindows.size == windows.length()) { "$name: signal diagnostics were dropped" }
+            cache.signalWindows.forEachIndexed { i, actual ->
+                val wanted = windows.getJSONObject(i)
+                check(actual.windowId == wanted.getString("id") && actual.kind == wanted.getString("kind") &&
+                    actual.reason == wanted.getString("reason") && actual.measurementStatus == wanted.getString("status") &&
+                    actual.inputRevision == wanted.getLong("revision")) { "$name: signal identity, revision or missingness differs" }
+            }
+            check(ServerScoreCacheCodec.parseSnapshot(cache.rawSnapshotJSON!!, day, cache.ownerId).signalWindows == cache.signalWindows) {
+                "$name: diagnostic cache round trip differs"
+            }
+        }
         val available = expected.getJSONArray("availableFeatures")
         val unavailable = expected.getJSONArray("unavailableFeatures")
         for (i in 0 until available.length()) {

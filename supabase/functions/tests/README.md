@@ -148,9 +148,84 @@ members2 with expected/missing/coverage NULL. It does not pretend these are two 
 Those native results do not alone authorize pruning: W5 exact owner/file/member/source-commit
 and cleanup gates still apply. No OS power-loss, device, real B2 or deployment claim follows.
 
+## Android local synthetic IMU evidence (sensor-algorithms)
+
+The earlier Android-blocked scout note below is historical. On `feat/sensor-algorithms`,
+Android changes `70ab470`/`101782a` and receiver test `626d125` passed local synthetic
+capture, persistence and upload validation. This supersedes that note only for this tested
+path; it is not physical Android/BLE, background delivery or sensor-qualification evidence.
+
+`CloudImuPushSourceTest.nativeArchiveArtifactsPreserveBothSourcesThroughPackedWireEncoding`
+exports the actual Android file store, Room DAO, IMU source and binary encoder outputs:
+session/continuous `imf1` archives and a `rawImuSession` NPB1 kind4 object containing two
+same-second records with distinct durable row IDs. Each export includes original manifests,
+compressed and decoded payloads, descriptors, source files and SHA-256 inventory. A fresh
+export gets a new synthetic owner; its hashes need not match a previous run.
+
+`android_imu_integration_test.ts` consumes those exact bytes, with no replacement fixture.
+The direct intake adds only measured `compressedBytes` to the original manifest. Real local
+PostgreSQL/PostgREST and loopback object HTTP verify owner/source/device/origin identity,
+row-to-descriptor hashes, exact retained bytes, index-failure rollback, server-only repair,
+duplicate replay and owner-role isolation. Archive `received_records=2` means descriptor/file
+members, not two sensor samples. All incoming raw streams leave expected/missing counts and
+temporal coverage NULL; the proof records `timingQualification=not_evaluated_by_receiver`
+and `inferredDuration=null`. No physiological result or pruning authority is inferred.
+
+This fixture applies the harness's actual migration chain through `070000`/`080000`, then
+only the unchanged coverage-normalizer prefix of
+`20260921120000_sensor_acquisition_windows.sql`, before its evidence-table marker. The proof
+records the whole migration's SHA-256 and this partial-application scope. It does **not**
+prove the full `120000` migration; that belongs to the separate server-pipeline database gate.
+Historical catalog coverage has not been backfilled and remains unqualified metadata.
+
+Reproduce from the repository root with JDK 17, Android SDK 35, Node/npm and native PostgreSQL
+18/PostgREST installed. This Android receiver run used Deno 2.9.6; the command pins that runner
+and the checked-in dependency lockfile. Adjust the SDK/cache paths and use a checkout
+without deployment secrets. `EDGE_TEST_PG_BIN` must contain `initdb`, `pg_ctl`, `psql` **and**
+`postgrest`; the PostgreSQL-only keg directory is insufficient. Use a new external-volume
+directory to preserve earlier fixtures. `--rerun-tasks` forces export even after a cached test:
+
+```sh
+imu_evidence_dir="$(mktemp -d /Volumes/Untitled/android-imu-evidence.XXXXXX)"
+mkdir -p "$imu_evidence_dir/tmp" "$imu_evidence_dir/fixtures"
+(
+  cd android
+  env JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
+    ANDROID_HOME=/Volumes/Untitled/physiology-v2-baseline.ROUXBD/android-sdk \
+    GRADLE_USER_HOME=/Volumes/Untitled/physiology-v2-baseline.ROUXBD/gradle \
+    JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$imu_evidence_dir/tmp" \
+    ANDROID_IMU_FIXTURE_DIR="$imu_evidence_dir/fixtures" \
+    ./gradlew :app:testFullDebugUnitTest -Pksp.incremental=false --rerun-tasks \
+      --tests 'com.noop.push.CloudImuPushSourceTest' --no-daemon --console=plain
+)
+env EDGE_TEST_ARTIFACTS="$imu_evidence_dir" \
+  ANDROID_IMU_FIXTURE_DIR="$imu_evidence_dir/fixtures" \
+  EDGE_TEST_PG_BIN=/opt/homebrew/bin TMPDIR="$imu_evidence_dir/tmp" \
+  DENO_DIR="$imu_evidence_dir/deno-cache" npm_config_cache="$imu_evidence_dir/npm-cache" \
+  npx --yes deno@2.9.6 test --frozen --lock=supabase/functions/deno.lock --allow-all \
+    supabase/functions/tests/android_imu_integration_test.ts \
+    supabase/functions/tests/objects_test.ts
+```
+
+The receiver test fails if exports are absent and prints the retained
+`edge-pg-*/android-imu-receiver-proof.json` path. It starts no shared database and stops its
+local services. The command may download public build/test dependencies; no deployment runs.
+The recorded broader run passed 140 Android tests (including explicit deletion, restart,
+late backfill, account capture and bounded-scan continuation), with no test-source exclusions,
+and 105 Edge tests/27 steps including this receiver and helper-dependent suites. Those are
+broader suites than the two commands above. Proof from that run:
+`/Volumes/Untitled/android-imu-p1-tests.tINUMH/edge-pg-a08880a93b9c8c0a/android-imu-receiver-proof.json`,
+SHA-256 `a5a2a5d62916b4f218bc1436fa65c136ff4f4fd0066af2fc53003c41453cf67c`.
+
+Robolectric uses a synthetic credential-store shadow in place of AndroidKeyStore; on-device
+KeyStore, power-loss, long soak, delivery latency, calibrated timing and clinical/reference
+accuracy remain unmeasured. Payload verification is bounded per scan, but discovery still
+walks all registered segment headers; no constant-time discovery or fleet-capacity claim follows.
+
 ## Scout handoff outside Edge ownership
 
-- Android remains blocked by the absent SDK in checked standard/external locations and by
+- Historical Android scout (superseded for the tested local path above): was blocked by
+  the absent SDK in checked standard/external locations and by
   `ImuSessionFileStore.kt:20` exposing only a one-argument constructor while
   `ImuContinuousRecorder.kt:725` expects a namespace; `registeredWindows()` and
   `NAMESPACE_CONTINUOUS` are missing. The signed FNV literal at `ImuSessionFileStore.kt:318`

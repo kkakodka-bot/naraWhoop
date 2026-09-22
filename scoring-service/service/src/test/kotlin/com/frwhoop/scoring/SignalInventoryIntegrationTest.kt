@@ -66,13 +66,33 @@ class SignalInventoryIntegrationTest {
             "values('$user','$device','ppgWaveformSample',$start,'$id','$key',$start,${start + 60},2,1)")
         val report = SignalInventoryReader(db).report(user, device, "2026-08-18", start to start + 60)
         val raw = report.getJSONArray("raw_objects").getJSONObject(0)
-        assertEquals(1.0, raw.getDouble("catalogue_reported_coverage"), 0.0)
+        assertTrue(raw.isNull("catalogue_reported_coverage"))
+        assertTrue(raw.isNull("missing_records"))
+        assertEquals(2,raw.getInt("received_records"))
         assertTrue(raw.isNull("observed_time_fraction"))
         assertEquals("unqualified", raw.getString("channel_identity"))
         assertEquals("catalogue_only_not_refetched_by_inventory", raw.getString("proof_scope"))
         assertEquals("not_established", report.getJSONObject("retention").getString("local_pruning_guarantee"))
         assertEquals("client_claimed", scalar("select sha256_source from object_manifests where id='$id'"))
         assertEquals("0", scalar("select count(*)::text from object_manifests where id='$id' and decode_verified_at is not null"))
+    }
+
+    @Test fun temperatureAndSourceCohortsRetainUnknownCaptureFirmware() {
+        sql("update devices set device_family='WHOOP5_MG',firmware='catalogue-now' where id='$device'")
+        val secondSource = UUID.randomUUID()
+        sql("insert into noop_skin_temp_samples(user_id,device_id,source_id,ts,raw,batch_id) " +
+            "values('$user','$device','$device',$start,33500,'${UUID.randomUUID()}')," +
+            "('$user','$device','$secondSource',${start + 1},33600,'${UUID.randomUUID()}')")
+        val report = SignalInventoryReader(db).report(user, device, "2026-08-18", start to start + 60)
+        assertEquals(2, report.getJSONObject("signals").getJSONObject("skin_temperature").getInt("row_count"))
+        val cohorts = report.getJSONObject("capability_registry").getJSONArray("cohorts")
+        assertEquals(2, cohorts.length())
+        for (index in 0 until cohorts.length()) {
+            val cohort = cohorts.getJSONObject(index)
+            assertEquals("unknown", cohort.getString("firmware_at_capture"))
+            assertEquals("catalogue-now", cohort.getJSONObject("current_catalogue_advisory").getString("firmware"))
+            assertEquals(1, cohort.getJSONObject("signals").getJSONObject("skin_temperature").getInt("row_count"))
+        }
     }
 
     private fun hr(ownerDevice: UUID, ts: Long) = sql("insert into noop_hr_samples(user_id,device_id,source_id,ts,bpm,batch_id) " +

@@ -2681,7 +2681,6 @@
     <string name="imu_recorder_storage">存储</string>
     <string name="imu_recorder_disk_use">磁盘占用:%1$s</string>
     <string name="imu_recorder_retention_limit">保留上限</string>
-    <string name="imu_recorder_retention_policy">达到上限时最旧的分段最先被清除;正在写入的分段永远不会被清除。已清除的秒数保持已清除——迟到的历史数据无法将其恢复。</string>
     <string name="imu_recorder_counters">已清除分段:%1$d · 冲突:%2$d · 已跳过重复:%3$d</string>
     <string name="imu_recorder_battery_warning">100 Hz 记录会使腕带电池消耗比正常佩戴快约 1.5–2.3 倍(在 WHOOP 5.0 上测得)。</string>
     <string name="imu_recorder_export">导出记录</string>
@@ -2689,7 +2688,6 @@
     <string name="imu_recorder_delete_all">删除所有已记录数据</string>
     <string name="imu_recorder_delete_disabled">删除前请先关闭记录。</string>
     <string name="imu_recorder_privacy_title">隐私</string>
-    <string name="imu_recorder_privacy">这些 100 Hz 数据保留在本设备上,绝不会包含在云端推送中——导出是数据离开的唯一方式,且只在你主动选择时。</string>
     <string name="imu_recorder_delete_title">删除所有 IMU 数据?</string>
     <string name="imu_recorder_delete_message">此设备上所有连续记录的 100 Hz 数据将被永久删除。</string>
     <string name="imu_recorder_delete_confirm">删除</string>

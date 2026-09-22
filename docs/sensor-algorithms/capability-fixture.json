@@ -1,0 +1,346 @@
+{
+  "raw_objects": [
+    {
+      "compressed_bytes": null,
+      "catalogue_reported_coverage": 1,
+      "stream": "ppgWaveformSample",
+      "proof_scope": "synthetic_catalogue_claim_only",
+      "sample_count": 2,
+      "source_id": "fixture-source-android-whoop5_mg",
+      "received_records": 2,
+      "catalogue_sample_rate_hz": 24
+    },
+    {
+      "compressed_bytes": null,
+      "catalogue_reported_coverage": 1,
+      "stream": "imuRawSample",
+      "proof_scope": "synthetic_catalogue_claim_only",
+      "sample_count": 300,
+      "source_id": "fixture-source-android-whoop5_mg",
+      "received_records": 300,
+      "catalogue_sample_rate_hz": 100
+    }
+  ],
+  "hardware_measurements": false,
+  "reference_validation": "NOT_MEASURED",
+  "target_vps_capacity": "NOT_MEASURED",
+  "period_intervals": [
+    [
+      0,
+      300
+    ]
+  ],
+  "schema_version": 2,
+  "signal_values_exported": false,
+  "period_seconds": 300,
+  "signals": {
+    "rr_packet_receipts": {
+      "observed_sample_count": null,
+      "coverage_interpretation": "occupied_whole_second_event_bins_not_continuous_acquisition",
+      "timing_uncertainty_seconds": null,
+      "occupied_seconds": 2,
+      "occupied_second_fraction": 0.006666666666666667,
+      "rows_per_requested_second": 0.006666666666666667,
+      "observed_time_fraction": null,
+      "first_event_second": 0,
+      "row_count": 2,
+      "last_event_second": 299,
+      "verified_sample_rate_hz": null,
+      "stored_timestamp_resolution_seconds": 1,
+      "maximum_empty_second_run": 298,
+      "sample_rate_hz": null,
+      "verified_maximum_gap_seconds": null
+    },
+    "heart_rate": {
+      "observed_sample_count": null,
+      "coverage_interpretation": "occupied_whole_second_event_bins_not_continuous_acquisition",
+      "timing_uncertainty_seconds": null,
+      "occupied_seconds": 2,
+      "occupied_second_fraction": 0.006666666666666667,
+      "rows_per_requested_second": 0.006666666666666667,
+      "observed_time_fraction": null,
+      "first_event_second": 0,
+      "row_count": 2,
+      "last_event_second": 60,
+      "verified_sample_rate_hz": null,
+      "stored_timestamp_resolution_seconds": 1,
+      "maximum_empty_second_run": 239,
+      "sample_rate_hz": null,
+      "verified_maximum_gap_seconds": null
+    },
+    "skin_temperature": {
+      "observed_sample_count": null,
+      "coverage_interpretation": "occupied_whole_second_event_bins_not_continuous_acquisition",
+      "timing_uncertainty_seconds": null,
+      "occupied_seconds": 2,
+      "occupied_second_fraction": 0.006666666666666667,
+      "rows_per_requested_second": 0.006666666666666667,
+      "observed_time_fraction": null,
+      "first_event_second": 30,
+      "row_count": 2,
+      "last_event_second": 270,
+      "verified_sample_rate_hz": null,
+      "stored_timestamp_resolution_seconds": 1,
+      "maximum_empty_second_run": 239,
+      "sample_rate_hz": null,
+      "verified_maximum_gap_seconds": null
+    }
+  },
+  "tool_version": "sensor-capability-inventory-1",
+  "read_only": true,
+  "capability_registry": {
+    "capabilities": [
+      {
+        "reason": "timing_coverage_unverified",
+        "projection_row_counts": {
+          "rr_packet_receipts": 2,
+          "standard_hr_receipts": 0,
+          "rr_intervals": 0
+        },
+        "modality": "ppg_pulse_intervals",
+        "projection_rows_are_not_unique_physical_observations": true,
+        "catalogue_object_count": 0,
+        "observed_sample_count": null,
+        "candidate_channels": [
+          "whoop4_historical_milliseconds",
+          "whoop5_historical_original_words",
+          "standard_ble_rr"
+        ],
+        "qualified_channels": [],
+        "observed_time_fraction": null,
+        "capability": "five_minute_pulse_interval_variability",
+        "verified_sample_rate_hz": null,
+        "declared_encoding_units": "decoder_specific_interval_units",
+        "cohort_evidence": "capture_metadata_and_server_acquisition_proof_required",
+        "verified_maximum_gap_seconds": null,
+        "qualified_physical_units": null,
+        "eligible_for_scoring_from_inventory": false,
+        "qualification_status": "unqualified",
+        "observed_scalar_rows": 2
+      },
+      {
+        "reason": "timing_channel_units_and_reference_unverified",
+        "projection_row_counts": {},
+        "modality": "optical",
+        "projection_rows_are_not_unique_physical_observations": true,
+        "catalogue_object_count": 1,
+        "observed_sample_count": null,
+        "candidate_channels": [
+          "wavelength_unknown"
+        ],
+        "qualified_channels": [],
+        "observed_time_fraction": null,
+        "capability": "ppg_waveform_and_server_heart_rate",
+        "verified_sample_rate_hz": null,
+        "declared_encoding_units": "signed_i16_counts",
+        "cohort_evidence": "capture_metadata_and_server_acquisition_proof_required",
+        "verified_maximum_gap_seconds": null,
+        "qualified_physical_units": null,
+        "eligible_for_scoring_from_inventory": false,
+        "qualification_status": "unqualified",
+        "observed_scalar_rows": 0
+      },
+      {
+        "reason": "timing_axis_units_and_orientation_unverified",
+        "projection_row_counts": {},
+        "modality": "inertial",
+        "projection_rows_are_not_unique_physical_observations": true,
+        "catalogue_object_count": 1,
+        "observed_sample_count": null,
+        "candidate_channels": [
+          "accel_x",
+          "accel_y",
+          "accel_z",
+          "gyro_x",
+          "gyro_y",
+          "gyro_z"
+        ],
+        "qualified_channels": [],
+        "observed_time_fraction": null,
+        "capability": "continuous_imu",
+        "verified_sample_rate_hz": null,
+        "declared_encoding_units": "signed_i16_counts",
+        "cohort_evidence": "capture_metadata_and_server_acquisition_proof_required",
+        "verified_maximum_gap_seconds": null,
+        "qualified_physical_units": null,
+        "eligible_for_scoring_from_inventory": false,
+        "qualification_status": "unqualified",
+        "observed_scalar_rows": 0
+      },
+      {
+        "reason": "capture_mapping_wear_and_reference_unverified",
+        "projection_row_counts": {
+          "skin_temperature": 2
+        },
+        "modality": "skin_temperature",
+        "projection_rows_are_not_unique_physical_observations": true,
+        "catalogue_object_count": 0,
+        "observed_sample_count": null,
+        "candidate_channels": [
+          "skin_temperature_not_core"
+        ],
+        "qualified_channels": [],
+        "observed_time_fraction": null,
+        "capability": "skin_temperature",
+        "verified_sample_rate_hz": null,
+        "declared_encoding_units": "raw_integer_scalar",
+        "cohort_evidence": "capture_metadata_and_server_acquisition_proof_required",
+        "verified_maximum_gap_seconds": null,
+        "qualified_physical_units": null,
+        "eligible_for_scoring_from_inventory": false,
+        "qualification_status": "unqualified",
+        "observed_scalar_rows": 2
+      },
+      {
+        "reason": "unsupported_source_requires_calibrated_source_or_qualified_optical_method",
+        "projection_row_counts": {},
+        "modality": "oxygen_saturation",
+        "projection_rows_are_not_unique_physical_observations": true,
+        "catalogue_object_count": 0,
+        "observed_sample_count": null,
+        "candidate_channels": [],
+        "qualified_channels": [],
+        "observed_time_fraction": null,
+        "capability": "spo2",
+        "verified_sample_rate_hz": null,
+        "declared_encoding_units": "unsupported",
+        "cohort_evidence": "capture_metadata_and_server_acquisition_proof_required",
+        "verified_maximum_gap_seconds": null,
+        "qualified_physical_units": null,
+        "eligible_for_scoring_from_inventory": false,
+        "qualification_status": "blocked",
+        "observed_scalar_rows": 0
+      }
+    ],
+    "qualification_authority": "none_inventory_is_read_only",
+    "metric_separation": [
+      "ppg_pulse_interval_variability_is_not_ecg_nn_variability",
+      "five_minute_sdnn_is_not_imported_daily_sdnn",
+      "skin_temperature_is_not_core_temperature"
+    ],
+    "cadences": {
+      "result": "revisioned_available_or_reason_after_window_and_inputs_are_eligible",
+      "ble_delivery": "receipt_time_not_sample_time",
+      "cloud_delivery": "durable_receipts_best_effort_no_phone_background_sla",
+      "analysis": "bounded_changed_input_revisions_with_utc_300_second_attempts",
+      "hardware_acquisition": "observed_native_clock_requires_capture_proof"
+    },
+    "raw_stream_catalogue": [
+      {
+        "objects_missing_byte_counts": 1,
+        "catalogue_reported_record_count": 300,
+        "record_counts_may_overlap": true,
+        "observed_sample_count": null,
+        "stream": "imuRawSample",
+        "proof_scope": "catalogue_only_not_refetched_by_inventory",
+        "catalogue_reported_compressed_bytes": 0,
+        "source_installation_id": "fixture-source-android-whoop5_mg",
+        "object_count": 1,
+        "capture_mode": "unknown",
+        "observed_time_fraction": null,
+        "sample_rate_hz": null
+      },
+      {
+        "objects_missing_byte_counts": 1,
+        "catalogue_reported_record_count": 2,
+        "record_counts_may_overlap": true,
+        "observed_sample_count": null,
+        "stream": "ppgWaveformSample",
+        "proof_scope": "catalogue_only_not_refetched_by_inventory",
+        "catalogue_reported_compressed_bytes": 0,
+        "source_installation_id": "fixture-source-android-whoop5_mg",
+        "object_count": 1,
+        "capture_mode": "unknown",
+        "observed_time_fraction": null,
+        "sample_rate_hz": null
+      }
+    ],
+    "version": "sensor-capability-inventory-1",
+    "evidence_kind": "synthetic_fixture",
+    "cohorts": [
+      {
+        "phone_platform_at_capture": "unknown",
+        "phone_os_version_at_capture": "unknown",
+        "device_id": "fixture-whoop4-ios",
+        "device_family_at_capture": "unknown",
+        "capture_metadata_status": "not_retained_in_catalogue",
+        "app_version_at_capture": "unknown",
+        "app_build_at_capture": "unknown",
+        "hardware_revision_at_capture": "unknown",
+        "source_installation_id": "fixture-source-ios-whoop4",
+        "capture_mode": "unknown",
+        "current_catalogue_advisory": {
+          "app_version": "fixture-current-only",
+          "device_family": "whoop4",
+          "firmware": "fixture-current-only",
+          "phone_platform": "ios"
+        },
+        "firmware_at_capture": "unknown",
+        "current_catalogue_is_capture_evidence": false
+      },
+      {
+        "phone_platform_at_capture": "unknown",
+        "phone_os_version_at_capture": "unknown",
+        "device_id": "fixture-whoop5_mg-ios",
+        "device_family_at_capture": "unknown",
+        "capture_metadata_status": "not_retained_in_catalogue",
+        "app_version_at_capture": "unknown",
+        "app_build_at_capture": "unknown",
+        "hardware_revision_at_capture": "unknown",
+        "source_installation_id": "fixture-source-ios-whoop5_mg",
+        "capture_mode": "unknown",
+        "current_catalogue_advisory": {
+          "app_version": "fixture-current-only",
+          "device_family": "whoop5_mg",
+          "firmware": "fixture-current-only",
+          "phone_platform": "ios"
+        },
+        "firmware_at_capture": "unknown",
+        "current_catalogue_is_capture_evidence": false
+      },
+      {
+        "phone_platform_at_capture": "unknown",
+        "phone_os_version_at_capture": "unknown",
+        "device_id": "fixture-whoop4-android",
+        "device_family_at_capture": "unknown",
+        "capture_metadata_status": "not_retained_in_catalogue",
+        "app_version_at_capture": "unknown",
+        "app_build_at_capture": "unknown",
+        "hardware_revision_at_capture": "unknown",
+        "source_installation_id": "fixture-source-android-whoop4",
+        "capture_mode": "unknown",
+        "current_catalogue_advisory": {
+          "app_version": "fixture-current-only",
+          "device_family": "whoop4",
+          "firmware": "fixture-current-only",
+          "phone_platform": "android"
+        },
+        "firmware_at_capture": "unknown",
+        "current_catalogue_is_capture_evidence": false
+      },
+      {
+        "phone_platform_at_capture": "unknown",
+        "phone_os_version_at_capture": "unknown",
+        "device_id": "fixture-whoop5_mg-android",
+        "device_family_at_capture": "unknown",
+        "capture_metadata_status": "not_retained_in_catalogue",
+        "app_version_at_capture": "unknown",
+        "app_build_at_capture": "unknown",
+        "hardware_revision_at_capture": "unknown",
+        "source_installation_id": "fixture-source-android-whoop5_mg",
+        "capture_mode": "unknown",
+        "current_catalogue_advisory": {
+          "app_version": "fixture-current-only",
+          "device_family": "whoop5_mg",
+          "firmware": "fixture-current-only",
+          "phone_platform": "android"
+        },
+        "firmware_at_capture": "unknown",
+        "current_catalogue_is_capture_evidence": false
+      }
+    ]
+  },
+  "hardware_soak": "NOT_MEASURED",
+  "evidence_kind": "synthetic_fixture",
+  "waveform_activation_allowed": false
+}

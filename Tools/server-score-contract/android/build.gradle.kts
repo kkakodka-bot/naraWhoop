@@ -16,7 +16,7 @@ sourceSets {
     }
     test {
         kotlin.srcDir("../../../android/app/src/test/java")
-        kotlin.include("com/noop/push/ServerScoreCacheCodecTest.kt")
+        kotlin.include("com/noop/push/ServerScoreCacheCodecTest.kt", "com/noop/push/ServerSignalWindowCacheTest.kt")
     }
 }
 application { mainClass.set("DecodeContractKt") }

@@ -2,6 +2,8 @@ package com.frwhoop.scoring
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
 import java.util.UUID
 
 class SignalInventoryCommandTest {
@@ -35,6 +37,24 @@ class SignalInventoryCommandTest {
     @Test fun unknownOrCombinedCommandsFailBeforeScoringInitialization() {
         for (arguments in listOf(arrayOf("--inventory-signal"), arrayOf("--inventory-signals", "--replay-day"))) {
             assertThrows(IllegalArgumentException::class.java) { main(arguments) }
+        }
+    }
+
+    @Test fun fixtureModeNeedsNoDatabaseOrOwnerAndCannotMasqueradeAsOwnedMeasurements() {
+        val original = System.out
+        val output = ByteArrayOutputStream()
+        try {
+            System.setOut(PrintStream(output))
+            SignalInventoryCommand.run(mapOf("INVENTORY_FIXTURE" to "true", "DATABASE_URL" to "invalid-must-not-open"))
+        } finally { System.setOut(original) }
+        val report = org.json.JSONObject(output.toString(Charsets.UTF_8))
+        assertEquals("synthetic_fixture", report.getString("evidence_kind"))
+        assertFalse(report.getBoolean("hardware_measurements"))
+        assertThrows(IllegalArgumentException::class.java) {
+            SignalInventoryCommand.run(environment + ("INVENTORY_FIXTURE" to "true"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SignalInventoryCommand.run(mapOf("INVENTORY_FIXTURE" to "1"))
         }
     }
 }

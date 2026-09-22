@@ -2768,7 +2768,6 @@
     <string name="imu_recorder_storage">Almacenamiento</string>
     <string name="imu_recorder_disk_use">Uso de disco: %1$s</string>
     <string name="imu_recorder_retention_limit">Límite de retención</string>
-    <string name="imu_recorder_retention_policy">Al alcanzar el límite se expulsan primero los segmentos más antiguos; el segmento en escritura nunca se expulsa. Los segundos expulsados lo permanecen: el historial tardío no puede recuperarlos.</string>
     <string name="imu_recorder_counters">Segmentos expulsados: %1$d · Conflictos: %2$d · Duplicados omitidos: %3$d</string>
     <string name="imu_recorder_battery_warning">La grabación a 100 Hz agota la batería de la correa aproximadamente 1,5–2,3 veces más rápido que el uso normal (medido en un WHOOP 5.0).</string>
     <string name="imu_recorder_export">Exportar grabación</string>
@@ -2776,7 +2775,6 @@
     <string name="imu_recorder_delete_all">Eliminar todos los datos grabados</string>
     <string name="imu_recorder_delete_disabled">Desactiva la grabación antes de eliminar.</string>
     <string name="imu_recorder_privacy_title">Privacidad</string>
-    <string name="imu_recorder_privacy">Estos datos de 100 Hz permanecen en este dispositivo. Nunca se incluyen en el envío a la nube: exportar es la única forma de que salgan, y solo cuando tú lo elijas.</string>
     <string name="imu_recorder_delete_title">¿Eliminar todos los datos de IMU?</string>
     <string name="imu_recorder_delete_message">Todos los datos de 100 Hz grabados continuamente en este dispositivo se eliminarán permanentemente.</string>
     <string name="imu_recorder_delete_confirm">Eliminar</string>

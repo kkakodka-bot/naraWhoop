@@ -2651,7 +2651,6 @@
     <string name="imu_recorder_storage">Хранилище</string>
     <string name="imu_recorder_disk_use">Занято на диске: %1$s</string>
     <string name="imu_recorder_retention_limit">Лимит хранения</string>
-    <string name="imu_recorder_retention_policy">При достижении лимита первыми вытесняются самые старые сегменты; записываемый сегмент не вытесняется никогда. Вытесненные секунды остаются вытесненными — поздняя история не может их вернуть.</string>
     <string name="imu_recorder_counters">Вытеснено сегментов: %1$d · Конфликты: %2$d · Пропущено дублей: %3$d</string>
     <string name="imu_recorder_battery_warning">Запись 100 Гц разряжает батарею ремешка примерно в 1,5–2,3 раза быстрее обычного ношения (измерено на WHOOP 5.0).</string>
     <string name="imu_recorder_export">Экспорт записи</string>
@@ -2659,7 +2658,6 @@
     <string name="imu_recorder_delete_all">Удалить все записанные данные</string>
     <string name="imu_recorder_delete_disabled">Выключите запись перед удалением.</string>
     <string name="imu_recorder_privacy_title">Конфиденциальность</string>
-    <string name="imu_recorder_privacy">Эти данные 100 Гц остаются на устройстве. Они никогда не включаются в облачную отправку — экспорт единственный способ их выгрузить, и только по вашему выбору.</string>
     <string name="imu_recorder_delete_title">Удалить все данные IMU?</string>
     <string name="imu_recorder_delete_message">Все непрерывно записанные данные 100 Гц на этом устройстве будут удалены безвозвратно.</string>
     <string name="imu_recorder_delete_confirm">Удалить</string>

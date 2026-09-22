@@ -712,11 +712,11 @@ fun extractHistoricalStreams(
     // (unchanged). Kept in lockstep with the Swift extractHistoricalStreams session args.
     sessionOldestUnix: Long? = null,
     sessionNewestUnix: Long? = null,
-    // Opt-in "HR-from-PPG sub-lag interpolation" (Test Centre → Experimental algorithms, default false):
-    // threaded straight into the v26 PPG-HR estimator below. The pure protocol package can't read prefs, so
-    // the app-layer caller (Backfiller / archive replay / capture import) reads PuffinExperiment.ppgHrSubLagInterp
-    // and passes it. Default false = byte-identical to today. Mirrors the Swift extractHistoricalStreams arg.
+    // Offline estimator variant. Ignored when waveform estimation is disabled.
     ppgHrSubLagInterp: Boolean = false,
+    // Hosted app callers disable phone waveform estimation; raw PPG and device-reported HR remain
+    // available for durable upload. Pure offline tools retain the historical estimator by default.
+    derivePpgHeartRate: Boolean = true,
 ): StreamBatch {
     // Count of records dropped by the #547 plausibility gate this batch, surfaced on the returned
     // StreamBatch so the Backfiller can log "bad strap clock" once per session via its existing seam.
@@ -1062,16 +1062,16 @@ fun extractHistoricalStreams(
         }
     }
 
-    // Derive HR from the accumulated v26 PPG waveform (8 s / 24 Hz autocorrelation, conf>=0.3). Empty
-    // unless the strap sent v26 records; falls back gracefully (no rows) on noise (#156).
-    val ppgHr = PpgHr.estimateRecords(ppgWaveform.map { PpgHr.Record(it.ts, it.recordIndex, it.samples) },
-        subLagInterp = ppgHrSubLagInterp).map { selected ->
+    val ppgHr = if (derivePpgHeartRate) {
+        PpgHr.estimateRecords(ppgWaveform.map { PpgHr.Record(it.ts, it.recordIndex, it.samples) },
+            subLagInterp = ppgHrSubLagInterp).map { selected ->
             val estimate = selected.estimate
             PpgHrRow(ts = estimate.ts, bpm = estimate.bpm, conf = estimate.conf,
                 provenanceJSON = com.noop.data.ScalarProvenance.derivedPpg(
                     selected.records.map { com.noop.data.ScalarProvenance.PpgInput(it.ts, it.recordIndex, it.samples) },
                     PpgHr.SAMPLE_RATE_HZ, PpgHr.WINDOW_SECONDS, ppgHrSubLagInterp))
         }
+    } else emptyList()
 
     return StreamBatch(
         hr = hr, rr = rr, rrPackets = rrPackets, events = events, battery = battery,

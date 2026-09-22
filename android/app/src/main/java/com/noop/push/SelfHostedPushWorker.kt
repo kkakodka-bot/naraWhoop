@@ -10,7 +10,6 @@ import androidx.work.WorkerParameters
 import androidx.sqlite.db.SimpleSQLiteQuery
 import com.noop.R
 import com.noop.data.WhoopDatabase
-import com.noop.testcentre.ImuSessionFileStore
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -23,6 +22,9 @@ internal fun persistedDeviceIndex(startDeviceIndex: Int, nextDeviceIndex: Int, r
     if (retryableFailure) startDeviceIndex else nextDeviceIndex
 internal const val PUSH_MAX_ATTEMPTS = 32
 internal fun shouldRetryPush(runAttemptCount: Int): Boolean = runAttemptCount + 1 < PUSH_MAX_ATTEMPTS
+internal fun shouldContinuePushRun(run: PushRunResult, cycleNeedsAnotherPass: Boolean): Boolean =
+    !run.hasRetryableFailure && (run.nextDeviceIndex != 0 || cycleNeedsAnotherPass ||
+        run.hasMoreAppendRows || run.hasMoreBinaryRows)
 internal fun resultAfterScheduledContinuation(
     current: ListenableWorker.Result,
     scheduled: Boolean,
@@ -249,10 +251,11 @@ class SelfHostedPushWorker(
                     database,
                     captured.scope,
                     sourceId,
-                    ImuSessionFileStore(storageContext),
+                    CloudImuPushSource(storageContext, sourceId),
                 )
                 AccountPushCaptureBindings.binding(captured)
             } ?: throw AccountAuthException(AuthFailure.UNBOUND_CAPTURE)
+            if (binding.sourceID != sourceId) throw AccountAuthException(AuthFailure.UNBOUND_CAPTURE)
             AccountPushCaptureBindings.validateOwner(binding)
             AccountPushAdmission(captured, binding.scope, sourceId) { identityStillCurrent() }
         } else {
@@ -322,9 +325,9 @@ class SelfHostedPushWorker(
         val snapshotSource: PushSnapshotSource = if (admission != null && captured != null) {
             val binding = AccountPushCaptureBindings.binding(captured)
                 ?: throw AccountAuthException(AuthFailure.UNBOUND_CAPTURE)
-            AccountFencedSnapshot(binding.database.pushDao(binding.imuSource), admission)
+            AccountFencedSnapshot(binding.database.pushDao(binding.imuSource?.forDestination(namespace)), admission)
         } else {
-            WhoopDatabase.get(storageContext).pushDao(ImuSessionFileStore(storageContext))
+            WhoopDatabase.get(storageContext).pushDao(CloudImuPushSource(storageContext, sourceId).forDestination(namespace))
         }
         val baseProgress = EndpointScopedProgressStore(
             SharedPrefsPushProgressStore.from(storageContext),
@@ -385,7 +388,7 @@ class SelfHostedPushWorker(
         )
 
         return when {
-            !cycleCompleted || cycleNeedsAnotherPass -> {
+            shouldContinuePushRun(run, cycleNeedsAnotherPass) -> {
                 ExecutionOutcome(Execution.CONTINUE)
             }
             cycleHadRejection -> {
@@ -556,6 +559,9 @@ class AccountFencedSnapshot(
         admission.fenced { base.mutableRows(table, deviceId, window, limit) }
     override suspend fun binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Long) =
         admission.fenced { base.binaryRecordAt(table, deviceId, rowId) }
+    override suspend fun binaryRowsWereUserWithdrawn(table: PushBinaryTable, deviceId: String,
+                                                     afterRowId: Long, throughRowId: Long) =
+        admission.fenced { base.binaryRowsWereUserWithdrawn(table, deviceId, afterRowId, throughRowId) }
     override suspend fun binaryRows(table: PushBinaryTable, deviceId: String, afterRowId: Long, limit: Int) =
         admission.fenced { base.binaryRows(table, deviceId, afterRowId, limit) }
     override suspend fun acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: List<PushBinaryRow>) =

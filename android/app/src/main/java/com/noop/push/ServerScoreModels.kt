@@ -73,6 +73,66 @@ data class ServerScoreDayCache(
     val measurementsJSON: String? get() = rawSnapshotJSON?.let {
         org.json.JSONObject(it).optJSONObject("server_scoring")?.optJSONArray("measurements")?.toString()
     }
+
+    /** Diagnostic shadow windows preserve missingness; they never authorize a displayed physiological value. */
+    val signalWindows: List<ServerSignalWindowCache> get() = runCatching {
+        val root = org.json.JSONObject(rawSnapshotJSON ?: return emptyList()).getJSONObject("server_scoring")
+        require(root.opt("user_id") == ownerId && root.opt("day") == day)
+        val device = root.opt("signal_windows_device_id") as? String ?: return emptyList()
+        val rows = root.optJSONArray("signal_windows") ?: return emptyList()
+        require(rows.length() <= 4096)
+        (0 until rows.length()).mapNotNull { index -> ServerSignalWindowCache.decode(rows.getJSONObject(index),ownerId,device) }
+    }.getOrDefault(emptyList())
+}
+
+data class ServerSignalWindowCache(val windowId: String,val kind: String,val start: Long,val end: Long,
+    val modality: String,val unit: String,val measurementStatus: String,val reason: String?,
+    val inputRevision: Long,val freshnessStatus: String,val observedFraction: Double?) {
+    companion object {
+        fun decode(j: org.json.JSONObject,owner: String,device: String): ServerSignalWindowCache? = runCatching {
+            val kind=text(j,"kind"); val start=integer(j,"start"); val end=integer(j,"end")
+            val duration=if(kind=="spo2") 900L else 300L
+            require(owner.isNotEmpty() && device.isNotEmpty() && integer(j,"schema_version")==1L &&
+                text(j,"algorithm_version")=="sensor-windows-1" && text(j,"user_id")==owner && text(j,"device_id")==device &&
+                kind in setOf("hrv","ppg","imu","temperature","spo2") && start>=0 && end<=4102444800L && end>start && start%duration==0L && end-start==duration &&
+                integer(j,"duration_seconds")==duration && integer(j,"stride_seconds")==duration &&
+                text(j,"publication_status")=="shadow" && j.has("values") && j.opt("values") === org.json.JSONObject.NULL)
+            val state=text(j,"measurement_status")
+            require(state in setOf("unavailable","unqualified","blocked"))
+            val revisionText=text(j,"input_revision")
+            require(revisionText.matches(Regex("[1-9][0-9]{0,18}")) && text(j,"result_revision")==revisionText)
+            val revision=revisionText.toLong()
+            val required=if(explicitNull(j,"required_revision")) null else integer(j,"required_revision").also { require(it>0) }
+            val freshness=text(j,"freshness_status")
+            require(freshness==if(required!=null && required>revision) "stale" else "snapshot")
+            val fraction=nullableNumber(j,"observed_fraction",0.0..1.0)
+            nullableNumber(j,"maximum_gap_seconds",0.0..duration.toDouble())
+            nullableNumber(j,"observed_through",start.toDouble()..end.toDouble())
+            val identifier=text(j,"window_id"); require(java.util.UUID.fromString(identifier).toString().equals(identifier,ignoreCase=true))
+            val reason=text(j,"reason"); require(reason.matches(Regex("[a-z][a-z0-9_]{0,95}")))
+            require(j.opt("quality") is org.json.JSONObject && text(j,"computation_mode")=="retrospective" &&
+                text(j,"provenance")=="vps_estimate" && text(j,"calibration_status")=="not_reference_validated")
+            for(key in listOf("computed_at","quality_policy_version","preprocess_version")) text(j,key)
+            for(key in listOf("published_at","source")) if(!explicitNull(j,key)) text(j,key)
+            val modality=text(j,"modality"); val unit=text(j,"unit")
+            require(unit==mapOf("hrv" to "ms","ppg" to "bpm","imu" to "m_s2_and_rad_s","temperature" to "degC_skin","spo2" to "percent")[kind] &&
+                (if(kind=="hrv") modality in setOf("unknown","ppg_ibi","ecg_nn") else modality==if(kind=="spo2") "unknown" else kind) &&
+                (kind!="spo2" || state=="blocked"))
+            ServerSignalWindowCache(identifier,kind,start,end,modality,unit,state,reason,revision,freshness,fraction)
+        }.getOrNull()
+
+        private fun text(j: org.json.JSONObject,key: String): String = (j.opt(key) as? String)
+            ?.takeIf { it.isNotBlank() } ?: error("invalid_signal_text")
+        private fun integer(j: org.json.JSONObject,key: String): Long = (j.opt(key) as? Number)
+            ?.toString()?.toLongOrNull() ?: error("invalid_signal_integer")
+        private fun explicitNull(j: org.json.JSONObject,key: String) = j.has(key) && j.opt(key) === org.json.JSONObject.NULL
+        private fun nullableNumber(j: org.json.JSONObject,key: String,range: ClosedFloatingPointRange<Double>): Double? {
+            if(explicitNull(j,key)) return null
+            val value=(j.opt(key) as? Number)?.toDouble() ?: error("invalid_signal_number")
+            require(value.isFinite() && value in range)
+            return value
+        }
+    }
 }
 
 data class ServerScoreStageCache(

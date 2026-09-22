@@ -166,6 +166,7 @@ object CanonicalScorePayload {
                 .putNullable("unavailable_reason",calendar.unavailableReason) })
             .put("archive_status", "pending")
             .put("daily", daily)
+            .put("signal_windows",JSONArray(bundle.signalWindows))
             .put("nights", nights)
             .putNullable("shadow",bundle.physiologyShadow?.json())
             .put("sleep_overrides",JSONArray(bundle.sleepOverrides.map { edit -> JSONObject()

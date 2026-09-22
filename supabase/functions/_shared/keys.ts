@@ -142,12 +142,12 @@ export const OBJECT_LANE_STREAMS: ReadonlySet<string> = Object.freeze(new Set([
   'v18AuxSample',
 ]));
 
-/** Nominal records per second for an object-lane stream, or null when the stream has no fixed rate. */
+/** Receipt member counts do not establish a qualified sampling clock or temporal coverage. */
 export const OBJECT_LANE_RECORD_HZ: Record<string, number | null> = Object.freeze({
   // A decoded second can contain multiple distinct optical records. Counter density is not time coverage.
   ppgWaveformSample: null,
-  rawImuSession: 1,
-  v18AuxSample: 1,
+  rawImuSession: null,
+  v18AuxSample: null,
   rawBatch: null,
 });
 

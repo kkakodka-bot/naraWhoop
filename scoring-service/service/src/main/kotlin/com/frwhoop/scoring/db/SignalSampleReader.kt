@@ -14,6 +14,10 @@ import java.util.UUID
 
 /** Maps Postgres `noop_*` projection rows into the Kotlin twin's on-device entity shapes. */
 class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
+    private val rawCatalogue = com.frwhoop.scoring.signals.RawSignalCatalogue(db.dataSource,
+        com.frwhoop.scoring.signals.VerifiedRawObjectReader(object : com.frwhoop.scoring.b2.B2ObjectStore.GetClient {
+            override fun getObject(key: String, maximumBytes: Int): ByteArray = error("inventory_never_fetches_bytes")
+        }))
 
     data class DayInputs(
         val userId: UUID,
@@ -44,6 +48,9 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
         val calendarOwnership: CalendarOwnershipReader.Ownership? = null,
         val skinTemp: List<com.noop.data.SkinTempSample> = emptyList(),
         val baselines: com.noop.analytics.ProfileBaselines = com.noop.analytics.ProfileBaselines(),
+        val acquisitionEvidence: SensorAcquisitionReader.Evidence = SensorAcquisitionReader.Evidence(emptyList()),
+        val rawManifests: List<com.frwhoop.scoring.signals.VerifiedRawObjectReader.Manifest> = emptyList(),
+        val temperatureSources: Map<Long,String> = emptyMap(),
     )
 
     override fun loadDay(userId: UUID, day: String, deviceId: UUID): DayInputs? =
@@ -69,8 +76,24 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
                 ownership.contextIntervals) else emptyList()
             val rrPackets = if (available) loadRrPackets(conn, userId, deviceIdText, nightLo, nightHi + 1)
                 .filter { inContext(it.ts) } else emptyList()
-            val observations = RrPacketObservationBridge.observations(rrPackets, rr, profileRow.deviceFamily,
+            var observations = RrPacketObservationBridge.observations(rrPackets, rr, profileRow.deviceFamily,
                 userId.toString(), deviceIdText, profileRow.deviceFirmware)
+            var evidence = if(available) SensorAcquisitionReader.load(conn,userId,deviceId,nightLo,nightHi+1)
+                else SensorAcquisitionReader.Evidence(emptyList())
+            val packetSources = sourceIdentities(conn,userId,deviceId,"noop_rr_packet_provenance","packetId",nightLo,nightHi+1)
+            val qualified = mutableListOf<com.noop.analytics.PhysiologyQuality.IntervalObservation>()
+            for(receipt in evidence.receipts.filter { it.kind=="beat_timing" }) {
+                try {
+                    val proof = com.frwhoop.scoring.signals.SensorAcquisitionProof.verify(receipt,userId,deviceId)
+                    qualified += com.frwhoop.scoring.signals.SensorAcquisitionProof.beats(proof,rrPackets,userId,deviceId,packetSources)
+                } catch(e: Exception) {
+                    evidence = evidence.copy(reason=com.frwhoop.scoring.signals.BoundedRawFeatureLane.safeReason(e))
+                }
+            }
+            if(qualified.isNotEmpty()) {
+                val ids=qualified.map { it.originalId }.toSet()
+                observations=observations.orEmpty().filter { it.originalId !in ids } + qualified
+            }
 
             DayInputs(
                 userId = userId,
@@ -89,7 +112,11 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
                 events = if (available) loadEvents(conn, userId, deviceIdText, nightLo, nightHi) else emptyList(),
                 deviceFamily = profileRow.deviceFamily,
                 deviceFirmware = profileRow.deviceFirmware,
-                rrContinuityEvidence = if (observations != null) "verified_packet_local_original_words_no_beat_clock" else "packet_identity_not_projected",
+                rrContinuityEvidence = when {
+                    qualified.any { it.verifiedSpan != null } -> "capture_evidence_bound_original_words"
+                    observations != null -> "verified_packet_local_original_words_no_beat_clock"
+                    else -> "packet_identity_not_projected"
+                },
                 hrvObservations = observations,
                 steps = if (available) loadSteps(conn, userId, deviceIdText, nightLo, nightHi).filter { inContext(it.ts) } else emptyList(),
                 sleepContext = if (available) SleepContextReader.annotations(conn,userId,deviceId,nightLo,nightHi).flatMap { span ->
@@ -107,8 +134,19 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
                     .filter { inContext(it.ts) } else emptyList(),
                 baselines = if (available) CanonicalBaselineReader.load(conn, userId, deviceId, day)
                     else com.noop.analytics.ProfileBaselines(),
+                acquisitionEvidence=evidence,
+                rawManifests=rawCatalogue.discover(userId,deviceId,nightLo,nightHi+1,SensorAcquisitionReader.objectIds(evidence)),
+                temperatureSources=sourceIdentities(conn,userId,deviceId,"noop_skin_temp_samples","ts",nightLo,nightHi+1).mapKeys { it.key.toLong() },
             )
         }
+
+    private fun sourceIdentities(conn: Connection,user: UUID,device: UUID,table: String,key: String,start: Long,end: Long): Map<String,String> {
+        require(table in setOf("noop_rr_packet_provenance","noop_skin_temp_samples") && key in setOf("packetId","ts"))
+        return conn.prepareStatement("select \"$key\",source_id from public.$table where user_id=? and device_id=? and ts>=? and ts<?").use { q ->
+            q.setObject(1,user); q.setObject(2,device); q.setLong(3,start); q.setLong(4,end)
+            q.executeQuery().use { rows -> buildMap { while(rows.next()) rows.getString(2)?.let { put(rows.getString(1),it) } } }
+        }
+    }
 
     private fun loadRrPackets(conn: Connection, user: UUID, device: String, from: Long, to: Long): List<com.noop.protocol.RrPacketProvenance> =
         conn.prepareStatement("""

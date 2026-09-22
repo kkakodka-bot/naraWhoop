@@ -100,6 +100,7 @@ val kernelAnalyticsFiles = listOf(
 /** Pure protocol types the kernel references (DeviceFamily, ParsedFrame, Whoop4SkinTemp /
  *  skinTempCelsius). No BLE, no android.bluetooth. */
 val kernelProtocolFiles = listOf(
+    "PpgHr.kt",
     "RrPacketProvenance.kt",
     "Crc.kt",
     "Whoop5RR.kt",

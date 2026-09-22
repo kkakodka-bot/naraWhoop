@@ -159,8 +159,9 @@ class PushCoordinator(
     }
 
     suspend fun pushBinary(table: PushBinaryTable, deviceId: String): PushResult {
+        val progressDevice = binaryProgressDevice(table, deviceId)
         val stored = try {
-            progress.binaryCursor(table, deviceId)
+            progress.binaryCursor(table, progressDevice)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
@@ -171,8 +172,8 @@ class PushCoordinator(
         } else if (stored == null || stored.rowId <= 0) {
             null
         } else {
-            val atCursor = try {
-                source.binaryRecordAt(table, deviceId, stored.rowId)
+            try {
+                validatedBinaryCursor(table, deviceId, stored)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (invalid: PushProtocolException) {
@@ -180,12 +181,12 @@ class PushCoordinator(
             } catch (_: Throwable) {
                 return rejected(PushFailure(PushFailureCode.LOCAL_DATABASE))
             }
-            val fingerprint = atCursor?.let { PushProtocol.binaryKeyFingerprint(table, deviceId, it) }
-            if (fingerprint == stored.naturalKeyFingerprint) stored else null
         }
         val limit = if (table == PushBinaryTable.RAW_BATCH) 1 else PushProtocol.MAX_RECORDS + 1
         val rows = try {
             source.binaryRows(table, deviceId, effective?.rowId ?: 0L, limit)
+        } catch (_: ImuInventoryPendingException) {
+            return PushResult.PendingLocalInventory
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (invalid: PushProtocolException) {
@@ -202,9 +203,9 @@ class PushCoordinator(
         val accepted = deliverBinary(batch)
         if (accepted !is PushResult.Accepted) return accepted
         return try {
-            batch.endCursor?.let { progress.saveBinaryCursor(table, deviceId, it) }
-            source.acknowledgeBinary(table, deviceId, rows)
-            val hasMore = table != PushBinaryTable.RAW_BATCH && rows.size > batch.sampleCount
+            batch.endCursor?.let { progress.saveBinaryCursor(table, progressDevice, it) }
+            source.acknowledgeBinary(table, deviceId, rows.take(batch.sampleCount))
+            val hasMore = table in setOf(PushBinaryTable.RAW_BATCH, PushBinaryTable.RAW_IMU_SESSION) || rows.size > batch.sampleCount
             accepted.copy(hasMore = hasMore)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -217,9 +218,10 @@ class PushCoordinator(
 
     suspend fun pushObjects(table: PushBinaryTable, deviceId: String, lane: PushObjectLane,
                             protocolVersion: String = PushProtocol.OBJECT_VERSION): PushResult {
-        val freezePrefix = table == PushBinaryTable.V18_AUX_SAMPLE && protocolVersion == "1.4"
-        val progressDevice = if (freezePrefix)
-            "$deviceId:v18AuxSample.identity-v2" else deviceId
+        val auxIdentity = table == PushBinaryTable.V18_AUX_SAMPLE && protocolVersion == "1.4"
+        val freezePrefix = auxIdentity || table == PushBinaryTable.RAW_IMU_SESSION
+        val progressDevice = if (auxIdentity) "$deviceId:v18AuxSample.identity-v2"
+            else binaryProgressDevice(table, deviceId)
         var prepared: PushPreparedBoundary? = null
         val stored = try {
             val cursor = progress.binaryCursor(table, progressDevice)
@@ -227,6 +229,15 @@ class PushCoordinator(
                 prepared = progress.preparedBoundary(table, progressDevice)
                 if (prepared != null && cursor == prepared!!.endCursor) {
                     // Crash after accepted cursor commit, before pending cleanup. Never replay old rows.
+                    progress.saveInFlightObject(table, progressDevice, null)
+                    progress.savePreparedBoundary(table, progressDevice, null)
+                    check(progress.preparedBoundary(table, progressDevice) == null)
+                    prepared = null
+                }
+                if (prepared != null && source.binaryRowsWereUserWithdrawn(table, deviceId,
+                        prepared!!.startCursor?.rowId ?: 0, prepared!!.endCursor.rowId)) {
+                    // A supported local delete explicitly cancels this pending delivery. It is not
+                    // an ACK: retain the accepted cursor and original membership IDs unchanged.
                     progress.saveInFlightObject(table, progressDevice, null)
                     progress.savePreparedBoundary(table, progressDevice, null)
                     check(progress.preparedBoundary(table, progressDevice) == null)
@@ -246,8 +257,8 @@ class PushCoordinator(
         } else if (stored == null || stored.rowId <= 0) {
             null
         } else {
-            val atCursor = try {
-                source.binaryRecordAt(table, deviceId, stored.rowId)
+            try {
+                validatedBinaryCursor(table, deviceId, stored, protocolVersion == "1.4")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (invalid: PushProtocolException) {
@@ -255,14 +266,14 @@ class PushCoordinator(
             } catch (_: Throwable) {
                 return rejected(PushFailure(PushFailureCode.LOCAL_DATABASE))
             }
-            val fingerprint = atCursor?.let { PushProtocol.binaryKeyFingerprint(table, deviceId, it, protocolVersion == "1.4") }
-            if (fingerprint == stored.naturalKeyFingerprint) stored else null
         }
         if (prepared != null && effective != prepared!!.startCursor)
             return rejected(PushFailure(PushFailureCode.LOCAL_DATA))
         val limit = if (table == PushBinaryTable.RAW_BATCH) 1 else (prepared?.sampleCount ?: PushProtocol.MAX_RECORDS) + 1
         val rows = try {
             source.binaryRows(table, deviceId, effective?.rowId ?: 0L, limit)
+        } catch (_: ImuInventoryPendingException) {
+            return PushResult.PendingLocalInventory
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (invalid: PushProtocolException) {
@@ -303,7 +314,7 @@ class PushCoordinator(
                 progress.savePreparedBoundary(table, progressDevice, null)
                 check(progress.preparedBoundary(table, progressDevice) == null)
             }
-            val hasMore = table != PushBinaryTable.RAW_BATCH && rows.size > batch.sampleCount
+            val hasMore = table in setOf(PushBinaryTable.RAW_BATCH, PushBinaryTable.RAW_IMU_SESSION) || rows.size > batch.sampleCount
             accepted.copy(hasMore = hasMore)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -312,6 +323,18 @@ class PushCoordinator(
         } catch (_: Throwable) {
             rejected(PushFailure(PushFailureCode.LOCAL_DATABASE))
         }
+    }
+
+    private fun binaryProgressDevice(table: PushBinaryTable, deviceId: String): String =
+        if (table == PushBinaryTable.RAW_IMU_SESSION) "$deviceId:imu-membership-v1" else deviceId
+
+    private suspend fun validatedBinaryCursor(table: PushBinaryTable, deviceId: String,
+                                              stored: PushCursor, auxIdentityV2: Boolean = false): PushCursor? {
+        val row = source.binaryRecordAt(table, deviceId, stored.rowId)
+        if (row != null) return stored.takeIf {
+            PushProtocol.binaryKeyFingerprint(table, deviceId, row, auxIdentityV2) == it.naturalKeyFingerprint
+        }
+        return stored.takeIf { source.binaryRowsWereUserWithdrawn(table, deviceId, it.rowId - 1, it.rowId) }
     }
 
     private fun mutableRecordDay(table: PushMutableTable, record: PushMutableRecord): LocalDate = when (table) {
@@ -391,6 +414,7 @@ class PushCoordinator(
                             retryableFailure = retryableFailure || result.retryable
                         }
                         PushResult.NoData -> Unit
+                        PushResult.PendingLocalInventory -> more = true
                     }
                 }
                 for (table in PushMutableTable.entries.filter { it in capabilities.mutableTables }) {
@@ -407,6 +431,7 @@ class PushCoordinator(
                             retryableFailure = retryableFailure || result.retryable
                         }
                         PushResult.NoData -> Unit
+                        PushResult.PendingLocalInventory -> more = true
                     }
                 }
             }
@@ -428,6 +453,7 @@ class PushCoordinator(
                             retryableFailure = retryableFailure || result.retryable
                         }
                         PushResult.NoData -> Unit
+                        PushResult.PendingLocalInventory -> binaryMore = true
                     }
                 }
             }

@@ -18,7 +18,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34], application = Application::class, shadows = [SyntheticSecurePrefsShadow::class])
 class W2AndroidAccountRuntimeTest {
     private val a = AccountScope.create("https://a.example.test", "10000000-0000-4000-8000-000000000001")
     private val b = AccountScope.create("https://a.example.test", "10000000-0000-4000-8000-000000000002")
@@ -106,13 +106,15 @@ class W2AndroidAccountRuntimeTest {
         assertNotEquals(SelfHostedPushScheduler.workName(captured),
             SelfHostedPushScheduler.workName(captured.copy(generation = UUID.randomUUID())))
     }
-    @Test fun staleOrLegacyWorkerExitsBeforeOpeningAnyCapture() = runBlocking {
+    @Test fun staleOrIncompleteScopedWorkerExitsBeforeOpeningAnyCapture() = runBlocking {
         val captured = controller.identitySnapshot().context!!
         val old = SelfHostedPushWorker.accountInput(captured.copy(generation = UUID.randomUUID()))
         val worker = TestListenableWorkerBuilder<SelfHostedPushWorker>(app).setInputData(old).build()
         assertEquals(androidx.work.ListenableWorker.Result.success(), worker.doWork())
-        val legacy = TestListenableWorkerBuilder<SelfHostedPushWorker>(app).build()
-        assertEquals(androidx.work.ListenableWorker.Result.success(), legacy.doWork())
+        val incomplete = androidx.work.Data.Builder()
+            .putString(AccountPushJobAdmission.NAMESPACE, captured.scope.namespace).build()
+        val partial = TestListenableWorkerBuilder<SelfHostedPushWorker>(app).setInputData(incomplete).build()
+        assertEquals(androidx.work.ListenableWorker.Result.success(), partial.doWork())
         assertFalse(File(app.filesDir, "accounts-v1").exists())
     }
     @Test fun runSignalsCannotSettleAnotherAccountOrGeneration() {
@@ -235,7 +237,8 @@ class W2AndroidAccountRuntimeTest {
         store.start("fixture-session", "fixture", ts * 1000)
         store.append("fixture", frame)
         val filename = "imu-${com.noop.testcentre.ImuSessionFileStore.utcName(com.noop.testcentre.ImuSessionFileStore.bucketStart(ts))}.imus"
-        val obstruction = File(ca.filesDir, "imu/raw-imu-bounded/fixture-session/$filename")
+        val captureDirectory = EnrollmentDataScope.storageName(ca, "raw-imu-sessions")
+        val obstruction = File(ca.filesDir, "$captureDirectory/fixture-session/$filename")
         assertTrue(obstruction.mkdir())
         try { store.prepareForRead("fixture-session"); fail("flush unexpectedly succeeded") }
         catch (_: java.io.IOException) { }

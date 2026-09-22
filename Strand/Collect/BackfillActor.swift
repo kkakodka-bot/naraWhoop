@@ -163,7 +163,7 @@ actor BackfillActor {
                    imuStore: ImuSessionFileStore = .shared,
                    extract: @escaping Backfiller.Extractor = { extractHistoricalStreams($0, deviceClockRef: $1, wallClockRef: $2,
                                                                                          sessionOldestUnix: $3, sessionNewestUnix: $4,
-                                                                                         subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled) }) {
+                                                                                         derivePpgHeartRate: false) }) {
         let sink = pipelineSink
         let chunkInfoSink: (([BackfillChunkInfo]) async -> Void)?
         if let deliver = hooks.chunkInfo {

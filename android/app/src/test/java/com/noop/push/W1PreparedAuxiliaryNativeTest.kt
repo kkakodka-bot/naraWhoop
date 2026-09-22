@@ -14,7 +14,7 @@ import java.time.ZoneId
 import java.util.UUID
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34], application = Application::class, shadows = [SyntheticSecurePrefsShadow::class])
 class W1PreparedAuxiliaryNativeTest {
     private val sourceId = "30000000-0000-4000-8000-000000000001"
     private val table = PushBinaryTable.V18_AUX_SAMPLE

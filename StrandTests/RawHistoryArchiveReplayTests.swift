@@ -110,6 +110,47 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
         XCTAssertEqual(rows, 0)
     }
 
+    func testHostedReplayPreservesExistingDerivedHeartRateAndAddsRawPpg() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = RawHistoryArchive(directory: directory)
+        let v26 = "aa015000010035412f1a80ad418401f0a3266aae470100c3c5050068faccfa8dfb46fc8bfd4cfebafedafe6dff56ffd5fffbff37ff6afce5f9d7f8dffa5efc98fddbfe5afe84fe15ff5cff405fb33c50080101006cb67c17"
+        let base = 1_780_917_232
+        // Synthetic pulse samples in captured framing; no hardware timing or accuracy claim.
+        let frames = (0..<12).map { second -> [UInt8] in
+            var frame = bytes(v26)
+            for (offset, value) in [(11, 25_444_781 + second), (15, base + second)] {
+                for byte in 0..<4 { frame[offset + byte] = UInt8(truncatingIfNeeded: value >> (byte * 8)) }
+            }
+            for sample in 0..<24 {
+                let phase = Double(second * 24 + sample) / 24.0
+                let value = Int(1000 * sin(2 * Double.pi * (70.0 / 60.0) * phase))
+                frame[27 + sample * 2] = UInt8(truncatingIfNeeded: value)
+                frame[28 + sample * 2] = UInt8(truncatingIfNeeded: value >> 8)
+            }
+            let end = frame.count - 4
+            let checksum = crc32(Array(frame[8..<end]))
+            for byte in 0..<4 { frame[end + byte] = UInt8(truncatingIfNeeded: checksum >> (byte * 8)) }
+            return frame
+        }
+        let offline = extractHistoricalStreams(frames.map { parseFrame($0, family: .whoop5) },
+                                               deviceClockRef: 0, wallClockRef: 0)
+        XCTAssertFalse(offline.ppgHr.isEmpty)
+        let store = try await WhoopStore.inMemory()
+        let legacy = PpgHrSample(ts: base + 5, bpm: 85, conf: 0.42)
+        _ = try await store.insert(Streams(ppgHr: [legacy]), deviceId: "test")
+        guard case .written = archive.archive(frames, trim: 1, family: .whoop5) else {
+            return XCTFail("fixture archive must be durable")
+        }
+
+        _ = try await archive.replay(into: store, deviceId: "test")
+        _ = try await archive.replay(into: store, deviceId: "test")
+        let derived = try await store.ppgHrSamples(deviceId: "test", from: base, to: base + 12)
+        let raw = try await store.ppgWaveformSamples(deviceId: "test", from: base, to: base + 12)
+        XCTAssertEqual(derived, [legacy], "replay must neither replace old derived HR nor add new estimates")
+        XCTAssertEqual(raw, offline.ppgWaveform, "raw values and record identities must survive idempotent replay")
+    }
+
     /// A failed store insert must PROPAGATE, not be swallowed — that's what lets bootstrapStore keep
     /// the replay gate un-advanced so these records (only copy: the archive) retry next launch. (#152)
     func testReplayThrowsWhenStoreFailsSoGateCanHold() async throws {

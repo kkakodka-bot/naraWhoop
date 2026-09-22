@@ -112,8 +112,12 @@ fun main(args: Array<String>) {
     val db = PostgresClient(config.databaseUrl, queryTimeoutSeconds = 15)
     val reader = SignalSampleReader(db)
     val queue = ScoringWorkQueue(db)
-    // Model configuration, object retrieval and Python execution are absent from this process path.
-    val scorer = DayScorer(PhysiologyShadowRunner())
+    // Optional bounded raw extraction has its own executor. Model configuration/Python remain isolated.
+    val rawLane = com.frwhoop.scoring.signals.BoundedRawFeatureLane(config.b2Config?.let { credentials ->
+        val store = B2ObjectStore(credentials)
+        object : B2ObjectStore.GetClient { override fun getObject(key: String,maximumBytes: Int) = store.getObject(key,maximumBytes) }
+    })
+    val scorer = DayScorer(PhysiologyShadowRunner(),rawLane)
     val writer = EngineIngestWriter(config.supabaseUrl, config.serviceRoleKey, config.ingestSecret)
     val derivedWriter = config.b2Config?.let {
         DerivedArtifactWriter(it, config.supabaseUrl, config.serviceRoleKey)
@@ -135,7 +139,7 @@ fun main(args: Array<String>) {
                 poller.scoreDay(userId, deviceId, day)
             } else poller.runForever()
         }
-    } finally { db.close() }
+    } finally { rawLane.close(); db.close() }
 }
 
 private fun resolveReplayDeviceId(

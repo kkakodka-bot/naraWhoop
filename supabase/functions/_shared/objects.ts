@@ -99,9 +99,8 @@ export function validateObjectIntent(manifest: any) {
 }
 
 /**
- * Coverage for one object, from the stream's nominal record rate. Reported as expected/received
- * counts rather than a filled series: a gap in a seizure corpus must stay legible as absence, and
- * an interpolated stretch looks exactly like quiet data. `null` when the stream has no fixed rate.
+ * Receipt member count is not temporal coverage. Current raw streams have no qualified record
+ * rate here, so expected/missing/time coverage stay null; no gaps or samples are manufactured.
  */
 export function windowCoverage({ stream, startTs, endTs, sampleCount }: {
   stream: string;

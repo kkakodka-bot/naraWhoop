@@ -123,12 +123,7 @@ class Backfiller(
      */
     private val connectionActive: () -> Boolean = { false },
     private val connectionLog: (String) -> Unit = {},
-    /**
-     * Opt-in "HR-from-PPG sub-lag interpolation" (Test Centre → Experimental algorithms, default OFF).
-     * Read as a live provider so a toggle flip mid-session takes effect on the next decoded chunk. Passed
-     * straight into [extractHistoricalStreams] so the pure decoder never reaches for prefs. Default inert
-     * (always-off) keeps the untraced/test path byte-identical. Mirrors the Swift Backfiller extract seam.
-     */
+    /** Legacy constructor option; hosted decoding disables waveform HR independently of this setting. */
     private val ppgHrSubLagInterp: () -> Boolean = { false },
     /** Live UI/export observation of the historical record layout (`hist_version`). */
     private val firmwareLayout: (Int) -> Unit = {},
@@ -420,6 +415,7 @@ class Backfiller(
                 frames, ref.device, ref.wall, family,
                 sessionOldestUnix = sessionOldestUnix, sessionNewestUnix = sessionNewestUnix,
                 ppgHrSubLagInterp = ppgHrSubLagInterp(),
+                derivePpgHeartRate = false,
             )
             // #1008: per-chunk clock basis + R-R packing. The session summary logs only the FIRST chunk's
             // correlation, which cannot show the offset moving across a long offload nor separate "the same

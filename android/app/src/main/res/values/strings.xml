@@ -2800,7 +2800,7 @@
     <string name="imu_recorder_storage">Storage</string>
     <string name="imu_recorder_disk_use">Disk use: %1$s</string>
     <string name="imu_recorder_retention_limit">Retention limit</string>
-    <string name="imu_recorder_retention_policy">Oldest segments are evicted first when the limit is reached; the segment being written is never evicted. Evicted seconds stay evicted — late history cannot bring them back.</string>
+    <string name="imu_recorder_retention_policy">Recording pauses when the storage limit is reached. Pending recordings stay on this device. A successful upload does not automatically delete them.</string>
     <string name="imu_recorder_counters">Evicted segments: %1$d · Conflicts: %2$d · Duplicates skipped: %3$d</string>
     <string name="imu_recorder_battery_warning">100 Hz recording drains the strap battery roughly 1.5–2.3× faster than normal wear (measured on a WHOOP 5.0).</string>
     <string name="imu_recorder_export">Export recording</string>
@@ -2808,7 +2808,7 @@
     <string name="imu_recorder_delete_all">Delete all recorded data</string>
     <string name="imu_recorder_delete_disabled">Turn recording off before deleting.</string>
     <string name="imu_recorder_privacy_title">Privacy</string>
-    <string name="imu_recorder_privacy">This 100 Hz data stays on this device. It is never included in cloud push — exporting is the only way it leaves, and only when you choose it.</string>
+    <string name="imu_recorder_privacy">Continuous IMU recordings are stored on this device and included in your account\'s cloud uploads when cloud push is enabled. You can also export them.</string>
     <string name="imu_recorder_delete_title">Delete all IMU data?</string>
     <string name="imu_recorder_delete_message">All continuously recorded 100 Hz data on this device will be deleted permanently.</string>
     <string name="imu_recorder_delete_confirm">Delete</string>

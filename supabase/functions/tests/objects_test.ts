@@ -558,10 +558,10 @@ Deno.test('housing: object retries and completion are bound to the authenticated
   assert.equal(h.rest.manifests.get(objectId).status, 'pending');
 });
 
-Deno.test('housing: a dropout is catalogued as missing records, never interpolated', async () => {
+Deno.test('housing: raw member count cannot fabricate dropout duration or interpolate', async () => {
   const h = harness();
   const objectId = 'd4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4';
-  // A 7-minute BLE dropout in the middle of an hour: 3180 records for a 3600-second window.
+  // 3180 memberships in an hour may include same-second origins. Gaps need qualified timing.
   const received = 3180;
   await shipObject(h, {
     stream: 'rawImuSession',
@@ -574,30 +574,28 @@ Deno.test('housing: a dropout is catalogued as missing records, never interpolat
   });
 
   const [window] = h.rest.tables.get('noop_signal_windows')!;
-  assert.equal(window.expected_records, 3600);
+  assert.equal(window.expected_records, null);
   assert.equal(window.received_records, 3180);
-  assert.equal(window.missing_records, 420, 'the dropout must be reported, not absorbed');
+  assert.equal(window.missing_records, null);
   assert.equal(window.interpolated_records, 0);
-  assert.ok(Math.abs(window.coverage - 3180 / 3600) < 1e-9);
+  assert.equal(window.coverage, null);
 });
 
-Deno.test('windowCoverage reports null rather than a guess for a stream with no fixed rate', () => {
-  const fixed = windowCoverage({ stream: 'rawImuSession', startTs: 100, endTs: 160, sampleCount: 45 });
-  assert.equal(fixed.expectedRecords, 60);
-  assert.equal(fixed.missingRecords, 15);
-  assert.equal(fixed.coverage, 0.75);
-
-  const unrated = windowCoverage({ stream: 'rawBatch', startTs: 100, endTs: 160, sampleCount: 12 });
-  assert.equal(unrated.expectedRecords, null);
-  assert.equal(unrated.coverage, null);
-  assert.equal(unrated.missingRecords, null);
-  assert.equal(unrated.receivedRecords, 12);
+Deno.test('windowCoverage retains counts but leaves all raw temporal coverage unqualified', () => {
+  for (const stream of ['ppgWaveformSample', 'rawImuSession', 'v18AuxSample', 'rawBatch']) {
+    const coverage = windowCoverage({ stream, startTs: 100, endTs: 160, sampleCount: 12 });
+    assert.equal(coverage.expectedRecords, null);
+    assert.equal(coverage.coverage, null);
+    assert.equal(coverage.missingRecords, null);
+    assert.equal(coverage.receivedRecords, 12);
+  }
 });
 
-Deno.test('housing: an object carrying more records than its window claims is capped at full coverage', () => {
+Deno.test('housing: duplicate memberships never turn counter density into full time coverage', () => {
   const over = windowCoverage({ stream: 'rawImuSession', startTs: 100, endTs: 110, sampleCount: 40 });
-  assert.equal(over.coverage, 1);
-  assert.equal(over.missingRecords, 0);
+  assert.equal(over.coverage, null);
+  assert.equal(over.missingRecords, null);
+  assert.equal(over.receivedRecords, 40);
 });
 
 Deno.test('housing: an archived object lands under the research prefix for its subject and hour', async () => {

@@ -11,11 +11,19 @@ cleanup() {
   docker network disconnect "$network" "$rest" >/dev/null 2>&1 || true
   docker network disconnect "$network" "$database" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
+  if [[ "${PIPELINE_TEST_REMOVE_CONTAINERS:-false}" == true ]]; then
+    docker rm "$rest" "$database" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 printf 'Local pipeline evidence: %s\n' "$evidence"
 docker network create "$network" > "$evidence/network.txt"
+pg_storage=()
+if [[ "${PIPELINE_TEST_PG_TMPFS:-false}" == true ]]; then
+  pg_storage=(--tmpfs /var/lib/postgresql/data:rw,size=768m)
+fi
 docker run --detach --name "$database" --network "$network" --network-alias database \
+  "${pg_storage[@]}" \
   --label nara.test=server-pipeline --memory 2g --cpus 2 \
   --log-opt max-size=20m --log-opt max-file=2 \
   -p 127.0.0.1::5432 -e POSTGRES_PASSWORD=isolated-pipeline-only \

@@ -482,5 +482,9 @@
   {
     "basename": "20260921113000_fleet_admission_retention.sql",
     "sha256": "c393e5236880709ebcf01b7e1390d5b5a8925647b31f03864e4100f524c13369"
+  },
+  {
+    "basename": "20260921120000_sensor_acquisition_windows.sql",
+    "sha256": "aeb8a076e4d04a88ba0f16fb3744627259a4fbe82fd0113be77f6eb6341fde93"
   }
 ]

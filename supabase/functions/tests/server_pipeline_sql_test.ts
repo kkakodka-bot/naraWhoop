@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { createSupabaseRest } from '../_shared/rest.ts';
 import { handleScoresRequest } from '../_shared/serverScores.ts';
 
@@ -324,6 +324,73 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     const encoded=JSON.stringify(report);
     assert.ok(!encoded.includes(identity.userId) && !encoded.includes(identity.deviceId));
     assert.ok(!encoded.includes('hrv_rmssd_ms') && !encoded.includes('resp_rate_bpm'));
+  }
+  // Link exact production DayScorer artifacts from the disposable JVM/SQL tests to
+  // the real enrolled Edge handler and native decoders. This is artifact replay,
+  // not a claim of hardware capture or a live deployed worker/phone round trip.
+  const sensorFixtures = Deno.env.get('PIPELINE_SENSOR_FIXTURES');
+  if (sensorFixtures) for (const name of ['hrv', 'ppg', 'imu-temperature']) {
+    const originalBytes = await Deno.readTextFile(`${sensorFixtures}/${name}-worker-payload.json`);
+    const original = JSON.parse(originalBytes);
+    const acquisition = JSON.parse(await Deno.readTextFile(`${sensorFixtures}/${name === 'imu-temperature' ? 'imu' : name}-acquisition.json`));
+    assert.equal(acquisition.fixture_only, true);
+    assert.equal(acquisition.validation_scope, 'synthetic_not_device_qualification');
+    const uid = original.user_id, did = original.device_id, sid = acquisition.source_id;
+    for (const id of [uid, did, sid]) assert.match(id, /^[0-9a-f-]{36}$/);
+    assert.equal(uid, acquisition.user_id); assert.equal(did, acquisition.device_id);
+    assert.match(original.day, /^\d{4}-\d{2}-\d{2}$/);
+    const revision = Number(original.input_revision);
+    assert.ok(Number.isSafeInteger(revision) && revision > 0 && revision <= 1024);
+    const code = crypto.randomUUID(), external = `whoop-SENSOR-${name.toUpperCase()}`;
+    const installationToken = `noop_sensor_${crypto.randomUUID()}`;
+    await sql(`insert into auth.users(id) values ('${uid}');
+      insert into profiles(id,timezone) values ('${uid}','UTC') on conflict(id) do update set timezone='UTC';
+      insert into devices(id,user_id,source_kind,external_device_id,device_family)
+        values ('${did}','${uid}','noop_push','${external}','whoop5');
+      insert into noop_enrollment_codes(id,user_id,code_hash,expires_at)
+        values ('${code}','${uid}',encode(sha256(convert_to('${code}','UTF8')),'hex'),now()+interval '1 day');
+      insert into noop_app_installations(source_id,user_id,enrollment_code_id,platform,app_version)
+        values ('${sid}','${uid}','${code}','android','synthetic-artifact-replay');
+      insert into noop_ingest_tokens(user_id,token_hash,token_kind,source_id,enrollment_code_id)
+        values ('${uid}',encode(sha256(convert_to('${installationToken}','UTF8')),'hex'),'installation','${sid}','${code}');`);
+    for (let n = 0; n < revision; n++) await rest.rpc('physiology_enqueue_day', {
+      p_user: uid, p_device: did, p_day: original.day, p_timezone: 'UTC', p_debounce_seconds: 0,
+    });
+    const [claim] = await rest.rpc('scoring_claim_one', {p_user:uid,p_device:did,p_day:original.day});
+    assert.equal(Number(claim.input_revision), revision);
+    // Only the destination's transient lease/run token changes. Identity, window
+    // revisions, original computed values/reasons and acquisition provenance do not.
+    const replay = {...original, lease_token:claim.lease_token, run_id:claim.run_id};
+    await rest.rpc('engine_publish_physiology', {p_secret:'isolated-pipeline-only',p_payload:replay});
+    assert.equal(await rest.rpc('scoring_finish_work', {p_user:uid,p_device:did,p_day:original.day,
+      p_revision:claim.input_revision,p_lease_token:claim.lease_token,p_run_id:claim.run_id,
+      p_outcome:'done',p_duration_ms:1,p_error:null}), true);
+    const response = await handleScoresRequest(new Request(
+      `http://localhost/functions/v1/scores?day=${original.day}&deviceId=${external}`, {
+        headers:{authorization:`Bearer ${installationToken}`,'x-noop-fleet-token':'noop_pipeline_fleet'},
+      }), {rest,cfg});
+    assert.equal(response.status,200,await response.clone().text());
+    const bytes = await response.text(), body = JSON.parse(bytes), score = body.server_scoring;
+    assert.equal(body.identity.userId,uid); assert.equal(body.identity.deviceId,did);
+    assert.deepEqual(score.signal_windows.map((w:any)=>w.window_id), original.signal_windows.map((w:any)=>w.window_id));
+    for (const window of score.signal_windows) {
+      assert.equal(window.values,null); assert.equal(window.publication_status,'shadow');
+      assert.ok(window.reason); assert.ok(['unavailable','unqualified','blocked'].includes(window.measurement_status));
+    }
+    assert.ok(score.signal_windows.some((w:any)=>w.analysis_status==='available' && w.reason==='not_reference_validated'));
+    assert.ok(allFeatures.every(key=>!['available','stale'].includes(score.features[key].status)));
+    const file = `sensor-${name}.json`;
+    await Deno.writeTextFile(`${output}/${file}`,bytes);
+    await Deno.writeTextFile(`${output}/sensor-${name}-replay-evidence.json`,JSON.stringify({
+      scope:'linked_synthetic_artifact_replay_not_deployed_round_trip',
+      worker_payload_sha256:createHash('sha256').update(originalBytes).digest('hex'),
+      original_user_id:uid,original_device_id:did,input_revision:revision,
+      changed_fields:['lease_token','run_id'],
+    },null,2));
+    expectations.push({file,ownerId:uid,day:original.day,availableFeatures:[],unavailableFeatures:allFeatures,
+      expectedDeviceId:did,nestedHrvAvailable:false,nestedRespirationAvailable:false,
+      signalWindows:score.signal_windows.map((w:any)=>({id:w.window_id,kind:w.kind,reason:w.reason,
+        status:w.measurement_status,revision:Number(w.input_revision)}))});
   }
   await Deno.writeTextFile(`${output}/expectations.json`,JSON.stringify(expectations,null,2));
   await Deno.writeTextFile(`${output}/identities.json`,JSON.stringify(identities,null,2));
