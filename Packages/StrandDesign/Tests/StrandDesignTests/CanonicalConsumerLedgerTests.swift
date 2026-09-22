@@ -41,4 +41,21 @@ final class CanonicalConsumerLedgerTests: XCTestCase {
         XCTAssertNotEqual(first.scopeIdentity, ledger().scopeIdentity)
         XCTAssertNotEqual(first.families["recovery"], ledger(revision: "result-18").families["recovery"])
     }
+    func testReadFailureChangesPublicationIdentityWithoutChangingPhysiologyRevision() throws {
+        let current = ledger()
+        let failed = CanonicalConsumerLedger(project: current.project, ownerID: current.ownerID,
+            sourceID: current.sourceID, deviceID: current.deviceID, window: current.window,
+            families: current.families, readState: "failed", cached: true)
+        XCTAssertEqual(failed.scopeIdentity, current.scopeIdentity)
+        XCTAssertEqual(failed.families, current.families)
+        XCTAssertEqual(failed.families["recovery"]?.resultRevision, "result-17")
+        XCTAssertNotEqual(failed, current, "Read failure must bypass a glance publication dedup/throttle")
+        XCTAssertFalse(failed.permitsRead)
+        XCTAssertFalse(snapshot(failed, charge: 0).hasCanonicalAdmission)
+        let missing = try JSONDecoder().decode(WatchScoreSnapshot.self,
+            from: JSONEncoder().encode(snapshot(failed, charge: nil)))
+        XCTAssertTrue(missing.hasCanonicalAdmission)
+        XCTAssertEqual(missing.canonicalLedger?.readState, "failed")
+        XCTAssertEqual(missing.canonicalLedger?.cached, true)
+    }
 }

@@ -10,6 +10,7 @@ import StrandDesign
 final class LiveActivityController {
     private var activity: Activity<NOOPActivityAttributes>?
     private var lastPush: Date = .distantPast
+    private var lastLedger: CanonicalConsumerLedger?
     /// Cached `ActivityAuthorizationInfo` — `update` runs at ~1 Hz off the live HR stream, and
     /// instantiating this system bridge per tick is needless allocation. ActivityKit's auth status
     /// only changes via Settings, so caching for the controller's lifetime is safe.
@@ -71,7 +72,9 @@ final class LiveActivityController {
             Task { await end() }
             return
         }
-        guard bpm != nil else { return }
+        // An existing activity must also receive scope/revision clears between device HR samples.
+        // Only initial creation requires a direct device observation.
+        guard bpm != nil || activity != nil else { return }
 
         let final = PhoneComputeRuntime.isFinalHosted
         let admitted = !final || canonicalLedger?.isValid == true
@@ -80,8 +83,11 @@ final class LiveActivityController {
         let staleDate = Date().addingTimeInterval(Self.staleAfter)
 
         if let activity {
-            guard Date().timeIntervalSince(lastPush) > 2 else { return }
+            // A revision, read failure or identity change must not wait for another device HR tick.
+            let replacesAuthority = final && canonicalLedger != lastLedger
+            guard replacesAuthority || Date().timeIntervalSince(lastPush) > 2 else { return }
             lastPush = Date()
+            lastLedger = canonicalLedger
             Task { await activity.update(ActivityContent(state: state, staleDate: staleDate)) }
         } else {
             // Set the start gate SYNCHRONOUSLY before any await so a second `update` arriving on the
@@ -96,6 +102,7 @@ final class LiveActivityController {
                     pushType: nil
                 )
                 lastPush = Date()
+                lastLedger = canonicalLedger
             } catch {
                 activity = nil
             }
@@ -111,6 +118,7 @@ final class LiveActivityController {
             await act.end(nil, dismissalPolicy: .immediate)
         }
         self.activity = nil
+        self.lastLedger = nil
     }
 }
 #endif

@@ -213,6 +213,7 @@ struct StrandiOSApp: App {
                 // by the .active republish on return.
                 .onReceive(model.repo.$refreshSeq.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
+                    liveActivity.update(from: model)
                     Task { await WidgetSnapshot.publish(from: model) }
                     // The watch rides the same active-only hook because the bridge now SELF-THROTTLES
                     // (30-minute spacing + headline-change dedup, both must pass, see WatchSessionBridge),
