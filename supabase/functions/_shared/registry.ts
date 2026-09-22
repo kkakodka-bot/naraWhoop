@@ -25,7 +25,7 @@ export const APPEND_STREAMS = new Set([
 
 export const REPLACE_STREAMS = new Set([
   'dailyMetric', 'sleepSession', 'workout', 'journal', 'metricSeries', 'appleDaily',
-  'scoreInputProvenance', 'labMarker', 'liveSession',
+  'scoreInputProvenance', 'labMarker', 'liveSession', 'eventLabel',
 ]);
 
 export const BINARY_STREAMS = new Set([
