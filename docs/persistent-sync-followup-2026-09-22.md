@@ -50,6 +50,14 @@ phase samples include FIFO delay and receipt-to-ACK submission. Manager-level
 lease tests cover expiration before authorization, late ATT completion, disconnect
 and overlapping exact-once cleanup.
 
+Successful historical transactions additionally report GRDB writer-queue/BEGIN setup,
+SQL mutation, nested cursor SQL, and body-completion-to-writer-return durations.
+The last interval includes FULL commit and GRDB return; it does not isolate fsync.
+With DEFERRED transactions, subsequent SQL lock waits remain within mutation.
+Empty chunks report their actual cursor transaction too; failed or mock writes do
+not manufacture successful durability measurements. These observations add no
+SQLite write or durability commit and are presented after ACK authorization.
+
 The shared budget now includes FIFO pressure, lifecycle opportunities/deadlines,
 storage, network and queued cloud bytes/jobs. Background grants are revoked on
 completion/expiration. Capture maintenance, startup projections and cloud lanes
@@ -88,6 +96,12 @@ The v58 membership index replaces broad SQL device discovery; existing stores mi
 in committed pages of at most 2,000 row identities. Device rotation and outstanding
 work from earlier devices share one account-scoped SQLite checkpoint, bound to the
 ordered device-list fingerprint. A changed list restarts the cycle from its beginning.
+
+Raw-outbox retention uses set-based exact receipt predicates and at most 512 deletions
+per maintenance call across both aging and byte-budget policies. Unverified rows
+continue to consume the budget without authorizing deletion of newer protected rows.
+The SQL cumulative window still scans/sorts metadata; the change removes Swift
+whole-backlog arrays and per-row receipt queries, not every database scan.
 
 The iOS and macOS encoder now uses vendored, pinned Zstandard 1.5.7, with independent
 Deno golden decoding and the existing wire contract. Host benchmarks compare levels
@@ -183,7 +197,7 @@ records those distinctions, missing samples and the physical matrix explicitly.
 | Critical path | Full matched callback/FIFO/decode/transaction-wait/commit/cursor/ACK/ATT/next-chunk traces, on-device fsync counts, and main-actor contention decision. |
 | Thermal policy | Two-second admission response and every active worker's physical CPU/energy behavior. Already-running synchronous work is not preempted by a policy check. |
 | Streaming | Fresh binary preparation streams from a bounded source selection. Physical peak RSS and energy remain unmeasured; the compatibility reader can still materialize one large legacy selection, so legacy migration/replay must be included in memory acceptance. |
-| Selection indexing | Mutable revision/key paging and bounded SQL membership bootstrap replace repeated source discovery and rolling-window scans. Legacy file-backed IMU discovery still inventories retained file metadata; that discovery cost needs measurement and a compact device index if material. |
+| Selection indexing | Mutable revision/key paging and bounded SQL membership bootstrap replace repeated source discovery and rolling-window scans. Raw retention bounds deletions but still scans/sorts metadata for cumulative byte accounting. Legacy file-backed IMU discovery still inventories retained file metadata; these costs need measurement and further indexing if material. |
 | Legacy timestamps | Automatic destructive timestamp healing is disabled for account capture. A lossless quarantine/projection repair for legacy bad-clock rows remains unfinished. |
 | Server phases | Opt-in asynchronous verification/index debt and exact receipt polling pass disposable PostgreSQL integration tests. Production profiling, deployment, metrics, worker and sweeper scheduling are unverified. In-flight storage requests retain their own timeout beyond the between-job admission budget. |
 | UI | Devices and Test Centre share separate strap and cloud state, ATT-confirmed chunk count, pressure/error pauses and independent sync dates. A defensible remaining-backlog-age estimate still requires a clock-aligned frontier/range source; the UI displays an unknown marker instead. Rendered device/localization/accessibility acceptance is unmeasured. |
