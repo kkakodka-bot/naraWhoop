@@ -453,6 +453,77 @@ Deno.test({
       },
     );
     await t.step(
+      "RR transport headers retain two receipts and one sensor packet",
+      async () => {
+        const oracle = JSON.parse(
+          await Deno.readTextFile(
+            new URL(
+              "../../../android/app/src/test/resources/rr_packet_provenance_oracle.json",
+              import.meta.url,
+            ),
+          ),
+        ).cases[1];
+        const frame = Uint8Array.from(
+          oracle.hex.match(/../g).map((x: string) => parseInt(x, 16)),
+        );
+        frame[5] ^= 1;
+        let crc = 0xffff;
+        for (const byte of frame.slice(0, 6)) {
+          crc ^= byte;
+          for (let i = 0; i < 8; i++) {
+            crc = (crc & 1) ? (crc >>> 1) ^ 0xa001 : crc >>> 1;
+          }
+        }
+        frame[6] = crc & 255;
+        frame[7] = crc >>> 8;
+        const hex = (b: Uint8Array) =>
+          Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("");
+        const row = {
+          packetId: oracle.packetId,
+          ts: oracle.sensorTs,
+          sensorTs: oracle.sensorTs,
+          recordIndex: oracle.recordIndex,
+          rawHex: oracle.hex,
+          srcChannel: 5,
+          schemaVersion: 1,
+          decoderVersion: "whoop5-v18-original-words-v1",
+          clockVersion: "sensor-second-unmapped",
+          timestampPrecisionSeconds: 1,
+          clockOffsetSeconds: 0,
+          declaredCount: 3,
+        };
+        await project(a, band, a1, "rrPacketProvenance", [row]);
+        await project(a, band, a2, "rrPacketProvenance", [{
+          ...row,
+          rawHex: hex(frame),
+        }]);
+        assert.equal(
+          await sql(
+            `select count(*) from noop_rr_packet_provenance where device_id='${band}' and "packetId"='${oracle.packetId}'`,
+          ),
+          "1",
+        );
+        assert.equal(
+          await sql(
+            `select count(distinct row_data->>'rawHex') from noop_projection_observations
+        where device_id='${band}' and stream='rrPacketProvenance' and row_data->>'packetId'='${oracle.packetId}'`,
+          ),
+          "2",
+        );
+        frame[24] ^= 1;
+        await project(a, band, a2, "rrPacketProvenance", [{
+          ...row,
+          rawHex: hex(frame),
+        }]);
+        assert.equal(
+          await sql(
+            `select count(*) from noop_rr_packet_provenance where device_id='${band}' and "packetId"='${oracle.packetId}'`,
+          ),
+          "0",
+        );
+      },
+    );
+    await t.step(
       "atomic admission enforces source and owner budgets and prunes only expired operational rows",
       async () => {
         await sql(
@@ -553,9 +624,74 @@ Deno.test({
           ),
         );
         const objectId = uuid();
-        await sql(
-          `insert into object_manifests(id,user_id,device_id,source_id,object_kind,object_key,status,auth_mode)
-      values('${objectId}','${a}','${band}','${a1}','ppgWaveformSample','v3/research/users/${a}/fixture','pending','installation');`,
+        const tokenId = await sql(
+          `select id from noop_ingest_tokens where user_id='${a}' and source_id='${a1}'`,
+        );
+        const intentObjects = createPushObjects({
+          rest,
+          cfg: pushConfig({}),
+          resolveDeviceId: async () => band,
+          raw: {
+            presignPut: async (_key: string, seconds: number, stamp: Date) => ({
+              url: "http://127.0.0.1/synthetic-put",
+              expiresAt: new Date(stamp.getTime() + seconds * 1000)
+                .toISOString(),
+            }),
+          } as any,
+        });
+        const intent = await intentObjects.createIntent({
+          userId: a,
+          sourceId: a1,
+          tokenId,
+          authMode: "installation",
+          manifest: {
+            type: "binaryObject",
+            protocolVersion: "1.2",
+            stream: "ppgWaveformSample",
+            deviceId: "whoop-SYNTH001",
+            sourceId: a1,
+            objectId,
+            batchId: uuid(),
+            startTs: time,
+            endTs: time + 1,
+            sampleCount: 1,
+            compressedBytes: 28,
+            uncompressedBytes: 28,
+            contentSha256: "a".repeat(64),
+            contentEncoding: "gzip",
+          },
+        });
+        assert.equal(intent.status, "pending");
+        assert.equal(
+          await sql(
+            `select auth_mode||':'||ingest_token_id from object_manifests where id='${objectId}'`,
+          ),
+          `installation:${tokenId}`,
+        );
+        assert.ok(
+          Number.isFinite(
+            Date.parse(
+              await rest.rpc("authorize_noop_object_put", {
+                p_user: a,
+                p_source: a1,
+                p_object: objectId,
+              }),
+            ),
+          ),
+        );
+        await assert.rejects(() =>
+          rest.rpc("authorize_noop_object_put", {
+            p_user: b,
+            p_source: b1,
+            p_object: objectId,
+          })
+        );
+        await assert.rejects(() =>
+          restFor("authenticated", a).rpc("authorize_noop_object_put", {
+            p_user: a,
+            p_source: a1,
+            p_object: objectId,
+          })
         );
         let storageCalls = 0;
         const raw = new Proxy({}, {
@@ -600,6 +736,16 @@ Deno.test({
         const receipt = await retired.json();
         assert.equal(receipt.userId, a);
         assert.equal(receipt.sourceId, a1);
+        const object = await sql(
+          `select id from object_manifests where user_id='${a}' and source_id='${a1}' and status='pending' limit 1`,
+        );
+        await assert.rejects(() =>
+          rest.rpc("authorize_noop_object_put", {
+            p_user: a,
+            p_source: a1,
+            p_object: object,
+          })
+        );
         assert.deepEqual(
           await (await call("noop_multiuser_a1", "retire")).json(),
           receipt,

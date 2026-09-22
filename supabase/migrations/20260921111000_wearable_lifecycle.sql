@@ -91,6 +91,23 @@ alter function public.noop_project_append_batch(uuid,uuid,uuid,uuid,text,jsonb)
 revoke all on function public.noop_project_append_batch_core(uuid,uuid,uuid,uuid,text,jsonb)
   from public,anon,authenticated,service_role;
 
+-- Packet identity hashes the sensor payload, excluding the transport header and CRC.
+-- Two receptions may have different valid transport sequence numbers for the same payload.
+create function public.noop_same_rr_payload(p_left text,p_right text,p_packet text) returns boolean
+language plpgsql immutable set search_path='' as $$
+declare a bytea; b bytea; a_end integer; b_end integer; payload bytea;
+begin
+  if p_left is null or p_right is null or p_packet is null then return false; end if;
+  if length(p_left) not between 56 and 131086 or length(p_right) not between 56 and 131086
+    or length(p_left)%2<>0 or length(p_right)%2<>0
+    or p_left!~'^[a-f0-9]+$' or p_right!~'^[a-f0-9]+$' then return false; end if;
+  a:=decode(p_left,'hex'); b:=decode(p_right,'hex');
+  a_end:=get_byte(a,2)+256*get_byte(a,3)+4; b_end:=get_byte(b,2)+256*get_byte(b,3)+4;
+  if a_end<24 or b_end<24 or a_end+4<>length(a) or b_end+4<>length(b) then return false; end if;
+  payload:=substring(a from 9 for a_end-8);
+  return payload=substring(b from 9 for b_end-8) and encode(sha256(payload),'hex')=p_packet;
+end $$;
+
 create function public.noop_project_append_batch(p_user uuid,p_device uuid,p_source uuid,p_batch uuid,
   p_stream text,p_rows jsonb) returns integer
 language plpgsql security definer set search_path='' as $$
@@ -147,7 +164,9 @@ begin
       where t.user_id=$2 and t.device_id=$3 and %s',target,target,predicate) into prior using r,p_user,p_device;
     -- Compare only the supplied, typed measurement columns, never receipt metadata/default timestamps.
     conflicted := prior is not null and exists(select 1 from jsonb_object_keys(r) k
-      where k<>all(array['source_id','batch_id','ingested_at']) and prior->k is distinct from typed->k);
+      where k<>all(array['source_id','batch_id','ingested_at']) and prior->k is distinct from typed->k
+        and not (p_stream='rrPacketProvenance' and k='rawHex'
+          and public.noop_same_rr_payload(prior->>'rawHex',typed->>'rawHex',typed->>'packetId')));
     if conflicted then
       insert into public.noop_projection_conflicts(user_id,device_id,stream,measurement_key)
         values(p_user,p_device,p_stream,identity) on conflict do nothing;
@@ -306,7 +325,8 @@ begin
   return to_jsonb(prior);
 end $$;
 
-revoke all on function public.noop_alias_raw_dependency(),public.noop_projection_target(text),public.noop_project_append_batch(uuid,uuid,uuid,uuid,text,jsonb),
+revoke all on function public.noop_alias_raw_dependency(),public.noop_same_rr_payload(text,text,text),
+  public.noop_projection_target(text),public.noop_project_append_batch(uuid,uuid,uuid,uuid,text,jsonb),
   public.confirm_noop_wearable(uuid,uuid,uuid,uuid,jsonb),public.handoff_noop_collection(uuid,uuid,uuid,uuid,integer)
   from public,anon,authenticated;
 grant execute on function public.noop_project_append_batch(uuid,uuid,uuid,uuid,text,jsonb),

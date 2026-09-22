@@ -287,6 +287,9 @@ export function createDeletionService({
             if (!key.startsWith(prefix)) throw new Error('deletion_object_owner_mismatch');
             try { await objectStore.deleteObject(key); } catch { failures.push({ key }); }
           }
+          // A late object may have produced another delete marker/version. Require a new
+          // complete version census on the next attempt before deleting owner metadata.
+          if (leftover.length) failures.push({ prefix });
         } catch { failures.push({ prefix }); }
       }
       job.state.failures = failures;

@@ -469,11 +469,11 @@
   },
   {
     "basename": "20260921110000_installation_retirement.sql",
-    "sha256": "b5f8f5bdc209657e37b40809cf01a8249dc664fde0728949da7aa5df1412fee1"
+    "sha256": "352dd120144c07ef3f9f37bf5b6f90a336957d1f2a39f95281621bbc56b7234b"
   },
   {
     "basename": "20260921111000_wearable_lifecycle.sql",
-    "sha256": "833c59060df867642267ca670b950825bf05870b0e451008edcfdc8b9da37649"
+    "sha256": "9ed18ae85c98d1eb28f4b9d646b2b91278cead273f72f88c6305147bafa08583"
   },
   {
     "basename": "20260921112000_fleet_scheduler.sql",
