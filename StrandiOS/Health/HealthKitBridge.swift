@@ -976,86 +976,68 @@ final class HealthKitBridge: ObservableObject {
     /// workout calorie scoring is reachable from this writer in final hosted mode.
     private func writeCanonicalResults(_ state: ServerScoreViewState,
                                        boundary: HealthWritebackBoundary) async throws {
-        let types: [String: (HKQuantityTypeIdentifier, HKUnit)] = [
-            "resting_hr_bpm": (.restingHeartRate, .count().unitDivided(by: .minute())),
-            "hrv_sdnn_ms": (.heartRateVariabilitySDNN, .secondUnit(with: .milli)),
-            "resp_rate_bpm": (.respiratoryRate, .count().unitDivided(by: .minute())),
-            "spo2_pct": (.oxygenSaturation, .percent())
+        let types: [String: HKQuantityTypeIdentifier] = [
+            "resting_hr_bpm": .restingHeartRate, "hrv_sdnn_ms": .heartRateVariabilitySDNN,
+            "resp_rate_bpm": .respiratoryRate, "spo2_pct": .oxygenSaturation
         ]
-        for plan in try CanonicalHealthWritebackPlan.days(state: state) {
-            let result = plan.result
-            func metadata(_ family: String, key: String) throws -> [String: Any] {
-                guard let receipt = CanonicalConsumerPublication.ledger(result)?.families[family] else {
+        func type(_ target: CanonicalHealthWritebackPlan.Target) -> HKSampleType? {
+            switch target {
+            case .quantity(let metric, _):
+                return types[metric].flatMap { HKQuantityType.quantityType(forIdentifier: $0) }
+            case .sleep: return HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)
+            }
+        }
+        func sample(_ record: CanonicalHealthWritebackPlan.Record) throws -> HKSample {
+            var metadata: [String: Any] = record.metadata
+            metadata[HKMetadataKeyExternalUUID] = record.externalUUID
+            switch record.payload {
+            case .quantity(let metric, let value, let measure):
+                guard let identifier = types[metric], let type = HKQuantityType.quantityType(forIdentifier: identifier) else {
                     throw ServerScoreDecodeError.invalid
                 }
-                let receiptData = try JSONEncoder().encode(receipt)
-                return [HKMetadataKeyExternalUUID: key,
-                    Self.accountMetadataKey: accountNamespace ?? "",
-                    "naraAccountNamespace": accountNamespace ?? "", "naraScoreDay": result.day,
-                    "naraProject": result.project, "naraOwner": result.ownerID,
-                    "naraSource": result.sourceID, "naraCanonicalDevice": result.deviceID,
-                    "naraServerReadState": state.days[result.day]?.phase.rawValue ?? "cached",
-                    "naraCanonicalResult": String(decoding: receiptData, as: UTF8.self)]
-            }
-            for metric in CanonicalHealthWritebackPlan.quantities {
-                guard let (id, unit) = types[metric], let type = HKQuantityType.quantityType(forIdentifier: id),
-                      store.authorizationStatus(for: type) == .sharingAuthorized,
-                      let family = result.result(for: metric) else { continue }
-                let key = scopedHealthKey(HealthWriteback.appleHealthVitalKey(metricId: id.rawValue, day: result.day))
-                let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-                    HKQuery.predicateForObjects(from: HKSource.default()),
-                    HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID, allowedValues: [key])
-                ])
-                var samples: [HKQuantitySample] = []
-                if let value = plan.quantities[metric], let through = family.observedThrough,
-                   let at = ServerScoreDate.parse(through), at <= Date(),
-                   let familyKey = ServerCanonicalResults.familyMetrics.first(where: { $0.value.contains(metric) })?.key {
-                    samples.append(HKQuantitySample(type: type,
-                        quantity: HKQuantity(unit: unit, doubleValue: metric == "spo2_pct" ? value / 100 : value),
-                        start: at, end: at, metadata: try metadata(familyKey, key: key)))
+                let unit: HKUnit
+                switch measure {
+                case .countPerMinute: unit = .count().unitDivided(by: .minute())
+                case .milliseconds: unit = .secondUnit(with: .milli)
+                case .fraction: unit = .percent()
                 }
-                let replacement = samples
-                let save: HealthWritebackBoundary.Operation?
-                if replacement.isEmpty { save = nil }
-                else { save = { try await self.store.save(replacement) } }
-                try await boundary.replace(delete: { _ = try await self.store.deleteObjects(of: type, predicate: predicate) }, save: save)
-            }
-            guard let type = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis),
-                  store.authorizationStatus(for: type) == .sharingAuthorized else { continue }
-            var samples: [HKCategorySample] = []
-            for sleep in plan.sleeps {
-                let meta = try metadata("sleep", key: scopedHealthKey("server-sleep:\(sleep.id)"))
-                func append(_ value: HKCategoryValueSleepAnalysis, start: Int64, end: Int64) {
-                    guard end > start else { return }
-                    samples.append(HKCategorySample(type: type, value: value.rawValue,
-                        start: Date(timeIntervalSince1970: Double(start)), end: Date(timeIntervalSince1970: Double(end)),
-                        metadata: meta))
+                return HKQuantitySample(type: type, quantity: HKQuantity(unit: unit, doubleValue: value),
+                    start: record.start, end: record.end, metadata: metadata)
+            case .sleep(let stage):
+                guard let type = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else { throw ServerScoreDecodeError.invalid }
+                let value: HKCategoryValueSleepAnalysis
+                switch stage {
+                case .inBed: value = .inBed
+                case .awake: value = .awake
+                case .light: value = .asleepCore
+                case .deep: value = .asleepDeep
+                case .rem: value = .asleepREM
                 }
-                append(.inBed, start: Int64(sleep.start), end: Int64(sleep.end))
-                for stage in sleep.stages {
-                    guard let exportStage = stage.exportStage else { continue }
-                    let value: HKCategoryValueSleepAnalysis
-                    switch exportStage {
-                    case "wake", "awake": value = .awake
-                    case "light": value = .asleepCore
-                    case "deep": value = .asleepDeep
-                    case "rem": value = .asleepREM
-                    default: continue
-                    }
-                    append(value, start: stage.start, end: stage.end)
-                }
+                return HKCategorySample(type: type, value: value.rawValue,
+                    start: record.start, end: record.end, metadata: metadata)
             }
-            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
-                HKQuery.predicateForObjects(from: HKSource.default()),
-                HKQuery.predicateForObjects(withMetadataKey: "naraAccountNamespace", allowedValues: [accountNamespace ?? ""]),
-                HKQuery.predicateForObjects(withMetadataKey: "naraScoreDay", allowedValues: [result.day])
-            ])
-            let replacement = samples
-            let save: HealthWritebackBoundary.Operation?
-            if replacement.isEmpty { save = nil }
-            else { save = { try await self.store.save(replacement) } }
-            try await boundary.replace(delete: { _ = try await self.store.deleteObjects(of: type, predicate: predicate) }, save: save)
         }
+        let replacements = try CanonicalHealthWritebackPlan.replacements(state: state, accountNamespace: accountNamespace ?? "")
+        try await CanonicalHealthWritebackPlan.publish(replacements, authorized: { target in
+            type(target).map { self.store.authorizationStatus(for: $0) == .sharingAuthorized } ?? false
+        }, perform: { operation in
+            try await boundary.perform {
+                switch operation {
+                case .save(let records): try await self.store.save(records.map(sample))
+                case .delete(let replacement):
+                    guard let sampleType = type(replacement.target) else { throw ServerScoreDecodeError.invalid }
+                    var predicates = [HKQuery.predicateForObjects(from: HKSource.default())]
+                    switch replacement.target {
+                    case .quantity(_, let key):
+                        predicates.append(HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID, allowedValues: [key]))
+                    case .sleep(let day, let account):
+                        predicates += [HKQuery.predicateForObjects(withMetadataKey: "naraAccountNamespace", allowedValues: [account]),
+                            HKQuery.predicateForObjects(withMetadataKey: "naraScoreDay", allowedValues: [day])]
+                    }
+                    _ = try await self.store.deleteObjects(of: sampleType, predicate: NSCompoundPredicate(andPredicateWithSubpredicates: predicates))
+                }
+            }
+        })
     }
 
     /// UserDefaults key for the #1503 stranded-records sweep completion set. Stores the set of

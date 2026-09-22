@@ -2,6 +2,7 @@ import Foundation
 import WhoopStore
 import WhoopProtocol
 import StrandAnalytics
+import NoopPush
 
 /// #155 — Apple-Health-free export for sideloaded iOS installs. A free (7-day) signing identity
 /// can't carry the HealthKit entitlement, so HealthKitBridge never runs for sideloaders. Instead,
@@ -69,12 +70,12 @@ enum ShortcutHealthExport {
                 return .failure("No Documents directory.")
             }
             do {
-                let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                let results = repo.serverPresentation.canonicalDays.values.sorted { $0.day < $1.day }
-                try encoder.encode(results).write(to: docs.appendingPathComponent("noop_server_results.json"), options: .atomic)
-                // The historical Shortcut format cannot carry a result revision or an unavailable
-                // state. Leave it empty so an old automation cannot replay locally reconstructed HRV.
-                try Data().write(to: docs.appendingPathComponent(fileName), options: .atomic)
+                let selected = repo.serverPresentation
+                let device = repo.deviceId, context = CloudRuntimeIdentity.snapshot().context
+                try CanonicalExport.writeShortcut(state: selected, directory: docs, validate: {
+                    guard repo.serverPresentation == selected, repo.deviceId == device,
+                          CloudRuntimeIdentity.snapshot().context == context else { throw AccountAuthError.staleOperation }
+                })
                 return .written(lines: 0)
             } catch { return .failure("Canonical export failed: \(error.localizedDescription)") }
         }

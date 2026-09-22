@@ -241,13 +241,7 @@ enum CsvExport {
         guard let store = await repo.storeHandle() else { return .failure("Couldn't open the local store.") }
         do {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let results = selected.canonicalDays.values.sorted { $0.day < $1.day }
-            var entries: [(name: String, data: Data)] = [
-                ("canonical_results.json", try encoder.encode(results)),
-                ("canonical_read_states.json", try encoder.encode(results.compactMap { CanonicalConsumerPublication.ledger($0, state: selected) })),
-                ("canonical_metrics.csv", Data(canonicalCSV(results).utf8)),
-                ("README.txt", Data("Canonical physiology is only in canonical_results.json and canonical_metrics.csv. Missing and unavailable states are preserved. historical_source files preserve original rows for audit and recovery; they are not current measurements or canonical server results. No local sleep, HRV, calorie, or score reconstruction is performed. Raw capture is preserved separately by the lossless database backup.\n".utf8))
-            ]
+            var entries: [(name: String, data: Data)] = []
             for (index, source) in Array(Set(repo.importedReadIds + repo.computedReadIds + [Repository.journalDeviceId])).sorted().enumerated() {
                 let rows = HistoricalRows(source: source,
                     daily: try await store.dailyMetrics(deviceId: source, from: "0000-01-01", to: "9999-12-31"),
@@ -259,49 +253,34 @@ enum CsvExport {
                 entries.append(("historical_source_\(index).json", try encoder.encode(rows)))
             }
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
-            try WhoopCsvExporter.writeArchive(entries: entries, to: tmp)
-            guard repo.serverPresentation == selected, repo.deviceId == device,
-                  CloudRuntimeIdentity.snapshot().context == context else { throw AccountAuthError.staleOperation }
+            try CanonicalExport.writeArchive(state: selected, historicalEntries: entries, to: tmp)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            func validate() throws {
+                guard repo.serverPresentation == selected, repo.deviceId == device,
+                      CloudRuntimeIdentity.snapshot().context == context else { throw AccountAuthError.staleOperation }
+            }
+            try validate()
             #if os(macOS)
             let panel = NSSavePanel()
             panel.title = "Export canonical server results"
             panel.nameFieldStringValue = defaultName()
             panel.allowedContentTypes = [.zip]
             guard panel.runModal() == .OK, let destination = panel.url else { return .cancelled }
-            guard repo.serverPresentation == selected, repo.deviceId == device,
-                  CloudRuntimeIdentity.snapshot().context == context else { throw AccountAuthError.staleOperation }
-            if FileManager.default.fileExists(atPath: destination.path) {
-                _ = try FileManager.default.replaceItemAt(destination, withItemAt: tmp)
-            } else { try FileManager.default.moveItem(at: tmp, to: destination) }
+            try CanonicalExport.installArchive(from: tmp, to: destination, validate: validate)
             return .exported(destination)
             #else
-            guard let destination = await DocumentPicker.export(tmp) else { return .cancelled }
+            guard let folder = await DocumentPicker.pickFolder() else { return .cancelled }
+            let destination = folder.appendingPathComponent(defaultName())
+            try CanonicalExport.installArchive(from: tmp, to: destination, access: {
+                let scoped = folder.startAccessingSecurityScopedResource()
+                return { if scoped { folder.stopAccessingSecurityScopedResource() } }
+            }, validate: validate)
             return .exported(destination)
             #endif
         } catch { return .failure("Canonical export failed: \(error.localizedDescription)") }
     }
 
-    static func canonicalCSV(_ results: [ServerCanonicalResults]) -> String {
-        func cell(_ raw: String) -> String {
-            let safe = raw.first.map { "=+-@\t\r".contains($0) } == true ? "'" + raw : raw
-            return "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
-        var lines = ["project,owner,source,device,window,family,metric,value,status,reason,input_revision,result_revision,algorithm,configuration,computed_at,observed_through,authorization"]
-        for result in results.sorted(by: { $0.day < $1.day }) {
-            for key in result.families.keys.sorted() {
-                guard let family = result.families[key] else { continue }
-                for metric in family.metrics.sorted() {
-                    var fields: [String] = [result.project, result.ownerID, result.sourceID, result.deviceID, result.day, key, metric]
-                    fields.append(family.number(metric).map { String($0) } ?? "")
-                    fields += [family.status, family.reason ?? "", family.inputRevision.map { String($0) } ?? "", family.resultRevision ?? ""]
-                    fields += [family.algorithmVersion ?? "", family.configurationVersion ?? "", family.computedAt ?? ""]
-                    fields += [family.observedThrough ?? "", family.canonicalQualification ?? ""]
-                    lines.append(fields.map(cell).joined(separator: ","))
-                }
-            }
-        }
-        return lines.joined(separator: "\r\n") + "\r\n"
-    }
+    static func canonicalCSV(_ state: ServerScoreViewState) -> String { CanonicalExport.csv(state) }
 
     /// Classify a workout row for the parser-ignored Source column. The strings match how each row
     /// is written on this Mac: WhoopImporter uses source "whoop"; AppModel manual logging uses
