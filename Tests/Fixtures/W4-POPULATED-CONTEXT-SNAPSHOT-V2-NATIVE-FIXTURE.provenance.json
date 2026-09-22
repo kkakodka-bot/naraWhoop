@@ -1,0 +1,9 @@
+{
+  "generator": "scoring-service/service/src/test/kotlin/com/frwhoop/scoring/PopulatedContextSnapshotFixtureIntegrationTest.kt",
+  "generator_source_revision": "45936b598d893361d3720f360e8894d2bcc06935",
+  "source_sha256": "9150e323aed164f636310d492e831e3a5d971a995b436c4879470a738c0cca48",
+  "bundled_sha256": "6c9f9f74cab9772894321ee830ed174bc7d313d515b7b2fce3cd62b7eee1e1b2",
+  "normalization": "One trailing newline added; parsed JSON is identical to the generated publication.",
+  "input_classification": "Synthetic raw observations and consented profile/context fixtures through real PostgreSQL ordered publication and authenticated snapshot readback.",
+  "evidence_scope": "Historical decoder/adapter regression fixture only. SERVER_SCORE_NATIVE_TESTS still requires an explicit fresh JVM-generated fixture path. Not sensor-reference, deployment, or production-authorization evidence."
+}

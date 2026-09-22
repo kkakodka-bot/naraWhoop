@@ -10,15 +10,19 @@ final class WidgetSnapshotTests: XCTestCase {
         a.accountNamespace = "account-a"
         a.save(to: defaults)
         XCTAssertEqual(WidgetSnapshot.load(from: defaults)?.recovery, 72)
+        XCTAssertEqual(WidgetSnapshot.load(from: defaults)?.canonicalLedger, a.canonicalLedger)
         WidgetSnapshot.activateAccount(namespace: "account-b", defaults: defaults)
         XCTAssertNil(WidgetSnapshot.load(from: defaults))
         a.save(to: defaults)
         XCTAssertNil(WidgetSnapshot.load(from: defaults), "A late A publisher cannot replace B's widget")
         var b = a
         b.accountNamespace = "account-b"
+        b.canonicalLedger = CanonicalGlanceFixture.ledger(owner: CanonicalGlanceFixture.ownerB, revision: "compute:8")
         b.recovery = 33
         b.save(to: defaults)
         XCTAssertEqual(WidgetSnapshot.load(from: defaults)?.recovery, 33)
+        XCTAssertEqual(WidgetSnapshot.load(from: defaults)?.canonicalLedger?.ownerID, CanonicalGlanceFixture.ownerB)
+        XCTAssertEqual(WidgetSnapshot.load(from: defaults)?.canonicalLedger?.families["recovery"]?.resultRevision, "compute:8")
         WidgetSnapshot.activateAccount(namespace: nil, defaults: defaults)
         b.save(to: defaults)
         XCTAssertNil(WidgetSnapshot.load(from: defaults))
@@ -28,8 +32,13 @@ final class WidgetSnapshotTests: XCTestCase {
         let suite = "widget-legacy-test.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        renderedSnapshot().save(to: defaults)
-        XCTAssertNotNil(WidgetSnapshot.load(from: defaults))
+        var legacy = renderedSnapshot()
+        legacy.finalHosted = nil
+        legacy.canonicalLedger = nil
+        XCTAssertFalse(legacy.hasCanonicalAdmission)
+        legacy.save(to: defaults)
+        XCTAssertNotNil(defaults.data(forKey: WidgetSnapshot.storageKey), "Historical bytes remain intact")
+        XCTAssertNil(WidgetSnapshot.load(from: defaults), "Final hosted readers reject legacy values even before sign-in")
         WidgetSnapshot.activateAccount(namespace: "account-a", defaults: defaults)
         XCTAssertNil(WidgetSnapshot.load(from: defaults))
     }
@@ -90,7 +99,23 @@ final class WidgetSnapshotTests: XCTestCase {
     private func renderedSnapshot(updated: Date = Date(timeIntervalSince1970: 1_700_000_000)) -> WidgetSnapshot {
         WidgetSnapshot(recovery: 72, bpm: 58, batteryPct: 84, bonded: true, updated: updated,
                        effort: 38, rest: 81, hrv: 64, restingHr: 52,
-                       effortDisplay: "38", effortWhoop: false)
+                       effortDisplay: "38", effortWhoop: false,
+                       finalHosted: true, canonicalLedger: CanonicalGlanceFixture.ledger())
+    }
+
+    func testRevokedReceiptCannotAuthorizePreviouslyPopulatedWidget() throws {
+        var snapshot = renderedSnapshot()
+        snapshot.canonicalLedger = CanonicalGlanceFixture.ledger(recoveryStatus: "unqualified")
+        XCTAssertFalse(snapshot.hasCanonicalAdmission)
+        snapshot.recovery = nil
+        XCTAssertTrue(snapshot.hasCanonicalAdmission, "Explicit missing recovery does not revoke other qualified families")
+    }
+
+    func testRenderedContentDetectsImmutableRevisionChangeWithEqualNumbers() {
+        let previous = renderedSnapshot()
+        var next = previous
+        next.canonicalLedger = CanonicalGlanceFixture.ledger(revision: "compute:8")
+        XCTAssertTrue(WidgetSnapshot.renderedContentChanged(from: previous, to: next))
     }
 
     func testRenderedContentFirstPublishAlwaysChanges() {

@@ -181,6 +181,8 @@ targets:
         buildPhase: resources
       - path: Tests/Fixtures/compute-account-sleep-only.json
         buildPhase: resources
+      - path: Tests/Fixtures/W4-POPULATED-CONTEXT-SNAPSHOT-V2-NATIVE-FIXTURE.json
+        buildPhase: resources
       # Compile the exact cross-target snapshot source into the test bundle so the AltStore App Group
       # resolver is covered without adding this iOS/widget-only type to the macOS application module.
       - StrandiOSShared/WidgetSnapshot.swift

@@ -5,7 +5,8 @@ import StrandAnalytics
 @testable import Strand
 #endif
 
-/// Dedicated gate. The JVM producer must finish successfully before this suite is selected.
+/// Dedicated native integration requires freshly generated JVM output. The complete app suite
+/// also exercises these contracts against a bundled, unmodified synthetic JVM publication.
 final class ServerScoreContextInteroperabilityTests: XCTestCase {
     private let day = "2026-09-15"
     private let filename = "W4-POPULATED-CONTEXT-SNAPSHOT-V2-NATIVE-FIXTURE.json"
@@ -24,7 +25,15 @@ final class ServerScoreContextInteroperabilityTests: XCTestCase {
     }
 
     private func fixture() throws -> [String: Any] {
-        try load(path: ProcessInfo.processInfo.environment["W4_POPULATED_CONTEXT_FIXTURE"])
+        let explicit = ProcessInfo.processInfo.environment["W4_POPULATED_CONTEXT_FIXTURE"]
+        #if SERVER_SCORE_NATIVE_TESTS
+        // Integration evidence never silently substitutes a historical fixture.
+        return try load(path: explicit)
+        #else
+        if let explicit { return try load(path: explicit) }
+        return try load(path: Bundle(for: Self.self).url(
+            forResource: String(filename.dropLast(5)), withExtension: "json")?.path)
+        #endif
     }
 
     private func decode(_ object: [String: Any]) throws -> ServerScoreSnapshot {
