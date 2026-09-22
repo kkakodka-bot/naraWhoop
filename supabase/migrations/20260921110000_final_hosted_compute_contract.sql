@@ -112,11 +112,21 @@ declare
  disposition server_compute_dispositions; stored server_physiology_results;
  result jsonb; vals jsonb; metric text; status text; reason text; revision text;
  input_revision bigint; computed timestamptz; device uuid; details jsonb; hrv_window jsonb; expires timestamptz;
+ required_revisions jsonb:='{}'; required_revision bigint;
 begin
  base:=server_scoring_read_contract_v1(p_user,p_day,p_device);
  for policy in select * from compute_family_policy order by family loop
    feature:=base->'features'->policy.feature;
    device:=coalesce(p_device,(base->'daily'->>'source_device_id')::uuid,(feature->>'device_id')::uuid);
+   -- The work queue is private. Its existing owner-authorized projection is
+   -- shared by authenticated and service-role callers; never grant queue reads.
+   if device is not null then
+     if not required_revisions ? device::text then
+       required_revisions:=required_revisions||jsonb_build_object(device::text,
+         physiology_processing_metadata(p_user,device,p_day,'frwhoop-physiology-2',null)->'required_revision');
+     end if;
+     required_revision:=(required_revisions->>device::text)::bigint;
+   else required_revision:=null; end if;
    disposition:=null; stored:=null;
    select * into disposition from server_compute_dispositions d where d.user_id=p_user and d.device_id=device
      and d.day=p_day and d.family=policy.family order by input_revision desc,revision desc limit 1;
@@ -198,8 +208,7 @@ begin
      'computed_at',computed,'observed_through',stored.observed_through,
      'freshness',case when expires<=now() then 'expired'
        when feature->>'status'='stale' then 'stale'
-       when disposition.input_revision<(select max(w.input_revision) from physiology_work_items w
-         where w.user_id=p_user and w.device_id=device and w.day=p_day) then 'stale'
+       when disposition.input_revision<required_revision then 'stale'
        when revision is null then 'unavailable' else 'current' end,
      'expires_at',expires,'decision_id',null,'values',vals,'details',details||jsonb_build_object('calendar_ownership',
        coalesce(stored.payload->'calendar_ownership',disposition.calendar_ownership),
