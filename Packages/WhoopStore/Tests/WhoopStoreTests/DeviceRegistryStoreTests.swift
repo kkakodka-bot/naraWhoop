@@ -156,7 +156,7 @@ final class DeviceRegistryStoreTests: XCTestCase {
     }
 
     // Regression guard (audit finding): every table with a `deviceId` column MUST appear in
-    // `deviceScopedTables`, or `deleteAllData` silently leaves that device's rows behind — a privacy
+    // `deviceScopedTables` (or the explicit pending-deletion journal), or deleteAllData leaves data — a privacy
     // defect for a delete-means-gone app. Enumerate the live schema and fail if any deviceId-keyed table
     // is uncovered, so a future migration that adds one can't reintroduce the gap.
     func testDeviceScopedTablesCoversEveryDeviceIdKeyedTable() throws {
@@ -170,7 +170,8 @@ final class DeviceRegistryStoreTests: XCTestCase {
             for table in tables {
                 let cols = try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))")
                 let hasDeviceId = cols.contains { ($0["name"] as String?) == "deviceId" }
-                if hasDeviceId && !DeviceRegistryStore.deviceScopedTables.contains(table) {
+                if hasDeviceId && !DeviceRegistryStore.deviceScopedTables.contains(table)
+                    && !DeviceRegistryStore.deviceDeletionJournalTables.contains(table) {
                     missing.append(table)
                 }
             }
@@ -178,6 +179,38 @@ final class DeviceRegistryStoreTests: XCTestCase {
         }
         XCTAssertTrue(uncovered.isEmpty,
                       "deviceId-keyed tables missing from deviceScopedTables (deleteAllData would skip them): \(uncovered)")
+    }
+
+    func testExplicitDeleteRetainsOnlyMutableDeletionRevisionAndCloudDebt() throws {
+        let writer = try makeDB()
+        let sourceRegistry = DeviceRegistryStore(dbQueue: writer)
+        try writer.write { db in
+            try db.execute(sql: "INSERT INTO journal(deviceId,day,question,answeredYes) VALUES('synthetic-noop','2026-09-22','fixture',1)")
+        }
+        let before = try writer.read { try Int64.fetchOne($0, sql: "SELECT revision FROM cloudMutableRevision WHERE deviceId='synthetic-noop'") }
+        try sourceRegistry.deleteAllData(deviceId: "synthetic-noop")
+        try writer.read { db in
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM journal"), 0)
+            XCTAssertGreaterThan(try XCTUnwrap(Int64.fetchOne(db, sql: "SELECT revision FROM cloudMutableRevision WHERE deviceId='synthetic-noop'")), try XCTUnwrap(before))
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM syncJob WHERE kind='cloudPush'"), 1)
+        }
+    }
+
+    func testSerialAdoptionRetainsOldIdentityDeletionAndMarksNewIdentity() throws {
+        let writer = try makeDB(), from = "oura-synthetic", to = "oura-canonical"
+        let registry = DeviceRegistryStore(dbQueue: writer)
+        try addOura(registry, from, peripheralId: "synthetic", status: .paired, addedAt: 1)
+        try writer.write { db in
+            try db.execute(sql: "INSERT INTO journal(deviceId,day,question,answeredYes) VALUES(?,'2026-09-22','fixture',1)", arguments: [from])
+        }
+        let before = try writer.read { try Int64.fetchOne($0, sql: "SELECT revision FROM cloudMutableRevision WHERE deviceId=?", arguments: [from]) }
+        XCTAssertTrue(try registry.adoptSerialIdentity(from: from, to: to))
+        try writer.read { db in
+            XCTAssertEqual(try String.fetchAll(db, sql: "SELECT deviceId FROM journal"), [to])
+            let old = try XCTUnwrap(Int64.fetchOne(db, sql: "SELECT revision FROM cloudMutableRevision WHERE deviceId=?", arguments: [from]))
+            let new = try XCTUnwrap(Int64.fetchOne(db, sql: "SELECT revision FROM cloudMutableRevision WHERE deviceId=?", arguments: [to]))
+            XCTAssertGreaterThan(old, try XCTUnwrap(before)); XCTAssertGreaterThan(new, try XCTUnwrap(before))
+        }
     }
 
     func testDayOwnershipUpsertAndRead() throws {

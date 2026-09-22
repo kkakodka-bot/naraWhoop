@@ -1021,6 +1021,9 @@ extension WhoopStore {
         migrator.registerMigration("v55-quarantine-maintenance") { db in
             try WhoopStore.installQuarantineMaintenanceSchema(db)
         }
+        migrator.registerMigration("v56-cloud-mutable-revisions") { db in
+            try WhoopStore.installCloudMutableJournal(db)
+        }
         return migrator
     }
 }
