@@ -1024,6 +1024,9 @@ extension WhoopStore {
         migrator.registerMigration("v56-cloud-mutable-revisions") { db in
             try WhoopStore.installCloudMutableJournal(db)
         }
+        migrator.registerMigration("v57-cloud-mutable-order") { db in
+            try db.execute(sql: "CREATE INDEX cloudMutableRevision_order ON cloudMutableRevision(tableName,deviceId,revision,rangeKey)")
+        }
         return migrator
     }
 }

@@ -7,7 +7,67 @@ public enum CloudMutableTable: String, CaseIterable, Sendable {
     fileprivate var usesDayKey: Bool { self == .dailyMetric || self == .journal }
 }
 
+public struct CloudMutableDirtyRange: Equatable, Sendable {
+    public let revision: Int64
+    public let key: String
+    public let fromDay: String
+    public let toDay: String
+}
+
+public struct CloudMutableDirtyPage: Equatable, Sendable {
+    public let ranges: [CloudMutableDirtyRange]
+    public let hasMore: Bool
+}
+
 extension WhoopStore {
+    /// Each receiver advances its own consumed tuple only with an exact receipt. Coalescing
+    /// moves a changed key to a newer revision, so mutations during an upload reappear. The key
+    /// breaks ties when one source transaction moves a row across two dates.
+    public nonisolated static func cloudMutableDirtyRanges(
+        _ db: Database, table: CloudMutableTable, deviceID: String,
+        afterRevision: Int64, afterKey: String, limit: Int, calendar: Calendar
+    ) throws -> CloudMutableDirtyPage {
+        guard !deviceID.isEmpty, afterRevision >= 0, (1...32).contains(limit) else {
+            throw DatabaseError(resultCode: .SQLITE_MISUSE, message: "Invalid mutable dirty range cursor")
+        }
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT revision,rangeKey FROM cloudMutableRevision
+            WHERE tableName=? AND deviceId=? AND (revision,rangeKey) > (?,?)
+            ORDER BY revision,rangeKey LIMIT ?
+            """, arguments: [table.rawValue, deviceID, afterRevision, afterKey, limit + 1])
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = calendar.timeZone
+        formatter.isLenient = false
+        func validDay(_ value: String) -> Bool {
+            guard value.utf8.count == 10, let date = formatter.date(from: value) else { return false }
+            return formatter.string(from: date) == value
+        }
+        let ranges = try rows.prefix(limit).map { row -> CloudMutableDirtyRange in
+            let revision: Int64 = row["revision"], key: String = row["rangeKey"]
+            let from: String, to: String
+            if table.usesDayKey {
+                guard key.hasPrefix("d:") else {
+                    throw DatabaseError(resultCode: .SQLITE_CORRUPT, message: "Invalid mutable day marker")
+                }
+                from = String(key.dropFirst(2)); to = from
+            } else {
+                guard key.hasPrefix("u:"), let bucket = Int64(key.dropFirst(2)),
+                      bucket >= 0, bucket <= 2_932_896, key == "u:\(bucket)" else {
+                    throw DatabaseError(resultCode: .SQLITE_CORRUPT, message: "Invalid mutable timestamp marker")
+                }
+                from = formatter.string(from: Date(timeIntervalSince1970: Double(bucket) * 86400))
+                to = formatter.string(from: Date(timeIntervalSince1970: Double(bucket + 1) * 86400 - 1))
+            }
+            guard revision > 0, validDay(from), validDay(to), from <= to else {
+                throw DatabaseError(resultCode: .SQLITE_CORRUPT, message: "Invalid mutable marker range")
+            }
+            return .init(revision: revision, key: key, fromDay: from, toDay: to)
+        }
+        return .init(ranges: ranges, hasMore: rows.count > limit)
+    }
+
     /// Coalesced revisions live in the same account database and source transaction. No source
     /// scan is needed on migration: an absent legacy marker means revision zero, and a receiver
     /// without a saved revision still needs its ordinary initial snapshot.

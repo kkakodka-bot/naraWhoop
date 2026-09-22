@@ -58,7 +58,8 @@
     "v53-standard-hr-capture-journal",
     "v54-workout-preference-evaluation",
     "v55-quarantine-maintenance",
-    "v56-cloud-mutable-revisions"
+    "v56-cloud-mutable-revisions",
+    "v57-cloud-mutable-order"
   ],
   "divergenceReasons": {
     "workout-preference-window-ios-only": "GRDB v54 adds the bounded workout preference evaluation scan index. Android has no equivalent evaluation lane; Room44 remains unchanged. The index does not change workout values or their shared primary key.",
@@ -92,7 +93,7 @@
         {"name": "revision", "affinity": "INTEGER", "notNull": true, "default": null}
       ],
       "primaryKey": ["tableName", "deviceId", "rangeKey"],
-      "indices": []
+      "indices": [{"name": "cloudMutableRevision_order", "unique": false, "columns": ["tableName", "deviceId", "revision", "rangeKey"]}]
     },
     "quarantineMaintenance": {
       "platform": "ios_only",

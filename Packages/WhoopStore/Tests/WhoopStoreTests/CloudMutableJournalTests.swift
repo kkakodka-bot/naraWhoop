@@ -101,4 +101,61 @@ final class CloudMutableJournalTests: XCTestCase {
         XCTAssertThrowsError(try writer.read { try WhoopStore.cloudMutableDayRevisions($0,table:.journal,deviceID:"synthetic",
             fromDay:"2026-01-01",toDay:"2026-09-22",calendar:utc) })
     }
+
+    func testDirtyPagesIncludeOldDaysAndDoNotSkipSameRevisionMove() throws {
+        let writer = try writer()
+        try writer.write { db in
+            try db.execute(sql: "INSERT INTO journal(deviceId,day,question,answeredYes) VALUES('synthetic','2024-01-01','fixture',1)")
+            try db.execute(sql: "UPDATE journal SET day='2024-02-01'")
+        }
+        func page(_ revision: Int64 = 0, _ key: String = "") throws -> CloudMutableDirtyPage {
+            try writer.read { try WhoopStore.cloudMutableDirtyRanges($0, table: .journal, deviceID: "synthetic",
+                afterRevision: revision, afterKey: key, limit: 1, calendar: utc) }
+        }
+        let first = try page(), a = try XCTUnwrap(first.ranges.first)
+        XCTAssertEqual(a.fromDay, "2024-01-01"); XCTAssertEqual(a.toDay, a.fromDay)
+        XCTAssertTrue(first.hasMore)
+        let second = try page(a.revision, a.key), b = try XCTUnwrap(second.ranges.first)
+        XCTAssertEqual(b.fromDay, "2024-02-01"); XCTAssertEqual(b.revision, a.revision)
+        XCTAssertFalse(second.hasMore)
+        XCTAssertTrue(try page(b.revision, b.key).ranges.isEmpty)
+        // The source does not erase markers on read; another receiver retains its own frontier.
+        XCTAssertEqual(try page(), first)
+        try writer.write { try $0.execute(sql: "UPDATE journal SET day='2024-01-01'") }
+        let changed = try page(b.revision, b.key)
+        XCTAssertEqual(changed.ranges.first?.fromDay, "2024-01-01")
+        XCTAssertGreaterThan(try XCTUnwrap(changed.ranges.first?.revision), b.revision)
+    }
+
+    func testDirtyTimestampBucketIncludesLocalDaysAcrossDSTAndStaysMetadataOnly() throws {
+        let writer = try writer()
+        var local = utc; local.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        let timestamp = Int(ISO8601DateFormatter().date(from: "2026-11-01T12:00:00Z")!.timeIntervalSince1970)
+        try writer.write { db in
+            try db.execute(sql: "INSERT INTO workout(deviceId,startTs,endTs,sport,source) VALUES('synthetic',?,?,'fixture','fixture')", arguments: [timestamp,timestamp+1])
+            try db.execute(sql: "DROP TABLE workout")
+        }
+        let page = try writer.read { try WhoopStore.cloudMutableDirtyRanges($0, table: .workout, deviceID: "synthetic",
+            afterRevision: 0, afterKey: "", limit: 1, calendar: local) }
+        XCTAssertEqual(page.ranges.first?.fromDay, "2026-10-31")
+        XCTAssertEqual(page.ranges.first?.toDay, "2026-11-01")
+        XCTAssertFalse(page.hasMore)
+    }
+
+    func testDirtyRangeBoundsMalformedKeysAndIndexedPlan() throws {
+        let writer = try writer()
+        for limit in [0, 33] {
+            XCTAssertThrowsError(try writer.read { try WhoopStore.cloudMutableDirtyRanges($0, table: .journal,
+                deviceID: "synthetic", afterRevision: 0, afterKey: "", limit: limit, calendar: utc) })
+        }
+        try writer.write { try $0.execute(sql: "INSERT INTO cloudMutableRevision VALUES('journal','synthetic','d:invalid',1)") }
+        XCTAssertThrowsError(try writer.read { try WhoopStore.cloudMutableDirtyRanges($0, table: .journal,
+            deviceID: "synthetic", afterRevision: 0, afterKey: "", limit: 1, calendar: utc) })
+        let plan = try writer.read { db in
+            try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN SELECT revision,rangeKey FROM cloudMutableRevision WHERE tableName=? AND deviceId=? AND (revision,rangeKey)>(?,?) ORDER BY revision,rangeKey LIMIT ?",
+                arguments: ["journal","synthetic",0,"",2]).map { $0["detail"] as String }.joined(separator: " ")
+        }
+        XCTAssertTrue(plan.contains("cloudMutableRevision_order"))
+        XCTAssertFalse(plan.contains("TEMP B-TREE"))
+    }
 }
