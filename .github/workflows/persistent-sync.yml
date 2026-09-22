@@ -69,6 +69,7 @@ jobs:
             -only-testing:StrandTests/RealtimeWearPolicyTests \
             -only-testing:StrandTests/RealtimeIntentControllerTests \
             -only-testing:StrandTests/BLEConnectionOwnerTests \
+            -only-testing:StrandTests/BLEConnectionSetupLeaseTests \
             -only-testing:StrandTests/BLETransportDriverTests \
             -only-testing:StrandTests/BLENotificationControllerTests \
             -only-testing:StrandTests/CloudPushPreparedSelectionTests \
@@ -84,6 +85,7 @@ jobs:
             -only-testing:StrandTests/SyncPresentationTests \
             -only-testing:StrandTests/BackfillManagerLifecycleTests \
             -only-testing:StrandTests/BackfillActorPipelineTests \
+            -only-testing:StrandTests/CaptureCloudStressTests \
             -only-testing:StrandTests/BackfillerPersistCircuitBreakerTests \
             -only-testing:StrandTests/BackfillerHistoricalProgressTests \
             -only-testing:StrandTests/BackfillerImuSessionTests \

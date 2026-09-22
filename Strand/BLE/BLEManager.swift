@@ -2685,11 +2685,9 @@ public final class BLEManager: NSObject, ObservableObject {
 
     /// The one gate every WHOOP scan/connect entry point passes through (#1881).
     ///
-    /// Deliberately at the CONNECT sites rather than only at `connectCore`: there are five
-    /// `central.connect` sites, and `connectCore` owns two. The rest are reached from `poweredOn` and
-    /// `willRestoreState` (via `connectRestored`), from `didDiscover`, and from the standing connect —
-    /// which involves no scan at all and is honoured while the app is suspended, so no scan-side guard
-    /// can cover it.
+    /// Pairing, restoration, discovery and standing reconnect all check device intent before
+    /// entering the shared transport driver. A standing request involves no scan and can remain
+    /// owned by Core Bluetooth while the app is suspended, so a scan-side check alone is insufficient.
     ///
     /// `reason` names the entry point in the strap log, so a "why did my ring's data grow legs" report
     /// says which path tried. Logged only on the transition into blocking, so a rotation timer cannot

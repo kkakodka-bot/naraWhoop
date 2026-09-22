@@ -139,9 +139,8 @@ final class Backfiller {
     /// of end_data, used for the `strap_trim` cursor) and the 8-byte `end_data` (= the raw
     /// HISTORY_END metadata.data[10:18]) that the high-freq-sync ack form requires verbatim.
     private let ackTrim: (_ trim: UInt32, _ endData: [UInt8]) async -> Void
-    /// #1635: one offload chunk's accepted-row counts, handed up so `BLEManager` can tally them per LINK.
-    /// The offload is the only path that banks gravity/resp/skinTemp/SpO2/steps, so a link summary
-    /// without it cannot tell an unbonded strap — which defers backfill — from a healthy one.
+    /// Legacy injected-test observer. Production delivers tallies through `chunkInfo`; this hook
+    /// must not schedule scoring, cloud preparation or other workers after an arbitrary delay.
     private let onBankedOffload: (_ counts: (hr: Int, rr: Int, events: Int, battery: Int,
                                              spo2: Int, skinTemp: Int, resp: Int, gravity: Int)) async -> Void
     private let extract: Extractor
