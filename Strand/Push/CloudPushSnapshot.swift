@@ -285,7 +285,9 @@ struct CloudPushSnapshot: PushSnapshotSource {
         limit: Int
     ) async throws -> [PushMutableRecord] {
         precondition(limit >= 1 && limit <= PushProtocolLimits.maxMutableSnapshotRecords + 1)
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
         return try await db.read { db in
+            guard allowsPreparation() else { throw PushSourceReadError.deferred }
             let spec = mutableSpec(table)
             let (predicate, arguments): (String, [DatabaseValueConvertible?])
             switch table {
@@ -307,13 +309,16 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 arguments: StatementArguments(arguments + [limit]))
             var remaining = PushProtocolLimits.maxMutableSnapshotEncodedBytes
             for size in sizes {
+                guard allowsPreparation() else { throw PushSourceReadError.deferred }
                 guard size >= 0, size <= remaining else { throw PushSourceReadError.requiresCompatibleEncoding }
                 remaining -= size
             }
             // Replacement windows are all-or-nothing: never return a byte-truncated subset.
             guard sizes.count <= PushProtocolLimits.maxMutableSnapshotRecords else { throw PushSourceReadError.requiresCompatibleEncoding }
+            guard allowsPreparation() else { throw PushSourceReadError.deferred }
             return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments + [limit])).map {
-                mutableRecord(row: $0, spec: spec)
+                guard allowsPreparation() else { throw PushSourceReadError.deferred }
+                return mutableRecord(row: $0, spec: spec)
             }
         }
     }

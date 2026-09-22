@@ -79,6 +79,24 @@ final class CloudAuxiliaryIdentityTests: XCTestCase {
         }
     }
 
+    func testMutableSnapshotPressureAtReadAndMaterializationBoundariesRetainsRows() async throws {
+        try await withStore { store, _ in
+            try await store.registryWriter.write { db in
+                try db.execute(sql: "INSERT INTO journal(deviceId,day,question,answeredYes) VALUES(?,?,?,?)",
+                    arguments: [self.device, "2020-01-01", "synthetic", 1])
+            }
+            let window = PushWindow(fromDay: "2020-01-01", toDay: "2020-01-01", startTsInclusive: 1577836800, endTsExclusive: 1577923200)
+            for allowed in 0...4 {
+                let gate = SourceDiscoveryGate(maximumCalls: allowed)
+                let snapshot = CloudPushSnapshot(db: store.registryWriter, allowsPreparation: { gate.admitFirstOnly() })
+                do { _ = try await snapshot.mutableRows(table: .journal, deviceId: self.device, window: window, limit: 1001); XCTFail("pressure boundary ignored") }
+                catch { XCTAssertEqual(error as? PushSourceReadError, .deferred) }
+            }
+            let retained = try await store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM journal") }
+            XCTAssertEqual(retained, 1)
+        }
+    }
+
     func testDiscoveryPressureBetweenMetadataReadAndBootstrapDoesNotStartScan() async throws {
         try await withStore { store, _ in
             let gate = SourceDiscoveryGate()
@@ -249,5 +267,7 @@ final class CloudAuxiliaryIdentityTests: XCTestCase {
 private final class SourceDiscoveryGate: @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
-    func admitFirstOnly() -> Bool { lock.lock(); defer { lock.unlock() }; calls += 1; return calls == 1 }
+    private let maximumCalls: Int
+    init(maximumCalls: Int = 1) { self.maximumCalls = maximumCalls }
+    func admitFirstOnly() -> Bool { lock.lock(); defer { lock.unlock() }; calls += 1; return calls <= maximumCalls }
 }
