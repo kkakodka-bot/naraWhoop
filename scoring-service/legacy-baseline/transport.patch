@@ -754,9 +754,9 @@ index 0000000..c85700f
 +        require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
 +        db = PostgresClient(url)
 +        queue = ScoringWorkQueue(db)
-+        sql("insert into auth.users values ('$user')")
-+        sql("insert into profiles(id,timezone) values ('$user','UTC')")
-+        sql("insert into devices(id,user_id) values ('$device','$user')")
++        sql("insert into auth.users(id) values ('$user')")
++        sql("insert into profiles(id,timezone) values ('$user','UTC') on conflict(id) do update set timezone=excluded.timezone")
++        sql("insert into devices(id,user_id,source_kind,external_device_id,device_family) values ('$device','$user','noop_push','$device','whoop5')")
 +    }
 +
 +    @After fun close() { if (::db.isInitialized) db.close() }

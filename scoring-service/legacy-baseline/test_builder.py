@@ -127,6 +127,17 @@ class BaselineBuilderTests(unittest.TestCase):
         ):
             self.assertIn(token, source)
 
+    def test_selected_v1_integration_fixture_matches_current_schema(self):
+        source = MODULE_PATH.with_name("transport.patch").read_text()
+        self.assertIn("insert into auth.users(id) values", source)
+        self.assertIn("on conflict(id) do update set timezone=excluded.timezone", source)
+        self.assertIn(
+            "insert into devices(id,user_id,source_kind,external_device_id,device_family) values",
+            source,
+        )
+        self.assertNotIn("insert into auth.users values ('$user')", source)
+        self.assertNotIn("insert into devices(id,user_id) values ('$device','$user')", source)
+
 
 if __name__ == "__main__":
     unittest.main()
