@@ -2,6 +2,7 @@ package com.frwhoop.scoring
 
 import com.frwhoop.scoring.db.PostgresClient
 import com.frwhoop.scoring.db.SignalInventoryReader
+import com.frwhoop.scoring.signals.SignalCapabilityRegistry
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
@@ -27,6 +28,15 @@ object SignalInventoryCommand {
     }
 
     fun run(environment: Map<String, String>) {
+        val fixture = environment["INVENTORY_FIXTURE"]
+        require(fixture == null || fixture in setOf("true", "false")) { "INVENTORY_FIXTURE must be true or false" }
+        if (fixture == "true") {
+            require(environment.keys.none { it in setOf("INVENTORY_USER_ID", "INVENTORY_DEVICE_ID", "INVENTORY_DAY", "INVENTORY_START", "INVENTORY_END") }) {
+                "fixture_mode_cannot_be_combined_with_owned_inventory_scope"
+            }
+            println(SignalCapabilityRegistry.fixtureReport().toString(2))
+            return
+        }
         val request = request(environment)
         val url = environment["DATABASE_URL"]?.takeIf { it.isNotBlank() } ?: error("DATABASE_URL required for --inventory-signals")
         PostgresClient(url).use { db ->
