@@ -12,7 +12,10 @@ final class ScoringConsentRelayTests: XCTestCase {
     private let device = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
     private func fixture() throws -> AccountStorageLayout {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
+        // Wrong-owner refusal intentionally never opens an account store. The fixture itself
+        // still owns a directory, so its strict teardown does not depend on an authorized write.
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock { try FileManager.default.removeItem(at: root) }
         return AccountStorageLayout(baseDirectory: root,
             scope: try AccountScope(projectURL: "https://consent-relay.invalid", userID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))

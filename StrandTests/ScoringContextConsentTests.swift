@@ -19,7 +19,7 @@ final class ScoringContextConsentTests: XCTestCase {
     }
 
     func testConsentIsDefaultOffDurableAndAccountProjectIsolated() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let a = ScoringContextConsent(layout: try layout(root))
         addTeardownBlock { try await a.waitForRetirement() }
@@ -47,7 +47,7 @@ final class ScoringContextConsentTests: XCTestCase {
     }
 
     func testRevocationAndNewDecisionDoNotReleasePreviouslyQueuedSensitiveInput() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let consent = ScoringContextConsent(layout: try layout(root))
         addTeardownBlock { try await consent.waitForRetirement() }
@@ -64,7 +64,7 @@ final class ScoringContextConsentTests: XCTestCase {
     }
 
     func testRevokedSQLiteCommitCannotPersistOverSuccessorDecision() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let captured = try layout(root)
         let fence = StoreWriteFence()
@@ -86,7 +86,7 @@ final class ScoringContextConsentTests: XCTestCase {
     }
 
     func testFailedRevocationRemainsPausedAcrossReloadAndOtherPurposeWrite() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let captured = try layout(root)
         let consent = ScoringContextConsent(layout: captured)
@@ -151,7 +151,7 @@ final class ScoringContextConsentTests: XCTestCase {
     }
 
     func testWrongOwnerDatabaseFailsClosedWithoutRebinding() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         addTeardownBlock { try FileManager.default.removeItem(at: root) }
         let captured = try layout(root)
         try captured.prepare()
