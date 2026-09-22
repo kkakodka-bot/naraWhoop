@@ -53,14 +53,19 @@ object SignalCapabilityRegistry {
         val capabilities = JSONArray()
         fun capability(name: String, projection: String?, rawStream: String?, modality: String,
                        declaredUnits: String, reason: String, channels: List<String>) {
-            val scalar = projection?.let { signals.optJSONObject(it) }
+            val projections = if (name == "five_minute_pulse_interval_variability")
+                listOf("rr_intervals", "rr_packet_receipts", "standard_hr_receipts") else listOfNotNull(projection)
+            val projectionCounts = JSONObject()
+            projections.forEach { projectionCounts.put(it, signals.optJSONObject(it)?.optLong("row_count") ?: 0L) }
+            val scalarRows = projections.sumOf { projectionCounts.getLong(it) }
             val objects = (0 until rawObjects.length()).map { rawObjects.getJSONObject(it) }
                 .filter { it.optString("stream") == rawStream }
-            val observed = (scalar?.optLong("row_count") ?: 0L) > 0 || objects.isNotEmpty()
+            val observed = scalarRows > 0 || objects.isNotEmpty()
             capabilities.put(JSONObject().put("capability", name).put("modality", modality)
                 .put("qualification_status", if (name == "spo2") "blocked" else if (observed) "unqualified" else "not_observed")
                 .put("reason", if (observed || name == "spo2") reason else "no_catalogue_observations")
-                .put("observed_scalar_rows", scalar?.optLong("row_count") ?: 0L)
+                .put("observed_scalar_rows", scalarRows).put("projection_row_counts", projectionCounts)
+                .put("projection_rows_are_not_unique_physical_observations", true)
                 .put("catalogue_object_count", objects.size)
                 .put("observed_sample_count", JSONObject.NULL).put("verified_sample_rate_hz", JSONObject.NULL)
                 .put("observed_time_fraction", JSONObject.NULL).put("verified_maximum_gap_seconds", JSONObject.NULL)
@@ -70,7 +75,8 @@ object SignalCapabilityRegistry {
                 .put("eligible_for_scoring_from_inventory", false))
         }
         capability("five_minute_pulse_interval_variability", "rr_packet_receipts", null, "ppg_pulse_intervals",
-            "decoder_specific_interval_units", "timing_coverage_unverified", listOf("whoop5_historical_original_words", "standard_ble_rr"))
+            "decoder_specific_interval_units", "timing_coverage_unverified",
+            listOf("whoop4_historical_milliseconds", "whoop5_historical_original_words", "standard_ble_rr"))
         capability("ppg_waveform_and_server_heart_rate", null, "ppgWaveformSample", "optical",
             "signed_i16_counts", "timing_channel_units_and_reference_unverified", listOf("wavelength_unknown"))
         capability("continuous_imu", null, "imuRawSample", "inertial",

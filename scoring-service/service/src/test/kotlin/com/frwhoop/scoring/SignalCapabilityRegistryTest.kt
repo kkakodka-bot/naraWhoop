@@ -74,4 +74,15 @@ class SignalCapabilityRegistryTest {
         assertTrue(spo2.isNull("qualified_physical_units"))
         assertFalse(report.has("user_id"))
     }
+
+    @Test fun legacyAndStandardRrObservationsAreInventoriedWithoutBecomingQualified() {
+        for (projection in listOf("rr_intervals", "standard_hr_receipts")) {
+            val registry = SignalCapabilityRegistry.build(JSONObject().put(projection, JSONObject().put("row_count", 20)), JSONArray(), JSONArray())
+            val hrv = registry.getJSONArray("capabilities").getJSONObject(0)
+            assertEquals("unqualified", hrv.getString("qualification_status"))
+            assertEquals(20, hrv.getJSONObject("projection_row_counts").getInt(projection))
+            assertTrue(hrv.getBoolean("projection_rows_are_not_unique_physical_observations"))
+            assertTrue(hrv.isNull("observed_time_fraction"))
+        }
+    }
 }
