@@ -1,0 +1,1202 @@
+{
+  "sourceRevision": "59f9a9a61947ff2ebaa3b7efbbf50a206e1876e0",
+  "applicationRevision": "d10bf4321c5cc28072fe78da8f7d2fe7328297d6",
+  "schedulerAndBenchmarkUnchangedAtApplicationRevision": true,
+  "benchmarkSha256": "7f8d3d97c85fab7a5a3ed01bbd48d5e09727b779186cc944d7e998cb39f45298",
+  "sourceReport": "/Volumes/Untitled/multiuser-evidence/server-pipeline.BEJr14/decoders/fleet-capacity.json",
+  "sourceReportSha256": "29e15a6b26b0df2a3de738d1e3d53694c48409f857b648fb636c41167afb52d3",
+  "measurement": "disposable PostgreSQL scheduling with synthetic 3 ms or noisy-owner 20 ms work; not end-to-end physiology capacity",
+  "cohorts": [
+    {
+      "cohort": 10,
+      "workers": 4,
+      "completed": 130,
+      "liveDone": 20,
+      "backfillDone": 110,
+      "failed": 8,
+      "superseded": 1,
+      "ownerProgress": 10,
+      "seconds": 3.063631540999999,
+      "maxActive": 3,
+      "maxPerUser": 2,
+      "liveSeconds": {
+        "count": 20,
+        "p50": 1.171,
+        "p95": 1.318,
+        "p99": 1.319
+      },
+      "backfillSeconds": {
+        "count": 110,
+        "p50": 1.915,
+        "p95": 2.599,
+        "p99": 2.653
+      },
+      "originalDirtyLiveSeconds": {
+        "count": 20,
+        "p50": 4.458,
+        "p95": 4.605,
+        "p99": 4.606
+      },
+      "originalDirtyBackfillSeconds": {
+        "count": 110,
+        "p50": 4.061,
+        "p95": 4.745,
+        "p99": 4.799
+      },
+      "metrics": [
+        {
+          "work_class": "backfill",
+          "pending": 0,
+          "oldest_seconds": 0,
+          "running": 0,
+          "p50_seconds": 4.096991,
+          "p95_seconds": 4.77247065,
+          "p99_seconds": 4.83140739,
+          "attempts": 111,
+          "superseded": 0
+        },
+        {
+          "work_class": "live",
+          "pending": 0,
+          "oldest_seconds": 0,
+          "running": 0,
+          "p50_seconds": 4.4975835,
+          "p95_seconds": 4.64064455,
+          "p99_seconds": 4.64203611,
+          "attempts": 29,
+          "superseded": 2
+        }
+      ],
+      "resourceSamples": [
+        {
+          "at": "2026-09-22T02:02:49.271Z",
+          "database": {
+            "BlockIO": "0B / 122MB",
+            "CPUPerc": "42.77%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "7.24%",
+            "MemUsage": "148.3MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "971kB / 1.48MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 1
+          }
+        },
+        {
+          "at": "2026-09-22T02:02:51.284Z",
+          "database": {
+            "BlockIO": "0B / 123MB",
+            "CPUPerc": "1.12%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "7.24%",
+            "MemUsage": "148.3MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "1.24MB / 1.86MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 1
+          }
+        }
+      ],
+      "localQueueLiveP95Under60Seconds": true,
+      "latencyOrigin": "after fixture enqueue transaction committed or a later invalidation; dirty-time metrics also retained",
+      "measurementScope": "PostgreSQL scheduler plus scalar invalidation, synthetic 3ms/20ms work; no physiology/model/B2 capacity claim",
+      "injectedAt": "2026-09-22T02:02:44.699Z"
+    },
+    {
+      "cohort": 100,
+      "workers": 4,
+      "completed": 400,
+      "liveDone": 200,
+      "backfillDone": 200,
+      "failed": 8,
+      "superseded": 1,
+      "ownerProgress": 100,
+      "seconds": 5.565826542000003,
+      "maxActive": 3,
+      "maxPerUser": 2,
+      "liveSeconds": {
+        "count": 200,
+        "p50": 2.465,
+        "p95": 3.195,
+        "p99": 3.262
+      },
+      "backfillSeconds": {
+        "count": 200,
+        "p50": 3.732,
+        "p95": 5.791,
+        "p99": 5.97
+      },
+      "originalDirtyLiveSeconds": {
+        "count": 200,
+        "p50": 34.035,
+        "p95": 34.765,
+        "p99": 34.832
+      },
+      "originalDirtyBackfillSeconds": {
+        "count": 200,
+        "p50": 8.479,
+        "p95": 9.962,
+        "p99": 10.076
+      },
+      "metrics": [
+        {
+          "work_class": "backfill",
+          "pending": 0,
+          "oldest_seconds": 0,
+          "running": 0,
+          "p50_seconds": 8.518607,
+          "p95_seconds": 9.9951556,
+          "p99_seconds": 10.08515264,
+          "attempts": 200,
+          "superseded": 0
+        },
+        {
+          "work_class": "live",
+          "pending": 0,
+          "oldest_seconds": 0,
+          "running": 0,
+          "p50_seconds": 34.078609,
+          "p95_seconds": 34.8011352,
+          "p99_seconds": 34.8634969,
+          "attempts": 210,
+          "superseded": 2
+        }
+      ],
+      "resourceSamples": [
+        {
+          "at": "2026-09-22T02:03:29.812Z",
+          "database": {
+            "BlockIO": "0B / 158MB",
+            "CPUPerc": "82.49%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.14%",
+            "MemUsage": "125.8MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "1.55MB / 2.3MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 3
+          }
+        },
+        {
+          "at": "2026-09-22T02:03:31.856Z",
+          "database": {
+            "BlockIO": "0B / 163MB",
+            "CPUPerc": "58.81%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.15%",
+            "MemUsage": "126MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "2.23MB / 3.34MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 1
+          }
+        },
+        {
+          "at": "2026-09-22T02:03:34.222Z",
+          "database": {
+            "BlockIO": "0B / 164MB",
+            "CPUPerc": "31.00%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.15%",
+            "MemUsage": "126MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "2.68MB / 3.98MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 1
+          }
+        }
+      ],
+      "localQueueLiveP95Under60Seconds": true,
+      "latencyOrigin": "after fixture enqueue transaction committed or a later invalidation; dirty-time metrics also retained",
+      "measurementScope": "PostgreSQL scheduler plus scalar invalidation, synthetic 3ms/20ms work; no physiology/model/B2 capacity claim",
+      "injectedAt": "2026-09-22T02:03:21.125Z"
+    },
+    {
+      "cohort": 1000,
+      "workers": 4,
+      "completed": 3100,
+      "liveDone": 2000,
+      "backfillDone": 1100,
+      "failed": 8,
+      "superseded": 1,
+      "ownerProgress": 1000,
+      "seconds": 99.280131833,
+      "maxActive": 3,
+      "maxPerUser": 2,
+      "liveSeconds": {
+        "count": 2000,
+        "p50": 61.233,
+        "p95": 93.892,
+        "p99": 95.134
+      },
+      "backfillSeconds": {
+        "count": 1100,
+        "p50": 87.847,
+        "p95": 99.198,
+        "p99": 99.814
+      },
+      "originalDirtyLiveSeconds": {
+        "count": 2000,
+        "p50": 254.337,
+        "p95": 287.052,
+        "p99": 288.312
+      },
+      "originalDirtyBackfillSeconds": {
+        "count": 1100,
+        "p50": 123.484,
+        "p95": 142.407,
+        "p99": 142.588
+      },
+      "metrics": [
+        {
+          "work_class": "backfill",
+          "pending": 0,
+          "oldest_seconds": 0,
+          "running": 0,
+          "p50_seconds": 123.5929445,
+          "p95_seconds": 142.4639949,
+          "p99_seconds": 142.64429393,
+          "attempts": 1100,
+          "superseded": 0
+        },
+        {
+          "work_class": "live",
+          "pending": 0,
+          "oldest_seconds": 0,
+          "running": 0,
+          "p50_seconds": 254.422719,
+          "p95_seconds": 287.1074674,
+          "p99_seconds": 288.36661116,
+          "attempts": 2010,
+          "superseded": 2
+        }
+      ],
+      "resourceSamples": [
+        {
+          "at": "2026-09-22T02:08:18.251Z",
+          "database": {
+            "BlockIO": "0B / 193MB",
+            "CPUPerc": "100.20%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.54%",
+            "MemUsage": "133.9MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "2.84MB / 4.2MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:20.247Z",
+          "database": {
+            "BlockIO": "0B / 194MB",
+            "CPUPerc": "101.40%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.54%",
+            "MemUsage": "134MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "3.05MB / 4.53MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:22.259Z",
+          "database": {
+            "BlockIO": "0B / 195MB",
+            "CPUPerc": "99.21%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.55%",
+            "MemUsage": "134.1MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "3.23MB / 4.81MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:24.267Z",
+          "database": {
+            "BlockIO": "0B / 196MB",
+            "CPUPerc": "99.00%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.55%",
+            "MemUsage": "134.1MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "3.38MB / 5.04MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:26.276Z",
+          "database": {
+            "BlockIO": "0B / 197MB",
+            "CPUPerc": "99.09%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.55%",
+            "MemUsage": "134.2MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "3.53MB / 5.28MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:28.267Z",
+          "database": {
+            "BlockIO": "0B / 198MB",
+            "CPUPerc": "98.02%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.55%",
+            "MemUsage": "134.2MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "3.66MB / 5.48MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:30.275Z",
+          "database": {
+            "BlockIO": "0B / 199MB",
+            "CPUPerc": "98.56%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.56%",
+            "MemUsage": "134.3MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "3.78MB / 5.67MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:32.280Z",
+          "database": {
+            "BlockIO": "0B / 200MB",
+            "CPUPerc": "99.08%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.56%",
+            "MemUsage": "134.3MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "3.89MB / 5.84MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:34.288Z",
+          "database": {
+            "BlockIO": "0B / 201MB",
+            "CPUPerc": "100.19%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.56%",
+            "MemUsage": "134.3MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "4MB / 6.01MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:36.304Z",
+          "database": {
+            "BlockIO": "0B / 202MB",
+            "CPUPerc": "100.88%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.66%",
+            "MemUsage": "136.4MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "4.12MB / 6.19MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:38.299Z",
+          "database": {
+            "BlockIO": "0B / 202MB",
+            "CPUPerc": "98.37%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.66%",
+            "MemUsage": "136.4MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "4.24MB / 6.38MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:40.300Z",
+          "database": {
+            "BlockIO": "0B / 203MB",
+            "CPUPerc": "99.58%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.66%",
+            "MemUsage": "136.4MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "4.35MB / 6.55MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:42.305Z",
+          "database": {
+            "BlockIO": "0B / 204MB",
+            "CPUPerc": "100.84%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.66%",
+            "MemUsage": "136.5MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "4.46MB / 6.72MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:44.304Z",
+          "database": {
+            "BlockIO": "0B / 205MB",
+            "CPUPerc": "99.25%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.66%",
+            "MemUsage": "136.5MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "4.56MB / 6.89MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:46.309Z",
+          "database": {
+            "BlockIO": "0B / 206MB",
+            "CPUPerc": "100.19%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.66%",
+            "MemUsage": "136.5MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "4.66MB / 7.04MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:48.314Z",
+          "database": {
+            "BlockIO": "0B / 207MB",
+            "CPUPerc": "100.25%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.66%",
+            "MemUsage": "136.5MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "4.77MB / 7.22MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:50.316Z",
+          "database": {
+            "BlockIO": "0B / 208MB",
+            "CPUPerc": "100.82%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.5MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "4.88MB / 7.38MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:52.349Z",
+          "database": {
+            "BlockIO": "0B / 210MB",
+            "CPUPerc": "99.87%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.5MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "4.97MB / 7.53MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:54.334Z",
+          "database": {
+            "BlockIO": "0B / 210MB",
+            "CPUPerc": "99.28%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.5MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "5.07MB / 7.69MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 4
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:56.338Z",
+          "database": {
+            "BlockIO": "0B / 212MB",
+            "CPUPerc": "99.91%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.6MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "5.18MB / 7.85MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:08:58.364Z",
+          "database": {
+            "BlockIO": "0B / 212MB",
+            "CPUPerc": "100.18%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.6MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "5.3MB / 8.04MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:00.362Z",
+          "database": {
+            "BlockIO": "0B / 213MB",
+            "CPUPerc": "100.24%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.6MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "5.4MB / 8.2MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:02.360Z",
+          "database": {
+            "BlockIO": "0B / 215MB",
+            "CPUPerc": "100.39%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.6MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "5.51MB / 8.37MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:04.356Z",
+          "database": {
+            "BlockIO": "0B / 216MB",
+            "CPUPerc": "100.02%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.6MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "5.62MB / 8.55MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:06.369Z",
+          "database": {
+            "BlockIO": "0B / 217MB",
+            "CPUPerc": "99.75%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.6MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "5.73MB / 8.72MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:08.364Z",
+          "database": {
+            "BlockIO": "0B / 218MB",
+            "CPUPerc": "98.64%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.6MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "5.86MB / 8.92MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 4
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:10.383Z",
+          "database": {
+            "BlockIO": "0B / 219MB",
+            "CPUPerc": "101.31%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.67%",
+            "MemUsage": "136.7MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "5.98MB / 9.1MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:12.384Z",
+          "database": {
+            "BlockIO": "0B / 221MB",
+            "CPUPerc": "101.27%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.68%",
+            "MemUsage": "136.7MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "6.1MB / 9.29MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:14.378Z",
+          "database": {
+            "BlockIO": "0B / 239MB",
+            "CPUPerc": "101.29%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.70%",
+            "MemUsage": "137.2MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "6.22MB / 9.48MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 4
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:16.379Z",
+          "database": {
+            "BlockIO": "0B / 240MB",
+            "CPUPerc": "101.18%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.70%",
+            "MemUsage": "137.2MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "6.34MB / 9.67MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:18.392Z",
+          "database": {
+            "BlockIO": "0B / 241MB",
+            "CPUPerc": "100.30%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.70%",
+            "MemUsage": "137.3MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "6.47MB / 9.87MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 4
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:20.398Z",
+          "database": {
+            "BlockIO": "0B / 242MB",
+            "CPUPerc": "100.63%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.70%",
+            "MemUsage": "137.3MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "6.6MB / 10.1MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:22.388Z",
+          "database": {
+            "BlockIO": "0B / 244MB",
+            "CPUPerc": "101.78%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.71%",
+            "MemUsage": "137.3MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "6.73MB / 10.3MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:24.424Z",
+          "database": {
+            "BlockIO": "0B / 245MB",
+            "CPUPerc": "100.32%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.71%",
+            "MemUsage": "137.3MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "6.86MB / 10.5MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:26.406Z",
+          "database": {
+            "BlockIO": "0B / 246MB",
+            "CPUPerc": "100.27%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.71%",
+            "MemUsage": "137.4MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "6.99MB / 10.7MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:28.404Z",
+          "database": {
+            "BlockIO": "0B / 247MB",
+            "CPUPerc": "99.85%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.71%",
+            "MemUsage": "137.4MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "7.13MB / 10.9MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:30.424Z",
+          "database": {
+            "BlockIO": "0B / 248MB",
+            "CPUPerc": "101.73%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.71%",
+            "MemUsage": "137.4MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "7.27MB / 11.1MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:32.448Z",
+          "database": {
+            "BlockIO": "0B / 251MB",
+            "CPUPerc": "102.13%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.72%",
+            "MemUsage": "137.7MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "7.42MB / 11.4MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:34.425Z",
+          "database": {
+            "BlockIO": "0B / 252MB",
+            "CPUPerc": "100.88%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.71%",
+            "MemUsage": "137.5MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "7.58MB / 11.6MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:36.414Z",
+          "database": {
+            "BlockIO": "0B / 253MB",
+            "CPUPerc": "103.02%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.73%",
+            "MemUsage": "137.8MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "7.78MB / 11.9MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:38.418Z",
+          "database": {
+            "BlockIO": "0B / 255MB",
+            "CPUPerc": "99.77%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.73%",
+            "MemUsage": "137.8MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "8.03MB / 12.3MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:40.436Z",
+          "database": {
+            "BlockIO": "0B / 257MB",
+            "CPUPerc": "103.30%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.73%",
+            "MemUsage": "137.8MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "8.28MB / 12.7MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:42.434Z",
+          "database": {
+            "BlockIO": "0B / 260MB",
+            "CPUPerc": "101.14%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.73%",
+            "MemUsage": "137.8MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "8.56MB / 13.1MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 4
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:44.455Z",
+          "database": {
+            "BlockIO": "0B / 262MB",
+            "CPUPerc": "101.47%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.73%",
+            "MemUsage": "137.8MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "8.84MB / 13.6MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:46.444Z",
+          "database": {
+            "BlockIO": "0B / 264MB",
+            "CPUPerc": "101.28%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.73%",
+            "MemUsage": "137.9MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "9.13MB / 14MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:48.462Z",
+          "database": {
+            "BlockIO": "0B / 267MB",
+            "CPUPerc": "98.12%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.73%",
+            "MemUsage": "137.9MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "9.44MB / 14.5MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:50.457Z",
+          "database": {
+            "BlockIO": "0B / 269MB",
+            "CPUPerc": "103.73%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.74%",
+            "MemUsage": "138MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "9.81MB / 15.1MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 5
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:52.512Z",
+          "database": {
+            "BlockIO": "0B / 273MB",
+            "CPUPerc": "100.50%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.74%",
+            "MemUsage": "138.1MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "10.3MB / 15.8MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 4
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:54.493Z",
+          "database": {
+            "BlockIO": "0B / 277MB",
+            "CPUPerc": "99.27%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.74%",
+            "MemUsage": "138.1MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "10.9MB / 16.7MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 2
+          }
+        },
+        {
+          "at": "2026-09-22T02:09:56.471Z",
+          "database": {
+            "BlockIO": "0B / 286MB",
+            "CPUPerc": "19.99%",
+            "Container": "nara-db-server-pipeline.bejr14",
+            "ID": "2ad186a68451",
+            "MemPerc": "6.75%",
+            "MemUsage": "138.2MiB / 2GiB",
+            "Name": "nara-db-server-pipeline.bejr14",
+            "NetIO": "11.6MB / 17.8MB",
+            "PIDs": "13"
+          },
+          "connections": {
+            "total": 6,
+            "active": 1
+          }
+        }
+      ],
+      "localQueueLiveP95Under60Seconds": false,
+      "latencyOrigin": "after fixture enqueue transaction committed or a later invalidation; dirty-time metrics also retained",
+      "measurementScope": "PostgreSQL scheduler plus scalar invalidation, synthetic 3ms/20ms work; no physiology/model/B2 capacity claim",
+      "injectedAt": "2026-09-22T02:07:31.865Z"
+    }
+  ]
+}

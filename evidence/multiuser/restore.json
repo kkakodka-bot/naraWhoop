@@ -1,0 +1,20 @@
+{
+  "kind": "logical application backup and separate-database restore",
+  "testSourceRevision": "2f7ea775f40c5ea43e9df53c69c7b141de54be7e",
+  "schemas": [
+    "public",
+    "auth",
+    "internal"
+  ],
+  "dumpBytes": 1293355,
+  "dumpSha256": "912fca9c482b72a400c4ced43f00569bde43612d39bcda8dd6e1ba4cc97f0d9b",
+  "restoredAuthorizationProof": "PASS",
+  "retiredInstallationPreserved": "PASS",
+  "sourceProvenancePreserved": "PASS",
+  "ownerACascadePreservesOwnerB": "PASS",
+  "objectProviderRestore": "NOT_MEASURED",
+  "hostedAuthRestore": "NOT_MEASURED",
+  "recoveryTimeObjective": "NOT_MEASURED",
+  "recoveryPointObjective": "NOT_MEASURED",
+  "evidenceDirectory": "/Volumes/Untitled/multiuser-evidence/server-pipeline.RIj14u"
+}

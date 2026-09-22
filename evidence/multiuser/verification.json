@@ -1,0 +1,201 @@
+{
+  "generatedAtUtc": "2026-09-22T02:32:41.942374+00:00",
+  "branch": "feat/multiuser-scale",
+  "baseRevision": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
+  "applicationRevision": "d10bf4321c5cc28072fe78da8f7d2fe7328297d6",
+  "restoreTestRevision": "2f7ea775f40c5ea43e9df53c69c7b141de54be7e",
+  "laterChanges": "The restore test commit changes no application or worker inputs; the handoff/evidence commit adds documentation only.",
+  "environment": {
+    "host": "Apple M4 Max",
+    "hostMemoryBytes": 68719476736,
+    "macOS": "26.6.2",
+    "databaseImage": "public.ecr.aws/supabase/postgres:17.6.1.127@sha256:be60aee15997daca475b710b734bc6bfe52cd544dcd7e9fd2ff58210b6747d83",
+    "databaseContainerCpus": 2,
+    "databaseContainerMemoryBytes": 2147483648,
+    "postgresForJvmFenceFixtures": "18 via /opt/homebrew/opt/postgresql@18/bin",
+    "workerProcesses": 4,
+    "workerMaxHeapMiBEach": 384,
+    "workload": "Synthetic HR/scalar load. Real local JVMs on host, not VPS."
+  },
+  "inputs": {
+    "01_DEEP_AUDIT.md": {
+      "sha256": "31ebb324d9eb270a260a5c227a9c1fb11cfdb82eb0a29cca29ead86bcdeac149",
+      "sourcePath": "/Volumes/Untitled/WHOOP NARA-pr16/MD FILES/01_DEEP_AUDIT.md"
+    },
+    "02_PRODUCTION_BUILD_SPEC.md": {
+      "sha256": "e509675f89fc3b12c685019f1c3f1712f54021b0bc895968dd3a06811b4f9e51",
+      "sourcePath": "/Volumes/Untitled/WHOOP NARA-pr16/MD FILES/02_PRODUCTION_BUILD_SPEC.md"
+    },
+    "07_CODEX_ISSUE_MULTIUSER_SCALE.md": {
+      "sha256": "e33ba47815edf07da6794c21d43e3266dc14fbe630ed27175e9f7f9a477eb835",
+      "sourcePath": "/Volumes/Untitled/WHOOP NARA-pr16/MD FILES/07_CODEX_ISSUE_MULTIUSER_SCALE.md"
+    },
+    "evidence/multiuser.md": {
+      "sha256": "48a7187bf8e6942134ad0a931b9389950935c37662071c1f641b36a4f3246cff",
+      "sourcePath": "/Volumes/Untitled/WHOOP NARA-pr16/MD FILES/evidence/multiuser.md"
+    }
+  },
+  "checks": {
+    "service": {
+      "tests": 556,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "sourceRevision": "d10bf4321c5cc28072fe78da8f7d2fe7328297d6",
+      "includesRealPostgresCases": 159
+    },
+    "analyticsKernel": {
+      "tests": 1106,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 5,
+      "sourceRevision": "d10bf4321c5cc28072fe78da8f7d2fe7328297d6",
+      "skipScope": "Five existing unavailable private/reference fixtures; not counted as passed"
+    },
+    "jvm": {
+      "result": "PASS",
+      "sourceRevision": "d10bf4321c5cc28072fe78da8f7d2fe7328297d6",
+      "evidenceDirectory": "/Volumes/Untitled/multiuser-evidence/server-jvm.TNidcR",
+      "currentSwiftWholeDayCases": 13,
+      "currentSwiftExporterTests": 2,
+      "artifact": "/Volumes/Untitled/multiuser-evidence/jvm-final2.log",
+      "sha256": "347362a20b3664ff5ca0db5718e8aaa6989555c0115aa406358b7b78c63af6e6",
+      "bytes": 514
+    },
+    "migrationsFresh": {
+      "result": "PASS",
+      "migrations": 121,
+      "evidenceDirectory": "/Volumes/Untitled/multiuser-evidence/physiology-chain-fresh.UhCJed",
+      "artifact": "/Volumes/Untitled/multiuser-evidence/migrations-fresh.log",
+      "sha256": "9a87af0f37d2ba5d1ccfdf871e3b8d23ee4ebb64135df53366b36fe3f02dd601",
+      "bytes": 149
+    },
+    "migrationsPopulated": {
+      "result": "PASS",
+      "migrations": 121,
+      "evidenceDirectory": "/Volumes/Untitled/multiuser-evidence/physiology-chain-populated.NpRneb",
+      "artifact": "/Volumes/Untitled/multiuser-evidence/migrations-populated.log",
+      "sha256": "afd7f3fcf119931682b2544cf3b7966bf23c89bf483a63ef710554f073feceba",
+      "bytes": 157
+    },
+    "baseMigrationBytePreservation": {
+      "result": "PASS",
+      "unchangedFiles": 117,
+      "catalogEntries": 121
+    },
+    "edge": {
+      "result": "PASS",
+      "tests": 157,
+      "steps": 56,
+      "failed": 0,
+      "ignored": 4,
+      "ignoredScope": "Three multiuser tests and SQL-to-mobile pipeline case executed separately; queue capacity source revision recorded in queue-capacity.json",
+      "artifact": "/Volumes/Untitled/multiuser-evidence/edge-final.log",
+      "sha256": "a04fb8a02c26dcdcdccd8e4a117dad11192c0a343edcf15144fdf5650c7f84d7",
+      "bytes": 26187
+    },
+    "migratedLifecycleAndRestore": {
+      "result": "PASS",
+      "tests": 1,
+      "steps": 11,
+      "sourceRevision": "2f7ea775f40c5ea43e9df53c69c7b141de54be7e",
+      "evidenceDirectory": "/Volumes/Untitled/multiuser-evidence/server-pipeline.RIj14u",
+      "restoredRoleAuthorization": "PASS",
+      "artifact": "/Volumes/Untitled/multiuser-evidence/restore-final.log",
+      "sha256": "04b358ecba699e65baa531713525bef3e633b348e79a758401edf44e4e7f62b5",
+      "bytes": 1612
+    },
+    "actualWorkers": {
+      "result": "PASS",
+      "sourceRevision": "d10bf4321c5cc28072fe78da8f7d2fe7328297d6",
+      "sourceReport": "/Volumes/Untitled/multiuser-evidence/server-pipeline.pengRh/decoders/fleet-worker-capacity.json",
+      "artifact": "/Volumes/Untitled/multiuser-evidence/multiuser-final.log",
+      "sha256": "e74c00abde7db11d863441f93a7a66262d010ed958cd9e7dd0f4eabbbdb24f77",
+      "bytes": 2422
+    },
+    "sqlToActualEdgeToNative": {
+      "result": "PASS",
+      "swiftEnvelopes": 12,
+      "kotlinEnvelopes": 12,
+      "owners": 2,
+      "devicesPerOwner": 2,
+      "sourceRevision": "d10bf4321c5cc28072fe78da8f7d2fe7328297d6",
+      "evidenceDirectory": "/Volumes/Untitled/multiuser-evidence/server-pipeline.1YCNzr",
+      "retainedBaseline": "Reused cfb9443 baseline distribution with unchanged frozen build/transport inputs; not rebuilt at d10bf43",
+      "artifact": "/Volumes/Untitled/multiuser-evidence/pipeline-final2.log",
+      "sha256": "f09ba65124909df5140abfa360022dfecb662c815e9ce4bfc8b8fcb1f807aa4e",
+      "bytes": 2624
+    },
+    "swiftLifecycle": {
+      "result": "PASS",
+      "tests": 4,
+      "cloudEnrollmentSourceSha256": "a8a0f473d0a67cfb8e99283b94b5053cb0caa4085874e5e681249d5b9d7d0cce",
+      "evidenceDirectory": "/Volumes/Untitled/multiuser-evidence/installation-lifecycle.qmhLaE",
+      "artifact": "/Volumes/Untitled/multiuser-evidence/swift4.log",
+      "sha256": "07226d8da9806a7707388bd22e3561cf78e47b63037345549b0b696093525ad3",
+      "bytes": 12365
+    },
+    "swiftCacheIdentity": {
+      "result": "PASS",
+      "tests": 74,
+      "artifact": "/Volumes/Untitled/multiuser-evidence/swift-cache.log",
+      "sha256": "e5c2dfff1aedb177d82dc0d85ae0c2c129a2a075813714757bba98b03412a5e6",
+      "bytes": 92438
+    },
+    "androidLifecycleAndCache": {
+      "tests": 34,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "result": "PASS",
+      "fullMainSourcesCompiled": true,
+      "recordedPatchMatchesApplicationRevision": true,
+      "sourcePatchSha256": "7851587bd9ffb7caf6c1f2968346ce432b31f208dac4038ce336766871a01728",
+      "artifact": "/Volumes/Untitled/multiuser-evidence/android-focused3.log",
+      "sha256": "4a9e3f8e5b2ae8986f855425b5a5bba3c9945df7e5d6600dd3aa5e59d2960641",
+      "bytes": 8572
+    },
+    "iosSimulatorBuild": {
+      "result": "PASS",
+      "physicalOrVisualAcceptance": "NOT_MEASURED",
+      "artifact": "/Volumes/Untitled/multiuser-evidence/ios-build3.log",
+      "sha256": "9a50e561ce4b8fd8ba982b39934001e2504669aef93e3b5273d3d6f41711900f",
+      "bytes": 204951
+    },
+    "infraNode": {
+      "result": "PASS",
+      "tests": 116,
+      "artifact": "/Volumes/Untitled/multiuser-evidence/infra-node.log",
+      "sha256": "878a787b7b7bcbc343c627b2a604de32dbed2770a8822344d70175eea5e32b77",
+      "bytes": 11280
+    },
+    "infraPython": {
+      "result": "PASS",
+      "tests": 62,
+      "artifact": "/Volumes/Untitled/multiuser-evidence/infra-python.log",
+      "sha256": "2a249186879cf85fb9f4bfe7c39e074fe05c4eaf5da63f2dd96dc514b4abfe5e",
+      "bytes": 163
+    },
+    "fleetCompose": {
+      "result": "PASS",
+      "deployment": "NOT_PERFORMED",
+      "artifact": "/Volumes/Untitled/multiuser-evidence/compose-validation.json",
+      "sha256": "ab3a613e3333f8f1601db1ac7e0b468e8850bbfb899295735dcb44e6972d9e55",
+      "bytes": 2140
+    }
+  },
+  "knownLimits": [
+    "The 1000-owner synthetic queue burst fails the live p95 <= 60 second goal: 93.892 seconds. Excluded from the measured envelope.",
+    "100-owner scheduling and 10-owner actual scalar workers are bounded local measurements, not target-VPS full-physiology or sustained-rate capacity.",
+    "Full Android test compilation remains blocked by baseline PPG_RECORD_IDENTITY_MIGRATION_SQL and unpackPpgRecords references. Five focused test classes compile with the full app through a temporary Gradle init script.",
+    "The obsolete Tests/ServerScoreReadbackNative harness cannot compile missing enrollment/auth stubs. The actual WhoopStore server tests and real Edge-to-native decoder tests pass.",
+    "Continuous physical BLE handoff, phone reassignment/erasure, signed-in UI walkthrough, target VPS, B2 version erasure/restore, RTO/RPO, network ACK/display SLO and long soak are NOT_MEASURED."
+  ],
+  "productionAccess": "NOT_PERFORMED",
+  "productionDeployment": "NOT_PERFORMED",
+  "artifactHashes": {
+    "restore.json": "6580f2987ccc521d09871beca37e6a9e95854ee0251fb222b891fa4bbe5ef7cc",
+    "queue-capacity.json": "85fcf41969f82cbb74bc290b83d4121a9a9f4b784c38d36f39802ad69a6b1eb4",
+    "worker-capacity.json": "0dce1b03287b61991cba25df8b6930e297c16b8f860e5756118365be1de97c09"
+  }
+}
