@@ -42,19 +42,12 @@ import kotlinx.coroutines.sync.withLock
  * never reordered, matching the Swift serial-drain task. The owning [WhoopBleClient] feeds frames
  * in arrival order from a single drain coroutine.
  *
- * RAW CAPTURE: the Swift Backfiller optionally persists ALL raw frames (research toggle, default OFF);
- * the Android data layer has no raw-frame outbox table, so that bulk capture is intentionally omitted
- * here — decoded rows are the product of record and are still durably committed before the trim is
- * advanced, exactly as in the Swift default (raw-off) configuration. The ONE exception is the
- * undecodable-record archive (#77 / #91): record frames that fail decode are persisted via
- * [rejectedSink] BEFORE the trim is acked, because the strap frees acked history and those bytes would
- * otherwise be the user's permanently-lost only copy. See the FLAG in the port notes.
+ * Production captures exact frames in the required raw outbox inside the decoded-row transaction.
+ * The rotating reject archive is optional diagnostics, never the sole copy authorizing safe trim.
  */
 class Backfiller(
     private val repository: WhoopRepository,
-    /** The device id every offloaded row is stamped with (read at finishChunk). MUTABLE so a
-     *  WHOOP→WHOOP active-device switch re-points it via [WhoopBleClient.setActiveDeviceId] and the
-     *  next chunk attributes to the new id; the single-WHOOP path never reassigns it ("my-whoop"). */
+    /** Target for the NEXT session. begin freezes it; delayed commits never read a new selection. */
     var deviceId: String,
     private val cursorStore: TrimCursorStore,
     /**
@@ -127,7 +120,16 @@ class Backfiller(
     private val ppgHrSubLagInterp: () -> Boolean = { false },
     /** Live UI/export observation of the historical record layout (`hist_version`). */
     private val firmwareLayout: (Int) -> Unit = {},
+    private val captureIdentity: (() -> BleCaptureIdentity)? = null,
+    private val captureStillCurrent: (BleCaptureIdentity) -> Boolean = { true },
+    private val capturedAck: ((BleCaptureIdentity, Long, ByteArray) -> Unit)? = null,
 ) {
+    private var sessionIdentity: BleCaptureIdentity? = null
+    @Volatile private var sessionEpoch = java.util.UUID.randomUUID()
+    private var sessionDeviceId = deviceId
+    private var receivedAtMs = 0L
+    private var receivedMonotonicNs = 0L
+    private var chunkBytes = 0
 
     /**
      * Emit one Connection & Sync test-mode line iff the mode is on. The cheap [connectionActive] gate is
@@ -307,6 +309,10 @@ class Backfiller(
      * Port of Swift `begin()`.
      */
     fun begin(family: DeviceFamily = DeviceFamily.WHOOP4, continuedAfterRows: Boolean = false) {
+        sessionEpoch = java.util.UUID.randomUUID()
+        sessionIdentity = captureIdentity?.invoke()
+        sessionDeviceId = sessionIdentity?.deviceId ?: deviceId
+        chunkBytes = 0
         this.family = family
         this.continuedAfterRows = continuedAfterRows
         isBackfilling = true
@@ -354,6 +360,7 @@ class Backfiller(
                     isBackfilling = true
                     synchronized(chunkLock) {
                         chunk.clear()
+                        chunkBytes = 0
                         chunkOpen = true
                     }
                 }
@@ -365,7 +372,21 @@ class Backfiller(
                         chunkOpen = false
                     }
                 }
-                is HistoricalMeta.Other -> synchronized(chunkLock) { if (chunkOpen) chunk.add(frame) }
+                is HistoricalMeta.Other -> synchronized(chunkLock) {
+                    if (chunkOpen && !persistStalled) {
+                        if (chunk.size >= 4096 || frame.size > 8 * 1024 * 1024 - chunkBytes) {
+                            persistStalled = true
+                            log("Backfill: capture capacity reached; withholding safe-trim")
+                        } else {
+                            if (chunk.isEmpty()) {
+                                receivedAtMs = System.currentTimeMillis()
+                                receivedMonotonicNs = System.nanoTime()
+                            }
+                            chunk.add(frame.copyOf())
+                            chunkBytes += frame.size
+                        }
+                    }
+                }
             }
         }
     }
@@ -379,6 +400,10 @@ class Backfiller(
      * this END become the next chunk. An END with no records is still acked (advances the trim).
      */
     private suspend fun finishChunk(unix: Long, trim: Long, endFrame: ByteArray) {
+        val owner = sessionIdentity
+        val epoch = sessionEpoch
+        val destination = sessionDeviceId
+        if (persistStalled || owner != null && !captureStillCurrent(owner)) return
         val endData = endData(endFrame, family) ?: return
 
         var commitWatchdogPaused = false
@@ -405,6 +430,7 @@ class Backfiller(
         val frames = synchronized(chunkLock) {
             val snapshot = ArrayList(chunk)
             chunk.clear() // next records accumulate into the next chunk
+            chunkBytes = 0
             snapshot
         }
 
@@ -579,7 +605,25 @@ class Backfiller(
                 onChunkCommitBegin()
                 commitWatchdogPaused = true
                 val rrCensus = com.noop.analytics.RrEmissionStats.compute(decoded.rr.map { it.ts.toInt() to it.rrMs })
-                val counts = repository.insert(decoded, deviceId, markPostBackfillDebt = true)
+                val raw = if (owner == null) emptyList() else {
+                    val segments = mutableListOf<MutableList<ByteArray>>()
+                    var segmentBytes = 4
+                    for (frame in frames) {
+                        if (segments.isEmpty() || segmentBytes + frame.size + 4 > com.noop.data.BleRawCapture.MAX_BATCH_BYTES) {
+                            segments.add(mutableListOf())
+                            segmentBytes = 4
+                        }
+                        segments.last().add(frame)
+                        segmentBytes += frame.size + 4
+                    }
+                    segments.mapIndexed { index, segment ->
+                        com.noop.data.BleRawCapture.create(owner, segment, family.name, receivedAtMs,
+                            receivedMonotonicNs, ref.device.toLong(), ref.wall.toLong(),
+                            "history_clock_correlation", "history:${family.name}:$trim:$index")
+                    }
+                }
+                val counts = repository.insert(decoded, destination, markPostBackfillDebt = true,
+                    rawCaptures = raw, markCloudPushDebt = true)
                 onBankedOffload(counts)
                 committed = decoded
                 // Success-side observability (#150): tally what actually persisted so the session can emit
@@ -618,13 +662,9 @@ class Backfiller(
                 resumeCommitWatchdogIfNeeded()
                 return // do NOT advance/ack, chunk was never durably committed
             }
-            // #77 / #91: any genuinely-undecodable record in this chunk must be ARCHIVED durably before
-            // we ack — the ack frees the strap's copy, so the archive is the only remaining copy of an
-            // unmapped firmware's records. Runs AFTER the decoded insert (#1006, Swift-order parity; see
-            // the insert comment above). A false return means a genuine write failure (NOT the
-            // archive-full case, which returns true) — hold the cursor/ack so the strap re-sends the
-            // chunk next offload. The decoded rows are already durable, so that re-send's insert is an
-            // idempotent no-op while the archive retries. No data loss either way.
+            // Required exact frames already committed with decoded rows above. This secondary sink
+            // is optional rotating diagnostics in the runtime; its quota is not a durability receipt.
+            // Retain the false-return gate for callers that explicitly require an additional sink.
             if (rejected.isNotEmpty() && !rejectedSink(rejected, trim)) {
                 log("Backfill: rejected-frame archive failed (trim=$trim) — holding ack so the strap re-sends.")
                 persistStalled = true   // #57
@@ -667,8 +707,12 @@ class Backfiller(
         // Persist the trim cursor BEFORE acking (so a crash between persist and ack still resumes
         // from the right place). Stored via [TrimCursorStore] because the Room schema has no cursor
         // table — see the port FLAG. trim is a u32 carried as Long (unsigned-safe).
+        if (epoch != sessionEpoch || owner != null && !captureStillCurrent(owner)) {
+            resumeCommitWatchdogIfNeeded()
+            return
+        }
         try {
-            cursorStore.set(STRAP_TRIM_CURSOR, trim)
+            cursorStore.set(if (owner == null) STRAP_TRIM_CURSOR else "$STRAP_TRIM_CURSOR:$destination", trim)
         } catch (t: Throwable) {
             // Diag (#601 / #13): decoded rows are durable but the strap_trim cursor write failed. We return
             // WITHOUT acking, acking now would let the strap trim past records the cursor hasn't recorded, so
@@ -682,9 +726,11 @@ class Backfiller(
         }
 
         commitWatchdogPaused = false
-        ackTrim(trim, endData)
+        if (epoch != sessionEpoch || owner != null && !captureStillCurrent(owner)) return
+        if (owner != null && capturedAck != null) capturedAck.invoke(owner, trim, endData)
+        else ackTrim(trim, endData)
         lastAckedTrim = trim   // #364: record the advanced cursor for the auto-continue spin-detector
-        committed?.takeIf { !it.isEmpty }?.let(onChunkCommitted)
+        committed?.let(onChunkCommitted)
     }
 
     /**

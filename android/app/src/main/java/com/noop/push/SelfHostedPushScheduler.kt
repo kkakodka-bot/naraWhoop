@@ -58,11 +58,47 @@ object SelfHostedPushScheduler {
     internal val CONTINUATION_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
 
     private val throttle = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private val liveWakeups = mutableMapOf<String, kotlinx.coroutines.Job>()
+
+    /** First commit arms a trailing wake; later commits cannot postpone it. Durable debt and
+     * WorkManager recovery cover process loss between the Room commit and this in-memory wake. */
+    fun enqueueOnLiveCommitted(context: Context) {
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        if (!account.isCurrent() || account.identity.context == null) return
+        val key = workName(account.identity.context)
+        synchronized(liveWakeups) {
+            if (liveWakeups.containsKey(key)) return
+            liveWakeups[key] = enqueueObserverScope.launch {
+                try {
+                    kotlinx.coroutines.delay(10_000)
+                    enqueueExternal(account)
+                } finally { synchronized(liveWakeups) { liveWakeups.remove(key) } }
+            }
+        }
+    }
+
+    fun registerRecovery(context: Context) {
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        val owner = account.identity.context ?: return
+        val settings = SelfHostedPushSettings.from(account)
+        if (!account.isCurrent() || settings.readyEndpoint() == null) return
+        val input = androidx.work.Data.Builder().putString("namespace", owner.scope.namespace)
+            .putString("source", settings.sourceId()).build()
+        val work = androidx.work.PeriodicWorkRequestBuilder<BleUploadRecoveryWorker>(15, TimeUnit.MINUTES)
+            .setInputData(input).addTag("ble-upload-recovery.${owner.scope.namespace}")
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(requiredPushNetworkType(settings.wifiOnly())).build())
+            .build()
+        WorkManager.getInstance(com.noop.account.AccountStorageContext.platform(account)).enqueueUniquePeriodicWork(
+            "ble-upload-recovery.${owner.scope.namespace}", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, work)
+    }
 
     internal fun workName(context: AccountSessionContext?) =
         context?.let { "$UNIQUE_WORK.${it.scope.namespace}.${it.generation}" } ?: UNIQUE_WORK
 
     fun cancelSession(context: Context, captured: AccountSessionContext) {
+        synchronized(liveWakeups) { liveWakeups.remove(workName(captured))?.cancel() }
+        WorkManager.getInstance(com.noop.account.AccountStorageContext.platform(context))
+            .cancelAllWorkByTag("ble-upload-recovery.${captured.scope.namespace}")
         WorkManager.getInstance(com.noop.account.AccountStorageContext.platform(context)).cancelUniqueWork(workName(captured))
     }
 
@@ -72,9 +108,8 @@ object SelfHostedPushScheduler {
 
     fun enqueueManualCatchUp(context: Context) = enqueueExternal(context)
 
-    /** Foreground idle cadence when server scoring is on (spec: 30–60 s). No-op when flag is off. */
+    /** Runtime idle cadence. Raw transport remains independent of physiological computation. */
     fun enqueueIfDue(context: Context, minIntervalMs: Long) {
-        if (!ServerScoringSettings.isEnabled(context)) return
         val account = com.noop.account.AccountStorageContext.capture(context)
         val captured = account.identity.context
         if (captured != null && !account.isCurrent()) return
@@ -86,15 +121,13 @@ object SelfHostedPushScheduler {
         enqueueExternal(account)
     }
 
-    /** During offload: flush push on chunk commit, throttled to [ServerScoringSettings.SYNC_PUSH_INTERVAL_MS]. */
+    /** History and live commits share the bounded trailing wake. */
     fun enqueueOnChunkCommitted(context: Context) {
-        if (!ServerScoringSettings.isEnabled(context)) return
-        enqueueIfDue(context, ServerScoringSettings.SYNC_PUSH_INTERVAL_MS)
+        enqueueOnLiveCommitted(context)
     }
 
-    /** One flush when the app backgrounds (server scoring on). */
+    /** One transport flush when the app backgrounds. */
     fun flushOnBackground(context: Context) {
-        if (!ServerScoringSettings.isEnabled(context)) return
         val app = com.noop.account.AccountStorageContext.capture(context)
         throttle.remove(workName(app.identity.context))
         enqueueExternal(app)
@@ -205,4 +238,16 @@ object SelfHostedPushScheduler {
         .build() // Only opaque owner namespace and generation; never credentials or payloads.
 
     private val enqueueObserverScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+}
+
+/** Upload-only recovery. It never reconnects BLE or attempts a background FGS start. */
+class BleUploadRecoveryWorker(context: Context, params: androidx.work.WorkerParameters) :
+    androidx.work.CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val account = com.noop.account.AccountStorageContext.capture(applicationContext)
+        if (!account.isCurrent() || account.namespace != inputData.getString("namespace") ||
+            SelfHostedPushSettings.from(account).sourceId() != inputData.getString("source")) return Result.success()
+        SelfHostedPushScheduler.enqueueLaunchCatchUp(account)
+        return Result.success()
+    }
 }

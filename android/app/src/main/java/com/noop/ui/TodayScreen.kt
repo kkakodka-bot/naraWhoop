@@ -403,6 +403,10 @@ fun TodayScreen(
     val serverOverlay = viewModel.serverScores.lastFetchedAtMs.collectAsStateWithLifecycle().value.let {
         if (serverReady && serverSignedIn) viewModel.serverScores.overlay(selectedDayKey) else null
     }
+    LaunchedEffect(selectedDayKey, serverOverlay?.computedAt, serverOverlay?.stale) {
+        androidx.compose.runtime.withFrameNanos { }
+        viewModel.serverScores.recordDisplayed(serverOverlay)
+    }
     LaunchedEffect(selectedDayKey, serverEnabled, serverReady, serverSignedIn) {
         if (com.noop.push.ServerScoringSettings.isEnabled(context)) {
             viewModel.serverScores.refreshDay(selectedDayKey)

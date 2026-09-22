@@ -756,7 +756,13 @@ final class ServerScoreRepository: ObservableObject {
             currentDay: currentDay, timezone: timeZone.identifier,
             configured: configured, authenticated: authenticated, capabilities: nextCapabilities,
             activated: activated, days: days)
-        if next != state { state = next }
+        if next != state {
+            state = next
+            if let day = next.days[currentDay], !day.cached, !day.pending, let snapshot = day.snapshot {
+                SyncPipelineTrace.freshness(.projectionReady,
+                    sourceDate: SyncPipelineTrace.sourceDate(snapshot.computedAt))
+            }
+        }
     }
 
     func selectDevice(localDeviceId: String?) {

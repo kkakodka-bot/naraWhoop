@@ -43,6 +43,56 @@ final class CaptureDurabilityTests: XCTestCase {
     }
 
     private func console() -> [UInt8] { frameFromPayload([0], type: 50, seq: 0, cmd: 0) }
+
+    func testRawTransportCadenceDoesNotDependOnPhysiologyMode() {
+        XCTAssertEqual(CloudPushPeriodicScheduler.effectiveInterval(serverScoringEnabled: true), 10)
+        XCTAssertEqual(CloudPushPeriodicScheduler.effectiveInterval(serverScoringEnabled: false), 10)
+    }
+
+    func testSingleLivePacketThenSilenceReachesRawDurabilityWithoutAnotherCallback() async throws {
+        let store = Store()
+        let committed = expectation(description: "required raw committed")
+        let collector = Collector(store: store, deviceId: "old",
+            policy: .init(maxFrames: 64, maxInterval: 0.02, maxPreClockFrames: 4096),
+            onBanked: { _ in
+                XCTAssertEqual(store.attempts.count, 1)
+                committed.fulfill()
+            }, imuStore: try imu())
+        XCTAssertTrue(collector.ingest(console()))
+        collector.deviceId = "new"
+        await fulfillment(of: [committed], timeout: 2)
+        XCTAssertEqual(store.attempts.first?.0.deviceId, "old")
+        XCTAssertEqual(collector.bufferedCount, 0)
+        collector.shutdownForAccountChange()
+    }
+
+    func testSingleStandardPacketThenSilenceFlushesWithoutUI() async throws {
+        let store = Store()
+        let committed = expectation(description: "standard committed")
+        let collector = Collector(store: store, deviceId: "old",
+            policy: .init(maxFrames: 64, maxInterval: 0.02, maxPreClockFrames: 4096),
+            onBanked: { _ in committed.fulfill() }, imuStore: try imu())
+        collector.ingestStandardHR(hr: 70, rr: [900], at: 100)
+        collector.deviceId = "new"
+        await fulfillment(of: [committed], timeout: 2)
+        XCTAssertEqual(store.inserts.first?.0, "old")
+        XCTAssertEqual(store.inserts.first?.1.hr.first?.bpm, 70)
+        collector.shutdownForAccountChange()
+    }
+
+    func testPreclockPacketCannotBorrowClockFromNextConnectionSession() async throws {
+        let store = Store()
+        let collector = Collector(store: store, deviceId: "same-device", now: { 1_790_000_000 }, imuStore: try imu())
+        XCTAssertTrue(collector.ingest(console()))
+        collector.beginStandardHRReceiptSession()
+        collector.clockRef = ClockRef(device: 100, wall: 200)
+        let result = await collector.flush()
+        XCTAssertTrue(result)
+        let raw = try XCTUnwrap(store.attempts.first?.0)
+        XCTAssertEqual(raw.clockRef.device, 1_790_000_000)
+        XCTAssertEqual(raw.clockRef.wall, 1_790_000_000)
+        collector.shutdownForAccountChange()
+    }
     private func end() -> [UInt8] {
         func le(_ value: UInt32) -> [UInt8] { (0..<4).map { UInt8(truncatingIfNeeded: value >> ($0 * 8)) } }
         return frameFromPayload(le(1_790_000_000) + [0, 0] + le(0) + le(42) + le(0), type: 49, seq: 0, cmd: 2)
@@ -293,7 +343,9 @@ final class CaptureDurabilityTests: XCTestCase {
             let retry = try assemble()
             XCTAssertEqual(first.manifestJSON, retry.manifestJSON)
             XCTAssertEqual(first.payload, retry.payload)
-            XCTAssertEqual(first.endTs - first.startTs, 1)
+            // The merged protocol defines packed raw endTs as inclusive; manifests are exclusive.
+            XCTAssertEqual(first.startTs, record.startTs)
+            XCTAssertEqual(first.endTs, record.endTs + 1)
         }
     }
 }

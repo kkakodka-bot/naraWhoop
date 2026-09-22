@@ -52,7 +52,11 @@ class NoopApplication : Application() {
         val previous = runtimeValue
         if (previous?.identity == identity) return
         previous?.close()
-        runCatching { stopService(Intent(this, WhoopConnectionService::class.java)) }
+        // A cold Application is also created for a sticky service restart. Do not cancel that restart.
+        if (previous != null) {
+            com.noop.ble.BleRuntimeIntent(previous.context).stop()
+            runCatching { stopService(Intent(this, WhoopConnectionService::class.java)) }
+        }
         previous?.identity?.context?.let { runCatching { SelfHostedPushScheduler.cancelSession(this, it) } }
         previous?.context?.let { runCatching { com.noop.account.AccountWorkContext.cancel(it) } }
         runtimeValue = AccountAppRuntime(AccountStorageContext(this, identity))

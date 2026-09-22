@@ -100,6 +100,7 @@ final class SyncEngine {
         do {
             let rows = try await store.owedJobs()
             guard !rows.isEmpty else { return false }
+            if rows.contains(where: { $0.kind == SyncJobKind.cloudPush.rawValue }) { return true }
             let state = await host.intelligence.preparePreferenceProjection()
             guard host.isAccountRuntimeActive else { return false }
             return state == .complete || state.hasRunnableWork(at: Int64(Date().timeIntervalSince1970))
@@ -127,12 +128,14 @@ final class SyncEngine {
     private func drainOnce(reason: SyncDrainPolicy.WakeReason) async {
         guard ResourceBudget.shared.permits(.bulk) else { return }
         guard let host, host.isAccountRuntimeActive else { return }
+        guard let store = await host.repo.storeHandle() else { return }
+        await drainRawUpload(store: store, host: host, reason: reason)
+        guard host.isAccountRuntimeActive, !Task.isCancelled else { return }
         // Durable jobs may be visible after the first productive chunk, but export surfaces must describe
         // the terminal backlog, not an intermediate oldest-first slice. A disconnect clears this process-
         // local flag; the jobs remain in SQLite and the next wake resumes them.
         guard SyncDrainPolicy.shouldStartDrain(
             backlogBurstInProgress: host.live.postOffloadBurstInProgress) else { return }
-        guard let store = await host.repo.storeHandle() else { return }
 
         await mirrorRescoreDebt(store: store)
 
@@ -148,6 +151,7 @@ final class SyncEngine {
         var prerequisiteInvoked = false
 
         for stage in SyncDrainPolicy.stageOrder {
+            if stage == .cloudPush { continue }
             guard ResourceBudget.shared.permits(.bulk) else { break }
             guard host.isAccountRuntimeActive, !Task.isCancelled else { return }
             guard SyncDrainPolicy.shouldRun(stage: stage, owedKinds: owedKinds, reason: reason),
@@ -222,6 +226,42 @@ final class SyncEngine {
     // MARK: - Stage runners
 
     private enum StageOutcome { case completed, held, deferred, failed }
+
+    /// Transport depends on the captured owner and debt token. Health/widget exports below
+    /// still require their physiological projection, but cannot hold this raw lane.
+    private func drainRawUpload(store: WhoopStore, host: AppModel,
+                                reason: SyncDrainPolicy.WakeReason) async {
+        guard let row = try? await store.owedJobs().first(where: { $0.kind == SyncJobKind.cloudPush.rawValue }),
+              host.isAccountRuntimeActive, !Task.isCancelled else { return }
+        let token = row.token
+        let identity = CloudRuntimeIdentity.snapshot().context
+        let admission = DependentStageAdmission(current: { [weak host] in
+            host?.isAccountRuntimeActive == true && CloudRuntimeIdentity.snapshot().context == identity
+        }, revalidate: { [weak host] in
+            guard host?.isAccountRuntimeActive == true,
+                  let rows = try? await store.owedJobs() else { return false }
+            return rows.contains { $0.kind == SyncJobKind.cloudPush.rawValue && $0.token == token }
+        }, boundaryCheck: {
+            guard CloudRuntimeIdentity.snapshot().context == identity else { throw CocoaError(.userCancelled) }
+        }, settleCaptured: { [weak host] in
+            guard host?.isAccountRuntimeActive == true else { return false }
+            return (try? await store.settleJob(kind: SyncJobKind.cloudPush.rawValue, token: token)) ?? false
+        })
+        guard await admission.validate() else { return }
+        do { try await store.recordJobAttempt(kind: SyncJobKind.cloudPush.rawValue, token: token) }
+        catch { return }
+        await dependentStageDriver?.afterAttempt?(.cloudPush)
+        guard await admission.validate() else { return }
+        let started = Date()
+        let outcome = await runStage(.cloudPush, token: token, reason: reason, host: host, admission: admission)
+        guard host.isAccountRuntimeActive else { return }
+        let remaining = (try? await store.owedJobs()) ?? []
+        try? await store.appendSyncJournal(wakeReason: reason.rawValue,
+            stagesRun: outcome == .completed ? [SyncJobKind.cloudPush.rawValue] : [],
+            stagesOwed: remaining.map(\.kind), durationMs: Int(Date().timeIntervalSince(started) * 1_000),
+            note: "raw transport: \(outcome)")
+        host.live.syncStatusRevision &+= 1
+    }
 
     private func captureAdmission(stage: SyncJobKind, token: String, store: WhoopStore,
                                   host: AppModel) async -> DependentStageAdmission? {

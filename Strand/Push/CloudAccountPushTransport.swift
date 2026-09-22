@@ -65,10 +65,21 @@ struct CloudAccountPushTransport: PushTransport {
             throw AccountAuthError.staleOperation
         }
         if let ack = try? PushAck.parse(result.body), ack.exactlyMatches(batch),
-           (200...299).contains(result.statusCode) { outcome = .succeeded }
+           (200...299).contains(result.statusCode) {
+            outcome = .succeeded
+            SyncPipelineTrace.event(.cloudAcknowledgement, correlation: UUID(uuidString: batch.batchId) ?? UUID())
+        }
         return result
     }
-    func postBinary(_ batch: PushBinaryBatch) async throws -> PushTransportResponse { try await base.postBinary(batch) }
+    func postBinary(_ batch: PushBinaryBatch) async throws -> PushTransportResponse {
+        SyncPipelineTrace.event(.uploadScheduling, correlation: UUID(uuidString: batch.batchId) ?? UUID())
+        let response = try await base.postBinary(batch)
+        guard isCurrent(context) else { throw AccountAuthError.staleOperation }
+        if (200...299).contains(response.statusCode), let ack = try? PushAck.parse(response.body), ack.exactlyMatches(batch) {
+            SyncPipelineTrace.event(.cloudAcknowledgement, correlation: UUID(uuidString: batch.batchId) ?? UUID())
+        }
+        return response
+    }
     func createObjectIntent(_ manifest: PushObjectManifest, lane: PushObjectLane) async throws -> PushObjectIntent {
         try await base.createObjectIntent(manifest, lane: lane)
     }
@@ -92,7 +103,10 @@ struct CloudAccountPushTransport: PushTransport {
             outcome = .cancelled
             throw AccountAuthError.staleOperation
         }
-        if ack.objectId == objectId, ack.releasesLocalRows { outcome = .succeeded }
+        if ack.objectId == objectId, ack.releasesLocalRows {
+            outcome = .succeeded
+            SyncPipelineTrace.event(.cloudAcknowledgement, correlation: UUID(uuidString: objectId) ?? UUID())
+        }
         return ack
     }
 }

@@ -521,10 +521,22 @@ class WhoopRepository(
         ppgWaveformPruneEveryRows: Int = PPG_WAVEFORM_PRUNE_EVERY_ROWS,
         /** Backfiller-only: atomically coalesce post-offload stage debt with productive raw inserts. */
         markPostBackfillDebt: Boolean = false,
+        rawCaptures: List<BleRawCapture> = emptyList(),
+        markCloudPushDebt: Boolean = false,
     ): InsertCounts {
-        if (streams.isEmpty) return InsertCounts()
+        if (streams.isEmpty && rawCaptures.isEmpty()) return InsertCounts()
 
         val result = transactor.run {
+            rawCaptures.forEach { capture ->
+                val database = checkNotNull(capturedDatabase)
+                check(capture.row.deviceId == deviceId &&
+                    database.accountIdentity?.scope?.namespace == capture.row.namespace)
+                capture.insert(database.openHelper.writableDatabase)
+            }
+            if (markCloudPushDebt || rawCaptures.isNotEmpty()) {
+                dao.markSyncJobOwed("cloudPush", System.currentTimeMillis() / 1000L,
+                    java.util.UUID.randomUUID().toString(), "BLE capture committed")
+            }
             insertWithinTransaction(
                 streams = streams,
                 deviceId = deviceId,

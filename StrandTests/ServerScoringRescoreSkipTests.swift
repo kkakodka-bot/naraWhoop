@@ -79,7 +79,8 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
     }
 
     func testPushIntervalTightensWhenServerScoringOn() {
-        XCTAssertEqual(CloudPushPeriodicScheduler.effectiveInterval(serverScoringEnabled: true), 45, accuracy: 0.001)
+        XCTAssertEqual(CloudPushPeriodicScheduler.effectiveInterval(serverScoringEnabled: true),
+                       CloudPushPeriodicScheduler.defaultInterval, accuracy: 0.001)
         XCTAssertEqual(CloudPushPeriodicScheduler.effectiveInterval(serverScoringEnabled: false),
                        CloudPushPeriodicScheduler.defaultInterval, accuracy: 0.001)
     }

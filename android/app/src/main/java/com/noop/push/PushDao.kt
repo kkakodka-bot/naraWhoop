@@ -44,6 +44,7 @@ internal object PushDeviceDiscovery {
 class PushDao internal constructor(
     private val db: WhoopDatabase,
     private val imuPushSource: ImuSessionPushSource? = null,
+    private val captureSourceId: String? = null,
 ) : PushSnapshotSource {
     override suspend fun knownDeviceIds(capabilities: PushCapabilities): List<String> = db.withTransaction {
         val supportedTables = capabilities.appendTables.map(::appendSpec) +
@@ -151,7 +152,6 @@ class PushDao internal constructor(
         rowId: Long,
     ): PushBinaryRow? {
         when (table) {
-            PushBinaryTable.RAW_BATCH -> return null
             PushBinaryTable.RAW_IMU_SESSION -> {
                 val source = imuPushSource ?: return null
                 val record = source.indexedPushRecord(deviceId, rowId) ?: return null
@@ -177,8 +177,12 @@ class PushDao internal constructor(
         afterRowId: Long,
         limit: Int,
     ): List<PushBinaryRow> {
-        if (table == PushBinaryTable.RAW_BATCH) return (imuPushSource as? ImuExactArchiveSource)
-            ?.archiveRows(deviceId, minOf(limit, 2))?.map { PushBinaryRow.RawBatch(it) }.orEmpty()
+        if (table == PushBinaryTable.RAW_BATCH) {
+            val captured = rawCaptureRows(deviceId, limit)
+            if (captured.isNotEmpty()) return captured
+            return (imuPushSource as? ImuExactArchiveSource)
+                ?.archiveRows(deviceId, minOf(limit, 2))?.map { PushBinaryRow.RawBatch(it) }.orEmpty()
+        }
         if (table == PushBinaryTable.RAW_IMU_SESSION) {
             val source = imuPushSource ?: return emptyList()
             return source.indexedPushRows(deviceId, afterRowId, limit)
@@ -207,9 +211,56 @@ class PushDao internal constructor(
         deviceId: String,
         rows: List<PushBinaryRow>,
     ) {
-        if (table == PushBinaryTable.RAW_BATCH) {
-            val source = imuPushSource as? ImuExactArchiveSource ?: return
-            rows.forEach { source.acknowledgeArchive(deviceId, (it as PushBinaryRow.RawBatch).record) }
+        if (table != PushBinaryTable.RAW_BATCH) return
+        for (row in rows) {
+            val record = (row as? PushBinaryRow.RawBatch)?.record
+                ?: throw PushProtocolException("raw row kind mismatch")
+            val captured = db.withTransaction {
+                val current = rawCaptureRecord(deviceId, record.rowId)
+                if (current != record) return@withTransaction false
+                db.openHelper.writableDatabase.execSQL(
+                    "UPDATE bleRawBatch SET syncedAt=? WHERE id=? AND deviceId=? AND batchId=?",
+                    arrayOf(System.currentTimeMillis(), record.rowId, deviceId, record.batchId))
+                true
+            }
+            if (!captured) {
+                val archive = imuPushSource as? ImuExactArchiveSource
+                    ?: throw PushProtocolException("raw receipt selection changed")
+                archive.acknowledgeArchive(deviceId, record)
+            }
+        }
+    }
+
+    private suspend fun rawCaptureRows(deviceId: String, limit: Int): List<PushBinaryRow> {
+        require(limit >= 1)
+        return db.withTransaction {
+            val now = System.currentTimeMillis()
+            // Backlog pagination must not repeatedly seal a just-arrived singleton. A clock
+            // rollback admits rather than indefinitely stranding a future-dated receipt.
+            val sql = "SELECT rowid AS _pushRowId, ${RAW.columns.joinToString()} FROM ${RAW.sqlName} " +
+                "WHERE deviceId = ? AND syncedAt IS NULL " +
+                "AND (sealed=1 OR frameCount>=64 OR receivedAtMs<=${now-10_000} OR receivedAtMs>$now) " +
+                "ORDER BY rowid ASC LIMIT ?"
+            val rows = db.query(SimpleSQLiteQuery(sql, arrayOf(deviceId, limit))).use { cursor -> buildList {
+                while (cursor.moveToNext()) add(cursor.binaryRecord(PushBinaryTable.RAW_BATCH))
+            } }
+            rows.forEach { row ->
+                db.openHelper.writableDatabase.execSQL(
+                    "UPDATE bleRawBatch SET sealed=1 WHERE id=?",
+                    arrayOf((row as PushBinaryRow.RawBatch).record.rowId),
+                )
+            }
+            rows
+        }
+    }
+
+    private fun rawCaptureRecord(deviceId: String, rowId: Long): PushRawBatchRecord? {
+        val sql = "SELECT rowid AS _pushRowId, ${RAW.columns.joinToString()} FROM ${RAW.sqlName} " +
+            "WHERE deviceId = ? AND rowid = ? LIMIT 1"
+        return db.query(SimpleSQLiteQuery(sql, arrayOf(deviceId, rowId))).use { cursor ->
+            if (cursor.moveToFirst())
+                (cursor.binaryRecord(PushBinaryTable.RAW_BATCH) as PushBinaryRow.RawBatch).record
+            else null
         }
     }
 
@@ -248,6 +299,18 @@ class PushDao internal constructor(
 
     private fun Cursor.binaryRecord(table: PushBinaryTable): PushBinaryRow {
         val rowId = getLong(getColumnIndexOrThrow("_pushRowId"))
+        if (table == PushBinaryTable.RAW_BATCH) {
+            val source = getString(getColumnIndexOrThrow("sourceId"))
+            val namespace = getString(getColumnIndexOrThrow("namespace"))
+            if (captureSourceId == null || source != captureSourceId || namespace != db.accountIdentity?.scope?.namespace)
+                throw PushProtocolException("raw capture owner mismatch")
+            val received = getLong(getColumnIndexOrThrow("receivedAtMs")) / 1000
+            return PushBinaryRow.RawBatch(PushRawBatchRecord(rowId,
+                getString(getColumnIndexOrThrow("batchId")), received,
+                getLong(getColumnIndexOrThrow("deviceClockRef")), getLong(getColumnIndexOrThrow("wallClockRef")),
+                received, getLong(getColumnIndexOrThrow("lastReceivedAtMs")) / 1000L, getInt(getColumnIndexOrThrow("frameCount")),
+                getInt(getColumnIndexOrThrow("byteSize")), getBlob(getColumnIndexOrThrow("framesBlob"))))
+        }
         val ts = getLong(getColumnIndexOrThrow("ts"))
         return when (table) {
             PushBinaryTable.PPG_WAVEFORM_SAMPLE -> {
@@ -272,7 +335,7 @@ class PushDao internal constructor(
                 PushBinaryRow.V18Aux(PushV18AuxRecord(rowId, ts, fields, index.takeIf { it >= 0 },
                     getString(getColumnIndexOrThrow("resourceKey"))))
             }
-            PushBinaryTable.RAW_BATCH -> throw PushProtocolException("rawBatch is not available on Android")
+            PushBinaryTable.RAW_BATCH -> error("raw handled above")
             PushBinaryTable.RAW_IMU_SESSION -> throw PushProtocolException("rawImuSession is file-backed")
         }
     }
@@ -334,10 +397,13 @@ class PushDao internal constructor(
     private fun binarySpec(table: PushBinaryTable): TableSpec? = when (table) {
         PushBinaryTable.PPG_WAVEFORM_SAMPLE -> PPG_WAVEFORM
         PushBinaryTable.V18_AUX_SAMPLE -> V18_AUX
-        PushBinaryTable.RAW_BATCH, PushBinaryTable.RAW_IMU_SESSION -> null
+        PushBinaryTable.RAW_BATCH -> RAW
+        PushBinaryTable.RAW_IMU_SESSION -> null
     }
 
     private companion object {
+        val RAW = TableSpec("bleRawBatch", listOf("batchId"), listOf("sourceId", "namespace", "receivedAtMs", "lastReceivedAtMs",
+            "deviceClockRef", "wallClockRef", "frameCount", "byteSize", "framesBlob"))
         val HR = TableSpec("hrSample", listOf("ts"), listOf("bpm"))
         val RR = TableSpec(
             "rrInterval",

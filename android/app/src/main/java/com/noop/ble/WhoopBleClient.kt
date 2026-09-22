@@ -2756,6 +2756,9 @@ class WhoopBleClient(
 
     /** Address of the strap we last connected to — for persisting it + auto-reconnecting on launch (#67). */
     val lastDeviceAddress: String? get() = lastDevice?.address
+    val recoveryTarget: BleRuntimeTarget? get() = lastDeviceAddress?.let { address ->
+        synchronized(collectorLock) { BleRuntimeTarget(receiptDeviceId ?: deviceId, address, selectedModel) }
+    }
 
     /// Has [connectedFamily] been established from THIS connection's service discovery?
     ///
@@ -3059,11 +3062,8 @@ class WhoopBleClient(
         }
     }
 
-    /**
-     * Durable archive for undecodable history record frames (#77/#91). Written BEFORE the strap is
-     * acked, so an unrecognised firmware layout can't cost the user their only copy: the ack frees
-     * the strap's records, and this archive is the only remaining copy until the layout is mapped.
-     */
+    /** Bounded diagnostic/redecode archive. Required exact history frames are retained separately
+     * in the transactional raw outbox before any safe-trim acknowledgement. */
     private val rawHistoryArchive = RawHistoryArchive(context, { deviceId }, { lastDeviceAddress })
 
     init {
@@ -3086,24 +3086,32 @@ class WhoopBleClient(
         deviceId = deviceId,
         cursorStore = cursorStore,
         ackTrim = { trim, endData -> ackHistoricalChunk(trim, endData) },
-        onBankedOffload = { counts -> addBankedOffload(counts) },
+        onBankedOffload = { counts ->
+            BlePipelineTrace.event(context, BlePipelineTrace.Stage.LOCAL_COMMIT)
+            addBankedOffload(counts)
+        },
         onChunkCommitted = { batch -> onBackfillChunkCommitted(batch) },
         onChunkCommitBegin = { pauseBackfillIdleWatchdogForCommit() },
         onChunkCommitAborted = { resumeBackfillIdleWatchdogAfterAbortedCommit() },
         onConsoleChunk = { consoleChunksThisSession += 1 },
-        // #77/#91: archive undecodable frames before the ack. append() returns ok=true (written, or
-        // archive-full → still safe to ack) and THROWS only on a genuine write failure → return false
-        // so finishChunk holds the cursor/ack and the strap re-sends. The throw is mapped to the
-        // boolean contract HERE so nothing can escape into the offload drain loop.
+        captureIdentity = { captureIdentity() },
+        captureStillCurrent = { owner -> !captureClosed && !intentionalDisconnect &&
+            owner == captureIdentity() && com.noop.account.AccountStorageContext.capture(context).isCurrent() },
+        capturedAck = { owner, trim, endData ->
+            handler.post {
+                if (!captureClosed && !intentionalDisconnect && owner == captureIdentity() &&
+                    com.noop.account.AccountStorageContext.capture(context).isCurrent()) ackHistoricalChunk(trim,endData)
+            }
+        },
+        // Optional rotating diagnostics. Required exact frames are in the transactional raw outbox.
         rejectedSink = { frames, trim ->
             try {
                 val r = rawHistoryArchive.append(frames, trim, connectedFamily)
                 if (r.written) log("Backfill: ${frames.size} undecodable frame(s) archived before ack")
-                else log("Backfill: ${frames.size} undecodable frame(s) NOT archived (archive full) — acking anyway")
-                r.ok
+                true
             } catch (t: Throwable) {
-                log("Backfill: reject-archive write FAILED (${t.message}) — holding ack so the strap re-sends")
-                false
+                log("Backfill: diagnostic archive unavailable; required evidence retained in raw outbox")
+                true
             }
         },
         log = { s -> log(s) },
@@ -3125,7 +3133,7 @@ class WhoopBleClient(
      */
     @Suppress("UNUSED_PARAMETER")
     private fun onBackfillChunkCommitted(batch: StreamBatch) {
-        decodedChunksThisSession += 1   // invoked once per non-empty decoded chunk (#77 family tally)
+        if (!batch.isEmpty) decodedChunksThisSession += 1
         SelfHostedPushScheduler.enqueueOnChunkCommitted(context)
         // No scoring here. The productive insert atomically marked durable syncJob debt before ACK;
         // the terminal BackfillContinuation decision drains it once for the whole oldest-first burst.
@@ -3644,20 +3652,63 @@ class WhoopBleClient(
      */
     private val collectorLock = Any()
 
-    /** Buffered complete custom-channel frames awaiting a batched decode+insert. */
-    // #47: buffer the (raw frame, pre-parsed) pair. Raw bytes stay for the raw path; the parse is the one
-    // the dispatcher already did, so flushLive doesn't re-decode the batch.
-    private val liveBuffer = ArrayList<Pair<ByteArray, com.noop.protocol.ParsedFrame>>()
-    private var batchStartedAtMs = System.currentTimeMillis()
-
-    /** Standard 0x2A37 HR/RR/contact buffer — the reliable, always-on stream. */
-    private val stdHr = ArrayList<HrRow>()
-    private val stdRr = ArrayList<RrRow>()
-    private val stdReceipts = ArrayList<Pair<String, com.noop.protocol.StandardHrReceipt>>()
+    private data class LivePacket(val owner: BleCaptureIdentity, val frame: ByteArray,
+        val parsed: com.noop.protocol.ParsedFrame, val family: DeviceFamily,
+        val receivedAtMs: Long, val monotonicNs: Long, val ordinal: Long)
+    private data class StandardPacket(val owner: BleCaptureIdentity, val streams: StreamBatch)
+    private val captureSourceId by lazy { com.noop.push.SelfHostedPushSettings.from(context).sourceId() }
     private var stdReceiptSessionId = java.util.UUID.randomUUID().toString()
     private var stdReceiptOrdinal = 0L
     private var stdReceiptDeviceId: String? = null
-    private val stdContact = ArrayList<EventEntry>()
+    private var receiptDeviceId: String? = null
+    @Volatile private var captureClosed = false
+    private fun captureIdentity(): BleCaptureIdentity = synchronized(collectorLock) {
+        val ownerDevice = receiptDeviceId ?: deviceId
+        if (stdReceiptDeviceId != ownerDevice || stdReceiptOrdinal == Long.MAX_VALUE) {
+            stdReceiptSessionId = java.util.UUID.randomUUID().toString()
+            stdReceiptOrdinal = 0
+            stdReceiptDeviceId = ownerDevice
+        }
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        BleCaptureIdentity(account.namespace, account.identity.generation.toString(), captureSourceId,
+            ownerDevice, stdReceiptSessionId)
+    }
+    private val liveCapture by lazy {
+        LiveCaptureQueue(ioScope, LivePacket::owner, ::persistLivePackets,
+            committed = {
+                BlePipelineTrace.event(context, BlePipelineTrace.Stage.LOCAL_COMMIT, it.last().receivedAtMs)
+                SelfHostedPushScheduler.enqueueOnLiveCommitted(context)
+            },
+            blocked = ::captureStorageBlocked, rejected = ::captureCapacityExhausted)
+    }
+    private val standardCapture by lazy {
+        LiveCaptureQueue(ioScope, StandardPacket::owner, persist = { packets ->
+            val streams = StreamBatch(hr = packets.flatMap { it.streams.hr }, rr = packets.flatMap { it.streams.rr },
+                events = packets.flatMap { it.streams.events }, standardHrReceipts = packets.flatMap { it.streams.standardHrReceipts })
+            addBankedLive(repository.insert(streams, packets.first().owner.deviceId, markCloudPushDebt = true))
+        }, committed = {
+            BlePipelineTrace.event(context, BlePipelineTrace.Stage.LOCAL_COMMIT)
+            SelfHostedPushScheduler.enqueueOnLiveCommitted(context)
+        },
+            blocked = ::captureStorageBlocked, batchRecords = 30, rejected = ::captureCapacityExhausted)
+    }
+    private fun captureStorageBlocked() {
+        _state.update { it.copy(statusNote = "Capture storage blocked; pending records retained for retry.") }
+    }
+    private var rejectedCaptureFrames = java.util.concurrent.atomic.AtomicLong()
+    private fun captureCapacityExhausted() {
+        val rejected = rejectedCaptureFrames.incrementAndGet()
+        runCatching {
+            val account = com.noop.account.AccountStorageContext.capture(context)
+            BleRuntimeIntent(account).pauseForStorage()
+            account.getSharedPreferences("ble-pipeline-frontiers-v1", Context.MODE_PRIVATE).edit()
+                .putLong("capture.rejectedFramesThisProcess", rejected).commit()
+        }
+        handler.post {
+            disconnect()
+            _state.update { it.copy(statusNote = "Capture paused: local capacity exhausted; $rejected new frame(s) rejected. Pending records retained. Free storage and reconnect.") }
+        }
+    }
 
     // --- Offload frame drain (preserves START/data/END arrival order; port of routeBackfillFrame) ---
 
@@ -3732,7 +3783,8 @@ class WhoopBleClient(
      * leaned on CoreBluetooth's internal queue; here we serialise writes ourselves. Each queued
      * item is the fully-framed byte array + its write type (with/without response).
      */
-    private data class PendingWrite(val frame: ByteArray, val withResponse: Boolean, val cmd: CommandNumber? = null)
+    private data class PendingWrite(val frame: ByteArray, val withResponse: Boolean,
+        val cmd: CommandNumber?, val targetGatt: BluetoothGatt, val generation: Int)
     private val writeQueue = ConcurrentLinkedQueue<PendingWrite>()
     // @Volatile: read on the main looper in drainWriteQueue but CLEARED from the GATT binder thread in the
     // write-completion callbacks - the barrier guarantees the main-thread drain sees the flag flip promptly
@@ -4257,8 +4309,19 @@ class WhoopBleClient(
      */
     fun setActiveDeviceId(id: String) {
         if (id.isEmpty()) return
-        deviceId = id
-        backfiller.deviceId = id
+        synchronized(collectorLock) {
+            deviceId = id
+            backfiller.deviceId = id
+            // Same-link registry/serial adoption applies only to FUTURE receipts. A different-device
+            // transition disconnects first; its identity is pinned when the new GATT connects.
+            if (!intentionalDisconnect && gatt != null && _state.value.connected && receiptDeviceId != id) {
+                receiptDeviceId = id
+                stdReceiptDeviceId = id
+                stdReceiptSessionId = java.util.UUID.randomUUID().toString()
+                stdReceiptOrdinal = 0
+            }
+        }
+        com.noop.account.AccountStorageContext.runtime(context)?.rememberBleConnection()
         replayRejectedHistory()
     }
 
@@ -4338,11 +4401,8 @@ class WhoopBleClient(
      * non-WHOOP match, or an id already correct all leave it alone.
      *  - the matched row is already the current id -> no write.
      *
-     * Known narrow residual: the disconnect path flushes buffered live rows best-effort, and the persist
-     * sites read [deviceId] at PERSIST time — so a flush still in flight when the next link re-points the
-     * id would attribute the previous link's tail to the new strap. It needs a re-point to happen at all,
-     * which only occurs when the resolved row differs from the current id: never on a settled
-     * single-WHOOP install. Swift twin carries the same note.
+     * Buffered receipts retain their original owner. A successful same-link adoption changes only
+     * future receipt identity; it never re-labels delayed IO from the old selection.
      */
     private fun adoptSourceIdentity(address: String?) {
         val addr = address ?: return
@@ -4466,6 +4526,8 @@ class WhoopBleClient(
      * acked command use WITH response.
      */
     fun send(cmd: CommandNumber, payload: ByteArray = byteArrayOf(0), withResponse: Boolean = false) {
+        val targetGatt = gatt ?: return
+        val generation = connectGeneration
         val ch = cmdCharacteristic
         if (gatt == null || ch == null) {
             log("send(${cmd.name}) ignored — not connected")
@@ -4599,14 +4661,14 @@ class WhoopBleClient(
             val puffinPayload = if (isHaptics) maverickHapticBody(payload) else payload
             val s = seq.incrementAndGet() and 0xFF
             val frame = Framing.puffinCommandFrame(cmd = puffinCmd, seq = s, payload = puffinPayload)
-            enqueueWrite(PendingWrite(frame, withResponse, cmd))
+            enqueueWrite(PendingWrite(frame, withResponse, cmd, targetGatt, generation))
             val cmdNote = if (isHaptics) " cmd=0x13" else ""
             log("→ ${cmd.name} payload=${puffinPayload.toHex()} (puffin$cmdNote)")
             return
         }
         val s = seq.incrementAndGet() and 0xFF
         val frame = Framing.buildCommand(cmd, payload, s)
-        enqueueWrite(PendingWrite(frame, withResponse, cmd))
+        enqueueWrite(PendingWrite(frame, withResponse, cmd, targetGatt, generation))
         log("→ ${cmd.name} payload=${payload.toHex()}")
     }
 
@@ -6727,6 +6789,12 @@ class WhoopBleClient(
         reset()
         // Remember the device so a later dropout can reconnect straight to it (#61).
         lastDevice = device
+        synchronized(collectorLock) {
+            receiptDeviceId = deviceId
+            stdReceiptSessionId = java.util.UUID.randomUUID().toString()
+            stdReceiptOrdinal = 0
+            stdReceiptDeviceId = receiptDeviceId
+        }
         // Close any prior/pending GATT so a direct-reconnect attempt doesn't leak the old client.
         // close() can throw on a dead binder (#314); swallow it — we're replacing the handle anyway.
         try { gatt?.close() } catch (t: Throwable) { log("prior gatt.close() threw ${t.javaClass.simpleName} (ignored)") }
@@ -6778,6 +6846,7 @@ class WhoopBleClient(
 
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            if (g !== gatt || captureClosed) return
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     synchronized(collectorLock) {
@@ -7303,6 +7372,8 @@ class WhoopBleClient(
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray,
         ) {
+            if (g !== gatt || captureClosed || intentionalDisconnect || !whoopIsActiveDevice) return
+            BlePipelineTrace.event(context, BlePipelineTrace.Stage.RECEIVE, System.currentTimeMillis())
             onInbound(characteristic.uuid, value)
         }
 
@@ -7311,6 +7382,8 @@ class WhoopBleClient(
             g: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
         ) {
+            if (g !== gatt || captureClosed || intentionalDisconnect || !whoopIsActiveDevice) return
+            BlePipelineTrace.event(context, BlePipelineTrace.Stage.RECEIVE, System.currentTimeMillis())
             @Suppress("DEPRECATION")
             val value = characteristic.value ?: return
             onInbound(characteristic.uuid, value)
@@ -7324,6 +7397,7 @@ class WhoopBleClient(
             value: ByteArray,
             status: Int,
         ) {
+            if (g !== gatt || captureClosed || intentionalDisconnect) return
             if (status == BluetoothGatt.GATT_SUCCESS) onInbound(characteristic.uuid, value)
             else noteReadFailure(characteristic.uuid, status)
         }
@@ -7334,6 +7408,7 @@ class WhoopBleClient(
             characteristic: BluetoothGattCharacteristic,
             status: Int,
         ) {
+            if (g !== gatt || captureClosed || intentionalDisconnect) return
             @Suppress("DEPRECATION")
             if (status == BluetoothGatt.GATT_SUCCESS) characteristic.value?.let { onInbound(characteristic.uuid, it) }
             else noteReadFailure(characteristic.uuid, status)
@@ -7746,9 +7821,10 @@ class WhoopBleClient(
                             armBackfillTimeout()
                             routeBackfillFrame(frame)
                         }
-                    } else {
-                        // Live path: buffer the frame + its parse for a batched insert (port of Collector.ingest).
-                        // #47: thread the single parse so flushLive doesn't re-decode the batch.
+                    }
+                    if (!offloadFrame) {
+                        // Live evidence continues during history catch-up. It uses its own bounded
+                        // durable queue and never competes for a BLE command/ACK slot.
                         ingestLiveFrame(frame, parsed)
                     }
                   } catch (t: Throwable) {
@@ -8335,18 +8411,15 @@ class WhoopBleClient(
      * The standard profile is the RELIABLE source for both HR and R-R.
      */
     private fun parseStandardHr(data: ByteArray) {
-        val receiptsShouldFlush = synchronized(collectorLock) {
-            val owner = deviceId
-            if (stdReceiptDeviceId != owner || stdReceiptOrdinal == Long.MAX_VALUE) {
-                stdReceiptSessionId = java.util.UUID.randomUUID().toString()
-                stdReceiptOrdinal = 0L
-                stdReceiptDeviceId = owner
-            }
-            com.noop.protocol.StandardHrReceipt.capture(data, stdReceiptSessionId, stdReceiptOrdinal++,
-                System.currentTimeMillis(), android.os.SystemClock.elapsedRealtimeNanos())?.let { stdReceipts.add(owner to it) }
-            stdReceipts.size >= 30
+        val (owner, receipt) = synchronized(collectorLock) {
+            val owner = captureIdentity()
+            owner to com.noop.protocol.StandardHrReceipt.capture(data, owner.sessionId, stdReceiptOrdinal++,
+                System.currentTimeMillis(), android.os.SystemClock.elapsedRealtimeNanos())
         }
-        if (receiptsShouldFlush) ioScope.launch { flushStandardHr() }
+        fun retainUndecodableReceipt() {
+            if (receipt != null) standardCapture.offer(StandardPacket(owner,
+                StreamBatch(standardHrReceipts = listOf(receipt))), 128 + receipt.rawHex.length)
+        }
         if (data.isEmpty()) return
         val flags = data[0].toInt() and 0xFF
         val hr16 = (flags and 0x01) != 0
@@ -8356,11 +8429,11 @@ class WhoopBleClient(
         var idx = 1
         val hr: Int
         if (hr16) {
-            if (data.size < idx + 2) return
+            if (data.size < idx + 2) { retainUndecodableReceipt(); return }
             hr = (data[idx].toInt() and 0xFF) or ((data[idx + 1].toInt() and 0xFF) shl 8)
             idx += 2
         } else {
-            if (data.size < idx + 1) return
+            if (data.size < idx + 1) { retainUndecodableReceipt(); return }
             hr = data[idx].toInt() and 0xFF
             idx += 1
         }
@@ -8406,7 +8479,7 @@ class WhoopBleClient(
 
         // Record it continuously — independent of the realtime stream or which screen is open.
         // Port of BLEManager.parseStandardHR -> collector.ingestStandardHR(hr:rr:at:).
-        ingestStandardHr(hr, rr, contact, (System.currentTimeMillis() / 1000L), connectedFamily)
+        ingestStandardHr(hr, rr, contact, (System.currentTimeMillis() / 1000L), connectedFamily, owner, receipt)
     }
 
     /** The Test Centre gate, bound once to the app's single "noop_testcentre" prefs file. Lazily built so
@@ -9234,6 +9307,10 @@ class WhoopBleClient(
         // A frame rejected BUSY last tick takes priority so it keeps its place in the command sequence.
         val item = pendingRetry ?: writeQueue.poll() ?: return
         pendingRetry = null
+        if (item.targetGatt !== gatt || item.generation != connectGeneration) {
+            handler.post { drainWriteQueue() }
+            return
+        }
         writeInFlight = true
 
         val writeType = if (item.withResponse) {
@@ -9805,26 +9882,21 @@ class WhoopBleClient(
         ingestLiveFrame(frame, Framing.parseFrame(frame, connectedFamily))
 
     private fun ingestLiveFrame(frame: ByteArray, parsed: com.noop.protocol.ParsedFrame) {
-        val shouldFlush = synchronized(collectorLock) {
-            liveBuffer.add(frame to parsed)   // synchronous append preserves GATT-callback arrival order
-            liveBuffer.size >= FLUSH_MAX_FRAMES ||
-                (System.currentTimeMillis() - batchStartedAtMs) >= FLUSH_MAX_INTERVAL_MS
+        if (captureClosed) return
+        val packet = synchronized(collectorLock) {
+            LivePacket(captureIdentity(), frame.copyOf(), parsed, connectedFamily,
+                System.currentTimeMillis(), android.os.SystemClock.elapsedRealtimeNanos(), stdReceiptOrdinal++)
         }
-        if (shouldFlush) ioScope.launch { flushLive() }
+        liveCapture.offer(packet, frame.size + 128)
     }
 
     /**
      * Decode the buffered live frames and persist them. Snapshot+clear under the lock BEFORE the
      * suspend insert so concurrent ingests accumulate into the next batch (port of Collector.flush).
      */
-    private suspend fun flushLive() {
-        val frames = synchronized(collectorLock) {
-            if (liveBuffer.isEmpty()) return
-            val snapshot = ArrayList(liveBuffer)
-            liveBuffer.clear()
-            batchStartedAtMs = System.currentTimeMillis()
-            snapshot
-        }
+    private suspend fun flushLive() { liveCapture.drain() }
+
+    private suspend fun persistLivePackets(frames: List<LivePacket>) {
         // REALTIME_DATA carries the strap's OWN timestamp, and we can't trust its absolute value: on a
         // strap whose RTC is invalid (the same bad clock that blocks history banking — #126) it's a
         // bogus uptime counter, not unix time, so an identity clock (device==wall==now) would stamp live
@@ -9833,8 +9905,8 @@ class WhoopBleClient(
         // timestamp to wall-clock `now` and let earlier samples fall relative to it. That lands live HR
         // on today's timeline whatever the strap's clock says, and is a no-op when the clock is already
         // valid (newest frame ≈ now). The dense, authoritative source is still the type-47 history store.
-        val now = (System.currentTimeMillis() / 1000L).toInt()
-        val parsed = frames.map { it.second }   // #47: the dispatcher already decoded these — don't re-parse
+        val now = (frames.last().receivedAtMs / 1000L).toInt()
+        val parsed = frames.map { it.parsed }
         val newestRealtimeTs = parsed.asSequence()
             .filter { it.ok && it.crcOk != false && it.typeName == "REALTIME_DATA" }
             .mapNotNull { (it.parsed["timestamp"] as? Number)?.toInt() }
@@ -9852,31 +9924,11 @@ class WhoopBleClient(
                 log(com.noop.analytics.RrEmissionStats.logLine("live-realtime", batch.rr.size, null, census))
             }
         }
-        if (!batch.isEmpty) {
-            try {
-                addBankedLive(repository.insert(batch, deviceId))
-                liveInsertFailuresRealtime.set(0)
-            } catch (t: Throwable) {
-                // Re-buffer at the front so these frames retry on the next cadence (port of Collector).
-                synchronized(collectorLock) { liveBuffer.addAll(0, frames) }
-                // The #1118 SECOND transport, silent for the same reason the standard path was: the
-                // census above reports what was OFFERED, so a store rejecting everything still reads
-                // like a healthy stream.
-                val runLength = liveInsertFailuresRealtime.incrementAndGet()
-                val nowMs = System.currentTimeMillis()
-                if (shouldEmitLiveInsertFailure(lastRealtimeInsertFailureLogMs, nowMs)) {
-                    lastRealtimeInsertFailureLogMs = nowMs
-                    log(liveInsertFailedLine(
-                        transport = "live-realtime",
-                        throwableName = t.javaClass.simpleName,
-                        message = t.message,
-                        hrFrames = batch.hr.size,
-                        rrFrames = batch.rr.size,
-                        consecutiveFailures = runLength,
-                    ))
-                }
-            }
-        }
+        val first = frames.first()
+        val raw = com.noop.data.BleRawCapture.create(first.owner, frames.map { it.frame }, first.family.name,
+            first.receivedAtMs, first.monotonicNs, newestRealtimeTs.toLong(), now.toLong(),
+            "receipt_anchor_unverified", "${first.owner.sessionId}:${first.ordinal}")
+        addBankedLive(repository.insert(batch, first.owner.deviceId, rawCaptures = listOf(raw), markCloudPushDebt = true))
     }
 
     /** #1118: last emit of each LIVE R-R census line, unix seconds; 0 = never. See
@@ -9904,73 +9956,19 @@ class WhoopBleClient(
      * Auto-flushes ~every 30 readings. Port of `Collector.ingestStandardHR`.
      */
     private fun ingestStandardHr(hr: Int, rr: List<Int>, contact: StandardHrContact, ts: Long,
-                                 family: DeviceFamily) {
-        val shouldFlush = synchronized(collectorLock) {
-            if (hr in 30..220) stdHr.add(HrRow(ts, hr))
-            val source = if (family == DeviceFamily.WHOOP5)
-                com.noop.protocol.RrSourceChannel.WHOOP5_STANDARD else null
-            for (r in rr) if (r in 250..3000) stdRr.add(RrRow(ts, r, source))
-            stdContact.add(StandardHrMapping.contactEvent(ts, contact))
-            standardHrBufferReachedFlushThreshold(stdHr.size, stdRr.size, stdContact.size)
-        }
-        if (shouldFlush) ioScope.launch { flushStandardHr() }
+                                 family: DeviceFamily, owner: BleCaptureIdentity,
+                                 receipt: com.noop.protocol.StandardHrReceipt?) {
+        if (captureClosed) return
+        val source = if (family == DeviceFamily.WHOOP5) com.noop.protocol.RrSourceChannel.WHOOP5_STANDARD else null
+        val batch = StreamBatch(hr = if (hr in 30..220) listOf(HrRow(ts, hr)) else emptyList(),
+            rr = rr.filter { it in 250..3000 }.map { RrRow(ts, it, source) },
+            events = listOf(StandardHrMapping.contactEvent(ts, contact)), standardHrReceipts = listOfNotNull(receipt))
+        standardCapture.offer(StandardPacket(owner, batch), 128 + rr.size * 32 + (receipt?.rawHex?.length ?: 0))
     }
 
     /** Persist the buffered standard HR/RR. Re-buffers on failure. Port of `Collector.flushStandardHR`. */
     private suspend fun flushStandardHr() {
-        val (samples, receipts) = synchronized(collectorLock) {
-            if (stdHr.isEmpty() && stdRr.isEmpty() && stdContact.isEmpty() && stdReceipts.isEmpty()) return
-            val h = ArrayList(stdHr); val r = ArrayList(stdRr)
-            val c = ArrayList(stdContact)
-            val receipts = ArrayList(stdReceipts)
-            stdHr.clear(); stdRr.clear(); stdContact.clear()
-            stdReceipts.clear()
-            Triple(h, r, c) to receipts
-        }
-        val (hr, rr, contact) = samples
-        // #1118: census this batch BEFORE it is stored, exactly as the historical path does, so a
-        // strap log carries one `ratioRep` per transport. If each transport reports ~1.0 while the
-        // stored night reads 2.77, the over-count is the UNION of the transports and no single
-        // decoder is at fault — which is the question this instrumentation exists to settle.
-        if (rr.isNotEmpty()) {
-            val nowSec = (System.currentTimeMillis() / 1000L).toInt()
-            if (com.noop.analytics.RrEmissionStats.shouldEmitLiveCensus(lastStdRrCensusSec, nowSec)) {
-                lastStdRrCensusSec = nowSec
-                val census = com.noop.analytics.RrEmissionStats.compute(rr.map { it.ts.toInt() to it.rrMs })
-                // `inserted` is NULL, not echoed from `offered`: the store's conflict key decides that
-                // and this census runs before the insert. The line renders `inserted=n/a`.
-                log(com.noop.analytics.RrEmissionStats.logLine("live-standard", rr.size, null, census))
-            }
-        }
-        try {
-            // Receipt ownership is captured at arrival, so a device switch during an IO suspension
-            // cannot reattribute an old notification. Partial retries keep identical receipt IDs.
-            for ((owner, rows) in receipts.groupBy({ it.first }, { it.second })) {
-                repository.insert(StreamBatch(standardHrReceipts = rows), owner)
-            }
-            addBankedLive(repository.insert(StreamBatch(hr = hr, rr = rr, events = contact), deviceId))
-            liveInsertFailuresStd.set(0)
-        } catch (t: Throwable) {
-            synchronized(collectorLock) {
-                stdHr.addAll(0, hr); stdRr.addAll(0, rr); stdContact.addAll(0, contact)
-                stdReceipts.addAll(0, receipts)
-            }
-            // Swallowing this made the instrumentation above read like success: a store failing every
-            // insert produced a log full of `rr emit ... offered=N` and no sign that none of it landed.
-            val runLength = liveInsertFailuresStd.incrementAndGet()
-            val nowMs = System.currentTimeMillis()
-            if (shouldEmitLiveInsertFailure(lastStdInsertFailureLogMs, nowMs)) {
-                lastStdInsertFailureLogMs = nowMs
-                log(liveInsertFailedLine(
-                    transport = "live-standard",
-                    throwableName = t.javaClass.simpleName,
-                    message = t.message,
-                    hrFrames = hr.size,
-                    rrFrames = rr.size,
-                    consecutiveFailures = runLength,
-                ))
-            }
-        }
+        standardCapture.drain()
     }
 
     // ====================================================================================
@@ -11404,6 +11402,9 @@ class WhoopBleClient(
      * (e.g. AppViewModel.onCleared) AFTER [disconnect]. Idempotent.
      */
     fun shutdown() {
+        captureClosed = true
+        liveCapture.stopAccepting()
+        standardCapture.stopAccepting()
         try {
             continuousImuRecorder.shutdown()
             ImuSessionFileStore(context).flushAll()

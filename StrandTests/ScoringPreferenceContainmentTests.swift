@@ -23,6 +23,25 @@ private func containmentFixtureBaseDirectory() throws -> URL {
 
 @MainActor
 final class ScoringPreferenceContainmentTests: XCTestCase {
+    func testRawUploadRunsDuringHistoryBurstWithUnvalidatedPhysiology() async throws {
+        let f = try await fixture(), model = f.openModel()
+        model.live.postOffloadBurstInProgress = true
+        _ = try await f.store.markJobOwed(kind: "rescore")
+        _ = try await f.store.markJobOwed(kind: "cloudPush")
+        var runs: [SyncJobKind] = []
+        model.syncEngine.dependentStageDriver = .init(perform: { stage, admission in
+            guard await admission.validate() else { return false }
+            runs.append(stage)
+            return true
+        })
+        let starts = f.starts
+        await model.syncEngine.drain(reason: .bleEvent)
+        XCTAssertEqual(runs, [.cloudPush])
+        XCTAssertEqual(f.starts, starts)
+        let remaining = try await f.store.owedJobs()
+        XCTAssertTrue(remaining.contains { $0.kind == "rescore" })
+        XCTAssertFalse(remaining.contains { $0.kind == "cloudPush" })
+    }
     @MainActor private final class Barrier {
         var target: IntelligenceEngine.LifecycleCheckpoint = .beforeCompletion
         var entered: XCTestExpectation?
