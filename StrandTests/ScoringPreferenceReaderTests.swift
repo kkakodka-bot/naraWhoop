@@ -158,7 +158,7 @@ final class ScoringPreferenceReaderTests: XCTestCase {
         XCTAssertEqual(repo.captureScoringReaderInputs()?.algorithms, captured.algorithms)
     }
 
-    func testActualAnalysisReadsProviderOnceBeforeStoreSuspension() async throws {
+    func testActualAnalysisRejectsChangedPreferenceIdentityBeforeOpeningEvaluation() async throws {
         try globals([RescoreBackgroundScheduler.owedKey: false,
             RescoreBackgroundScheduler.owedTokenKey: "reader-fixture",
             RescoreBackgroundScheduler.lastPassSecondsKey: 0.0])
@@ -166,17 +166,24 @@ final class ScoringPreferenceReaderTests: XCTestCase {
         let initial = ScoringPreferenceSnapshot.seed(context: owner, domain: ["noop.hrvBaselineEpoch": 1234.25])
         var current: ScoringPreferenceSnapshot? = initial
         var observed: [ScoringPreferenceSnapshot?] = []
+        var coreCheckpoints = 0
         let gate = StoreGate(store: store, entered: expectation(description: "analysis suspended at actual store opener"))
         let repo = Repository(deviceId: "reader", openStore: { store }, scoringPreferences: { current })
         let engine = IntelligenceEngine(repo: repo, profile: ProfileStore(defaults: defaults), deviceId: "reader",
             defaults: defaults, scoringPreferences: { observed.append(current); return current },
-            analysisStoreProvider: { await gate.open() })
+            analysisStoreProvider: { await gate.open() },
+            lifecycleCheckpoint: { _ in coreCheckpoints += 1 })
         let running = Task { await engine.analyzeRecent(maxDays: 0) }
         await fulfillment(of: [gate.entered], timeout: 5)
         current = .seed(context: owner, domain: ["noop.hrvBaselineEpoch": 9000.75, "noopBanisterEffort": true])
         await gate.release()
         await running.value
-        XCTAssertEqual(observed, [initial], "the whole pass, including self-healing, must use its original capture")
+        // The preference evaluator intentionally checks current identity again after its store await.
+        // Its captured request is immutable; a changed identity must stop it, not score either recipe.
+        XCTAssertEqual(observed, [initial, initial, current])
+        XCTAssertEqual(coreCheckpoints, 0)
+        XCTAssertTrue(engine.results.isEmpty)
+        XCTAssertEqual(engine.preferenceWorkDisposition, .unvalidated)
         XCTAssertEqual(engine.configuredHrvWindow, .whole)
         engine.shutdownForAccountChange(); repo.shutdownForAccountChange()
     }
