@@ -106,6 +106,8 @@ public enum PpgHr {
                                 hiBpm: Double = hrHiBpm,
                                 minConf: Double = minConfidence,
                                 subLagInterp: Bool = false) -> (bpm: Double, conf: Double)? {
+        guard PhoneComputeRuntime.permitsLocal("ppg_hr_estimate") else { return nil }
+        PhoneComputeRuntime.entered("ppg_hr_estimate")
         guard samples.count >= fs * 3 else { return nil }   // need >= 3 s to resolve a low HR
         // De-artifact (#194) THEN linear-detrend, so the autocorrelation sees the pulse, not the
         // record-rate comb that would peg a low HR at 60 bpm.
@@ -166,7 +168,8 @@ public enum PpgHr {
                                    fs: Int = sampleRateHz,
                                    windowSeconds: Int = windowSeconds,
                                    subLagInterp: Bool = false) -> [PpgHrSample] {
-        derivePpgHr(waveforms: records.map { PpgWaveformSample(ts: $0.ts, samples: $0.samples) },
+        guard PhoneComputeRuntime.permitsLocal("ppg_hr_records") else { return [] }
+        return derivePpgHr(waveforms: records.map { PpgWaveformSample(ts: $0.ts, samples: $0.samples) },
                     fs: fs, windowSeconds: windowSeconds, subLagInterp: subLagInterp)
     }
 
@@ -174,6 +177,8 @@ public enum PpgHr {
                                    fs: Int = sampleRateHz,
                                    windowSeconds: Int = windowSeconds,
                                    subLagInterp: Bool = false) -> [PpgHrSample] {
+        guard PhoneComputeRuntime.permitsLocal("ppg_hr_waveforms") else { return [] }
+        PhoneComputeRuntime.entered("ppg_hr_waveforms")
         guard !waveforms.isEmpty, fs > 0, windowSeconds > 0 else { return [] }
         // One waveform per second (last write wins on a duplicate ts).
         var secs = [Int: PpgWaveformSample]()

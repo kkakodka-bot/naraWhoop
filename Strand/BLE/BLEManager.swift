@@ -6910,6 +6910,8 @@ public final class BLEManager: NSObject, ObservableObject {
     /// owns the concrete store) hops onto a @MainActor Task, then the gated buzz + state save run back on
     /// the main actor. Haptic firing can't be verified in the simulator — test on-device.
     private func maybeBuzzInactivity() {
+        guard PhoneComputeRuntime.permitsLocal("inactivity_coaching") else { return }
+        PhoneComputeRuntime.entered("inactivity_coaching")
         guard InactivityPrefs.isEnabled() else { return }   // cheap pre-check before any DB read
         Task { @MainActor in
             let nowSec = Int(Date().timeIntervalSince1970)

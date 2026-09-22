@@ -15,6 +15,7 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 
 struct LiveSessionView: View {
     @EnvironmentObject private var model: AppModel
@@ -57,6 +58,12 @@ struct LiveSessionView: View {
             header
                 .padding(.top, NoopMetrics.space6)
             Spacer()
+            if PhoneComputeRuntime.isFinalHosted {
+                Text("\(runner.elapsedSeconds / 60):\(String(format: "%02d", runner.elapsedSeconds % 60))")
+                    .font(StrandFont.number(48))
+                DeviceReportedHeartRateSection().environmentObject(model.live)
+                ServerSessionResultView(coordinator: model.computeSessions, requestID: runner.serverRequestID)
+            } else {
             ring
             Text(guardianLine)
                 .font(StrandFont.subhead)
@@ -67,6 +74,7 @@ struct LiveSessionView: View {
             chargeSentence
                 .padding(.top, NoopMetrics.space3)
                 .padding(.horizontal, NoopMetrics.space6)
+            }
             Spacer()
             NoopButton("End session", systemImage: "stop.fill", kind: .destructive, fullWidth: true) {
                 endSession()
@@ -96,9 +104,16 @@ struct LiveSessionView: View {
             showSummary = true
         }
         .onChangeCompat(of: runner.output) { out in advance(to: out) }
+        .onChangeCompat(of: runner.finished) { done in if done { showSummary = true } }
         .task { await fadeChargeSentenceLater() }
         .sheet(isPresented: $showSummary, onDismiss: { onClose() }) {
-            if let row = runner.finalRow {
+            if PhoneComputeRuntime.isFinalHosted {
+                VStack(spacing: 16) {
+                    Text("Session capture complete")
+                    ServerSessionResultView(coordinator: model.computeSessions, requestID: runner.serverRequestID)
+                    Button("Done") { showSummary = false }
+                }.padding()
+            } else if let row = runner.finalRow {
                 LiveSessionSummarySheet(row: row, guardedCount: guardedCount) {
                     showSummary = false   // onDismiss closes the whole session screen
                 }

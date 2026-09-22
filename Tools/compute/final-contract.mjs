@@ -45,7 +45,7 @@ export function validateFinalSourceContracts(registry) {
   contains('Packages/StrandAnalytics/Tests/StrandAnalyticsTests/PhoneInferenceRetirementTests.swift',
     ['testNonoptionalEntrypointsFailLoudlyInFinalHostedMode', 'testFinalHostedOptionalProducersRefuseBeforeNumericalWork',
       'testFinalHostedLeavesUserTimersFormattingAndRawProvenanceOperational']);
-  contains('StrandTests/FinalHostedRuntimeTests.swift', ['FinalHostedRuntimeTests', 'PhoneComputeRuntime']);
+  contains('Tools/compute/Tests/FinalHostedRuntimeTests.swift', ['FinalHostedRuntimeTests', 'PhoneComputeRuntime']);
   contains('android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt', ['FinalHostedComputeRuntimeTest']);
   contains('android/app/src/main/java/com/noop/analytics/PhoneComputeRuntime.kt', ['finalHosted', 'inferenceStarted']);
   contains('android/app/src/main/java/com/noop/NoopApplication.kt', ['PhoneComputeRuntime.installFinalHosted()']);

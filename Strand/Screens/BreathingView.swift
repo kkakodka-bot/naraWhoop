@@ -3,6 +3,7 @@ import Foundation
 import AVFoundation
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 
 /// HRV haptic breathing biofeedback trainer — Strand's flagship novel feature, now a closed-loop
 /// biofeedback instrument with three layers (v5 "the strap that breathes you down").
@@ -154,7 +155,7 @@ private struct BreathingContent: View {
     private let rrWindow = 30
 
     /// The user's locked resonance pace, read fresh each render (set by the sweep).
-    private var lockedBpm: Double? { BiofeedbackPrefs.lockedPace }
+    private var lockedBpm: Double? { PhoneComputeRuntime.isFinalHosted ? nil : BiofeedbackPrefs.lockedPace }
 
     private var selectedProtocol: BreathProtocol? {
         if case .catalog(let id) = pace { return BreathProtocolCatalog.protocolById(id) }
@@ -760,6 +761,13 @@ private struct BreathingContent: View {
     private let reducedSteadyOrb: CGFloat = 0.5
 
     private func captureOutcome() {
+        guard PhoneComputeRuntime.permitsLocal("breathing_outcome") else {
+            endedOutcome = "Server analysis pending"
+            _ = model.requestServerCompute(family: "biofeedback", sessionID: UUID(),
+                start: Date().addingTimeInterval(-Double(sessionSeconds)), end: Date())
+            return
+        }
+        PhoneComputeRuntime.entered("breathing_outcome")
         guard sessionSeconds >= 120 else { return }
         guard let base = baselineRmssd, base > 0, sessionRmssdCount > 0 else {
             endedOutcome = "—"
@@ -849,6 +857,7 @@ private struct BreathingContent: View {
     // MARK: - HRV (RMSSD)
 
     private func ingest(_ rr: [Int]) {
+        guard PhoneComputeRuntime.permitsLocal("breathing_hrv") else { rmssd = nil; return }
         guard !rr.isEmpty else { return }
         rrBuffer.append(contentsOf: rr)
         if rrBuffer.count > rrWindow {
@@ -864,6 +873,8 @@ private struct BreathingContent: View {
     }
 
     private func computeRMSSD(_ intervals: [Int]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("breathing_hrv_kernel") else { return nil }
+        PhoneComputeRuntime.entered("breathing_hrv_kernel")
         guard intervals.count >= 2 else { return nil }
         var sumSq = 0.0
         for i in 1..<intervals.count {

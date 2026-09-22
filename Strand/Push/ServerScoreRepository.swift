@@ -876,6 +876,9 @@ final class ServerScoreRepository: ObservableObject {
         do {
             let cache = try await dependencies.fetch(day, owner, device)
             synchronizeOwner()
+            guard ServerComputeRevisionFence.admits(previous: enrolledDays[day] ?? cachedDay(ownerId: owner, day: day), next: cache) else {
+                throw ServerScoreClient.FetchError.invalidResponse
+            }
             guard !Task.isCancelled, generation == session.generation, cache.day == day,
                   activeDeviceId == device,
                   session.accept(cache, generation: generation, currentOwnerId: currentOwnerId, request: request)

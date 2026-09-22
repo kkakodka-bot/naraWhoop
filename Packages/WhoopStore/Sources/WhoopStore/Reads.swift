@@ -40,7 +40,13 @@ extension WhoopStore {
     /// chart path, and lets a PPG-only WHOOP 5 night clear the night-stager's HR-count gate so it is
     /// scorable (#172). The PPG `bpm` is REAL, so it is ROUND-ed to the `HRSample.bpm` Int domain.
     public func hrSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [HRSample] {
-        try syncRead { db in
+        if PhoneComputeRuntime.isFinalHosted {
+            return try syncRead { db in
+                try Row.fetchAll(db, sql: "SELECT ts,bpm FROM hrSample WHERE deviceId=? AND ts>=? AND ts<=? ORDER BY ts LIMIT ?",
+                    arguments: [deviceId, from, to, limit]).map { HRSample(ts: $0["ts"], bpm: $0["bpm"]) }
+            }
+        }
+        return try syncRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT ts, bpm FROM (
                     SELECT ts, bpm FROM hrSample
@@ -267,7 +273,9 @@ extension WhoopStore {
     /// install needs no special case and every existing number is unchanged.
     public func hrWindowStats(primaryId: String, secondaryId: String,
                               from: Int, to: Int) async throws -> HRWindowStats {
-        try syncRead { db in
+        guard PhoneComputeRuntime.permitsLocal("workout_hr_summary") else { throw ServerComputeOutbox.Failure.invalidResult }
+        PhoneComputeRuntime.entered("workout_hr_summary")
+        return try syncRead { db in
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT COUNT(*) AS n, AVG(bpm) AS avg, MAX(bpm) AS max FROM (
                     SELECT ts, MIN(pri), bpm FROM (
@@ -304,6 +312,10 @@ extension WhoopStore {
     /// stays continuous through v26-heavy stretches. The fallback rows are `bpm REAL` and only appear
     /// where the device genuinely had no measured HR for that second (anti-join), never doubling a beat.
     public func hrBuckets(deviceId: String, from: Int, to: Int, bucketSeconds: Int) async throws -> [HRBucket] {
+        if PhoneComputeRuntime.isFinalHosted {
+            return try await hrSamples(deviceId: deviceId, from: from, to: to, limit: 100_000)
+                .map { HRBucket(ts: $0.ts, bpm: Double($0.bpm)) }
+        }
         let bucket = max(1, bucketSeconds)
         return try syncRead { db in
             // MIN(conf) per bucket: measured rows contribute 1.0, PPG fallback rows their stored

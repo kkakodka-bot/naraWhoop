@@ -1,6 +1,7 @@
 import Foundation
 import NoopPush
 import WhoopStore
+import WhoopProtocol
 
 /// Phase 4: server HRV/sleep readback. Default on for this fork; toggled from Settings → Advanced.
 enum ServerScoringSettings {
@@ -25,6 +26,7 @@ enum ServerScoringSettings {
     /// Partial feature selection cannot retire the kernel that also computes unported outputs.
     /// Fetching an empty historical day never changes this producer admission.
     static var skipsSyncCoupledRescore: Bool {
+        if PhoneComputeRuntime.isFinalHosted { return true }
         ownershipLock.lock(); defer { ownershipLock.unlock() }
         guard let ownership = computeOwnership,
               let context = CloudRuntimeIdentity.snapshot().context,

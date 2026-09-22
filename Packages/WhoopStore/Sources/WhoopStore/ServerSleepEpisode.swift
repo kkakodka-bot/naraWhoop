@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 /// Server epochs retain their timestamps and binary state. Missing epochs never become stage weights.
 public struct ServerSleepEpisode: Identifiable {
@@ -17,6 +18,7 @@ public struct ServerSleepEpisode: Identifiable {
     public let reason: String?
     public var startTimezoneId: String? = nil
     public var endTimezoneId: String? = nil
+    public var canonicalResult: ServerCanonicalFamilyResult? = nil
     public var clockLabel: String {
         "\(Self.eventClock(start, timezoneId: startTimezoneId)) – \(Self.eventClock(end, timezoneId: endTimezoneId))"
     }
@@ -45,6 +47,12 @@ public struct ServerSleepEpisode: Identifiable {
     }
     public static func episodes(_ cache: ServerScoreDayCache?, day: String) -> [Self] {
         guard let cache, cache.day == day, let feature = cache.features["sleep"], feature.isCanonicalAvailable else { return [] }
+        let result = cache.canonicalResults?.families["sleep"]
+        if PhoneComputeRuntime.isFinalHosted || cache.canonicalResults != nil {
+            guard let result, result.hasCanonicalAuthorization, ["available", "stale"].contains(result.status),
+                  result.algorithmVersion == feature.algorithmVersion,
+                  result.inputRevision == feature.inputRevision else { return [] }
+        }
         let parser = ISO8601DateFormatter()
         func epoch(_ value: String) -> Int? {
             parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -65,7 +73,7 @@ public struct ServerSleepEpisode: Identifiable {
                 inBedMin: night.inBedMin,
                 opportunityKind: night.opportunityKind,
                 reason: overlap ? "Conflicting server epochs" : bands.isEmpty ? "No server epochs available" : nil,
-                startTimezoneId: night.startTimezoneId, endTimezoneId: night.endTimezoneId)
+                startTimezoneId: night.startTimezoneId, endTimezoneId: night.endTimezoneId, canonicalResult: result)
         }.sorted { $0.start < $1.start }
     }
 }

@@ -11,6 +11,7 @@ public enum PhoneComputeRuntime {
 
     public static var isFinalHosted: Bool {
         if let testMode, isTestProcess { return testMode == .finalHosted }
+        if isTestProcess, ProcessInfo.processInfo.environment["NOOP_COMPUTE_REFERENCE_TESTS"] == "1" { return false }
         return Bundle.main.object(forInfoDictionaryKey: "NOOPFinalHostedCompute") as? Bool == true
     }
 

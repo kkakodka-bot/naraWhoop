@@ -448,7 +448,9 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     }
     // Derive per-second HR from the collected v26 PPG bursts (issue #156). Empty when there were no v26
     // records (the WHOOP 4 / v18-only common case), so this is a no-op cost there.
-    out.ppgHr = PpgHr.derivePpgHr(waveforms: out.ppgWaveform, subLagInterp: subLagInterp)
+    if PhoneComputeRuntime.permitsLocal("ppg_hr") {
+        out.ppgHr = PpgHr.derivePpgHr(waveforms: out.ppgWaveform, subLagInterp: subLagInterp)
+    }
     out.unhandledPacketTypes = unhandledTypes     // #891 diag census (not persisted, not encoded)
     out.droppedImplausible = droppedImplausible   // #547 diag count (not persisted, not encoded)
     out.droppedImplausibleOldestTs = droppedOldest   // #324 poisoned-range epoch span (diag only)

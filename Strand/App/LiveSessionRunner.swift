@@ -52,6 +52,11 @@ final class LiveSessionRunner: ObservableObject {
     /// Set exactly once, when the session ends (End tap or the stale auto-end) — the view presents the
     /// summary sheet off this.
     @Published private(set) var finalRow: LiveSessionRow?
+    @Published private(set) var finished = false
+    @Published private(set) var elapsedSeconds = 0
+    @Published private(set) var serverRequestID: String?
+    private let sessionID = UUID()
+    private var lastRequestTs = 0
 
     /// Session start (unix seconds) — the row's natural key.
     private(set) var startTs = 0
@@ -92,10 +97,23 @@ final class LiveSessionRunner: ObservableObject {
     /// stream (ref-counted in AppModel, balanced by `end()`), banks the in-progress row, and starts
     /// the 1 Hz tick. No-op if already running or already ended.
     func start(model: AppModel, repo: Repository, ble: BLEManager, profile: ProfileStore) {
-        guard timer == nil, finalRow == nil else { return }
+        guard timer == nil, finalRow == nil, !finished else { return }
         self.model = model
         self.repo = repo
         self.ble = ble
+
+        if !PhoneComputeRuntime.permitsLocal("live_coaching") {
+            startTs = Int(Date().timeIntervalSince1970)
+            model.startRealtimeHR()
+            requestCanonicalDecision(now: startTs)
+            let clock = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.tick() }
+            }
+            clock.tolerance = Self.timerToleranceSec
+            timer = clock
+            return
+        }
+        PhoneComputeRuntime.entered("live_coaching")
 
         // Resting HR: today's own, else the most recent banked night's. The engine needs *a* baseline
         // to place the band, so a never-slept-yet install gets a deliberately ordinary 60 — the band it
@@ -152,6 +170,13 @@ final class LiveSessionRunner: ObservableObject {
         hrSink = nil
         model?.stopRealtimeHR()
 
+        if PhoneComputeRuntime.isFinalHosted {
+            requestCanonicalDecision(now: Int(Date().timeIntervalSince1970))
+            finished = true
+            engine = nil; model = nil; ble = nil; repo = nil
+            return nil
+        }
+
         // Prefer the engine's live band (it may have drifted its ceiling on a strong day) over the base.
         let final = row(endTs: Int(Date().timeIntervalSince1970), band: output?.band ?? baseBand
                         ?? LiveSessionEngine.Band(floorBpm: 0, ceilingBpm: 0, floorPctHRR: 0, ceilingPctHRR: 0))
@@ -170,6 +195,11 @@ final class LiveSessionRunner: ObservableObject {
     private func tick() {
         guard timer != nil else { return }
         let now = Int(Date().timeIntervalSince1970)
+        elapsedSeconds = max(0, now - startTs)
+        if PhoneComputeRuntime.isFinalHosted {
+            if now - lastRequestTs >= 60 { requestCanonicalDecision(now: now) }
+            return
+        }
         // The engine takes the live reading if one is current, or nil as a plain time tick — staleness
         // is ITS call (never-fabricate: no reading is forwarded as exactly that, not held or guessed).
         guard let out = engine?.update(now: now, bpm: model?.live.heartRate) else { return }
@@ -203,6 +233,14 @@ final class LiveSessionRunner: ObservableObject {
     }
 
     // MARK: - Cue → wrist
+
+    private func requestCanonicalDecision(now: Int) {
+        guard let model else { return }
+        lastRequestTs = now
+        serverRequestID = model.requestServerCompute(family: "live_coaching", sessionID: sessionID,
+            start: Date(timeIntervalSince1970: Double(max(startTs, now - 60))),
+            end: Date(timeIntervalSince1970: Double(now)), consent: HapticPrefs.enabled(HapticPrefs.liveSession))
+    }
 
     /// Walk a cue's pulse list out through the strap, exactly the way the Haptic Clock does: each pulse
     /// becomes the hardware-confirmed notification buzz (send() remaps to the 5/MG maverick body),

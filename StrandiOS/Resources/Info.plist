@@ -56,6 +56,8 @@
 	<string>public.app-category.healthcare-fitness</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NOOPFinalHostedCompute</key>
+	<true/>
 	<key>NOOPPushEndpoint</key>
 	<string>$(NOOP_PUSH_ENDPOINT)</string>
 	<key>NOOPPushToken</key>

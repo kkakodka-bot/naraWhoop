@@ -411,6 +411,7 @@ final class IntelligenceEngine: ObservableObject {
     /// Position survives process death in the input journal. Generation deliberately does not enter
     /// this identity; effective defaults do, so position zero cannot certify a different legacy seed.
     private func preferenceIdentity(_ inputs: ScoringReaderInputs) -> String? {
+        guard !PhoneComputeRuntime.isFinalHosted else { return nil }
         guard let accepted = inputs.accepted else { return nil }
         let choices = inputs.algorithms
         let fields: [String: Any] = [
@@ -623,6 +624,7 @@ final class IntelligenceEngine: ObservableObject {
     /// Automatic callers join one page budget. An explicit correction first fences the old pass.
     func runPreferenceProjection(maxDays: Int = 21,
         mode: WorkoutPreferenceEvaluation.AdmissionMode = .automatic) async -> PreferenceWorkDisposition {
+        guard PhoneComputeRuntime.permitsLocal("preference_projection") else { return .unvalidated }
         guard ResourceBudget.shared.permits(.bulk) else { return .retryAfter(Int64(Date().timeIntervalSince1970) + 15) }
         if mode == .refreshCore { invalidatePreferenceEvaluationPermit() }
         if let previous = preferenceProjectionTask {
@@ -652,6 +654,8 @@ final class IntelligenceEngine: ObservableObject {
     }
 
     private func runPreferenceProjectionOnce(maxDays: Int, mode: WPE.AdmissionMode) async -> PreferenceWorkDisposition {
+        guard PhoneComputeRuntime.permitsLocal("preference_projection_once") else { return .unvalidated }
+        PhoneComputeRuntime.entered("preference_projection_once")
         let disposition = await preparePreferenceProjectionForAdmission(maxDays: maxDays)
         guard mode != .automatic || disposition.hasRunnableWork(at: Int64(Date().timeIntervalSince1970)) else {
             return preferenceWorkDisposition
@@ -1092,6 +1096,8 @@ final class IntelligenceEngine: ObservableObject {
     /// card shows. Light + works offline (stored data only). Returns true if a value was written. Mirrors
     /// the Android `recomputeFitnessAgeOnly`.
     func recomputeFitnessAgeOnly(maxDays: Int = 21) async -> Bool {
+        guard PhoneComputeRuntime.permitsLocal("fitness_age_recompute") else { return false }
+        PhoneComputeRuntime.entered("fitness_age_recompute")
         guard !ServerScoringSettings.skipsSyncCoupledRescore else { return false }
         guard captureScoringReaderInputs() != nil else { return false }
         let age = profile.age, sex = profile.sex, waistCm = profile.waistCm
@@ -1207,6 +1213,7 @@ final class IntelligenceEngine: ObservableObject {
     /// Personal baselines (HRV / resting HR) are folded from the imported history, so even the first
     /// live night can be scored against your norm.
     func analyzeRecent(maxDays: Int = 21, force: Bool = true, skipIfUnchanged: Bool = false) async {
+        guard PhoneComputeRuntime.permitsLocal("daily_analytics") else { return }
         guard !ServerScoringSettings.skipsSyncCoupledRescore else { return }
         guard ResourceBudget.shared.permits(.bulk) else { return }
         if captureScoringReaderInputs()?.accepted != nil {
@@ -1219,6 +1226,8 @@ final class IntelligenceEngine: ObservableObject {
 
     private func analyzeCoreRecent(maxDays: Int = 21, force: Bool = true, skipIfUnchanged: Bool = false,
                                    evaluation: PreferenceCorePass? = nil) async {
+        guard PhoneComputeRuntime.permitsLocal("daily_analytics_core") else { return }
+        PhoneComputeRuntime.entered("daily_analytics_core")
         let passIsCurrent: () -> Bool = { [self] in
             guard accountRuntimeActive, writeFence.isValid, !Task.isCancelled else { return false }
             return evaluation.map { evaluationIsCurrent($0.epoch, request: $0.request) } ?? true
@@ -3573,6 +3582,8 @@ final class IntelligenceEngine: ObservableObject {
     /// `analyzeRecent` ships. `appleRows` must be chronological (oldest first).
     nonisolated static func watchRecoveries(appleRows: [DailyMetric],
                                 strapRecoveryDays: Set<String> = []) -> [WatchScoredDay] {
+        guard PhoneComputeRuntime.permitsLocal("watch_recovery") else { return [] }
+        PhoneComputeRuntime.entered("watch_recovery")
         let rows = appleRows.sorted { $0.day < $1.day }
         var out: [WatchScoredDay] = []
         for (i, row) in rows.enumerated() where !strapRecoveryDays.contains(row.day) {
