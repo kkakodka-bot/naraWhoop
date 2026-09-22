@@ -607,9 +607,26 @@ final class CloudUploadQueueTests: XCTestCase {
         CloudPushBackgroundRuntime.install(nil)
         await runtime.retire()
         do {
-            _ = try await CloudPushTransport(endpoint: .init(url: endpoint, host: "project.example"), bearerToken: "test").post(batch)
-            XCTFail("unscoped legacy transport must not adopt a login")
+            _ = try await transport.post(batch)
+            XCTFail("the captured account transport must not outlive its runtime")
         } catch { XCTAssertEqual(error as? CloudUploadError, .staleOwner) }
+
+        // Enrollment explicitly supports direct token-scoped transport. It must not adopt the
+        // retired account's journal, and this protocol test must never contact an external host.
+        let directConfig = URLSessionConfiguration.ephemeral
+        directConfig.protocolClasses = [DirectEnrollmentURLProtocol.self]
+        let directSession = URLSession(configuration: directConfig)
+        defer { directSession.invalidateAndCancel() }
+        let metadataBefore = try journal.load()
+        let enrollment = CloudPushTransport(endpoint: .init(url: endpoint, host: "project.example"),
+            uploadToken: "enrollment-only", fleetToken: "fixture-fleet", session: directSession,
+            uploadSession: directSession)
+        let response = try await enrollment.post(batch)
+        XCTAssertEqual(response.statusCode, 202)
+        XCTAssertEqual(response.body, Data("enrollment-fixture".utf8))
+        XCTAssertEqual(Set(try journal.load().keys), Set(metadataBefore.keys))
+        XCTAssertEqual(try journal.load()[saved.id]?.phase, .pausedTerminal)
+        XCTAssertEqual(try Data(contentsOf: journal.bodyURL(saved)), try CloudPushTransport.gzip(batch.body))
     }
 
     func testReceiverResetCannotReplayOldResponseAndOnlyCommittedJobsAreRetired() async throws {
@@ -1134,6 +1151,23 @@ private final class TransportURLProtocol: URLProtocol {
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Encoding"), "gzip")
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data("bounded-receiver-response".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private final class DirectEnrollmentURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        XCTAssertEqual(request.url?.host, "project.example")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer enrollment-only")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-NOOP-Fleet-Token"), "fixture-fleet")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Encoding"), "gzip")
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 202,
+            httpVersion: "HTTP/1.1", headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("enrollment-fixture".utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

@@ -579,7 +579,8 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let result = await coordinator(f, try progress(f, version: "1.2"), version: "1.2").resumePrepared(saved.selection, manifestOverride: successor)
             guard case .accepted = result else { throw PreparedStop.rejected(String(describing: result)) }
             let receiptKey = try await f.store.registryWriter.read { try String.fetchOne($0, sql: "SELECT objectKey FROM rawDurabilityReceipt") }
-            XCTAssertEqual(receiptKey, "archive/verified-object")
+            XCTAssertEqual(receiptKey, W5ReceiptFixture.objectKey(owner: f.context.scope.userID,
+                device: batch.deviceId, stream: batch.wireName))
             XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
