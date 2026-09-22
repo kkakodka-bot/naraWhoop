@@ -37,6 +37,7 @@ class NoopApplication : Application() {
     }
     override fun onCreate() {
         super.onCreate()
+        if (BuildConfig.FINAL_HOSTED_COMPUTE) com.noop.analytics.PhoneComputeRuntime.installFinalHosted()
         CrashCapture.install(this)
         runCatching { com.noop.push.EnrollmentDataScope.initialize(this) }
         com.noop.ui.NoopPrefs.migrateContinuousHrvOvernightDefault(this)

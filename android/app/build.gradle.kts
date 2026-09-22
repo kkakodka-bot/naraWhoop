@@ -48,6 +48,7 @@ android {
         targetSdk = 34
         versionCode = 450
         versionName = "11.1.1"
+        buildConfigField("boolean", "FINAL_HOSTED_COMPUTE", "true")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -257,6 +258,10 @@ val syncRoomSchemaSnapshot = tasks.register<Sync>("syncRoomSchemaSnapshot") {
 }
 
 tasks.withType<Test>().configureEach {
+    doFirst { systemProperty("noop.test.runtimeClasspath", classpath.asPath) }
+    // Java ignores TMPDIR on macOS unless forwarded to each forked test VM.
+    providers.environmentVariable("TMPDIR").orNull?.let { systemProperty("java.io.tmpdir", it) }
+    providers.environmentVariable("NOOP_TEST_USER_HOME").orNull?.let { systemProperty("user.home", it) }
     // How SchemaOracleTest finds the schema. Depending on the Sync task gives both ORDERING (the compile
     // chain alone only guarantees the app CLASSES exist, which a cache hit can satisfy without the
     // schema being materialised) and a stable, singly-owned directory to read.

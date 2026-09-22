@@ -38,6 +38,7 @@ class ServerScoreRepository(
 ) {
     private val account = AccountStorageContext.capture(appContext)
     private val ownershipStore = ServerMetricOwnershipStore(appContext)
+    val computeRequests = ServerComputeRequests(appContext)
     private val publicationLock = Any()
     @Volatile private var retired = false
     private fun current() = !retired && account.identity.scope != null && account.isCurrent()
@@ -56,11 +57,13 @@ class ServerScoreRepository(
     private val visibleDays = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val readFailures = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private var pollingDay: String? = null
-    private fun currentOwnerId() = EnrollmentDataScope.credential(appContext)?.userId
+    private fun currentOwnerId() = ServerScoreClient.ownerId(appContext)
     private fun currentIdentityKey() = ServerScoreClient.requestIdentity(appContext)
     private var activeIdentityKey: String? = currentIdentityKey()
 
     private val _enabled = MutableStateFlow(ServerScoringSettings.isEnabled(appContext))
+    private val _canonicalDays = MutableStateFlow<Map<String, ServerScoreDayCache>>(emptyMap())
+    val canonicalDays: StateFlow<Map<String, ServerScoreDayCache>> = _canonicalDays.asStateFlow()
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
 
     private val _days = MutableStateFlow<Map<String, ServerSnapshotDayState>>(emptyMap())
@@ -89,6 +92,11 @@ class ServerScoreRepository(
     }
 
     fun setEnabled(enabled: Boolean) {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            _enabled.value = true
+            startPolling(pollingDay ?: LocalDate.now().toString())
+            return
+        }
         ServerScoringSettings.setEnabled(appContext, enabled)
         _enabled.value = enabled
         if (enabled) startPolling(pollingDay ?: LocalDate.now().toString()) else stopPolling()
@@ -115,6 +123,7 @@ class ServerScoreRepository(
     }
 
     private fun hydrate(day: String, zone: String) {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return
         runCatching { storeHandle.value.load(day, zone) }.getOrNull()?.let { (snapshot, fetched) ->
             val envelope = org.json.JSONObject(snapshot.json)
             publish(day, ServerSnapshotDayState(snapshot, snapshot.status, true, envelope.optBoolean("pending", false),
@@ -126,6 +135,7 @@ class ServerScoreRepository(
         synchronizeOwner()
         visibleDays.add(day)
         ownershipStore.presentation(session.overlay(day, currentOwnerId()), day, day in readFailures)?.let { return it }
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return null
         if (!ServerScoringSettings.isEnabled(appContext)) return null
         if (!current()) return null
         val state = _days.value[day] ?: return null
@@ -140,6 +150,7 @@ class ServerScoreRepository(
     }
 
     fun signOut() {
+        _canonicalDays.value = emptyMap()
         readFailures.clear()
         PushEnrollmentManager.from(appContext).clear()
         CloudAuthClient.clearSession(appContext)
@@ -161,6 +172,7 @@ class ServerScoreRepository(
         pollJob = scope.launch {
             while (isActive) {
                 refreshDay(todayKey)
+                computeRequests.drain()
                 delay(ServerScoringSettings.POLL_INTERVAL_SECONDS * 1000L)
             }
         }
@@ -174,6 +186,7 @@ class ServerScoreRepository(
     fun retire() {
         synchronized(publicationLock) {
             retired = true
+            _canonicalDays.value = emptyMap()
             _days.value = emptyMap()
             _sleepDays.value = emptyMap()
         }
@@ -190,7 +203,7 @@ class ServerScoreRepository(
     suspend fun saveSleepOverride(target: ServerSleepEditTarget, start: Long, end: Long, tombstone: Boolean): Boolean {
         synchronizeOwner()
         val cache = session.overlay(target.day, currentOwnerId())
-        if (!ServerScoringSettings.enrollmentReady(appContext) || target.ownerId != session.ownerId() ||
+        if (!ServerScoringSettings.ready(appContext) || target.ownerId != session.ownerId() ||
             cache?.features?.get("sleep")?.deviceId != target.deviceId ||
             cache.features["sleep"]?.supportsBoundaryOverrides != true) {
             _lastError.value = "The account or sleep source changed. Refresh before editing."
@@ -231,10 +244,10 @@ class ServerScoreRepository(
         if (retired) return
         synchronizeOwner()
         visibleDays.add(day)
-        if (ServerScoringSettings.enrollmentReady(appContext) && currentOwnerId() != null) {
+        if (ServerScoringSettings.ready(appContext) && currentOwnerId() != null) {
             refreshPhysiology(day)
         }
-        refreshAccountSnapshot(day)
+        if (!com.noop.analytics.PhoneComputeRuntime.finalHosted) refreshAccountSnapshot(day)
     }
 
     private suspend fun refreshPhysiology(day: String) {
@@ -247,12 +260,16 @@ class ServerScoreRepository(
             val cache = ServerScoreClient.fetchDaySnapshot(appContext, day, owner)
             currentCoroutineContext().ensureActive()
             synchronizeOwner()
-            if (!session.accept(cache, generation, currentOwnerId(), request)) return
-            ownershipStore.observe(cache)
-            store.upsert(cache)
-            readFailures.remove(day)
-            _lastFetchedAtMs.value = cache.fetchedAtMs
-            _lastError.value = null
+            synchronized(publicationLock) {
+                if (!session.isCurrentRequest(day, generation, currentOwnerId(), request) || currentIdentityKey() != identity) return
+                store.upsert(cache)
+                if (!session.accept(cache, generation, currentOwnerId(), request)) return
+                ownershipStore.observe(cache)
+                _canonicalDays.value = _canonicalDays.value + (day to cache)
+                readFailures.remove(day)
+                _lastFetchedAtMs.value = cache.fetchedAtMs
+                _lastError.value = null
+            }
         }.onFailure { err ->
             if (err is CancellationException) throw err
             synchronizeOwner()
@@ -264,6 +281,8 @@ class ServerScoreRepository(
                 _lastError.value = "Enrollment expired — enter a fresh code"
             } else {
                 readFailures.add(day)
+                _canonicalDays.value[day]?.let { _canonicalDays.value = _canonicalDays.value +
+                    (day to it.copy(stale = true, readFailure = "server_read_failed")) }
                 _lastError.value = "Server scores unavailable"
                 store.load(owner, day)?.let {
                     ownershipStore.observe(it)
@@ -319,7 +338,8 @@ class ServerScoreRepository(
             val key = fmt.format(cal.time)
             if (identity == currentIdentityKey()) store.load(owner, key)?.let {
                 ownershipStore.observe(it)
-                session.accept(it, session.generation(), currentOwnerId())
+                session.accept(it.copy(stale = true), session.generation(), currentOwnerId())
+                _canonicalDays.value = _canonicalDays.value + (key to it.copy(stale = true))
             }
         }
     }
@@ -343,6 +363,7 @@ class ServerScoreRepository(
         _signedIn.value = current != null || this.current()
         if (session.ownerId() == current && activeIdentityKey == identity) return
         activeIdentityKey = identity
+        _canonicalDays.value = emptyMap()
         readFailures.clear()
         stopPolling()
         session.activate(null)

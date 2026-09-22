@@ -17,8 +17,10 @@ data class ServerMetricOwnership(
 
     fun presentation(cache: ServerScoreDayCache?, day: String, readFailed: Boolean = false): ServerScoreDayCache? {
         if (cache != null && cache.day == day && cache.ownerId.equals(ownerId, true) &&
-            cache.features.values.all { it.deviceId == null || it.deviceId == deviceId }) {
-            return cache.copy(ownedMetrics = metrics, stale = cache.stale || readFailed,
+            cache.features.values.all { it.deviceId == null || it.deviceId == deviceId } &&
+            (cache.compute == null || cache.compute.project.trimEnd('/') == project.trimEnd('/') &&
+                cache.compute.families.values.all { it.deviceId == deviceId })) {
+            return cache.copy(ownedMetrics = metrics + cache.compute?.ownedMetrics.orEmpty(), stale = cache.stale || readFailed,
                 readFailure = if (readFailed) "server_read_failed" else cache.readFailure)
         }
         if (claims.isEmpty()) return null
@@ -35,7 +37,17 @@ data class ServerMetricOwnership(
     fun observe(cache: ServerScoreDayCache): ServerMetricOwnership {
         if (!cache.ownerId.equals(ownerId, ignoreCase = true)) return this
         val next = claims.toMutableMap()
+        cache.compute?.takeIf { it.project.trimEnd('/') == project.trimEnd('/') }?.families?.forEach { (key, family) ->
+            val version = family.algorithmVersion
+            val revision = family.inputRevision
+            if (family.deviceId == deviceId && family.resultRevision != null && version != null && revision != null) {
+                val prior = next[key]
+                if (prior?.algorithmVersion != version || prior.inputRevision <= revision)
+                    next[key] = Claim(family.metrics, version, revision, family.manifestHash, family.featureManifestHash)
+            }
+        }
         cache.features.forEach { (key, feature) ->
+            if (cache.compute != null) return@forEach
             val version = feature.algorithmVersion
             val revision = feature.inputRevision
             if (key !in featureMetrics || feature.deviceId != deviceId || !feature.isCanonicalAvailable ||
@@ -77,11 +89,11 @@ data class ServerMetricOwnership(
                 require(root.getString("project") == empty.project && root.getString("ownerId") == empty.ownerId &&
                     root.getString("deviceId") == empty.deviceId)
                 val values = root.getJSONObject("claims")
-                empty.copy(claims = values.keys().asSequence().filter { it in featureMetrics }.associateWith { key ->
+                empty.copy(claims = values.keys().asSequence().filter { it in featureMetrics || it in ServerComputeContract.familyMetrics }.associateWith { key ->
                     val item = values.getJSONObject(key)
                     val metricArray = item.getJSONArray("metrics")
                     val metrics = (0 until metricArray.length()).map { metricArray.getString(it) }.toSet()
-                    require(featureMetrics.getValue(key).containsAll(metrics))
+                    require((featureMetrics[key].orEmpty() + ServerComputeContract.familyMetrics[key].orEmpty()).containsAll(metrics))
                     Claim(metrics, item.getString("algorithmVersion").also { require(it.isNotEmpty()) }, item.getLong("inputRevision").also { require(it >= 0) },
                         item.optString("manifestHash").takeUnless { it.isEmpty() || it == "null" },
                         item.optString("featureManifestHash").takeUnless { it.isEmpty() || it == "null" })

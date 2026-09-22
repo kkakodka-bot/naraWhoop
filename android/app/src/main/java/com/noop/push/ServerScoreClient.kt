@@ -18,42 +18,80 @@ object ServerScoreClient {
         return app.sourceCoordinator.activeDeviceId.value ?: app.activeDeviceId
     }
 
-    internal fun requestIdentity(context: Context): String? = EnrollmentDataScope.credential(context)?.let {
-        org.json.JSONArray(listOf(SelfHostedPushSettings.from(context).configuredEndpoint()?.url,
-            it.userId, it.sourceId, it.tokenId, localDeviceId(context))).toString()
+    internal fun ownerId(context: Context): String? = EnrollmentDataScope.credential(context)?.userId
+        ?: CloudAuthClient.identitySnapshot(context).scope?.userID
+    internal fun requestIdentity(context: Context): String? {
+        val credential = EnrollmentDataScope.credential(context)
+        val account = CloudAuthClient.identitySnapshot(context)
+        val owner = credential?.userId ?: account.scope?.userID ?: return null
+        return org.json.JSONArray(listOf(DeviceLinkStore.identity(context)?.endpoint,
+            owner, credential?.sourceId ?: SelfHostedPushSettings.from(context).sourceId(),
+            credential?.tokenId ?: account.generation.toString(), localDeviceId(context))).toString()
     }
 
     suspend fun saveSleepOverride(context: Context, target: ServerSleepEditTarget, start: Long, end: Long, tombstone: Boolean): Long =
         withContext(Dispatchers.IO) {
-            val credential = EnrollmentDataScope.credential(context) ?: error("enrollment required")
-            check(credential.userId == target.ownerId) { "account changed" }
+            check(ownerId(context) == target.ownerId) { "account changed" }
             val payload = JSONObject().put("deviceId", localDeviceId(context))
                 .put("arguments", target.rpcArguments(start, end, tombstone))
-            enrolledRequest(context, credential, "/sleep-overrides", payload).trim().toLong()
+            request(context, "/sleep-overrides", payload).trim().toLong()
                 .also { check(it > target.expectedRevision) { "invalid override revision" } }
         }
 
     suspend fun registerCurrentDevice(context: Context): String = withContext(Dispatchers.IO) {
-        val credential = EnrollmentDataScope.credential(context) ?: error("enrollment required")
         val identity = DeviceLinkStore.identity(context) ?: error("device identity unavailable")
-        val response = enrolledRequest(context, credential, "/devices", JSONObject().put("deviceId", identity.device))
-        validateIdentityReceipt(JSONObject(response), credential, identity.device, requireDevice = true)
+        val response = request(context, "/devices", JSONObject().put("deviceId", identity.device))
         check(DeviceLinkStore.identity(context) == identity) { "device changed during registration" }
         DeviceLinkStore.from(context).record(identity, response)
     }
 
     suspend fun fetchDaySnapshot(context: Context, day: String, ownerId: String): ServerScoreDayCache =
         withContext(Dispatchers.IO) {
-            val credential = EnrollmentDataScope.credential(context) ?: error("enrollment required")
-            check(credential.userId == ownerId) { "account changed" }
+            check(ownerId(context) == ownerId) { "account changed" }
             val device = localDeviceId(context)
             registerCurrentDevice(context)
             check(localDeviceId(context) == device) { "device changed during registration" }
             val encode: (String) -> String = { java.net.URLEncoder.encode(it, "UTF-8") }
-            val body = enrolledRequest(context, credential, "?day=${encode(day)}&deviceId=${encode(device)}", null)
-            validateEnrollmentReceipt(body, credential, device)
-            parseSnapshot(body, day, ownerId)
+            val body = request(context, "?day=${encode(day)}&deviceId=${encode(device)}", null)
+            val identity = DeviceLinkStore.identity(context) ?: error("identity changed")
+            val canonical = DeviceLinkStore.from(context).record(identity, body)
+            val cache = parseSnapshot(body, day, ownerId)
+            require(cache.features.values.all { it.deviceId == null || it.deviceId == canonical })
+            cache.compute?.let { contract ->
+                require(contract.project == identity.endpoint.removeSuffix("/functions/v1/push").trimEnd('/') &&
+                    contract.sourceId == identity.source && contract.families.values.all { it.deviceId == canonical })
+            }
+            cache
         }
+
+    internal suspend fun request(context: Context, path: String, payload: JSONObject?): String {
+        EnrollmentDataScope.credential(context)?.let { return enrolledRequest(context, it, path, payload) }
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        val expected = requestIdentity(context) ?: error("account required")
+        val auth = CloudAuthClient.authorizedSession(account)
+        val project = auth.context.scope.projectURL
+        val source = SelfHostedPushSettings.from(context).sourceId()
+        val key = ServerScoringSettings.anonKey() ?: error("not configured")
+        val conn = (URL("$project/functions/v1/scores$path").openConnection() as HttpURLConnection).apply {
+            requestMethod = if (payload == null) "GET" else "POST"
+            instanceFollowRedirects = false; connectTimeout = 15_000; readTimeout = 30_000
+            setRequestProperty("Authorization", "Bearer ${auth.accessToken}")
+            setRequestProperty("apikey", key); setRequestProperty("x-noop-source-id", source)
+            setRequestProperty("Content-Type", "application/json"); doOutput = payload != null
+        }
+        try {
+            currentCoroutineContext().ensureActive()
+            check(account.isCurrent() && requestIdentity(context) == expected)
+            payload?.let { conn.outputStream.use { out -> out.write(it.toString().toByteArray()) } }
+            if (conn.responseCode == 409) throw Conflict()
+            check(conn.responseCode in 200..299) { "score request failed" }
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            require(body.toByteArray().size <= ServerSnapshotDecoder.MAX_BYTES)
+            currentCoroutineContext().ensureActive()
+            check(account.isCurrent() && requestIdentity(context) == expected)
+            return body
+        } finally { conn.disconnect() }
+    }
 
     internal fun validateEnrollmentReceipt(body: String, credential: PushEnrollmentCredential, localDevice: String) {
         val root = JSONObject(body)

@@ -34,7 +34,9 @@ class ServerMetricOwnershipStore(context: Context) {
 
     fun presentation(cache: ServerScoreDayCache?, day: String, readFailed: Boolean = false): ServerScoreDayCache? {
         val ownership = load() ?: return cache
-        return ownership.presentation(cache, day, readFailed)
+        val presented = ownership.presentation(cache, day, readFailed)
+        return if (com.noop.analytics.PhoneComputeRuntime.finalHosted) presented?.copy(ownedMetrics = ServerComputeContract.metricIDs)
+            else presented
     }
 
     companion object { private val lock = Any() }

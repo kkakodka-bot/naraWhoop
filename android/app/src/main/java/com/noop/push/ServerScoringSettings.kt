@@ -18,7 +18,7 @@ object ServerScoringSettings {
     const val SYNC_PUSH_INTERVAL_MS = 10_000L
 
     fun skipsSyncCoupledRescore(context: Context): Boolean =
-        skipsSyncCoupledRescore(ServerMetricOwnershipStore(context).load())
+        com.noop.analytics.PhoneComputeRuntime.finalHosted || skipsSyncCoupledRescore(ServerMetricOwnershipStore(context).load())
     fun skipsSyncCoupledRescore(ownership: ServerMetricOwnership?): Boolean = ownership?.canRetireDailyKernel == true
 
     fun overlayLive(prefs: SharedPreferences): Boolean = prefs.getBoolean(OVERLAY_LIVE_KEY, false)
@@ -34,7 +34,7 @@ object ServerScoringSettings {
 
     fun isEnabled(context: Context): Boolean =
         isEnabled(prefs(context))
-    fun isEnabled(prefs: SharedPreferences): Boolean = prefs.getBoolean(DEFAULTS_KEY, true)
+    fun isEnabled(prefs: SharedPreferences): Boolean = com.noop.analytics.PhoneComputeRuntime.finalHosted || prefs.getBoolean(DEFAULTS_KEY, true)
 
     fun setEnabled(context: Context, enabled: Boolean) {
         setEnabled(prefs(context), enabled)

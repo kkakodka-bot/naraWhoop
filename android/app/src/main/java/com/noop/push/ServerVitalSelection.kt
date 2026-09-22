@@ -4,6 +4,7 @@ package com.noop.push
 data class ServerVitalSelection(
     val value: Double?, val fromServer: Boolean, val day: String, val status: String?, val stale: Boolean,
     val sourceFeature: String? = null, val deviceId: String? = null, val algorithmVersion: String? = null,
+    val resultRevision: String? = null,
 ) {
     val displayDiagnostic: ServerScoreStageDiagnostic get() = ServerScoreStageDiagnostic("displayed",
         if (value != null) "available" else "unavailable", if (!fromServer) "local_producer_retained"
@@ -19,6 +20,10 @@ data class ServerVitalSelection(
         /** [overlay] must already be owner scoped and configuration/authentication qualified. */
         fun resolve(metric: Metric, serverEnabled: Boolean, selectedDay: String,
                     overlay: ServerScoreDayCache?, localValue: Double?): ServerVitalSelection {
+            val family = overlay?.takeIf { it.day == selectedDay }?.compute?.familyFor(metric.key)
+            if (family != null) return ServerVitalSelection(family.number(metric.key), true, selectedDay,
+                overlay.readFailure ?: family.reason ?: family.status, overlay.stale || family.status == "stale",
+                family.family, family.deviceId, family.algorithmVersion, family.resultRevision)
             val feature = overlay?.features?.get(metric.feature)
             val owned = overlay?.ownedMetrics?.contains(metric.key) ?: serverEnabled
             if (!owned) return ServerVitalSelection(localValue, false, selectedDay, null, false)

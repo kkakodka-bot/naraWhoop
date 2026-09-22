@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
 
 /**
@@ -96,6 +97,7 @@ data class StreamBatch(
     val rrPackets: List<com.noop.protocol.RrPacketProvenance> = emptyList(),
     val standardHrReceipts: List<com.noop.protocol.StandardHrReceipt> = emptyList(),
 ) {
+
     // [v18Aux] counts here, and it is load-bearing rather than cosmetic: `insert` early-returns on
     // `isEmpty`, so a batch carrying ONLY aux rows would silently bank nothing. Swift's `Streams.isEmpty`
     // lists it too — the two must agree or the same offload drops rows on one platform only.
@@ -435,6 +437,27 @@ class WhoopRepository(
     },
     private val capturedDatabase: WhoopDatabase? = null,
 ) {
+    internal var canonicalReader: (() -> com.noop.push.ServerScoreRepository)? = null
+    private fun hosted() = com.noop.analytics.PhoneComputeRuntime.finalHosted
+    private fun captureOnlyWorkout(row: WorkoutRow) = row.copy(avgHr = null, maxHr = null, strain = null,
+        energyKcal = null, zonesJSON = null, steps = null)
+    fun canonicalCache(day: String) = canonicalReader?.invoke()?.overlay(day)
+    private fun canonicalDays() = canonicalReader?.invoke()?.canonicalDays?.value.orEmpty().values
+        .sortedBy { it.day }.mapNotNull(com.noop.push.ServerConsumerProjection::day)
+    private fun canonicalFlow(): Flow<List<DailyMetric>> = canonicalReader?.invoke()?.canonicalDays
+        ?.map { it.values.sortedBy { c -> c.day }.mapNotNull(com.noop.push.ServerConsumerProjection::day) }
+        ?: kotlinx.coroutines.flow.flowOf(emptyList())
+    private fun canonicalSleeps(from: Long, to: Long, limit: Int) = canonicalReader?.invoke()?.canonicalDays?.value.orEmpty()
+        .values.flatMap(com.noop.push.ServerConsumerProjection::sleeps).filter { it.startTs < to && it.endTs > from }
+        .distinctBy { it.deviceId to it.startTs }.sortedBy { it.startTs }.take(limit)
+    private fun canonicalSeries(key: String, from: String, to: String): List<MetricSeriesRow> {
+        val metric = com.noop.push.ServerConsumerProjection.metricKey(key)
+        return canonicalReader?.invoke()?.canonicalDays?.value.orEmpty().values.filter { it.day in from..to }
+            .sortedBy { it.day }.mapNotNull { cache ->
+                val family = cache.compute?.familyFor(metric) ?: return@mapNotNull null
+                family.number(metric)?.let { MetricSeriesRow("server:${family.resultRevision}", cache.day, key, it) }
+            }
+    }
 
     /** Transaction boundary injected so repository writes remain testable without a Room runtime. */
     interface Transactor {
@@ -776,10 +799,12 @@ class WhoopRepository(
 
     /** Computed-only daily rows; unlike daysMerged this can never substitute imported/calendar steps. */
     suspend fun computedDailyUnion(activeStrapId: String, from: String, to: String): List<DailyMetric> =
-        unionByDay(computedSourceIds(activeStrapId).map { dao.dailyMetricsRange(it, from, to) })
+        if (hosted()) canonicalDays().filter { it.day in from..to }
+        else unionByDay(computedSourceIds(activeStrapId).map { dao.dailyMetricsRange(it, from, to) })
 
     fun computedDailyUnionFlow(activeStrapId: String, from: String, to: String): Flow<List<DailyMetric>> =
-        unionDaysFlow(computedSourceIds(activeStrapId).map { dao.dailyMetricsRangeFlow(it, from, to) })
+        if (hosted()) canonicalFlow().map { rows -> rows.filter { it.day in from..to } }
+        else unionDaysFlow(computedSourceIds(activeStrapId).map { dao.dailyMetricsRangeFlow(it, from, to) })
 
     fun metricSeriesComputedUnionFlow(
         activeStrapId: String,
@@ -787,6 +812,7 @@ class WhoopRepository(
         from: String,
         to: String,
     ): Flow<List<MetricSeriesRow>> {
+        if (hosted()) return canonicalFlow().map { canonicalSeries(key, from, to) }
         val flows = computedSourceIds(activeStrapId).map { dao.metricSeriesFlow(it, key, from, to) }
         return if (flows.size == 1) flows[0]
         else combine(flows) { rows -> mergeComputedSeriesUnion(rows.toList()) }
@@ -1006,6 +1032,8 @@ class WhoopRepository(
      *  JSON is the fallback wake-only block / unparseable. Seeds a manual nap's efficiency so its footer
      *  reads sensibly before the next recompute re-derives it. Mirrors iOS `sleepEfficiency`. (#508) */
     private fun sleepEfficiency(stagesJSON: String?): Double? {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("sleep_edit_efficiency")) return null
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("sleep_edit_efficiency")
         stagesJSON ?: return null
         val arr = runCatching { org.json.JSONArray(stagesJSON) }.getOrNull() ?: return null
         var asleep = 0.0
@@ -1120,7 +1148,7 @@ class WhoopRepository(
     // MARK: - Reads
 
     suspend fun hrSamplesForDevice(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT) =
-        dao.hrSamples(deviceId, from, to, limit)
+        if (hosted()) dao.deviceReportedHrSamples(deviceId, from, to, limit) else dao.hrSamples(deviceId, from, to, limit)
 
     /** #856: HR samples over an EXPLICIT id list, deduped by ts with earlier ids winning — the sample
      *  twin of [hrBucketsFor], so a workout's ZONE MINUTES bin the same rows its chart plots and its
@@ -1128,7 +1156,7 @@ class WhoopRepository(
     suspend fun hrSamplesFor(deviceIds: List<String>, from: Long, to: Long, limit: Int = DEFAULT_LIMIT):
         List<HrSample> =
         if (deviceIds.isEmpty()) emptyList()
-        else mergeHrByTs(deviceIds.map { dao.hrSamples(it, from, to, limit) })
+        else mergeHrByTs(deviceIds.map { hrSamplesForDevice(it, from, to, limit) })
 
     /**
      * HR samples over every registered WHOOP plus canonical "my-whoop", deduped by timestamp with the
@@ -1141,7 +1169,7 @@ class WhoopRepository(
      * A single-WHOOP install resolves [activeDeviceId] to "my-whoop" ⇒ ONE id ⇒ byte-identical read.
      */
     suspend fun hrSamplesUnion(activeDeviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT):
-        List<HrSample> = mergeHrByTs(rawWhoopSourceIds(activeDeviceId).map { dao.hrSamples(it, from, to, limit) })
+        List<HrSample> = mergeHrByTs(rawWhoopSourceIds(activeDeviceId).map { hrSamplesForDevice(it, from, to, limit) })
 
     /** Raw measured HR only (no v26 PPG-derived union) for the raw-sensor diagnostic export. */
     suspend fun rawHrSamples(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT) =
@@ -1257,6 +1285,8 @@ class WhoopRepository(
         // default so a caller that does not care stays byte-identical.
         effortMethod: com.noop.analytics.StrainScorer.Method = com.noop.analytics.StrainScorer.Method.EDWARDS,
     ): List<WorkoutRow> {
+        if (hosted()) return rows.map { it.copy(avgHr = null, maxHr = null, strain = null, energyKcal = null,
+            zonesJSON = null) }
         var budget = cap
         return rows.map { row ->
             if (row.endTs <= row.startTs || budget <= 0) return@map row
@@ -1595,7 +1625,7 @@ class WhoopRepository(
         )
 
     suspend fun sleepSessionsForDevice(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT) =
-        dao.sleepSessions(deviceId, from, to, limit)
+        if (hosted()) canonicalSleeps(from, to, limit) else dao.sleepSessions(deviceId, from, to, limit)
 
     /**
      * The user's learned habitual midsleep (local time-of-day seconds) for [deviceId], or null under
@@ -1610,6 +1640,7 @@ class WhoopRepository(
      * merge differences wash out. Mirrors Swift `Repository.habitualMidsleepSec`. (#547)
      */
     suspend fun habitualMidsleepSec(deviceId: String, days: Int = 4000): Long? {
+        if (hosted()) return null
         val now = System.currentTimeMillis() / 1000L
         val lo = now - days * 86_400L
         val hi = now + 86_400L
@@ -1639,7 +1670,7 @@ class WhoopRepository(
     }
 
     suspend fun metricSeries(deviceId: String, key: String, from: String, to: String) =
-        dao.metricSeries(deviceId, key, from, to)
+        if (hosted()) canonicalSeries(key, from, to) else dao.metricSeries(deviceId, key, from, to)
 
     /**
      * Computed ("-noop") [key] series across the active-strap UNION (the active strap's own computed
@@ -1669,7 +1700,7 @@ class WhoopRepository(
      * wins (ids are active-first) — byte-identical to `metricSeriesComputedUnion(...).lastOrNull()`.
      */
     suspend fun latestMetricComputedUnion(activeStrapId: String, key: String): MetricSeriesRow? =
-        latestFromPerSourceLatest(
+        if (hosted()) canonicalSeries(key, "0000-01-01", "9999-12-31").lastOrNull() else latestFromPerSourceLatest(
             computedSourceIds(activeStrapId).map { dao.latestMetricSeriesRow(it, key) },
         )
 
@@ -1682,7 +1713,7 @@ class WhoopRepository(
 
     /** Workouts whose startTs falls in [from, to] (unix seconds), oldest first, row-limited. */
     suspend fun workouts(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT): List<WorkoutRow> =
-        dao.workouts(deviceId, from, to, limit)
+        dao.workouts(deviceId, from, to, limit).let { if (hosted()) it.map(::captureOnlyWorkout) else it }
 
     /** Scalar COUNT twin of [workouts] (exact total, no row limit) for count badges. */
     suspend fun workoutsCount(deviceId: String, from: Long, to: Long): Int =
@@ -1716,7 +1747,7 @@ class WhoopRepository(
         dao.appleDailyCount(deviceId, from, to)
 
     /** All cached daily metrics for a device, oldest first. Feeds com.noop.analytics.IllnessWatch. */
-    suspend fun days(deviceId: String): List<DailyMetric> = dao.days(deviceId)
+    suspend fun days(deviceId: String): List<DailyMetric> = if (hosted()) canonicalDays() else dao.days(deviceId)
 
     /** Scalar COUNT twin of [days] for count badges. */
     suspend fun daysCount(deviceId: String): Int = dao.daysCount(deviceId)
@@ -1865,6 +1896,7 @@ class WhoopRepository(
      * over computed across buckets ([mergeDaily]).
      */
     suspend fun daysMerged(deviceId: String): List<DailyMetric> {
+        if (hosted()) return canonicalDays()
         val imported = unionByDay(importedSourceIds(deviceId).map { dao.days(it) })
         val computed = unionByDay(computedSourceIds(deviceId).map { dao.days(it) })
         val activityFile = dao.days(ACTIVITY_FILE_SOURCE)
@@ -1901,7 +1933,7 @@ class WhoopRepository(
      * figures keep precedence over a re-imported night (and the chart re-emits when an edit lands).
      */
     fun daysMergedFlow(deviceId: String): Flow<List<DailyMetric>> =
-        combine(
+        if (hosted()) canonicalFlow() else combine(
             unionDaysFlow(importedSourceIds(deviceId).map { dao.daysFlow(it) }),
             unionDaysFlow(computedSourceIds(deviceId).map { dao.daysFlow(it) }),
             dao.daysFlow(ACTIVITY_FILE_SOURCE),
@@ -1929,7 +1961,7 @@ class WhoopRepository(
      * pages per bucket) and #797's "never re-merge the whole 3000-day history" guarantee holds.
      */
     fun recentDaysMergedFlow(deviceId: String): Flow<List<DailyMetric>> =
-        combine(
+        if (hosted()) canonicalFlow() else combine(
             unionDaysFlow(importedSourceIds(deviceId).map { dao.recentDaysFlow(it, RECENT_DAYS_CAP) }),
             unionDaysFlow(computedSourceIds(deviceId).map { dao.recentDaysFlow(it, RECENT_DAYS_CAP) }),
             dao.recentDaysFlow(ACTIVITY_FILE_SOURCE, RECENT_DAYS_CAP),
@@ -1970,7 +2002,7 @@ class WhoopRepository(
         from: Long,
         to: Long,
         limit: Int = DEFAULT_LIMIT,
-    ): List<SleepSession> = mergeSleep(
+    ): List<SleepSession> = if (hosted()) canonicalSleeps(from, to, limit) else mergeSleep(
         imported = importedSourceIds(deviceId).reversed().flatMap { dao.sleepSessions(it, from, to, limit) },
         computed = computedSourceIds(deviceId).reversed().flatMap { dao.sleepSessions(it, from, to, limit) },
     )
@@ -1984,13 +2016,15 @@ class WhoopRepository(
      *  caller's, exactly as before). Mirrors Swift Repository.unionSleepSessions. */
     suspend fun sleepSessionsUnion(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT):
         List<SleepSession> =
-        dedupSleepBlocks(rawWhoopSourceIds(deviceId).flatMap { dao.sleepSessions(it, from, to, limit) })
+        if (hosted()) canonicalSleeps(from, to, limit)
+        else dedupSleepBlocks(rawWhoopSourceIds(deviceId).flatMap { dao.sleepSessions(it, from, to, limit) })
 
     /** The COMPUTED ("-noop") twin of [sleepSessionsUnion]: all computed sleep blocks across the computed
      *  union ids, exact-duplicate blocks dropped (active's computed sibling first). Mirrors Swift
      *  Repository.unionComputedSleepSessions. */
     suspend fun computedSleepSessionsUnion(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT):
         List<SleepSession> {
+        if (hosted()) return canonicalSleeps(from, to, limit)
         val ids = rawWhoopSourceIds(deviceId).map { "$it-noop" }
         return dedupSleepBlocks(ids.flatMap { dao.sleepSessions(it, from, to, limit) })
     }
@@ -2001,17 +2035,18 @@ class WhoopRepository(
      *  workouts — the Workouts screen then reads empty while Data Sources (which queries "my-whoop") shows
      *  them (#28). Exact-duplicate rows are dropped on the (startTs, sport) natural key, active-strap-first. */
     suspend fun workoutsUnion(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT): List<WorkoutRow> =
-        dedupWorkoutsByKey(rawWhoopSourceIds(deviceId).flatMap { dao.workouts(it, from, to, limit) })
+        if (hosted()) workouts(deviceId, from, to, limit)
+        else dedupWorkoutsByKey(rawWhoopSourceIds(deviceId).flatMap { dao.workouts(it, from, to, limit) })
 
     /** The COMPUTED ("-noop") twin of [workoutsUnion] for detected workouts (the engine writes detected
      *  sessions under "<importedDeviceId>-noop"), across the computed union ids. */
     suspend fun detectedWorkoutsUnion(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT): List<WorkoutRow> =
-        dedupWorkoutsByKey(rawWhoopSourceIds(deviceId).map { "$it-noop" }
+        if (hosted()) emptyList() else dedupWorkoutsByKey(rawWhoopSourceIds(deviceId).map { "$it-noop" }
             .flatMap { dao.workouts(it, from, to, limit) })
 
     /** Cached daily metrics for the inclusive day range [from, to] (YYYY-MM-DD), oldest first. */
     suspend fun dailyMetrics(deviceId: String, from: String, to: String): List<DailyMetric> =
-        dao.dailyMetricsRange(deviceId, from, to)
+        if (hosted()) canonicalDays().filter { it.day in from..to } else dao.dailyMetricsRange(deviceId, from, to)
 
     // MARK: - Cross-source resolver (PR#196 , freshest-wins charts/metrics)
     //
@@ -2078,6 +2113,16 @@ class WhoopRepository(
         to: String,
         strapDeviceId: String = "my-whoop",
     ): MetricSeriesResolution {
+        if (hosted()) {
+            val metric = com.noop.push.ServerConsumerProjection.metricKey(key)
+            val points = canonicalReader?.invoke()?.canonicalDays?.value.orEmpty().values
+                .filter { it.day in from..to }.sortedBy { it.day }.mapNotNull { cache ->
+                    val family = cache.compute?.familyFor(metric) ?: return@mapNotNull null
+                    family.number(metric)?.let { value -> ResolvedMetricPoint(cache.day, value,
+                        "server:${family.resultRevision}", metric) }
+                }
+            return MetricSeriesResolution(preferredSource, emptyList(), points)
+        }
         val candidates = sourceCandidates(key, preferredSource, strapDeviceId)
         // First candidate wins per day; later candidates only fill days no earlier one covered.
         // #993 exception inside [resolveFirstWins]: a day held only by a WEAK sleep-total (the bare

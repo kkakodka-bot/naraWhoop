@@ -72,8 +72,10 @@ object ServerScoreCacheCodec {
                 offBodyMin = n.num("off_body_min"), stateCoverage = n.num("state_coverage"), manualEdit = n.bool("manual_edit"),
                 respRateBpm = n.num("resp_rate_bpm"))
         }
+        val compute = ServerComputeContract.decode(o.optJSONObject("compute") ?: root.optJSONObject("compute"), ownerId, day)
         return ServerScoreDayCache(day, o.getString("algorithm_version"), daily, nights, o.str("computed_at"),
-            o.optBoolean("stale", true), fetchedAtMs, ownerId.lowercase(), 2, features, root.toString())
+            o.optBoolean("stale", true), fetchedAtMs, ownerId.lowercase(), 2, features, root.toString(),
+            ownedMetrics = compute?.ownedMetrics, compute = compute)
     }
 
     private fun JSONObject.str(key: String) = (opt(key) as? String)?.takeIf { it.isNotBlank() }

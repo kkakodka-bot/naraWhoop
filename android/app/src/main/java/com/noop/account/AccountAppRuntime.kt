@@ -77,7 +77,7 @@ class AccountAppRuntime(val context: AccountStorageContext) {
 
     /** One captured account store shared by this runtime's UI and BLE service. */
     val repository: WhoopRepository by lazy {
-        WhoopRepository(database)
+        WhoopRepository(database).also { it.canonicalReader = { serverScoreRepository } }
     }
 
     /** Opt-in server readback; local scoring stays enabled until metric activation is verified. */

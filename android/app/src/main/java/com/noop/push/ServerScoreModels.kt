@@ -69,6 +69,7 @@ data class ServerScoreDayCache(
     val rawSnapshotJSON: String? = null,
     val ownedMetrics: Set<String>? = null,
     val readFailure: String? = null,
+    val compute: ServerComputeContract? = null,
 ) {
     val scopeKey: String get() = org.json.JSONArray(features.keys.sorted().map {
         listOf(it, features[it]?.deviceId ?: "", features[it]?.algorithmVersion ?: "")
@@ -154,6 +155,7 @@ class ServerScoreSessionState {
             value.schemaVersion != 2 || value.features.isEmpty()) return false
         if (request != null && requests[value.day] != request) return false
         val old = values[value.day]
+        if (!ServerComputeRevisionFence.admits(old, value)) return false
         if (old?.scopeKey == value.scopeKey && old.features.any { (key, prior) ->
             prior.inputRevision != null && value.features[key]?.inputRevision?.let { it < prior.inputRevision } == true
         }) return false

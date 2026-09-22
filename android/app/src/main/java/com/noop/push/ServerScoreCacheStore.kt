@@ -18,8 +18,11 @@ class ServerScoreCacheStore(private val prefs: SharedPreferences) {
         val parsed = ServerScoreClient.parseSnapshot(raw, cache.day, cache.ownerId, cache.fetchedAtMs)
         require(parsed.scopeKey == cache.scopeKey)
         val key = key(cache.ownerId, cache.day, cache.scopeKey)
+        require(ServerComputeRevisionFence.admits(load(cache.ownerId, cache.day), cache)) { "Canonical result revision conflict" }
         val value = JSONObject().put("snapshot", raw).put("fetchedAtMs", cache.fetchedAtMs).toString()
-        prefs.edit().putString(key, value).putString(pointer(cache.ownerId, cache.day), cache.scopeKey).apply()
+        check(prefs.edit().putString(key, value).putString(pointer(cache.ownerId, cache.day), cache.scopeKey).commit()) {
+            "Canonical result cache was not durable"
+        }
     }
 
     fun load(ownerId: String, day: String, scopeKey: String? = null): ServerScoreDayCache? {
