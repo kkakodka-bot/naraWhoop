@@ -827,7 +827,7 @@ fun SettingsScreen(
                 onSuccess = { msg ->
                     Toast.makeText(
                         context,
-                        "$msg Re-import it via Data sources → WHOOP import, on Android or Mac.",
+                        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) msg else "$msg Re-import it via Data sources → WHOOP import, on Android or Mac.",
                         Toast.LENGTH_LONG,
                     ).show()
                 },
@@ -3558,7 +3558,7 @@ fun SettingsScreen(
                     )
 
                     NoopButton(
-                        text = uiString(R.string.l10n_settings_screen_export_csv_6bce63a3),
+                        text = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) "Export server results" else uiString(R.string.l10n_settings_screen_export_csv_6bce63a3),
                         kind = NoopButtonKind.Secondary,
                         enabled = !backupBusy,
                         modifier = Modifier.weight(1f),

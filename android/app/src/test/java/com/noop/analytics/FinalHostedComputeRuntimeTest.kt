@@ -31,6 +31,9 @@ object FinalHostedRuntimeProbe {
         check(RestScorer.restFromDaily(DailyMetric("device", "2026-09-21")) == null)
         check(IllnessWatch.evaluate(emptyList()) == null)
         check(StepsCounter.stepsInWindow(emptyList()) == null)
+        val alarm = com.noop.alarm.SleepWindowWatcher()
+        repeat(40) { check(!alarm.shouldWake(60 + it)) }
+        check(alarm.trough == null && alarm.samples == 0)
         val waveform = (0 until 240).map { PpgHr.Sample(1_700_000_000L + it / 24, it % 256) }
         val original = waveform.toList()
         check(PpgHr.estimate(waveform).isEmpty())

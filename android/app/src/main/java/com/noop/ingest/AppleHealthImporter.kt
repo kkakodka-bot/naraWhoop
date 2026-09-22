@@ -106,7 +106,8 @@ object AppleHealthImporter {
     ): ImportSummary {
         val agg = Aggregator()
         try {
-            context.contentResolver.openInputStream(uri)?.use { raw ->
+            val archived = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) RawImportArchive.capture(context, uri, "apple-health") else null
+            (archived?.inputStream() ?: context.contentResolver.openInputStream(uri))?.use { raw ->
                 val buffered = BufferedInputStream(raw, 1 shl 16)
                 if (isZip(buffered)) {
                     parseZip(buffered, agg)
@@ -123,7 +124,11 @@ object AppleHealthImporter {
             )
         }
 
-        return persist(agg, repo, deviceId)
+        val result = persist(agg, repo, deviceId)
+        return if (com.noop.analytics.PhoneComputeRuntime.finalHosted) result.copy(
+            counts = result.counts + ("rawImportArchive" to 1),
+            message = "Source archive saved. Hosted physiological aggregation of this import format is unsupported; no phone scoring ran.",
+        ) else result
     }
 
     // ------------------------------------------------------------------------
@@ -371,9 +376,14 @@ object AppleHealthImporter {
         val days = agg.finishDays() // sorted ascending by day; union of sample + sleep days
 
         if (days.isEmpty()) {
+            val sourceWorkouts = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) agg.finishWorkouts(deviceId) else emptyList()
+            if (sourceWorkouts.isNotEmpty()) {
+                repo.upsertDevice(deviceId, name = SOURCE_LABEL)
+                repo.upsertWorkouts(sourceWorkouts)
+            }
             return ImportSummary(
                 source = SOURCE_LABEL,
-                counts = emptyMap(),
+                counts = if (sourceWorkouts.isEmpty()) emptyMap() else mapOf("workout" to sourceWorkouts.size),
                 message = "No supported Apple Health data found in the export.",
             )
         }
@@ -818,6 +828,9 @@ private class Aggregator {
 
     fun addSample(type: String, value: Double, unit: String?, start: HealthDate, end: HealthDate, offsetMin: Int, sourceName: String? = null) {
         sawAnyRecord = true
+        if (type in setOf("RestingHeartRate", "HeartRateVariabilitySDNN", "OxygenSaturation", "RespiratoryRate",
+                "WalkingHeartRateAverage", "HeartRate", "StepCount", "ActiveEnergyBurned", "BasalEnergyBurned") &&
+            !com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_import_daily_aggregation")) return
         val day = localDay(start.epoch, offsetMin)
         val a = acc(day)
         when (type) {
@@ -853,6 +866,8 @@ private class Aggregator {
 
     fun addSleep(stage: SleepStage, start: HealthDate, end: HealthDate, offsetMin: Int) {
         sawAnyRecord = true
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_import_stage_aggregation")) return
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("AppleHealthImporter.addSleep")
         val minutes = Math.max(0.0, (end.epoch - start.epoch)) / 60.0
         val day = localDay(end.epoch, offsetMin) // wake day = local day of end
         val a = acc(day)

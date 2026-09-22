@@ -60,6 +60,8 @@ class SleepWindowWatcher(
      * calls return false until [reset]. A non-positive HR (no live data) is ignored.
      */
     fun shouldWake(bpm: Int): Boolean {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("smart_alarm_sleep_inference")) return false
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("SleepWindowWatcher.shouldWake")
         if (bpm <= 0) return false
         sampleCount++
         if (bpm <= troughCeilingBpm && bpm < troughBpm) troughBpm = bpm

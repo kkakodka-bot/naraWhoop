@@ -101,6 +101,7 @@ internal fun circadianBinsFrom(
     buckets: List<com.noop.data.HrBucket>,
     tzOffsetSeconds: Long,
 ): Pair<List<CircadianEngine.ActivityBin>, Int> {
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("circadianBinsFrom")
     if (buckets.size < 24) return emptyList<CircadianEngine.ActivityBin>() to 0
     val sums = DoubleArray(24)
     val counts = IntArray(24)

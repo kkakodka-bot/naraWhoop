@@ -14,6 +14,7 @@ internal fun displayHr(bpm: Int?, live: LiveState): Int? {
     // PPG harmonic spikes (real ~92 read as 170+). Raw / R-R are last-resort fallbacks.
     if (bpm != null && bpm > 0) return bpm
     live.heartRate?.let { if (it > 0) return it }
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("HealthLiveHrLogic.rr_to_hr")
     val lastRr = live.rr.lastOrNull()
     if (lastRr != null && lastRr > 0) return (60_000.0 / lastRr).roundToInt()
     return null
@@ -50,6 +51,7 @@ data class LiveHrSample(val timeMs: Long, val bpm: Double)
 internal fun hrSeries(history: List<LiveHrSample>, live: LiveState, hr: Int?): List<LiveHrSample> {
     if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return history
     if (history.size > 1) return history
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("HealthLiveHrLogic.rr_series")
     val beats = live.rr.takeLast(60).mapNotNull { rr ->
         if (rr > 0) 60_000.0 / rr else null
     }

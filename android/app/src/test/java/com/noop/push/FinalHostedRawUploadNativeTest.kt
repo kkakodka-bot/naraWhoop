@@ -57,6 +57,15 @@ class FinalHostedRawUploadNativeTest {
             assertNull(nap.efficiency)
             assertNull(com.noop.oura.OuraDecoders.decodeLiveHRPush(intArrayOf(0, 0, 0, 0, 0, 32, 3), 1_780_917_232L))
             assertEquals("", com.noop.ble.PuffinDeepBufferLog.decodedImuField(ByteArray(1244)))
+            val account = fixture.account()
+            val input = java.io.File(account.cacheDir, "hosted-health-source.xml")
+            val xml = """<HealthData><Record type="HKQuantityTypeIdentifierHeartRate" value="72" unit="count/min" startDate="2026-06-08 01:00:00 +0000" endDate="2026-06-08 01:00:01 +0000"/><Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepDeep" startDate="2026-06-08 01:00:00 +0000" endDate="2026-06-08 02:00:00 +0000"/></HealthData>"""
+            input.writeText(xml)
+            val imported = com.noop.ingest.AppleHealthImporter.importExport(account, android.net.Uri.fromFile(input), repo)
+            assertEquals(imported.message, 1, imported.counts["rawImportArchive"])
+            val archive = java.io.File(account.filesDir, "raw-imports/apple-health").listFiles()!!.single { it.extension == "source" }
+            assertEquals(xml, archive.readText())
+            assertTrue(db.whoopDao().sleepSessions("apple-health", 1_780_906_000, 1_780_907_200, 10).isEmpty())
             assertTrue(PhoneComputeRuntime.evidence().isEmpty())
             assertTrue(PhoneComputeRuntime.forbiddenAttempts().isEmpty())
             println("FINAL_HOSTED_DURABLE_RAW_UPLOAD admitted=0 forbidden=0 ble_decode=true room_commit=true upload_payload=true clock_identity_preserved=true")
