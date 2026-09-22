@@ -146,6 +146,19 @@ enum DebugDataDiagnostics {
                                            motion: present.gravity, steps: present.steps))
         }
 
+        guard PhoneComputeRuntime.permitsLocal("DebugDataDiagnostics.physiologyFunnels") else {
+            lines.append("Physiology funnels: server-owned; local analysis disabled")
+            let state = repo.serverPresentation
+            for result in state.canonicalDays.values.sorted(by: { $0.day < $1.day }) {
+                lines.append("Canonical day \(result.day): read=\(state.days[result.day]?.phase.rawValue ?? "cached")")
+                for (family, value) in result.families.sorted(by: { $0.key < $1.key }) {
+                    lines.append("  \(family): \(value.status), revision=\(value.resultRevision ?? "none"), reason=\(value.reason ?? "none")")
+                }
+            }
+            return lines
+        }
+        PhoneComputeRuntime.entered("DebugDataDiagnostics.physiologyFunnels")
+
         // Data state from the preloaded day spine.
         let days = repo.days
         lines.append("History:     \(days.count) day rows")

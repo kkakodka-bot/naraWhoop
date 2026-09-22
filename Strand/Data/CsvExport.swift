@@ -244,6 +244,7 @@ enum CsvExport {
             let results = selected.canonicalDays.values.sorted { $0.day < $1.day }
             var entries: [(name: String, data: Data)] = [
                 ("canonical_results.json", try encoder.encode(results)),
+                ("canonical_read_states.json", try encoder.encode(results.compactMap { CanonicalConsumerPublication.ledger($0, state: selected) })),
                 ("canonical_metrics.csv", Data(canonicalCSV(results).utf8)),
                 ("README.txt", Data("Canonical physiology is only in canonical_results.json and canonical_metrics.csv. Missing and unavailable states are preserved. historical_source files preserve original rows for audit and recovery; they are not current measurements or canonical server results. No local sleep, HRV, calorie, or score reconstruction is performed. Raw capture is preserved separately by the lossless database backup.\n".utf8))
             ]

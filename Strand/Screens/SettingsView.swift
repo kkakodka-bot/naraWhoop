@@ -23,6 +23,7 @@ struct SettingsView: View {
     @EnvironmentObject var live: LiveState
     @EnvironmentObject var profile: ProfileStore
     @StateObject private var preferenceActions = ScoringPreferenceActions()
+    @State private var manualZoneBounds = ""
 
     /// Profile-photo picker selection (PhotosUI). Cleared back to nil once the bytes are loaded.
     @State private var avatarPickerItem: PhotosPickerItem?
@@ -501,7 +502,7 @@ struct SettingsView: View {
                         hrMaxField
                         Text(profile.hrMaxOverride > 0
                              ? "Manual override"
-                             : "Auto · \(profile.hrMax) bpm (Tanaka)")
+                             : (PhoneComputeRuntime.isFinalHosted ? "Server-owned · unavailable" : "Auto · \(profile.hrMax) bpm (Tanaka)"))
                             .font(StrandFont.footnote)
                             .foregroundStyle(profile.hrMaxOverride > 0
                                              ? StrandPalette.accent
@@ -512,6 +513,17 @@ struct SettingsView: View {
                 // Custom HR zones (#531, @kavemang): replace the conventional %HRmax bands with five
                 // personalized inclusive BPM lower bounds. Off = the effective set stays conventional.
                 FormRow(label: "Custom HR zones") {
+                    if PhoneComputeRuntime.isFinalHosted && !profile.hasCustomHRZones {
+                        VStack(alignment: .trailing) {
+                            TextField("Five ascending BPM bounds, comma separated", text: $manualZoneBounds)
+                                .textFieldStyle(.roundedBorder)
+                            Button("Save manual zones") {
+                                guard let values = ScoringPreferenceActions.manualZoneValues(manualZoneBounds) else { return }
+                                preferenceActions.change(.hrZoneThresholds, value: .integers(values), model: model)
+                            }
+                            .disabled(preferenceActions.disabled(model) || ScoringPreferenceActions.manualZoneValues(manualZoneBounds) == nil)
+                        }
+                    } else {
                     Toggle("Custom HR zones", isOn: Binding(
                         get: { profile.hasCustomHRZones },
                         set: { preferenceActions.setZonesEnabled($0, model: model) }
@@ -520,9 +532,12 @@ struct SettingsView: View {
                     .accessibilityLabel("Custom HR zones")
                     .disabled(preferenceActions.disabled(model))
                     .frame(minHeight: 44)
+                    }
                 }
                 if profile.hasCustomHRZones {
-                    Text("Set the BPM where each zone begins. Turn off to restore the default percentage-of-max zones.")
+                    Text(PhoneComputeRuntime.isFinalHosted
+                         ? "These are your manual inputs. Turn off to request server-owned zones; no phone estimate is substituted."
+                         : "Set the BPM where each zone begins. Turn off to restore the default percentage-of-max zones.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -4077,8 +4092,17 @@ final class ScoringPreferenceActions: @MainActor ObservableObject {
                 .init(key: .ageExplicit, value: .boolean(true))], model: model, now: now, zone: zone)
     }
     func setZonesEnabled(_ enabled: Bool, model: AppModel) {
+        guard !PhoneComputeRuntime.isFinalHosted || !enabled else { return }
         change(.hrZoneThresholds, value: enabled
             ? .integers(HRZones.defaultLowerBounds(maxHR: Double(model.profile.hrMax))) : .clear, model: model)
+    }
+    static func manualZoneValues(_ text: String) -> [Int]? {
+        let fields = text.split(separator: ",", omittingEmptySubsequences: false)
+        let values = fields.compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        guard values.count == 5, fields.count == 5,
+              values.allSatisfy({ HRZones.customBPMRange.contains($0) }),
+              zip(values, values.dropFirst()).allSatisfy({ $0 < $1 }) else { return nil }
+        return values
     }
     func stepZone(_ index: Int, up: Bool, model: AppModel) {
         var values = model.profile.hrZoneThresholds
@@ -4092,7 +4116,9 @@ final class ScoringPreferenceActions: @MainActor ObservableObject {
     func stepMaxHR(up: Bool, model: AppModel) {
         let old = model.profile.hrMaxOverride
         // Config admits 80...240 bpm; preserve this editor's 230 ceiling and explicit Auto state.
-        let next = up ? (old == 0 ? max(80, min(230, model.profile.hrMax)) : min(230, max(80, old + 1)))
+        // In hosted mode the first explicit step enters the editor's lower bound, not a physiology estimate.
+        let initial = PhoneComputeRuntime.isFinalHosted ? 80 : max(80, min(230, model.profile.hrMax))
+        let next = up ? (old == 0 ? initial : min(230, max(80, old + 1)))
             : (old <= 80 ? 0 : old - 1)
         change(.hrMaxOverride, value: next == 0 ? .clear : .number(Double(next)), model: model)
     }

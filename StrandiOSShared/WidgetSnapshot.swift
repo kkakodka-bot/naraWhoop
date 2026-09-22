@@ -147,6 +147,9 @@ public struct WidgetSnapshot: Codable, Equatable {
         guard let ledger = canonicalLedger else {
             return recovery == nil && effort == nil && rest == nil && hrv == nil && restingHr == nil && insights == nil
         }
+        if !ledger.permitsRead {
+            return ledger.isValid && recovery == nil && effort == nil && rest == nil && hrv == nil && restingHr == nil && insights == nil
+        }
         return ledger.isValid && (recovery == nil || ledger.families["recovery"]?.permitsValue == true)
             && (effort == nil || ledger.families["strain_energy"]?.permitsValue == true)
             && (rest == nil || ledger.families["sleep_history"]?.permitsValue == true)

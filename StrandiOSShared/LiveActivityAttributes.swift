@@ -18,12 +18,12 @@ public struct NOOPActivityAttributes: ActivityAttributes {
         public var canonicalLedger: CanonicalConsumerLedger?
         public var displayedRecovery: Int? {
             guard Bundle.main.object(forInfoDictionaryKey: "NOOPFinalHostedCompute") as? Bool == true else { return recovery }
-            return finalHosted == true && canonicalLedger?.isValid == true
+            return finalHosted == true && canonicalLedger?.isValid == true && canonicalLedger?.permitsRead == true
                 && canonicalLedger?.families["recovery"]?.permitsValue == true ? recovery : nil
         }
         public var displayedEffort: Int? {
             guard Bundle.main.object(forInfoDictionaryKey: "NOOPFinalHostedCompute") as? Bool == true else { return effort }
-            return finalHosted == true && canonicalLedger?.isValid == true
+            return finalHosted == true && canonicalLedger?.isValid == true && canonicalLedger?.permitsRead == true
                 && canonicalLedger?.families["strain_energy"]?.permitsValue == true ? effort : nil
         }
 

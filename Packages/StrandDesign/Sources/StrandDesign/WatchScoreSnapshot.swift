@@ -223,6 +223,9 @@ public struct WatchScoreSnapshot: Codable, Equatable, Sendable {
         guard let ledger = canonicalLedger else {
             return charge == nil && effort == nil && rest == nil && sleepSummary.isEmpty
         }
+        if !ledger.permitsRead {
+            return ledger.isValid && charge == nil && effort == nil && rest == nil && sleepSummary.isEmpty
+        }
         return ledger.isValid && (charge == nil || ledger.families["recovery"]?.permitsValue == true)
             && (effort == nil || ledger.families["strain_energy"]?.permitsValue == true)
             && (rest == nil || ledger.families["sleep_history"]?.permitsValue == true)

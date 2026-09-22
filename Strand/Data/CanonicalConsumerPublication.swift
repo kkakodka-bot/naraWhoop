@@ -9,7 +9,7 @@ enum CanonicalConsumerPublication {
         return ServerScoreDate.day(now, timeZone: TimeZone(identifier: state.timezone) ?? .current)
     }
 
-    static func ledger(_ result: ServerCanonicalResults?) -> CanonicalConsumerLedger? {
+    static func ledger(_ result: ServerCanonicalResults?, state: ServerScoreViewState? = nil) -> CanonicalConsumerLedger? {
         guard let result else { return nil }
         return CanonicalConsumerLedger(project: result.project, ownerID: result.ownerID,
             sourceID: result.sourceID, deviceID: result.deviceID, window: result.day,
@@ -24,10 +24,11 @@ enum CanonicalConsumerPublication {
                     freshness: family.freshness, timezoneID: family.timezoneID,
                     manifestHash: family.manifestHash, featureManifestHash: family.featureManifestHash,
                     canonicalAuthorization: family.canonicalQualification)
-            })
+            }, readState: state?.days[result.day]?.phase.rawValue, cached: state?.days[result.day]?.cached)
     }
 
-    static func value(_ metric: String, in result: ServerCanonicalResults?) -> Double? {
-        result?.result(for: metric)?.number(metric)
+    static func value(_ metric: String, in result: ServerCanonicalResults?, state: ServerScoreViewState? = nil) -> Double? {
+        guard ledger(result, state: state)?.permitsRead != false else { return nil }
+        return result?.result(for: metric)?.number(metric)
     }
 }

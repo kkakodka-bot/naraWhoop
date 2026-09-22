@@ -12,7 +12,10 @@ enum CanonicalHealthWritebackPlan {
         let sleeps: [ServerScoreSleep]
     }
     static func days(state: ServerScoreViewState) throws -> [Day] {
-        try state.canonicalDays.values.sorted { $0.day < $1.day }.map { result in
+        try state.canonicalDays.values.sorted { $0.day < $1.day }.compactMap { result in
+            // A failed transport read must not be presented to Health as newly current physiology.
+            // Existing historical Health samples keep their original immutable receipt.
+            guard CanonicalConsumerPublication.ledger(result, state: state)?.permitsRead == true else { return nil }
             let values = Dictionary(uniqueKeysWithValues: quantities.compactMap { metric in
                 result.result(for: metric)?.number(metric).map { (metric, $0) }
             })

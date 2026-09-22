@@ -154,12 +154,12 @@ final class WatchSessionBridge: NSObject, ObservableObject {
             let state = model.repo.serverPresentation
             let day = CanonicalConsumerPublication.day(in: state)
             let result = state.canonicalDays[day]
-            return WatchScoreSnapshot(charge: CanonicalConsumerPublication.value("recovery", in: result),
-                chargeCalibrating: false, effort: CanonicalConsumerPublication.value("strain", in: result),
-                effortCalibrating: false, rest: CanonicalConsumerPublication.value("sleep_performance", in: result),
+            return WatchScoreSnapshot(charge: CanonicalConsumerPublication.value("recovery", in: result, state: state),
+                chargeCalibrating: false, effort: CanonicalConsumerPublication.value("strain", in: result, state: state),
+                effortCalibrating: false, rest: CanonicalConsumerPublication.value("sleep_performance", in: result, state: state),
                 restCalibrating: false, hr: model.live.heartRate, sleepSummary: "", asOf: Date(),
                 scoreDay: day, accountNamespace: model.accountStorage?.scope?.namespace,
-                finalHosted: true, canonicalLedger: CanonicalConsumerPublication.ledger(result))
+                finalHosted: true, canonicalLedger: CanonicalConsumerPublication.ledger(result, state: state))
         }
         // #911: anchor the way Today does, through the SHARED `Repository.widgetAnchor` the Home/Lock
         // widget and the iOS Live Activity now also use, so the wrist, the widget, the Live Activity and

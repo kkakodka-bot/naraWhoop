@@ -994,6 +994,7 @@ final class HealthKitBridge: ObservableObject {
                     "naraAccountNamespace": accountNamespace ?? "", "naraScoreDay": result.day,
                     "naraProject": result.project, "naraOwner": result.ownerID,
                     "naraSource": result.sourceID, "naraCanonicalDevice": result.deviceID,
+                    "naraServerReadState": state.days[result.day]?.phase.rawValue ?? "cached",
                     "naraCanonicalResult": String(decoding: receiptData, as: UTF8.self)]
             }
             for metric in CanonicalHealthWritebackPlan.quantities {

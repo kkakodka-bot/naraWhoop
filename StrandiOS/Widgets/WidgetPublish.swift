@@ -84,11 +84,12 @@ extension WidgetSnapshot {
             let state = model.repo.serverPresentation
             let result = state.canonicalDays[CanonicalConsumerPublication.day(in: state)]
             func rounded(_ metric: String) -> Int? {
-                CanonicalConsumerPublication.value(metric, in: result).map { Int($0.rounded()) }
+                CanonicalConsumerPublication.value(metric, in: result, state: state).map { Int($0.rounded()) }
             }
             let insight = result?.result(for: "insights")
             let insightText: String?
-            if let insight, insight.hasCanonicalAuthorization, insight.status == "available",
+            if CanonicalConsumerPublication.ledger(result, state: state)?.permitsRead == true,
+               let insight, insight.hasCanonicalAuthorization, insight.status == "available",
                case .string(let text) = insight.values["insights"] { insightText = text }
             else { insightText = nil }
             return WidgetSnapshot(recovery: rounded("recovery"), bpm: model.live.heartRate,
@@ -96,7 +97,7 @@ extension WidgetSnapshot {
                 updated: Date(), effort: rounded("strain"), rest: rounded("sleep_performance"),
                 hrv: rounded("hrv_rmssd_ms"), restingHr: rounded("resting_hr_bpm"),
                 accountNamespace: namespace, finalHosted: true,
-                canonicalLedger: CanonicalConsumerPublication.ledger(result), insights: insightText)
+                canonicalLedger: CanonicalConsumerPublication.ledger(result, state: state), insights: insightText)
         }
         let now = Date()
         // The recovery-derived anchor: today's row when it's scored, else the freshest STRICTLY-PRIOR

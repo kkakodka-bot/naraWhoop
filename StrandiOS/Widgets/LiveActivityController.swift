@@ -33,10 +33,10 @@ final class LiveActivityController {
             let state = model.repo.serverPresentation
             let result = state.canonicalDays[CanonicalConsumerPublication.day(in: state)]
             update(bpm: model.live.connected ? model.live.heartRate : nil,
-                   recovery: CanonicalConsumerPublication.value("recovery", in: result).map { Int($0.rounded()) },
+                   recovery: CanonicalConsumerPublication.value("recovery", in: result, state: state).map { Int($0.rounded()) },
                    connected: model.live.connected,
-                   effort: CanonicalConsumerPublication.value("strain", in: result).map { Int($0.rounded()) },
-                   canonicalLedger: CanonicalConsumerPublication.ledger(result))
+                   effort: CanonicalConsumerPublication.value("strain", in: result, state: state).map { Int($0.rounded()) },
+                   canonicalLedger: CanonicalConsumerPublication.ledger(result, state: state))
         } else {
             let day = model.repo.cachedWidgetAnchor()
             update(bpm: model.live.connected ? (model.bpm ?? model.live.heartRate) : nil,

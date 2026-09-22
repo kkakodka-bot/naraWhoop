@@ -54,11 +54,19 @@ public struct CanonicalConsumerLedger: Codable, Equatable, Hashable, Sendable {
     public let deviceID: String
     public let window: String
     public let families: [String: Receipt]
+    /// Transport state is separate from the immutable physiological result revision.
+    public let readState: String?
+    public let cached: Bool?
 
     public init(project: String, ownerID: String, sourceID: String, deviceID: String,
-                window: String, families: [String: Receipt]) {
+                window: String, families: [String: Receipt], readState: String? = nil, cached: Bool? = nil) {
         self.project = project; self.ownerID = ownerID; self.sourceID = sourceID
         self.deviceID = deviceID; self.window = window; self.families = families
+        self.readState = readState; self.cached = cached
+    }
+
+    public var permitsRead: Bool {
+        !["failed", "offline", "authenticationRequired", "timezoneMismatch", "unsupported"].contains(readState ?? "")
     }
 
     public var scopeIdentity: String { [project, ownerID, sourceID, deviceID].joined(separator: "|") }
