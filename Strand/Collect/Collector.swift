@@ -546,19 +546,27 @@ final class Collector {
     /// the repair runs are simply absent. The scan ignores each batch's meta startTs/endTs — those are
     /// capture-time wall-clock values, not the contained frames' strap timestamps.
     @discardableResult
-    func repairImuSessionsFromRawArchive(imuStore override: ImuSessionFileStore? = nil) async -> Int {
+    func repairImuSessionsFromRawArchive(imuStore override: ImuSessionFileStore? = nil,
+        allowsWork: @escaping () -> Bool = { ResourceBudget.shared.permits(.rawBulk) }) async -> Int {
         let imuStore = override ?? self.imuStore
-        guard let store = concreteStore, imuStore.hasWindows(deviceId: deviceId) else { return 0 }
+        let capturedDevice = deviceId
+        let admitted = { self.acceptingCapture && self.deviceId == capturedDevice && !Task.isCancelled && allowsWork() }
+        guard admitted(), let store = concreteStore, imuStore.hasWindows(deviceId: capturedDevice) else { return 0 }
         var repaired = 0
         var cursor: RawBatchMeta?
-        while let page = try? await store.rawBatchMetas(deviceId: deviceId, after: cursor, limit: 20),
+        while admitted(),
+              let page = try? await store.rawBatchMetas(deviceId: capturedDevice, after: cursor, limit: 20),
               !page.isEmpty {
             for meta in page {
+                guard admitted() else { return repaired }
                 let frames = (try? await store.rawFrames(batchId: meta.batchId)) ?? []
                 let receivedAtMs = Int64(meta.capturedAt) * 1_000
-                for frame in frames where Whoop5RawImu.rawColumns(frame) != nil
-                    && verifyFrame(frame, family: .whoop5).crc32OK == true {
-                    repaired += imuStore.append(deviceId: deviceId, frame: frame, receivedAtMs: receivedAtMs)
+                for frame in frames {
+                    guard admitted() else { return repaired }
+                    if Whoop5RawImu.rawColumns(frame) != nil,
+                       verifyFrame(frame, family: .whoop5).crc32OK == true {
+                        repaired += imuStore.append(deviceId: capturedDevice, frame: frame, receivedAtMs: receivedAtMs)
+                    }
                 }
             }
             cursor = page.last

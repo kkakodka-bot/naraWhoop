@@ -50,6 +50,7 @@ final class ScoringPreferenceRecomputeTests: XCTestCase {
         var store: WhoopStore
         var model: AppModel?
         let barrier = Barrier()
+        let resourceBudget = ResourceBudget(cooldown: 0, thermal: { 0 }, lowPower: { false })
         var completedPasses = 0
 
         init(seed: [String: Any] = [:]) async throws {
@@ -80,7 +81,8 @@ final class ScoringPreferenceRecomputeTests: XCTestCase {
             let next = AppModel(storageLayout: layout, context: context, captureAllowed: false,
                 openStore: { store }, scoringInputDependencies: inputs,
                 nativePreferenceCurrent: { $0 == context }, preferenceScoringEnabled: { false },
-                preferenceRecomputeDriver: automatic ? driver : nil, isCurrent: { $0 == context })
+                preferenceRecomputeDriver: automatic ? driver : nil,
+                resourceBudget: resourceBudget, isCurrent: { $0 == context })
             model = next
             return next
         }
@@ -307,6 +309,129 @@ final class ScoringPreferenceRecomputeTests: XCTestCase {
         XCTAssertEqual(try f.inputCounts().children, 0)
     }
 
+    func testHistoryAtCalibrationBoundaryRetainsCompletionDebtUntilFreshPass() async throws {
+        let f = try await fixture(), model = f.makeModel(automatic: false)
+        try await model.prepareScoringPreferences()
+        let budget = ResourceBudget(cooldown: 0, thermal: { 0 }, lowPower: { false })
+        let historyOwner = UUID()
+        var interrupted = false, completed = 0
+        let engine = IntelligenceEngine(repo: model.repo, profile: model.profile, deviceId: "my-whoop",
+            defaults: f.defaults, scoringPreferences: { model.acceptedScoringPreferences },
+            preferenceRecomputeDriver: .init(checkpoint: { point in
+                if point == .beforeCalibrationScan, !interrupted {
+                    interrupted = true
+                    budget.history(owner: historyOwner, active: true)
+                }
+            }, markOwed: { nil }, markCompleted: { _, _ in completed += 1; return true }), resourceBudget: budget)
+        await engine.analyzeRecent()
+        XCTAssertTrue(interrupted)
+        XCTAssertEqual(completed, 0)
+        XCTAssertNil(f.defaults.data(forKey: IntelligenceEngine.preferenceCompletionKey))
+        XCTAssertNil(f.defaults.string(forKey: "noop.analyzeWatermark"))
+        XCTAssertTrue(engine.hasPendingPreferenceRecompute)
+        XCTAssertTrue(budget.permits(.localCommit))
+        XCTAssertTrue(budget.permits(.acknowledgement))
+        budget.history(owner: historyOwner, active: false)
+        await engine.analyzeRecent()
+        XCTAssertEqual(completed, 1)
+        XCTAssertFalse(engine.hasPendingPreferenceRecompute)
+    }
+
+    func testPressureBeforeProjectionPagesRetainsLeaseUntilFreshAdmission() async throws {
+        let f = try await fixture(), model = f.makeModel(automatic: false)
+        try await model.prepareScoringPreferences()
+        let budget = ResourceBudget(cooldown: 0, thermal: { 0 }, lowPower: { false })
+        let historyOwner = UUID()
+        var interrupted = false, completed = 0
+        let engine = IntelligenceEngine(repo: model.repo, profile: model.profile, deviceId: "my-whoop",
+            defaults: f.defaults, scoringPreferences: { model.acceptedScoringPreferences },
+            preferenceRecomputeDriver: .init(checkpoint: { point in
+                if point == .beforePreferenceEvaluationPages, !interrupted {
+                    interrupted = true
+                    budget.history(owner: historyOwner, active: true)
+                }
+            }, markOwed: { nil }, markCompleted: { _, _ in completed += 1; return true }), resourceBudget: budget)
+        await engine.analyzeRecent()
+        XCTAssertTrue(interrupted)
+        XCTAssertEqual(completed, 0)
+        XCTAssertNil(f.defaults.data(forKey: IntelligenceEngine.preferenceCompletionKey))
+        XCTAssertTrue(engine.hasPendingPreferenceRecompute)
+        budget.history(owner: historyOwner, active: false)
+        _ = await engine.runPreferenceProjection()
+        XCTAssertFalse(engine.hasPendingPreferenceRecompute)
+        XCTAssertEqual(completed, 1)
+    }
+
+    func testScoringReadAdmissionStaysRevokedAfterPressureClears() async throws {
+        let budget = ResourceBudget(cooldown: 0, thermal: { 0 }, lowPower: { false })
+        let owner = UUID()
+        let status = ScoringAnalysisPassStatus(allowsWork: { budget.permits(.scoring) })
+        var reads = 0
+        do {
+            _ = try await status.checking {
+                reads += 1
+                budget.history(owner: owner, active: true)
+                return 1
+            }
+            XCTFail("an interrupted read cannot certify a completed pass")
+        } catch is CancellationError {} catch { XCTFail("unexpected error: \(error)") }
+        budget.history(owner: owner, active: false)
+        do {
+            _ = try await status.checking { reads += 1; return 2 }
+            XCTFail("the revoked pass must not start another scan")
+        } catch is CancellationError {} catch { XCTFail("unexpected error: \(error)") }
+        XCTAssertEqual(reads, 1)
+        XCTAssertTrue(status.failed)
+        XCTAssertTrue(status.wasPressureInterrupted)
+        XCTAssertTrue(ScoringAnalysisPassStatus(allowsWork: { budget.permits(.scoring) }).canContinue)
+    }
+
+    func testDeferredFullHistoryUpgradeDoesNotMarkCompletion() async throws {
+        let f = try await fixture(), model = f.makeModel(automatic: false)
+        try await model.prepareScoringPreferences()
+        let budget = ResourceBudget(cooldown: 0, thermal: { 2 }, lowPower: { false })
+        let engine = IntelligenceEngine(repo: model.repo, profile: model.profile, deviceId: "my-whoop",
+            defaults: f.defaults, scoringPreferences: { model.acceptedScoringPreferences }, resourceBudget: budget)
+        await engine.runEffortRescoreIfNeeded()
+        XCTAssertFalse(f.defaults.bool(forKey: IntelligenceEngine.effortRescoreFlagKey))
+        XCTAssertNil(f.defaults.data(forKey: IntelligenceEngine.preferenceCompletionKey))
+    }
+
+    func testAccountTimestampRecoveryRetainsUnreceiptedSourceRows() async throws {
+        let f = try await fixture(), model = f.makeModel(automatic: false)
+        _ = try await f.store.insert(Streams(hr: [HRSample(ts: 1, bpm: 70)]), deviceId: "my-whoop")
+        f.defaults.set(true, forKey: IntelligenceEngine.timestampHealPendingKey)
+        let before = try await f.store.analysisFingerprint()
+        await model.intelligence.runTimestampHealIfNeeded()
+        let after = try await f.store.analysisFingerprint()
+        XCTAssertEqual(after, before)
+        let retained = try await f.store.hrSamples(deviceId: "my-whoop", from: 0, to: 10, limit: 10)
+        XCTAssertEqual(retained.count, 1)
+        XCTAssertTrue(f.defaults.bool(forKey: IntelligenceEngine.timestampHealPendingKey))
+        XCTAssertFalse(f.defaults.bool(forKey: IntelligenceEngine.timestampHealFlagKey))
+    }
+
+    func testDayCyclePressureAfterReadStopsNextReaderAndPreservesMarkers() async throws {
+        let f = try await fixture()
+        let budget = ResourceBudget(cooldown: 0, thermal: { 0 }, lowPower: { false })
+        let owner = UUID()
+        var reads = 0
+        let status = ScoringAnalysisPassStatus()
+        let result = await DayCycleIntelligenceIntegration.compute(nights: [], editedRows: [], store: f.store,
+            candidates: [(owner: "my-whoop", priority: 0)], physiologyOwners: ["my-whoop"], workouts: [],
+            windowStart: 1000, now: 2000, offsetSec: 0, habitualMidsleepSec: nil, ticksPerStep: 1,
+            mode: .sleepOnset, cache: .init(), profile: UserProfile(), maxHROverride: nil, effortMethod: .edwards,
+            recoveryReader: .init(sleepSessions: { _, _, _ in
+                reads += 1
+                budget.history(owner: owner, active: true)
+                return []
+            }, markers: { _, _, _ in reads += 1; return [] }),
+            allowsWork: { budget.permits(.scoring) }, onFailure: { status.recordFailure() })
+        XCTAssertEqual(reads, 1)
+        XCTAssertTrue(status.failed)
+        if case .preserve = result.markerUpdate {} else { XCTFail("pressure cannot authorize marker replacement") }
+    }
+
     func testCancelledActualPassCannotAdvanceCompletion() async throws {
         let f = try await fixture(), model = f.makeModel(automatic: false)
         try await model.prepareScoringPreferences()
@@ -316,7 +441,8 @@ final class ScoringPreferenceRecomputeTests: XCTestCase {
         let engine = IntelligenceEngine(repo: model.repo, profile: model.profile, deviceId: "my-whoop",
             defaults: f.defaults, scoringPreferences: { model.acceptedScoringPreferences },
             preferenceRecomputeDriver: .init(checkpoint: { await barrier.visit($0) }, markOwed: { nil },
-                                            markCompleted: { _, _ in XCTFail("cancelled pass completed"); return false }))
+                                            markCompleted: { _, _ in XCTFail("cancelled pass completed"); return false }),
+            resourceBudget: f.resourceBudget)
         let running = Task { await engine.analyzeRecent() }
         await fulfillment(of: [entered], timeout: 15)
         running.cancel(); barrier.release(); await running.value

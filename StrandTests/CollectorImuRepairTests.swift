@@ -65,7 +65,7 @@ final class CollectorImuRepairTests: XCTestCase {
         }
 
         let collector = Collector(store: store, deviceId: "devA")
-        let repaired = await collector.repairImuSessionsFromRawArchive(imuStore: imuStore)
+        let repaired = await collector.repairImuSessionsFromRawArchive(imuStore: imuStore, allowsWork: { true })
         XCTAssertEqual(repaired, 6)
         let stats = imuStore.stats("session", from: 1_500, to: 1_505)
         XCTAssertEqual(stats.coveredSeconds, 6)
@@ -82,7 +82,32 @@ final class CollectorImuRepairTests: XCTestCase {
         try await store.enqueueRawBatch(meta, frames: frames)
 
         let collector = Collector(store: store, deviceId: "devA")
-        let repaired = await collector.repairImuSessionsFromRawArchive(imuStore: imuStore)
+        let repaired = await collector.repairImuSessionsFromRawArchive(imuStore: imuStore, allowsWork: { true })
         XCTAssertEqual(repaired, 0)
     }
+    func testPressureBetweenFramesRetainsArchiveAndResumesWithoutDuplicates() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDevice(id: "devA", mac: nil, name: nil)
+        imuStore.register(id: "session", deviceId: "devA", fromMs: 1_000_000, toMs: 2_000_000)
+        let frames = (0..<6).map { makeValidImuFrame(unix: UInt32(1_500 + $0)) }
+        let meta = RawBatchMeta(batchId: "pressure", deviceId: "devA",
+            clockRef: ClockRef(device: 0, wall: 0), capturedAt: 1_800_000_000,
+            startTs: 0, endTs: 0, frameCount: frames.count, byteSize: frames.reduce(0) { $0 + $1.count })
+        try await store.enqueueRawBatch(meta, frames: frames)
+        let collector = Collector(store: store, deviceId: "devA")
+        let denied = await collector.repairImuSessionsFromRawArchive(imuStore: imuStore, allowsWork: { false })
+        XCTAssertEqual(denied, 0)
+        var admissionChecks = 0
+        let partial = await collector.repairImuSessionsFromRawArchive(imuStore: imuStore) {
+            admissionChecks += 1
+            return admissionChecks < 5
+        }
+        XCTAssertEqual(partial, 1)
+        let retained = try await store.rawFrames(batchId: meta.batchId)
+        XCTAssertEqual(retained, frames)
+        let resumed = await collector.repairImuSessionsFromRawArchive(imuStore: imuStore, allowsWork: { true })
+        XCTAssertEqual(resumed, 5)
+        XCTAssertEqual(imuStore.stats("session", from: 1_500, to: 1_505).coveredSeconds, 6)
+    }
+
 }

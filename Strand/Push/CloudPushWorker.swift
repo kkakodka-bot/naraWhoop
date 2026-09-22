@@ -39,7 +39,13 @@ enum CloudPushWorker {
     ) async -> CloudPushRunOutcome {
         var traceOutcome = SyncPipelineTrace.Outcome.pending
         defer { SyncPipelineTrace.event(.uploadScheduling, outcome: traceOutcome) }
-        guard ResourceBudget.shared.permits(.bulk), let endpoint = CloudPushSettings.enabledEndpoint() else { return .deferred }
+        guard let endpoint = CloudPushSettings.enabledEndpoint() else { return .deferred }
+        if let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+           let attributes = try? FileManager.default.attributesOfFileSystem(forPath: directory.path),
+           let free = attributes[.systemFreeSize] as? NSNumber {
+            ResourceBudget.shared.storage(availableBytes: free.int64Value)
+        }
+        guard ResourceBudget.shared.permits(.bulk) else { return .deferred }
         guard let binding = CloudPushCaptureBindings.binding(for: db),
               let initial = CloudAuthClient.currentContext(), binding.scope == initial.scope else {
             traceOutcome = .authenticationRequired
@@ -54,7 +60,7 @@ enum CloudPushWorker {
             return .deferred
         }
         #endif
-
+        // Existing receipt debt must be allowed to settle even when new preparation hits quota.
         let authorization: AuthorizedCloudSession
         let admission: AccountPushAdmission
         let transport: AccountFencedTransport
@@ -121,12 +127,18 @@ enum CloudPushWorker {
             return .deferred
         } catch {
             traceOutcome = CloudAuthClient.isCurrent(initial) ? .failed : .cancelled
+            if let runtime = try? CloudPushBackgroundRuntime.current(for: initial),
+               let message = try? await runtime.queue.pausedMessage(captured: initial) {
+                CloudPushSettings.recordScopedRun(context: initial, state: .failed, message: message)
+                return .terminalFailure
+            }
             return .deferred
         }
 
         let namespace = admission.namespace(endpoint: endpoint.url, protocolVersion: capabilities.protocolVersion,
                                              receiverStateID: capabilities.receiverStateId)
         let capturedSnapshot = CloudPushSnapshot(db: db, imuPushSource: binding.imuSource)
+        let wakeBudget = PushWakeBudget()
         let snapshot = AccountFencedSnapshot(source: capturedSnapshot, admission: admission)
         let coordinator: PushCoordinator
         let preparedBlocked: Bool
@@ -168,7 +180,8 @@ enum CloudPushWorker {
                         try await committer.commit(value, preparedSelectionID: id)
                     },
                     prepareSelection: { try admission.check(); try await accountTransport.base.prepareSelection($0, progressVersion: version) },
-                    allowsPreparation: { ResourceBudget.shared.permits(.bulk) })
+                    allowsPreparation: { ResourceBudget.shared.permits(.cloudPreparation) },
+                    wakeBudget: wakeBudget)
             }
             _ = try await CloudPushProgressRecovery.recover(admission: admission,
                 endpoint: endpoint.url, receiverStateID: capabilities.receiverStateId,

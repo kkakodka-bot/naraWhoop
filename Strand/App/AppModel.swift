@@ -7,6 +7,7 @@ import StrandImport
 import NoopPush
 #if os(iOS)
 import UserNotifications
+import UIKit
 #endif
 
 /// Data source currently running an import from the Data Sources screen.
@@ -29,9 +30,13 @@ final class AppModel: ObservableObject {
 
     func setForeground(_ foreground: Bool) {
         isForeground = foreground
+        #if os(iOS)
+        resourceBudget.lifecycle(backgroundRemaining: foreground ? nil : UIApplication.shared.backgroundTimeRemaining)
+        #endif
         guard isAccountRuntimeActive else { return }
         if serverScoreCacheBootstrapFinished { serverScores.setForeground(foreground) }
         if foreground {
+            resumeStartupMaintenanceIfNeeded()
             resumePostOffloadRefreshIfNeeded()
             schedulePreferenceRecompute()
             scheduleScoringProfileInputs()
@@ -269,6 +274,8 @@ final class AppModel: ObservableObject {
         runtimeActive && accountCompositionValid && currentAccountCheck(accountContext)
     }
     private var startupTask: Task<Void, Never>?
+    private var startupMaintenanceTask: Task<Void, Never>?
+    private var startupMaintenancePending = true
     private var pushCadenceTask: Task<Void, Never>?
     private var postOffloadRefreshPending = false
     private var postOffloadRefreshRequest: UInt64 = 0
@@ -443,7 +450,8 @@ final class AppModel: ObservableObject {
             isCurrent: { capturedAccount != nil && CloudAuthClient.currentContext() == capturedAccount })
         self.intelligence = IntelligenceEngine(repo: repo, profile: profile, deviceId: deviceId, defaults: defaults,
             hrvWindow: { HrvWindow(rawValue: preferences.hrvWindowRaw) ?? .whole },
-            scoringPreferences: readPreferences, preferenceRecomputeDriver: preferenceRecomputeDriver)
+            scoringPreferences: readPreferences, preferenceRecomputeDriver: preferenceRecomputeDriver,
+            resourceBudget: resourceBudget)
         if consistent, let context = accountContext, let layout {
             let consent = ScoringContextConsent(layout: layout)
             scoringContextConsent = consent
@@ -704,7 +712,10 @@ final class AppModel: ObservableObject {
         syncEngine.bind(self)
         NotificationCenter.default.publisher(for: ResourceBudget.changed)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.resumePostOffloadRefreshIfNeeded() }
+            .sink { [weak self] _ in
+                self?.resumePostOffloadRefreshIfNeeded()
+                self?.resumeStartupMaintenanceIfNeeded()
+            }
             .store(in: &hrCancellables)
         NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)
             .receive(on: DispatchQueue.main)
@@ -765,18 +776,7 @@ final class AppModel: ObservableObject {
                 self.live.batteryPct = 68
             }
             #endif
-            if let scope = self.accountStorage?.scope, let store = await self.repo.storeHandle() {
-                guard self.isAccountRuntimeActive else { return }
-                do {
-                    let imuSource = try await self.ble.prepareImuPushSource()
-                    guard self.isAccountRuntimeActive else { return }
-                    try CloudPushCaptureBindings.bind(db: store.registryWriter, scope: scope,
-                        sourceID: CloudPushSettings.sourceId(scope: scope), imuSource: imuSource)
-                } catch {
-                    self.live.append(log: "Cloud capture owner binding failed; local data retained.")
-                }
-            }
-            await self.repo.refresh()                          // surface any imported data at once
+            self.resumeStartupMaintenanceIfNeeded()
             do { try await self.prepareScoringPreferences() }
             catch { self.reportPreferenceFailure() }
             self.scheduleScoringProfileInputs()
@@ -898,6 +898,7 @@ final class AppModel: ObservableObject {
         healthAlert = nil; illnessSignal = nil; illnessDistance = nil
         cyclePhase = nil; cycleCurve = []; circadianPhase = nil; publishedServerContext = []
         startupTask?.cancel()
+        startupMaintenanceTask?.cancel()
         preferencePreparation?.cancel()
         preferenceRefreshTask?.cancel()
         scoringInputs?.retire()
@@ -1398,6 +1399,61 @@ final class AppModel: ObservableObject {
         live.append(log: "re-score: resuming a pass an earlier attempt could not finish (#1538)")
         await intelligence.analyzeRecent()
         // Export surfaces remain owed in SyncEngine and run only after the captured rescore token settles.
+    }
+
+    private func resumeStartupMaintenanceIfNeeded() {
+        ble.resumeCaptureMaintenance()
+        guard startupMaintenancePending, startupMaintenanceTask == nil,
+              serverScoreCacheBootstrapFinished, isAccountRuntimeActive, isForeground,
+              let delay = resourceBudget.bulkResumeDelay() else { return }
+        startupMaintenanceTask = Task { [weak self] in
+            guard let self else { return }
+            var deferredByCooldown = false
+            defer {
+                self.startupMaintenanceTask = nil
+                if deferredByCooldown { self.resumeStartupMaintenanceIfNeeded() }
+            }
+            let admitted: (ResourceBudget.Work) -> Bool = { work in
+                let snapshot = self.resourceBudget.snapshot(for: work)
+                if snapshot.reason == .cooldown { deferredByCooldown = true }
+                return snapshot.reason == nil
+            }
+            if delay > 0 {
+                do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+                catch { return }
+            }
+            guard self.isAccountRuntimeActive, self.isForeground, !Task.isCancelled,
+                  admitted(.rawBulk) else { return }
+            self.ble.resumeCaptureMaintenance()
+            if let scope = self.accountStorage?.scope, let store = await self.repo.storeHandle() {
+                guard self.isAccountRuntimeActive, !Task.isCancelled, admitted(.rawBulk) else { return }
+                do {
+                    let source = try await self.ble.prepareImuPushSource()
+                    guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
+                    try CloudPushCaptureBindings.bind(db: store.registryWriter, scope: scope,
+                        sourceID: CloudPushSettings.sourceId(scope: scope), imuSource: source)
+                } catch { return }
+            }
+            guard admitted(.projection), !Task.isCancelled else { return }
+            await self.repo.refresh()
+            guard self.isAccountRuntimeActive, !Task.isCancelled else { return }
+            self.startupMaintenancePending = false
+        }
+    }
+
+    /// Also called from eligible background debt drains; opening the UI is not a binding dependency.
+    func prepareCloudCaptureBinding() async -> Bool {
+        guard isAccountRuntimeActive, !Task.isCancelled, resourceBudget.permits(.rawBulk),
+              let scope = accountStorage?.scope, let store = await repo.storeHandle() else { return false }
+        ble.resumeCaptureMaintenance()
+        if CloudPushCaptureBindings.binding(for: store.registryWriter)?.scope == scope { return true }
+        do {
+            let source = try await ble.prepareImuPushSource()
+            guard isAccountRuntimeActive, !Task.isCancelled else { return false }
+            try CloudPushCaptureBindings.bind(db: store.registryWriter, scope: scope,
+                sourceID: CloudPushSettings.sourceId(scope: scope), imuSource: source)
+            return true
+        } catch { return false }
     }
 
     private func resumePostOffloadRefreshIfNeeded() {
