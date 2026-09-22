@@ -436,7 +436,7 @@ final class AppModel: ObservableObject {
                               startCentral: layout?.scope != nil && captureAdmissionEnabled && !AppRuntimeMode.isUnitTesting,
                               databasePath: layout?.databaseURL.path,
                               storageDirectory: layout?.directory,
-                              accountScope: layout?.scope, defaults: defaults)
+                              accountScope: layout?.scope, defaults: defaults, resourceBudget: resourceBudget)
         // The closures stay unavailable until the account runtime is constructed and hydrated.
         // A nil account keeps the separate legacy reader path; an account never falls through to it.
         var preferenceRuntime: ScoringPreferenceRuntime?

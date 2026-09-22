@@ -610,10 +610,11 @@ public final class BLEManager: NSObject, ObservableObject {
     var test_activeCommitLeaseCount: Int { historicalCommitLeases.count }
     #endif
     /// True while a historical offload session is in progress (frames route to Backfiller).
+    private let resourceBudget: ResourceBudget
     private let resourceBudgetOwner = UUID()
-    deinit { ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false) }
+    deinit { resourceBudget.history(owner: resourceBudgetOwner, active: false) }
     private var backfilling = false {
-        didSet { ResourceBudget.shared.history(owner: resourceBudgetOwner,
+        didSet { resourceBudget.history(owner: resourceBudgetOwner,
                                               active: backfilling || state.postOffloadBurstInProgress) }
     }
     /// Wall time of the most recent offload frame OR HISTORY_COMPLETE — drives the #174 deep-packet
@@ -1647,10 +1648,20 @@ public final class BLEManager: NSObject, ObservableObject {
         return ref.device + (wallNow - ref.wall)
     }
 
-    public init(state: LiveState, deviceId: String = "my-whoop", startCentral: Bool = true,
+    public convenience init(state: LiveState, deviceId: String = "my-whoop", startCentral: Bool = true,
                 databasePath: String? = nil, storageDirectory: URL? = nil,
                 accountScope: AccountScope? = nil, defaults: UserDefaults = .standard) {
+        self.init(state: state, deviceId: deviceId, startCentral: startCentral,
+            databasePath: databasePath, storageDirectory: storageDirectory,
+            accountScope: accountScope, defaults: defaults, resourceBudget: .shared)
+    }
+
+    init(state: LiveState, deviceId: String = "my-whoop", startCentral: Bool = true,
+         databasePath: String? = nil, storageDirectory: URL? = nil,
+         accountScope: AccountScope? = nil, defaults: UserDefaults = .standard,
+         resourceBudget: ResourceBudget) {
         self.state = state
+        self.resourceBudget = resourceBudget
         self.deviceId = deviceId
         self.databasePath = databasePath ?? (try? StorePaths.defaultDatabasePath())
         self.storageDirectory = storageDirectory
@@ -1771,7 +1782,7 @@ public final class BLEManager: NSObject, ObservableObject {
         realtimeIntent.endConnection(clearIntent: true)
         realtimeRawIntent.endConnection(clearIntent: true)
         captureMaintenanceTask?.cancel()
-        ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false)
+        resourceBudget.history(owner: resourceBudgetOwner, active: false)
         finishConnectionSetup()
         connectionOwner.stop()
         restorationTask?.cancel()
@@ -1842,17 +1853,23 @@ public final class BLEManager: NSObject, ObservableObject {
         resumeCaptureMaintenance()
     }
 
+    /// Join only the finite maintenance attempt already admitted by the shared resource policy.
+    /// A blocked attempt remains durable debt; waiting never starts work or bypasses admission.
+    func waitForCaptureMaintenance() async {
+        await captureMaintenanceTask?.value
+    }
+
     /// Quarantine records themselves are durable debt. Startup and later eligible wakes can resume
     /// reconciliation without making archive preparation a dependency of local history receipt.
     func resumeCaptureMaintenance() {
         guard !accountShutdown, !captureMaintenanceComplete, captureMaintenanceTask == nil,
-              collector != nil, let store = ingestStore, ResourceBudget.shared.permits(.rawBulk) else { return }
+              collector != nil, let store = ingestStore, resourceBudget.permits(.rawBulk) else { return }
         captureMaintenanceTask = Task { [weak self] in
             guard let self else { return }
             defer { self.captureMaintenanceTask = nil }
             do {
                 if let scope = self.accountScope, CloudPushCaptureBindings.binding(for: store.registryWriter) == nil {
-                    guard ResourceBudget.shared.permits(.rawBulk), !Task.isCancelled else { return }
+                    guard self.resourceBudget.permits(.rawBulk), !Task.isCancelled else { return }
                     let source = try await self.prepareImuPushSource()
                     guard !self.accountShutdown, !Task.isCancelled else { return }
                     try CloudPushCaptureBindings.bind(db: store.registryWriter, scope: scope,
@@ -1860,7 +1877,7 @@ public final class BLEManager: NSObject, ObservableObject {
                 }
                 var page: String?
                 repeat {
-                    guard !self.accountShutdown, !Task.isCancelled, ResourceBudget.shared.permits(.rawBulk) else { return }
+                    guard !self.accountShutdown, !Task.isCancelled, self.resourceBudget.permits(.rawBulk) else { return }
                     page = try await store.enqueuePendingQuarantineArchives(afterID: page)
                 } while page != nil
                 self.captureMaintenanceComplete = true
@@ -2100,6 +2117,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Designated initializer for testing and preview use: accepts a pre-built Collector.
     init(state: LiveState, deviceId: String = "my-whoop", collector: Collector?) {
         self.state = state
+        self.resourceBudget = .shared
         self.deviceId = deviceId
         self.databasePath = try? StorePaths.defaultDatabasePath()
         self.storageDirectory = nil
@@ -3972,7 +3990,7 @@ public final class BLEManager: NSObject, ObservableObject {
             self.backfilling = false
             self.state.backfilling = false
             self.state.postOffloadBurstInProgress = false
-            ResourceBudget.shared.history(owner: self.resourceBudgetOwner, active: false)
+            self.resourceBudget.history(owner: self.resourceBudgetOwner, active: false)
             self.state.lastSyncError = "History commit interrupted by background expiration. Saved data is retained for replay."
             if let p = self.peripheral { self.central?.cancelPeripheralConnection(p) }
         }
@@ -4411,7 +4429,7 @@ public final class BLEManager: NSObject, ObservableObject {
             // User abort is terminal too. It never changes lastSyncedAt, but rows from this or an earlier
             // auto-continued slice are already durable and must not leave the burst gate latched forever.
             state.postOffloadBurstInProgress = false
-            ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false)
+            resourceBudget.history(owner: resourceBudgetOwner, active: false)
             reconcileRealtime()
             if persistedSensorRows || consecutiveAutoContinues > 0 {
                 state.postOffloadBurstCompleted &+= 1
@@ -4494,7 +4512,7 @@ public final class BLEManager: NSObject, ObservableObject {
                 }
                 log("Backfill: burst terminal — downstream work ready (successfulExit=\(successfulDataExit ? "yes" : "no"), rows=\(persistedSensorRows ? "yes" : "no"))")
                 state.postOffloadBurstInProgress = false
-                ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false)
+                resourceBudget.history(owner: resourceBudgetOwner, active: false)
                 reconcileRealtime()
                 state.postOffloadBurstCompleted &+= 1
                 #if os(iOS)
@@ -7528,7 +7546,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         backfilling = false
         state.backfilling = false
         state.postOffloadBurstInProgress = false
-        ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false)
+        resourceBudget.history(owner: resourceBudgetOwner, active: false)
         if interruptedBacklogBurst {
             // Rows from completed chunks already carry durable syncJob tokens. Wake the tail once now that
             // no further slice can arrive on this link; if iOS suspends it, syncmaintenance/foreground sees
