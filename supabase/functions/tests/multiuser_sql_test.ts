@@ -833,6 +833,12 @@ Deno.test({
           "--exit-on-error",
           "/tmp/multiuser.dump",
         ]);
+        await sql(
+          await Deno.readTextFile(
+            new URL("./server_scores_rls_proof.sql", import.meta.url),
+          ),
+          "multiuser_restore",
+        );
         const original = await sql(
           `select count(*) from noop_projection_observations where user_id='${a}'`,
         );
@@ -950,7 +956,7 @@ Deno.test({
           physicalEvidence: "NOT_MEASURED",
           objectProvider: "fixture",
           authDelete: "SQL cascade fixture",
-          steps: 10,
+          steps: 11,
         },
         null,
         2,
