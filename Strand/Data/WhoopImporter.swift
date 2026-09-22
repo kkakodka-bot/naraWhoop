@@ -1,6 +1,7 @@
 import Foundation
 import WhoopStore
 import StrandImport
+import WhoopProtocol
 
 /// Maps a parsed Whoop CSV export into the on-device WhoopStore tables the UI reads
 /// (dailyMetric + sleepSession), so importing lights up the full history immediately.
@@ -14,6 +15,9 @@ enum WhoopImporter {
     static func importExport(url: URL, into store: WhoopStore, deviceId: String,
                              trace: (@Sendable ([String]) -> Void)? = nil) async throws -> ImportSummary {
         let result = try ImportCoordinator().importWhoopExport(from: url)
+        // Keep reported source values as historical observations; new composites,
+        // personal baselines and zone aggregates belong to the VPS in hosted mode.
+        let derivesLocally = PhoneComputeRuntime.permitsLocal("import.whoop_derived")
 
         // physiological_cycles → DailyMetric (one row per sleep-to-sleep day)
         var metrics: [DailyMetric] = []
@@ -45,11 +49,11 @@ enum WhoopImporter {
         for s in result.sleeps where !s.isNap {
             guard let onset = s.sleepOnset, let wake = s.wakeOnset else { continue }
             let stages: [String: Double] = [
-                "light": s.lightSleepDurationMin ?? 0,
-                "deep": s.deepSleepDurationMin ?? 0,
-                "rem": s.remDurationMin ?? 0,
-                "awake": s.awakeDurationMin ?? 0,
-            ]
+                "light": s.lightSleepDurationMin,
+                "deep": s.deepSleepDurationMin,
+                "rem": s.remDurationMin,
+                "awake": s.awakeDurationMin,
+            ].compactMapValues { $0 }
             let json = (try? JSONSerialization.data(withJSONObject: stages))
                 .flatMap { String(data: $0, encoding: .utf8) }
             sessions.append(CachedSleepSession(
@@ -84,54 +88,60 @@ enum WhoopImporter {
             add(day, "sleep_efficiency", c.sleepEfficiencyPct); add(day, "sleep_performance", c.sleepPerformancePct)
             add(day, "sleep_consistency", c.sleepConsistencyPct); add(day, "sleep_need_min", c.sleepNeedMin)
             add(day, "sleep_debt_min", c.sleepDebtMin)
-            if let deep = c.deepSleepDurationMin, let rem = c.remDurationMin {
+            if derivesLocally, let deep = c.deepSleepDurationMin, let rem = c.remDurationMin {
+                PhoneComputeRuntime.entered("import.whoop_restorative")
                 add(day, "restorative_min", deep + rem)
                 if let asleep = c.asleepDurationMin, asleep > 0 {
                     add(day, "restorative_pct", (deep + rem) / asleep * 100)
                 }
             }
-            if let asleep = c.asleepDurationMin, let need = c.sleepNeedMin, need > 0 {
+            if derivesLocally, let asleep = c.asleepDurationMin, let need = c.sleepNeedMin, need > 0 {
+                PhoneComputeRuntime.entered("import.whoop_sleep_need")
                 add(day, "hours_vs_needed_pct", asleep / need * 100)
             }
         }
-        // Derived: a daily stress proxy from RHR (up) + HRV (down) vs the personal baseline.
-        func meanStd(_ a: [Double]) -> (Double, Double) {
-            guard !a.isEmpty else { return (0, 1) }
-            let m = a.reduce(0, +) / Double(a.count)
-            let v = a.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(a.count)
-            return (m, max(v.squareRoot(), 0.0001))
-        }
-        let (rm, rs) = meanStd(result.cycles.compactMap(\.restingHeartRate))
-        let (hm, hs) = meanStd(result.cycles.compactMap(\.hrvMs))
-        for c in result.cycles {
-            guard let rhr = c.restingHeartRate, let hrv = c.hrvMs,
-                  let day = cycleDay(wake: c.wakeOnset, end: c.cycleEnd, start: c.cycleStart,
-                                     tzOffsetMin: c.tzOffsetMin) else { continue }
-            let z = 0.6 * ((rhr - rm) / rs) - 0.6 * ((hrv - hm) / hs)
-            add(day, "stress", max(0, min(3, 1.5 + z)))
-        }
-        // Derived: daily HR-zone minutes + strength-activity time from workouts.
-        var zoneByDay: [String: [Double]] = [:]
-        var strengthByDay: [String: Double] = [:]
-        for w in result.workouts {
-            guard let s = w.workoutStart, let e = w.workoutEnd else { continue }
-            let day = dayString(s, tzOffsetMin: w.tzOffsetMin)
-            let dur = e.timeIntervalSince(s) / 60.0
-            let zp = [w.hrZone1Pct, w.hrZone2Pct, w.hrZone3Pct, w.hrZone4Pct, w.hrZone5Pct]
-            var arr = zoneByDay[day] ?? [0, 0, 0, 0, 0]
-            for i in 0..<5 { if let p = zp[i] { arr[i] += dur * p / 100.0 } }
-            zoneByDay[day] = arr
-            if let n = w.activityName?.lowercased(), n.contains("strength") || n.contains("weight") {
-                strengthByDay[day, default: 0] += dur
+        if derivesLocally {
+            PhoneComputeRuntime.entered("import.whoop_baselines_stress_zones")
+            // Derived: a daily stress proxy from RHR (up) + HRV (down) vs the personal baseline.
+            func meanStd(_ a: [Double]) -> (Double, Double) {
+                PhoneComputeRuntime.entered("import.whoop_personal_baseline")
+                guard !a.isEmpty else { return (0, 1) }
+                let m = a.reduce(0, +) / Double(a.count)
+                let v = a.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(a.count)
+                return (m, max(v.squareRoot(), 0.0001))
             }
+            let (rm, rs) = meanStd(result.cycles.compactMap(\.restingHeartRate))
+            let (hm, hs) = meanStd(result.cycles.compactMap(\.hrvMs))
+            for c in result.cycles {
+                guard let rhr = c.restingHeartRate, let hrv = c.hrvMs,
+                      let day = cycleDay(wake: c.wakeOnset, end: c.cycleEnd, start: c.cycleStart,
+                                         tzOffsetMin: c.tzOffsetMin) else { continue }
+                let z = 0.6 * ((rhr - rm) / rs) - 0.6 * ((hrv - hm) / hs)
+                add(day, "stress", max(0, min(3, 1.5 + z)))
+            }
+            // Derived: daily HR-zone minutes + strength-activity time from workouts.
+            var zoneByDay: [String: [Double]] = [:]
+            var strengthByDay: [String: Double] = [:]
+            for w in result.workouts {
+                guard let s = w.workoutStart, let e = w.workoutEnd else { continue }
+                let day = dayString(s, tzOffsetMin: w.tzOffsetMin)
+                let dur = e.timeIntervalSince(s) / 60.0
+                let zp = [w.hrZone1Pct, w.hrZone2Pct, w.hrZone3Pct, w.hrZone4Pct, w.hrZone5Pct]
+                var arr = zoneByDay[day] ?? [0, 0, 0, 0, 0]
+                for i in 0..<5 { if let p = zp[i] { arr[i] += dur * p / 100.0 } }
+                zoneByDay[day] = arr
+                if let n = w.activityName?.lowercased(), n.contains("strength") || n.contains("weight") {
+                    strengthByDay[day, default: 0] += dur
+                }
+            }
+            for (day, a) in zoneByDay {
+                add(day, "hr_zone1_min", a[0]); add(day, "hr_zone2_min", a[1]); add(day, "hr_zone3_min", a[2])
+                add(day, "hr_zone4_min", a[3]); add(day, "hr_zone5_min", a[4])
+                add(day, "hr_zones13_min", a[0] + a[1] + a[2]); add(day, "hr_zones45_min", a[3] + a[4])
+                add(day, "hr_zones_all_min", a.reduce(0, +))
+            }
+            for (day, m) in strengthByDay { add(day, "strength_min", m) }
         }
-        for (day, a) in zoneByDay {
-            add(day, "hr_zone1_min", a[0]); add(day, "hr_zone2_min", a[1]); add(day, "hr_zone3_min", a[2])
-            add(day, "hr_zone4_min", a[3]); add(day, "hr_zone5_min", a[4])
-            add(day, "hr_zones13_min", a[0] + a[1] + a[2]); add(day, "hr_zones45_min", a[3] + a[4])
-            add(day, "hr_zones_all_min", a.reduce(0, +))
-        }
-        for (day, m) in strengthByDay { add(day, "strength_min", m) }
         try await store.upsertMetricSeries(points, deviceId: deviceId)
 
         // Journal behaviours → correlation insights.

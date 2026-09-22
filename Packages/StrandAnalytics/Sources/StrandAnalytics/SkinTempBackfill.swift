@@ -80,6 +80,8 @@ public enum SkinTempBackfill {
     /// Returns the anchor to use, or nil to decline. For a 5/MG (`.whoop5`) the anchor is always nil
     /// and the night proceeds (centidegree path, no anchor).
     public static func resolveAnchor(family: DeviceFamily, windowAnchorRaw: Double?) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SkinTempBackfill.resolveAnchor") else { return nil }
+        PhoneComputeRuntime.entered("swift.SkinTempBackfill.resolveAnchor")
         switch family {
         case .whoop4:
             // No anchor ⇒ decline. The global 826 is NOT a fallback here (rule 3).
@@ -115,6 +117,7 @@ public enum SkinTempBackfill {
         dayStart: Int,
         wornToleranceSec: Int = 0
     ) -> NightResult {
+        PhoneComputeRuntime.entered("swift.SkinTempBackfill.computeNight")
         // Rule 1: attribute sessions by END. Don't hand the funnel the whole 54 h window.
         let matched = sessionsForDay(sessions, dayStart: dayStart)
         if matched.isEmpty {

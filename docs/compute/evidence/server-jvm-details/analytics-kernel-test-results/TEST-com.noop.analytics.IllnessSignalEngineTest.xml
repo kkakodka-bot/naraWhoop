@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.IllnessSignalEngineTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="alreadyUnwellSwitchesCopy" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.0"/>
+  <testcase name="stressSaunaTravelEachDowngradeWithReason" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.001"/>
+  <testcase name="classicThreeSignalPatternRaises" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.0"/>
+  <testcase name="untrustedBaselineStaysSilent" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.0"/>
+  <testcase name="singleSignalDoesNotRaise" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.0"/>
+  <testcase name="copyNeverNamesACondition" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.0"/>
+  <testcase name="multipleConfoundersJoinNaturally" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.0"/>
+  <testcase name="alcoholTagSuppresses" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.0"/>
+  <testcase name="absentSignalsDoNotCount" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.0"/>
+  <testcase name="scorePerSignalCapping" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.0"/>
+  <testcase name="belowThresholdSignalsAreMildNotRaised" classname="com.noop.analytics.IllnessSignalEngineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

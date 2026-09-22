@@ -27,7 +27,7 @@ struct FusedRecordHost: View {
 
     var body: some View {
         Group {
-            if loaded {
+            if PhoneComputeRuntime.isFinalHosted || loaded {
                 FusedRecordView(record: record)
             } else {
                 ScreenScaffold(title: "Your Data, Fused",
@@ -37,6 +37,7 @@ struct FusedRecordHost: View {
             }
         }
         .task(id: repo.refreshSeq) {
+            guard PhoneComputeRuntime.permitsLocal("FusedRecordHost.fuse") else { return }
             record = await model.buildTodayFusedRecord()
             loaded = true
         }
@@ -66,6 +67,12 @@ struct RhythmHost: View {
     private var consentGiven: Bool { enabled && RhythmConsent.isAccepted(acceptedVersion) }
 
     var body: some View {
+        if PhoneComputeRuntime.isFinalHosted {
+            ScreenScaffold(title: "Rhythm", subtitle: "Server-owned analysis; no on-device screening.") {
+                CanonicalPhysiologySection(families: ["insights", "stress", "current_hrv"])
+                if let onClose { Button("Done", action: onClose).buttonStyle(.noopGhost) }
+            }
+        } else {
         RhythmView(night: night, windows: windows, emptyReason: emptyReason, onClose: onClose)
             // Only compute once consent is given (the view shows the gate otherwise) AND on fresh data.
             .task(id: "\(consentGiven)|\(repo.refreshSeq)") {
@@ -73,11 +80,14 @@ struct RhythmHost: View {
                 await load()
                 loaded = true
             }
+        }
     }
 
     /// Read the most recent banked sleep session, pull its R-R + gravity, split into ~5-minute windows,
     /// gate each on stillness + resting rate, and screen it. Descriptive stats only — never a verdict.
     private func load() async {
+        guard PhoneComputeRuntime.permitsLocal("RhythmHost.screen") else { return }
+        PhoneComputeRuntime.entered("RhythmHost.screen")
         guard let lastSleep = (await repo.allSleepSessions(days: 14)).last else { return }
         let lo = lastSleep.effectiveStartTs
         let hi = lastSleep.endTs

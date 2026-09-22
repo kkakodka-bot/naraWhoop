@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import SwiftUI
 import StrandAnalytics
+import WhoopProtocol
 
 /// User profile (age/sex/body metrics/HR-max) persisted in UserDefaults.
 /// Powers HR zones, calories and recovery baselines.
@@ -164,7 +165,8 @@ final class ProfileStore: ObservableObject {
     }
 
     var confirmedMaxHR: Int? {
-        hrMaxOverride > 0 || (scoringBound ? acceptedPreferences?.ageExplicit == true : stored("profile.ageExplicit") as? Bool == true) ? hrMax : nil
+        if PhoneComputeRuntime.isFinalHosted { return hrMaxOverride > 0 ? hrMaxOverride : nil }
+        return hrMaxOverride > 0 || (scoringBound ? acceptedPreferences?.ageExplicit == true : stored("profile.ageExplicit") as? Bool == true) ? hrMax : nil
     }
     private enum K {
         static let dateOfBirth = "profile.dateOfBirth"
@@ -286,7 +288,11 @@ final class ProfileStore: ObservableObject {
     }
 
     /// Tanaka estimate unless overridden.
-    var hrMax: Int { hrMaxOverride > 0 ? hrMaxOverride : Int((208 - 0.7 * Double(age)).rounded()) }
+    var hrMax: Int {
+        if hrMaxOverride > 0 { return hrMaxOverride }
+        PhoneComputeRuntime.entered("profile_hr_max")
+        return Int((208 - 0.7 * Double(age)).rounded())
+    }
 
     /// Personalized zone starts after enforcing the same five-value invariant as `HRZones`.
     var customHRZoneLowerBounds: [Double]? {

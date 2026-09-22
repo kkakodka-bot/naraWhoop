@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:37" hostname="mac-studio.lan" time="9.612">
+  <properties/>
+  <testcase name="detectorMeasurementSummaryAndPublicationKeepNapOwnershipAndActualRespirationMethod" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="1.02"/>
+  <testcase name="receiptOnlySnapshotReportsItsObservedTimeButFutureReceiptCannotMoveIt" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="0.009"/>
+  <testcase name="awakeRestRespirationRunsDuringTheDayWithoutBecomingTheOvernightStatistic" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="0.319"/>
+  <testcase name="completedHeartRateWindowsHonorAcquisitionCutoffAndExplicitOffBodyContext" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="0.022"/>
+  <testcase name="deletingAllSleepCannotKeepRestingHrFromDeletedEpisodes" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="0.576"/>
+  <testcase name="snapshotExcludesFutureSignalsAndUnfinishedMeasurementWindowsWithoutChangingMode" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="0.038"/>
+  <testcase name="seededChargeUsesFinalEditedRestAndStillAbstainsForInsufficientHrv" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="2.169"/>
+  <testcase name="actualScorerSerializationMatchesBothClientFixtures" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="0.499"/>
+  <testcase name="exhaustedShadowBudgetKeepsCompletedHeartRateAndSleepOutputsPublishable" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="0.006"/>
+  <testcase name="groupedInterruptionsReachCanonicalEpochsAndNeverQualifyForSleepPhysiology" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="4.3"/>
+  <testcase name="preservedBeatIdentitiesWithoutClockProofCannotPublishRespirationOrQualifiedHrv" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="0.177"/>
+  <testcase name="priorOffWristContextDoesNotInvalidateLaterQualifiedRespiration" classname="com.frwhoop.scoring.DayScorerPhysiologyIntegrationTest" time="0.476"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

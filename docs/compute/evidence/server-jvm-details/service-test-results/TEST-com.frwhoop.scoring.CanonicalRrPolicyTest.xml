@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.CanonicalRrPolicyTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:34" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="packetStoreServerOracleDoesNotReconvertTicks" classname="com.frwhoop.scoring.CanonicalRrPolicyTest" time="0.001"/>
+  <testcase name="hostedUntaggedMillisecondTrainIsScoredWhenNoWhoop5TransportExists" classname="com.frwhoop.scoring.CanonicalRrPolicyTest" time="0.0"/>
+  <testcase name="sharedNativeStoreSourceOracle" classname="com.frwhoop.scoring.CanonicalRrPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

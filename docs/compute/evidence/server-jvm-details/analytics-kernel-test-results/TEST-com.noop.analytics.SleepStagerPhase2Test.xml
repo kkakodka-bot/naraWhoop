@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerPhase2Test" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.042">
+  <properties/>
+  <testcase name="sessionGridFeedsTheReonsetGuardEndToEnd" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <testcase name="detectSleepClampsOverlongBadClockBlock" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.009"/>
+  <testcase name="sessionEpochSleepStateCarriesForwardAndVerbatim" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <testcase name="morningStillnessRescuedByBandSleepState" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <testcase name="sessionEpochMotionEmptyWhenNoGravity" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <testcase name="morningStillnessKeptOnStrongReonsetDip" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <testcase name="bandStateConfirmsAsleepFractionGate" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <testcase name="detectSleepKeepsLongButPlausibleNight" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.033"/>
+  <testcase name="morningStillnessRejectedNearOvernightWake" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <testcase name="sessionEpochMotionGridsToStageEpochs" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <testcase name="sessionEpochSleepStateEmptyWhenNoBandSamples" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <testcase name="sessionEpochSleepStateGridsOnePerEpoch" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <testcase name="morningStillnessGuardNoOpOutsideWindow" classname="com.noop.analytics.SleepStagerPhase2Test" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

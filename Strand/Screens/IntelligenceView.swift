@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 
 /// Intelligence — NARA's own recovery/strain/sleep scores, computed on-device from raw strap data
 /// using the WHOOP model shape. Makes the app independent of WHOOP's cloud for live-collected days.
@@ -10,6 +11,7 @@ import StrandAnalytics
 /// translate them instead of rendering the English literal. pt-PT catalog strings adopted from
 /// tigercraft4's PR #1018 (marked needs_review — machine ES→PT conversion pending native review).
 struct IntelligenceView: View {
+    @EnvironmentObject private var repo: Repository
     @EnvironmentObject var intelligence: IntelligenceEngine
     // NOTE: IntelligenceView deliberately does NOT observe `LiveState`. A connected strap publishes at
     // ~1 Hz, which would re-evaluate this body (and its lazy By-Day list) on every tick. The only live
@@ -28,12 +30,15 @@ struct IntelligenceView: View {
         // imported history, an eager VStack built every card up-front on the main thread and froze
         // the app when ALL was tapped (#345); LazyVStack only materialises what's on screen.
         ScreenScaffold(title: "Intelligence",
-                       subtitle: "NARA scores your charge, effort and rest itself: on-device, no cloud.",
+                       subtitle: PhoneComputeRuntime.isFinalHosted ? "Canonical server results for your charge, effort and rest." : "Reference scores from your raw streams.",
                        lazy: true,
                        // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid
                        // tabs carry, so Intelligence sits in one atmosphere. Static + non-interactive; the
                        // frosted cards below sit on the opaque canvas and stay legible.
                        topBackground: liquidScaffoldSky()) {
+            if PhoneComputeRuntime.isFinalHosted {
+                CanonicalPhysiologySection(families: ["recovery", "strain_energy", "sleep_history", "baselines"], history: true)
+            } else {
             if let f = forecast { forecastCard(f) }
             explainerCard
             if intelligence.computing {
@@ -92,10 +97,17 @@ struct IntelligenceView: View {
                 }
             }
         }
-        .task { if intelligence.results.isEmpty { await intelligence.analyzeRecent(force: false) } }
+        }
+        .task {
+            guard PhoneComputeRuntime.permitsLocal("IntelligenceView.load") else { return }
+            if intelligence.results.isEmpty { await intelligence.analyzeRecent(force: false) }
+        }
         .toolbar {
             ToolbarItem {
-                Button { Task { await intelligence.analyzeRecent() } } label: {
+                Button { Task {
+                    if PhoneComputeRuntime.isFinalHosted { await repo.refresh() }
+                    else { await intelligence.analyzeRecent() }
+                } } label: {
                     Label("Recompute", systemImage: "arrow.clockwise")
                 }
                 .disabled(intelligence.computing)
@@ -125,6 +137,8 @@ struct IntelligenceView: View {
     /// oldest→newest, so each series is reversed. `nil` (and the card hidden) until there are
     /// enough scored nights to anchor honestly — never a fabricated number.
     private var forecast: RecoveryForecast? {
+        guard PhoneComputeRuntime.permitsLocal("IntelligenceView.forecast") else { return nil }
+        PhoneComputeRuntime.entered("IntelligenceView.forecast")
         let charge = intelligence.results.compactMap { $0.recovery }.reversed()
         let effort = intelligence.results.compactMap { $0.strain }.reversed()
         // Planned sleep tonight = the recent typical night (the honest "if you sleep ~Xh"

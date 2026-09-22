@@ -78,6 +78,9 @@ final class ScoringPreferenceContainmentTests: XCTestCase {
             defaults.setPersistentDomain(["noopExperimentalSleepV2": false], forName: layout.preferencesSuite)
             store = try await WhoopStore(path: layout.databaseURL.path)
             try await store.bindAccountOwner(projectURL: context.scope.projectURL, userID: context.scope.userID)
+            // Establish the capture witness before any synthetic raw history is inserted.
+            // Opening an already-populated, unwitnessed store must still fail in production.
+            try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: nil)
         }
 
         func openModel() -> AppModel {
@@ -204,6 +207,52 @@ final class ScoringPreferenceContainmentTests: XCTestCase {
         return f
     }
 
+    func testFinalHostedExportsUseCanonicalAdmissionWithoutPreferenceProjection() async throws {
+        let f = try await fixture(), model = f.openModel()
+        let token = try await f.store.markJobOwed(kind: "widgetPublish")
+        let starts = f.starts
+        var exports = 0
+        model.syncEngine.dependentStageDriver = .init(perform: { stage, admission in
+            XCTAssertEqual(stage, .widgetPublish)
+            guard await admission.validate() else { return false }
+            do { try admission.checkBoundary() } catch { XCTFail("\(error)"); return false }
+            exports += 1
+            return true
+        })
+        await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            let runnable = await model.syncEngine.hasRunnableWork()
+            XCTAssertTrue(runnable)
+            await model.syncEngine.drain(reason: .foreground)
+            XCTAssertTrue(PhoneComputeRuntime.counters().executions.isEmpty)
+        }
+        XCTAssertEqual(exports, 1)
+        XCTAssertEqual(f.starts, starts, "Export admission must not invoke retired preference scoring")
+        let jobs = try await f.store.owedJobs()
+        XCTAssertFalse(jobs.contains { $0.kind == "widgetPublish" && $0.token == token })
+    }
+
+    func testFinalHostedResultChangeAtAttemptRetainsExactExportToken() async throws {
+        let f = try await fixture(), model = f.openModel()
+        let token = try await f.store.markJobOwed(kind: "healthWriteback")
+        var exports = 0
+        model.syncEngine.dependentStageDriver = .init(afterAttempt: { stage in
+            XCTAssertEqual(stage, .healthWriteback)
+            _ = model.repo.applyServerScores(ServerScoreViewState(generation: UUID(), revision: 42,
+                currentDay: "2026-09-21", timezone: "UTC", configured: true, authenticated: true,
+                capabilities: [], activated: [], days: ["2026-09-21": .empty(.failed)]))
+        }, perform: { _, _ in exports += 1; return true })
+        await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            await model.syncEngine.drain(reason: .foreground)
+            XCTAssertTrue(PhoneComputeRuntime.counters().executions.isEmpty)
+        }
+        XCTAssertEqual(exports, 0)
+        let jobs = try await f.store.owedJobs()
+        XCTAssertEqual(jobs.first { $0.kind == "healthWriteback" }?.token, token)
+        XCTAssertEqual(jobs.first { $0.kind == "healthWriteback" }?.attempts, 1)
+    }
+
     private func row(start: Int, source: String = "manual", strain: Double? = 0,
                      sport: String = "running") -> WorkoutRow {
         WorkoutRow(startTs: start, endTs: start + 600, sport: sport, source: source,
@@ -228,7 +277,7 @@ final class ScoringPreferenceContainmentTests: XCTestCase {
         XCTAssertEqual(f.parks, 1)
     }
 
-    func testHeldRepeatedWakesRetainExactJobsWithoutNewAttemptsOrCoreTokens() async throws {
+    func testHeldRepeatedWakesRetainExactJobsWhileRawRemainsRunnable() async throws {
         let f = try await fixture(), start = Int(Date().timeIntervalSince1970) - 3600
         _ = try await f.store.upsertWorkouts([row(start: start)], deviceId: "other-stored-owner")
         let tokens = try await f.store.markJobsOwed(kinds: SyncJobKind.allCases.map(\.rawValue))
@@ -241,7 +290,7 @@ final class ScoringPreferenceContainmentTests: XCTestCase {
             let state = await model.intelligence.runPreferenceProjection()
             XCTAssertEqual(state, .evaluatedPartial)
             let runnable = await model.syncEngine.hasRunnableWork()
-            XCTAssertFalse(runnable)
+            XCTAssertTrue(runnable, "Held derived work must not hide the independently owed raw upload")
             let outstanding = await model.syncEngine.hasOwedWork()
             XCTAssertTrue(outstanding)
         }
@@ -475,6 +524,16 @@ final class ScoringPreferenceContainmentTests: XCTestCase {
         let model = f.openModel()
         await model.retryScoringPreferenceRecompute()
         XCTAssertEqual(model.intelligence.preferenceWorkDisposition, .complete)
+        XCTAssertFalse(model.intelligence.results.isEmpty)
+        XCTAssertTrue(model.intelligence.results.allSatisfy { $0.hrv == nil && $0.recovery == nil },
+            "Untimed RR cannot qualify HRV or recovery, even in a race fixture")
+        // Presentation-only sentinel, not a physiological fixture or a qualification override.
+        // The old pass must leave it untouched; the accepted successor must replace it with null.
+        model.intelligence.results = model.intelligence.results.map {
+            IntelligenceEngine.Computed(day: $0.day, recovery: 73.25, strain: $0.strain,
+                sleepMin: $0.sleepMin, hrv: $0.hrv, rhr: $0.rhr, source: $0.source,
+                confidence: $0.confidence, drivers: $0.drivers, skinTempRel: $0.skinTempRel)
+        }
         XCTAssertTrue(model.intelligence.results.contains { $0.recovery != nil })
         let beforeDays = model.intelligence.results.map(\.day)
         let beforeRecovery = model.intelligence.results.map(\.recovery)
@@ -849,6 +908,56 @@ final class ScoringPreferenceContainmentTests: XCTestCase {
         XCTAssertEqual(kept, originals)
         XCTAssertEqual(try f.inputCounts().position, 0)
         XCTAssertEqual(try f.inputCounts().children, 0)
+    }
+
+    func testRawUploadDrainsWhilePreferenceProjectionIsHeld() async throws {
+        let f = try await fixture(), start = Int(Date().timeIntervalSince1970) - 3600
+        _ = try await f.store.upsertWorkouts([row(start: start)], deviceId: "stored-A")
+        _ = try await f.store.insert(Streams(hr: [HRSample(ts: start, bpm: 123)]), deviceId: "my-whoop")
+        let rawToken = try await f.store.markJobOwed(kind: "cloudPush")
+        let widgetToken = try await f.store.markJobOwed(kind: "widgetPublish")
+        let model = f.openModel()
+        await model.retryScoringPreferenceRecompute()
+        XCTAssertEqual(model.intelligence.preferenceWorkDisposition, .evaluatedPartial)
+        let starts = f.starts
+        var delivered = 0
+        model.syncEngine.dependentStageDriver = .init(perform: { stage, admission in
+            XCTAssertEqual(stage, .cloudPush)
+            XCTAssertEqual(f.starts, starts, "raw admission must not run a preference projection")
+            guard await admission.validate() else { return false }
+            do { try admission.checkBoundary() }
+            catch { XCTFail("Raw admission lost its identity boundary: \(error)"); return false }
+            let jobs = try? await f.store.owedJobs()
+            XCTAssertEqual(jobs?.first { $0.kind == "cloudPush" }?.token, rawToken)
+            delivered += 1
+            return true
+        })
+        let runnable = await model.syncEngine.hasRunnableWork()
+        XCTAssertTrue(runnable)
+        await model.syncEngine.drain(reason: .foreground)
+        XCTAssertEqual(delivered, 1)
+        XCTAssertEqual(f.starts, starts)
+        let jobs = try await f.store.owedJobs()
+        XCTAssertFalse(jobs.contains { $0.kind == "cloudPush" })
+        XCTAssertEqual(jobs.first { $0.kind == "widgetPublish" }?.token, widgetToken)
+        XCTAssertEqual(jobs.first { $0.kind == "widgetPublish" }?.attempts, 0)
+    }
+
+    func testNewRawTokenDuringUploadCannotBeSettledByOldAttempt() async throws {
+        let f = try await fixture(), model = f.openModel()
+        let original = try await f.store.markJobOwed(kind: "cloudPush")
+        var successor: String?
+        model.syncEngine.dependentStageDriver = .init(perform: { stage, admission in
+            XCTAssertEqual(stage, .cloudPush)
+            guard await admission.validate() else { return false }
+            successor = try? await f.store.markJobOwed(kind: "cloudPush")
+            return true
+        })
+        await model.syncEngine.drain(reason: .foreground)
+        let jobs = try await f.store.owedJobs()
+        XCTAssertNotNil(successor, "The raw stage must actually execute")
+        XCTAssertNotEqual(successor, original)
+        XCTAssertEqual(jobs.first { $0.kind == "cloudPush" }?.token, successor)
     }
 
     func testHeldExportOnlyDrainsDoNotRetryCoreOrChargeAttempt() async throws {

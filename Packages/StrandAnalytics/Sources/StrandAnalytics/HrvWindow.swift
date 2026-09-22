@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 public typealias HrvWindowResult = HrvWindow.Result
@@ -75,6 +76,7 @@ public enum HrvWindow {
     public static func measure(start: Int, observations: [PhysiologyQuality.IntervalObservation],
                                context: [PhysiologyQuality.ContextEpoch] = [], policy: Policy = Policy(),
                                inputRevision: String = "unversioned", computationMode: String = "retrospective") -> Result {
+        PhoneComputeRuntime.entered("swift.HrvWindow.measure")
         typealias Observation = PhysiologyQuality.IntervalObservation
         let lo = Double(start), hi = lo + 300
         let inWindow = PhysiologyQuality.propagatingEndpointRejections(observations).filter { row in

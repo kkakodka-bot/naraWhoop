@@ -67,6 +67,14 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
       body: body === undefined ? undefined : JSON.stringify(body),
     }), { rest, cfg });
   }
+  async function accountRequest(device: string, requestSource=source) {
+    return await handleScoresRequest(new Request(`http://localhost/functions/v1/scores?day=${day}&deviceId=${device}`, {
+      headers:{authorization:`Bearer ${token}`,'x-noop-source-id':requestSource},
+    }),{rest,cfg,fetchImpl:async(input)=>{
+      assert.equal(String(input),`${restUrl}/auth/v1/user`);
+      return Response.json({id:owner});
+    }});
+  }
   const identities: any[] = [];
   for (const [who, local] of [['a','whoop-TESTA001'],['a','whoop-TESTA002'],['b','whoop-TESTB001'],['b','whoop-TESTB002']]) {
     const response = await request(local,who,'/devices',{deviceId:local});
@@ -85,6 +93,35 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     const body = JSON.parse(bytes);
     assert.equal(body.identity.userId,owner);
     const score = body.server_scoring;
+    assert.equal(score.contract_revision,2);
+    assert.equal(score.compute.mode,'final_hosted');
+    assert.equal(Object.keys(score.compute.families).length,27);
+    const account=await accountRequest(local);
+    assert.equal(account.status,200,await account.clone().text());
+    const accountBytes=await account.text();
+    assert.deepEqual(JSON.parse(accountBytes).server_scoring,score,`${name}: account/enrollment divergence`);
+    for (const family of Object.values(score.compute.families) as any[]) {
+      assert.equal(family.owner,'server');
+      assert.equal(family.owner_id,owner);
+      assert.equal(family.device_id,body.identity.deviceId);
+      assert.equal(family.source_id,source);
+      assert.equal(family.project,restUrl);
+      assert.ok(family.result_revision===null || /^(sha256:[a-f0-9]{64}|compute:\d+)$/.test(family.result_revision));
+      if (!family.canonical_qualification) assert.ok(Object.values(family.values).every(value=>value===null));
+    }
+    if (name==='approved-v2') {
+      assert.equal(score.compute.families.sleep.values.sleep_efficiency,87.5,'canonical metric contract uses percent');
+      assert.equal(score.compute.families.night_hrv.values.hrv_rmssd_ms,0,'owned valid zero is preserved');
+    }
+    if (name==='sleep-only') {
+      assert.equal(score.compute.families.night_hrv.values.hrv_rmssd_ms,null);
+      assert.equal(score.compute.families.temperature.values.skin_temp_c,null);
+      for (const night of score.compute.families.sleep.details.nights) {
+        assert.equal(night.hrv_rmssd_ms,undefined);
+        assert.equal(night.resp_rate_bpm,undefined);
+        assert.equal(night.skin_temp_c,undefined);
+      }
+    }
     for (const key of allFeatures) {
       assert.equal(['available','stale'].includes(score.features[key].status),available.includes(key),`${name}: ${key}`);
       if (score.features[key].device_id) assert.equal(score.features[key].device_id,body.identity.deviceId);
@@ -97,10 +134,28 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     expectations.push({file:`${name}.json`,ownerId:owner,day,availableFeatures:available,
       unavailableFeatures:allFeatures.filter(key=>!available.includes(key)),
       nestedHrvAvailable:nestedHrv,nestedRespirationAvailable:nestedRespiration,expectedDeviceId:body.identity.deviceId,
-      expectedValues:name==='approved-v2'?{hrv:0,sleep:420,respiration:14}:name==='sleep-only'?{sleep:420}:undefined});
+      expectedValues:name==='approved-v2'?{hrv:0,sleep:420,respiration:14}:name==='sleep-only'?{sleep:420}:undefined,
+      expectedCanonicalValues:name==='approved-v2'?{hrv_rmssd_ms:0,hrv_sdnn_ms:0,resting_hr_bpm:60,
+        resp_rate_bpm:14,sleep_total_min:420,sleep_efficiency:87.5}:name==='sleep-only'?{sleep_total_min:420,sleep_efficiency:87.5}:undefined});
+    await Deno.writeTextFile(`${output}/account-${name}.json`,accountBytes);
+    expectations.push({...expectations.at(-1),file:`account-${name}.json`});
     return score;
   }
   await capture('missing',[]);
+  await capture('pending-device',[],false,false,'whoop-UNREGISTERED');
+  assert.equal((await accountRequest('whoop-TESTA001',secondSource)).status,401,'other-owner source rejected');
+  const sessionId=crypto.randomUUID();
+  const sessionRequest={id:crypto.randomUUID(),family:'spot_hrv',session_id:sessionId,
+    event_start:`${day}T12:00:00Z`,event_end:`${day}T12:02:00Z`,timezone_id:'UTC',input_revision:0,
+    algorithm_version:'vps-only-1',configuration_version:'vps-only-1',consent:true,expires_at:null};
+  for (let retry=0;retry<2;retry++) {
+    const submitted=await request('whoop-TESTA001','a','/compute-requests',{deviceId:'whoop-TESTA001',request:sessionRequest});
+    assert.equal(submitted.status,200,await submitted.clone().text());
+    assert.equal((await submitted.json()).request_id,sessionRequest.id);
+  }
+  const conflict=await request('whoop-TESTA001','a','/compute-requests',
+    {deviceId:'whoop-TESTA001',request:{...sessionRequest,input_revision:1}});
+  assert.equal(conflict.status,409,'same request ID cannot mutate input');
   const baselineBinary = Deno.env.get('PIPELINE_TEST_V1_BINARY');
   const physiologyBinary = Deno.env.get('PIPELINE_TEST_V2_BINARY');
   if (baselineBinary || physiologyBinary) {
@@ -140,6 +195,11 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
           and period_day='${workerDay}' and algorithm_version='${version}' order by input_revision desc limit 1;`));
         assert.equal(published.device,identity.deviceId);
         assert.ok(published.revision>0,'actual worker published');
+        if (version==='frwhoop-physiology-2') {
+          assert.equal(Number(await sql(`select count(*) from server_compute_dispositions where user_id='${identity.userId}'
+            and device_id='${identity.deviceId}' and day='${workerDay}' and input_revision=${published.revision};`)),27,
+            'actual production worker publishes all family dispositions');
+        }
       }
       const response=await handleScoresRequest(new Request(`http://localhost/functions/v1/scores?day=${workerDay}&deviceId=${identity.externalDeviceId}`,{
         headers:{authorization:`Bearer noop_pipeline_${identity.userId===owner?'a':'b'}`,'x-noop-fleet-token':'noop_pipeline_fleet'},
@@ -290,13 +350,18 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
   await sql(`begin; select set_config('request.jwt.claim.sub','${owner}',true);
     select select_physiology_source(feature,'${device}','frwhoop-physiology-2') from physiology_feature_defaults; commit;`);
   const account = await rest.rpc('server_scoring_for_day',{p_user:owner,p_day:day});
-  assert.deepEqual(account,approved,'account and enrolled SQL wrappers share serialization');
+  const sqlApproved=structuredClone(approved);
+  delete sqlApproved.compute.project; delete sqlApproved.compute.source_id;
+  for (const family of Object.values(sqlApproved.compute.families) as any[]) {
+    delete family.project; delete family.source_id;
+  }
+  assert.deepEqual(account,sqlApproved,'account and enrolled SQL wrappers share serialization before trusted Edge project/source binding');
   const accountBody = btoa(JSON.stringify({role:'authenticated',sub:owner,exp:Math.floor(Date.now()/1000)+3600})).replaceAll('=','');
   const accountToken = `${jwtHeader}.${accountBody}.${createHmac('sha256','isolated-pipeline-jwt-secret-never-used-outside-tests')
     .update(`${jwtHeader}.${accountBody}`).digest('base64url')}`;
   const accountRest = createSupabaseRest({cfg:{supabaseUrl:restUrl!,supabaseServiceRoleKey:accountToken},
     fetchImpl:(input,init)=>fetch(String(input).replace('/rest/v1/','/'),init)});
-  assert.deepEqual(await accountRest.rpc('server_scoring_for_day',{p_user:owner,p_day:day}),approved);
+  assert.deepEqual(await accountRest.rpc('server_scoring_for_day',{p_user:owner,p_day:day}),sqlApproved);
   await assert.rejects(()=>accountRest.rpc('server_scoring_for_day',{p_user:other,p_day:day}),/403/);
   await assert.rejects(()=>rest.rpc('server_scoring_for_device_day',{p_user:owner,p_device:identities[2].deviceId,p_day:day}),/403/);
   await sql(`delete from physiology_source_selection where user_id='${owner}';`);
@@ -311,7 +376,31 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
   assert.equal(mismatched.features.sleep.reason,'manifest_mismatch');
   await capture('other-device-missing',[],false,false,'whoop-TESTA002');
   const cross = await request('whoop-TESTA001','b');
-  assert.equal((await cross.json()).identity.deviceId,null);
+  const crossBody=await cross.json();
+  assert.equal(crossBody.identity.deviceId,null);
+  assert.equal(Object.keys(crossBody.server_scoring.compute.families).length,27);
+  assert.ok(Object.values(crossBody.server_scoring.compute.families).every((f:any)=>f.result_revision===null && f.device_id===null));
+  if (!(baselineBinary && physiologyBinary)) await sql('select process_compute_session_request();');
+  const readSession=()=>handleScoresRequest(new Request(`http://localhost/functions/v1/scores/compute-requests?deviceId=whoop-TESTA001&requestId=${sessionRequest.id}`,{
+    headers:{authorization:'Bearer noop_pipeline_a','x-noop-fleet-token':'noop_pipeline_fleet'},
+  }),{rest,cfg});
+  const sessionResponse=await readSession();
+  assert.equal(sessionResponse.status,200,await sessionResponse.clone().text());
+  const sessionResult=await sessionResponse.json();
+  assert.equal(sessionResult.result.status,'unqualified');
+  assert.equal(sessionResult.result.reason,'verified_session_beat_clock_required');
+  assert.match(sessionResult.result.result_revision,/^session:\d+$/);
+  assert.deepEqual(sessionResult.result.values,{spot_hrv_rmssd_ms:null,spot_hrv_sdnn_ms:null});
+  assert.deepEqual(await (await readSession()).json(),sessionResult,'immutable retry readback');
+  const expired={...sessionRequest,id:crypto.randomUUID(),family:'live_coaching',
+    event_end:`${day}T12:01:00Z`,expires_at:`${day}T12:02:00Z`};
+  assert.equal((await request('whoop-TESTA001','a','/compute-requests',{deviceId:'whoop-TESTA001',request:expired})).status,200);
+  await sql('select process_compute_session_request();');
+  const expiredResult=await rest.rpc('read_compute_session_result',{p_user:owner,p_device:device,p_source:source,p_request:expired.id});
+  assert.equal(expiredResult.result.reason,'decision_expired');
+  assert.equal(expiredResult.result.freshness,'expired');
+  assert.ok(Object.values(expiredResult.result.values).every(value=>value===null));
+  await assert.rejects(()=>rest.rpc('read_compute_session_result',{p_user:other,p_device:identities[2].deviceId,p_source:secondSource,p_request:sessionRequest.id}),/404/);
   for (const identity of identities) {
     const who=identity.userId===owner?'a':'b';
     const diagnostic = await request(identity.externalDeviceId,who,'/diagnostics');

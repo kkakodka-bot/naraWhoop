@@ -94,6 +94,10 @@ private val LIQUID_HERO_RADIUS: Dp = 26.dp
 
 @Composable
 fun TrendsScreen(vm: AppViewModel) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalPhysiologyScreen(vm, "Trends", com.noop.push.ServerComputeContract.familyIDs)
+        return
+    }
     // Reactive cache (oldest → newest) as the immediate backing.
     val reactiveDays by vm.recentDays.collectAsStateWithLifecycle()
 

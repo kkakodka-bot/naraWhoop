@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepOpportunityDetectorTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.923">
+  <properties/>
+  <testcase name="twentyMinuteAfternoonNapAndDaytimeShiftSleepAreCandidatesWithoutTimeOfDayGate" classname="com.noop.analytics.SleepOpportunityDetectorTest" time="0.089"/>
+  <testcase name="mainGroupQualificationCountsSleepRatherThanEditedOpportunityDuration" classname="com.noop.analytics.SleepOpportunityDetectorTest" time="0.0"/>
+  <testcase name="readingPhoneUseAndOffBodyAreNotShortNapsAndStillnessAloneIsUnknown" classname="com.noop.analytics.SleepOpportunityDetectorTest" time="0.232"/>
+  <testcase name="enginePublishesTheAfternoonNapSeparatelyAndCausalModeNeverUsesRetrospectiveDetector" classname="com.noop.analytics.SleepOpportunityDetectorTest" time="0.145"/>
+  <testcase name="groupedOpportunityPreservesAwakeOffBodyAndMissingInterruptionsWithoutAddingSleep" classname="com.noop.analytics.SleepOpportunityDetectorTest" time="0.197"/>
+  <testcase name="missingMotionBreaksTheRunAndDuplicateBurstCannotInventCoverage" classname="com.noop.analytics.SleepOpportunityDetectorTest" time="0.052"/>
+  <testcase name="sharedFullDayGroupingOracleQualifiesBeforeRanking" classname="com.noop.analytics.SleepOpportunityDetectorTest" time="0.189"/>
+  <testcase name="napsOnlyDayDoesNotBecomeMainSleepOrNocturnalHrvContext" classname="com.noop.analytics.SleepOpportunityDetectorTest" time="0.018"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

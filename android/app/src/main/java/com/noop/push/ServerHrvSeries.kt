@@ -6,6 +6,7 @@ import org.json.JSONObject
 data class ServerHrvSeries(
     val windows: List<Window>, val featureStatus: String?, val featureReason: String?,
     val deviceId: String?, val algorithmVersion: String?, val observedThrough: String?, val stale: Boolean,
+    val resultRevision: String? = null,
 ) {
     data class Window(
         val start: Long, val end: Long, val rmssdMs: Double?, val measurementValid: Boolean,
@@ -16,8 +17,14 @@ data class ServerHrvSeries(
     companion object {
         fun from(cache: ServerScoreDayCache?, day: String): ServerHrvSeries {
             val feature = cache?.features?.get("hrv")
+            val canonical = cache?.compute?.families?.get("night_hrv")
             fun result(rows: List<Window>) = ServerHrvSeries(rows, feature?.status, feature?.reason, feature?.deviceId,
-                feature?.algorithmVersion, feature?.observedThrough, cache?.stale ?: true)
+                feature?.algorithmVersion, feature?.observedThrough, cache?.stale ?: true, canonical?.resultRevision)
+            if (cache?.compute != null && (feature == null || canonical?.authorized != true || canonical.expired() ||
+                    canonical.inputRevision != feature.inputRevision || canonical.deviceId != feature.deviceId ||
+                    canonical.algorithmVersion != feature.algorithmVersion || canonical.manifestHash != feature.manifestHash)) {
+                return result(emptyList())
+            }
             if (cache == null || cache.day != day || cache.ownerId.isBlank() || cache.schemaVersion != 2 || feature == null ||
                 !feature.hasCanonicalAuthorization || feature.algorithmVersion != "frwhoop-physiology-2" || feature.deviceId.isNullOrEmpty() || feature.inputRevision == null) {
                 return result(emptyList())

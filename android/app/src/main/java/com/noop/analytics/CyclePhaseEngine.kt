@@ -95,6 +95,7 @@ object CyclePhaseEngine {
     /** Server-only calendar admission. Unknown nights cannot establish a negative phase or a new rise. */
     fun classifyCalendar(nights: List<Night>, baselineUsable: Boolean, through: String,
                          loggedPeriodStarts: List<String> = emptyList()): Result {
+        PhoneComputeRuntime.inferenceStarted("CyclePhaseEngine.classifyCalendar")
         val end = LocalDate.parse(through)
         val rows = nights.filter { it.day <= through }.sortedBy { it.day }
         require(rows.map { it.day }.distinct().size == rows.size) { "duplicate_cycle_day" }
@@ -207,6 +208,7 @@ object CyclePhaseEngine {
 
     /** Weighted fused luteal index for one night (HRV z negated; renormalised over present signals). */
     fun fusedIndex(tempZ: Double?, rhrZ: Double?, hrvZ: Double?): Double? {
+        PhoneComputeRuntime.inferenceStarted("CyclePhaseEngine.fusedIndex")
         var weighted = 0.0
         var wSum = 0.0
         if (tempZ != null) { weighted += wTemp * tempZ; wSum += wTemp }

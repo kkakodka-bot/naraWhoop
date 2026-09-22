@@ -772,7 +772,8 @@ private fun ProfileStep() {
             }
         }
 
-        Row(
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) CanonicalFamilyReadout(familyID = "live_coaching")
+        else Row(
             modifier = Modifier.semantics { contentDescription = uiString(R.string.l10n_onboarding_screen_estimated_max_heart_rate_profile_hrmax_622da889, profile.hrMax) },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),

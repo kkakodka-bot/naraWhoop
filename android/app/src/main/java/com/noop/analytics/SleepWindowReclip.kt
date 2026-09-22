@@ -28,6 +28,8 @@ import org.json.JSONObject
 object SleepWindowReclip {
 
     fun reclip(stagesJSON: String?, sessionStart: Long, oldEnd: Long, newStart: Long, newEnd: Long): String? {
+        if (!PhoneComputeRuntime.allowsLocal("sleep_edit_reclip")) return null
+        PhoneComputeRuntime.inferenceStarted("SleepWindowReclip.reclip")
         stagesJSON ?: return null
         return try {
             when {

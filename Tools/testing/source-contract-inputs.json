@@ -1,0 +1,23 @@
+[
+  "Strand/Collect/RawDataSessionStore.swift",
+  "Strand/Collect/Collector.swift",
+  "Strand/BLE/BLEManager.swift",
+  "Strand/Screens/RawDataCollectorView.swift",
+  "Strand/Screens/ImuRecorderView.swift",
+  "Strand/Collect/ImuSessionFileStore.swift",
+  "Strand/Collect/ImuCoverage.swift",
+  "Strand/Collect/ImuContinuousRecorder.swift",
+  "Strand/Collect/Backfiller.swift",
+  "Strand/Collect/BackfillActor.swift",
+  "Packages/WhoopStore/Sources/WhoopStore/Database.swift",
+  "Packages/WhoopStore/Sources/WhoopStore/StreamStore.swift",
+  "Packages/WhoopStore/Sources/WhoopStore/RawOutbox.swift",
+  "StrandTests/Resources/raw_data_collector_parity.json",
+  "android/app/src/test/resources/raw_data_collector_parity.json",
+  "Tools/parity_cases/device_raw_sources.json",
+  "Strand/Screens/StressView.swift",
+  "Strand/AI/AICoach.swift",
+  "Strand/Data/Repository.swift",
+  "Strand/Screens/V5PillarHosts.swift",
+  ".github/ISSUE_TEMPLATE/bug_report.yml"
+]

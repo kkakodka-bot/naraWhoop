@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.StepsAnalyticsTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.108">
+  <properties/>
+  <testcase name="ticksPerStepDefaultIsRawPassThrough" classname="com.noop.analytics.StepsAnalyticsTest" time="0.013"/>
+  <testcase name="jumpGuardDropsGapButKeepsRealSteps" classname="com.noop.analytics.StepsAnalyticsTest" time="0.007"/>
+  <testcase name="sumsPositiveConsecutiveDeltas" classname="com.noop.analytics.StepsAnalyticsTest" time="0.006"/>
+  <testcase name="oldSummingOfRawByteOvercountsVsWrapAwareDiff" classname="com.noop.analytics.StepsAnalyticsTest" time="0.007"/>
+  <testcase name="fewerThanTwoSamplesIsNull" classname="com.noop.analytics.StepsAnalyticsTest" time="0.014"/>
+  <testcase name="ignoresSamplesOutsideTheTargetDay" classname="com.noop.analytics.StepsAnalyticsTest" time="0.006"/>
+  <testcase name="dropsBigGapDeltaAsBoundary" classname="com.noop.analytics.StepsAnalyticsTest" time="0.006"/>
+  <testcase name="daySteps_overrideCountsFullCalendarDay" classname="com.noop.analytics.StepsAnalyticsTest" time="0.007"/>
+  <testcase name="ticksPerStepTwoHalvesTheTotal" classname="com.noop.analytics.StepsAnalyticsTest" time="0.007"/>
+  <testcase name="daySteps_nullFallsBackToWindowSteps" classname="com.noop.analytics.StepsAnalyticsTest" time="0.006"/>
+  <testcase name="handlesU16Wraparound" classname="com.noop.analytics.StepsAnalyticsTest" time="0.006"/>
+  <testcase name="ticksPerStepClampsAtFloor" classname="com.noop.analytics.StepsAnalyticsTest" time="0.007"/>
+  <testcase name="noForwardMovementIsNull" classname="com.noop.analytics.StepsAnalyticsTest" time="0.008"/>
+  <testcase name="ticksPerStepHalvingRoundsToNearest" classname="com.noop.analytics.StepsAnalyticsTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

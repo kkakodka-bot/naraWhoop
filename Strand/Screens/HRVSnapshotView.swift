@@ -3,6 +3,7 @@ import Foundation
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 
 /// Manual HRV snapshot — "Take an HRV reading" (#127).
 ///
@@ -63,6 +64,9 @@ struct HRVSnapshotView: View {
 
     /// Whether the just-finished snapshot has been saved (drives the Save button → "Saved").
     @State private var saved = false
+    @State private var sessionID = UUID()
+    @State private var eventStart = Date()
+    @State private var serverRequestID: String?
 
     private let secondTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
@@ -75,6 +79,9 @@ struct HRVSnapshotView: View {
             captureCard
             controlRow
             if phase == .done, let result { resultCard(result) }
+            if PhoneComputeRuntime.isFinalHosted, phase == .done {
+                ServerSessionResultView(coordinator: model.computeSessions, requestID: serverRequestID)
+            }
             methodologyCard
             if !bonded { notBondedHint }
         }
@@ -102,7 +109,7 @@ struct HRVSnapshotView: View {
             case .capturing:
                 StatePill("Capturing", tone: .accent, pulsing: true)
             case .done:
-                StatePill("Reading complete", tone: .positive, showsDot: true)
+                StatePill(PhoneComputeRuntime.isFinalHosted ? "Capture complete" : "Reading complete", tone: .positive, showsDot: true)
             }
 
             if bonded {
@@ -389,6 +396,7 @@ struct HRVSnapshotView: View {
     private func start() {
         guard bonded else { return }
         captureStart = ContinuousClock().now
+        sessionID = UUID(); eventStart = Date(); serverRequestID = nil
         phase = .capturing
         captureBuffer.removeAll()
         secondsRemaining = Self.captureSeconds
@@ -428,6 +436,13 @@ struct HRVSnapshotView: View {
         ScreenIdle.keepAwake(false)
         let captureMs = captureElapsedMs() ?? Self.captureSeconds * 1000
         captureStart = nil
+        if !PhoneComputeRuntime.permitsLocal("spot_hrv") {
+            result = nil; runningRMSSD = nil
+            serverRequestID = model.requestServerCompute(family: "spot_hrv", sessionID: sessionID, start: eventStart, end: Date())
+            phase = .done
+            return
+        }
+        PhoneComputeRuntime.entered("spot_hrv")
         let raw = captureBuffer.map(Double.init)
         // A capture whose collected beat time exceeds the wall clock it ran for held duplicated
         // beats (e.g. overlapping live sources) — refuse the number rather than publish it.
@@ -464,6 +479,8 @@ struct HRVSnapshotView: View {
         guard phase == .capturing, !rr.isEmpty,
               let ms = captureElapsedMs(), Self.captureWindowOpen(elapsedMs: ms) else { return }
         captureBuffer.append(contentsOf: rr)
+        guard PhoneComputeRuntime.permitsLocal("spot_hrv_running") else { runningRMSSD = nil; return }
+        PhoneComputeRuntime.entered("spot_hrv_running")
         runningRMSSD = HRVAnalyzer.rmssdRaw(captureBuffer.map(Double.init))
     }
 
@@ -473,6 +490,7 @@ struct HRVSnapshotView: View {
     /// today's day). Idempotent on (deviceId, day, key) — a second reading the same day overwrites the
     /// earlier one, matching every other importer's upsert semantics.
     private func save(_ result: HRVAnalyzer.HRVResult) {
+        guard PhoneComputeRuntime.permitsLocal("spot_hrv_legacy_export") else { return }
         guard let rmssd = result.rmssd else { return }
         let day = Repository.dayString(Date())
         let point = MetricPoint(day: day, key: HRVSnapshot.metricKey, value: rmssd)
@@ -501,6 +519,8 @@ struct HRVSnapshotView: View {
     /// Mean heart rate (bpm) from the mean NN interval (ms): 60000 / meanNN. nil when meanNN is missing
     /// or non-positive.
     static func meanHR(meanNN: Double?) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("spot_rr_to_hr") else { return nil }
+        PhoneComputeRuntime.entered("spot_rr_to_hr")
         guard let meanNN, meanNN > 0 else { return nil }
         return 60_000.0 / meanNN
     }

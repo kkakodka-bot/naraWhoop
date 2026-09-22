@@ -112,6 +112,7 @@ object ResonanceEngine {
      * [PaceScore.rsaAmplitude] == null.
      */
     fun scorePace(sample: PaceSample): PaceScore {
+        PhoneComputeRuntime.inferenceStarted("ResonanceEngine.scorePace")
         val cycleMs = 60_000.0 / maxOf(sample.bpm, BreathPacer.MIN_BPM)
         val cycleSec = cycleMs / 1000.0
 
@@ -176,6 +177,7 @@ object ResonanceEngine {
      * [MIN_SCORED_PACES] candidates scored, no confident lock: fall back to [FALLBACK_BPM] (coherence).
      */
     fun sweep(samples: List<PaceSample>): SweepResult {
+        PhoneComputeRuntime.inferenceStarted("ResonanceEngine.sweep")
         val scores = samples.map { scorePace(it) }
         val scored = scores.filter { it.scored }
 

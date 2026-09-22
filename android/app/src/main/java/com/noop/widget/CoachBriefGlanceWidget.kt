@@ -45,7 +45,12 @@ class CoachBriefGlanceWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val account = com.noop.account.AccountStorageContext.capture(context)
         val prefs = account.getSharedPreferences("noop_widget", Context.MODE_PRIVATE)
-        val briefText = prefs.getString("coachBriefText", null)
+        val canonical = account.runtime?.serverScoreRepository?.overlay(java.time.LocalDate.now().toString())
+            ?.compute?.families?.get("insights")
+        val briefText = if (com.noop.analytics.PhoneComputeRuntime.finalHosted)
+            (canonical?.detail("brief") as? String)?.plus("\nResult: ${canonical.resultRevision}")
+                ?: "${canonical?.reason ?: canonical?.status ?: "awaiting_server_result"}\nResult: ${canonical?.resultRevision ?: "pending publication"}"
+            else prefs.getString("coachBriefText", null)
         val briefDateMs = prefs.getLong("coachBriefDateMs", 0L)
         val dark = runCatching {
             when (com.noop.account.AccountStorageContext.capture(context).getSharedPreferences("noop_prefs", Context.MODE_PRIVATE)

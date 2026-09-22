@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // Baselines+Trace.swift - the per-night BASELINE FOLD diagnostic (Recovery test mode).
@@ -37,6 +38,7 @@ extension Baselines {
                                    cfg: MetricCfg,
                                    metric: String,
                                    rejectHardOutliers: Bool = true) -> (state: BaselineState, lines: [String]) {
+        PhoneComputeRuntime.entered("swift.Baselines+Trace.updateTrace")
         // The returned state is the REAL fold's, always. Nothing below recomputes it.
         let next = update(state, value: value, cfg: cfg, rejectHardOutliers: rejectHardOutliers)
 
@@ -115,6 +117,7 @@ extension Baselines {
                                         metric: String,
                                         rejectHardOutliers: Bool = true,
                                         tail: Int? = nil) -> (state: BaselineState, lines: [String]) {
+        PhoneComputeRuntime.entered("swift.Baselines+Trace.foldHistoryTrace")
         var state: BaselineState? = nil
         var lines: [String] = []
         for v in values {
@@ -154,6 +157,7 @@ extension Baselines {
                                         metric: String,
                                         baselineEpoch: Double,
                                         tail: Int? = nil) -> (state: BaselineState, lines: [String]) {
+        PhoneComputeRuntime.entered("swift.Baselines+Trace.foldHistoryTrace")
         guard baselineEpoch > 0 else {
             return foldHistoryTrace(values, cfg: cfg, metric: metric, tail: tail)
         }

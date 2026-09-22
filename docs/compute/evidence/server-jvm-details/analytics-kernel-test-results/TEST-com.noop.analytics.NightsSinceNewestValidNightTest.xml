@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.NightsSinceNewestValidNightTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="a null-hrv newer night does not count as the newest valid night" classname="com.noop.analytics.NightsSinceNewestValidNightTest" time="0.0"/>
+  <testcase name="null on an unparseable day key" classname="com.noop.analytics.NightsSinceNewestValidNightTest" time="0.0"/>
+  <testcase name="null when there is no valid night at all" classname="com.noop.analytics.NightsSinceNewestValidNightTest" time="0.0"/>
+  <testcase name="days since the newest night carrying a valid hrv" classname="com.noop.analytics.NightsSinceNewestValidNightTest" time="0.001"/>
+  <testcase name="civil-day arithmetic crosses month and year boundaries" classname="com.noop.analytics.NightsSinceNewestValidNightTest" time="0.0"/>
+  <testcase name="null when today precedes the newest night (would be negative)" classname="com.noop.analytics.NightsSinceNewestValidNightTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

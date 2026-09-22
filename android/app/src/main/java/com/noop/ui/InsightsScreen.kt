@@ -334,6 +334,7 @@ fun InsightsScreen(vm: AppViewModel, onOpenInsightsHub: () -> Unit = {}) {
         //     personal alcohol/caffeine dose-response). The honest in-Insights entry point; the hub is its
         //     own destination too. Mirrors the Swift InsightsView.whatMovesYouLink. ---
         item { WhatMovesYouLink(onOpen = onOpenInsightsHub) }
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { item { CanonicalFamilyReadout(vm, "insights") } }
 
         item { Spacer(Modifier.height(Metrics.sectionGap - 20.dp)) }
 
@@ -606,6 +607,8 @@ internal fun computeActivityCosts(
     workouts: List<WorkoutRow>,
     days: List<DailyMetric>,
 ): List<com.noop.analytics.ActivityCost> {
+    if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("activity_cost")) return emptyList()
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("activity_cost")
     // Single "now" offset for every session, the SAME tz-offset basis IntelligenceEngine.kt uses to
     // key DailyMetric.day (getOffset(now)/1000 applied across the run), via the SAME
     // AnalyticsEngine.dayString(ts, offsetSec) path, so the engine's D+1 next-morning lookups align
@@ -1325,6 +1328,8 @@ private fun buildExperimentSnapshot(
     durationDays: Int,
     baselineDays: Int,
 ): ExperimentSnapshot? {
+    if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("experiment_inference")) return null
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("experiment_inference")
     if (startedDay.isEmpty() || behaviour == null) return null
 
     val today = journalDayKey(0L)
@@ -1596,6 +1601,8 @@ private fun buildModel(
 
 /** Rank behaviour effects for one outcome by |Cohen's d|, significant first. */
 private fun rankEffects(model: InsightModel, outcome: Outcome): List<BehaviorEffect> {
+    if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("insight_effects")) return emptyList()
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("insight_effects")
     val outcomeDays = model.outcomeByDay[outcome] ?: emptyMap()
     if (outcomeDays.isEmpty()) return emptyList()
     // Through the shared engine, not a local copy. This screen used to carry its own with/without split,
@@ -1608,6 +1615,8 @@ private fun rankEffects(model: InsightModel, outcome: Outcome): List<BehaviorEff
 
 /** The curated metric relationships, computed via Pearson r over aligned day pairs. */
 private fun computeRelationships(model: InsightModel): List<Relationship> {
+    if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("insight_relationships")) return emptyList()
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("insight_relationships")
     fun series(o: Outcome) = model.seriesByOutcome[o] ?: emptyList()
     val out = mutableListOf<Relationship>()
 

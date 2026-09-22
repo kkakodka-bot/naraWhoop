@@ -52,7 +52,7 @@ final class GenericCaptureJournalTests: XCTestCase {
     }
 
     func testStopAndInFlightFailureRetainOldWriterAcrossRepositoryRevocation() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("generic-capture-\(UUID())")
+        let directory = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent("generic-capture-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var openedStores: [WhoopStore] = []
         defer {

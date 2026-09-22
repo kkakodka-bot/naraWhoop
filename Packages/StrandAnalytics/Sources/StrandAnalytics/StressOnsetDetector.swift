@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // StressOnsetDetector.swift — the L3 closed-loop JITAI ("just-in-time adaptive intervention") detector.
@@ -196,6 +197,7 @@ public enum StressOnsetDetector {
                                 config: Config,
                                 nowSec: Int,
                                 tzOffsetSec: Int) -> Decision {
+        PhoneComputeRuntime.entered("swift.StressOnsetDetector.evaluate")
 
         // 1) Master gates: off / auto-nudge off → never nudge, state untouched.
         if !config.enabled || !config.autoNudge {

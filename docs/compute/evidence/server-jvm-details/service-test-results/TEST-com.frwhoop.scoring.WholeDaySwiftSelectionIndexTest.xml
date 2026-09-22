@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.WholeDaySwiftSelectionIndexTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:17:10" hostname="mac-studio.lan" time="0.025">
+  <properties/>
+  <testcase name="preservesOrderRepeatsAndScopeWithoutAdoptingForeignCollisions" classname="com.frwhoop.scoring.WholeDaySwiftSelectionIndexTest" time="0.001"/>
+  <testcase name="requiresExactlyOneSelectedIdentityButRetainsUnusedDuplicateControl" classname="com.frwhoop.scoring.WholeDaySwiftSelectionIndexTest" time="0.0"/>
+  <testcase name="missingFieldsNeverBecomeExplicitNullIdentities" classname="com.frwhoop.scoring.WholeDaySwiftSelectionIndexTest" time="0.0"/>
+  <testcase name="rrAndEventKeysPreserveTheirNativeDiscriminators" classname="com.frwhoop.scoring.WholeDaySwiftSelectionIndexTest" time="0.0"/>
+  <testcase name="denseIdentityExtractionReadsRowsLinearly" classname="com.frwhoop.scoring.WholeDaySwiftSelectionIndexTest" time="0.024"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

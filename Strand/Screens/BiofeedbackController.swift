@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import SwiftUI
 import StrandAnalytics
+import WhoopProtocol
 
 // BiofeedbackController.swift — the live session controller for the three haptic-biofeedback layers
 // (v5 "the strap that breathes you down"). It is the ONLY thing in the UI lane that walks the pure
@@ -56,6 +57,7 @@ final class BiofeedbackController: ObservableObject {
     /// The finished sweep result (locked pace + per-pace RSA curve), set when a sweep completes. nil until
     /// then; the result card reads this.
     @Published private(set) var lastSweep: ResonanceEngine.SweepResult? = nil
+    @Published private(set) var serverRequestID: String?
 
     // MARK: - L2 live readout
 
@@ -209,6 +211,7 @@ final class BiofeedbackController: ObservableObject {
     /// unscored, and < minScoredPaces → the engine returns the 5.5 fallback with `didLock == false`.
     func startSweep(quick: Bool, secondsPerPace: Int = 120) {
         stop()
+        let sessionID = UUID(), eventStart = Date()
         let paces = quick ? ResonanceEngine.quickSweepPaces : ResonanceEngine.fullSweepPaces
         running = true
         ScreenIdle.keepAwake(true)
@@ -253,6 +256,13 @@ final class BiofeedbackController: ObservableObject {
         }
 
         func finishSweep(_ samples: [ResonanceEngine.PaceSample]) {
+            if !PhoneComputeRuntime.permitsLocal("biofeedback_resonance") {
+                serverRequestID = model.requestServerCompute(family: "biofeedback", sessionID: sessionID, start: eventStart, end: Date())
+                lastSweep = nil
+                stop()
+                return
+            }
+            PhoneComputeRuntime.entered("biofeedback_resonance")
             let result = ResonanceEngine.sweep(samples)
             lastSweep = result
             // Persist the locked pace + date as plain prefs (no store table) so the Breathe screen + the
@@ -275,6 +285,13 @@ final class BiofeedbackController: ObservableObject {
     /// floor + max-Δ + timeout; user-stoppable. Honest outcome on stop (settled vs held steady).
     func startCalmMe(config: HRDownPacer.Config = .default) {
         stop()
+        guard PhoneComputeRuntime.permitsLocal("biofeedback_hr_down") else {
+            serverRequestID = model.requestServerCompute(family: "live_coaching", sessionID: UUID(), start: Date(), end: nil, consent: canBuzz)
+            calmOutcome = "Server coaching pending. You can still choose a paced breath."
+            calmDidNotFall = false
+            return
+        }
+        PhoneComputeRuntime.entered("biofeedback_hr_down")
         guard canBuzz, let h0 = model.bpm, h0 >= 55, h0 <= 120 else {
             // Haptic-first: needs a bonded strap + a resting-band HR. Don't fake it.
             calmOutcome = String(localized: "Couldn't start. Needs a connected strap and a resting heart rate.")

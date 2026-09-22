@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.RespRateGapAwareTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="rowFilterMatchesRangeFilter" classname="com.noop.analytics.RespRateGapAwareTest" time="0.0"/>
+  <testcase name="secondLevelJitterIsNotTreatedAsAGap" classname="com.noop.analytics.RespRateGapAwareTest" time="0.0"/>
+  <testcase name="contiguousNightStillProducesARate" classname="com.noop.analytics.RespRateGapAwareTest" time="0.001"/>
+  <testcase name="aSplicedWindowIsNotMeasured" classname="com.noop.analytics.RespRateGapAwareTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

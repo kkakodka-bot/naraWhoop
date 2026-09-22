@@ -89,7 +89,7 @@ final class ScoringSyncControlTests: XCTestCase {
 
     private func fixture(headBoundary: Boundary? = nil, openBoundary: Boundary? = nil) async throws -> Fixture {
         let temporary = ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.temporaryDirectory
+            ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         let root = temporary.appendingPathComponent("sync-controls-" + UUID().uuidString)
         let scope = try AccountScope(projectURL: "https://sync-controls.invalid", userID: UUID().uuidString)
         let context = AccountSessionContext(scope: scope, generation: UUID())

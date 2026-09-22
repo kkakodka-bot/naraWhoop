@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.AuxiliaryObjectIntegrationTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:29" hostname="mac-studio.lan" time="0.565">
+  <properties/>
+  <testcase name="verifiedOwnerSourceWindowPreservesIndexSiblingsAndDeduplicatesExactObjects" classname="com.frwhoop.scoring.AuxiliaryObjectIntegrationTest" time="0.221"/>
+  <testcase name="unknownAndZeroAreDistinctButConflictingPayloadForOneIdentityFailsExplicitly" classname="com.frwhoop.scoring.AuxiliaryObjectIntegrationTest" time="0.117"/>
+  <testcase name="unconfiguredOptionalArchiveReaderReportsCapabilityGapWithoutPretendingToReadObjects" classname="com.frwhoop.scoring.AuxiliaryObjectIntegrationTest" time="0.056"/>
+  <testcase name="unverifiedIndexedLegacyObjectIsAnExplicitGapAndNeverFetched" classname="com.frwhoop.scoring.AuxiliaryObjectIntegrationTest" time="0.06"/>
+  <testcase name="storedDigestMismatchFailsWorkInsteadOfPublishingFabricatedEmptyCandidate" classname="com.frwhoop.scoring.AuxiliaryObjectIntegrationTest" time="0.055"/>
+  <testcase name="unsupportedStoredBlobRemainsArchivedAndYieldsTypedValidationDebtNotInventedIdentity" classname="com.frwhoop.scoring.AuxiliaryObjectIntegrationTest" time="0.056"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

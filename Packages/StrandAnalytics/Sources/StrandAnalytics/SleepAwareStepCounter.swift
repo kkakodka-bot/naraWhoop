@@ -26,7 +26,8 @@ public enum SleepAwareStepCounter {
 
         /// Kotlin twin: `SleepAwareStepCounter.Count.plus`.
         public func adding(_ other: Count) -> Count {
-            Count(totalTicks: totalTicks + other.totalTicks,
+            PhoneComputeRuntime.entered("swift.SleepAwareStepCounter.adding")
+            return Count(totalTicks: totalTicks + other.totalTicks,
                 acceptedOutsideSleepTicks: acceptedOutsideSleepTicks + other.acceptedOutsideSleepTicks,
                 acceptedAwakeGapTicks: acceptedAwakeGapTicks + other.acceptedAwakeGapTicks,
                 acceptedSleepBoutTicks: acceptedSleepBoutTicks + other.acceptedSleepBoutTicks,
@@ -56,6 +57,7 @@ public enum SleepAwareStepCounter {
 
         /// Kotlin twin: `SleepAwareStepCounter.Accumulator.acceptPage`.
         @discardableResult public func acceptPage(_ samples: [StepSample]) -> Accumulator {
+            PhoneComputeRuntime.entered("swift.SleepAwareStepCounter.acceptPage")
             precondition(!finished)
             for current in samples.sorted(by: { $0.ts < $1.ts }) {
                 guard let prior = previous else { previous = current; continue }
@@ -91,6 +93,7 @@ public enum SleepAwareStepCounter {
 
         /// Kotlin twin: `SleepAwareStepCounter.Accumulator.finish`.
         public func finish() -> Count {
+            PhoneComputeRuntime.entered("swift.SleepAwareStepCounter.finish")
             if !finished { flush(); finished = true }
             return Count(totalTicks: outside + awake + sleep, acceptedOutsideSleepTicks: outside,
                          acceptedAwakeGapTicks: awake, acceptedSleepBoutTicks: sleep,
@@ -115,12 +118,15 @@ public enum SleepAwareStepCounter {
 
     /// Kotlin twin: `SleepAwareStepCounter.stepsInWindow`.
     public static func stepsInWindow(_ samples: [StepSample], sleepSessions: [SleepSession]) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepAwareStepCounter.stepsInWindow") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepAwareStepCounter.stepsInWindow")
         let count = count(samples, sleepSessions: sleepSessions)
         return count.totalTicks > 0 ? count.totalTicks : nil
     }
 
     /// Kotlin twin: `SleepAwareStepCounter.count`.
     public static func count(_ samples: [StepSample], sleepSessions: [SleepSession]) -> Count {
+        PhoneComputeRuntime.entered("swift.SleepAwareStepCounter.count")
         let sorted = samples.sorted { $0.ts < $1.ts }
         return Accumulator(sleepSessions: sleepSessions,
                            hasActivityClasses: StepsCounter.hasActivityClasses(sorted))

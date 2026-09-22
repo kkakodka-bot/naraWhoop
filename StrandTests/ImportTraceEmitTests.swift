@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import WhoopStore
+import WhoopProtocol
 @testable import Strand
 
 /// Wiring of the Import & Data Ingest trace into the app-side import path: running WhoopImporter.importExport
@@ -20,16 +21,41 @@ final class ImportTraceEmitTests: XCTestCase {
 
     /// A minimal but valid WHOOP cycles CSV folder (two cycles, two days), written to a temp dir.
     private func makeWhoopFolder() throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("noop-import-trace-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let header = "Cycle start time,Cycle end time,Cycle timezone,Recovery score %,"
-            + "Resting heart rate (bpm),Heart rate variability (ms),Asleep duration (min)\n"
-        let rows = "2024-01-02 06:30:00,2024-01-03 06:29:00,UTC+00:00,72,52,68.4,420\n"
-            + "2024-01-03 06:30:00,2024-01-04 06:29:00,UTC+00:00,80,50,72.0,440\n"
+            + "Resting heart rate (bpm),Heart rate variability (ms),Asleep duration (min),"
+            + "Deep SWS duration (min),REM duration (min),Sleep need (min)\n"
+        let rows = "2024-01-02 06:30:00,2024-01-03 06:29:00,UTC+00:00,72,52,68.4,420,60,90,450\n"
+            + "2024-01-03 06:30:00,2024-01-04 06:29:00,UTC+00:00,80,50,72.0,440,65,95,450\n"
         try (header + rows).write(to: dir.appendingPathComponent("physiological_cycles.csv"),
                                   atomically: true, encoding: .utf8)
         return dir
+    }
+
+    func testHostedImportPreservesReportedHistoryWithoutPhysiologicalReconstruction() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            let dir = try makeWhoopFolder()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let store = try await WhoopStore.inMemory()
+            let summary = try await WhoopImporter.importExport(url: dir, into: store, deviceId: "source-history")
+            XCTAssertEqual(summary.countsByCategory["cycles"], 2)
+            let reported = try await store.metricSeries(deviceId: "source-history", key: "hrv",
+                from: "0000-00-00", to: "9999-99-99")
+            XCTAssertEqual(reported.map(\.value), [68.4, 72.0], "Source-reported historical observations survive")
+            for key in ["stress", "restorative_min", "restorative_pct", "hours_vs_needed_pct",
+                        "hr_zone1_min", "hr_zones_all_min"] {
+                let points = try await store.metricSeries(deviceId: "source-history", key: key,
+                    from: "0000-00-00", to: "9999-99-99")
+                XCTAssertTrue(points.isEmpty, "Hosted import must not reconstruct \(key)")
+            }
+            let counters = PhoneComputeRuntime.counters()
+            XCTAssertTrue(counters.executions.isEmpty)
+            XCTAssertEqual(counters.denied["import.whoop_derived"], 1)
+            print("FINAL_HOSTED_IMPORT executions=0 source_observations_preserved=true")
+        }
     }
 
     func testImporterEmitsTraceLinesWhenSinkProvided() async throws {

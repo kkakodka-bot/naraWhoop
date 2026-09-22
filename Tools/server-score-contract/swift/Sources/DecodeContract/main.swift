@@ -8,6 +8,7 @@ struct Expectation: Decodable {
     let expectedDeviceId: String?
     let expectedValues: [String: Double]?
     let signalWindows: [SignalExpectation]?
+    let expectedCanonicalValues: [String: Double]?
 }
 
 struct SignalExpectation: Decodable {
@@ -41,6 +42,16 @@ for expectation in expectations {
         let restored = try JSONDecoder().decode(ServerScoreDayCache.self, from: JSONEncoder().encode(cache))
         try require(restored.signalWindows == cache.signalWindows, "\(expectation.file): diagnostic cache round trip differs")
     }
+    try verifyCanonicalSelection(cache, bytes: bytes, expectation: expectation, directory: directory)
+    if expectation.file.contains("pending-device") {
+        try require(cache.canonicalResults == nil, "Pending device fabricated a canonical result")
+        try require(cache.pendingCanonicalResults?.reason == "device_registration_pending", "Pending device state was lost")
+        try require(cache.pendingCanonicalResults?.familyIDs.count == 27, "Pending device did not retain every family")
+        try require(cache.ownedMetrics == ServerCanonicalResults.allMetrics, "Pending device lost explicit ownership")
+        let persisted = try JSONDecoder().decode(ServerScoreDayCache.self, from: JSONEncoder().encode(cache))
+        try require(persisted.pendingCanonicalResults == cache.pendingCanonicalResults, "Pending receipt did not survive persistence")
+    }
+    // Retain legacy projection checks as provenance compatibility; final selection is verified above.
     for key in expectation.availableFeatures {
         try require(cache.features[key]?.isCanonicalAvailable == true, "\(expectation.file): \(key) did not activate")
         if let device = expectation.expectedDeviceId {
@@ -79,3 +90,4 @@ for expectation in expectations {
     print("swift \(expectation.file): decoded and display selection verified")
 }
 print("swift: \(expectations.count) real Edge envelopes passed")
+print("swift: \(expectations.count) canonical persisted selections passed")

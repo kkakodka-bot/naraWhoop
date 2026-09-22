@@ -101,6 +101,7 @@ object HrvAnalyzer {
      * when fewer than 2 values (no successive differences). No filtering applied.
      */
     fun rmssdRaw(nn: List<Double>): Double? {
+        PhoneComputeRuntime.inferenceStarted("HrvAnalyzer.rmssdRaw")
         if (nn.size < 2) return null
         var sumSq = 0.0
         for (i in 1 until nn.size) {
@@ -115,6 +116,7 @@ object HrvAnalyzer {
      * fewer than 2 values. Matches neurokit2 HRV_SDNN. No filtering applied.
      */
     fun sdnnRaw(nn: List<Double>): Double? {
+        PhoneComputeRuntime.inferenceStarted("HrvAnalyzer.sdnnRaw")
         if (nn.size < 2) return null
         val mean = nn.sum() / nn.size.toDouble()
         var ss = 0.0
@@ -133,6 +135,7 @@ object HrvAnalyzer {
      * whole-night SDNN, whose slow between-stage heart-rate drift can dominate the result.
      */
     fun sdnnIndex(rr: List<RrInterval>, segmentSec: Int = 300): Double? {
+        PhoneComputeRuntime.inferenceStarted("HrvAnalyzer.sdnnIndex")
         if (segmentSec <= 0 || rr.isEmpty()) return null
         val first = rr.minOf { it.ts }
         val segmentLength = segmentSec.toLong()
@@ -295,6 +298,7 @@ object HrvAnalyzer {
      * Window bounds are unix SECONDS (Long), matching the com.noop.data layer.
      */
     fun analyze(rr: List<RrInterval>, windowStart: Long? = null, windowEnd: Long? = null): HrvResult {
+        PhoneComputeRuntime.inferenceStarted("HrvAnalyzer.analyze")
         val inWindow = rr.filter { sample ->
             if (windowStart != null && sample.ts < windowStart) return@filter false
             if (windowEnd != null && sample.ts > windowEnd) return@filter false
@@ -315,6 +319,7 @@ object HrvAnalyzer {
      *   the gate entirely, so the nightly RMSSD is byte-identical to before this parameter existed.
      */
     fun analyzeRaw(rawRR: List<Double>, maxRejectedFraction: Double? = null): HrvResult {
+        PhoneComputeRuntime.inferenceStarted("HrvAnalyzer.analyzeRaw")
         val nInput = rawRR.size
         val cleaned = cleanRRGapAware(rawRR)
         val clean = cleaned.nn
@@ -973,6 +978,7 @@ object HrvAnalyzer {
         stepSec: Int = 0,
         minBeatsPerWindow: Int = 8,
     ): List<Pair<Long, Double>> {
+        PhoneComputeRuntime.inferenceStarted("HrvAnalyzer.rollingRmssd")
         if (rr.size < minBeatsPerWindow || windowSec <= 0) return emptyList()
         // Ascending by ts so the trailing-window scan is monotone (the table read is already ordered, but
         // we don't assume it). Stable on equal ts.

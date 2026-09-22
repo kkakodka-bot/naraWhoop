@@ -63,6 +63,7 @@ object VitalityEngine {
     /** Sleep regularity (0–1) from nightly sleep durations (hours): 1 − coefficient of variation,
      *  clamped. < 3 nights → null. */
     fun sleepConsistency(nightlyHours: List<Double>): Double? {
+        PhoneComputeRuntime.inferenceStarted("VitalityEngine.sleepConsistency")
         val xs = nightlyHours.filter { it > 0 }
         if (xs.size < 3) return null
         val mean = xs.sum() / xs.size
@@ -75,6 +76,7 @@ object VitalityEngine {
     /** Per-factor signed log-hazard vs the population reference (positive ages you, negative protective).
      *  Conservative published per-unit hazard ratios — see the Swift file for citations. */
     fun contributions(inputs: Inputs): List<Contribution> {
+        PhoneComputeRuntime.inferenceStarted("VitalityEngine.contributions")
         val out = ArrayList<Contribution>()
         inputs.restingHR?.let {
             out.add(Contribution("rhr", "Resting heart rate", ((it - 65) / 10) * 0.100))
@@ -103,6 +105,7 @@ object VitalityEngine {
 
     /** Full Vitality + Body Age. Returns null until at least [minFactors] inputs are present. */
     fun compute(inputs: Inputs): Result? {
+        PhoneComputeRuntime.inferenceStarted("VitalityEngine.compute")
         if (inputs.chronoAge <= 0) return null
         val contribs = contributions(inputs)
         if (contribs.size < minFactors) return null

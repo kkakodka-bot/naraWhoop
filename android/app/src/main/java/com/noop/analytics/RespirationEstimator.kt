@@ -43,6 +43,7 @@ object RespirationEstimator {
     )
 
     fun estimate(input: Input, policy: Policy = Policy()): Result {
+        PhoneComputeRuntime.inferenceStarted("RespirationEstimator.estimate")
         val n = input.values.size
         val rate = input.sampleRateHz
         val duration = if (rate.isFinite() && rate > 0) n / rate else 0.0

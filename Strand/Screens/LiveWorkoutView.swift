@@ -2,6 +2,7 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 
 /// Live workout mode (#238) — the in-exercise screen: a big live heart rate, the current HR zone,
 /// elapsed time, and live effort building, all from the SAME live feed and scorers the rest of the
@@ -45,6 +46,13 @@ struct LiveWorkoutView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                if PhoneComputeRuntime.isFinalHosted {
+                    header
+                    timeBlock
+                    DeviceReportedHeartRateSection().environmentObject(model.live)
+                    ServerSessionResultView(coordinator: model.computeSessions, requestID: model.currentWorkoutRequestID)
+                    DistancePaceRowIfPresent(recorder: model.gpsRecorder)
+                } else {
                 let cards: [AnyView] = [
                     AnyView(header),
                     AnyView(timeBlock),
@@ -59,6 +67,7 @@ struct LiveWorkoutView: View {
                 ]
                 ForEach(Array(cards.enumerated()), id: \.offset) { index, card in
                     card.staggeredAppear(index: index)
+                }
                 }
                 // Live-observing leaf: renders the sensor row (and its entrance stagger) only when a
                 // standard fitness sensor is feeding metrics, refreshing on its own packets without

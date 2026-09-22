@@ -148,7 +148,8 @@ public protocol WorkoutTypeClassifying: Sendable {
 public struct HeuristicWorkoutClassifier: WorkoutTypeClassifying {
     public init() {}
     public func classify(_ features: WorkoutClassFeatures) -> WorkoutClassPrediction {
-        WorkoutTypeClassifier.classify(features)
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.classify")
+        return WorkoutTypeClassifier.classify(features)
     }
 }
 
@@ -173,6 +174,7 @@ public enum WorkoutTypeClassifier {
     /// clears `minPlausibleScore`/`minMargin`) plus a confidence that reflects both the margin and how
     /// complete the inputs were.
     public static func classify(_ features: WorkoutClassFeatures) -> WorkoutClassPrediction {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.classify")
         let scores = allScores(features)
         let ranked = scores.sorted { $0.value > $1.value }
         guard let top = ranked.first else {
@@ -201,7 +203,8 @@ public enum WorkoutTypeClassifier {
     /// Every concrete class's raw [0,1] match score. Exposed (not just the winner) so validation
     /// against real labels can check top-k, not only top-1.
     public static func allScores(_ f: WorkoutClassFeatures) -> [CoarseWorkoutClass: Double] {
-        [
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.allScores")
+        return [
             .walk: walkScore(f),
             .run: runScore(f),
             .strength: strengthScore(f),
@@ -215,27 +218,34 @@ public enum WorkoutTypeClassifier {
 
     /// 0 at/below `lo`, 1 at/above `hi`, linear between. `hi <= lo` degenerates to a step at `hi`.
     static func rampUp(_ x: Double, _ lo: Double, _ hi: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.rampUp")
         guard hi > lo else { return x >= hi ? 1 : 0 }
         return min(1, max(0, (x - lo) / (hi - lo)))
     }
     /// Mirror of `rampUp`: 1 at/below `lo`, 0 at/above `hi`.
-    static func rampDown(_ x: Double, _ lo: Double, _ hi: Double) -> Double { 1 - rampUp(x, lo, hi) }
+    static func rampDown(_ x: Double, _ lo: Double, _ hi: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.rampDown")
+        return 1 - rampUp(x, lo, hi)
+    }
     /// Trapezoid membership: 0 below `a`, ramps to 1 over [a,b], flat 1 over [b,c], ramps to 0 over
     /// [c,d], 0 above `d`. Requires `a <= b <= c <= d`.
     static func plateau(_ x: Double, _ a: Double, _ b: Double, _ c: Double, _ d: Double) -> Double {
-        min(rampUp(x, a, b), rampDown(x, c, d))
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.plateau")
+        return min(rampUp(x, a, b), rampDown(x, c, d))
     }
 
     /// How strongly the activity-class ticks should be trusted vs. falling back to HR+motion-only.
     /// 0 with no/negligible tick coverage, ramping to 1 once coverage reaches `minTickCoverage`.
     static func tickReliability(_ f: WorkoutClassFeatures) -> Double {
-        rampUp(f.tickCoverage, minTickCoverage * 0.3, minTickCoverage)
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.tickReliability")
+        return rampUp(f.tickCoverage, minTickCoverage * 0.3, minTickCoverage)
     }
 
     /// "No walk/run gait" evidence for the non-foot classes (strength/cycle/ski). When ticks are too
     /// sparse to trust, this returns a NEUTRAL 0.5 rather than penalizing — an absent signal must not
     /// read as evidence against a class (a WHOOP 4.0 capture has no @63 activity class at all).
     static func gaitAbsenceScore(_ f: WorkoutClassFeatures) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.gaitAbsenceScore")
         guard f.tickCoverage >= minTickCoverage else { return 0.5 }
         return rampUp(f.stillFraction, 0.40, 0.75)
     }
@@ -245,6 +255,7 @@ public enum WorkoutTypeClassifier {
     /// RUN: dominant run-classified ticks when available; else a smooth (low-`hrCV`), elevated-%HRR,
     /// higher-impact (higher `motionVariance`) fallback signature.
     static func runScore(_ f: WorkoutClassFeatures) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.runScore")
         let tick = rampUp(f.runFraction, 0.15, 0.55)
         let hr = rampUp(f.meanHRRPct ?? 55, 45, 75)
         let motion = plateau(f.motionVariance, 0.05, 0.10, 0.35, 0.60)
@@ -258,6 +269,7 @@ public enum WorkoutTypeClassifier {
     /// WALK: dominant walk-classified ticks when available; else a LOW-moderate %HRR band (walking
     /// rarely pushes %HRR high) with modest motion variance (rhythmic but low-impact gait).
     static func walkScore(_ f: WorkoutClassFeatures) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.walkScore")
         let tick = rampUp(f.walkFraction, 0.15, 0.55)
         let hr = plateau(f.meanHRRPct ?? 30, 5, 15, 35, 55)
         let motion = plateau(f.motionVariance, 0.005, 0.02, 0.07, 0.12)
@@ -273,6 +285,7 @@ public enum WorkoutTypeClassifier {
     /// ski turns or terrain do, which is what separates strength from ski's similarly-bursty-but-more-
     /// mobile signature.
     static func strengthScore(_ f: WorkoutClassFeatures) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.strengthScore")
         let noGait = gaitAbsenceScore(f)
         let bursty = rampUp(f.hrCV, 0.06, 0.16)
         let hr = plateau(f.meanHRRPct ?? 45, 15, 30, 80, 100)
@@ -288,6 +301,7 @@ public enum WorkoutTypeClassifier {
     /// CYCLE: no walk/run gait, SMOOTH sustained elevated HR (low `hrCV`, unlike strength's sets), and
     /// low motion variance — the torso/wrist stays comparatively still relative to on-foot gait.
     static func cycleScore(_ f: WorkoutClassFeatures) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.cycleScore")
         let noGait = gaitAbsenceScore(f)
         let smooth = rampDown(f.hrCV, 0.04, 0.10)
         let hr = rampUp(f.meanHRRPct ?? 55, 35, 65)
@@ -300,6 +314,7 @@ public enum WorkoutTypeClassifier {
     /// lift-ride rest — more variable than cycle's steady spin, but not as short-cycle-bursty as
     /// strength's sets).
     static func skiScore(_ f: WorkoutClassFeatures) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.skiScore")
         let noGait = gaitAbsenceScore(f)
         let variablePosture = plateau(f.motionVariance, 0.06, 0.14, 0.45, 0.70)
         let hr = plateau(f.meanHRRPct ?? 45, 20, 35, 85, 100)
@@ -333,6 +348,8 @@ public enum WorkoutTypeFeatureExtractor {
                                start: Int, end: Int,
                                restingHR: Double? = nil, maxHR: Double? = nil,
                                caloriesKcal: Double? = nil) -> WorkoutClassFeatures? {
+        guard PhoneComputeRuntime.permitsLocal("swift.WorkoutTypeClassifier.extract") else { return nil }
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.extract")
         guard end > start else { return nil }
         let hrWindow = hr.filter { $0.ts >= start && $0.ts <= end }.sorted { $0.ts < $1.ts }
         guard !hrWindow.isEmpty else { return nil }
@@ -387,13 +404,20 @@ public enum WorkoutTypeFeatureExtractor {
 
     // MARK: - Small stats helpers (population variance/stdev; no external dependency)
 
-    static func mean(_ xs: [Double]) -> Double { xs.isEmpty ? 0 : xs.reduce(0, +) / Double(xs.count) }
+    static func mean(_ xs: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.mean")
+        return xs.isEmpty ? 0 : xs.reduce(0, +) / Double(xs.count)
+    }
 
     static func variance(_ xs: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.variance")
         guard xs.count > 1 else { return 0 }
         let m = mean(xs)
         return xs.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(xs.count)
     }
 
-    static func stddev(_ xs: [Double]) -> Double { variance(xs).squareRoot() }
+    static func stddev(_ xs: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutTypeClassifier.stddev")
+        return variance(xs).squareRoot()
+    }
 }

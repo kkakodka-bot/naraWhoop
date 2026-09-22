@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.HrvArtifactDensityTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.049">
+  <properties/>
+  <testcase name="plainInflatesMonotonicallyWhileGapAwareTracksTruth" classname="com.noop.analytics.HrvArtifactDensityTest" time="0.031"/>
+  <testcase name="gapAwareErrorNeverExceedsPlainAcrossDensity" classname="com.noop.analytics.HrvArtifactDensityTest" time="0.015"/>
+  <testcase name="pnn50GapAwareDoesNotInflateWithDrops" classname="com.noop.analytics.HrvArtifactDensityTest" time="0.003"/>
+  <system-out><![CDATA[[M1] truth=16.94  plainMean=[16.9, 17.7, 18.4, 20.1, 21.9]  gapMean=[16.9, 16.9, 16.9, 16.9, 17.0]
+[M1] density -> plainErr=[0.00, 0.67, 1.33, 3.19, 5.20]  gapErr=[0.00, 0.14, 0.26, 0.37, 0.47]
+[M1] pNN50 truth=0.04  gapAware@30%=0.04
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

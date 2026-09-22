@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // VitalityEngine.swift — a transparent 0–100 "Vitality" wellness score + an optional "Body Age in years".
@@ -86,6 +87,7 @@ public enum VitalityEngine {
     /// window norms banked in the spec — never mixed with daytime clinical norms). The reference for the
     /// HRV factor: a person at the age norm contributes 0.
     public static func rmssdNorm(forAge age: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.VitalityEngine.rmssdNorm")
         let anchors: [(Double, Double)] = [(20, 47), (30, 40), (40, 33), (50, 29), (60, 25), (70, 22), (80, 20)]
         if age <= anchors[0].0 { return anchors[0].1 }
         if age >= anchors[anchors.count - 1].0 { return anchors[anchors.count - 1].1 }
@@ -100,6 +102,8 @@ public enum VitalityEngine {
     /// variation, clamped. A rough but honest on-device proxy for the Sleep Regularity Index when we only
     /// have durations, not full timing. Fewer than 3 nights → nil (not enough to judge).
     public static func sleepConsistency(nightlyHours: [Double]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.VitalityEngine.sleepConsistency") else { return nil }
+        PhoneComputeRuntime.entered("swift.VitalityEngine.sleepConsistency")
         let xs = nightlyHours.filter { $0 > 0 }
         guard xs.count >= 3 else { return nil }
         let mean = xs.reduce(0, +) / Double(xs.count)
@@ -118,6 +122,8 @@ public enum VitalityEngine {
     ///   • HRV (RMSSD): ~16% per relative SD below the age norm (lower HRV = higher hazard).
     ///   • Steps: ~12% per 1,000 steps/day up to ~7k, diminishing to ~11k (pooled step-mortality meta).
     public static func contributions(_ inputs: Inputs) -> [Contribution] {
+        guard PhoneComputeRuntime.permitsLocal("swift.VitalityEngine.contributions") else { return [] }
+        PhoneComputeRuntime.entered("swift.VitalityEngine.contributions")
         var out: [Contribution] = []
         if let rhr = inputs.restingHR {
             out.append(Contribution(key: "rhr", label: "Resting heart rate",
@@ -152,6 +158,8 @@ public enum VitalityEngine {
 
     /// Full Vitality + Body Age. Returns nil until at least `minFactors` inputs are present.
     public static func compute(_ inputs: Inputs) -> Result? {
+        guard PhoneComputeRuntime.permitsLocal("swift.VitalityEngine.compute") else { return nil }
+        PhoneComputeRuntime.entered("swift.VitalityEngine.compute")
         guard inputs.chronoAge > 0 else { return nil }
         let contribs = contributions(inputs)
         guard contribs.count >= minFactors else { return nil }

@@ -156,6 +156,7 @@ object StepsEstimateEngine {
      * are met, else [CalibrationStatus.NeedsMoreDays]. Mirror of Swift `status(...)`.
      */
     fun status(points: List<CalibrationPoint>, manualOverride: Double? = null): CalibrationStatus {
+        PhoneComputeRuntime.inferenceStarted("StepsEstimateEngine.status")
         val usableDays = points.count(::isUsableCalibrationPoint)
         if (manualOverride != null && manualOverride > 0) {
             return CalibrationStatus.Manual(manualOverride, usableDays)
@@ -174,6 +175,7 @@ object StepsEstimateEngine {
      * stillness, integrated. (Mirror of Swift dayMotionIntensity.)
      */
     fun dayMotionIntensity(grav: List<GravitySample>): Double {
+        PhoneComputeRuntime.inferenceStarted("StepsEstimateEngine.dayMotionIntensity")
         if (grav.size < 2) return 0.0
         var total = 0.0
         var prev = grav[0]
@@ -194,6 +196,7 @@ object StepsEstimateEngine {
      * null below MIN_CALIBRATION_DAYS unless a positive [manualOverride] is supplied (which always wins, conf 1).
      */
     fun calibrate(points: List<CalibrationPoint>, manualOverride: Double? = null): Calibration? {
+        PhoneComputeRuntime.inferenceStarted("StepsEstimateEngine.calibrate")
         val usable = points.filter(::isUsableCalibrationPoint)
         if (manualOverride != null && manualOverride > 0) {
             return Calibration(manualOverride, usable.size, 1.0, manual = true)
@@ -222,6 +225,7 @@ object StepsEstimateEngine {
      * MIN_MOTION_FOR_FIT (too little to say) — the UI then shows "—", never a fake 0.
      */
     fun estimate(motion: Double, calibration: Calibration): Int? {
+        PhoneComputeRuntime.inferenceStarted("StepsEstimateEngine.estimate")
         if (motion < MIN_MOTION_FOR_FIT || calibration.coefficient <= 0) return null
         return Math.round(motion * calibration.coefficient).toInt().coerceIn(0, MAX_DAILY_STEPS)
     }

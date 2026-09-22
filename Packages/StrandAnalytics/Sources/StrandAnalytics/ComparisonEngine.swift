@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // ComparisonEngine.swift — period-over-period comparison of a daily metric.
@@ -82,6 +83,7 @@ public enum ComparisonEngine {
     /// of value against the 0-based position index (the order in which values are
     /// supplied). Returns `.empty` for an empty input.
     public static func stat(_ values: [Double]) -> SeriesStat {
+        PhoneComputeRuntime.entered("swift.ComparisonEngine.stat")
         let n = values.count
         guard n > 0 else { return .empty }
 
@@ -110,6 +112,7 @@ public enum ComparisonEngine {
     /// Compare a current slice to a previous slice. The delta and direction are on
     /// the means; pctChange is nil when the previous mean is 0 / empty.
     public static func compare(current: [Double], previous: [Double]) -> PeriodComparison {
+        PhoneComputeRuntime.entered("swift.ComparisonEngine.compare")
         let cur = stat(current)
         let prev = stat(previous)
 
@@ -149,6 +152,7 @@ public enum ComparisonEngine {
     /// both periods come back empty.
     public static func monthOverMonth(byDay: [(day: String, value: Double)],
                                       referenceDay: String) -> PeriodComparison {
+        PhoneComputeRuntime.entered("swift.ComparisonEngine.monthOverMonth")
         guard let (curYear, curMonth) = yearMonth(of: referenceDay) else {
             return compare(current: [], previous: [])
         }
@@ -174,6 +178,7 @@ public enum ComparisonEngine {
 
     /// Median of an array (0 when empty).
     static func median(_ values: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.ComparisonEngine.median")
         guard !values.isEmpty else { return 0 }
         let s = values.sorted()
         let n = s.count
@@ -184,6 +189,7 @@ public enum ComparisonEngine {
     /// OLS slope of values against their 0-based index. 0 when n < 2 or the index
     /// has zero variance (impossible for distinct indices, but guarded anyway).
     static func leastSquaresSlope(_ values: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.ComparisonEngine.leastSquaresSlope")
         let n = values.count
         guard n >= 2 else { return 0 }
         let nD = Double(n)

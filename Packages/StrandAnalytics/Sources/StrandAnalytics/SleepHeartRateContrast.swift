@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 /// Descriptive primary-sleep vs wake HR contrast.
@@ -68,6 +69,8 @@ public enum SleepHeartRateContrast {
     /// **not** claimed to be a clinically validated coverage threshold.
     public static func evaluate(wakeHR: [Double?], primarySleepHR: [Double?],
                                 minimumValidSamples: Int = defaultMinimumValidSamples) -> Result? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepHeartRateContrast.evaluate") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepHeartRateContrast.evaluate")
         guard minimumValidSamples > 0, !wakeHR.isEmpty, !primarySleepHR.isEmpty else { return nil }
 
         let wake = summarize(wakeHR)

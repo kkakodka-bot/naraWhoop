@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.Issue259PreOnsetClampTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.002">
+  <properties/>
+  <testcase name="preOnsetStagesAreClampedSoAsleepNeverExceedsTimeInBed" classname="com.noop.analytics.Issue259PreOnsetClampTest" time="0.002"/>
+  <testcase name="nonEditedNightIsUnchangedByTheClamp" classname="com.noop.analytics.Issue259PreOnsetClampTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

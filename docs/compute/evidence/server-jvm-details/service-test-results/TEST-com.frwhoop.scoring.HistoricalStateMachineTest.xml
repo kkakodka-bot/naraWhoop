@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.HistoricalStateMachineTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:00" hostname="mac-studio.lan" time="0.013">
+  <properties/>
+  <testcase name="warmGapAcrossResetAgesOnlyEligibleDaysForEachMetricFamily" classname="com.frwhoop.scoring.HistoricalStateMachineTest" time="0.001"/>
+  <testcase name="futureAndUnorderedObservationsAreRejected" classname="com.frwhoop.scoring.HistoricalStateMachineTest" time="0.0"/>
+  <testcase name="missingCalendarDaysAgeBaselineWithoutCreatingSleepDebtNights" classname="com.frwhoop.scoring.HistoricalStateMachineTest" time="0.001"/>
+  <testcase name="recalibrationAndSourceEraDoNotReuseOldBaseline" classname="com.frwhoop.scoring.HistoricalStateMachineTest" time="0.0"/>
+  <testcase name="serializedWarmGapCanResumeBeforeOrOnResetWithoutAgingExcludedDays" classname="com.frwhoop.scoring.HistoricalStateMachineTest" time="0.001"/>
+  <testcase name="warmGapIntersectsExactFractionalAndFutureResetEpochsUsingUTCDateKeys" classname="com.frwhoop.scoring.HistoricalStateMachineTest" time="0.005"/>
+  <testcase name="fullDailyMetricCodecPreservesNullsBooleansAndAllExistingFields" classname="com.frwhoop.scoring.HistoricalStateMachineTest" time="0.0"/>
+  <testcase name="debtUsesExistingCappedRecurrenceAndNoDataIsNotZero" classname="com.frwhoop.scoring.HistoricalStateMachineTest" time="0.001"/>
+  <testcase name="checkpointRestartAndFreshReplayAgreeAcrossIndependentResetPolicies" classname="com.frwhoop.scoring.HistoricalStateMachineTest" time="0.002"/>
+  <testcase name="baselineBeforeDayExcludesTodaysValueAndReplayIsDeterministic" classname="com.frwhoop.scoring.HistoricalStateMachineTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

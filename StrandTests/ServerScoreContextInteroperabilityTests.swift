@@ -5,7 +5,8 @@ import StrandAnalytics
 @testable import Strand
 #endif
 
-/// Dedicated gate. The JVM producer must finish successfully before this suite is selected.
+/// Dedicated native integration requires freshly generated JVM output. The complete app suite
+/// also exercises these contracts against a bundled, unmodified synthetic JVM publication.
 final class ServerScoreContextInteroperabilityTests: XCTestCase {
     private let day = "2026-09-15"
     private let filename = "W4-POPULATED-CONTEXT-SNAPSHOT-V2-NATIVE-FIXTURE.json"
@@ -24,7 +25,15 @@ final class ServerScoreContextInteroperabilityTests: XCTestCase {
     }
 
     private func fixture() throws -> [String: Any] {
-        try load(path: ProcessInfo.processInfo.environment["W4_POPULATED_CONTEXT_FIXTURE"])
+        let explicit = ProcessInfo.processInfo.environment["W4_POPULATED_CONTEXT_FIXTURE"]
+        #if SERVER_SCORE_NATIVE_TESTS
+        // Integration evidence never silently substitutes a historical fixture.
+        return try load(path: explicit)
+        #else
+        if let explicit { return try load(path: explicit) }
+        return try load(path: Bundle(for: Self.self).url(
+            forResource: String(filename.dropLast(5)), withExtension: "json")?.path)
+        #endif
     }
 
     private func decode(_ object: [String: Any]) throws -> ServerScoreSnapshot {
@@ -84,7 +93,17 @@ final class ServerScoreContextInteroperabilityTests: XCTestCase {
         XCTAssertNotEqual(try family("cycle", in: object)["phase"] as? String, "learning")
         XCTAssertNotEqual(try family("circadian", in: object)["confidence"] as? String, "unreadable")
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(family("illness", in: object)["signalCount"] as? Int), 2)
-        let absentGaps = ["journal_context_not_shared", "journal_context_incomplete", "illness_baseline_learning",
+        // The fixture intentionally has no verified beat timing. Its qualified RHR/temperature
+        // signals do not authorize HRV, HRV-dependent recovery, or an earned HRV baseline.
+        // Mirror the JVM producer's explicit missingness assertions through the Swift decoder.
+        XCTAssertNil(snapshot.value(.hrv))
+        XCTAssertNil(snapshot.value(.sdnn))
+        XCTAssertNil(snapshot.value(.recovery))
+        for metric in [ServerScoreMetric.hrv, .sdnn, .recovery] {
+            XCTAssertEqual(snapshot.metrics?[metric.rawValue]?.status, "unavailable")
+        }
+        XCTAssertTrue(Set(snapshot.coverage.gaps ?? []).contains("illness_baseline_learning"))
+        let absentGaps = ["journal_context_not_shared", "journal_context_incomplete",
                           "cycle_context_not_shared", "cycle_history_learning", "cycle_temperature_baseline_unavailable",
                           "circadian_hourly_history_unavailable", "circadian_rhythm_unreadable", "sleep_schedule_unavailable"]
         XCTAssertTrue(Set(snapshot.coverage.gaps ?? []).isDisjoint(with: absentGaps))

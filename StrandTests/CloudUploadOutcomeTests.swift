@@ -31,7 +31,7 @@ final class CloudUploadOutcomeTests: XCTestCase {
             }
             base = URL(fileURLWithPath: path, isDirectory: true)
         } else {
-            base = FileManager.default.temporaryDirectory
+            base = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         }
         let root = base.appendingPathComponent("cloud-outcome-" + UUID().uuidString, isDirectory: true)
         let scope = try AccountScope(projectURL: "https://project.example",
@@ -60,7 +60,7 @@ final class CloudUploadOutcomeTests: XCTestCase {
                        control: @escaping @Sendable (URLRequest) async throws -> PushTransportResponse = { _ in throw CloudUploadError.unavailable },
                        journalWriteObserver: (@Sendable (URL) throws -> Void)? = nil,
                        refresh: (@Sendable (AccountSessionContext) async throws -> Void)? = nil) throws -> CloudUploadQueue {
-        try CloudUploadQueue(context: context ?? f.context, layout: f.layout, adapter: adapter,
+        try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context ?? f.context, layout: f.layout, adapter: adapter,
             authorize: { _ in "synthetic-token" }, isCurrent: current,
             policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
             control: control, now: { clock.value }, journalWriteObserver: journalWriteObserver,

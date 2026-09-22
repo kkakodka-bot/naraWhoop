@@ -1717,6 +1717,10 @@ public final class BLEManager: NSObject, ObservableObject {
         do {
             if let existing = ingestStore { store = existing }
             else { store = try await WhoopStore(path: path) }
+            if let accountScope, CloudRuntimeIdentity.currentEnrollmentSnapshot()?.scope != accountScope {
+                // A fresh JWT account must bind before additive capture metadata makes it nonempty.
+                try await store.bindAccountOwner(projectURL: accountScope.projectURL, userID: accountScope.userID)
+            }
             try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
             if let accountScope {
                 try await CloudCaptureScope.bindRuntimeOwner(store, scope: accountScope)
@@ -6923,6 +6927,8 @@ public final class BLEManager: NSObject, ObservableObject {
     /// owns the concrete store) hops onto a @MainActor Task, then the gated buzz + state save run back on
     /// the main actor. Haptic firing can't be verified in the simulator — test on-device.
     private func maybeBuzzInactivity() {
+        guard PhoneComputeRuntime.permitsLocal("inactivity_coaching") else { return }
+        PhoneComputeRuntime.entered("inactivity_coaching")
         guard InactivityPrefs.isEnabled() else { return }   // cheap pre-check before any DB read
         Task { @MainActor in
             let nowSec = Int(Date().timeIntervalSince1970)
@@ -7829,6 +7835,9 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 let store: WhoopStore
                 if let existing = self.ingestStore { store = existing }
                 else { store = try await WhoopStore(path: path) }
+                if let scope = self.accountScope, CloudRuntimeIdentity.currentEnrollmentSnapshot()?.scope != scope {
+                    try await store.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+                }
                 try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
                 if let scope = self.accountScope {
                     try await CloudCaptureScope.bindRuntimeOwner(store, scope: scope)

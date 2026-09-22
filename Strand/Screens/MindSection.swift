@@ -3,6 +3,7 @@ import Foundation
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 
 // MARK: - Mind
 //
@@ -198,6 +199,13 @@ struct MindSection: View {
         let todayKey = Repository.localDayKey(Date())
         let todayValue = mood.last(where: { $0.day == todayKey })
             .map { Int($0.value.rounded()) }
+        if PhoneComputeRuntime.isFinalHosted {
+            todayMood = todayValue
+            moodDayCount = mood.count
+            lines = []
+            return
+        }
+        PhoneComputeRuntime.entered("MindSection.correlations")
 
         // Candidate body signals from the merged daily cache (the same source the
         // rest of Insights reads), shaped into the (day, value) form mood uses.

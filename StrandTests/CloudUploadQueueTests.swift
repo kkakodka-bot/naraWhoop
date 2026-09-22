@@ -9,7 +9,7 @@ import Darwin
 
 private func uploadQueueFixtureBaseDirectory() throws -> URL {
     guard let path = ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"] else {
-        return FileManager.default.temporaryDirectory
+        return (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
     }
     var isDirectory: ObjCBool = false
     guard path.hasPrefix("/"), !path.utf8.contains(0),
@@ -35,7 +35,7 @@ final class CloudUploadQueueTests: XCTestCase {
         job.responseDisposition = .authentication
         try journal.save(job)
         let adapter = UploadAdapter()
-        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+        let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter,
             authorize: { _ in "installation-test-token" }, isCurrent: { _ in true },
             policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
             control: { _ in throw CloudUploadError.unavailable }, fleetToken: { "fleet-test-secret" })
@@ -62,7 +62,7 @@ final class CloudUploadQueueTests: XCTestCase {
     private func queue(_ context: AccountSessionContext, _ layout: AccountStorageLayout, _ adapter: UploadAdapter,
                        current: @escaping CloudUploadQueue.Current = { _ in true }, limit: Int = 2,
                        capacity: Int = 1_000_000) throws -> CloudUploadQueue {
-        try CloudUploadQueue(context: context, layout: layout, adapter: adapter, authorize: { _ in "synthetic-token" },
+        try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter, authorize: { _ in "synthetic-token" },
             isCurrent: current, policy: { .init(concurrency: limit, allowsCellular: false, allowsConstrained: false) },
             control: { _ in throw CloudUploadError.unavailable }, maximumBytes: capacity)
     }
@@ -189,6 +189,28 @@ final class CloudUploadQueueTests: XCTestCase {
         XCTAssertEqual(try CloudUploadJournal(directory: layout.uploadDirectory).load().count, 1)
     }
 
+    func testInjectedResourcePressureStillDefersWithAnAdmittingNetworkPolicy() async throws {
+        let (root, context, layout) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let budget = ResourceBudget(thermal: { ProcessInfo.ThermalState.critical.rawValue }, lowPower: { false })
+        let adapter = UploadAdapter()
+        let q = try CloudUploadQueue(resourceBudget: budget, context: context, layout: layout,
+            adapter: adapter, authorize: { _ in XCTFail("Pressure must block before authorization"); return "unused" },
+            isCurrent: { _ in true },
+            policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
+            control: { _ in XCTFail("Pressure must block control requests"); throw CloudUploadError.unavailable })
+        do {
+            _ = try await q.request(endpoint: endpoint, body: Data([3, 5, 7]), headers: [:], captured: context)
+            XCTFail("Resource pressure was ignored")
+        } catch { XCTAssertEqual(error as? CloudUploadError, .retryScheduled) }
+        XCTAssertEqual(adapter.count, 0)
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory)
+        let saved = try XCTUnwrap(journal.load().values.first)
+        XCTAssertEqual(try Data(contentsOf: journal.bodyURL(saved)), Data([3, 5, 7]))
+        XCTAssertFalse(saved.acknowledged)
+        XCTAssertNil(saved.validatedReceipt)
+    }
+
     func testDisabledPushRetainsQueueAndReceiptsWithoutAuthorizationOrTasks() async throws {
         try await verifyDeniedAdmission(enabled: false, termsAccepted: true)
     }
@@ -208,7 +230,7 @@ final class CloudUploadQueueTests: XCTestCase {
         object.needsNewIntent = true
         try journal.save(object)
         let adapter = UploadAdapter()
-        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+        let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter,
             authorize: { _ in XCTFail("denied admission must not request credentials"); throw CloudUploadError.unavailable },
             isCurrent: { _ in true },
             policy: { .current(wifiOnly: false, enabled: enabled && termsAccepted) },
@@ -247,7 +269,7 @@ final class CloudUploadQueueTests: XCTestCase {
             let adapter = UploadAdapter()
             adapter.seed(task)
             let policy = UploadPolicyBox()
-            let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+            let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter,
                 authorize: { _ in XCTFail("disabled queue requested credentials"); throw CloudUploadError.unavailable },
                 isCurrent: { _ in true }, policy: { policy.value },
                 control: { _ in XCTFail("disabled queue renewed an intent"); throw CloudUploadError.unavailable })
@@ -284,7 +306,7 @@ final class CloudUploadQueueTests: XCTestCase {
         let entered = expectation(description: "authorization suspended")
         let gate = UploadAuthorizationGate()
         defer { Task { await gate.release() } }
-        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+        let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter,
             authorize: { _ in entered.fulfill(); return await gate.token() },
             isCurrent: { _ in true }, policy: { policy.value },
             control: { _ in XCTFail("no intent renewal expected"); throw CloudUploadError.unavailable })
@@ -319,7 +341,7 @@ final class CloudUploadQueueTests: XCTestCase {
         let entered = expectation(description: "intent authorization suspended")
         let gate = UploadAuthorizationGate()
         defer { Task { await gate.release() } }
-        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+        let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter,
             authorize: { _ in entered.fulfill(); return await gate.token() },
             isCurrent: { _ in true }, policy: { policy.value },
             control: { _ in XCTFail("consent was revoked before intent renewal"); throw CloudUploadError.unavailable })
@@ -349,7 +371,9 @@ final class CloudUploadQueueTests: XCTestCase {
         var job = CloudUploadJob(id: CloudUploadQueue.objectJobID(endpoint: endpoint, objectID: objectID),
             owner: context.scope, generation: context.generation, endpoint: endpoint, deviceID: "", createdAt: Date(),
             operation: .objectPut, method: "PUT", headers: [:])
-        job.objectID = objectID; job.objectKey = "scoped/synthetic-object"
+        job.objectID = objectID
+        job.objectKey = W5ReceiptFixture.objectKey(owner: context.scope.userID,
+                                                  device: "synthetic-device", stream: "rawBatch")
         job.manifest = try W5ReceiptFixture.bytes(["protocolVersion": "1.2", "objectId": objectID,
             "batchId": objectID, "sourceId": W5ReceiptFixture.source, "deviceId": "synthetic-device",
             "stream": "rawBatch", "startTs": 1, "endTs": 1, "sampleCount": 1,
@@ -451,7 +475,7 @@ final class CloudUploadQueueTests: XCTestCase {
             "objectId": job.objectID!, "objectKey": job.objectKey!, "duplicate": false,
             "uploadUrl": "https://bucket.example/refreshed", "requiredHeaders": ["content-type": "application/octet-stream"]])
         let adapter = UploadAdapter()
-        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter, authorize: { _ in "test" },
+        let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter, authorize: { _ in "test" },
             isCurrent: { _ in true }, policy: { .init(concurrency: 1, allowsCellular: true, allowsConstrained: false) },
             control: { request in
                 XCTAssertEqual(request.httpBody, original.manifest)
@@ -530,7 +554,7 @@ final class CloudUploadQueueTests: XCTestCase {
         let (root, context, layout) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
         func make(_ captured: AccountSessionContext) throws -> CloudPushBackgroundRuntime {
-            try CloudPushBackgroundRuntime(context: captured, layout: layout, authorize: { _ in "unused-test" },
+            try CloudPushBackgroundRuntime(resourceBudget: W5ReceiptFixture.resourceBudget, context: captured, layout: layout, authorize: { _ in "unused-test" },
                 isCurrent: { _ in true }, policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
                 sessionConfiguration: .ephemeral)
         }
@@ -560,7 +584,7 @@ final class CloudUploadQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [TransportURLProtocol.self]
-        let runtime = try CloudPushBackgroundRuntime(context: context, layout: layout, authorize: { _ in "synthetic-token" },
+        let runtime = try CloudPushBackgroundRuntime(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, authorize: { _ in "synthetic-token" },
             isCurrent: { _ in true }, policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
             sessionConfiguration: config)
         CloudPushBackgroundRuntime.install(runtime)
@@ -583,9 +607,26 @@ final class CloudUploadQueueTests: XCTestCase {
         CloudPushBackgroundRuntime.install(nil)
         await runtime.retire()
         do {
-            _ = try await CloudPushTransport(endpoint: .init(url: endpoint, host: "project.example"), bearerToken: "test").post(batch)
-            XCTFail("unscoped legacy transport must not adopt a login")
+            _ = try await transport.post(batch)
+            XCTFail("the captured account transport must not outlive its runtime")
         } catch { XCTAssertEqual(error as? CloudUploadError, .staleOwner) }
+
+        // Enrollment explicitly supports direct token-scoped transport. It must not adopt the
+        // retired account's journal, and this protocol test must never contact an external host.
+        let directConfig = URLSessionConfiguration.ephemeral
+        directConfig.protocolClasses = [DirectEnrollmentURLProtocol.self]
+        let directSession = URLSession(configuration: directConfig)
+        defer { directSession.invalidateAndCancel() }
+        let metadataBefore = try journal.load()
+        let enrollment = CloudPushTransport(endpoint: .init(url: endpoint, host: "project.example"),
+            uploadToken: "enrollment-only", fleetToken: "fixture-fleet", session: directSession,
+            uploadSession: directSession)
+        let response = try await enrollment.post(batch)
+        XCTAssertEqual(response.statusCode, 202)
+        XCTAssertEqual(response.body, Data("enrollment-fixture".utf8))
+        XCTAssertEqual(Set(try journal.load().keys), Set(metadataBefore.keys))
+        XCTAssertEqual(try journal.load()[saved.id]?.phase, .pausedTerminal)
+        XCTAssertEqual(try Data(contentsOf: journal.bodyURL(saved)), try CloudPushTransport.gzip(batch.body))
     }
 
     func testReceiverResetCannotReplayOldResponseAndOnlyCommittedJobsAreRetired() async throws {
@@ -651,7 +692,7 @@ final class CloudUploadQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let fence = UploadFence()
         let adapter = UploadAdapter()
-        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+        let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter,
             authorize: { _ in fence.revoke(); return "stale-synthetic-token" }, isCurrent: { _ in fence.current },
             policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
             control: { _ in throw CloudUploadError.unavailable })
@@ -666,7 +707,7 @@ final class CloudUploadQueueTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let policy = UploadPolicyBox()
         let adapter = UploadAdapter()
-        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter, authorize: { _ in "synthetic" },
+        let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter, authorize: { _ in "synthetic" },
             isCurrent: { _ in true }, policy: { policy.value }, control: { _ in throw CloudUploadError.unavailable })
         let pending = Task { try await q.request(endpoint: endpoint, body: Data([1, 2]), headers: [:], captured: context) }
         try await eventually { adapter.count == 1 }
@@ -911,7 +952,7 @@ final class CloudUploadQueueTests: XCTestCase {
         for position in [1, 3, 7] {
             let layout = AccountStorageLayout(baseDirectory: root.appendingPathComponent("write-\(position)"), scope: context.scope)
             let writes = UploadAdmissionCount(), checks = UploadAdmissionCount(), adapter = UploadAdapter()
-            let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+            let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter,
                 authorize: { _ in XCTFail("preparation cannot authorize delivery"); throw CloudUploadError.unavailable },
                 isCurrent: { _ in true }, policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) },
                 control: { _ in throw CloudUploadError.unavailable }, maximumBytes: 8_000_000,
@@ -966,7 +1007,7 @@ final class CloudUploadQueueTests: XCTestCase {
         let preference = UploadFence(), adapter = UploadAdapter(), gate = UploadAuthorizationGate()
         let entered = expectation(description: "admitted delivery awaiting synthetic credentials")
         defer { Task { await gate.release() } }
-        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+        let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: adapter,
             authorize: { _ in entered.fulfill(); return await gate.token() }, isCurrent: { _ in true },
             policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) },
             control: { _ in throw CloudUploadError.unavailable }, maximumBytes: 8_000_000)
@@ -1110,6 +1151,23 @@ private final class TransportURLProtocol: URLProtocol {
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Encoding"), "gzip")
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data("bounded-receiver-response".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private final class DirectEnrollmentURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        XCTAssertEqual(request.url?.host, "project.example")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer enrollment-only")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-NOOP-Fleet-Token"), "fixture-fleet")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Encoding"), "gzip")
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 202,
+            httpVersion: "HTTP/1.1", headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("enrollment-fixture".utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

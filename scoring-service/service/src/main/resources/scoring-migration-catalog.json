@@ -486,5 +486,13 @@
   {
     "basename": "20260921120000_sensor_acquisition_windows.sql",
     "sha256": "aeb8a076e4d04a88ba0f16fb3744627259a4fbe82fd0113be77f6eb6341fde93"
+  },
+  {
+    "basename": "20260921121000_final_hosted_compute_contract.sql",
+    "sha256": "eedc287a3e0081c13f85924add06041bb0c164eb3984bbca3d07bd2a9b314fd2"
+  },
+  {
+    "basename": "20260921122000_compute_session_requests.sql",
+    "sha256": "14efd30ff5754a779ee300e86be08ce2db8bd6c4aa3b3e8a96bc97abf8b773a1"
   }
 ]

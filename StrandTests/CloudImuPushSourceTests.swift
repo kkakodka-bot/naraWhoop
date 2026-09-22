@@ -24,7 +24,7 @@ struct W5ImuFixture {
 
     init(scope: AccountScope? = nil, segmentBudget: Int = 16) throws {
         self.scope = try scope ?? AccountScope(projectURL: "https://project.example", userID: W5ReceiptFixture.owner)
-        root = FileManager.default.temporaryDirectory.appendingPathComponent("w5-imu-" + UUID().uuidString)
+        root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent("w5-imu-" + UUID().uuidString)
         suite = "w5-imu-" + UUID().uuidString
         defaults = UserDefaults(suiteName: suite)!
         let captured = DurableIngestScope(environment: self.scope.projectURL, accountID: self.scope.userID, deviceID: device)

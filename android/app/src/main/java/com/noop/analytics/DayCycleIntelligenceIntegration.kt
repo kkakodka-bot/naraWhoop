@@ -117,6 +117,7 @@ internal object DayCycleIntelligenceIntegration {
         maxHROverride: Double?,
         effortMethod: StrainScorer.Method,
     ): PhysiologicalStepCycleEngine.Result {
+        PhoneComputeRuntime.inferenceStarted("DayCycleIntelligenceIntegration.compute")
         val witnesses = scoredNights.associate { result ->
             result.daily.day to dayWitness(resolvedOwners[result.daily.day].orEmpty(), result)
         }

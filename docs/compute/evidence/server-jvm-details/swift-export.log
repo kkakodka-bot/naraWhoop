@@ -1,0 +1,34 @@
+[0/1] Planning build
+Building for debugging...
+[0/2] Write swift-version-30D7331401001902.txt
+Build complete! (1.40s)
+Test Suite 'Selected tests' started at 2026-09-21 23:12:10.131.
+Test Suite 'StrandAnalyticsPackageTests.xctest' started at 2026-09-21 23:12:10.132.
+Test Suite 'WholeDaySwiftCurrentCorpusTests' started at 2026-09-21 23:12:10.132.
+Test Case '-[StrandAnalyticsTests.WholeDaySwiftCurrentCorpusTests testActualCurrentSwiftCorpusPreservesCapabilityAbstention]' started.
+Test Case '-[StrandAnalyticsTests.WholeDaySwiftCurrentCorpusTests testActualCurrentSwiftCorpusPreservesCapabilityAbstention]' passed (47.129 seconds).
+Test Case '-[StrandAnalyticsTests.WholeDaySwiftCurrentCorpusTests testCurrentWriterRejectsHistoricalOrExistingTargets]' started.
+Test Case '-[StrandAnalyticsTests.WholeDaySwiftCurrentCorpusTests testCurrentWriterRejectsHistoricalOrExistingTargets]' passed (0.001 seconds).
+Test Suite 'WholeDaySwiftCurrentCorpusTests' passed at 2026-09-21 23:12:57.263.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 47.130 (47.131) seconds
+Test Suite 'StrandAnalyticsPackageTests.xctest' passed at 2026-09-21 23:12:57.263.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 47.130 (47.131) seconds
+Test Suite 'Selected tests' passed at 2026-09-21 23:12:57.263.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 47.130 (47.132) seconds
+SWIFT_CURRENT_CASE empty-utc windows=0 measurement=unavailable
+SWIFT_CURRENT_CASE whoop4-legacy-boundaries windows=0 measurement=unavailable
+SWIFT_CURRENT_CASE whoop5-channel5-order-exclusions windows=0 measurement=unavailable
+SWIFT_CURRENT_CASE whoop5-channel7-suspect5-future5 windows=0 measurement=unavailable
+SWIFT_CURRENT_CASE whoop5-hr-only-night windows=13 measurement=unavailable
+SWIFT_CURRENT_CASE dense-night-v1 windows=36 measurement=unavailable
+SWIFT_CURRENT_CASE dense-night-v2 windows=36 measurement=unavailable
+SWIFT_CURRENT_CASE dense-night-v1-deep-hrv windows=36 measurement=unavailable
+SWIFT_CURRENT_CASE dense-night-v2-no-deep-hrv windows=36 measurement=unavailable
+SWIFT_CURRENT_CASE dense-night-v1-no-rr-deep-hrv windows=36 measurement=unavailable
+SWIFT_CURRENT_CASE whoop5-hr-only-raw-gap windows=13 measurement=unavailable
+SWIFT_CURRENT_CASE fragmented-main-night-and-nap windows=96 measurement=unavailable
+SWIFT_CURRENT_CASE dense-night-v2-and-workout windows=36 measurement=unavailable
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

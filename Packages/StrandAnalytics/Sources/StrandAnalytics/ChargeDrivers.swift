@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // ChargeDrivers.swift - the ordered "why is my Charge what it is" driver list.
@@ -89,6 +90,8 @@ extension RecoveryScorer {
     /// baseline). Returns nil when no deviation is available (no baseline yet / not worn), so
     /// the UI shows nothing rather than a fake absolute. The tier is a deviation band only.
     public static func skinTempRelative(deviationC: Double?) -> SkinTempRelative? {
+        guard PhoneComputeRuntime.permitsLocal("swift.ChargeDrivers.skinTempRelative") else { return nil }
+        PhoneComputeRuntime.entered("swift.ChargeDrivers.skinTempRelative")
         guard let dev = deviationC else { return nil }
         let tier: SkinTempRelative.Tier
         if dev > skinTempTypicalBandC {
@@ -127,6 +130,8 @@ extension RecoveryScorer {
                                      respBaseline: BaselineState?,
                                      sleepPerf: Double?,
                                      skinTempDev: Double? = nil) -> [ChargeDriver] {
+        guard PhoneComputeRuntime.permitsLocal("swift.ChargeDrivers.chargeDrivers") else { return [] }
+        PhoneComputeRuntime.entered("swift.ChargeDrivers.chargeDrivers")
 
         // No score => no real contributions to attribute (cold-start). recovery(...) enforces
         // the usable gate; mirror it so a nil headline never yields fabricated driver rows.
@@ -247,6 +252,7 @@ extension RecoveryScorer {
     // Tools/test_home_i18n.py enforces that complete engine-to-catalog contract.
 
     static func hrvVerdict(value: Double, baseline: Double, saturationDetected: Bool = false) -> String {
+        PhoneComputeRuntime.entered("swift.ChargeDrivers.hrvVerdict")
         if value > baseline { return "above baseline, supporting recovery" }
         if value < baseline {
             // Parasympathetic-saturation signature detected: resting HR is also low and decoupled from
@@ -262,24 +268,28 @@ extension RecoveryScorer {
     }
 
     static func rhrVerdict(value: Double, baseline: Double) -> String {
+        PhoneComputeRuntime.entered("swift.ChargeDrivers.rhrVerdict")
         if value < baseline { return "below baseline, supporting recovery" }
         if value > baseline { return "above baseline, limiting recovery" }
         return "at baseline"
     }
 
     static func respVerdict(value: Double, baseline: Double) -> String {
+        PhoneComputeRuntime.entered("swift.ChargeDrivers.respVerdict")
         if value < baseline { return "below baseline, supporting recovery" }
         if value > baseline { return "above baseline, limiting recovery" }
         return "at baseline"
     }
 
     static func sleepVerdict(sleepPerf: Double) -> String {
+        PhoneComputeRuntime.entered("swift.ChargeDrivers.sleepVerdict")
         if sleepPerf > sleepPerfCenter { return "a strong night, supporting recovery" }
         if sleepPerf < sleepPerfCenter { return "below a good night, limiting recovery" }
         return "a typical night"
     }
 
     static func skinTempVerdict(_ dev: Double) -> String {
+        PhoneComputeRuntime.entered("swift.ChargeDrivers.skinTempVerdict")
         // Symmetric penalty: any drift from baseline lowers Charge; at baseline it is neutral.
         if abs(dev) <= skinTempTypicalBandC { return "near baseline" }
         return dev > 0

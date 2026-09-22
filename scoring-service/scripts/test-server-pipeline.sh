@@ -17,13 +17,23 @@ cleanup() {
 }
 trap cleanup EXIT
 printf 'Local pipeline evidence: %s\n' "$evidence"
-docker network create "$network" > "$evidence/network.txt"
+database_mount=()
+if [[ "${PIPELINE_TEST_BIND_DATA:-0}" == 1 ]]; then
+  mkdir -p "$evidence/database-data"
+  database_mount=(--mount "type=bind,source=${PIPELINE_TEST_DATABASE_DATA:-$evidence/database-data},target=/var/lib/postgresql/data")
+fi
 pg_storage=()
 if [[ "${PIPELINE_TEST_PG_TMPFS:-false}" == true ]]; then
   pg_storage=(--tmpfs /var/lib/postgresql/data:rw,size=768m)
 fi
+if (( ${#database_mount[@]} > 0 && ${#pg_storage[@]} > 0 )); then
+  printf 'PIPELINE_TEST_BIND_DATA and PIPELINE_TEST_PG_TMPFS are mutually exclusive.\n' >&2
+  exit 2
+fi
+docker network create "$network" > "$evidence/network.txt"
 docker run --detach --name "$database" --network "$network" --network-alias database \
   "${pg_storage[@]}" \
+  "${database_mount[@]}" \
   --label nara.test=server-pipeline --memory 2g --cpus 2 \
   --log-opt max-size=20m --log-opt max-file=2 \
   -p 127.0.0.1::5432 -e POSTGRES_PASSWORD=isolated-pipeline-only \
@@ -71,5 +81,9 @@ fi
 npx --yes deno test --allow-all tests/server_pipeline_sql_test.ts 2>&1 | tee "$evidence/edge.log"
 cd "$repo_dir"
 bash Tools/server-score-contract/run-mobile-decoders.sh "$PIPELINE_TEST_OUTPUT" 2>&1 | tee "$evidence/mobile.log"
+swift_decoder="$(swift build --package-path Tools/server-score-contract/swift --show-bin-path)/DecodeContract"
+node Tools/server-score-contract/test-canonical-runners.mjs "$PIPELINE_TEST_OUTPUT" "$swift_decoder" \
+  "$repo_dir/Tools/server-score-contract/android/build/install/server-score-decoder-contract/bin/server-score-decoder-contract" \
+  2>&1 | tee "$evidence/canonical-mutations.log"
 git rev-parse HEAD > "$evidence/source-sha.txt"
 printf 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed. Evidence: %s\n' "$evidence"

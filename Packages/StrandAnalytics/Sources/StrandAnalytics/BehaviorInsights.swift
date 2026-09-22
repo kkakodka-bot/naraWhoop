@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // BehaviorInsights.swift — does a logged behavior move an outcome?
@@ -101,6 +102,8 @@ public enum BehaviorInsights {
                               outcomeByDay: [String: Double],
                               behavior: String,
                               outcome: String) -> BehaviorEffect? {
+        guard PhoneComputeRuntime.permitsLocal("swift.BehaviorInsights.effect") else { return nil }
+        PhoneComputeRuntime.entered("swift.BehaviorInsights.effect")
         var withVals: [Double] = []
         var withoutVals: [Double] = []
         for (day, value) in outcomeByDay {
@@ -145,6 +148,8 @@ public enum BehaviorInsights {
                             controls: [String: Set<String>],
                             outcomeByDay: [String: Double],
                             outcome: String) -> [BehaviorEffect] {
+        guard PhoneComputeRuntime.permitsLocal("swift.BehaviorInsights.rank") else { return [] }
+        PhoneComputeRuntime.entered("swift.BehaviorInsights.rank")
         var effects: [BehaviorEffect] = []
         for (name, days) in behaviors {
             // A behaviour absent from `controls` has no controls and yields nothing — failing CLOSED, so
@@ -195,6 +200,7 @@ public enum BehaviorInsights {
 
     /// Sample variance (ddof = 1). 0 for fewer than 2 values.
     static func sampleVariance(_ values: [Double], mean: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.BehaviorInsights.sampleVariance")
         let n = values.count
         guard n >= 2 else { return 0 }
         var ss = 0.0
@@ -207,6 +213,7 @@ public enum BehaviorInsights {
     /// pooled SD is 0 the effect is undefined → reported as 0 (no spread to scale).
     static func cohensD(m1: Double, m2: Double, n1: Int, v1: Double,
                         n2: Int, v2: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.BehaviorInsights.cohensD")
         let df = n1 + n2 - 2
         guard df > 0 else { return 0 }
         let pooledVar = (Double(n1 - 1) * v1 + Double(n2 - 1) * v2) / Double(df)
@@ -219,6 +226,7 @@ public enum BehaviorInsights {
     /// Returns 1.0 (no evidence) when neither group has a usable standard error.
     static func welchP(m1: Double, v1: Double, n1: Int,
                        m2: Double, v2: Double, n2: Int) -> Double {
+        PhoneComputeRuntime.entered("swift.BehaviorInsights.welchP")
         let se2 = v1 / Double(n1) + v2 / Double(n2)
         guard se2 > 0 else {
             // No spread anywhere: identical means → p=1; differing means → p≈0.

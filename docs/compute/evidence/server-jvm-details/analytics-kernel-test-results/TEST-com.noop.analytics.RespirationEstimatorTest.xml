@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.RespirationEstimatorTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.356">
+  <properties/>
+  <testcase name="motionEvidenceIsRequiredAndKnownContaminationRemainsAttributed" classname="com.noop.analytics.RespirationEstimatorTest" time="0.001"/>
+  <testcase name="dominantSecondHarmonicWithWeakFundamentalCannotDoubleRate" classname="com.noop.analytics.RespirationEstimatorTest" time="0.029"/>
+  <testcase name="rejectsUnknownSemanticsAndMotion" classname="com.noop.analytics.RespirationEstimatorTest" time="0.0"/>
+  <testcase name="intervalAdapterRequiresOriginalChainAndDoesNotFillGaps" classname="com.noop.analytics.RespirationEstimatorTest" time="0.003"/>
+  <testcase name="rsaRejectedSharedEndpointCannotContributeObservedSamples" classname="com.noop.analytics.RespirationEstimatorTest" time="0.002"/>
+  <testcase name="nightRequiresDurationAndDistributedCoverageWhileRetainingDiagnostics" classname="com.noop.analytics.RespirationEstimatorTest" time="0.227"/>
+  <testcase name="sharedSyntheticOracle" classname="com.noop.analytics.RespirationEstimatorTest" time="0.039"/>
+  <testcase name="sourceChangesAreScopedToEachWindowAndNeverInterpolatedAcross" classname="com.noop.analytics.RespirationEstimatorTest" time="0.002"/>
+  <testcase name="impossibleIbiNeverEntersInterpolationAndPlausibilityIsModalitySpecific" classname="com.noop.analytics.RespirationEstimatorTest" time="0.009"/>
+  <testcase name="rsaClockUncertaintyCannotExpandOriginalRRDurationTolerance" classname="com.noop.analytics.RespirationEstimatorTest" time="0.019"/>
+  <testcase name="upsamplingDoesNotInventBandwidthAndFusionDoesNotMultiplyConfidence" classname="com.noop.analytics.RespirationEstimatorTest" time="0.012"/>
+  <testcase name="overlappingWindowsNeverDoubleCountDuration" classname="com.noop.analytics.RespirationEstimatorTest" time="0.004"/>
+  <testcase name="mixedTimingAndKnownSignalRejectionsCannotBecomeCleanRespiration" classname="com.noop.analytics.RespirationEstimatorTest" time="0.002"/>
+  <testcase name="malformedSpansAndCorrectionNeverAcquireTiming" classname="com.noop.analytics.RespirationEstimatorTest" time="0.0"/>
+  <testcase name="tinyUnverifiedGapAndExtremeAlternationRemainMissing" classname="com.noop.analytics.RespirationEstimatorTest" time="0.001"/>
+  <testcase name="summaryDistributionRetainsOnlyAcceptedInContextValuesInStableOrder" classname="com.noop.analytics.RespirationEstimatorTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

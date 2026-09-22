@@ -34,7 +34,7 @@ import java.time.LocalDate
 // AppViewModel's viewModelScope at the call site), so a process death simply ends the session — the
 // start row (endTs null) is already banked and reads honestly as an unfinished session.
 class LiveSessionRunner(
-    val config: LiveSessionEngine.Config,
+    val config: LiveSessionEngine.Config?,
     val deviceId: String,
     private val scope: CoroutineScope,
     /** Most-recent live bpm, or null when none is current — [com.noop.ble.LiveState.heartRate]. */
@@ -49,6 +49,7 @@ class LiveSessionRunner(
     private val hrSource: String = "whoop",
     /** Injectable clock (epoch seconds) so the tick/accrual/auto-end logic is testable. */
     private val nowEpochSec: () -> Long = { System.currentTimeMillis() / 1000L },
+    private val submitSession: (Long, Long?) -> Unit = { _, _ -> },
 ) {
 
     /** Everything the session screen renders, published once per tick (and once on end). */
@@ -67,9 +68,9 @@ class LiveSessionRunner(
     val startTs: Long = nowEpochSec()
 
     /** The recovery-gated band the session opened with (the row stores this start band). */
-    val band: LiveSessionEngine.Band = LiveSessionEngine.band(config)
+    val band: LiveSessionEngine.Band? = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else LiveSessionEngine.band(requireNotNull(config))
 
-    private val engine = LiveSessionEngine(config, startTs.toInt())
+    private val engine = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else LiveSessionEngine(requireNotNull(config), startTs.toInt())
 
     private val _snapshot = MutableStateFlow(
         Snapshot(
@@ -102,7 +103,8 @@ class LiveSessionRunner(
     fun start() {
         if (tickJob != null || ended) return
         realtimeHr(true)
-        scope.launch { runCatching { persist(openRow()) } }
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) submitSession(startTs, null)
+        else scope.launch { runCatching { persist(openRow()) } }
         tickJob = scope.launch {
             while (isActive) {
                 tick()
@@ -124,7 +126,8 @@ class LiveSessionRunner(
         realtimeHr(false)
         endTs = nowEpochSec()
         publish()
-        scope.launch { runCatching { persist(closedRow()) } }
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) submitSession(startTs, endTs)
+        else scope.launch { runCatching { persist(closedRow()) } }
     }
 
     // ── Internals ──
@@ -135,7 +138,8 @@ class LiveSessionRunner(
         val dt = (now - lastTickTs).coerceAtLeast(0L).toInt()
         lastTickTs = now
 
-        val out = engine.update(now.toInt(), readBpm())
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { publish(); return }
+        val out = requireNotNull(engine).update(now.toInt(), readBpm())
 
         if (out.status == LiveSessionEngine.Status.STALE) {
             // Never fabricate: a stale stream accrues nothing and coaches nothing (the engine already
@@ -198,16 +202,16 @@ class LiveSessionRunner(
 
     private fun openRow() = LiveSessionRow(
         deviceId = deviceId, startTs = startTs, endTs = null,
-        chargeAtStart = config.charge,
-        floorBpm = band.floorBpm, ceilingBpm = band.ceilingBpm,
+        chargeAtStart = requireNotNull(config).charge,
+        floorBpm = requireNotNull(band).floorBpm, ceilingBpm = band.ceilingBpm,
         inBandSec = 0.0, belowSec = 0.0, aboveSec = 0.0,
         pushCount = 0, easeCount = 0, hrSource = hrSource,
     )
 
     private fun closedRow() = LiveSessionRow(
         deviceId = deviceId, startTs = startTs, endTs = endTs,
-        chargeAtStart = config.charge,
-        floorBpm = band.floorBpm, ceilingBpm = band.ceilingBpm,
+        chargeAtStart = requireNotNull(config).charge,
+        floorBpm = requireNotNull(band).floorBpm, ceilingBpm = band.ceilingBpm,
         inBandSec = _snapshot.value.output?.inBandSeconds ?: 0.0,
         belowSec = belowSec, aboveSec = aboveSec,
         pushCount = pushCount, easeCount = easeCount, hrSource = hrSource,

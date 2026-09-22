@@ -379,6 +379,10 @@ class ProfileStore(private val prefs: SharedPreferences,
 
     /** Enable by seeding the editor with conventional boundaries; disabling restores the defaults. */
     fun setCustomHrZonesEnabled(enabled: Boolean) {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            if (!enabled) hrZoneThresholds = null
+            return // Only explicit user-entered or canonical server thresholds may seed hosted input.
+        }
         hrZoneThresholds = if (enabled) HrZones.defaultLowerBounds(hrMax.toDouble()) else null
     }
 
@@ -823,7 +827,7 @@ fun SettingsScreen(
                 onSuccess = { msg ->
                     Toast.makeText(
                         context,
-                        "$msg Re-import it via Data sources → WHOOP import, on Android or Mac.",
+                        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) msg else "$msg Re-import it via Data sources → WHOOP import, on Android or Mac.",
                         Toast.LENGTH_LONG,
                     ).show()
                 },
@@ -1128,6 +1132,8 @@ fun SettingsScreen(
                         Text(
                             text = if (profile.hrMaxOverride > 0) {
                                 "Manual override"
+                            } else if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+                                "Server-owned automatic maximum"
                             } else {
                                 "Auto · ${profile.hrMaxAuto} bpm (Tanaka)"
                             },
@@ -1140,9 +1146,25 @@ fun SettingsScreen(
                 // Custom HR zones (#531, @kavemang): five personalized inclusive BPM lower bounds that
                 // replace the conventional %HRmax bands. Off -> the effective set stays conventional.
                 SettingsFormRow(label = uiString(R.string.l10n_settings_screen_custom_hr_zones_84736ca5)) {
+                    var manualZones by remember { mutableStateOf(false) }
+                    var zoneDraft by remember { mutableStateOf("") }
+                    if (manualZones) {
+                        val parsed = zoneDraft.split(',').mapNotNull { it.trim().toIntOrNull() }
+                        val valid = parsed.size == 5 && parsed.all { it in HrZones.customBPMRange } && parsed.zipWithNext().all { (a, b) -> a < b }
+                        AlertDialog(onDismissRequest = { manualZones = false }, title = { Text("Manual HR zone boundaries") },
+                            text = { OutlinedTextField(value = zoneDraft, onValueChange = { zoneDraft = it },
+                                label = { Text("Five increasing BPM values, comma-separated") }) },
+                            confirmButton = { TextButton(enabled = valid, onClick = {
+                                mutate { profile.hrZoneThresholds = parsed }; manualZones = false
+                            }) { Text("Save") } },
+                            dismissButton = { TextButton(onClick = { manualZones = false }) { Text("Cancel") } })
+                    }
                     Switch(
                         checked = profile.hasCustomHrZones,
-                        onCheckedChange = { mutate { profile.setCustomHrZonesEnabled(it) } },
+                        onCheckedChange = {
+                            if (it && com.noop.analytics.PhoneComputeRuntime.finalHosted) manualZones = true
+                            else mutate { profile.setCustomHrZonesEnabled(it) }
+                        },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Palette.surfaceBase,
                             checkedTrackColor = Palette.accent,
@@ -3536,7 +3558,7 @@ fun SettingsScreen(
                     )
 
                     NoopButton(
-                        text = uiString(R.string.l10n_settings_screen_export_csv_6bce63a3),
+                        text = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) "Export server results" else uiString(R.string.l10n_settings_screen_export_csv_6bce63a3),
                         kind = NoopButtonKind.Secondary,
                         enabled = !backupBusy,
                         modifier = Modifier.weight(1f),

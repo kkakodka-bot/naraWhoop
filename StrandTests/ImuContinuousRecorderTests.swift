@@ -34,7 +34,7 @@ final class ImuContinuousRecorderTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         harness = Harness()
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        directory = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         suiteName = "imu-recorder-test-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)

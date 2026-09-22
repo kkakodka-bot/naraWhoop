@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:16:42" hostname="mac-studio.lan" time="7.407">
+  <properties/>
+  <testcase name="migrationRequeuesEachPublishedV2DayOnceWithoutChangingInputsOrSnapshots" classname="com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest" time="1.137"/>
+  <testcase name="insertCorrectionsAndDeleteInvalidateBothDependentDaysAndVersions" classname="com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest" time="0.335"/>
+  <testcase name="applyingMigrationTwiceFailsAtomicallyBeforeAnotherCatchup" classname="com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest" time="0.149"/>
+  <testcase name="inputGateRejectsChangedThermalWritesAtomicallyButOtherOwnersProceed" classname="com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest" time="0.453"/>
+  <testcase name="movedRecordInvalidatesOldAndNewOwnerDeviceAndDaysOnly" classname="com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest" time="0.323"/>
+  <testcase name="semanticNoopAndDuplicateReplayDoNotCreateWork" classname="com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest" time="0.146"/>
+  <testcase name="oversizedMigrationCatchupAbortsBeforeInstallingTriggersOrChangingWork" classname="com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest" time="4.642"/>
+  <testcase name="inputAndRevisionCommitOrRollbackTogether" classname="com.frwhoop.scoring.SkinTemperatureDependencyIntegrationTest" time="0.221"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-142 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-142 - Added connection org.postgresql.jdbc.PgConnection@5b1f5fcc
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-142 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-142 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-142 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-143 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-143 - Added connection org.postgresql.jdbc.PgConnection@771cbd13
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-143 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-143 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-143 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-144 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-144 - Added connection org.postgresql.jdbc.PgConnection@5a4b8e25
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-144 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-144 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-144 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-145 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-145 - Added connection org.postgresql.jdbc.PgConnection@642c5bb3
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-145 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-145 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-145 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-146 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-146 - Added connection org.postgresql.jdbc.PgConnection@5897aae1
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-146 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-146 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-146 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-147 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-147 - Added connection org.postgresql.jdbc.PgConnection@29592929
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-147 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-147 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-147 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-148 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-148 - Added connection org.postgresql.jdbc.PgConnection@7d551ec6
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-148 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-148 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-148 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-149 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-149 - Added connection org.postgresql.jdbc.PgConnection@780546f8
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-149 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-149 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-149 - Shutdown completed.
+]]></system-err>
+</testsuite>

@@ -26,6 +26,8 @@ data class WidgetSnapshot(
     val connected: Boolean = false,
     /** Wall-clock millis of the last push, so the widget can show honest staleness. */
     val updatedAtMs: Long = 0L,
+    val resultRevisions: Map<String, String> = emptyMap(),
+    val canonicalJSON: String? = null,
 )
 
 /**
@@ -44,14 +46,15 @@ object WidgetSnapshotStore {
     suspend fun push(context: Context, snap: WidgetSnapshot) {
         val app = com.noop.account.AccountStorageContext.capture(context)
         if (!app.isCurrent()) return
+        val selected = canonical(app, snap)
         // Cheap, non-suspending gate FIRST — at live-HR cadence (~1/s) almost every call ends here.
-        if (!PushGate.admit(snap)) return
+        if (!PushGate.admit(selected)) return
 
         // Persist before anything suspending, and only THEN mark the gate (#82: marking before the
         // write let a cancelled push burn the refresh window — the widget starved on stale prefs).
         // Saving even with no widget placed means a widget added later renders fresh data instantly.
-        save(app, snap)
-        PushGate.markPushed(snap)
+        save(app, selected)
+        PushGate.markPushed(selected)
 
         val standardIds = runCatching {
             GlanceAppWidgetManager(app).getGlanceIds(NoopGlanceWidget::class.java)
@@ -64,8 +67,21 @@ object WidgetSnapshotStore {
         runCatching { NoopCompactGlanceWidget().updateAll(app) }
     }
 
-    fun save(context: Context, snap: WidgetSnapshot) {
+    private fun canonical(context: Context, snap: WidgetSnapshot): WidgetSnapshot {
+        if (!com.noop.analytics.PhoneComputeRuntime.finalHosted) return snap
+        val runtime = com.noop.account.AccountStorageContext.capture(context).runtime
+        val cache = runtime?.serverScoreRepository?.overlay(java.time.LocalDate.now().toString())
+        fun n(metric: String) = com.noop.push.ServerConsumerProjection.number(cache, metric)?.toInt()
+        val effort = com.noop.push.ServerConsumerProjection.number(cache, "strain")?.let { kotlin.math.round(it / 21.0 * 100).toInt() }
+        return snap.copy(recoveryPct = n("recovery"), restPct = n("sleep_performance"), effortPct = effort,
+            resultRevisions = com.noop.push.ServerConsumerProjection.revisions(cache), canonicalJSON = cache?.rawSnapshotJSON)
+    }
+
+    fun save(context: Context, source: WidgetSnapshot) {
+        val snap = canonical(context, source)
         val e = com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .putString("canonical_json", snap.canonicalJSON)
+            .putString("result_revisions", org.json.JSONObject(snap.resultRevisions).toString())
             .putInt("recovery", snap.recoveryPct ?: -1)
             .putInt("rest", snap.restPct ?: -1)
             .putInt("effort", snap.effortPct ?: -1)
@@ -89,7 +105,7 @@ object WidgetSnapshotStore {
             live = p.getBoolean("hrLive", false),
             nowMs = System.currentTimeMillis(),
         )
-        return WidgetSnapshot(
+        val snapshot = WidgetSnapshot(
             recoveryPct = p.getInt("recovery", -1).takeIf { it >= 0 },
             restPct = p.getInt("rest", -1).takeIf { it >= 0 },
             effortPct = p.getInt("effort", -1).takeIf { it >= 0 },
@@ -99,6 +115,7 @@ object WidgetSnapshotStore {
             connected = p.getBoolean("connected", false),
             updatedAtMs = p.getLong("updatedAt", 0L),
         )
+        return canonical(context, snapshot)
     }
 }
 
@@ -142,7 +159,7 @@ internal object PushGate {
     private fun keyOf(snap: WidgetSnapshot): String =
         // Rest + Effort join the change-key (#516) so a freshly-scored 2x2 score lands immediately, the
         // same way recovery does — not waiting out the HR refresh window.
-        "${snap.recoveryPct}|${snap.restPct}|${snap.effortPct}|" +
+        "${snap.resultRevisions}|${snap.recoveryPct}|${snap.restPct}|${snap.effortPct}|" +
             "${snap.batteryPct?.div(5)}|${snap.connected}|${snap.heartRate != null}"
 
     fun admit(snap: WidgetSnapshot): Boolean =

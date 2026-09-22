@@ -27,6 +27,7 @@ object FusionResolver {
      * the winning value, per the metric's tolerance band.
      */
     fun resolve(metricKey: String, inputs: List<FusionInput>): FusedMetricPoint? {
+        PhoneComputeRuntime.inferenceStarted("FusionResolver.resolve")
         if (inputs.isEmpty()) return null
         val kind = MetricArbitrationPolicy.kind(metricKey)
 

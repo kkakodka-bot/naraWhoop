@@ -39,7 +39,13 @@ object PushProtocol {
         protocolVersion: String = VERSION,
     ): PushBatch {
         validateUuid(sourceId, "sourceId")
-        val selectedVersion = if (table.isScalarExtension) protocolVersion else VERSION
+        val selectedVersion = when {
+            table.isScalarExtension -> protocolVersion
+            table.isObservationExtension -> if (protocolVersion == VERSION) BINARY_VERSION else protocolVersion
+            else -> VERSION
+        }
+        if (table.isObservationExtension && selectedVersion !in setOf("1.1", "1.2", "1.3", "1.4"))
+            throw PushProtocolException("Observation provenance requires protocol 1.1 or later")
         if (table.isScalarExtension && selectedVersion !in setOf("1.1", "1.2", "1.3", "1.4"))
             throw PushProtocolException("Scalar stream requires negotiated protocol 1.1 or later")
         if (records.isEmpty()) throw PushProtocolException("append batch must contain a record")
@@ -666,6 +672,10 @@ object PushProtocol {
     private val REGISTRY: Map<String, Pair<List<String>, List<String>>> = mapOf(
         "hrSample" to (listOf("ts") to listOf("bpm")),
         "rrInterval" to (listOf("ts", "rrMs", "seq") to listOf("ord", "srcChannel", "tsSuspect")),
+        "rrPacketProvenance" to (listOf("packetId") to listOf("ts", "sensorTs", "recordIndex", "rawHex", "srcChannel",
+            "schemaVersion", "decoderVersion", "clockVersion", "timestampPrecisionSeconds", "clockOffsetSeconds", "declaredCount")),
+        "standardHRReceipt" to (listOf("receiptId") to listOf("ts", "sessionId", "notificationOrdinal", "receivedUnixMs",
+            "receivedMonotonicNs", "rawHex", "schemaVersion", "clockVersion")),
         "event" to (listOf("ts", "kind") to listOf("payloadJSON")),
         "battery" to (listOf("ts") to listOf("soc", "mv", "charging")),
         "spo2Sample" to (listOf("ts") to listOf("red", "ir")),

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.RuntimePreflightIntegrationTest" tests="21" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:15:01" hostname="mac-studio.lan" time="0.57">
+  <properties/>
+  <testcase name="duplicateAliasesCannotCountAsSeparateAppliedMigrations" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.027"/>
+  <testcase name="changedAppliedHashFailsClosed" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.02"/>
+  <testcase name="ledgerCannotHideMissingAuthorizedReadContract" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.021"/>
+  <testcase name="explicitAttestationsCanSupplyLegacyLedgerHashesWithoutInventingThem" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.02"/>
+  <testcase name="aFunctionAttemptingMutationIsRejectedByTheDatabaseReadOnlyTransaction" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.015"/>
+  <testcase name="bareAmbiguousTimestampCannotClaimEitherCollisionPeer" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.015"/>
+  <testcase name="reviewedFullIdentityLedgerCanValidateBothMigrationStreams" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.016"/>
+  <testcase name="ledgerCannotHideMissingConflictTransportImplementation" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.213"/>
+  <testcase name="currentSourceCatalogCannotStandInForAbsentHistoricalHashEvidence" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.02"/>
+  <testcase name="migrationLedgerCannotHideMissingPerProcessHeartbeatTable" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.02"/>
+  <testcase name="physiologyDependenciesCannotSatisfyTheHistoricalWorkerContract" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.02"/>
+  <testcase name="missingMigrationFailsBeforeCheckingSecret" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.017"/>
+  <testcase name="uniqueTimestampStillRequiresItsActualSourceHash" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.016"/>
+  <testcase name="serviceRoleBypassCannotPassAsIngestSecretValidation" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.016"/>
+  <testcase name="migrationLedgerCannotHideMissingWorkerFunctions" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.018"/>
+  <testcase name="validConfigurationPerformsAReadOnlyTransactionAndLeavesRowsUntouched" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.017"/>
+  <testcase name="ingestSecretIsBoundAndDatabaseErrorCannotDiscloseIt" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.016"/>
+  <testcase name="validAttestationCannotHideContradictoryLedgerHash" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.015"/>
+  <testcase name="unknownLedgerIdentityFailsClosedEvenWhenAllRequiredRowsExist" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.015"/>
+  <testcase name="timestampAndNameKeepCollidingMigrationsDistinct" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.016"/>
+  <testcase name="alteredAttestationCannotHideBehindACompleteValidStandardLedger" classname="com.frwhoop.scoring.RuntimePreflightIntegrationTest" time="0.017"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

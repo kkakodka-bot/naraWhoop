@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 /// The live adapter and synthetic tests share the final read/validate/publish sequence.
 /// A successful callback is not a WidgetKit delivery or filesystem durability receipt.
@@ -79,6 +80,11 @@ extension WidgetSnapshot {
     @MainActor
     private static func preparedSnapshot(from model: AppModel, namespace: String,
                                          requiresSuccessfulRead: Bool) async throws -> WidgetSnapshot {
+        if PhoneComputeRuntime.isFinalHosted {
+            return CanonicalConsumerPublication.widgetSnapshot(state: model.repo.serverPresentation,
+                accountNamespace: namespace, heartRate: model.live.heartRate,
+                batteryPct: model.live.batteryPct.map { Int($0.rounded()) }, bonded: model.live.bonded)
+        }
         let now = Date()
         // The recovery-derived anchor: today's row when it's scored, else the freshest STRICTLY-PRIOR
         // scored day carried over. Resolved through the SHARED `Repository.widgetAnchor`, the ONE selector
@@ -147,6 +153,11 @@ extension WidgetSnapshot {
     @MainActor
     static func publishLive(from model: AppModel) async {
         guard model.isAccountRuntimeActive, model.accountStorage?.scope != nil else { return }
+        if PhoneComputeRuntime.isFinalHosted {
+            // A device/account/readback change must clear or replace every old physiological field.
+            await publish(from: model)
+            return
+        }
         let now = Date()
         guard var snap = load(), !liveUpdateRequiresFullBuild(previous: snap, now: now) else {
             await publish(from: model)

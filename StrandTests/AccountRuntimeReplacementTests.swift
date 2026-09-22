@@ -59,7 +59,7 @@ final class AccountRuntimeReplacementTests: XCTestCase {
 
         init(initial: AccountIdentitySnapshot, automaticRetry: Bool,
              initialSuccessor: AccountIdentitySnapshot? = nil, profileWeights: [String: Double] = [:]) throws {
-            directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            directory = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             identity = IdentitySource(initial)
             retired = RetiredCaptureDrain(automaticRetry: automaticRetry, retryNanoseconds: 0)

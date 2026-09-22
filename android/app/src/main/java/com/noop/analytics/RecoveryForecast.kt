@@ -147,6 +147,7 @@ object RecoveryForecaster {
         needHours: Double? = null,
         needNights: Int = 0,
     ): RecoveryForecast? {
+        PhoneComputeRuntime.inferenceStarted("RecoveryForecast.forecast")
         val chargeWindow = recentCharge.takeLast(baselineWindow)
         val nights = chargeWindow.size
         if (nights < minBaselineNights) return null

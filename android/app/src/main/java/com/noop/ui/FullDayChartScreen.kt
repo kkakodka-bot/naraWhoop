@@ -69,6 +69,11 @@ private enum class TimelineMetric(val title: String) {
 @Composable
 fun FullDayChartScreen(vm: AppViewModel, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalPhysiologyScreen(vm, "Daily charts", com.noop.push.ServerComputeContract.familyIDs,
+            mapOf("Back" to onBack))
+        return
+    }
     // #908: the deep timeline follows the ACTIVE strap id, not a hardcoded "my-whoop". A strap re-added
     // through the device manager banks its raw under its own fresh id, so a pinned "my-whoop" read left
     // the timeline empty. HR additionally reads the active ∪ canonical union (see [readTimeline]) so the

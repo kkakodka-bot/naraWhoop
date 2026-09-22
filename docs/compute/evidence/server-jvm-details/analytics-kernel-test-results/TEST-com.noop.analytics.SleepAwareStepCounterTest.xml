@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepAwareStepCounterTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.003">
+  <properties/>
+  <testcase name="awakeGapInsideSleepCountsWithNormalRules" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.001"/>
+  <testcase name="pagingUsesOneActivityClassModeForTheWholeWindow" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.0"/>
+  <testcase name="sleepSessionWithoutStagesIsConservativelyTreatedAsSleep" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.0"/>
+  <testcase name="wakeEditChangesOnlyIntersectingCycleContextSignature" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.002"/>
+  <testcase name="editedBoundsKeepStagesAndTreatNewEdgesAsSleep" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.0"/>
+  <testcase name="isolatedWalkClassBedTicksAreRejected" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.0"/>
+  <testcase name="coherentSleepBoutFailsSafeWhenGravityIsMissing" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.0"/>
+  <testcase name="shortCoherentToiletWalkDuringScoredSleepIsPreservedExactly" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.0"/>
+  <testcase name="outsideSleepUsesTheNormalCounterRulesExactly" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.0"/>
+  <testcase name="decisionDoesNotDependOnADeviceOrientationVector" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.0"/>
+  <testcase name="pagingKeepsCounterPredecessorAndOpenGaitBout" classname="com.noop.analytics.SleepAwareStepCounterTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

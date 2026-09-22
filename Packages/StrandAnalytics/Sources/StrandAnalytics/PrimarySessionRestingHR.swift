@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 /// #1169: an alternative headline resting-HR definition — the arithmetic MEAN of valid HR samples in the
@@ -52,6 +53,8 @@ public enum PrimarySessionRestingHR {
     public static func meanHR(sessions: [Session],
                               validBpm: ClosedRange<Int> = defaultValidBpm,
                               minValidSamples: Int = defaultMinValidSamples) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.PrimarySessionRestingHR.meanHR") else { return nil }
+        PhoneComputeRuntime.entered("swift.PrimarySessionRestingHR.meanHR")
         // Primary = longest by duration. `max(by:)` keeps the FIRST of equal-duration sessions (only a
         // strictly-longer one replaces it); Kotlin `maxByOrNull` resolves ties the same way, so parity holds.
         guard let primary = sessions.max(by: { $0.durationSec < $1.durationSec }) else { return nil }
@@ -83,6 +86,8 @@ public enum PrimarySessionRestingHR {
     public static func coverage(sessions: [Session],
                                 validBpm: ClosedRange<Int> = defaultValidBpm,
                                 minValidSamples: Int = defaultMinValidSamples) -> Coverage? {
+        guard PhoneComputeRuntime.permitsLocal("swift.PrimarySessionRestingHR.coverage") else { return nil }
+        PhoneComputeRuntime.entered("swift.PrimarySessionRestingHR.coverage")
         guard let primary = sessions.max(by: { $0.durationSec < $1.durationSec }) else { return nil }
         let valid = primary.bpm.filter { validBpm.contains($0) }
         guard valid.count >= minValidSamples else { return nil }

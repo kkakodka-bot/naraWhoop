@@ -3,6 +3,7 @@ import Foundation
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 
 // MARK: - Insights Hub (v5)
 //
@@ -44,7 +45,9 @@ struct InsightsHubView: View {
                        // alignment/spacing/header). The content is one inner eager VStack, so the staggered
                        // mover reveal is unchanged; this only defers building that stack until it scrolls in.
                        lazy: true) {
-            if !model.loaded {
+            if PhoneComputeRuntime.isFinalHosted {
+                CanonicalPhysiologySection(families: ["insights"], history: true)
+            } else if !model.loaded {
                 ComingSoon(what: "Reading your journal and outcomes…")
             } else {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
@@ -559,6 +562,8 @@ final class InsightsHubViewModel: ObservableObject {
     // MARK: Load
 
     func load(repo: Repository) async {
+        guard PhoneComputeRuntime.permitsLocal("InsightsHub.load") else { return }
+        PhoneComputeRuntime.entered("InsightsHub.load")
         // Journal → behaviour → days (only "yes" answers count as the behaviour occurring).
         let entries = await repo.journalEntries()
         // Yes days and NO days, kept apart. A day with no journal row for the question lands in
@@ -626,6 +631,8 @@ final class InsightsHubViewModel: ObservableObject {
 
     /// Re-rank the mover feed for a (possibly new) outcome selection — cheap, no DB.
     func rankFor(_ outcome: Outcome) {
+        guard PhoneComputeRuntime.permitsLocal("InsightsHub.rank") else { return }
+        PhoneComputeRuntime.entered("InsightsHub.rank")
         currentOutcome = outcome
         let outcomeDays = outcomeByKey[outcome.key] ?? [:]
         ranked = EffectRanker.rank(behaviors: behaviours,

@@ -70,7 +70,10 @@ object SleepGroupEdit {
                 startTsAdjusted = start,
                 endTs = end,
                 userEdited = true,
-                stagesJSON = reclipped ?: frag.stagesJSON,
+                stagesJSON = if (PhoneComputeRuntime.finalHosted) null else reclipped ?: frag.stagesJSON,
+                efficiency = frag.efficiency.takeUnless { PhoneComputeRuntime.finalHosted },
+                restingHr = frag.restingHr.takeUnless { PhoneComputeRuntime.finalHosted },
+                avgHrv = frag.avgHrv.takeUnless { PhoneComputeRuntime.finalHosted },
             )
         }
         return Plan(clipped, dropped)

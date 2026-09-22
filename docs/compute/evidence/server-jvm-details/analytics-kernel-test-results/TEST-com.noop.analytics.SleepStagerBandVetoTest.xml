@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerBandVetoTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:22" hostname="mac-studio.lan" time="0.06">
+  <properties/>
+  <testcase name="shadowTraceReportsRecoveryOutputNeutral" classname="com.noop.analytics.SleepStagerBandVetoTest" time="0.047"/>
+  <testcase name="partialInteriorRecovery" classname="com.noop.analytics.SleepStagerBandVetoTest" time="0.0"/>
+  <testcase name="onlyAsleepStateVetoes" classname="com.noop.analytics.SleepStagerBandVetoTest" time="0.0"/>
+  <testcase name="preservesTilingAndOnlyRemovesWake" classname="com.noop.analytics.SleepStagerBandVetoTest" time="0.0"/>
+  <testcase name="cutoffSparesNightsBeforeCutoff" classname="com.noop.analytics.SleepStagerBandVetoTest" time="0.0"/>
+  <testcase name="recoversInteriorFalseWake" classname="com.noop.analytics.SleepStagerBandVetoTest" time="0.0"/>
+  <testcase name="shadowLineIsNamespacedAndUncountedByCaptureAccumulator" classname="com.noop.analytics.SleepStagerBandVetoTest" time="0.001"/>
+  <testcase name="noOpWhenBandAbsent" classname="com.noop.analytics.SleepStagerBandVetoTest" time="0.0"/>
+  <testcase name="defaultOffLeavesHypnogramUnchangedEndToEnd" classname="com.noop.analytics.SleepStagerBandVetoTest" time="0.012"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

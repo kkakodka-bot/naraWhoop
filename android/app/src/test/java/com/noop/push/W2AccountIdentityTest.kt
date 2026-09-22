@@ -174,6 +174,7 @@ class W2AccountIdentityTest {
         val scope = AccountScope.create("https://example.test", W2_A)
         fun capability(owner: String?) = JSONObject().put("type", "capabilities")
             .put("protocolVersion", "1.0").put("receiverStateId", W2_SOURCE)
+            .put("sourceId", W2_SOURCE)
             .put("streams", org.json.JSONArray()).apply { owner?.let { put("userId", it) } }
             .toString().toByteArray()
         assertTrue(AccountPushAdmission.capabilities(capability(W2_A), scope).isEmpty)

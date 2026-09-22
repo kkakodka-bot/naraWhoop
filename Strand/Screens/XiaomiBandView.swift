@@ -1,4 +1,5 @@
 import SwiftUI
+import WhoopProtocol
 import StrandDesign
 import WhoopStore
 import Foundation
@@ -113,7 +114,11 @@ struct XiaomiBandView: View {
     var body: some View {
         ScreenScaffold(title: "Mi Band", subtitle: spanSubtitle.map { "\($0)" },
                        onRefresh: { await repo.refresh() }, lazy: loaded && hasAnyData) {
-            if loaded && !hasAnyData {
+            if PhoneComputeRuntime.isFinalHosted {
+                Text("Imported observations remain source data. Physiological summaries use authorized server results.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                CanonicalPhysiologySection(families: ["night_hrv", "sleep", "stress", "steps"], history: true)
+            } else if loaded && !hasAnyData {
                 ComingSoon(what: "Nothing imported yet. In Data Sources, choose your Mi Fitness export (a .zip of the Mi Fitness app folder from the Files app) to bring in your steps, heart rate, sleep stages, SpO₂ and stress.")
             } else if !loaded {
                 loadingState
@@ -198,6 +203,7 @@ struct XiaomiBandView: View {
     // MARK: - Load
 
     private func load() async {
+        guard PhoneComputeRuntime.permitsLocal("XiaomiBandView.source_summary") else { return }
         var fetched: [String: [(day: String, value: Double)]] = [:]
         for key in Self.seriesKeys {
             fetched[key] = await repo.series(key: key, source: Self.source)
@@ -547,6 +553,8 @@ struct XiaomiBandView: View {
     }
 
     private func mean(_ values: [Double]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("XiaomiBandView.physiological_mean") else { return nil }
+        PhoneComputeRuntime.entered("XiaomiBandView.physiological_mean")
         guard !values.isEmpty else { return nil }
         return values.reduce(0, +) / Double(values.count)
     }

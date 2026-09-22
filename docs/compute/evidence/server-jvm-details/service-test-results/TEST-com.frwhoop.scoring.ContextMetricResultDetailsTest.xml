@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.ContextMetricResultDetailsTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:36" hostname="mac-studio.lan" time="0.011">
+  <properties/>
+  <testcase name="enabledColdStartPreservesKernelLearningNoteWithoutInventingAPhase" classname="com.frwhoop.scoring.ContextMetricResultDetailsTest" time="0.001"/>
+  <testcase name="missingScheduleKeepsActualPhaseNoteButDoesNotAddOffsetCapability" classname="com.frwhoop.scoring.ContextMetricResultDetailsTest" time="0.001"/>
+  <testcase name="readableWideAndUnreadableCircadianNotesMatchActualEngineExactly" classname="com.frwhoop.scoring.ContextMetricResultDetailsTest" time="0.003"/>
+  <testcase name="observedFlatCyclePreservesUnknownNoteRatherThanLearningOrConfidentText" classname="com.frwhoop.scoring.ContextMetricResultDetailsTest" time="0.001"/>
+  <testcase name="unavailableFamiliesStayNullInsteadOfInventingRequiredResultFields" classname="com.frwhoop.scoring.ContextMetricResultDetailsTest" time="0.001"/>
+  <testcase name="observedCycleNoteIsTheActualKernelResultNotAStaticAwarenessLabel" classname="com.frwhoop.scoring.ContextMetricResultDetailsTest" time="0.001"/>
+  <testcase name="illnessCopiesExactEngineTextAndActualEmptyLabelsForEveryEmittedContext" classname="com.frwhoop.scoring.ContextMetricResultDetailsTest" time="0.001"/>
+  <testcase name="distanceDetailsAndScalarComeFromTheSameActualKernelResult" classname="com.frwhoop.scoring.ContextMetricResultDetailsTest" time="0.002"/>
+  <testcase name="distanceFeatureCountIsNotTheIllnessSignalCountAtTheExactThreshold" classname="com.frwhoop.scoring.ContextMetricResultDetailsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

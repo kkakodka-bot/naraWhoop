@@ -61,6 +61,7 @@ object AdaptiveExpenditureEngine {
     /** null when the history cannot support an estimate — the normal answer for most installs, and the
      *  point of the gates. [days] need not be sorted or contiguous. */
     fun estimate(days: List<AdaptiveExpenditureDay>): AdaptiveExpenditureEstimate? {
+        PhoneComputeRuntime.inferenceStarted("AdaptiveExpenditureEngine.estimate")
         val ordered = days.sortedBy { it.day }
         val first = ordered.firstOrNull()?.day ?: return null
         val last = ordered.last().day

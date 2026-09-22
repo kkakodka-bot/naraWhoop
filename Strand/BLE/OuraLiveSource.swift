@@ -934,6 +934,8 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                        median, activityCadenceObs.count, activityEpochSeconds))
         }
         for day in activityMETByDay.keys.sorted() {
+            guard PhoneComputeRuntime.permitsLocal("oura_activity_estimate") else { return }
+            PhoneComputeRuntime.entered("oura_activity_estimate")
             let est = OuraActivityEstimator.estimate(metSamples: activityMETByDay[day] ?? [],
                                                      epochSeconds: activityEpochSeconds)
             log(String(format: "Oura: activity estimate day=%@ samples=%d meanMET=%.2f maxMET=%.1f metMin=%.1f activeMin=%.1f [assumed %.0fs/sample, Tier-B est]",

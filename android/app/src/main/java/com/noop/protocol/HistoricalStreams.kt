@@ -1062,7 +1062,9 @@ fun extractHistoricalStreams(
         }
     }
 
-    val ppgHr = if (derivePpgHeartRate) {
+    // Keep raw PPG available for durable upload, but suppress this local physiological producer in
+    // final hosted mode. Explicit non-hosted callers may still request the legacy estimator.
+    val ppgHr = if (derivePpgHeartRate && !com.noop.analytics.PhoneComputeRuntime.finalHosted) {
         PpgHr.estimateRecords(ppgWaveform.map { PpgHr.Record(it.ts, it.recordIndex, it.samples) },
             subLagInterp = ppgHrSubLagInterp).map { selected ->
             val estimate = selected.estimate

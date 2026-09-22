@@ -36,7 +36,7 @@ class LiftingImporterTest {
         assertEquals(1, r.sessions.size)
         assertEquals(0, r.skipped)
         val s = r.sessions[0]
-        assertEquals(1980.0, s.volumeLoadKg, 1e-6)
+        assertEquals(1980.0, s.volumeLoadKg!!, 1e-6)
         assertEquals(4, s.setCount)        // warm-up not counted
         assertEquals(2, s.exerciseCount)
         assertEquals(23, s.totalReps)
@@ -55,8 +55,8 @@ class LiftingImporterTest {
             """
         )
         assertEquals(2, r.sessions.size)
-        assertEquals(135 * 0.45359237 * 5, r.sessions[0].volumeLoadKg, 1e-4)
-        assertEquals(225 * 0.45359237 * 3, r.sessions[1].volumeLoadKg, 1e-4)
+        assertEquals(135 * 0.45359237 * 5, r.sessions[0].volumeLoadKg!!, 1e-4)
+        assertEquals(225 * 0.45359237 * 3, r.sessions[1].volumeLoadKg!!, 1e-4)
         assertTrue(r.sessions[0].startTs < r.sessions[1].startTs) // oldest first
     }
 
@@ -82,7 +82,7 @@ class LiftingImporterTest {
             """
         )
         assertEquals(1, r.sessions[0].setCount)
-        assertEquals(0.0, r.sessions[0].volumeLoadKg, 1e-9)
+        assertEquals(0.0, r.sessions[0].volumeLoadKg!!, 1e-9)
         assertEquals(12, r.sessions[0].totalReps)
         assertNull(r.sessions[0].topSetKg)
     }
@@ -156,7 +156,7 @@ class LiftingImporterTest {
         )
         assertEquals(1, r.sessions.size)
         val s = r.sessions[0]
-        assertEquals(1100.0, s.volumeLoadKg, 1e-6)
+        assertEquals(1100.0, s.volumeLoadKg!!, 1e-6)
         assertEquals(3, s.setCount)
         assertEquals(2, s.exerciseCount)
         assertEquals(13, s.totalReps)
@@ -177,7 +177,7 @@ class LiftingImporterTest {
         )
         val s = r.sessions[0]
         assertEquals(1, s.setCount) // template set without completedReps skipped
-        assertEquals(100 * 0.45359237 * 5, s.volumeLoadKg, 1e-4)
+        assertEquals(100 * 0.45359237 * 5, s.volumeLoadKg!!, 1e-4)
     }
 
     @Test
@@ -211,7 +211,7 @@ class LiftingImporterTest {
         val s = r.sessions[0]
         assertEquals(1748775600L, s.endTs)
         assertEquals(3600.0, s.durationS!!, 1e-9)
-        assertEquals(400.0, s.volumeLoadKg, 1e-6)
+        assertEquals(400.0, s.volumeLoadKg!!, 1e-6)
         assertEquals(1, s.setCount)
         assertEquals(1, s.exerciseCount)
         assertEquals(5, s.totalReps)

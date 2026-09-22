@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 
 // MARK: - FusedRecordView — "Your Data, Fused" (v5 — Local Multi-Device Fusion)
 //
@@ -83,6 +84,9 @@ struct FusedRecordView: View {
             title: "Your Data, Fused",
             subtitle: subtitle
         ) {
+            if PhoneComputeRuntime.isFinalHosted {
+                CanonicalPhysiologySection(families: ["recovery", "night_hrv", "sleep", "strain_energy", "oxygen", "temperature"])
+            } else {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 if isMultiSource { dayBadgeRow }
 
@@ -113,6 +117,7 @@ struct FusedRecordView: View {
                 privacyNote
                 disclaimerNote
             }
+            }
         }
         // The conflict-compare detail: every source's value side by side, the winner labelled with its
         // reason. Opening it never changes the resolved value — it only explains it.
@@ -127,6 +132,7 @@ struct FusedRecordView: View {
     }
 
     private var subtitle: LocalizedStringKey {
+        if PhoneComputeRuntime.isFinalHosted { return "Your canonical server record, scoped to this device." }
         if isMultiSource {
             return "\(dayLabel) · best signal per metric, from \(record.contributingSourceCount) sources. Everything stays on \(deviceNoun)."
         }

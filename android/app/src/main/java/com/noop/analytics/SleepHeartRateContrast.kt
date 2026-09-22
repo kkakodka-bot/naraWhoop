@@ -50,6 +50,7 @@ object SleepHeartRateContrast {
         primarySleepHR: List<Double?>,
         minimumValidSamples: Int = DEFAULT_MINIMUM_VALID_SAMPLES,
     ): Result? {
+        PhoneComputeRuntime.inferenceStarted("SleepHeartRateContrast.evaluate")
         if (minimumValidSamples <= 0 || wakeHR.isEmpty() || primarySleepHR.isEmpty()) return null
 
         val wake = summarize(wakeHR)

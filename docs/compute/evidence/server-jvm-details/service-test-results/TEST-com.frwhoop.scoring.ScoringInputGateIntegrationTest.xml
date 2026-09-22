@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.ScoringInputGateIntegrationTest" tests="18" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:15:06" hostname="mac-studio.lan" time="73.533">
+  <properties/>
+  <testcase name="capturedInputReleasesProjectionGateBeforePublicationAndRejectsSupersededResult" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.272"/>
+  <testcase name="boundedScanProgressesPastEightBusyDevicesAndWrapsToRevisedEarlierWork" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="30.534"/>
+  <testcase name="ignoredInterruptionStopsWorkerAfterFencedBackoffAndCannotPublishLate" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="1.084"/>
+  <testcase name="expiredGateReleasesConnectionAndOldClaimCannotPublishOrReleaseSuccessor" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.679"/>
+  <testcase name="boundedDatabaseClientEnforcesServerTimeoutAndKeepsSocketBoundsDespiteUrlOverrides" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="1.025"/>
+  <testcase name="moreThan300LiveArrivalCyclesPublishThroughSeparateHttpSessionsWithoutDroppingInputs" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="33.476"/>
+  <testcase name="workerDatabaseConnectionDeathReleasesTheGateWithoutAcknowledgingAnything" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.144"/>
+  <testcase name="callerAlreadyHoldingPublicationMutexRollsBackInsteadOfDeadlocking" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.227"/>
+  <testcase name="otherOwnersAndDevicesContinueIngestingAndGateIsServiceOnly" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.142"/>
+  <testcase name="changedAuxiliaryProjectionsCannotCommitWithoutTheirRevisions" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.248"/>
+  <testcase name="inputCommittedBeforeGateAcquisitionBelongsToTheClaim" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.188"/>
+  <testcase name="anotherWorkersLiveDayDoesNotBlockASeparateUsersPendingWork" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.164"/>
+  <testcase name="slowOrExpiredShadowBudgetStillLeavesTimeForFencedPublication" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.213"/>
+  <testcase name="followingOwnerCompletesFencedPublicationAfterTimedOutInput" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.522"/>
+  <testcase name="deterministicInputDeadlineCancelsActualJdbcAndBacksOffBeforeAnotherOwnerRuns" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.571"/>
+  <testcase name="deadlineStopsAnAlreadyRenewingClaimAndClearsItsLease" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="1.439"/>
+  <testcase name="busyGateBeforeClaimSkipsEveryPendingDayForThatDeviceAndVisitsOtherOwner" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="2.101"/>
+  <testcase name="realReaderBlockedOnProjectionLockIsCancelledWithoutAbortingUnrelatedConnection" classname="com.frwhoop.scoring.ScoringInputGateIntegrationTest" time="0.504"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-98 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-98 - Added connection org.postgresql.jdbc.PgConnection@53125718
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-98 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-98 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-98 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-99 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-99 - Added connection org.postgresql.jdbc.PgConnection@2a99ca99
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-99 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-99 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-99 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-100 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-100 - Added connection org.postgresql.jdbc.PgConnection@50122012
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-100 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-100 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-100 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-101 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-101 - Added connection org.postgresql.jdbc.PgConnection@21f9c6ea
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-101 - Start completed.
+[Test worker] WARN com.zaxxer.hikari.pool.ProxyConnection - HikariPool-101 - Connection org.postgresql.jdbc.PgConnection@21f9c6ea marked as broken because of SQLSTATE(08003), ErrorCode(0)
+org.postgresql.util.PSQLException: This connection has been closed.
+	at org.postgresql.jdbc.PgConnection.checkClosed(PgConnection.java:1009)
+	at org.postgresql.jdbc.PgConnection.rollback(PgConnection.java:1016)
+	at com.zaxxer.hikari.pool.ProxyConnection.rollback(ProxyConnection.java:386)
+	at com.zaxxer.hikari.pool.HikariProxyConnection.rollback(HikariProxyConnection.java)
+	at com.frwhoop.scoring.db.ScoringInputGate.withGate$lambda$8(ScoringInputGate.kt:75)
+	at com.frwhoop.scoring.db.PostgresClient.withConnection(PostgresClient.kt:149)
+	at com.frwhoop.scoring.db.ScoringInputGate.withGate(ScoringInputGate.kt:40)
+	at com.frwhoop.scoring.ScoringInputGateIntegrationTest.expiredGateReleasesConnectionAndOldClaimCannotPublishOrReleaseSuccessor(ScoringInputGateIntegrationTest.kt:182)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
+	at org.junit.internal.runners.statements.RunAfters.evaluate(RunAfters.java:27)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)
+	at org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)
+	at org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:413)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.runTestClass(JUnitTestClassExecutor.java:112)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.execute(JUnitTestClassExecutor.java:58)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.execute(JUnitTestClassExecutor.java:40)
+	at org.gradle.api.internal.tasks.testing.junit.AbstractJUnitTestClassProcessor.processTestClass(AbstractJUnitTestClassProcessor.java:60)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.processTestClass(SuiteTestClassProcessor.java:52)
+	at jdk.internal.reflect.GeneratedMethodAccessor5.invoke(Unknown Source)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:94)
+	at jdk.proxy1/jdk.proxy1.$Proxy2.processTestClass(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$2.run(TestWorker.java:176)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:129)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:100)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:60)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:113)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:65)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-101 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-101 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-102 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-102 - Added connection org.postgresql.jdbc.PgConnection@4975dda1
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-102 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-103 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-103 - Added connection org.postgresql.jdbc.PgConnection@22f8adc2
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-103 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-103 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-103 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-102 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-102 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-104 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-104 - Added connection org.postgresql.jdbc.PgConnection@8f57e4c
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-104 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-104 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-104 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-105 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-105 - Added connection org.postgresql.jdbc.PgConnection@377e573a
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-105 - Start completed.
+[Test worker] WARN com.zaxxer.hikari.pool.ProxyConnection - HikariPool-105 - Connection org.postgresql.jdbc.PgConnection@377e573a marked as broken because of SQLSTATE(57P01), ErrorCode(0)
+org.postgresql.util.PSQLException: FATAL: terminating connection due to administrator command
+	at org.postgresql.core.v3.QueryExecutorImpl.receiveErrorResponse(QueryExecutorImpl.java:2733)
+	at org.postgresql.core.v3.QueryExecutorImpl.processResults(QueryExecutorImpl.java:2420)
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:372)
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:330)
+	at org.postgresql.jdbc.PgConnection.executeTransactionCommand(PgConnection.java:981)
+	at org.postgresql.jdbc.PgConnection.rollback(PgConnection.java:1024)
+	at com.zaxxer.hikari.pool.ProxyConnection.rollback(ProxyConnection.java:386)
+	at com.zaxxer.hikari.pool.HikariProxyConnection.rollback(HikariProxyConnection.java)
+	at com.frwhoop.scoring.ScoringInputGateIntegrationTest.workerDatabaseConnectionDeathReleasesTheGateWithoutAcknowledgingAnything$lambda$30(ScoringInputGateIntegrationTest.kt:209)
+	at com.frwhoop.scoring.db.PostgresClient.withConnection(PostgresClient.kt:149)
+	at com.frwhoop.scoring.ScoringInputGateIntegrationTest.workerDatabaseConnectionDeathReleasesTheGateWithoutAcknowledgingAnything(ScoringInputGateIntegrationTest.kt:200)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
+	at org.junit.internal.runners.statements.RunAfters.evaluate(RunAfters.java:27)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)
+	at org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)
+	at org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:413)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.runTestClass(JUnitTestClassExecutor.java:112)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.execute(JUnitTestClassExecutor.java:58)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.execute(JUnitTestClassExecutor.java:40)
+	at org.gradle.api.internal.tasks.testing.junit.AbstractJUnitTestClassProcessor.processTestClass(AbstractJUnitTestClassProcessor.java:60)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.processTestClass(SuiteTestClassProcessor.java:52)
+	at jdk.internal.reflect.GeneratedMethodAccessor5.invoke(Unknown Source)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:94)
+	at jdk.proxy1/jdk.proxy1.$Proxy2.processTestClass(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$2.run(TestWorker.java:176)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:129)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:100)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:60)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:113)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:65)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-105 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-105 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-106 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-106 - Added connection org.postgresql.jdbc.PgConnection@581918f6
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-106 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-106 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-106 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-107 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-107 - Added connection org.postgresql.jdbc.PgConnection@3386ed8
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-107 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-107 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-107 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-108 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-108 - Added connection org.postgresql.jdbc.PgConnection@1488a861
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-108 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-108 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-108 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-109 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-109 - Added connection org.postgresql.jdbc.PgConnection@3e2c4d4b
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-109 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-109 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-109 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-110 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-110 - Added connection org.postgresql.jdbc.PgConnection@58636b50
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-110 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-110 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-110 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-111 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-111 - Added connection org.postgresql.jdbc.PgConnection@503a7990
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-111 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-111 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-111 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-112 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-112 - Added connection org.postgresql.jdbc.PgConnection@2335aef2
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-112 - Start completed.
+[Test worker] INFO com.frwhoop.scoring.scoring.ScoringPoller - published scoring run f09b10b6-f403-47f1-8ade-f3c0559afdb2 (45ms)
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-112 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-112 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-113 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-113 - Added connection org.postgresql.jdbc.PgConnection@2ffa91dc
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-113 - Start completed.
+[scoring-attempt] WARN com.zaxxer.hikari.pool.ProxyConnection - HikariPool-113 - Connection org.postgresql.jdbc.PgConnection@3d9ed196 marked as broken because of SQLSTATE(08006), ErrorCode(0)
+org.postgresql.util.PSQLException: An I/O error occurred while sending to the backend.
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:399)
+	at org.postgresql.jdbc.PgStatement.executeInternal(PgStatement.java:517)
+	at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:434)
+	at org.postgresql.jdbc.PgStatement.executeWithFlags(PgStatement.java:356)
+	at org.postgresql.jdbc.PgStatement.executeCachedSql(PgStatement.java:341)
+	at org.postgresql.jdbc.PgStatement.executeWithFlags(PgStatement.java:317)
+	at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:312)
+	at com.zaxxer.hikari.pool.ProxyStatement.execute(ProxyStatement.java:94)
+	at com.zaxxer.hikari.pool.HikariProxyStatement.execute(HikariProxyStatement.java)
+	at com.frwhoop.scoring.ScoringInputGateIntegrationTest$deterministicInputDeadlineCancelsActualJdbcAndBacksOffBeforeAnotherOwnerRuns$provider$1.loadDay$lambda$1(ScoringInputGateIntegrationTest.kt:248)
+	at com.frwhoop.scoring.db.PostgresClient.withConnection(PostgresClient.kt:149)
+	at com.frwhoop.scoring.ScoringInputGateIntegrationTest$deterministicInputDeadlineCancelsActualJdbcAndBacksOffBeforeAnotherOwnerRuns$provider$1.loadDay(ScoringInputGateIntegrationTest.kt:248)
+	at com.frwhoop.scoring.db.ScoreInputProvider$DefaultImpls.loadDay(ScoreInputProvider.kt:14)
+	at com.frwhoop.scoring.ScoringInputGateIntegrationTest$deterministicInputDeadlineCancelsActualJdbcAndBacksOffBeforeAnotherOwnerRuns$provider$1.loadDay(ScoringInputGateIntegrationTest.kt:246)
+	at com.frwhoop.scoring.scoring.ScoringPoller.processWorkItem$lambda$9(ScoringPoller.kt:115)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at com.frwhoop.scoring.scoring.ScoringPoller.processWorkItem$lambda$10(ScoringPoller.kt:134)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: java.net.SocketException: Socket closed
+	at java.base/sun.nio.ch.NioSocketImpl.endRead(NioSocketImpl.java:253)
+	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:332)
+	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
+	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
+	at org.postgresql.core.VisibleBufferedInputStream.readMore(VisibleBufferedInputStream.java:192)
+	at org.postgresql.core.VisibleBufferedInputStream.ensureBytes(VisibleBufferedInputStream.java:159)
+	at org.postgresql.core.VisibleBufferedInputStream.ensureBytes(VisibleBufferedInputStream.java:144)
+	at org.postgresql.core.VisibleBufferedInputStream.read(VisibleBufferedInputStream.java:76)
+	at org.postgresql.core.PGStream.receiveChar(PGStream.java:476)
+	at org.postgresql.core.v3.QueryExecutorImpl.processResults(QueryExecutorImpl.java:2174)
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:372)
+	... 17 more
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-113 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-113 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-114 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-114 - Added connection org.postgresql.jdbc.PgConnection@fd87c22
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-114 - Start completed.
+[scoring-attempt] WARN com.zaxxer.hikari.pool.ProxyConnection - HikariPool-114 - Connection org.postgresql.jdbc.PgConnection@17241f42 marked as broken because of SQLSTATE(08006), ErrorCode(0)
+org.postgresql.util.PSQLException: An I/O error occurred while sending to the backend.
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:399)
+	at org.postgresql.jdbc.PgStatement.executeInternal(PgStatement.java:517)
+	at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:434)
+	at org.postgresql.jdbc.PgStatement.executeWithFlags(PgStatement.java:356)
+	at org.postgresql.jdbc.PgStatement.executeCachedSql(PgStatement.java:341)
+	at org.postgresql.jdbc.PgStatement.executeWithFlags(PgStatement.java:317)
+	at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:312)
+	at com.zaxxer.hikari.pool.ProxyStatement.execute(ProxyStatement.java:94)
+	at com.zaxxer.hikari.pool.HikariProxyStatement.execute(HikariProxyStatement.java)
+	at com.frwhoop.scoring.ScoringInputGateIntegrationTest$deadlineStopsAnAlreadyRenewingClaimAndClearsItsLease$provider$1.loadDay$lambda$1(ScoringInputGateIntegrationTest.kt:323)
+	at com.frwhoop.scoring.db.PostgresClient.withConnection(PostgresClient.kt:149)
+	at com.frwhoop.scoring.ScoringInputGateIntegrationTest$deadlineStopsAnAlreadyRenewingClaimAndClearsItsLease$provider$1.loadDay(ScoringInputGateIntegrationTest.kt:323)
+	at com.frwhoop.scoring.db.ScoreInputProvider$DefaultImpls.loadDay(ScoreInputProvider.kt:14)
+	at com.frwhoop.scoring.ScoringInputGateIntegrationTest$deadlineStopsAnAlreadyRenewingClaimAndClearsItsLease$provider$1.loadDay(ScoringInputGateIntegrationTest.kt:318)
+	at com.frwhoop.scoring.scoring.ScoringPoller.processWorkItem$lambda$9(ScoringPoller.kt:115)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at com.frwhoop.scoring.scoring.ScoringPoller.processWorkItem$lambda$10(ScoringPoller.kt:134)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: java.net.SocketException: Socket closed
+	at java.base/sun.nio.ch.NioSocketImpl.endRead(NioSocketImpl.java:253)
+	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:332)
+	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
+	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
+	at org.postgresql.core.VisibleBufferedInputStream.readMore(VisibleBufferedInputStream.java:192)
+	at org.postgresql.core.VisibleBufferedInputStream.ensureBytes(VisibleBufferedInputStream.java:159)
+	at org.postgresql.core.VisibleBufferedInputStream.ensureBytes(VisibleBufferedInputStream.java:144)
+	at org.postgresql.core.VisibleBufferedInputStream.read(VisibleBufferedInputStream.java:76)
+	at org.postgresql.core.PGStream.receiveChar(PGStream.java:476)
+	at org.postgresql.core.v3.QueryExecutorImpl.processResults(QueryExecutorImpl.java:2174)
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:372)
+	... 17 more
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-114 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-114 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-115 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-115 - Added connection org.postgresql.jdbc.PgConnection@359865a2
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-115 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-115 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-115 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-116 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-116 - Added connection org.postgresql.jdbc.PgConnection@20a9f5fb
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-116 - Start completed.
+[scoring-attempt] WARN com.zaxxer.hikari.pool.ProxyConnection - HikariPool-116 - Connection org.postgresql.jdbc.PgConnection@5ec4124a marked as broken because of SQLSTATE(08006), ErrorCode(0)
+org.postgresql.util.PSQLException: An I/O error occurred while sending to the backend.
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:399)
+	at org.postgresql.jdbc.PgStatement.executeInternal(PgStatement.java:517)
+	at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:434)
+	at org.postgresql.jdbc.PgPreparedStatement.executeWithFlags(PgPreparedStatement.java:194)
+	at org.postgresql.jdbc.PgPreparedStatement.executeQuery(PgPreparedStatement.java:137)
+	at com.zaxxer.hikari.pool.ProxyPreparedStatement.executeQuery(ProxyPreparedStatement.java:52)
+	at com.zaxxer.hikari.pool.HikariProxyPreparedStatement.executeQuery(HikariProxyPreparedStatement.java)
+	at com.frwhoop.scoring.db.SignalSampleReader.loadHr(SignalSampleReader.kt:259)
+	at com.frwhoop.scoring.db.SignalSampleReader.loadDayWithZone$lambda$10(SignalSampleReader.kt:85)
+	at com.frwhoop.scoring.db.PostgresClient.withConnection(PostgresClient.kt:149)
+	at com.frwhoop.scoring.db.SignalSampleReader.loadDayWithZone(SignalSampleReader.kt:56)
+	at com.frwhoop.scoring.db.SignalSampleReader.loadDay(SignalSampleReader.kt:53)
+	at com.frwhoop.scoring.scoring.ScoringPoller.processWorkItem$lambda$9(ScoringPoller.kt:115)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at com.frwhoop.scoring.scoring.ScoringPoller.processWorkItem$lambda$10(ScoringPoller.kt:134)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+Caused by: java.net.SocketException: Socket closed
+	at java.base/sun.nio.ch.NioSocketImpl.endRead(NioSocketImpl.java:253)
+	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:332)
+	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
+	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
+	at org.postgresql.core.VisibleBufferedInputStream.readMore(VisibleBufferedInputStream.java:192)
+	at org.postgresql.core.VisibleBufferedInputStream.ensureBytes(VisibleBufferedInputStream.java:159)
+	at org.postgresql.core.VisibleBufferedInputStream.ensureBytes(VisibleBufferedInputStream.java:144)
+	at org.postgresql.core.VisibleBufferedInputStream.read(VisibleBufferedInputStream.java:76)
+	at org.postgresql.core.PGStream.receiveChar(PGStream.java:476)
+	at org.postgresql.core.v3.QueryExecutorImpl.processResults(QueryExecutorImpl.java:2174)
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:372)
+	... 15 more
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-116 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-116 - Shutdown completed.
+]]></system-err>
+</testsuite>

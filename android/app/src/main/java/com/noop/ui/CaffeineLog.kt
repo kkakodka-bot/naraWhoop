@@ -145,14 +145,14 @@ fun CaffeineLogCard() {
     var mgDraft by remember { mutableStateOf("") }
     // Recompute against "now" each recomposition; a logged intake bumps `intakes` which recomposes.
     val nowSec = System.currentTimeMillis() / 1000L
-    val estimate = CaffeineActiveEstimate.compute(intakes, nowSec)
+    val estimate = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else CaffeineActiveEstimate.compute(intakes, nowSec)
 
     // Cutoff nudge (PR#566, mvanhorn) — opt-in, default OFF. SharedPreferences isn't reactive, so the
     // toggle + bedtime mirror into local state and write straight through. The cutoff time is derived
     // purely from the bedtime via CaffeineDecay; no notification — a quiet inline hint only.
     var cutoffEnabled by remember { mutableStateOf(NoopPrefs.caffeineCutoffEnabled(context)) }
     var bedtimeMinutes by remember { mutableStateOf(NoopPrefs.caffeineBedtimeMinutes(context)) }
-    val cutoffMinutes = CaffeineDecay.cutoffMinutesSinceMidnight(bedtimeMinutes)
+    val cutoffMinutes = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else CaffeineDecay.cutoffMinutesSinceMidnight(bedtimeMinutes)
 
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
         Row(modifier = Modifier.fillMaxWidth()) {
@@ -169,7 +169,8 @@ fun CaffeineLogCard() {
                     color = Palette.textTertiary,
                 )
 
-                CaffeineActiveHint(estimate, hasAnyLog = intakes.isNotEmpty())
+                if (estimate == null) CanonicalFamilyReadout(familyID = "insights")
+                else CaffeineActiveHint(estimate, hasAnyLog = intakes.isNotEmpty())
 
                 CaffeineDivider()
 
@@ -214,7 +215,7 @@ fun CaffeineLogCard() {
                             },
                         )
                     }
-                    Text(
+                    if (cutoffMinutes != null) Text(
                         uiString(R.string.l10n_caffeine_log_have_your_last_caffeine_by_about_16b09033, clockLabel(cutoffMinutes)) +
                             "by ${clockLabel(bedtimeMinutes)}. A rough guide from a typical 5 to 6 hour " +
                             "half-life, not a rule.",
@@ -263,7 +264,7 @@ fun CaffeineLogCard() {
                     CaffeineDivider()
                     Text(uiString(R.string.l10n_caffeine_log_logged_today_0071a46c), style = NoopType.caption, color = Palette.textTertiary)
                     intakes.forEach { intake ->
-                        val late = cutoffEnabled && isIntakePastCutoff(intake, bedtimeMinutes)
+                        val late = cutoffMinutes != null && cutoffEnabled && isIntakePastCutoff(intake, bedtimeMinutes)
                         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
@@ -271,7 +272,7 @@ fun CaffeineLogCard() {
                                     style = NoopType.body,
                                     color = Palette.textPrimary,
                                 )
-                                if (late) {
+                                if (late && cutoffMinutes != null) {
                                     Text(
                                         uiString(R.string.l10n_caffeine_log_after_your_clocklabel_cutoffminutes_cutoff_may_3c023900, clockLabel(cutoffMinutes)),
                                         style = NoopType.caption,

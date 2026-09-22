@@ -1,0 +1,193 @@
+Command line invocation:
+    "/Volumes/External SSD/Xcode.app/Contents/Developer/usr/bin/xcodebuild" -project .derived/compute-checks/ComputeChecks.xcodeproj -scheme NOOPiOS -destination generic/platform=iOS -derivedDataPath .derived/compute-ios CODE_SIGNING_ALLOWED=NO build
+
+Build settings from command line:
+    CODE_SIGNING_ALLOWED = NO
+
+Resolve Package Graph
+
+
+Resolved source packages:
+  ZIPFoundation: https://github.com/weichsel/ZIPFoundation.git @ 0.9.20
+  StrandAnalytics: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/StrandAnalytics
+  PolarProtocol: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/PolarProtocol
+  GRDB: https://github.com/groue/GRDB.swift.git @ 6.29.3
+  WhoopStore: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/WhoopStore
+  swift-markdown-ui: https://github.com/gonzalezreal/swift-markdown-ui @ 2.4.1
+  WhoopProtocol: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/WhoopProtocol
+  StrandDesign: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/StrandDesign
+  cmark-gfm: https://github.com/swiftlang/swift-cmark @ 0.8.0
+  OuraProtocol: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/OuraProtocol
+  NetworkImage: https://github.com/gonzalezreal/NetworkImage @ 6.0.1
+  StrandImport: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/StrandImport
+  NoopPush: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/NoopPush
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (53 targets)
+    Target 'NOOPiOS' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'NOOPiOSWidgets' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'NOOPWatch' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'PolarProtocol' in project 'PolarProtocol'
+        ➜ Explicit dependency on target 'NoopPush' in project 'NoopPush'
+    Target 'NoopPush' in project 'NoopPush'
+        ➜ Explicit dependency on target 'NoopPush' in project 'NoopPush'
+    Target 'NoopPush' in project 'NoopPush' (no dependencies)
+    Target 'PolarProtocol' in project 'PolarProtocol'
+        ➜ Explicit dependency on target 'PolarProtocol' in project 'PolarProtocol'
+    Target 'PolarProtocol' in project 'PolarProtocol' (no dependencies)
+    Target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'NetworkImage' in project 'NetworkImage'
+    Target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'NetworkImage' in project 'NetworkImage'
+    Target 'NetworkImage' in project 'NetworkImage'
+        ➜ Explicit dependency on target 'NetworkImage' in project 'NetworkImage'
+    Target 'NetworkImage' in project 'NetworkImage' (no dependencies)
+    Target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm' in project 'cmark-gfm' (no dependencies)
+    Target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'ZIPFoundation_ZIPFoundation' in project 'ZIPFoundation'
+    Target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'ZIPFoundation_ZIPFoundation' in project 'ZIPFoundation'
+    Target 'ZIPFoundation_ZIPFoundation' in project 'ZIPFoundation' (no dependencies)
+    Target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+    Target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+    Target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB_GRDB' in project 'GRDB'
+    Target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB_GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'CSQLite' in project 'GRDB'
+    Target 'CSQLite' in project 'GRDB' (no dependencies)
+    Target 'GRDB_GRDB' in project 'GRDB' (no dependencies)
+    Target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+    Target 'OuraProtocol' in project 'OuraProtocol' (no dependencies)
+    Target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol'
+    Target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol'
+    Target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol' (no dependencies)
+    Target 'NOOPWatch' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'NOOPWatchComplications' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandAnalytics' in project 'StrandAnalytics'
+    Target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+    Target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+    Target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB_GRDB' in project 'GRDB'
+    Target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB_GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'CSQLite' in project 'GRDB'
+    Target 'CSQLite' in project 'GRDB' (no dependencies)
+    Target 'GRDB_GRDB' in project 'GRDB' (no dependencies)
+    Target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+    Target 'OuraProtocol' in project 'OuraProtocol' (no dependencies)
+    Target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol'
+    Target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol'
+    Target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol' (no dependencies)
+    Target 'NOOPWatchComplications' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+    Target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign_StrandDesign' in project 'StrandDesign'
+    Target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign_StrandDesign' in project 'StrandDesign'
+    Target 'StrandDesign_StrandDesign' in project 'StrandDesign' (no dependencies)
+    Target 'NOOPiOSWidgets' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+    Target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign_StrandDesign' in project 'StrandDesign'
+    Target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign_StrandDesign' in project 'StrandDesign'
+    Target 'StrandDesign_StrandDesign' in project 'StrandDesign' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ClangStatCache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.2.sdk /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-ios/SDKStatCaches.noindex/iphoneos26.2-23C57-9bde02852a322660c85b022268cc932a.sdkstatcache
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks/ComputeChecks.xcodeproj
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.2.sdk -o /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-ios/SDKStatCaches.noindex/iphoneos26.2-23C57-9bde02852a322660c85b022268cc932a.sdkstatcache
+
+ClangStatCache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.2.sdk /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-ios/SDKStatCaches.noindex/watchos26.2-23S303-1f70a4a4d57058e5cab45a53433ea3f2.sdkstatcache
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks/ComputeChecks.xcodeproj
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.2.sdk -o /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-ios/SDKStatCaches.noindex/watchos26.2-23S303-1f70a4a4d57058e5cab45a53433ea3f2.sdkstatcache
+
+** BUILD SUCCEEDED **
+

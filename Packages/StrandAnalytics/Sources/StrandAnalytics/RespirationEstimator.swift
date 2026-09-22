@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 /// Shadow spectral/autocorrelation estimator; engineering gates are not clinical cutoffs.
@@ -83,6 +84,7 @@ public enum RespirationEstimator {
     }
 
     public static func estimate(_ input: Input, policy: Policy = Policy()) -> Result {
+        PhoneComputeRuntime.entered("swift.RespirationEstimator.estimate")
         let n = input.values.count, rate = input.sampleRateHz
         let duration = rate.isFinite && rate > 0 ? Double(n) / rate : 0
         let maximumRate = min(policy.maximumRate, input.maximumSupportedRate ?? policy.maximumRate)
@@ -208,6 +210,7 @@ public enum RespirationEstimator {
     public static func fromIntervals(start: Double, duration: Int,
                                       observations: [PhysiologyQuality.IntervalObservation],
                                       inputRevision: String = "local", contamination: Contamination = Contamination()) -> Input {
+        PhoneComputeRuntime.entered("swift.RespirationEstimator.fromIntervals")
         precondition((32...300).contains(duration) && start.isFinite)
         var unique: [PhysiologyQuality.IntervalObservation] = []
         for row in observations where !unique.contains(row) {
@@ -300,6 +303,7 @@ public enum RespirationEstimator {
     }
     /// Correlated evidence never multiplies confidence; disagreeing eligible channels abstain.
     public static func fuse(_ results: [Result], maximumDisagreement: Double = 1.5) -> Fusion {
+        PhoneComputeRuntime.entered("swift.RespirationEstimator.fuse")
         var unique: [Result] = []
         for row in results where !unique.contains(row) { unique.append(row) }
         let accepted = unique.filter { $0.reason == nil && $0.breathsPerMinute?.isFinite == true && $0.breathsPerMinute! > 0 }
@@ -344,6 +348,7 @@ public enum RespirationEstimator {
     /// Overlapping strides contribute duration once; sleep and awake-rest summaries remain separate.
     public static func summarize(_ results: [Result], start: Double, end: Double, context: String,
                                  policy: SummaryPolicy = SummaryPolicy()) -> Summary {
+        PhoneComputeRuntime.entered("swift.RespirationEstimator.summarize")
         precondition(start.isFinite && end.isFinite && end > start && ["qualified_sleep", "qualified_awake_rest"].contains(context))
         var inPeriod: [Result] = []
         for row in results where row.start >= start && row.end <= end && !inPeriod.contains(row) { inPeriod.append(row) }

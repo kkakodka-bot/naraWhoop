@@ -35,6 +35,10 @@ object BiofeedbackPrefs {
 
     /** The user's locked resonance pace (br/min), or null if they've never locked one. */
     fun lockedPace(context: Context): Double? {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            val cache = com.noop.account.AccountStorageContext.runtime(context)?.serverScoreRepository?.overlay(java.time.LocalDate.now().toString())
+            return com.noop.push.ServerConsumerProjection.number(cache, "resonance_pace")
+        }
         val v = NoopPrefs.of(context).getFloat(KEY_LOCKED_PACE, 0f).toDouble()
         return if (v > 0.0) v else null
     }

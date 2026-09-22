@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.StepsCounterTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.0">
+  <properties/>
+  <testcase name="sumsPositiveConsecutiveDeltas" classname="com.noop.analytics.StepsCounterTest" time="0.0"/>
+  <testcase name="sortsUnorderedInput" classname="com.noop.analytics.StepsCounterTest" time="0.0"/>
+  <testcase name="fewerThanTwoSamplesIsNull" classname="com.noop.analytics.StepsCounterTest" time="0.0"/>
+  <testcase name="legacyUnclassedStreamKeepsCounterFallback" classname="com.noop.analytics.StepsCounterTest" time="0.0"/>
+  <testcase name="dropsBigGapDeltaAsBoundary" classname="com.noop.analytics.StepsCounterTest" time="0.0"/>
+  <testcase name="maxStepDeltaBoundaryIsExclusive" classname="com.noop.analytics.StepsCounterTest" time="0.0"/>
+  <testcase name="handlesU16Wraparound" classname="com.noop.analytics.StepsCounterTest" time="0.0"/>
+  <testcase name="rejectsPhysicallyImpossibleOneSecondSpikeButAllowsSameTicksAcrossTime" classname="com.noop.analytics.StepsCounterTest" time="0.0"/>
+  <testcase name="classedStreamCountsOnlyWalkAndRunDeltas" classname="com.noop.analytics.StepsCounterTest" time="0.0"/>
+  <testcase name="noForwardMovementIsNull" classname="com.noop.analytics.StepsCounterTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

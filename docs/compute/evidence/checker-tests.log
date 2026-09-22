@@ -1,0 +1,20 @@
+✔ Android guards bind literal identities to their callable, not comments or string content (1.882333ms)
+✔ first-body claims fail if numerical work moves before the guard (0.473ms)
+✔ duplicate, omitted and unscoped numerical guards fail the complete inventory check (0.369208ms)
+✔ ordinal occurrences and nested callables cannot substitute for one another (0.314709ms)
+✔ shared producer inventory names real first-instruction guards (11.282125ms)
+✔ native sources, baseline builders and build identities invalidate source-bound receipts (0.888375ms)
+✔ commands cannot replace executed gates with echoed success or filtered full suites (4.827042ms)
+✔ zero-test runs and route-only tests cannot satisfy executed proof (0.621833ms)
+✔ receipt validation rejects stale revision content, changed logs, failures and missing gates (705.74125ms)
+✔ Android proof requires executed native cases, zero skips and real zero-inference counters (2.956166ms)
+✔ CDATA cannot manufacture executed tests or hide an empty native consumer suite (0.13175ms)
+✔ Android recorder rejects stale, absent, skipped or edited native artifacts (4.645334ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 761.664166

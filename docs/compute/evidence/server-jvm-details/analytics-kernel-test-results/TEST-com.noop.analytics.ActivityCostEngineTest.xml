@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.ActivityCostEngineTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:19" hostname="mac-studio.lan" time="0.032">
+  <properties/>
+  <testcase name="missingNextMorningIsSkipped" classname="com.noop.analytics.ActivityCostEngineTest" time="0.018"/>
+  <testcase name="sentenceBarelyMoves" classname="com.noop.analytics.ActivityCostEngineTest" time="0.0"/>
+  <testcase name="sentenceFull" classname="com.noop.analytics.ActivityCostEngineTest" time="0.004"/>
+  <testcase name="negativeDeltaWhenNextMorningAboveBaseline" classname="com.noop.analytics.ActivityCostEngineTest" time="0.001"/>
+  <testcase name="confidenceGate" classname="com.noop.analytics.ActivityCostEngineTest" time="0.003"/>
+  <testcase name="deltaSignAndValueAndBaselineExcludesActive" classname="com.noop.analytics.ActivityCostEngineTest" time="0.0"/>
+  <testcase name="sentenceLiftDirectionAndSingularDay" classname="com.noop.analytics.ActivityCostEngineTest" time="0.0"/>
+  <testcase name="daysToBaselineDipThenRecover" classname="com.noop.analytics.ActivityCostEngineTest" time="0.001"/>
+  <testcase name="noRestDaysYieldsEmpty" classname="com.noop.analytics.ActivityCostEngineTest" time="0.0"/>
+  <testcase name="meanHelper" classname="com.noop.analytics.ActivityCostEngineTest" time="0.0"/>
+  <testcase name="daysToBaselineNullWhenNeverRecovers" classname="com.noop.analytics.ActivityCostEngineTest" time="0.0"/>
+  <testcase name="emptyInputs" classname="com.noop.analytics.ActivityCostEngineTest" time="0.0"/>
+  <testcase name="ranking" classname="com.noop.analytics.ActivityCostEngineTest" time="0.001"/>
+  <testcase name="sentenceDropsDaysClauseWhenNull" classname="com.noop.analytics.ActivityCostEngineTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

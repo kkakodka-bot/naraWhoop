@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.push.FinalHostedRawUploadNativeTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:59" hostname="mac-studio.lan" time="0.058">
+  <properties/>
+  <testcase name="rawBleCaptureCommitsAndProducesUploadWithAllPhoneAnalyticsDisabled" classname="com.noop.push.FinalHostedRawUploadNativeTest" time="0.058"/>
+  <system-out><![CDATA[FINAL_HOSTED_DURABLE_RAW_UPLOAD admitted=0 forbidden=0 ble_decode=true room_commit=true upload_payload=true clock_identity_preserved=true
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

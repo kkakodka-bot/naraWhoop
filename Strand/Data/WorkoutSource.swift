@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 import WhoopStore
 import StrandAnalytics   // WorkoutsTrace: the dedup-decision line formatter for the Workouts test mode
 
@@ -471,6 +472,18 @@ enum WorkoutMerge {
 
         // Duration = sum of each session's active duration (fall back to its own span when nil).
         let durationS = rows.reduce(0.0) { $0 + ($1.durationS ?? Double(max(0, $1.endTs - $1.startTs))) }
+
+        if PhoneComputeRuntime.isFinalHosted {
+            // Merging is a user edit of session bounds/labels, not permission to combine prior local
+            // measurements. Original raw inputs remain available to the server's revised analysis.
+            let notes = rows.compactMap { $0.notes?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            return WorkoutRow(startTs: start, endTs: end, sport: sport ?? resolvedSport(rows) ?? "Activity",
+                source: "manual", durationS: durationS, energyKcal: nil, avgHr: nil, maxHr: nil,
+                strain: nil, distanceM: nil, zonesJSON: nil,
+                notes: notes.isEmpty ? nil : notes.joined(separator: " · "), steps: nil)
+        }
+        PhoneComputeRuntime.entered("workout_merge_physiology")
 
         // Energy + distance + steps sum only the present values; nil when NOTHING carried one (never a
         // fake 0). #1444: steps is cumulative per session exactly like distance, so a merge sums it too —

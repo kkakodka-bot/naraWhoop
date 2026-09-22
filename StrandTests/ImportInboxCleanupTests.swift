@@ -34,7 +34,7 @@ final class ImportInboxCleanupTests: XCTestCase {
 
     func testFileOutsideInboxIsNotATarget() throws {
         // A user-chosen in-place file (macOS) or any path outside Documents/Inbox must be refused.
-        let outside = FileManager.default.temporaryDirectory
+        let outside = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("user-picked-\(UUID()).zip")
         let f = try makeFile(at: outside)
         defer { try? FileManager.default.removeItem(at: f) }
@@ -51,7 +51,7 @@ final class ImportInboxCleanupTests: XCTestCase {
 
     func testCleanupDeletesInboxOriginalAndTemp() throws {
         let inboxOriginal = try makeFile(at: inbox.appendingPathComponent("export-\(UUID()).zip"))
-        let temp = try makeFile(at: FileManager.default.temporaryDirectory
+        let temp = try makeFile(at: (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("noop-import-\(UUID()).zip"))
 
         let file = AppModel.ImportFile(url: temp, temp: temp, inboxOriginal: inboxOriginal)
@@ -65,7 +65,7 @@ final class ImportInboxCleanupTests: XCTestCase {
     func testCleanupLeavesAUserFileOutsideInboxUntouched() throws {
         // macOS reads the picked file in place (inboxOriginal nil); even if a caller passed a non-Inbox
         // URL, the guard must protect it.
-        let userFile = try makeFile(at: FileManager.default.temporaryDirectory
+        let userFile = try makeFile(at: (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("user-data-\(UUID()).zip"))
         defer { try? FileManager.default.removeItem(at: userFile) }
 

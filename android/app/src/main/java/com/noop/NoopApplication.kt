@@ -23,6 +23,8 @@ class NoopApplication : Application() {
     private val presentationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     @Volatile private var runtimeValue: AccountAppRuntime? = null
     val accountRuntime: AccountAppRuntime get() = checkNotNull(runtimeValue)
+    internal fun storageContext(): AccountStorageContext = runtimeValue?.context
+        ?: AccountStorageContext(this, CloudAuthClient.identitySnapshot(this))
     val repository get() = accountRuntime.repository
     val deviceRegistry get() = accountRuntime.deviceRegistry
     val ble get() = accountRuntime.ble
@@ -32,11 +34,13 @@ class NoopApplication : Application() {
     fun onActiveDeviceAdopted(newId: String) = accountRuntime.onActiveDeviceAdopted(newId)
 
     override fun attachBaseContext(base: Context) {
+        if (BuildConfig.FINAL_HOSTED_COMPUTE) com.noop.analytics.PhoneComputeRuntime.installFinalHosted()
         super.attachBaseContext(AppLanguagePrefs.wrap(base))
         instance = this
     }
     override fun onCreate() {
         super.onCreate()
+        if (BuildConfig.FINAL_HOSTED_COMPUTE) com.noop.analytics.PhoneComputeRuntime.installFinalHosted()
         CrashCapture.install(this)
         runCatching { com.noop.push.EnrollmentDataScope.initialize(this) }
         com.noop.ui.NoopPrefs.migrateContinuousHrvOvernightDefault(this)

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.DayCycleResolverTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="midnightModeStillResetsAtCalendarMidnight" classname="com.noop.analytics.DayCycleResolverTest" time="0.001"/>
+  <testcase name="sleepOnsetIsTheDefaultPersistedMode" classname="com.noop.analytics.DayCycleResolverTest" time="0.0"/>
+  <testcase name="sleepOnsetCycleStaysOpenAcrossMidnight" classname="com.noop.analytics.DayCycleResolverTest" time="0.0"/>
+  <testcase name="fallbackRollsWhenTheNextMidnightIsTooSoon" classname="com.noop.analytics.DayCycleResolverTest" time="0.0"/>
+  <testcase name="fallbackLandsOnLocalMidnightNotUtc" classname="com.noop.analytics.DayCycleResolverTest" time="0.0"/>
+  <testcase name="allNighterStaysOpenUntilTheAbsoluteCap" classname="com.noop.analytics.DayCycleResolverTest" time="0.0"/>
+  <testcase name="fallbackTakesTheMidnightExactlyEighteenHoursAfterOnset" classname="com.noop.analytics.DayCycleResolverTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

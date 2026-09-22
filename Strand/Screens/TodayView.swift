@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 import Foundation
 
@@ -1196,6 +1197,8 @@ struct TodayView: View {
     }
 
     private func computeCalibration() -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("TodayView.calibration") else { return nil }
+        PhoneComputeRuntime.entered("TodayView.calibration")
         guard selectedDayOffset == 0 else { return nil }
         return RecoveryScorer.calibrationNights(nightlyHrv: repo.days.map(\.avgHrv),
                                                 dayKeys: repo.days.map(\.day),
@@ -1542,6 +1545,13 @@ struct TodayView: View {
                 // and opens the in-exercise screen. Its own leaf owns the AppModel observation + per-second
                 // clock, so the live tick never re-renders TodayView.body.
                 ActiveWorkoutIndicatorSection()
+                if PhoneComputeRuntime.isFinalHosted {
+                    CanonicalPhysiologySection(families: ["recovery", "strain_energy", "sleep_history", "night_hrv", "stress", "readiness_load"], day: selectedDayKey)
+                    if selectedDayOffset == 0 {
+                        DeviceReportedHeartRateSection()
+                        JournalReminderCard()
+                    }
+                } else {
                 // The "still building" and "new here?" prompts are about getting today's scores going,
                 // so they stay anchored to today rather than reappearing on every navigated past day.
                 if selectedDayOffset == 0 && repo.today?.recovery == nil {
@@ -1583,6 +1593,7 @@ struct TodayView: View {
                 // Opt-in "looks like a workout?" suggestion (default OFF). Renders only when the
                 // Settings toggle is on AND the detector finds a recent unsaved, un-dismissed window.
                 AutoWorkoutCard()
+                }
                 sourcesSection
             }
             #if os(iOS)
@@ -1619,6 +1630,7 @@ struct TodayView: View {
             ready: serverScores.state.hasScalarContent(day: selectedDayKey)
                 || (serverScores.state.owns(.sleepSessions) && serverHostedSleepDay == selectedDayKey && serverHostedSleepModel != nil))
         .task(id: "\(serverScores.state.revision)-\(selectedDayKey)-\(repo.refreshSeq)-\(localHostedSleepRevision)") {
+            guard PhoneComputeRuntime.permitsLocal("TodayView.legacySleepPresentation") else { return }
             let load = ScoringPreferenceViewLoad(app: app, repo: repo)
             guard load.isCurrent(app: app, repo: repo, requiringAcceptedPreferences: false) else { return }
             let state = serverScores.state
@@ -1652,10 +1664,12 @@ struct TodayView: View {
         // correct value for the change frame, so there is no flash and no missed update.
         // macOS-13-safe single-param onChange.
         .onChangeCompat(of: todayInputKey) { newKey in
+            guard PhoneComputeRuntime.permitsLocal("TodayView.refreshDerived") else { return }
             derived = buildDerived()
             derivedKey = newKey
         }
         .onAppear {
+            guard PhoneComputeRuntime.permitsLocal("TodayView.appearDerived") else { return }
             if derivedKey != todayInputKey {
                 derived = buildDerived()
                 derivedKey = todayInputKey
@@ -4589,6 +4603,7 @@ struct TodayView: View {
     /// `refreshSeq`, which re-fires this task with `live.backfilling` false, and the deferred set runs then.
     /// Values + provenance are byte-identical to the old single-pass `loadAll` whenever each part runs.
     private func loadAll() async {
+        guard PhoneComputeRuntime.permitsLocal("TodayView.loadAnalytics") else { return }
         let load = ScoringPreferenceViewLoad(app: app, repo: repo)
         let loadDayKey = selectedDayKey
         func isCurrent() -> Bool { load.isCurrent(app: app, repo: repo) && loadDayKey == selectedDayKey }
@@ -4651,6 +4666,7 @@ struct TodayView: View {
     /// SAME pure `SleepModel.build`, so a hosted card's numbers match the Sleep tab. Twin of the
     /// LiquidTodayView hostedSleepModel build.
     private func loadHostedSleepModel(load: ScoringPreferenceViewLoad) async {
+        guard PhoneComputeRuntime.permitsLocal("TodayView.loadSleep") else { return }
         guard load.isCurrent(app: app, repo: repo) else { return }
         let sleepOrigin = String(localized: "Sleep")
         guard HostedCardPrefs.decodeEnabled(hostedCardsRaw).contains(where: { $0.origin == sleepOrigin }) else {
@@ -4682,6 +4698,8 @@ struct TodayView: View {
     /// does NOT depend on `selectedDayOffset`. The bulk of the dashboard's reads; deferred during an active
     /// backfill (see `loadAll`). Same reads, same derivations, same assignment order as before.
     private func loadHistoryWide(load: ScoringPreferenceViewLoad) async {
+        guard PhoneComputeRuntime.permitsLocal("TodayView.loadHistory") else { return }
+        PhoneComputeRuntime.entered("TodayView.loadHistory")
         func isCurrent() -> Bool { load.isCurrent(app: app, repo: repo) }
         guard isCurrent() else { return }
         // 14-day sparklines, Whoop + Apple Health. These reads are mutually independent (distinct
@@ -4890,7 +4908,7 @@ struct TodayView: View {
             let total = await repo.hydrationTotal(day: Repository.localDayKey(Date()))
             guard load.isCurrent(app: app, repo: repo), enabled == hydrationEnabled else { return }
             hydrationTotalML = total
-            hydrationGoalML = repo.hydrationGoalML(profileSex: load.profileSex)
+            hydrationGoalML = PhoneComputeRuntime.isFinalHosted ? nil : repo.hydrationGoalML(profileSex: load.profileSex)
         } else {
             hydrationTotalML = nil
             hydrationGoalML = nil
@@ -4938,6 +4956,7 @@ struct TodayView: View {
     private static let todayCacheMaxAge: TimeInterval = 120
 
     private func loadDayScoped(load: ScoringPreferenceViewLoad) async {
+        guard PhoneComputeRuntime.permitsLocal("TodayView.loadDay") else { return }
         let loadDayKey = selectedDayKey
         let loadDayOffset = selectedDayOffset
         let loadCycleMode = dayCycleMode

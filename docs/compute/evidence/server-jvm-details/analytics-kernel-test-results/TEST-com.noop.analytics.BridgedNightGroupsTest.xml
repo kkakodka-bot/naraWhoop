@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.BridgedNightGroupsTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="unsortedInputIndicesReferToOriginalPositions" classname="com.noop.analytics.BridgedNightGroupsTest" time="0.0"/>
+  <testcase name="emptyInputYieldsNoGroups" classname="com.noop.analytics.BridgedNightGroupsTest" time="0.0"/>
+  <testcase name="zeroGapBridgesWithoutSeam" classname="com.noop.analytics.BridgedNightGroupsTest" time="0.0"/>
+  <testcase name="daytimeGapOverSixtyMinutesDoesNotBridge" classname="com.noop.analytics.BridgedNightGroupsTest" time="0.0"/>
+  <testcase name="threeFragmentNightYieldsTwoGaps" classname="com.noop.analytics.BridgedNightGroupsTest" time="0.0"/>
+  <testcase name="daytimeNapStaysItsOwnGroup" classname="com.noop.analytics.BridgedNightGroupsTest" time="0.0"/>
+  <testcase name="shortWakeBridgesTwoFragmentsWithOneGap" classname="com.noop.analytics.BridgedNightGroupsTest" time="0.0"/>
+  <testcase name="mainNightGroupIndicesUnchangedForBiphasicPlusNap" classname="com.noop.analytics.BridgedNightGroupsTest" time="0.0"/>
+  <testcase name="overlappingFragmentStartsItsOwnGroup" classname="com.noop.analytics.BridgedNightGroupsTest" time="0.0"/>
+  <testcase name="nightTailBridgesOvernightGapOverSixtyMinutes" classname="com.noop.analytics.BridgedNightGroupsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

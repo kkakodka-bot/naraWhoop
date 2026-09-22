@@ -49,10 +49,7 @@ final class WatchScoreStore: NSObject, ObservableObject, WCSessionDelegate {
 
     /// Read the last snapshot the phone delivered, if any. The complication uses the same key.
     static func loadPersisted() -> WatchScoreSnapshot? {
-        guard let defaults = UserDefaults(suiteName: suiteName),
-              let data = defaults.data(forKey: storageKey),
-              let snap = try? JSONDecoder().decode(WatchScoreSnapshot.self, from: data) else { return nil }
-        return snap
+        WatchScoreSnapshot.load(from: UserDefaults(suiteName: suiteName))
     }
 
     /// Persist a snapshot into the shared group so the complication reads the SAME bytes the glance shows.
@@ -66,6 +63,7 @@ final class WatchScoreStore: NSObject, ObservableObject, WCSessionDelegate {
     /// Apply a freshly received snapshot: store it, publish to the glance, refresh the complication.
     /// Hops to the main actor because it touches @Published state and WidgetCenter.
     private func apply(_ snap: WatchScoreSnapshot) {
+        guard snap.isAdmittedForHostedMode else { return }
         persist(snap)
         DispatchQueue.main.async {
             self.snapshot = snap
@@ -79,7 +77,9 @@ final class WatchScoreStore: NSObject, ObservableObject, WCSessionDelegate {
     /// snapshot to Data under "snapshot"; we tolerate a missing/garbled payload by simply ignoring it.
     private func decode(from payload: [String: Any]) -> WatchScoreSnapshot? {
         guard let data = payload["snapshot"] as? Data else { return nil }
-        return try? JSONDecoder().decode(WatchScoreSnapshot.self, from: data)
+        guard let snap = try? JSONDecoder().decode(WatchScoreSnapshot.self, from: data),
+              snap.isAdmittedForHostedMode else { return nil }
+        return snap
     }
 
     // MARK: WCSessionDelegate

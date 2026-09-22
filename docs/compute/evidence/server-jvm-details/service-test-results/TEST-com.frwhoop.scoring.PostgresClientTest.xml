@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.PostgresClientTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:54" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="noUserInfoMeansNullCredentials" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <testcase name="percentEncodedCredentialsAreDecodedAfterSplitting" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <testcase name="encodedUtf8AndPasswordlessUsernameAreSupported" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <testcase name="extractsUserAndPassword" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <testcase name="normalizesPostgresqlUrlToJdbc" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <testcase name="stripsUserInfoForJdbcUrl" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <testcase name="jdbcPrefixedUrlIsNormalizedToUserinfoFree" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <testcase name="percentEscapesAreDecodedOnceAndLiteralPlusIsPreserved" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <testcase name="normalizesPostgresUrlToJdbcPostgresql" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <testcase name="malformedEscapesFailWithoutExposingTheCredential" classname="com.frwhoop.scoring.PostgresClientTest" time="0.001"/>
+  <testcase name="boundedWorkersCannotDisableDriverTimeoutsThroughUrlOptions" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <testcase name="passwordMayContainAtSign" classname="com.frwhoop.scoring.PostgresClientTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

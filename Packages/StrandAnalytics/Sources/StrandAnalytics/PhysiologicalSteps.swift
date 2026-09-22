@@ -44,6 +44,8 @@ public enum PhysiologicalSteps {
     /// Kotlin twin: `PhysiologicalSteps.classifyForCycle`.
     public static func classifyForCycle(_ blocks: [SleepBlock], offsetSec: Int,
                                         habitualMidsleepSec: Int?, timezone: TimeZone? = nil) -> [SleepBlock] {
+        guard PhoneComputeRuntime.permitsLocal("swift.PhysiologicalSteps.classifyForCycle") else { return [] }
+        PhoneComputeRuntime.entered("swift.PhysiologicalSteps.classifyForCycle")
         guard !blocks.isEmpty else { return [] }
         let explicit = blocks.indices.filter { blocks[$0].kind == .mainSleep }
         let selectable = blocks.indices.filter { blocks[$0].kind != .nap }
@@ -82,6 +84,8 @@ public enum PhysiologicalSteps {
 
     /// Kotlin twin: `PhysiologicalSteps.cycleWindows`.
     public static func cycleWindows(_ boundaries: [CycleBoundary], now: Int) -> [CycleWindow] {
+        guard PhoneComputeRuntime.permitsLocal("swift.PhysiologicalSteps.cycleWindows") else { return [] }
+        PhoneComputeRuntime.entered("swift.PhysiologicalSteps.cycleWindows")
         var ids = Set<String>()
         let ordered = boundaries.filter { $0.onset <= now && ids.insert($0.sleepId).inserted }
             .sorted { $0.onset < $1.onset }
@@ -96,6 +100,8 @@ public enum PhysiologicalSteps {
     /// Kotlin twin: `PhysiologicalSteps.ownerSegmentsFromCoverage`.
     public static func ownerSegmentsFromCoverage(_ window: CycleWindow, coverage: [OwnerCoverage],
                                                  fallbackOwner: String) -> [OwnerSegment] {
+        guard PhoneComputeRuntime.permitsLocal("swift.PhysiologicalSteps.ownerSegmentsFromCoverage") else { return [] }
+        PhoneComputeRuntime.entered("swift.PhysiologicalSteps.ownerSegmentsFromCoverage")
         guard window.endExclusive > window.onset else { return [] }
         let clipped = coverage.compactMap { item -> OwnerCoverage? in
             let start = max(window.onset, item.onset), end = min(window.endExclusive, item.endExclusive)

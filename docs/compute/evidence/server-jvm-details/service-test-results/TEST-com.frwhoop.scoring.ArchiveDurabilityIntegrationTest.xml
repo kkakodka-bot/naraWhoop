@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.ArchiveDurabilityIntegrationTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:28" hostname="mac-studio.lan" time="1.062">
+  <properties/>
+  <testcase name="differentDevicesAndRevisionsNeverReuseArchiveIdentity" classname="com.frwhoop.scoring.ArchiveDurabilityIntegrationTest" time="0.805"/>
+  <testcase name="manifestFailureRollsBackArchiveCompletionAndDoesNotRescore" classname="com.frwhoop.scoring.ArchiveDurabilityIntegrationTest" time="0.051"/>
+  <testcase name="failedArchiveSurvivesWithoutNewScoreAndRetriesExactCommittedBytes" classname="com.frwhoop.scoring.ArchiveDurabilityIntegrationTest" time="0.05"/>
+  <testcase name="uploadThenCrashAndLeaseReclaimPreservesKeyAndFencesManifestSettlement" classname="com.frwhoop.scoring.ArchiveDurabilityIntegrationTest" time="0.049"/>
+  <testcase name="archiveDeadLetterCanBeRepairedWithoutRecomputingOrNewPhoneUpload" classname="com.frwhoop.scoring.ArchiveDurabilityIntegrationTest" time="0.058"/>
+  <testcase name="manifestReceiptMustMatchCommittedSnapshotBytes" classname="com.frwhoop.scoring.ArchiveDurabilityIntegrationTest" time="0.048"/>
+  <system-out><![CDATA[W3 disposable PostgreSQL artifacts: /Volumes/Untitled/compute-final-tmp.TV9zWX/server-jvm.OOAjIS/context-artifacts/w3-pg-2948676271931566160
+]]></system-out>
+  <system-err><![CDATA[[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@5b247367
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+]]></system-err>
+</testsuite>

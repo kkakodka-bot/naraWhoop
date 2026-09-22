@@ -209,7 +209,8 @@ class CoachViewModel(app: Application) : AndroidViewModel(app) {
      * Custom (local) provider, a committed base URL (a key is optional there). Gates setup vs. chat.
      */
     fun isConfigured(ctx: Context): Boolean =
-        if (_provider.value == AiProvider.CUSTOM) _customConnected.value else hasKey(ctx)
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) true
+        else if (_provider.value == AiProvider.CUSTOM) _customConnected.value else hasKey(ctx)
 
     // MARK: - Selection mutators
 
@@ -250,7 +251,7 @@ class CoachViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun refreshModels(ctx: Context) {
         if (_refreshingModels.value) return
-        val appCtx = ctx.applicationContext
+        val appCtx = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) account.context else ctx.applicationContext
         val p = _provider.value
         val url = _customBaseUrl.value
         _refreshingModels.value = true
@@ -439,7 +440,7 @@ class CoachViewModel(app: Application) : AndroidViewModel(app) {
         if (_messages.value.isNotEmpty()) return
         val rows = runCatching { coachDao.coachMessages() }.getOrDefault(emptyList())
         if (rows.isEmpty()) return
-        _messages.value = rows.sortedBy { it.orderIndex }
+        _messages.value = rows.filter { !com.noop.analytics.PhoneComputeRuntime.finalHosted || it.role == "user" }.sortedBy { it.orderIndex }
             .map { ChatMsg(id = it.id, role = it.role, text = it.text) }
     }
 
@@ -564,6 +565,7 @@ class CoachViewModel(app: Application) : AndroidViewModel(app) {
      *  first message, with no network call. No-op if a conversation already exists. Call once when
      *  the Coach screen appears. */
     fun consumeScheduledBriefIfAny(ctx: Context) {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return // Canonical family readout owns current brief/revision.
         if (_messages.value.isNotEmpty()) return
         val text = CoachBriefSettings.from(ctx.applicationContext).consumeStoredBrief() ?: return
         appendMessage(ChatMsg(role = "assistant", text = getApplication<Application>().getString(R.string.coach_today_brief_format, text)))

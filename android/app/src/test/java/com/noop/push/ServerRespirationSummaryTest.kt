@@ -14,7 +14,7 @@ class ServerRespirationSummaryTest {
         val summary=ServerRespirationSummary.project(cache,day)!!
         assertEquals(12.0,summary.breathsPerMinute!!,0.1)
         assertEquals("main_sleep",summary.context)
-        assertEquals("resp-spectrum-acf-1",summary.method)
+        assertEquals("resp-spectrum-acf-2",summary.method)
         assertTrue(summary.coverage!!>0.9)
         assertEquals(summary.acceptedWindows,summary.totalWindows)
         assertNull(summary.reason)

@@ -51,7 +51,8 @@ final class ServerDaySwiftV3CoreProbeTests: XCTestCase {
         let native = try P.analyze(i, prepared: prepared, loaded: loaded)
         XCTAssertEqual(output.result, try P.reflect(native))
         XCTAssertNotNil(native.daily.restingHr)
-        XCTAssertNotNil(native.daily.avgHrv)
+        // Legacy coarse RR rows have no beat-clock continuity proof.
+        XCTAssertNil(native.daily.avgHrv)
         XCTAssertEqual(output.history.checkpoint.observation.measurements.values["resting_hr"], native.daily.restingHr.map(Double.init))
         XCTAssertEqual(daily["respRateBpm"], .null)
         XCTAssertNil(output.history.checkpoint.observation.measurements.values["resp"])

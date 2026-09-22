@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // RecoveryScorer+Trace.swift - the Charge TERM-BREAKDOWN diagnostic (Recovery test mode).
@@ -34,6 +35,7 @@ extension RecoveryScorer {
                                      sleepPerf: Double?,
                                      skinTempDev: Double? = nil)
         -> (score: Double?, trace: [String]) {
+        PhoneComputeRuntime.entered("swift.RecoveryScorer+Trace.recoveryTrace")
 
         // Trace numbers use nearest rounding with half-ties away from zero on both platforms.
         func r2(_ x: Double) -> Double {

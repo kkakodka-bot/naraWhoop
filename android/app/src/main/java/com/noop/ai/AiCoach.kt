@@ -52,6 +52,14 @@ class AiCoach(
      *  `AICoach.journalEntries()`. Daily metrics, R-R and Lab Book markers read the active strap via
      *  [activeStrapId]. */
     private val deviceId = "my-whoop"
+    private fun canonicalCoachReply(context: Context): String {
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        if (!account.isCurrent()) return "Coaching unavailable: account changed."
+        val family = account.runtime?.serverScoreRepository
+            ?.overlay(java.time.LocalDate.now().toString())?.compute?.families?.get("live_coaching")
+        return (family?.detail("response") ?: family?.value("coaching_decision"))?.let { "$it\nResult: ${family?.resultRevision}" }
+            ?: "Coaching: ${if (family?.expired() == true) "expired_server_result" else family?.reason ?: family?.status ?: "awaiting_server_result"}. Result: ${family?.resultRevision ?: "pending publication"}. Your input is retained; phone inference is disabled."
+    }
 
     // K13: cached summary of the dropped middle turns, regenerated when the dropped set changes.
     @Volatile private var droppedSummary: String? = null
@@ -88,6 +96,8 @@ class AiCoach(
         customAuthHeader: CustomAiAuthHeader = CustomAiAuthHeader.BEARER,
         includeSignals: Boolean = false,
     ): String = withContext(Dispatchers.IO) {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return@withContext canonicalCoachReply(ctx)
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("AiCoach.chat")
         // Local (Custom) servers usually need no key; the cloud providers always do. The guarded read
         // returns the stored key ONLY if it belongs to THIS provider (or is a legacy cloud key), so a
         // key saved for one provider is never Bearer-sent to another provider's (or a Custom) endpoint.
@@ -178,6 +188,8 @@ class AiCoach(
         includeSignals: Boolean = false,
         onDelta: (String) -> Unit,
     ): Unit = withContext(Dispatchers.IO) {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { onDelta(canonicalCoachReply(ctx)); return@withContext }
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("AiCoach.chatStream")
         val key = AiKeyStore.read(ctx, provider)
         if (key == null && provider != AiProvider.CUSTOM) {
             throw Exception("No API key set. Add your ${provider.displayName} key to use the coach.")
@@ -316,6 +328,7 @@ class AiCoach(
         customAuthHeader: CustomAiAuthHeader = CustomAiAuthHeader.BEARER,
         includeSignals: Boolean = false,
     ): String? {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return canonicalCoachReply(ctx)
         if (!consent) return null
         val key = AiKeyStore.read(ctx, provider)
         if (key == null && provider != AiProvider.CUSTOM) return null
@@ -341,6 +354,8 @@ class AiCoach(
      * never throws.
      */
     suspend fun suggestions(): List<String> = withContext(Dispatchers.IO) {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return@withContext emptyList()
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("AiCoach.suggestions")
         val days = runCatching { repo.daysMerged(activeStrapId()) }.getOrDefault(emptyList())
         CoachSuggestions.suggestions(days.lastOrNull(), days)
     }
@@ -386,6 +401,7 @@ class AiCoach(
      * model doesn't invent numbers.
      */
     fun buildContext(days: List<DailyMetric>): String {
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("AiCoach.buildContext")
         if (days.isEmpty()) {
             return "USER DATA: No wearable data is available yet (no synced days). " +
                 "Do not invent specific numbers; give general guidance and encourage the user " +

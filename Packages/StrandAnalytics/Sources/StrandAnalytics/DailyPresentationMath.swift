@@ -1,14 +1,18 @@
+import WhoopProtocol
 import Foundation
 
 /// Scalar presentation arithmetic shared with the existing sleep and stress wrappers.
 /// Selection, freshness, import precedence and calendar conversion remain with callers.
 public enum DailyPresentationMath {
     public static func mean(_ values: [Double]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.DailyPresentationMath.mean") else { return nil }
+        PhoneComputeRuntime.entered("swift.DailyPresentationMath.mean")
         guard !values.isEmpty else { return nil }
         return values.reduce(0, +) / Double(values.count)
     }
 
     public static func populationSD(_ values: [Double], mean: Double?) -> Double {
+        PhoneComputeRuntime.entered("swift.DailyPresentationMath.populationSD")
         guard let mean, values.count > 1 else { return 0 }
         let variance = values.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(values.count)
         return variance.squareRoot()
@@ -18,6 +22,7 @@ public enum DailyPresentationMath {
         rhrToday: Double?, meanRHR: Double?, sdRHR: Double,
         hrvToday: Double?, meanHRV: Double?, sdHRV: Double
     ) -> Double {
+        PhoneComputeRuntime.entered("swift.DailyPresentationMath.dailyStressRaw")
         var sum = 0.0
         if let r = rhrToday, let m = meanRHR, sdRHR > 0.0001 {
             sum += (r - m) / sdRHR
@@ -29,20 +34,26 @@ public enum DailyPresentationMath {
     }
 
     public static func dailyStressSquash(_ raw: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.DailyPresentationMath.dailyStressSquash")
         let score = 3.0 / (1.0 + exp(-raw))
         return min(max(score, 0), 3)
     }
 
     public static func positiveMean(_ values: [Double?]) -> Double? {
-        mean(values.compactMap { $0 }.filter { $0 > 0 })
+        guard PhoneComputeRuntime.permitsLocal("swift.DailyPresentationMath.positiveMean") else { return nil }
+        PhoneComputeRuntime.entered("swift.DailyPresentationMath.positiveMean")
+        return mean(values.compactMap { $0 }.filter { $0 > 0 })
     }
 
     public static func descriptiveSleepNeed(observedMinutes: [Double?]) -> Double {
-        Swift.max(450, positiveMean(observedMinutes) ?? 450)
+        PhoneComputeRuntime.entered("swift.DailyPresentationMath.descriptiveSleepNeed")
+        return Swift.max(450, positiveMean(observedMinutes) ?? 450)
     }
 
     /// Input is local hour*60+minute, before the original noon wrap, in observation order.
     public static func bedtimeConsistencySeries(localBedMinutes: [Double]) -> [Double] {
+        guard PhoneComputeRuntime.permitsLocal("swift.DailyPresentationMath.bedtimeConsistencySeries") else { return [] }
+        PhoneComputeRuntime.entered("swift.DailyPresentationMath.bedtimeConsistencySeries")
         let minutes = localBedMinutes.map { value -> Double in
             var minute = value
             if minute < 12 * 60 { minute += 24 * 60 }
@@ -68,17 +79,23 @@ public enum DailyPresentationMath {
     }
 
     public static func hoursVsNeededPercent(asleepMin: Double?, needMin: Double) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.DailyPresentationMath.hoursVsNeededPercent") else { return nil }
+        PhoneComputeRuntime.entered("swift.DailyPresentationMath.hoursVsNeededPercent")
         guard let asleepMin, asleepMin > 0 else { return nil }
         guard needMin > 0 else { return nil }
         return asleepMin / needMin * 100
     }
 
     public static func restorativeMinutes(deepMin: Double?, remMin: Double?) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.DailyPresentationMath.restorativeMinutes") else { return nil }
+        PhoneComputeRuntime.entered("swift.DailyPresentationMath.restorativeMinutes")
         guard let deepMin, let remMin else { return nil }
         return deepMin + remMin
     }
 
     public static func restorativePercent(deepMin: Double?, remMin: Double?, asleepMin: Double?) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.DailyPresentationMath.restorativePercent") else { return nil }
+        PhoneComputeRuntime.entered("swift.DailyPresentationMath.restorativePercent")
         guard let deepMin, let remMin, let asleepMin, asleepMin > 0 else { return nil }
         return (deepMin + remMin) / asleepMin * 100
     }

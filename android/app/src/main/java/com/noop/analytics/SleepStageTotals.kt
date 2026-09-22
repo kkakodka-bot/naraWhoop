@@ -60,6 +60,8 @@ object SleepStageTotals {
      * (minute totals). Mirrors Swift `minutes(fromStagesJSON:)`.
      */
     fun minutes(stagesJSON: String?): Minutes? {
+        if (!PhoneComputeRuntime.allowsLocal("sleep_stage_totals")) return null
+        PhoneComputeRuntime.inferenceStarted("sleep_stage_totals")
         val json = stagesJSON ?: return null
         val arr = try {
             JSONArray(json)
@@ -463,6 +465,8 @@ object SleepStageTotals {
      *  analytics rollup and the edit/recompute seam apply ONE consistent definition: gap → awake → in-bed.
      *  `interFragmentAwakeSeconds` <= 0 reproduces the legacy sum-of-stages behaviour. Mirrors Swift. */
     fun dailyAggregate(stagesJSONs: List<String?>, interFragmentAwakeSeconds: Double): DailySleep? {
+        if (!PhoneComputeRuntime.allowsLocal("sleep_composite")) return null
+        PhoneComputeRuntime.inferenceStarted("sleep_composite")
         val total = Minutes()
         var any = false
         for (j in stagesJSONs) {

@@ -1,0 +1,1685 @@
+Building for debugging...
+[0/4] Write swift-version-30D7331401001902.txt
+Build complete! (0.10s)
+Test Suite 'All tests' started at 2026-09-21 23:13:29.119.
+Test Suite 'NoopLocalAccessPackageTests.xctest' started at 2026-09-21 23:13:29.120.
+Test Suite 'CLIQueryTests' started at 2026-09-21 23:13:29.120.
+Test Case '-[NoopLocalAccessCoreTests.CLIQueryTests testAllFiveQueriesDispatchThroughTheSamePayloadAsMCP]' started.
+Test Case '-[NoopLocalAccessCoreTests.CLIQueryTests testAllFiveQueriesDispatchThroughTheSamePayloadAsMCP]' passed (0.023 seconds).
+Test Case '-[NoopLocalAccessCoreTests.CLIQueryTests testCLIValuesArePassedToTheExistingBounds]' started.
+Test Case '-[NoopLocalAccessCoreTests.CLIQueryTests testCLIValuesArePassedToTheExistingBounds]' passed (0.002 seconds).
+Test Case '-[NoopLocalAccessCoreTests.CLIQueryTests testMetricSeriesParsesTheCompleteFlagContract]' started.
+Test Case '-[NoopLocalAccessCoreTests.CLIQueryTests testMetricSeriesParsesTheCompleteFlagContract]' passed (0.000 seconds).
+Test Case '-[NoopLocalAccessCoreTests.CLIQueryTests testMetricSeriesRequiresKeyAndRejectsUnknownOrMissingFlags]' started.
+Test Case '-[NoopLocalAccessCoreTests.CLIQueryTests testMetricSeriesRequiresKeyAndRejectsUnknownOrMissingFlags]' passed (0.001 seconds).
+Test Case '-[NoopLocalAccessCoreTests.CLIQueryTests testSuccessfulOutputIsOneJSONValueAndEncodingFailuresPropagate]' started.
+Test Case '-[NoopLocalAccessCoreTests.CLIQueryTests testSuccessfulOutputIsOneJSONValueAndEncodingFailuresPropagate]' passed (0.000 seconds).
+Test Suite 'CLIQueryTests' passed at 2026-09-21 23:13:29.147.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.026 (0.027) seconds
+Test Suite 'DatabasePathResolverTests' started at 2026-09-21 23:13:29.147.
+Test Case '-[NoopLocalAccessCoreTests.DatabasePathResolverTests testCustomBundleIDIsExplicitOptIn]' started.
+Test Case '-[NoopLocalAccessCoreTests.DatabasePathResolverTests testCustomBundleIDIsExplicitOptIn]' passed (0.000 seconds).
+Test Case '-[NoopLocalAccessCoreTests.DatabasePathResolverTests testExplicitPathFailureDoesNotFallBack]' started.
+Test Case '-[NoopLocalAccessCoreTests.DatabasePathResolverTests testExplicitPathFailureDoesNotFallBack]' passed (0.000 seconds).
+Test Case '-[NoopLocalAccessCoreTests.DatabasePathResolverTests testExplicitPathMustExist]' started.
+Test Case '-[NoopLocalAccessCoreTests.DatabasePathResolverTests testExplicitPathMustExist]' passed (0.000 seconds).
+Test Case '-[NoopLocalAccessCoreTests.DatabasePathResolverTests testPersonalBundleIsNotADefaultCandidate]' started.
+Test Case '-[NoopLocalAccessCoreTests.DatabasePathResolverTests testPersonalBundleIsNotADefaultCandidate]' passed (0.000 seconds).
+Test Suite 'DatabasePathResolverTests' passed at 2026-09-21 23:13:29.148.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'MCPServerTests' started at 2026-09-21 23:13:29.148.
+Test Case '-[NoopLocalAccessCoreTests.MCPServerTests testInitializeIncludesReadOnlyInstructionsForCodex]' started.
+Test Case '-[NoopLocalAccessCoreTests.MCPServerTests testInitializeIncludesReadOnlyInstructionsForCodex]' passed (0.000 seconds).
+Test Case '-[NoopLocalAccessCoreTests.MCPServerTests testMetricSeriesUsesComputedFallbackForMissingImportedDay]' started.
+Test Case '-[NoopLocalAccessCoreTests.MCPServerTests testMetricSeriesUsesComputedFallbackForMissingImportedDay]' passed (0.002 seconds).
+Test Case '-[NoopLocalAccessCoreTests.MCPServerTests testToolsAreAnnotatedReadOnly]' started.
+Test Case '-[NoopLocalAccessCoreTests.MCPServerTests testToolsAreAnnotatedReadOnly]' passed (0.000 seconds).
+Test Suite 'MCPServerTests' passed at 2026-09-21 23:13:29.150.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'ReadonlyNoopStoreTests' started at 2026-09-21 23:13:29.150.
+Test Case '-[NoopLocalAccessCoreTests.ReadonlyNoopStoreTests testForeignNoopLikeDatabaseIsRejectedWithoutQuarantine]' started.
+Test Case '-[NoopLocalAccessCoreTests.ReadonlyNoopStoreTests testForeignNoopLikeDatabaseIsRejectedWithoutQuarantine]' passed (0.001 seconds).
+Test Case '-[NoopLocalAccessCoreTests.ReadonlyNoopStoreTests testReadsSeededNoopStoreWithoutOpeningWritableHandle]' started.
+Test Case '-[NoopLocalAccessCoreTests.ReadonlyNoopStoreTests testReadsSeededNoopStoreWithoutOpeningWritableHandle]' passed (0.002 seconds).
+Test Suite 'ReadonlyNoopStoreTests' passed at 2026-09-21 23:13:29.153.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'NoopLocalAccessPackageTests.xctest' passed at 2026-09-21 23:13:29.153.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.032 (0.033) seconds
+Test Suite 'All tests' passed at 2026-09-21 23:13:29.153.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.032 (0.034) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+SUPPORT_PACKAGE_PASS: NoopLocalAccess
+Building for debugging...
+[0/2] Write swift-version-30D7331401001902.txt
+Build complete! (0.14s)
+Test Suite 'All tests' started at 2026-09-21 23:13:29.659.
+Test Suite 'NoopPushPackageTests.xctest' started at 2026-09-21 23:13:29.659.
+Test Suite 'AccountStorageLayoutTests' started at 2026-09-21 23:13:29.659.
+Test Case '-[NoopPushTests.AccountStorageLayoutTests testAccountAndProjectSwitchRetainsOriginalPendingBytes]' started.
+Test Case '-[NoopPushTests.AccountStorageLayoutTests testAccountAndProjectSwitchRetainsOriginalPendingBytes]' passed (0.005 seconds).
+Test Case '-[NoopPushTests.AccountStorageLayoutTests testLegacyDatabaseRemainsUnassignedAndUntouched]' started.
+Test Case '-[NoopPushTests.AccountStorageLayoutTests testLegacyDatabaseRemainsUnassignedAndUntouched]' passed (0.001 seconds).
+Test Suite 'AccountStorageLayoutTests' passed at 2026-09-21 23:13:29.666.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.006 (0.006) seconds
+Test Suite 'PortableZstdTests' started at 2026-09-21 23:13:29.666.
+Test Case '-[NoopPushTests.PortableZstdTests testPortableFramesRetainSharedBinaryFixturesAndIdentity]' started.
+Test Case '-[NoopPushTests.PortableZstdTests testPortableFramesRetainSharedBinaryFixturesAndIdentity]' passed (0.214 seconds).
+Test Case '-[NoopPushTests.PortableZstdTests testPortableFramesRoundTripEmptyAndBlockBoundariesWithReferenceDecoder]' started.
+Test Case '-[NoopPushTests.PortableZstdTests testPortableFramesRoundTripEmptyAndBlockBoundariesWithReferenceDecoder]' passed (1.095 seconds).
+Test Case '-[NoopPushTests.PortableZstdTests testPortableMaximumObjectRoundTripsAndHonorsWireAndDecodedLimits]' started.
+Test Case '-[NoopPushTests.PortableZstdTests testPortableMaximumObjectRoundTripsAndHonorsWireAndDecodedLimits]' passed (0.135 seconds).
+Test Suite 'PortableZstdTests' passed at 2026-09-21 23:13:31.110.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 1.444 (1.444) seconds
+Test Suite 'PpgIdentityBinaryTests' started at 2026-09-21 23:13:31.110.
+Test Case '-[NoopPushTests.PpgIdentityBinaryTests testLegacyV1StillDecodesAndRetainsOriginalBytes]' started.
+Test Case '-[NoopPushTests.PpgIdentityBinaryTests testLegacyV1StillDecodesAndRetainsOriginalBytes]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PpgIdentityBinaryTests testSharedOraclePreservesMultipleRecordsAndUnsignedIdentity]' started.
+Test Case '-[NoopPushTests.PpgIdentityBinaryTests testSharedOraclePreservesMultipleRecordsAndUnsignedIdentity]' passed (0.002 seconds).
+Test Suite 'PpgIdentityBinaryTests' passed at 2026-09-21 23:13:31.113.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'PpgIdentityCodecTests' started at 2026-09-21 23:13:31.113.
+Test Case '-[NoopPushTests.PpgIdentityCodecTests testKnownIdentityCannotUseLegacyPayload]' started.
+Test Case '-[NoopPushTests.PpgIdentityCodecTests testKnownIdentityCannotUseLegacyPayload]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PpgIdentityCodecTests testSameSecondIdentityChangesFingerprintAndUnknownIsExplicit]' started.
+Test Case '-[NoopPushTests.PpgIdentityCodecTests testSameSecondIdentityChangesFingerprintAndUnknownIsExplicit]' passed (0.000 seconds).
+Test Suite 'PpgIdentityCodecTests' passed at 2026-09-21 23:13:31.113.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'PushAuxiliaryIdentityTests' started at 2026-09-21 23:13:31.113.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testActualPlausibleTimeFixtureForWholeReceiverIntake]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testActualPlausibleTimeFixtureForWholeReceiverIntake]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testActualScalarBodiesMatchAndroidGoldenVectors]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testActualScalarBodiesMatchAndroidGoldenVectors]' passed (0.002 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testAuxiliaryIdentityRangePrefixSizeAndWindowAreBounded]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testAuxiliaryIdentityRangePrefixSizeAndWindowAreBounded]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testExactAuxiliaryFormatTwoGoldenPreservesSameSecondAndUnknownIndex]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testExactAuxiliaryFormatTwoGoldenPreservesSameSecondAndUnknownIndex]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testInlineAcknowledgementNumbersAreTypedAndBounded]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testInlineAcknowledgementNumbersAreTypedAndBounded]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testKnownProvenanceCannotBeStrippedForAnOlderReceiver]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testKnownProvenanceCannotBeStrippedForAnOlderReceiver]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testLegacyPrefixStopsAtKnownIndexWithoutSkippingItOrLosingOldBytes]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testLegacyPrefixStopsAtKnownIndexWithoutSkippingItOrLosingOldBytes]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testPPGIdentityAndReceiptSchemaArePreservedUnderOnePointFour]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testPPGIdentityAndReceiptSchemaArePreservedUnderOnePointFour]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testProvenanceRequiresExactTypesKnownSchemaAndCompleteObservedDerivation]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testProvenanceRequiresExactTypesKnownSchemaAndCompleteObservedDerivation]' passed (0.002 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testScalarCapabilityNegotiationAndCompatibleHeaderVersions]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testScalarCapabilityNegotiationAndCompatibleHeaderVersions]' passed (0.003 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testScalarValidationDoesNotCoerceBooleanNullOrOutOfRangeValues]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testScalarValidationDoesNotCoerceBooleanNullOrOutOfRangeValues]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testStoredProvenanceDecoderDoesNotCoerceJSONTypesOrDropMembers]' started.
+Test Case '-[NoopPushTests.PushAuxiliaryIdentityTests testStoredProvenanceDecoderDoesNotCoerceJSONTypesOrDropMembers]' passed (0.000 seconds).
+Test Suite 'PushAuxiliaryIdentityTests' passed at 2026-09-21 23:13:31.126.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.011 (0.012) seconds
+Test Suite 'PushBinaryProtocolTests' started at 2026-09-21 23:13:31.126.
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testBinaryAckMatchesBatch]' started.
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testBinaryAckMatchesBatch]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testBinaryObjectOracleLiteralsMatchKotlin]' started.
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testBinaryObjectOracleLiteralsMatchKotlin]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testMultiSecondRawCaptureKeepsPackedInclusiveEndAndMatchesKotlinIdentity]' started.
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testMultiSecondRawCaptureKeepsPackedInclusiveEndAndMatchesKotlinIdentity]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testPpgBinaryObjectIsDeterministic]' started.
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testPpgBinaryObjectIsDeterministic]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testRawCaptureBoundsRejectReversalAndOverflowWithoutTrapOrWrap]' started.
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testRawCaptureBoundsRejectReversalAndOverflowWithoutTrapOrWrap]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testSingleSecondRawCaptureGetsHalfOpenManifestAndRetainsOriginalEvidenceOnRetry]' started.
+Test Case '-[NoopPushTests.PushBinaryProtocolTests testSingleSecondRawCaptureGetsHalfOpenManifestAndRetainsOriginalEvidenceOnRetry]' passed (0.000 seconds).
+Test Suite 'PushBinaryProtocolTests' passed at 2026-09-21 23:13:31.128.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'PushCapabilitiesParseTests' started at 2026-09-21 23:13:31.128.
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testAllUnknownStreamsParseEmptyAndCoordinatorNoOps]' started.
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testAllUnknownStreamsParseEmptyAndCoordinatorNoOps]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testCapabilitiesParseMatchesOracle]' started.
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testCapabilitiesParseMatchesOracle]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testEnrollmentIdentityMustBeCanonicalWhenPresent]' started.
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testEnrollmentIdentityMustBeCanonicalWhenPresent]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testEnrollmentIdentityParsesWhenPresent]' started.
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testEnrollmentIdentityParsesWhenPresent]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testMalformedObjectLaneDisablesLane]' started.
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testMalformedObjectLaneDisablesLane]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testObjectLaneV12Parse]' started.
+Test Case '-[NoopPushTests.PushCapabilitiesParseTests testObjectLaneV12Parse]' passed (0.001 seconds).
+Test Suite 'PushCapabilitiesParseTests' passed at 2026-09-21 23:13:31.131.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'PushCompressionTests' started at 2026-09-21 23:13:31.131.
+Test Case '-[NoopPushTests.PushCompressionTests testGzipEmptyAndMultiChunkRoundTrip]' started.
+Test Case '-[NoopPushTests.PushCompressionTests testGzipEmptyAndMultiChunkRoundTrip]' passed (0.030 seconds).
+Test Case '-[NoopPushTests.PushCompressionTests testPortableZstdBoundsAndSlicedData]' started.
+Test Case '-[NoopPushTests.PushCompressionTests testPortableZstdBoundsAndSlicedData]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushCompressionTests testProductionAndPortableZstdAgainstIndependentLibzstdDecoder]' started.
+Test Case '-[NoopPushTests.PushCompressionTests testProductionAndPortableZstdAgainstIndependentLibzstdDecoder]' passed (0.371 seconds).
+Test Suite 'PushCompressionTests' passed at 2026-09-21 23:13:31.533.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.402 (0.402) seconds
+Test Suite 'PushDaySelectorCalendarTests' started at 2026-09-21 23:13:31.533.
+Test Case '-[NoopPushTests.PushDaySelectorCalendarTests testDaySelectorsIncrementCivilLabelsIndependentlyOfProcessTimeZone]' started.
+Test Case '-[NoopPushTests.PushDaySelectorCalendarTests testDaySelectorsIncrementCivilLabelsIndependentlyOfProcessTimeZone]' passed (0.011 seconds).
+Test Case '-[NoopPushTests.PushDaySelectorCalendarTests testTimestampSelectorsKeepCapturedZoneSpansInsteadOfUsingUTCDays]' started.
+Test Case '-[NoopPushTests.PushDaySelectorCalendarTests testTimestampSelectorsKeepCapturedZoneSpansInsteadOfUsingUTCDays]' passed (0.002 seconds).
+Test Suite 'PushDaySelectorCalendarTests' passed at 2026-09-21 23:13:31.546.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.013 (0.013) seconds
+Test Suite 'PushFailureDiagnosticsTests' started at 2026-09-21 23:13:31.546.
+Test Case '-[NoopPushTests.PushFailureDiagnosticsTests testExactInlineAndObjectVersionsRetainDiagnosticsWithoutRelaxingVersionFence]' started.
+Test Case '-[NoopPushTests.PushFailureDiagnosticsTests testExactInlineAndObjectVersionsRetainDiagnosticsWithoutRelaxingVersionFence]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushFailureDiagnosticsTests testHRSuccessAndPacketFailureKeepIndependentCursorsAndRetrySamePacket]' started.
+Test Case '-[NoopPushTests.PushFailureDiagnosticsTests testHRSuccessAndPacketFailureKeepIndependentCursorsAndRetrySamePacket]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushFailureDiagnosticsTests testOldReceiverAndControlledContentionRemainRetryable]' started.
+Test Case '-[NoopPushTests.PushFailureDiagnosticsTests testOldReceiverAndControlledContentionRemainRetryable]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushFailureDiagnosticsTests testUntrustedDiagnosticStringsAreDiscardedAndStreamComesFromLocalBatch]' started.
+Test Case '-[NoopPushTests.PushFailureDiagnosticsTests testUntrustedDiagnosticStringsAreDiscardedAndStreamComesFromLocalBatch]' passed (0.000 seconds).
+Test Suite 'PushFailureDiagnosticsTests' passed at 2026-09-21 23:13:31.549.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'PushObjectLaneTests' started at 2026-09-21 23:13:31.549.
+Test Case '-[NoopPushTests.PushObjectLaneTests testBinaryObjectOracleLiterals]' started.
+Test Case '-[NoopPushTests.PushObjectLaneTests testBinaryObjectOracleLiterals]' passed (0.228 seconds).
+Test Case '-[NoopPushTests.PushObjectLaneTests testCapabilityAbsenceRetainsBinaryRows]' started.
+Test Case '-[NoopPushTests.PushObjectLaneTests testCapabilityAbsenceRetainsBinaryRows]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushObjectLaneTests testCredentialChangeAfterBucketPutStopsBeforeReceiverCompletion]' started.
+Test Case '-[NoopPushTests.PushObjectLaneTests testCredentialChangeAfterBucketPutStopsBeforeReceiverCompletion]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushObjectLaneTests testInvalidObjectManifestIsNonRetryable]' started.
+Test Case '-[NoopPushTests.PushObjectLaneTests testInvalidObjectManifestIsNonRetryable]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushObjectLaneTests testObjectIdConflictRetriesOnceThenGivesUp]' started.
+Test Case '-[NoopPushTests.PushObjectLaneTests testObjectIdConflictRetriesOnceThenGivesUp]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushObjectLaneTests testObjectLaneUnavailableIsRetryable]' started.
+Test Case '-[NoopPushTests.PushObjectLaneTests testObjectLaneUnavailableIsRetryable]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushObjectLaneTests testResumeAfterKillSkipsPutWhenUploaded]' started.
+Test Case '-[NoopPushTests.PushObjectLaneTests testResumeAfterKillSkipsPutWhenUploaded]' passed (0.003 seconds).
+Test Case '-[NoopPushTests.PushObjectLaneTests testResumeBeforePutReusesObjectKey]' started.
+Test Case '-[NoopPushTests.PushObjectLaneTests testResumeBeforePutReusesObjectKey]' passed (0.003 seconds).
+Test Suite 'PushObjectLaneTests' passed at 2026-09-21 23:13:31.785.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.236 (0.237) seconds
+Test Suite 'PushPreparedSelectionTests' started at 2026-09-21 23:13:31.785.
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testAppendRoundTripKeepsExactBytesAndCursor]' started.
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testAppendRoundTripKeepsExactBytesAndCursor]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testBinaryMemberAndExactCompressedBytesAcrossCapturedVersions]' started.
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testBinaryMemberAndExactCompressedBytesAcrossCapturedVersions]' passed (0.005 seconds).
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testChangedInlineBytesAndMismatchedCommitRejected]' started.
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testChangedInlineBytesAndMismatchedCommitRejected]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testEveryFreshLanePreparesBeforeAnyDeliveryAndPreparationFailureStopsSend]' started.
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testEveryFreshLanePreparesBeforeAnyDeliveryAndPreparationFailureStopsSend]' passed (0.004 seconds).
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testFreshMutablePreparationKeepsCalendarLocalWindowAcrossOffsetAndDST]' started.
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testFreshMutablePreparationKeepsCalendarLocalWindowAcrossOffsetAndDST]' passed (0.031 seconds).
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testMultipartWholeGroupAndFullWindowSurviveRoundTrip]' started.
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testMultipartWholeGroupAndFullWindowSurviveRoundTrip]' passed (1.039 seconds).
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testUnknownAndMissingLocalVersionsFailClosed]' started.
+Test Case '-[NoopPushTests.PushPreparedSelectionTests testUnknownAndMissingLocalVersionsFailClosed]' passed (0.001 seconds).
+Test Suite 'PushPreparedSelectionTests' passed at 2026-09-21 23:13:32.867.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 1.081 (1.082) seconds
+Test Suite 'PushProtocolTests' started at 2026-09-21 23:13:32.867.
+Test Case '-[NoopPushTests.PushProtocolTests testAcknowledgementIgnoresUnknownOptionalMembers]' started.
+Test Case '-[NoopPushTests.PushProtocolTests testAcknowledgementIgnoresUnknownOptionalMembers]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushProtocolTests testAppendBatchCapsRowsAtFiveThousand]' started.
+Test Case '-[NoopPushTests.PushProtocolTests testAppendBatchCapsRowsAtFiveThousand]' passed (0.352 seconds).
+Test Case '-[NoopPushTests.PushProtocolTests testAppendWireShapeIsDeterministic]' started.
+Test Case '-[NoopPushTests.PushProtocolTests testAppendWireShapeIsDeterministic]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushProtocolTests testMutableDayHashMatchesOracle]' started.
+Test Case '-[NoopPushTests.PushProtocolTests testMutableDayHashMatchesOracle]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushProtocolTests testMutableEmptySnapshotIsAuthoritative]' started.
+Test Case '-[NoopPushTests.PushProtocolTests testMutableEmptySnapshotIsAuthoritative]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushProtocolTests testMutableSnapshotSplitsIntoBoundedParts]' started.
+Test Case '-[NoopPushTests.PushProtocolTests testMutableSnapshotSplitsIntoBoundedParts]' passed (2.062 seconds).
+Test Case '-[NoopPushTests.PushProtocolTests testSourceIdScopesStableBatchIdentity]' started.
+Test Case '-[NoopPushTests.PushProtocolTests testSourceIdScopesStableBatchIdentity]' passed (0.000 seconds).
+Test Suite 'PushProtocolTests' passed at 2026-09-21 23:13:35.285.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 2.417 (2.417) seconds
+Test Suite 'PushRegistryTests' started at 2026-09-21 23:13:35.285.
+Test Case '-[NoopPushTests.PushRegistryTests testAllThreeRegistryCopiesAreByteIdentical]' started.
+Test Case '-[NoopPushTests.PushRegistryTests testAllThreeRegistryCopiesAreByteIdentical]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushRegistryTests testV1_1WireStreamsMatchCloudIngestionRegistry]' started.
+Test Case '-[NoopPushTests.PushRegistryTests testV1_1WireStreamsMatchCloudIngestionRegistry]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushRegistryTests testV1_2WireStreamsMatchCloudIngestionRegistry]' started.
+Test Case '-[NoopPushTests.PushRegistryTests testV1_2WireStreamsMatchCloudIngestionRegistry]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushRegistryTests testV1IsSubsetOfV1_1]' started.
+Test Case '-[NoopPushTests.PushRegistryTests testV1IsSubsetOfV1_1]' passed (0.000 seconds).
+Test Suite 'PushRegistryTests' passed at 2026-09-21 23:13:35.286.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'PushResourceAdmissionTests' started at 2026-09-21 23:13:35.286.
+Test Case '-[NoopPushTests.PushResourceAdmissionTests testAdmissionCanResumeWithoutRecreatingCoordinator]' started.
+Test Case '-[NoopPushTests.PushResourceAdmissionTests testAdmissionCanResumeWithoutRecreatingCoordinator]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushResourceAdmissionTests testDeniedAdmissionDoesNotReadSourceOrProgressAcrossEveryEntryPoint]' started.
+Test Case '-[NoopPushTests.PushResourceAdmissionTests testDeniedAdmissionDoesNotReadSourceOrProgressAcrossEveryEntryPoint]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushResourceAdmissionTests testPressureBetweenLanesStopsFurtherScansAndPacking]' started.
+Test Case '-[NoopPushTests.PushResourceAdmissionTests testPressureBetweenLanesStopsFurtherScansAndPacking]' passed (0.000 seconds).
+Test Suite 'PushResourceAdmissionTests' passed at 2026-09-21 23:13:35.287.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'PushScalarCoordinatorTests' started at 2026-09-21 23:13:35.287.
+Test Case '-[NoopPushTests.PushScalarCoordinatorTests testAllThreeNegotiatedStreamsRequireReceiptAssociationBeforeCursor]' started.
+Test Case '-[NoopPushTests.PushScalarCoordinatorTests testAllThreeNegotiatedStreamsRequireReceiptAssociationBeforeCursor]' passed (0.008 seconds).
+Test Case '-[NoopPushTests.PushScalarCoordinatorTests testKnownProvenanceIsHeldBeforeTransportForOlderReceiver]' started.
+Test Case '-[NoopPushTests.PushScalarCoordinatorTests testKnownProvenanceIsHeldBeforeTransportForOlderReceiver]' passed (0.003 seconds).
+Test Case '-[NoopPushTests.PushScalarCoordinatorTests testScalarSchemaMismatchOrFailedAssociationNeverAdvancesAndRetryIsByteStable]' started.
+Test Case '-[NoopPushTests.PushScalarCoordinatorTests testScalarSchemaMismatchOrFailedAssociationNeverAdvancesAndRetryIsByteStable]' passed (0.009 seconds).
+Test Suite 'PushScalarCoordinatorTests' passed at 2026-09-21 23:13:35.308.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.021 (0.021) seconds
+Test Suite 'PushSenderBoundaryTests' started at 2026-09-21 23:13:35.308.
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testByteLimitAndRowIDValidationDoNotReorder]' started.
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testByteLimitAndRowIDValidationDoNotReorder]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testEqualRawBoundsNormalizeManifestWithoutRewritingPayload]' started.
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testEqualRawBoundsNormalizeManifestWithoutRewritingPayload]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testExactFortyEightHourHalfOpenBoundaryForPpgAndAux]' started.
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testExactFortyEightHourHalfOpenBoundaryForPpgAndAux]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testImuStillUsesOneHourAcrossReversedTimestamps]' started.
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testImuStillUsesOneHourAcrossReversedTimestamps]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testNegotiatedIdentityVersionAndLegacyFallback]' started.
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testNegotiatedIdentityVersionAndLegacyFallback]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testOutOfOrderTimestampsNeverSkipAnInterveningRowID]' started.
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testOutOfOrderTimestampsNeverSkipAnInterveningRowID]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testRawPositiveBoundsRetainCompatibilityAndInvalidBoundsFailClosed]' started.
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testRawPositiveBoundsRetainCompatibilityAndInvalidBoundsFailClosed]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testSparseBacklogAdvancesOnlyContiguousPrefixes]' started.
+Test Case '-[NoopPushTests.PushSenderBoundaryTests testSparseBacklogAdvancesOnlyContiguousPrefixes]' passed (0.001 seconds).
+Test Suite 'PushSenderBoundaryTests' passed at 2026-09-21 23:13:35.316.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.007 (0.008) seconds
+Test Suite 'RRPacketAppendTests' started at 2026-09-21 23:13:35.316.
+Test Case '-[NoopPushTests.RRPacketAppendTests testVersionedPacketCompanionRetainsRawBytesAndStableIdentity]' started.
+Test Case '-[NoopPushTests.RRPacketAppendTests testVersionedPacketCompanionRetainsRawBytesAndStableIdentity]' passed (0.000 seconds).
+Test Suite 'RRPacketAppendTests' passed at 2026-09-21 23:13:35.316.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'StandardHRReceiptAppendTests' started at 2026-09-21 23:13:35.316.
+Test Case '-[NoopPushTests.StandardHRReceiptAppendTests testSameSecondIdenticalNotificationsKeepIdentityAndExactMonotonicClock]' started.
+Test Case '-[NoopPushTests.StandardHRReceiptAppendTests testSameSecondIdenticalNotificationsKeepIdentityAndExactMonotonicClock]' passed (0.001 seconds).
+Test Suite 'StandardHRReceiptAppendTests' passed at 2026-09-21 23:13:35.317.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'W2AccountIdentityTests' started at 2026-09-21 23:13:35.317.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testCanonicalScopeAndPersistentNamespaceIgnoreGeneration]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testCanonicalScopeAndPersistentNamespaceIgnoreGeneration]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testCapabilityOwnerAndCaptureOwnerMustAgreeBeforeAdmission]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testCapabilityOwnerAndCaptureOwnerMustAgreeBeforeAdmission]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testConcurrentRefreshIsSingleFlightAndPreservesGeneration]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testConcurrentRefreshIsSingleFlightAndPreservesGeneration]' passed (0.001 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testCredentialReadFailureIsNotSignedOutAndRetriesLoad]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testCredentialReadFailureIsNotSignedOutAndRetriesLoad]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testCredentialUnlockNotifiesAndChangesUnassignedGeneration]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testCredentialUnlockNotifiesAndChangesUnassignedGeneration]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testFailedSignInSaveDoesNotPublishOrPersistNewIdentity]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testFailedSignInSaveDoesNotPublishOrPersistNewIdentity]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testLateTransportReceiptIsRejectedAfterLogout]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testLateTransportReceiptIsRejectedAfterLogout]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testLogoutFencesDelayedRefreshAndDoesNotResurrectAfterReopen]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testLogoutFencesDelayedRefreshAndDoesNotResurrectAfterReopen]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testOldRefreshFailureCannotClearNewUserSession]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testOldRefreshFailureCannotClearNewUserSession]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testProjectChangeFencesPendingSignIn]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testProjectChangeFencesPendingSignIn]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testRefreshSubjectMismatchNeverPersistsAnotherOwner]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testRefreshSubjectMismatchNeverPersistsAnotherOwner]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testRevokedRefreshClearsOnlyCurrentOwner]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testRevokedRefreshClearsOnlyCurrentOwner]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testRotatedCredentialWriteFailureRetainsNewCredentialForPersistenceRetry]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testRotatedCredentialWriteFailureRetainsNewCredentialForPersistenceRetry]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testSecureClearFailureStillInvalidatesAndNotifies]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testSecureClearFailureStillInvalidatesAndNotifies]' passed (0.000 seconds).
+Test Case '-[NoopPushTests.W2AccountIdentityTests testTransientRefreshResponsesRetainSessionAndCanRecover]' started.
+Test Case '-[NoopPushTests.W2AccountIdentityTests testTransientRefreshResponsesRetainSessionAndCanRecover]' passed (0.000 seconds).
+Test Suite 'W2AccountIdentityTests' passed at 2026-09-21 23:13:35.322.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.004 (0.004) seconds
+Test Suite 'NoopPushPackageTests.xctest' passed at 2026-09-21 23:13:35.322.
+	 Executed 99 tests, with 0 failures (0 unexpected) in 5.655 (5.662) seconds
+Test Suite 'All tests' passed at 2026-09-21 23:13:35.322.
+	 Executed 99 tests, with 0 failures (0 unexpected) in 5.655 (5.663) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+SUPPORT_PACKAGE_PASS: NoopPush
+Building for debugging...
+[0/4] Write swift-version-30D7331401001902.txt
+Build complete! (0.08s)
+Test Suite 'All tests' started at 2026-09-21 23:13:35.759.
+Test Suite 'OuraProtocolPackageTests.xctest' started at 2026-09-21 23:13:35.760.
+Test Suite 'ActivityEstimateTests' started at 2026-09-21 23:13:35.760.
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testActiveEnergySubtractsBasalTotalDoesNot]' started.
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testActiveEnergySubtractsBasalTotalDoesNot]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testActiveMinutesRespectsThresholdAndEpoch]' started.
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testActiveMinutesRespectsThresholdAndEpoch]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testEmptyInputYieldsZeroEstimateNotNil]' started.
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testEmptyInputYieldsZeroEstimateNotNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testEpochSecondsScalesMinutesAndEnergyLinearly]' started.
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testEpochSecondsScalesMinutesAndEnergyLinearly]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testEstimateFromDecodedRecordsFlattensMET]' started.
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testEstimateFromDecodedRecordsFlattensMET]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testGoldenEndToEndFromRealisticSample]' started.
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testGoldenEndToEndFromRealisticSample]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testMeanMaxAndMetMinutesAt60s]' started.
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testMeanMaxAndMetMinutesAt60s]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testSubRestingSampleNeverContributesNegativeActiveEnergy]' started.
+Test Case '-[OuraProtocolTests.ActivityEstimateTests testSubRestingSampleNeverContributesNegativeActiveEnergy]' passed (0.000 seconds).
+Test Suite 'ActivityEstimateTests' passed at 2026-09-21 23:13:35.761.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'AuthTests' started at 2026-09-21 23:13:35.761.
+Test Case '-[OuraProtocolTests.AuthTests testAES128ECBKnownAnswerFIPS197]' started.
+Test Case '-[OuraProtocolTests.AuthTests testAES128ECBKnownAnswerFIPS197]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.AuthTests testAuthProofKnownVector]' started.
+Test Case '-[OuraProtocolTests.AuthTests testAuthProofKnownVector]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.AuthTests testAuthStatusParsed]' started.
+Test Case '-[OuraProtocolTests.AuthTests testAuthStatusParsed]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.AuthTests testBadKeyLengthThrows]' started.
+Test Case '-[OuraProtocolTests.AuthTests testBadKeyLengthThrows]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.AuthTests testBadNonceLengthThrows]' started.
+Test Case '-[OuraProtocolTests.AuthTests testBadNonceLengthThrows]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.AuthTests testGetAuthNonceCommandBytes]' started.
+Test Case '-[OuraProtocolTests.AuthTests testGetAuthNonceCommandBytes]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.AuthTests testInstallKeyCommandBytes]' started.
+Test Case '-[OuraProtocolTests.AuthTests testInstallKeyCommandBytes]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.AuthTests testNonceExtractedFromSecureFrame]' started.
+Test Case '-[OuraProtocolTests.AuthTests testNonceExtractedFromSecureFrame]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.AuthTests testProofIsExactlyFirstCipherBlock]' started.
+Test Case '-[OuraProtocolTests.AuthTests testProofIsExactlyFirstCipherBlock]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.AuthTests testSubmitProofCommandBytes]' started.
+Test Case '-[OuraProtocolTests.AuthTests testSubmitProofCommandBytes]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.AuthTests testTrailingMarkerAndFullBlockPadChangeTheProof]' started.
+Test Case '-[OuraProtocolTests.AuthTests testTrailingMarkerAndFullBlockPadChangeTheProof]' passed (0.000 seconds).
+Test Suite 'AuthTests' passed at 2026-09-21 23:13:35.763.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'DecoderGoldenTests' started at 2026-09-21 23:13:35.763.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testBattery0x0D]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testBattery0x0D]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testBatteryRejectsImplausiblePercent]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testBatteryRejectsImplausiblePercent]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testDebugText0x43]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testDebugText0x43]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testDebugTextMalformedUTF8IsRejected]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testDebugTextMalformedUTF8IsRejected]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testGreenIBIAmpCandidateGates]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testGreenIBIAmpCandidateGates]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testGreenIBIAmpCandidateRoundTrip]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testGreenIBIAmpCandidateRoundTrip]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testGreenIBIQuality0x80RealCapture]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testGreenIBIQuality0x80RealCapture]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5D]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5D]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5DAllPaddingIsNil]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5DAllPaddingIsNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5DDropsTailPadding]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5DDropsTailPadding]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5DLoneZeroByteIsNotTreatedAsPadding]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5DLoneZeroByteIsNotTreatedAsPadding]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5DOddLengthIsNil]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5DOddLengthIsNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5DZeroPairConsumesItsIndex]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testHRV0x5DZeroPairConsumesItsIndex]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testIBIAmplitude0x60RealCapture]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testIBIAmplitude0x60RealCapture]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testLiveHRPushNibbleIBI]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testLiveHRPushNibbleIBI]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionEvents0x47]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionEvents0x47]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionEvents0x47DiscriminatesOrientationFromMotionSeconds]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionEvents0x47DiscriminatesOrientationFromMotionSeconds]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionEvents0x47IntensityValidityBitRejectsRecord]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionEvents0x47IntensityValidityBitRejectsRecord]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionEvents0x47OptionalIntensityAndShortBody]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionEvents0x47OptionalIntensityAndShortBody]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionPeriod0x6B]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionPeriod0x6B]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionPeriod0x6BCountZeroMeansFullFinalByte]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionPeriod0x6BCountZeroMeansFullFinalByte]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionPeriod0x6BShortSingleCodeRecord]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testMotionPeriod0x6BShortSingleCodeRecord]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testRtcBeacon0x85]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testRtcBeacon0x85]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testShortRecordsDecodeToNil]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testShortRecordsDecodeToNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4E]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4E]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4ELeadingFFRunIsRealWake]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4ELeadingFFRunIsRealWake]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4ELoneFFByteIsGenuineAwake]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4ELoneFFByteIsGenuineAwake]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4EMixedFFIsWritten]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4EMixedFFIsWritten]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4ETrailingFFRunIsUnwritten]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4ETrailingFFRunIsUnwritten]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4ETrailingRunFloorIsExclusive]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4ETrailingRunFloorIsExclusive]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4ETrailingSingleFFIsGenuineAwake]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4ETrailingSingleFFIsGenuineAwake]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4EWholeFFRecordIsUnwritten]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSleepPhase0x4EWholeFFRecordIsUnwritten]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSpO2DC0x77StampsPositionForEverySample]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSpO2DC0x77StampsPositionForEverySample]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSpO2IBI0x6EReverseOrder]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSpO2IBI0x6EReverseOrder]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSpO2PerSample0x6F]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSpO2PerSample0x6F]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSpO2PerSample0x6FStampsPositionForEverySample]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSpO2PerSample0x6FStampsPositionForEverySample]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSpO2Stable0x7BIsBigEndian]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testSpO2Stable0x7BIsBigEndian]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testState0x45]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testState0x45]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testStateMalformedUTF8IsNotReplacementDecoded]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testStateMalformedUTF8IsNotReplacementDecoded]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testTemp0x46]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testTemp0x46]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testTimeSync0x42]' started.
+Test Case '-[OuraProtocolTests.DecoderGoldenTests testTimeSync0x42]' passed (0.000 seconds).
+Test Suite 'DecoderGoldenTests' passed at 2026-09-21 23:13:35.769.
+	 Executed 41 tests, with 0 failures (0 unexpected) in 0.004 (0.006) seconds
+Test Suite 'FramingTests' started at 2026-09-21 23:13:35.769.
+Test Case '-[OuraProtocolTests.FramingTests testAdoptSyncTimeAnchorResolvesHistoryTimes]' started.
+Test Case '-[OuraProtocolTests.FramingTests testAdoptSyncTimeAnchorResolvesHistoryTimes]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testBatteryResponseOpIsRecognisedAsAnOuterFrame]' started.
+Test Case '-[OuraProtocolTests.FramingTests testBatteryResponseOpIsRecognisedAsAnOuterFrame]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testFeedDropsUnusableNotificationWholeNoResync]' started.
+Test Case '-[OuraProtocolTests.FramingTests testFeedDropsUnusableNotificationWholeNoResync]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testFeedNeverBuffersAcrossNotifications]' started.
+Test Case '-[OuraProtocolTests.FramingTests testFeedNeverBuffersAcrossNotifications]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testFeedReturnsAtMostOneRecordPerNotification]' started.
+Test Case '-[OuraProtocolTests.FramingTests testFeedReturnsAtMostOneRecordPerNotification]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testMultipleOuterFramesInOneValue]' started.
+Test Case '-[OuraProtocolTests.FramingTests testMultipleOuterFramesInOneValue]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testNonSecureFrameReturnsNilSecure]' started.
+Test Case '-[OuraProtocolTests.FramingTests testNonSecureFrameReturnsNilSecure]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testParseGetEventsResponseCompleteAtZeroBytesLeft]' started.
+Test Case '-[OuraProtocolTests.FramingTests testParseGetEventsResponseCompleteAtZeroBytesLeft]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testParseGetEventsResponseMoreDataWhileBytesLeft]' started.
+Test Case '-[OuraProtocolTests.FramingTests testParseGetEventsResponseMoreDataWhileBytesLeft]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testParseGetEventsResponseShortBodyReturnsNil]' started.
+Test Case '-[OuraProtocolTests.FramingTests testParseGetEventsResponseShortBodyReturnsNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testParseGetEventsResponseZeroEventsButBytesLeftIsMoreData]' started.
+Test Case '-[OuraProtocolTests.FramingTests testParseGetEventsResponseZeroEventsButBytesLeftIsMoreData]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testParseOuterFrame]' started.
+Test Case '-[OuraProtocolTests.FramingTests testParseOuterFrame]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testParseOuterFrameShortReturnsNil]' started.
+Test Case '-[OuraProtocolTests.FramingTests testParseOuterFrameShortReturnsNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testParseRecordIgnoresTrailingBytesBeyondLen]' started.
+Test Case '-[OuraProtocolTests.FramingTests testParseRecordIgnoresTrailingBytesBeyondLen]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testParseRecordTooBigLenUsesWhatArrived]' started.
+Test Case '-[OuraProtocolTests.FramingTests testParseRecordTooBigLenUsesWhatArrived]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testParseSyncTimeResponse]' started.
+Test Case '-[OuraProtocolTests.FramingTests testParseSyncTimeResponse]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testParseTLVRecord]' started.
+Test Case '-[OuraProtocolTests.FramingTests testParseTLVRecord]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testResetIsANoOpWithNoBufferedState]' started.
+Test Case '-[OuraProtocolTests.FramingTests testResetIsANoOpWithNoBufferedState]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testSecureFrameAuthStatus]' started.
+Test Case '-[OuraProtocolTests.FramingTests testSecureFrameAuthStatus]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testSecureFrameNonceResponse]' started.
+Test Case '-[OuraProtocolTests.FramingTests testSecureFrameNonceResponse]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testSyncTimeAnchorCandidateAcceptsAStaleCursorFromTheCaptures]' started.
+Test Case '-[OuraProtocolTests.FramingTests testSyncTimeAnchorCandidateAcceptsAStaleCursorFromTheCaptures]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testSyncTimeAnchorCandidateResolvesAgainstSeenRingTimeWhenCursorIsZero]' started.
+Test Case '-[OuraProtocolTests.FramingTests testSyncTimeAnchorCandidateResolvesAgainstSeenRingTimeWhenCursorIsZero]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testSyncTimeAnchorCandidateResolvesUnit]' started.
+Test Case '-[OuraProtocolTests.FramingTests testSyncTimeAnchorCandidateResolvesUnit]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testTLVBelowSixBytesIsRejected]' started.
+Test Case '-[OuraProtocolTests.FramingTests testTLVBelowSixBytesIsRejected]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.FramingTests testTLVLenBelowFourIsRejected]' started.
+Test Case '-[OuraProtocolTests.FramingTests testTLVLenBelowFourIsRejected]' passed (0.000 seconds).
+Test Suite 'FramingTests' passed at 2026-09-21 23:13:35.772.
+	 Executed 25 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'HypnogramAssemblerTests' started at 2026-09-21 23:13:35.772.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testAllUnwrittenBurstReconstructsEmpty]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testAllUnwrittenBurstReconstructsEmpty]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testBurstWriteRecordsShareOneSequence]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testBurstWriteRecordsShareOneSequence]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testEmptyRecordIsIgnored]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testEmptyRecordIsIgnored]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testFlushEmptyReturnsNilAndResetClears]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testFlushEmptyReturnsNilAndResetClears]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testFullNightScaleWindow]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testFullNightScaleWindow]' passed (0.001 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testLargeRingTimeGapSplitsBursts]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testLargeRingTimeGapSplitsBursts]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testNilOnsetMatchesUnclampedLay]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testNilOnsetMatchesUnclampedLay]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testNonMonotonicRingTimesAreSurfacedNotResorted]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testNonMonotonicRingTimesAreSurfacedNotResorted]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testSingleRecordLaysCodesBackwardFromEnd]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testSingleRecordLaysCodesBackwardFromEnd]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testStartClampBoundaryInclusiveAndOnsetBeforeStartKeepsAll]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testStartClampBoundaryInclusiveAndOnsetBeforeStartKeepsAll]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testStartClampDropsCodesBeforeOnset]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testStartClampDropsCodesBeforeOnset]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testStartClampNeverEmptiesTheNight]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testStartClampNeverEmptiesTheNight]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testUnwrittenEpochsDroppedButRealCodesKeepFullSequenceTimes_middleGap]' started.
+Test Case '-[OuraProtocolTests.HypnogramAssemblerTests testUnwrittenEpochsDroppedButRealCodesKeepFullSequenceTimes_middleGap]' passed (0.000 seconds).
+Test Suite 'HypnogramAssemblerTests' passed at 2026-09-21 23:13:35.775.
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'IbiChannelTests' started at 2026-09-21 23:13:35.775.
+Test Case '-[OuraProtocolTests.IbiChannelTests testBare0x44StampsItsOwnChannelWhileDecodingIdenticalValues]' started.
+Test Case '-[OuraProtocolTests.IbiChannelTests testBare0x44StampsItsOwnChannelWhileDecodingIdenticalValues]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.IbiChannelTests testChannelRawValuesAreTheDurableStorageCodes]' started.
+Test Case '-[OuraProtocolTests.IbiChannelTests testChannelRawValuesAreTheDurableStorageCodes]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.IbiChannelTests testDriverLabels0x44AndVerifies0x60IsUnchanged]' started.
+Test Case '-[OuraProtocolTests.IbiChannelTests testDriverLabels0x44AndVerifies0x60IsUnchanged]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.IbiChannelTests testDriverPreservesTheChannelSoTwoTagsAreDistinguishable]' started.
+Test Case '-[OuraProtocolTests.IbiChannelTests testDriverPreservesTheChannelSoTwoTagsAreDistinguishable]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.IbiChannelTests testGreenQualityDecoderStampsGreenChannel]' started.
+Test Case '-[OuraProtocolTests.IbiChannelTests testGreenQualityDecoderStampsGreenChannel]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.IbiChannelTests testIbiAmplitudeDecoderStampsAmplitudeChannel]' started.
+Test Case '-[OuraProtocolTests.IbiChannelTests testIbiAmplitudeDecoderStampsAmplitudeChannel]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.IbiChannelTests testSpO2DecoderStampsSpO2Channel]' started.
+Test Case '-[OuraProtocolTests.IbiChannelTests testSpO2DecoderStampsSpO2Channel]' passed (0.000 seconds).
+Test Suite 'IbiChannelTests' passed at 2026-09-21 23:13:35.776.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'OuraDriverTests' started at 2026-09-21 23:13:35.776.
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture1]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture1]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture2]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture2]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture3]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture3]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture4Resting]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture4Resting]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture5ModerateActivity]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture5ModerateActivity]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture6ExerciseBurst]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDecodesRealCapture6ExerciseBurst]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDroppedByDefaultLikeOtherTierB]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoDroppedByDefaultLikeOtherTierB]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoEmptyPayloadDecodesToNil]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoEmptyPayloadDecodesToNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoHighByteBranchUsesCoarseSlope]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testActivityInfoHighByteBranchUsesCoarseSlope]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testAnchorAdoptionStillUsesFullWindowIndependentOfNow]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testAnchorAdoptionStillUsesFullWindowIndependentOfNow]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testAuthErrorIsSurfacedNotRetriedBlindly]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testAuthErrorIsSurfacedNotRetriedBlindly]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testDangerousCommandsAreClearlyNamed]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testDangerousCommandsAreClearlyNamed]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testFactoryResetStatusDrivesNeedsKeyInstall]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testFactoryResetStatusDrivesNeedsKeyInstall]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testFullEnableSequence]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testFullEnableSequence]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testGreenIBIAmp0x71EmitsRawSummaryNotIBIUnderAllowTierB]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testGreenIBIAmp0x71EmitsRawSummaryNotIBIUnderAllowTierB]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testGreenIBIAmp0x71GatedOutOfLiveEmission]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testGreenIBIAmp0x71GatedOutOfLiveEmission]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testGreenIBIAmp0x71TierIsB]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testGreenIBIAmp0x71TierIsB]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testHandleSecureFrameRoutesNonceStatusAndPush]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testHandleSecureFrameRoutesNonceStatusAndPush]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testHistoryFetchFlushesThenFetchesThenContinues]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testHistoryFetchFlushesThenFetchesThenContinues]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testImplausibleTimeSyncNeverCrashesOrAnchors]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testImplausibleTimeSyncNeverCrashesOrAnchors]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testIngestDecodesOneRecordPerNotification]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testIngestDecodesOneRecordPerNotification]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testIngestDecodesTierARecord]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testIngestDecodesTierARecord]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testIngestNotificationDecodesOnlyFirstPacketWhenBytesLookPacked]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testIngestNotificationDecodesOnlyFirstPacketWhenBytesLookPacked]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testIngestUnknownTagYieldsNothing]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testIngestUnknownTagYieldsNothing]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testIsPlausibleAnchorEpochBounds]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testIsPlausibleAnchorEpochBounds]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testKeyInstallIgnoredOutsideNeedsKeyInstallPhase]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testKeyInstallIgnoredOutsideNeedsKeyInstallPhase]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testKeyInstallSequencesReauthWhenAllowed]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testKeyInstallSequencesReauthWhenAllowed]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testLiveHRDisableWritesModeOffNotAutomatic]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testLiveHRDisableWritesModeOffNotAutomatic]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testLiveHRPushIngestStampsLastRingTime]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testLiveHRPushIngestStampsLastRingTime]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testLiveHRUnsubscribeWritesSubscriptionOff]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testLiveHRUnsubscribeWritesSubscriptionOff]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testNoAnchorBeforeAnyTimeSyncOrBeacon]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testNoAnchorBeforeAnyTimeSyncOrBeacon]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testNoKeyDrivesNeedsKeyInstall]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testNoKeyDrivesNeedsKeyInstall]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testNoKeyInstallSequencedWhenNotAllowed]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testNoKeyInstallSequencedWhenNotAllowed]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealSteps0x7FOffsetReadsTheCarryBitFromTheRightByte]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealSteps0x7FOffsetReadsTheCarryBitFromTheRightByte]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsBlockOffsetIsTagDependent]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsBlockOffsetIsTagDependent]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFields0x7FYields12Fields0x7EYields14]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFields0x7FYields12Fields0x7EYields14]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsCarryBitCombinesWithNeighborByte]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsCarryBitCombinesWithNeighborByte]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsDecodesRealCapture0x7E]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsDecodesRealCapture0x7E]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsDecodesRealCapture0x7F]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsDecodesRealCapture0x7F]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsDecodesSecondRealPair]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsDecodesSecondRealPair]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsDroppedByDefaultLikeOtherTierB]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsDroppedByDefaultLikeOtherTierB]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsWrongLengthDecodesToNil]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRealStepsFieldsWrongLengthDecodesToNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRingGenMtuAndCaps]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRingGenMtuAndCaps]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testRtcBeaconOnlyAnchorsWhenNoTimeSyncSeenYet]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testRtcBeaconOnlyAnchorsWhenNoTimeSyncSeenYet]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testSampleConvertingToFutureIsRejected]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testSampleConvertingToFutureIsRejected]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testSleepPhase0x4BReclassifiedAsTierAHypnogram]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testSleepPhase0x4BReclassifiedAsTierAHypnogram]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testStopClearsTheAnchor]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testStopClearsTheAnchor]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testSyncTimeCommandIsU64SecondsLEPlusTz]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testSyncTimeCommandIsU64SecondsLEPlusTz]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testSyncTimeCommandTimezoneByte]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testSyncTimeCommandTimezoneByte]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testTierBDroppedByDefault]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testTierBDroppedByDefault]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testTierBEmittedOnlyWhenAllowed]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testTierBEmittedOnlyWhenAllowed]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraDriverTests testTimeSyncSetsAnchorAndConvertsPastAndFutureRingTimes]' started.
+Test Case '-[OuraProtocolTests.OuraDriverTests testTimeSyncSetsAnchorAndConvertsPastAndFutureRingTimes]' passed (0.000 seconds).
+Test Suite 'OuraDriverTests' passed at 2026-09-21 23:13:35.782.
+	 Executed 52 tests, with 0 failures (0 unexpected) in 0.003 (0.006) seconds
+Test Suite 'OuraFeatureStatusTests' started at 2026-09-21 23:13:35.782.
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testAnEnabledRealStepsStatusDecodesAsObservedOnHardware]' started.
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testAnEnabledRealStepsStatusDecodesAsObservedOnHardware]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testDaytimeHRReadStillAdvancesTheTriplet]' started.
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testDaytimeHRReadStillAdvancesTheTriplet]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testDecodesTheFiveStatusBytes]' started.
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testDecodesTheFiveStatusBytes]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testShortBodyDecodesToNil]' started.
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testShortBodyDecodesToNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testSpO2AndStepsReadsSurfaceFeatureStatus]' started.
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testSpO2AndStepsReadsSurfaceFeatureStatus]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testStatusQueryCommandsAreReadOnly]' started.
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testStatusQueryCommandsAreReadOnly]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testUndecodableDiagnosticReplyFallsBackToEnableAck]' started.
+Test Case '-[OuraProtocolTests.OuraFeatureStatusTests testUndecodableDiagnosticReplyFallsBackToEnableAck]' passed (0.000 seconds).
+Test Suite 'OuraFeatureStatusTests' passed at 2026-09-21 23:13:35.783.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'OuraHistoryDrainTests' started at 2026-09-21 23:13:35.783.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testContinuationCursorAdvancesPastMaxSeen]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testContinuationCursorAdvancesPastMaxSeen]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testContinuationReArmsProgressTestPerRequest]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testContinuationReArmsProgressTestPerRequest]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testContinuationStopsOnEmptyBatch]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testContinuationStopsOnEmptyBatch]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testContinuationStopsWhenCursorWouldNotAdvance]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testContinuationStopsWhenCursorWouldNotAdvance]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testDeadlineGuardStopsPastMaxDrainSeconds]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testDeadlineGuardStopsPastMaxDrainSeconds]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testDrainCompletesWhenBytesLeftZero]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testDrainCompletesWhenBytesLeftZero]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testDrainContinuesWhileBytesLeftShrinks]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testDrainContinuesWhileBytesLeftShrinks]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testFullPullSeekNeverFlagsReboot]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testFullPullSeekNeverFlagsReboot]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testNoteStoredRingTimeTracksMaxAndIgnoresCorrupt]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testNoteStoredRingTimeTracksMaxAndIgnoresCorrupt]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testPreResumeDataFlagsReboot]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testPreResumeDataFlagsReboot]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testRebootResetsCursorToFullPull]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testRebootResetsCursorToFullPull]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testResetClearsState]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testResetClearsState]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testResumeCursorAdvancesWhenForwardAndResolves]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testResumeCursorAdvancesWhenForwardAndResolves]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testResumeCursorUnchangedWhenNotForward]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testResumeCursorUnchangedWhenNotForward]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testResumeCursorUnchangedWhenNotResolving]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testResumeCursorUnchangedWhenNotResolving]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testSanitizeLoadedCursor]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testSanitizeLoadedCursor]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testSeenRingTimeIgnoresCorruptAndIsIndependentOfStored]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testSeenRingTimeIgnoresCorruptAndIsIndependentOfStored]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testStallCounterResetsOnFreshProgress]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testStallCounterResetsOnFreshProgress]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testStallGuardStopsAfterMaxFlatSummaries]' started.
+Test Case '-[OuraProtocolTests.OuraHistoryDrainTests testStallGuardStopsAfterMaxFlatSummaries]' passed (0.000 seconds).
+Test Suite 'OuraHistoryDrainTests' passed at 2026-09-21 23:13:35.784.
+	 Executed 19 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'OuraIbiHrTests' started at 2026-09-21 23:13:35.784.
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testEmptyInput]' started.
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testEmptyInput]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testOutOfRangeIBIsExcludedFromMedian]' started.
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testOutOfRangeIBIsExcludedFromMedian]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testPerRecordMedianHRGroupsByRingTime]' started.
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testPerRecordMedianHRGroupsByRingTime]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testRecordWithNoInRangeBeatYieldsNothing]' started.
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testRecordWithNoInRangeBeatYieldsNothing]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testReturnedOldestRingTimeFirst]' started.
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testReturnedOldestRingTimeFirst]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testSixBeatsOfOneRecordCollapseToOneRow]' started.
+Test Case '-[OuraProtocolTests.OuraIbiHrTests testSixBeatsOfOneRecordCollapseToOneRow]' passed (0.000 seconds).
+Test Suite 'OuraIbiHrTests' passed at 2026-09-21 23:13:35.785.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'OuraWearTests' started at 2026-09-21 23:13:35.785.
+Test Case '-[OuraProtocolTests.OuraWearTests testChargerStartStopStringMatching]' started.
+Test Case '-[OuraProtocolTests.OuraWearTests testChargerStartStopStringMatching]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraWearTests testLivePulseTimeoutDowngradesWornToOff]' started.
+Test Case '-[OuraProtocolTests.OuraWearTests testLivePulseTimeoutDowngradesWornToOff]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.OuraWearTests testLiveTrackerPulseMeansWorn]' started.
+Test Case '-[OuraProtocolTests.OuraWearTests testLiveTrackerPulseMeansWorn]' passed (0.000 seconds).
+Test Suite 'OuraWearTests' passed at 2026-09-21 23:13:35.785.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'RingGenProductInfoTests' started at 2026-09-21 23:13:35.785.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testFromHardwareIdKnownGen3]' started.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testFromHardwareIdKnownGen3]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testFromHardwareIdSuffixMapping]' started.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testFromHardwareIdSuffixMapping]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testFromHardwareIdUnrecognisedYieldsNil]' started.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testFromHardwareIdUnrecognisedYieldsNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testHardwareReplyResolvesGenSerialDoesNot]' started.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testHardwareReplyResolvesGenSerialDoesNot]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testProductInfoStringDecodesHardware]' started.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testProductInfoStringDecodesHardware]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testProductInfoStringDecodesSerial]' started.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testProductInfoStringDecodesSerial]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testProductInfoStringEmptyOrStatusOnly]' started.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testProductInfoStringEmptyOrStatusOnly]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testRecogniseExplicitGenToken]' started.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testRecogniseExplicitGenToken]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testRecogniseNonOuraNameYieldsNil]' started.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testRecogniseNonOuraNameYieldsNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testRecogniseSerialNameYieldsNil]' started.
+Test Case '-[OuraProtocolTests.RingGenProductInfoTests testRecogniseSerialNameYieldsNil]' passed (0.000 seconds).
+Test Suite 'RingGenProductInfoTests' passed at 2026-09-21 23:13:35.786.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'SleepPeriodInfoTests' started at 2026-09-21 23:13:35.786.
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testAverageHrHasHalfBpmResolution]' started.
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testAverageHrHasHalfBpmResolution]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testDeclaredInvariantsRejectABody]' started.
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testDeclaredInvariantsRejectABody]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testHrTrendIsSigned]' started.
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testHrTrendIsSigned]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testRestlessRecord]' started.
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testRestlessRecord]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testShortBodyDecodesToNil]' started.
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testShortBodyDecodesToNil]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testTagIsTierBAndGatedInTheDriver]' started.
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testTagIsTierBAndGatedInTheDriver]' passed (0.000 seconds).
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testTypicalRecordDecodesEveryField]' started.
+Test Case '-[OuraProtocolTests.SleepPeriodInfoTests testTypicalRecordDecodesEveryField]' passed (0.000 seconds).
+Test Suite 'SleepPeriodInfoTests' passed at 2026-09-21 23:13:35.787.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'OuraProtocolPackageTests.xctest' passed at 2026-09-21 23:13:35.787.
+	 Executed 209 tests, with 0 failures (0 unexpected) in 0.017 (0.028) seconds
+Test Suite 'All tests' passed at 2026-09-21 23:13:35.787.
+	 Executed 209 tests, with 0 failures (0 unexpected) in 0.017 (0.028) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+SUPPORT_PACKAGE_PASS: OuraProtocol
+Building for debugging...
+[0/2] Write swift-version-30D7331401001902.txt
+Build complete! (0.08s)
+Test Suite 'All tests' started at 2026-09-21 23:13:36.221.
+Test Suite 'PolarProtocolPackageTests.xctest' started at 2026-09-21 23:13:36.222.
+Test Suite 'PmdControlTests' started at 2026-09-21 23:13:36.222.
+Test Case '-[PolarProtocolTests.PmdControlTests testGetSettingsBytes]' started.
+Test Case '-[PolarProtocolTests.PmdControlTests testGetSettingsBytes]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdControlTests testParseResponseRejectsNonResponseFrames]' started.
+Test Case '-[PolarProtocolTests.PmdControlTests testParseResponseRejectsNonResponseFrames]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdControlTests testParseResponseSuccessAndFailure]' started.
+Test Case '-[PolarProtocolTests.PmdControlTests testParseResponseSuccessAndFailure]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdControlTests testStartOnlineNoSettings]' started.
+Test Case '-[PolarProtocolTests.PmdControlTests testStartOnlineNoSettings]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdControlTests testStartRecordingSetsBit7]' started.
+Test Case '-[PolarProtocolTests.PmdControlTests testStartRecordingSetsBit7]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdControlTests testStartWithSettingsSerialisesU16LEBlocks]' started.
+Test Case '-[PolarProtocolTests.PmdControlTests testStartWithSettingsSerialisesU16LEBlocks]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdControlTests testStopBytes]' started.
+Test Case '-[PolarProtocolTests.PmdControlTests testStopBytes]' passed (0.000 seconds).
+Test Suite 'PmdControlTests' passed at 2026-09-21 23:13:36.224.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'PmdDecoderTests' started at 2026-09-21 23:13:36.224.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testDecodePpiRejectsNonPpiFrame]' started.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testDecodePpiRejectsNonPpiFrame]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdDecoderTests testDecodesMultiplePpiSamplesInOrder]' started.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testDecodesMultiplePpiSamplesInOrder]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdDecoderTests testDecodesSinglePpiSample]' started.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testDecodesSinglePpiSample]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdDecoderTests testEmptyPpiFrameDecodesToNoSamples]' started.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testEmptyPpiFrameDecodesToNoSamples]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdDecoderTests testHeaderParsesTypeTimestampAndFrameType]' started.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testHeaderParsesTypeTimestampAndFrameType]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdDecoderTests testHeaderRejectsTooShort]' started.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testHeaderRejectsTooShort]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdDecoderTests testHeaderRejectsUnknownMeasurementType]' started.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testHeaderRejectsUnknownMeasurementType]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdDecoderTests testPmdEpochToUnixConversion]' started.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testPmdEpochToUnixConversion]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdDecoderTests testTrailingPartialSampleIsIgnored]' started.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testTrailingPartialSampleIsIgnored]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PmdDecoderTests testZeroHeartRateSampleIsKeptNotDropped]' started.
+Test Case '-[PolarProtocolTests.PmdDecoderTests testZeroHeartRateSampleIsKeptNotDropped]' passed (0.000 seconds).
+Test Suite 'PmdDecoderTests' passed at 2026-09-21 23:13:36.226.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'PolarModelTests' started at 2026-09-21 23:13:36.226.
+Test Case '-[PolarProtocolTests.PolarModelTests testDebugIdentificationAutoDetectsFromAnyName]' started.
+Test Case '-[PolarProtocolTests.PolarModelTests testDebugIdentificationAutoDetectsFromAnyName]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PolarModelTests testHrvPmdStreamPicksPpiOnlyWhereExposed]' started.
+Test Case '-[PolarProtocolTests.PolarModelTests testHrvPmdStreamPicksPpiOnlyWhereExposed]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PolarModelTests testIdentifyFromAdvertisedName]' started.
+Test Case '-[PolarProtocolTests.PolarModelTests testIdentifyFromAdvertisedName]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PolarModelTests testIsPolarSeparatesPolarFromUnrecognisedAndForeign]' started.
+Test Case '-[PolarProtocolTests.PolarModelTests testIsPolarSeparatesPolarFromUnrecognisedAndForeign]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PolarModelTests testPmdDebugSummaryStatesStreamsAndHrvRoute]' started.
+Test Case '-[PolarProtocolTests.PolarModelTests testPmdDebugSummaryStatesStreamsAndHrvRoute]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PolarModelTests testPmdStreamsPerModel]' started.
+Test Case '-[PolarProtocolTests.PolarModelTests testPmdStreamsPerModel]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PolarModelTests testSerialContainingModelTokenDoesNotMisidentify]' started.
+Test Case '-[PolarProtocolTests.PolarModelTests testSerialContainingModelTokenDoesNotMisidentify]' passed (0.000 seconds).
+Test Case '-[PolarProtocolTests.PolarModelTests testUnknownAndNonPolarResolveToUnknown]' started.
+Test Case '-[PolarProtocolTests.PolarModelTests testUnknownAndNonPolarResolveToUnknown]' passed (0.000 seconds).
+Test Suite 'PolarModelTests' passed at 2026-09-21 23:13:36.227.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'PolarProtocolPackageTests.xctest' passed at 2026-09-21 23:13:36.227.
+	 Executed 25 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'All tests' passed at 2026-09-21 23:13:36.227.
+	 Executed 25 tests, with 0 failures (0 unexpected) in 0.003 (0.005) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+SUPPORT_PACKAGE_PASS: PolarProtocol
+Building for debugging...
+[0/2] Write swift-version-30D7331401001902.txt
+Build complete! (0.10s)
+Test Suite 'All tests' started at 2026-09-21 23:13:36.801.
+Test Suite 'StrandDesignPackageTests.xctest' started at 2026-09-21 23:13:36.802.
+Test Suite 'BackgroundImagePrefsTests' started at 2026-09-21 23:13:36.802.
+Test Case '-[StrandDesignTests.BackgroundImagePrefsTests testFillModeRawValuesMatchTheKotlinContract]' started.
+Test Case '-[StrandDesignTests.BackgroundImagePrefsTests testFillModeRawValuesMatchTheKotlinContract]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.BackgroundImagePrefsTests testKeyLiteralsMatchTheKotlinContract]' started.
+Test Case '-[StrandDesignTests.BackgroundImagePrefsTests testKeyLiteralsMatchTheKotlinContract]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.BackgroundImagePrefsTests testResolveIsTolerantAndDefaultsToFill]' started.
+Test Case '-[StrandDesignTests.BackgroundImagePrefsTests testResolveIsTolerantAndDefaultsToFill]' passed (0.000 seconds).
+Test Suite 'BackgroundImagePrefsTests' passed at 2026-09-21 23:13:36.803.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'BrandSleepRampTests' started at 2026-09-21 23:13:36.803.
+Test Case '-[StrandDesignTests.BrandSleepRampTests testContrastMetricMatchesKnownValues]' started.
+Test Case '-[StrandDesignTests.BrandSleepRampTests testContrastMetricMatchesKnownValues]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.BrandSleepRampTests testDarkRampIsUnchangedAndStillClearsTwoToOneOnTheDarkCard]' started.
+Test Case '-[StrandDesignTests.BrandSleepRampTests testDarkRampIsUnchangedAndStillClearsTwoToOneOnTheDarkCard]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.BrandSleepRampTests testEveryLightBandClearsThreeToOneOnTheLightCard]' started.
+Test Case '-[StrandDesignTests.BrandSleepRampTests testEveryLightBandClearsThreeToOneOnTheLightCard]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.BrandSleepRampTests testLightHexesArePinnedForKotlinParity]' started.
+Test Case '-[StrandDesignTests.BrandSleepRampTests testLightHexesArePinnedForKotlinParity]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.BrandSleepRampTests testLightVariantDoesNotWorsenSeparationBetweenStages]' started.
+Test Case '-[StrandDesignTests.BrandSleepRampTests testLightVariantDoesNotWorsenSeparationBetweenStages]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.BrandSleepRampTests testLightVariantPreservesEachRampsOwnLuminanceOrder]' started.
+Test Case '-[StrandDesignTests.BrandSleepRampTests testLightVariantPreservesEachRampsOwnLuminanceOrder]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.BrandSleepRampTests testNaivePerBandClampWouldCollapseTwoOuraStages]' started.
+Test Case '-[StrandDesignTests.BrandSleepRampTests testNaivePerBandClampWouldCollapseTwoOuraStages]' passed (0.000 seconds).
+Test Suite 'BrandSleepRampTests' passed at 2026-09-21 23:13:36.804.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'CanonicalConsumerLedgerTests' started at 2026-09-21 23:13:36.804.
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testAlgorithmNameCannotAuthorizeLegacyReceiptWithoutItsManifestAndAdmission]' started.
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testAlgorithmNameCannotAuthorizeLegacyReceiptWithoutItsManifestAndAdmission]' passed (0.002 seconds).
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testCompleteIdentitySurvivesWatchWireRoundTripAndValidZeroIsAdmitted]' started.
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testCompleteIdentitySurvivesWatchWireRoundTripAndValidZeroIsAdmitted]' passed (0.001 seconds).
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testExpiryBoundaryAndHistoricalDailyWithoutExpiry]' started.
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testExpiryBoundaryAndHistoricalDailyWithoutExpiry]' passed (0.001 seconds).
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testMissingAndRevokedCannotAdmitAnOldFlattenedValue]' started.
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testMissingAndRevokedCannotAdmitAnOldFlattenedValue]' passed (0.003 seconds).
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testPersistedExpiredReceiptCannotReplayAnOldFlattenedWatchValue]' started.
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testPersistedExpiredReceiptCannotReplayAnOldFlattenedWatchValue]' passed (0.001 seconds).
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testReadFailureChangesPublicationIdentityWithoutChangingPhysiologyRevision]' started.
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testReadFailureChangesPublicationIdentityWithoutChangingPhysiologyRevision]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testScopeAndRevisionArePartOfCacheIdentity]' started.
+Test Case '-[StrandDesignTests.CanonicalConsumerLedgerTests testScopeAndRevisionArePartOfCacheIdentity]' passed (0.000 seconds).
+Test Suite 'CanonicalConsumerLedgerTests' passed at 2026-09-21 23:13:36.812.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.008 (0.008) seconds
+Test Suite 'ChargeSyncIndicatorMathTests' started at 2026-09-21 23:13:36.812.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testArcLengthIsConstantAcrossTheSpin]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testArcLengthIsConstantAcrossTheSpin]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testChargeBandThresholds]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testChargeBandThresholds]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testEaseOutQuadEndpointsAndClamping]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testEaseOutQuadEndpointsAndClamping]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testEaseOutQuadOpensAtDoubleRate]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testEaseOutQuadOpensAtDoubleRate]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testExpandedWidthHugsTheLabelBetweenItsFloorAndCap]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testExpandedWidthHugsTheLabelBetweenItsFloorAndCap]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testExpandedWidthIsMonotonicInLabelWidth]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testExpandedWidthIsMonotonicInLabelWidth]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testMorphDurationIsBothHalvesOfTheSameGesture]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testMorphDurationIsBothHalvesOfTheSameGesture]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testPhaseAdvancesAtTheSpinRate]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testPhaseAdvancesAtTheSpinRate]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testPhaseNeverGoesNegative]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testPhaseNeverGoesNegative]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testPosedParksAtTopWithoutShorteningTheArc]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testPosedParksAtTopWithoutShorteningTheArc]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testSmootherStepEndpointsAndMidpoint]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testSmootherStepEndpointsAndMidpoint]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testSmootherStepHasZeroFirstAndSecondDerivativeAtBothEnds]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testSmootherStepHasZeroFirstAndSecondDerivativeAtBothEnds]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testSmootherStepIsMonotonicAndClamped]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testSmootherStepIsMonotonicAndClamped]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testTintBoundaryClearsTheArcAtBothEnds]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testTintBoundaryClearsTheArcAtBothEnds]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testTintBoundarySweepsMonotonically]' started.
+Test Case '-[StrandDesignTests.ChargeSyncIndicatorMathTests testTintBoundarySweepsMonotonically]' passed (0.000 seconds).
+Test Suite 'ChargeSyncIndicatorMathTests' passed at 2026-09-21 23:13:36.814.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'OverviewHRChartAnnotationTests' started at 2026-09-21 23:13:36.814.
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testMainSleepDropsNonOverlappingAndEdgeTouching]' started.
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testMainSleepDropsNonOverlappingAndEdgeTouching]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testMainSleepEmptyIsNil]' started.
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testMainSleepEmptyIsNil]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testMainSleepKeepsStraddlingNight]' started.
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testMainSleepKeepsStraddlingNight]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testMainSleepPicksLongestOverlappingBlock]' started.
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testMainSleepPicksLongestOverlappingBlock]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testWorkoutsEmptyIsEmpty]' started.
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testWorkoutsEmptyIsEmpty]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testWorkoutsKeepsEdgeTouching]' started.
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testWorkoutsKeepsEdgeTouching]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testWorkoutsKeepsOverlappingInOrder]' started.
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testWorkoutsKeepsOverlappingInOrder]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testWorkoutsKeepsWindowSpanning]' started.
+Test Case '-[StrandDesignTests.OverviewHRChartAnnotationTests testWorkoutsKeepsWindowSpanning]' passed (0.000 seconds).
+Test Suite 'OverviewHRChartAnnotationTests' passed at 2026-09-21 23:13:36.815.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'QuietMotionCoverageTests' started at 2026-09-21 23:13:36.815.
+Test Case '-[StrandDesignTests.QuietMotionCoverageTests testBreatheCallSitesConsultTheGate]' started.
+Test Case '-[StrandDesignTests.QuietMotionCoverageTests testBreatheCallSitesConsultTheGate]' passed (0.569 seconds).
+Test Case '-[StrandDesignTests.QuietMotionCoverageTests testDecorativeMotionSensorStopsAtTheAppBoundary]' started.
+Test Case '-[StrandDesignTests.QuietMotionCoverageTests testDecorativeMotionSensorStopsAtTheAppBoundary]' passed (0.001 seconds).
+Test Case '-[StrandDesignTests.QuietMotionCoverageTests testEveryNeverSettlingAnimationConsultsTheQuietMotionGate]' started.
+Test Case '-[StrandDesignTests.QuietMotionCoverageTests testEveryNeverSettlingAnimationConsultsTheQuietMotionGate]' passed (0.781 seconds).
+Test Case '-[StrandDesignTests.QuietMotionCoverageTests testGateReadsAllThreeSignalsAndStaysLive]' started.
+Test Case '-[StrandDesignTests.QuietMotionCoverageTests testGateReadsAllThreeSignalsAndStaysLive]' passed (0.001 seconds).
+Test Suite 'QuietMotionCoverageTests' passed at 2026-09-21 23:13:38.167.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 1.351 (1.351) seconds
+Test Suite 'SleepChartStyleTests' started at 2026-09-21 23:13:38.167.
+Test Case '-[StrandDesignTests.SleepChartStyleTests testRawValuesMatchTheKotlinContract]' started.
+Test Case '-[StrandDesignTests.SleepChartStyleTests testRawValuesMatchTheKotlinContract]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.SleepChartStyleTests testResolveIsTolerantAndDefaultsToClassic]' started.
+Test Case '-[StrandDesignTests.SleepChartStyleTests testResolveIsTolerantAndDefaultsToClassic]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.SleepChartStyleTests testStorageKeyMatchesTheAndroidPrefKey]' started.
+Test Case '-[StrandDesignTests.SleepChartStyleTests testStorageKeyMatchesTheAndroidPrefKey]' passed (0.000 seconds).
+Test Suite 'SleepChartStyleTests' passed at 2026-09-21 23:13:38.167.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'StrandDesignTests' started at 2026-09-21 23:13:38.167.
+Test Case '-[StrandDesignTests.StrandDesignTests testHexParsing]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testHexParsing]' passed (0.001 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testHRZoneColor]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testHRZoneColor]' passed (0.011 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testNearestIndexArbitraryXs]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testNearestIndexArbitraryXs]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testNearestIndexEdgeCases]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testNearestIndexEdgeCases]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testNearestIndexEvenlySpaced]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testNearestIndexEvenlySpaced]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testRecoveryColorClamps]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testRecoveryColorClamps]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testRecoveryColorEndpoints]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testRecoveryColorEndpoints]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testRecoveryGradientStops]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testRecoveryGradientStops]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testRecoveryStateWords]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testRecoveryStateWords]' passed (0.001 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testSampleMidpointInterpolatesBetweenStops]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testSampleMidpointInterpolatesBetweenStops]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testSleepIntervalDuration]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testSleepIntervalDuration]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testSleepStageBandRankOrdering]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testSleepStageBandRankOrdering]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testSleepStageColorMapping]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testSleepStageColorMapping]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testSparklineDefaultValueString]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testSparklineDefaultValueString]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testStrainColorScaleAndEndpoints]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testStrainColorScaleAndEndpoints]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testTooltipPlacementFlipsBelowWhenNoRoomAbove]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testTooltipPlacementFlipsBelowWhenNoRoomAbove]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testTooltipPlacementStaysInBounds]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testTooltipPlacementStaysInBounds]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartBarModeFloorsPlotDomainAtZero]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartBarModeFloorsPlotDomainAtZero]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartDefaultDateStringNonEmpty]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartDefaultDateStringNonEmpty]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartExplicitYDomainProvidesTopHeadroom]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartExplicitYDomainProvidesTopHeadroom]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartFittedDomainFloorsAtOne]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartFittedDomainFloorsAtOne]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartLineModeDoesNotFloorPlotDomain]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartLineModeDoesNotFloorPlotDomain]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartResolvedDomainDefaultsToValueRange]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testTrendChartResolvedDomainDefaultsToValueRange]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.StrandDesignTests testVersion]' started.
+Test Case '-[StrandDesignTests.StrandDesignTests testVersion]' passed (0.000 seconds).
+Test Suite 'StrandDesignTests' passed at 2026-09-21 23:13:38.182.
+	 Executed 24 tests, with 0 failures (0 unexpected) in 0.014 (0.015) seconds
+Test Suite 'WatchContextOutboxTests' started at 2026-09-21 23:13:38.182.
+Test Case '-[StrandDesignTests.WatchContextOutboxTests testFailedUpdateRetainsOnlyLatestContextForRetry]' started.
+Test Case '-[StrandDesignTests.WatchContextOutboxTests testFailedUpdateRetainsOnlyLatestContextForRetry]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.WatchContextOutboxTests testResetReplacesPreviousAccountAndSurvivesInactiveSession]' started.
+Test Case '-[StrandDesignTests.WatchContextOutboxTests testResetReplacesPreviousAccountAndSurvivesInactiveSession]' passed (0.000 seconds).
+Test Suite 'WatchContextOutboxTests' passed at 2026-09-21 23:13:38.183.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'WorkoutTypeIconTests' started at 2026-09-21 23:13:38.183.
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testExactResolveMatchesRawValues]' started.
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testExactResolveMatchesRawValues]' passed (0.001 seconds).
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testFuzzyResolveCoversCommonAliases]' started.
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testFuzzyResolveCoversCommonAliases]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testPadelUsesCustomGlyph]' started.
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testPadelUsesCustomGlyph]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testPreferredIdentitiesAreUnique]' started.
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testPreferredIdentitiesAreUnique]' passed (0.000 seconds).
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testRuntimeIdentitiesAreUnique]' started.
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testRuntimeIdentitiesAreUnique]' passed (0.017 seconds).
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testSportSymbolBridgeNonEmpty]' started.
+Test Case '-[StrandDesignTests.WorkoutTypeIconTests testSportSymbolBridgeNonEmpty]' passed (0.002 seconds).
+Test Suite 'WorkoutTypeIconTests' passed at 2026-09-21 23:13:38.204.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.020 (0.021) seconds
+Test Suite 'StrandDesignPackageTests.xctest' passed at 2026-09-21 23:13:38.204.
+	 Executed 79 tests, with 0 failures (0 unexpected) in 1.397 (1.402) seconds
+Test Suite 'All tests' passed at 2026-09-21 23:13:38.204.
+	 Executed 79 tests, with 0 failures (0 unexpected) in 1.397 (1.402) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+SUPPORT_PACKAGE_PASS: StrandDesign
+Building for debugging...
+[0/2] Write swift-version-30D7331401001902.txt
+Build complete! (0.12s)
+Test Suite 'All tests' started at 2026-09-21 23:13:38.848.
+Test Suite 'StrandImportPackageTests.xctest' started at 2026-09-21 23:13:38.849.
+Test Suite 'ActivityFileImporterTests' started at 2026-09-21 23:13:38.849.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testDetectFormatTreatsTrailingDotAsEmptyExtensionWithKotlinParity]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testDetectFormatTreatsTrailingDotAsEmptyExtensionWithKotlinParity]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testDistanceTextUsesExplicitHalfUpRoundingWithKotlinParity]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testDistanceTextUsesExplicitHalfUpRoundingWithKotlinParity]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testFitDetectionFromMagicBytes]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testFitDetectionFromMagicBytes]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testFitRecordAndSessionMessages]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testFitRecordAndSessionMessages]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testGpxExternalEntityNotExpanded]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testGpxExternalEntityNotExpanded]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testGpxRejectsNullIslandAndKeepsValidPoints]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testGpxRejectsNullIslandAndKeepsValidPoints]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testGpxTrackWithHrExtension]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testGpxTrackWithHrExtension]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testHrSamplesRequireBothTimestampAndHr]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testHrSamplesRequireBothTimestampAndHr]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testHrSampleTimestampFloorsFractionalSecondsForKotlinParity]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testHrSampleTimestampFloorsFractionalSecondsForKotlinParity]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testMalformedInputsRejectedNotCrash]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testMalformedInputsRejectedNotCrash]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testRouteDistanceOneSegmentKeepsAdjacentControlBitPattern]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testRouteDistanceOneSegmentKeepsAdjacentControlBitPattern]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testRouteDistanceOrderedThreePointsUsesCanonicalBitPattern]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testRouteDistanceOrderedThreePointsUsesCanonicalBitPattern]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testSummaryTextIncludesOnlyPositiveStepsWithKotlinParity]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testSummaryTextIncludesOnlyPositiveStepsWithKotlinParity]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testTcxActivityWithLapSummaries]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testTcxActivityWithLapSummaries]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testUntimedGpxRequiresTwoPointsForDerivedDistance]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testUntimedGpxRequiresTwoPointsForDerivedDistance]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ActivityFileImporterTests testWorkoutSportNormalization]' started.
+Test Case '-[StrandImportTests.ActivityFileImporterTests testWorkoutSportNormalization]' passed (0.000 seconds).
+Test Suite 'ActivityFileImporterTests' passed at 2026-09-21 23:13:38.855.
+	 Executed 16 tests, with 0 failures (0 unexpected) in 0.005 (0.006) seconds
+Test Suite 'AppleHealthAggregatorTests' started at 2026-09-21 23:13:38.855.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testAggregateIncludesSleepOnlyDays]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testAggregateIncludesSleepOnlyDays]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testAggregateMergesSamplesAndSleep]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testAggregateMergesSamplesAndSleep]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyCompositionDailyLatest]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyCompositionDailyLatest]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyCompositionFullHKIdentifiersMap]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyCompositionFullHKIdentifiersMap]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyFatFractionDetectedAndScaled]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyFatFractionDetectedAndScaled]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyFatLatestWins]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyFatLatestWins]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyMassKgAssumedWhenNoUnit]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyMassKgAssumedWhenNoUnit]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyMassPoundsConvertedToKg]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyMassPoundsConvertedToKg]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyOnlyDayStillProducesRowViaAggregate]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testBodyOnlyDayStillProducesRowViaAggregate]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testDailyMeansPerType]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testDailyMeansPerType]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testDailySums]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testDailySums]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testDayBucketingByTimezoneOffset]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testDayBucketingByTimezoneOffset]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testFullHKIdentifiersMap]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testFullHKIdentifiersMap]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testHeartRateMeanAndMax]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testHeartRateMeanAndMax]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testLeanMassPoundsConvertedToKg]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testLeanMassPoundsConvertedToKg]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testLegacyAsleepUnspecifiedCountsAsAsleep]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testLegacyAsleepUnspecifiedCountsAsAsleep]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testLocalDayDirect]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testLocalDayDirect]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testMetricPointsEmitsBodyCompositionKeys]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testMetricPointsEmitsBodyCompositionKeys]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testMetricPointsFlattening]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testMetricPointsFlattening]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testMetricPointsSkipsNilBodyComposition]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testMetricPointsSkipsNilBodyComposition]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testMetricPointsSkipsNilValues]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testMetricPointsSkipsNilValues]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testMultiDaySeparationAndSortOrder]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testMultiDaySeparationAndSortOrder]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testNegativeOffsetBucketing]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testNegativeOffsetBucketing]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testSleepKeyedByWakeDayAcrossMidnight]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testSleepKeyedByWakeDayAcrossMidnight]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testSleepStageMinuteSums]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testSleepStageMinuteSums]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testSpo2FractionDetectedAndScaled]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testSpo2FractionDetectedAndScaled]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testStepsDoNotDoubleCountAcrossSources]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testStepsDoNotDoubleCountAcrossSources]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testUnknownSleepStageIgnored]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testUnknownSleepStageIgnored]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testVO2MaxLatestWins]' started.
+Test Case '-[StrandImportTests.AppleHealthAggregatorTests testVO2MaxLatestWins]' passed (0.001 seconds).
+Test Suite 'AppleHealthAggregatorTests' passed at 2026-09-21 23:13:38.875.
+	 Executed 29 tests, with 0 failures (0 unexpected) in 0.019 (0.020) seconds
+Test Suite 'AppleHealthImporterTests' started at 2026-09-21 23:13:38.875.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testBoundedPathDropsRawSamplesButMatchesBatchFold]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testBoundedPathDropsRawSamplesButMatchesBatchFold]' passed (0.007 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testBoundedPathHardErrorAfterRecordsKeepsPartialResult]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testBoundedPathHardErrorAfterRecordsKeepsPartialResult]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testCleanFileReportsNoSkippedSpans]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testCleanFileReportsNoSkippedSpans]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testCorrelationChildNotDoubleCounted]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testCorrelationChildNotDoubleCounted]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testDatesNormalizedToUTC]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testDatesNormalizedToUTC]' passed (0.003 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testDedupeOnIdenticalKey]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testDedupeOnIdenticalKey]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testHardParseErrorAfterRecordsKeepsPartialResult]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testHardParseErrorAfterRecordsKeepsPartialResult]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testHardParseErrorWithNoRecordsStillThrows]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testHardParseErrorWithNoRecordsStillThrows]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testIllegalByteMidFileIsSanitizedAndBothSidesSurvive]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testIllegalByteMidFileIsSanitizedAndBothSidesSurvive]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testInvalidUTF8IsRepairedNotFatal]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testInvalidUTF8IsRepairedNotFatal]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testMultiByteUTF8AcrossChunkBoundaryIsPreserved]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testMultiByteUTF8AcrossChunkBoundaryIsPreserved]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testNegativeOffsetDateParsing]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testNegativeOffsetDateParsing]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testOnlyRelevantTypesIngested]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testOnlyRelevantTypesIngested]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testOxygenSaturationFractionScaledToPercent]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testOxygenSaturationFractionScaledToPercent]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testSleepAnalysisStagesMapped]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testSleepAnalysisStagesMapped]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testSleepStageMappingTable]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testSleepStageMappingTable]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testStripPrefix]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testStripPrefix]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testSummary]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testSummary]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testUnknownElementsTolerated]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testUnknownElementsTolerated]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testWorkoutParsed]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testWorkoutParsed]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.AppleHealthImporterTests testWorkoutStatisticsModernExport]' started.
+Test Case '-[StrandImportTests.AppleHealthImporterTests testWorkoutStatisticsModernExport]' passed (0.000 seconds).
+Test Suite 'AppleHealthImporterTests' passed at 2026-09-21 23:13:38.910.
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.034 (0.035) seconds
+Test Suite 'HealthWritebackTests' started at 2026-09-21 23:13:38.910.
+Test Case '-[StrandImportTests.HealthWritebackTests testAggregateMinuteShapesReturnEmpty]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testAggregateMinuteShapesReturnEmpty]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testDoubleTimestampsAccepted]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testDoubleTimestampsAccepted]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testKeysAreDeterministic]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testKeysAreDeterministic]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanEditedOnsetMovesSpanButNotKey]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanEditedOnsetMovesSpanButNotKey]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanFoldsTwoFragmentsWithWakeSeam]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanFoldsTwoFragmentsWithWakeSeam]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanMixedStagedAndUnstagedFragments]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanMixedStagedAndUnstagedFragments]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanSingleFragmentMatchesLegacyShape]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanSingleFragmentMatchesLegacyShape]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanSkipsDegenerateFragmentsAndEmptyGroups]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanSkipsDegenerateFragmentsAndEmptyGroups]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanUnstagedFragmentsDegradeToUnspecifiedPlusSeam]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testMergedPlanUnstagedFragmentsDegradeToUnspecifiedPlusSeam]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testMixedSegmentAndAggregateBailsEntirely]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testMixedSegmentAndAggregateBailsEntirely]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testNilGarbageAndInvertedSessionReturnEmpty]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testNilGarbageAndInvertedSessionReturnEmpty]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testSegmentsClampedToSessionBounds]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testSegmentsClampedToSessionBounds]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testSegmentShapeParsesAndSorts]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testSegmentShapeParsesAndSorts]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testSleepKeyHasNoDeviceIdSegment]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testSleepKeyHasNoDeviceIdSegment]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepCompletesAcrossRunsAfterLateAuthorizationGrant]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepCompletesAcrossRunsAfterLateAuthorizationGrant]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepNeverAttemptsDeclinedType]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepNeverAttemptsDeclinedType]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepPendingForAuthorizedUnsweptType]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepPendingForAuthorizedUnsweptType]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepResultDoesNotRecordFailedDelete]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepResultDoesNotRecordFailedDelete]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepResultRecordsSuccessfulDelete]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepResultRecordsSuccessfulDelete]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepRetriesFailedDeleteOnNextRun]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepRetriesFailedDeleteOnNextRun]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepSkipsAlreadySweptType]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testStrandedSweepSkipsAlreadySweptType]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testUnknownStageLabelDropped]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testUnknownStageLabelDropped]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testVitalKeyHasNoDeviceIdSegment]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testVitalKeyHasNoDeviceIdSegment]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testVitalKeysDifferByMetric]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testVitalKeysDifferByMetric]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testWakeAndAwakeBothMapToAwake]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testWakeAndAwakeBothMapToAwake]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testWorkoutKeyHasNoDeviceIdSegment]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testWorkoutKeyHasNoDeviceIdSegment]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.HealthWritebackTests testZeroAndNegativeLengthSegmentsDropped]' started.
+Test Case '-[StrandImportTests.HealthWritebackTests testZeroAndNegativeLengthSegmentsDropped]' passed (0.000 seconds).
+Test Suite 'HealthWritebackTests' passed at 2026-09-21 23:13:38.913.
+	 Executed 27 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'ImportByteBudgetTests' started at 2026-09-21 23:13:38.913.
+Test Case '-[StrandImportTests.ImportByteBudgetTests testWearableZipStopsAtTotalByteBudget]' started.
+Test Case '-[StrandImportTests.ImportByteBudgetTests testWearableZipStopsAtTotalByteBudget]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.ImportByteBudgetTests testWhoopZipStopsAtTotalByteBudget]' started.
+Test Case '-[StrandImportTests.ImportByteBudgetTests testWhoopZipStopsAtTotalByteBudget]' passed (0.004 seconds).
+Test Suite 'ImportByteBudgetTests' passed at 2026-09-21 23:13:38.920.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.006 (0.006) seconds
+Test Suite 'ImportColumnCoverageTests' started at 2026-09-21 23:13:38.920.
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testAnEmptyCountsListDoesNotTrailASpace]' started.
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testAnEmptyCountsListDoesNotTrailASpace]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testAPartiallyPopulatedColumnIsNotAbsent]' started.
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testAPartiallyPopulatedColumnIsNotAbsent]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testCallsOutTheAbsentColumn]' started.
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testCallsOutTheAbsentColumn]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testCoverageEmitsTheLabelsInContractOrder]' started.
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testCoverageEmitsTheLabelsInContractOrder]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testEveryAbsentColumnIsListedInParserOrder]' started.
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testEveryAbsentColumnIsListedInParserOrder]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testHealthyImportHasNoAbsentClause]' started.
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testHealthyImportHasNoAbsentClause]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testTheLabelOrderIsTheCrossPlatformContract]' started.
+Test Case '-[StrandImportTests.ImportColumnCoverageTests testTheLabelOrderIsTheCrossPlatformContract]' passed (0.000 seconds).
+Test Suite 'ImportColumnCoverageTests' passed at 2026-09-21 23:13:38.920.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'ImportCoordinatorTests' started at 2026-09-21 23:13:38.920.
+Test Case '-[StrandImportTests.ImportCoordinatorTests testAppleHealthFromZipNested]' started.
+Test Case '-[StrandImportTests.ImportCoordinatorTests testAppleHealthFromZipNested]' passed (0.003 seconds).
+Test Case '-[StrandImportTests.ImportCoordinatorTests testDetectAndImportMissingFileThrowsFileNotFound]' started.
+Test Case '-[StrandImportTests.ImportCoordinatorTests testDetectAndImportMissingFileThrowsFileNotFound]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportCoordinatorTests testDetectKindAppleHealthByXMLExtension]' started.
+Test Case '-[StrandImportTests.ImportCoordinatorTests testDetectKindAppleHealthByXMLExtension]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.ImportCoordinatorTests testDetectKindAppleHealthByZipEntry]' started.
+Test Case '-[StrandImportTests.ImportCoordinatorTests testDetectKindAppleHealthByZipEntry]' passed (0.003 seconds).
+Test Case '-[StrandImportTests.ImportCoordinatorTests testDetectKindWhoopByFolderContents]' started.
+Test Case '-[StrandImportTests.ImportCoordinatorTests testDetectKindWhoopByFolderContents]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.ImportCoordinatorTests testDetectKindWhoopByZipEntry]' started.
+Test Case '-[StrandImportTests.ImportCoordinatorTests testDetectKindWhoopByZipEntry]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.ImportCoordinatorTests testMissingFileThrows]' started.
+Test Case '-[StrandImportTests.ImportCoordinatorTests testMissingFileThrows]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportCoordinatorTests testUndetectableInputThrows]' started.
+Test Case '-[StrandImportTests.ImportCoordinatorTests testUndetectableInputThrows]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportCoordinatorTests testWhoopExportFromZipWithNestedFolder]' started.
+Test Case '-[StrandImportTests.ImportCoordinatorTests testWhoopExportFromZipWithNestedFolder]' passed (0.003 seconds).
+Test Suite 'ImportCoordinatorTests' passed at 2026-09-21 23:13:38.935.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.014 (0.015) seconds
+Test Suite 'ImportTraceTests' started at 2026-09-21 23:13:38.935.
+Test Case '-[StrandImportTests.ImportTraceTests testDayDeltaLineNotesUnpersistedGap]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testDayDeltaLineNotesUnpersistedGap]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testFailingFileSampleMasksAndCaps]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testFailingFileSampleMasksAndCaps]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testFileMetaLineBucketsSizeAndSanitisesExt]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testFileMetaLineBucketsSizeAndSanitisesExt]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testFirstFailingRowMasksEveryCellValue]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testFirstFailingRowMasksEveryCellValue]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testFirstFailingRowNilWhenNoCells]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testFirstFailingRowNilWhenNoCells]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testLastImportSummaryNilWhenNoImportTraced]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testLastImportSummaryNilWhenNoImportTraced]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testLastImportSummaryParsesTaggedTail]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testLastImportSummaryParsesTaggedTail]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testParserVersionLine]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testParserVersionLine]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testRedactCellKeepsStructureDropsValue]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testRedactCellKeepsStructureDropsValue]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testRedactSampleCapsLength]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testRedactSampleCapsLength]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testRejectLine]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testRejectLine]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.ImportTraceTests testStageLineNotesUnwrittenGap]' started.
+Test Case '-[StrandImportTests.ImportTraceTests testStageLineNotesUnwrittenGap]' passed (0.000 seconds).
+Test Suite 'ImportTraceTests' passed at 2026-09-21 23:13:38.937.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'LabMarkerCsvImportTests' started at 2026-09-21 23:13:38.937.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testBadRowsAreSkippedAndCounted]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testBadRowsAreSkippedAndCounted]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testCanonicalEquivalentCustomMarkerRowsShareKeyAndLastRowWins]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testCanonicalEquivalentCustomMarkerRowsShareKeyAndLastRowWins]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testCombinedBloodPressureSplitsIntoPair]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testCombinedBloodPressureSplitsIntoPair]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testCombinedBpNameWithoutPairValueIsSkippedNotGuessed]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testCombinedBpNameWithoutPairValueIsSkippedNotGuessed]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testCustomKeyMirrorsManualEditorSlug]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testCustomKeyMirrorsManualEditorSlug]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testCustomMarkerKeyCanonicalizesNFCAndNFDBeforeSlugging]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testCustomMarkerKeyCanonicalizesNFCAndNFDBeforeSlugging]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testDateVariants]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testDateVariants]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testDuplicateSameDayLastRowWins]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testDuplicateSameDayLastRowWins]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testEmptyAndHeaderlessInput]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testEmptyAndHeaderlessInput]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testExplicitSystolicDiastolicRowsMap]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testExplicitSystolicDiastolicRowsMap]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testHappyPathMapsCatalogMarkers]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testHappyPathMapsCatalogMarkers]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testHeaderVariantsResolve]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testHeaderVariantsResolve]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testImpossibleCalendarDatesAreRejected]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testImpossibleCalendarDatesAreRejected]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testMissingUnitColumnFallsBackToCatalogUnit]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testMissingUnitColumnFallsBackToCatalogUnit]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testOversizeFileIsRejectedOutright]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testOversizeFileIsRejectedOutright]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testParseValueGrammar]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testParseValueGrammar]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testParseValueRejectsNonFinite]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testParseValueRejectsNonFinite]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testParseValueRejectsThousandGroupForZeroLedDecimalComma]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testParseValueRejectsThousandGroupForZeroLedDecimalComma]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testRowCapTruncatesAndReports]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testRowCapTruncatesAndReports]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testSemicolonDelimitedEuropeanFileWithDecimalCommas]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testSemicolonDelimitedEuropeanFileWithDecimalCommas]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testUnitIsStoredVerbatimNeverConverted]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testUnitIsStoredVerbatimNeverConverted]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testUnknownMarkerImportsAsCustom]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testUnknownMarkerImportsAsCustom]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testValueWithTrailingUnitTextParses]' started.
+Test Case '-[StrandImportTests.LabMarkerCsvImportTests testValueWithTrailingUnitTextParses]' passed (0.000 seconds).
+Test Suite 'LabMarkerCsvImportTests' passed at 2026-09-21 23:13:38.941.
+	 Executed 23 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'LiftingImporterTests' started at 2026-09-21 23:13:38.941.
+Test Case '-[StrandImportTests.LiftingImporterTests testDetectFormatRoutesByLeadingByte]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testDetectFormatRoutesByLeadingByte]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testHevyBodyweightSetCountsButAddsNoVolume]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testHevyBodyweightSetCountsButAddsNoVolume]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testHevyGroupsSetsIntoOneSessionWithVolumeLoad]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testHevyGroupsSetsIntoOneSessionWithVolumeLoad]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testHevyPlainTimestampHonoursDeviceTimezone]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testHevyPlainTimestampHonoursDeviceTimezone]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testHevySkipsRowsWithNoUsableDate]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testHevySkipsRowsWithNoUsableDate]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testHevySplitsDistinctWorkoutsAndConvertsPounds]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testHevySplitsDistinctWorkoutsAndConvertsPounds]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testHevyTimestampUsesDeviceTimezoneNotUTC]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testHevyTimestampUsesDeviceTimezoneNotUTC]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testHevyTimestampWithExplicitOffsetIgnoresDeviceTimezone]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testHevyTimestampWithExplicitOffsetIgnoresDeviceTimezone]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testLiftosaurBareArrayAndStorageWrappers]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testLiftosaurBareArrayAndStorageWrappers]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testLiftosaurConvertsPoundUnitAndSkipsUncompletedSets]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testLiftosaurConvertsPoundUnitAndSkipsUncompletedSets]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testLiftosaurHeterogeneousHistoryCountsEveryRejectedRecord]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testLiftosaurHeterogeneousHistoryCountsEveryRejectedRecord]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testLiftosaurParsesHistoryRecords]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testLiftosaurParsesHistoryRecords]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.LiftingImporterTests testVolumeLoadNoteMatchesKotlinForTitledAndUntitledSessions]' started.
+Test Case '-[StrandImportTests.LiftingImporterTests testVolumeLoadNoteMatchesKotlinForTitledAndUntitledSessions]' passed (0.000 seconds).
+Test Suite 'LiftingImporterTests' passed at 2026-09-21 23:13:38.947.
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.004 (0.005) seconds
+Test Suite 'NutritionCsvImportTests' started at 2026-09-21 23:13:38.947.
+Test Case '-[StrandImportTests.NutritionCsvImportTests testCronometerDateHeaderVariant]' started.
+Test Case '-[StrandImportTests.NutritionCsvImportTests testCronometerDateHeaderVariant]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.NutritionCsvImportTests testCronometerHeaders]' started.
+Test Case '-[StrandImportTests.NutritionCsvImportTests testCronometerHeaders]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.NutritionCsvImportTests testDateTimeSuffixTolerated]' started.
+Test Case '-[StrandImportTests.NutritionCsvImportTests testDateTimeSuffixTolerated]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.NutritionCsvImportTests testDuplicateDayLatestWins]' started.
+Test Case '-[StrandImportTests.NutritionCsvImportTests testDuplicateDayLatestWins]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.NutritionCsvImportTests testEmptyAndHeaderOnlyInput]' started.
+Test Case '-[StrandImportTests.NutritionCsvImportTests testEmptyAndHeaderOnlyInput]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.NutritionCsvImportTests testGenericHeadersCaseInsensitiveWithWeight]' started.
+Test Case '-[StrandImportTests.NutritionCsvImportTests testGenericHeadersCaseInsensitiveWithWeight]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.NutritionCsvImportTests testMacroFactorHeaders]' started.
+Test Case '-[StrandImportTests.NutritionCsvImportTests testMacroFactorHeaders]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.NutritionCsvImportTests testMalformedRowsSkippedAndCounted]' started.
+Test Case '-[StrandImportTests.NutritionCsvImportTests testMalformedRowsSkippedAndCounted]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.NutritionCsvImportTests testMetricPointsProjection]' started.
+Test Case '-[StrandImportTests.NutritionCsvImportTests testMetricPointsProjection]' passed (0.000 seconds).
+Test Suite 'NutritionCsvImportTests' passed at 2026-09-21 23:13:38.948.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'OuraApiParserDailyTests' started at 2026-09-21 23:13:38.948.
+Test Case '-[StrandImportTests.OuraApiParserDailyTests testActivityMapsStepsAndScoreIsReferenceOnly]' started.
+Test Case '-[StrandImportTests.OuraApiParserDailyTests testActivityMapsStepsAndScoreIsReferenceOnly]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserDailyTests testReadinessContributorRhrScoreDoesNotBecomeRestingHr]' started.
+Test Case '-[StrandImportTests.OuraApiParserDailyTests testReadinessContributorRhrScoreDoesNotBecomeRestingHr]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserDailyTests testReadinessMapsSkinTempAndRefScoreButNotRhr]' started.
+Test Case '-[StrandImportTests.OuraApiParserDailyTests testReadinessMapsSkinTempAndRefScoreButNotRhr]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserDailyTests testResilienceLevelEncodedReferenceOnly]' started.
+Test Case '-[StrandImportTests.OuraApiParserDailyTests testResilienceLevelEncodedReferenceOnly]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserDailyTests testSpo2MapsAverage]' started.
+Test Case '-[StrandImportTests.OuraApiParserDailyTests testSpo2MapsAverage]' passed (0.000 seconds).
+Test Suite 'OuraApiParserDailyTests' passed at 2026-09-21 23:13:38.949.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'OuraApiParserEventsTests' started at 2026-09-21 23:13:38.949.
+Test Case '-[StrandImportTests.OuraApiParserEventsTests testHeartRatePageParseDropsNonPositive]' started.
+Test Case '-[StrandImportTests.OuraApiParserEventsTests testHeartRatePageParseDropsNonPositive]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserEventsTests testWorkoutParse]' started.
+Test Case '-[StrandImportTests.OuraApiParserEventsTests testWorkoutParse]' passed (0.000 seconds).
+Test Suite 'OuraApiParserEventsTests' passed at 2026-09-21 23:13:38.950.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'OuraApiParserSleepTests' started at 2026-09-21 23:13:38.950.
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testDailyRollupKeepsFragmentValuesWhenNoLongSleepThatDay]' started.
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testDailyRollupKeepsFragmentValuesWhenNoLongSleepThatDay]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testDailyRollupPicksLongerOfTwoLongSleeps]' started.
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testDailyRollupPicksLongerOfTwoLongSleeps]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testDailyRollupPrefersLongSleepOverEarlierFragment]' started.
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testDailyRollupPrefersLongSleepOverEarlierFragment]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testDailyRollupPrefersLongSleepRegardlessOfOrder]' started.
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testDailyRollupPrefersLongSleepRegardlessOfOrder]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testEfficiencyIsNormalizedToZeroToOneFraction]' started.
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testEfficiencyIsNormalizedToZeroToOneFraction]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testParsesPeriodWithHypnogramAndFoldsDay]' started.
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testParsesPeriodWithHypnogramAndFoldsDay]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testSampleSeriesSkipsFiniteButHugeValuesWithoutCrashing]' started.
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testSampleSeriesSkipsFiniteButHugeValuesWithoutCrashing]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testSkipsDeletedPeriodEntirely]' started.
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testSkipsDeletedPeriodEntirely]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testSkipsPeriodWithInvalidSpan]' started.
+Test Case '-[StrandImportTests.OuraApiParserSleepTests testSkipsPeriodWithInvalidSpan]' passed (0.000 seconds).
+Test Suite 'OuraApiParserSleepTests' passed at 2026-09-21 23:13:38.952.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'OuraExportParserTests' started at 2026-09-21 23:13:38.952.
+Test Case '-[StrandImportTests.OuraExportParserTests testFlatReadinessRestingHeartRateKeyDoesNotBecomeRestingHr]' started.
+Test Case '-[StrandImportTests.OuraExportParserTests testFlatReadinessRestingHeartRateKeyDoesNotBecomeRestingHr]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraExportParserTests testFragmentBeforeMainSessionMainSessionWins]' started.
+Test Case '-[StrandImportTests.OuraExportParserTests testFragmentBeforeMainSessionMainSessionWins]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraExportParserTests testFragmentOnlyDayKeepsFragment]' started.
+Test Case '-[StrandImportTests.OuraExportParserTests testFragmentOnlyDayKeepsFragment]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraExportParserTests testReadinessAliasCategoryDoesNotWriteRestingHr]' started.
+Test Case '-[StrandImportTests.OuraExportParserTests testReadinessAliasCategoryDoesNotWriteRestingHr]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraExportParserTests testReadinessContributorRhrScoreDoesNotBecomeRestingHr]' started.
+Test Case '-[StrandImportTests.OuraExportParserTests testReadinessContributorRhrScoreDoesNotBecomeRestingHr]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraExportParserTests testSleepLowestHeartRateIsTheSoleRestingHrSource]' started.
+Test Case '-[StrandImportTests.OuraExportParserTests testSleepLowestHeartRateIsTheSoleRestingHrSource]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraExportParserTests testWinningSessionSuppliesAllFieldsAsAUnitNeverMixed]' started.
+Test Case '-[StrandImportTests.OuraExportParserTests testWinningSessionSuppliesAllFieldsAsAUnitNeverMixed]' passed (0.000 seconds).
+Test Suite 'OuraExportParserTests' passed at 2026-09-21 23:13:38.953.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'OuraHypnogramTests' started at 2026-09-21 23:13:38.953.
+Test Case '-[StrandImportTests.OuraHypnogramTests testDecodeMergesAdjacentEqualStagesAndAligns]' started.
+Test Case '-[StrandImportTests.OuraHypnogramTests testDecodeMergesAdjacentEqualStagesAndAligns]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraHypnogramTests testMovementLegendIsDistinctFromStages]' started.
+Test Case '-[StrandImportTests.OuraHypnogramTests testMovementLegendIsDistinctFromStages]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.OuraHypnogramTests testStageLegendMapsOuraDigits]' started.
+Test Case '-[StrandImportTests.OuraHypnogramTests testStageLegendMapsOuraDigits]' passed (0.000 seconds).
+Test Suite 'OuraHypnogramTests' passed at 2026-09-21 23:13:38.954.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'PlaceholderTests' started at 2026-09-21 23:13:38.954.
+Test Case '-[StrandImportTests.PlaceholderTests testVersion]' started.
+Test Case '-[StrandImportTests.PlaceholderTests testVersion]' passed (0.000 seconds).
+Test Suite 'PlaceholderTests' passed at 2026-09-21 23:13:38.954.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'RouteExporterTests' started at 2026-09-21 23:13:38.954.
+Test Case '-[StrandImportTests.RouteExporterTests testCanonicalSportCollapsesAliases]' started.
+Test Case '-[StrandImportTests.RouteExporterTests testCanonicalSportCollapsesAliases]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.RouteExporterTests testFitHasValidHeaderAndCrc]' started.
+Test Case '-[StrandImportTests.RouteExporterTests testFitHasValidHeaderAndCrc]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.RouteExporterTests testFitRoundTripsThroughTheImporter]' started.
+Test Case '-[StrandImportTests.RouteExporterTests testFitRoundTripsThroughTheImporter]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.RouteExporterTests testFitSemicircleHalfTiesRoundAwayFromZeroOnBothPlatforms]' started.
+Test Case '-[StrandImportTests.RouteExporterTests testFitSemicircleHalfTiesRoundAwayFromZeroOnBothPlatforms]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.RouteExporterTests testFitWithoutHrDoesNotFabricateHr]' started.
+Test Case '-[StrandImportTests.RouteExporterTests testFitWithoutHrDoesNotFabricateHr]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.RouteExporterTests testGpxRoundTripsThroughTheImporter]' started.
+Test Case '-[StrandImportTests.RouteExporterTests testGpxRoundTripsThroughTheImporter]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.RouteExporterTests testInterpolatedTimesSpanTheWindow]' started.
+Test Case '-[StrandImportTests.RouteExporterTests testInterpolatedTimesSpanTheWindow]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.RouteExporterTests testIsoMatchesTheKotlinInstantFormat]' started.
+Test Case '-[StrandImportTests.RouteExporterTests testIsoMatchesTheKotlinInstantFormat]' passed (0.000 seconds).
+Test Suite 'RouteExporterTests' passed at 2026-09-21 23:13:38.957.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'WearableExportImporterTests' started at 2026-09-21 23:13:38.957.
+Test Case '-[StrandImportTests.WearableExportImporterTests testFitbitSleepRestingHrSteps]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testFitbitSleepRestingHrSteps]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testGarminImportedNightRespReachesDailyRow]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testGarminImportedNightRespReachesDailyRow]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testGarminWellnessSleepAndDaily]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testGarminWellnessSleepAndDaily]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testHugeOutOfRangeNumberDoesNotTrap]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testHugeOutOfRangeNumberDoesNotTrap]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testImportedNightRespReachesDailyRow]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testImportedNightRespReachesDailyRow]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testImportErrorIsHonestNotOpaqueErreur4]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testImportErrorIsHonestNotOpaqueErreur4]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testJunkAndZeroValuesAreRejectedSafely]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testJunkAndZeroValuesAreRejectedSafely]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testLoneHeartRateCSVRoutesToOuraButImportsNoDailyData]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testLoneHeartRateCSVRoutesToOuraButImportsNoDailyData]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraAcceptsDataWrapperAndDetectsBrandByContent]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraAcceptsDataWrapperAndDetectsBrandByContent]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraDailySummaryCSVFoldsDaysAndSleep]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraDailySummaryCSVFoldsDaysAndSleep]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraJSONStillWinsOverCSVForSameDay]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraJSONStillWinsOverCSVForSameDay]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraNestedSpo2AndVo2FromJSON]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraNestedSpo2AndVo2FromJSON]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraRealSchemaCSVFragmentBeforeMainSessionMainWins]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraRealSchemaCSVFragmentBeforeMainSessionMainWins]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraRealSchemaSemicolonPerCategoryCSVs]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraRealSchemaSemicolonPerCategoryCSVs]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraSleepReadinessActivityFold]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testOuraSleepReadinessActivityFold]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WearableExportImporterTests testSemicolonDelimiterDetection]' started.
+Test Case '-[StrandImportTests.WearableExportImporterTests testSemicolonDelimiterDetection]' passed (0.000 seconds).
+Test Suite 'WearableExportImporterTests' passed at 2026-09-21 23:13:38.962.
+	 Executed 16 tests, with 0 failures (0 unexpected) in 0.004 (0.005) seconds
+Test Suite 'WhoopBiomarkerExportParserTests' started at 2026-09-21 23:13:38.962.
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testCarriesStatusVerbatimIntoNoteAttributed]' started.
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testCarriesStatusVerbatimIntoNoteAttributed]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testIsNoDataMatchesBothSentinels]' started.
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testIsNoDataMatchesBothSentinels]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testKeepsPackedUnitAndThousandsSeparator]' started.
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testKeepsPackedUnitAndThousandsSeparator]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testMatchesOnlyTheWhoopSignature]' started.
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testMatchesOnlyTheWhoopSignature]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testParsesReadingsCountsNotMeasuredSeparately]' started.
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testParsesReadingsCountsNotMeasuredSeparately]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testSplitValueUnitHandlesPackedAndBare]' started.
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testSplitValueUnitHandlesPackedAndBare]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testUnknownMarkerBecomesCustomWithItsUnit]' started.
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testUnknownMarkerBecomesCustomWithItsUnit]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testWhoopDayAcceptsTwoDigitUsDates]' started.
+Test Case '-[StrandImportTests.WhoopBiomarkerExportParserTests testWhoopDayAcceptsTwoDigitUsDates]' passed (0.000 seconds).
+Test Suite 'WhoopBiomarkerExportParserTests' passed at 2026-09-21 23:13:38.964.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'WhoopCsvExporterTests' started at 2026-09-21 23:13:38.964.
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testCyclesRoundTripThroughRealImporter]' started.
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testCyclesRoundTripThroughRealImporter]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testEfficiencyPctFractionPairIsLosslessAndNilSafe]' started.
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testEfficiencyPctFractionPairIsLosslessAndNilSafe]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testJournalRoundTripIncludingFalseAnswers]' started.
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testJournalRoundTripIncludingFalseAnswers]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testNumbersAreLocaleProof]' started.
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testNumbersAreLocaleProof]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testSleepsRoundTripAllStageShapes]' started.
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testSleepsRoundTripAllStageShapes]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testWorkoutSportWithCommaQuoteNewlineSurvives]' started.
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testWorkoutSportWithCommaQuoteNewlineSurvives]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testZipArchiveRoundTripsThroughFullImporter]' started.
+Test Case '-[StrandImportTests.WhoopCsvExporterTests testZipArchiveRoundTripsThroughFullImporter]' passed (0.001 seconds).
+Test Suite 'WhoopCsvExporterTests' passed at 2026-09-21 23:13:38.968.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'WhoopDayKeyingTests' started at 2026-09-21 23:13:38.968.
+Test Case '-[StrandImportTests.WhoopDayKeyingTests testFallsBackToCycleEndThenStart]' started.
+Test Case '-[StrandImportTests.WhoopDayKeyingTests testFallsBackToCycleEndThenStart]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopDayKeyingTests testKeyedToWakeDayNotOnset]' started.
+Test Case '-[StrandImportTests.WhoopDayKeyingTests testKeyedToWakeDayNotOnset]' passed (0.000 seconds).
+Test Suite 'WhoopDayKeyingTests' passed at 2026-09-21 23:13:38.968.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'WhoopExportImporterTests' started at 2026-09-21 23:13:38.968.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testBOMIsStripped]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testBOMIsStripped]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testCelsiusSkinTempIsUnchanged]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testCelsiusSkinTempIsUnchanged]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testCyclesParseToExpectedValues]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testCyclesParseToExpectedValues]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testExtraAndReorderedColumnsTolerated]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testExtraAndReorderedColumnsTolerated]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testFahrenheitSkinTempIsConvertedToCelsius]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testFahrenheitSkinTempIsConvertedToCelsius]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testFrenchCyclesValuesParse]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testFrenchCyclesValuesParse]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testFrenchHeaderNormalizationAliases]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testFrenchHeaderNormalizationAliases]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testGermanCyclesValuesParse]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testGermanCyclesValuesParse]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testGermanHeaderNormalizationAliases]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testGermanHeaderNormalizationAliases]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testHeaderNormalization]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testHeaderNormalization]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testImportFromFolder]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testImportFromFolder]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testJournalPivot]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testJournalPivot]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testJournalReadsRealWhoopAnsweredYesHeader]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testJournalReadsRealWhoopAnsweredYesHeader]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testPortugueseCyclesValuesParse]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testPortugueseCyclesValuesParse]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testPortugueseHeaderNormalizationAliases]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testPortugueseHeaderNormalizationAliases]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testQuotedFieldsWithCommasAndQuotes]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testQuotedFieldsWithCommasAndQuotes]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testSleepsNapColumn]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testSleepsNapColumn]' passed (0.001 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testSpanishCyclesValuesParse]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testSpanishCyclesValuesParse]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testSpanishHeaderNormalizationAliases]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testSpanishHeaderNormalizationAliases]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testTimestampParsedInGivenOffsetToUTC]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testTimestampParsedInGivenOffsetToUTC]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testTimezoneOffsetParsing]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testTimezoneOffsetParsing]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testWorkoutsWithGPSColumnsParse]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testWorkoutsWithGPSColumnsParse]' passed (0.000 seconds).
+Test Case '-[StrandImportTests.WhoopExportImporterTests testWorkoutsWithoutGPSColumnsStillParse]' started.
+Test Case '-[StrandImportTests.WhoopExportImporterTests testWorkoutsWithoutGPSColumnsStillParse]' passed (0.001 seconds).
+Test Suite 'WhoopExportImporterTests' passed at 2026-09-21 23:13:38.981.
+	 Executed 23 tests, with 0 failures (0 unexpected) in 0.011 (0.012) seconds
+Test Suite 'XiaomiBandImporterTests' started at 2026-09-21 23:13:38.981.
+Test Case '-[StrandImportTests.XiaomiBandImporterTests testBareDBAndEmptyGuard]' started.
+Test Case '-[StrandImportTests.XiaomiBandImporterTests testBareDBAndEmptyGuard]' passed (0.003 seconds).
+Test Case '-[StrandImportTests.XiaomiBandImporterTests testDayRollupMapping]' started.
+Test Case '-[StrandImportTests.XiaomiBandImporterTests testDayRollupMapping]' passed (0.002 seconds).
+Test Case '-[StrandImportTests.XiaomiBandImporterTests testRealExportIfAvailable]' started.
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/StrandImport/Tests/StrandImportTests/XiaomiBandImporterTests.swift:119: -[StrandImportTests.XiaomiBandImporterTests testRealExportIfAvailable] : Test skipped - Set XIAOMI_REAL_DB to verify against the real export
+Test Case '-[StrandImportTests.XiaomiBandImporterTests testRealExportIfAvailable]' skipped (0.000 seconds).
+Test Case '-[StrandImportTests.XiaomiBandImporterTests testSleepSessionAndHypnogram]' started.
+Test Case '-[StrandImportTests.XiaomiBandImporterTests testSleepSessionAndHypnogram]' passed (0.002 seconds).
+Test Suite 'XiaomiBandImporterTests' passed at 2026-09-21 23:13:38.988.
+	 Executed 4 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.007 (0.007) seconds
+Test Suite 'StrandImportPackageTests.xctest' passed at 2026-09-21 23:13:38.988.
+	 Executed 263 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.125 (0.140) seconds
+Test Suite 'All tests' passed at 2026-09-21 23:13:38.988.
+	 Executed 263 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.125 (0.140) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
+SUPPORT_PACKAGE_PASS: StrandImport

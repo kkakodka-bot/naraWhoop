@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import WhoopStore
+import WhoopProtocol
 import Foundation
 
 // MARK: - Apple Health (per-source page) — locked component system
@@ -202,7 +203,14 @@ struct AppleHealthView: View {
                        // (the scaffold stack is 20pt), so the lazy win is partial until those sections are
                        // promoted to direct children — kept as one node here to stay pixel-identical.
                        lazy: true) {
-            if loaded && !hasAnyData {
+            if PhoneComputeRuntime.isFinalHosted {
+                #if os(iOS)
+                liveSyncCard
+                #endif
+                Text("Imported observations remain source data. Physiological summaries use authorized server results.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                CanonicalPhysiologySection(families: ["night_hrv", "sleep", "strain_energy", "steps"], history: true)
+            } else if loaded && !hasAnyData {
                 #if os(iOS)
                 // No data yet, but iOS can grant live access right here — keep the Enable card above
                 // the (now live-aware) empty-state copy so the richer path isn't hidden behind a
@@ -261,6 +269,7 @@ struct AppleHealthView: View {
     // MARK: - Load
 
     private func load(allowCache: Bool = false) async {
+        guard PhoneComputeRuntime.permitsLocal("AppleHealthView.source_summary") else { return }
         // Previews inject data directly (store-backed reads can't be seeded). Stays ABOVE the cache path so a
         // preview never touches the repo.
         if let pd = previewData {
@@ -783,6 +792,8 @@ struct AppleHealthView: View {
     }
 
     private func mean(_ values: [Double]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("AppleHealthView.physiological_mean") else { return nil }
+        PhoneComputeRuntime.entered("AppleHealthView.physiological_mean")
         guard !values.isEmpty else { return nil }
         return values.reduce(0, +) / Double(values.count)
     }

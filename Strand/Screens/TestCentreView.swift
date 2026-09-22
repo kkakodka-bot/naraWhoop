@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import StrandImport
 import PolarProtocol
 import WhoopStore
@@ -559,6 +560,11 @@ struct TestCentreView: View {
     /// candidate nights, and fills each NULL `skinTempC`. The result is logged to the strap log and
     /// shown under the button so the user sees exactly what filled, declined, and had no raw data.
     private func runSkinTempBackfill() {
+        guard PhoneComputeRuntime.permitsLocal("TestCentre.skinTemperatureBackfill") else {
+            skinTempBackfillStatus = "Server-owned temperature: local backfill is disabled in hosted mode."
+            return
+        }
+        PhoneComputeRuntime.entered("TestCentre.skinTemperatureBackfill")
         guard !skinTempBackfillRunning else { return }
         skinTempBackfillRunning = true
         skinTempBackfillStatus = String(localized: "Backfilling…")

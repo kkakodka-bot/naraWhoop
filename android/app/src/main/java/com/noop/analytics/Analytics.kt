@@ -19,6 +19,7 @@ object Hrv {
      * guard `rr.count >= 2`).
      */
     fun rmssd(rr: List<Int>): Double {
+        PhoneComputeRuntime.inferenceStarted("Hrv.rmssd")
         if (rr.size < 2) return 0.0
         var sum = 0.0
         var n = 0
@@ -59,7 +60,10 @@ object Zones {
     /**
      * Tanaka maximum-heart-rate estimate: round(208 - 0.7 * age).
      */
-    fun hrMaxTanaka(age: Int): Int = (208.0 - 0.7 * age).roundToInt()
+    fun hrMaxTanaka(age: Int): Int {
+        PhoneComputeRuntime.inferenceStarted("Zones.hrMaxTanaka")
+        return (208.0 - 0.7 * age).roundToInt()
+    }
 }
 
 /**
@@ -81,6 +85,8 @@ object IllnessWatch {
      * Requires at least 14 days of history (matching `days.count >= 14`).
      */
     fun evaluate(days: List<DailyMetric>): String? {
+        if (!PhoneComputeRuntime.allowsLocal("illness_watch")) return null
+        PhoneComputeRuntime.inferenceStarted("illness_watch")
         if (days.size < 14) return null
 
         val recent = days.takeLast(2)

@@ -103,6 +103,7 @@ private final class ScoringConsentCommitFence: TransactionObserver {
 
 /// A separate FULL-synchronous account journal. No legacy global/local-feature choice is imported.
 actor ScoringContextConsentStore {
+    func close() throws { try database.close() }
     struct Intent: Sendable, Equatable {
         let id: UUID
         let configuration: ScoringConsentConfiguration
@@ -122,7 +123,11 @@ actor ScoringContextConsentStore {
         self.fence = fence
         try layout.prepare()
         let path = layout.directory.appendingPathComponent("scoring-context-consent.sqlite")
-        database = try DatabaseQueue(path: path.path)
+        // A successor may open while the retired connection finishes its WAL checkpoint.
+        // Keep the owner/commit fences; wait for that bounded SQLite lock instead of losing readback.
+        var configuration = Configuration()
+        configuration.busyMode = .timeout(5)
+        database = try DatabaseQueue(path: path.path, configuration: configuration)
         database.add(transactionObserver: ScoringConsentCommitFence(fence), extent: .databaseLifetime)
         try database.writeWithoutTransaction { db in
             try db.execute(sql: "PRAGMA journal_mode=WAL")
@@ -378,6 +383,7 @@ final class ScoringContextConsent: ObservableObject {
     private var transition: UInt64 = 0
     private var unsavedPurposes: Set<ScoringContextPurpose> = []
     private var relayTask: Task<UInt64, Error>?
+    private var retirement: Task<Void, Error>?
     private var relayRefreshAfter: Int64 = 0
     private(set) var relayWaiterCount = 0
     var didChange: (() -> Void)?
@@ -538,7 +544,22 @@ final class ScoringContextConsent: ObservableObject {
     }
 
     func retire() {
+        guard retirement == nil else { return }
         transition &+= 1; gate.retire(); preparation?.cancel(); relayTask?.cancel()
         decisions = [:]; didChange = nil; willChange = nil; configuration = nil
+        let opened = store, preparing = preparation, relaying = relayTask
+        store = nil; preparation = nil; relayTask = nil
+        retirement = Task {
+            _ = try? await relaying?.value
+            try await opened?.close()
+            if let prepared = try? await preparing?.value { try await prepared.close() }
+        }
+    }
+
+    /// Await SQLite closure before removing an account fixture or reclaiming its storage.
+    /// Retirement still fences synchronously and never removes the durable consent journal.
+    func waitForRetirement() async throws {
+        retire()
+        try await retirement?.value
     }
 }

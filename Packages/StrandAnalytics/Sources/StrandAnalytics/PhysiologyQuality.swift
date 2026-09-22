@@ -76,6 +76,7 @@ public enum PhysiologyQuality {
     }
 
     public static func signalRejectionReason(_ row: IntervalObservation) -> String? {
+        PhoneComputeRuntime.entered("swift.PhysiologyQuality.signalRejectionReason")
         if row.motionContaminated == true { return "motion_contamination" }
         if row.contactAccepted == false { return "contact_rejected" }
         if row.opticalQualityAccepted == false { return "optical_quality_rejected" }
@@ -88,6 +89,8 @@ public enum PhysiologyQuality {
 
     /// A rejected original beat stays rejected on both sides of an event-time window boundary.
     public static func propagatingEndpointRejections(_ observations: [IntervalObservation]) -> [IntervalObservation] {
+        guard PhoneComputeRuntime.permitsLocal("swift.PhysiologyQuality.propagatingEndpointRejections") else { return [] }
+        PhoneComputeRuntime.entered("swift.PhysiologyQuality.propagatingEndpointRejections")
         var rejected = Set<[String]>()
         for row in observations {
             if let beat = row.startBeatId, !row.startBeatAccepted { rejected.insert([row.userId, row.deviceId, row.source, beat]) }
@@ -112,6 +115,7 @@ public enum PhysiologyQuality {
 
     /// Engineering ambiguity screen, not a rhythm diagnosis or an upper HRV bound.
     public static func hasAmbiguousAlternation(_ observations: [IntervalObservation]) -> Bool {
+        PhoneComputeRuntime.entered("swift.PhysiologyQuality.hasAmbiguousAlternation")
         let rows = observations.sorted { ($0.verifiedSpan?.start ?? $0.eventTime) < ($1.verifiedSpan?.start ?? $1.eventTime) }
         func usable(_ row: IntervalObservation) -> Bool {
             guard let span = row.verifiedSpan else { return false }
@@ -185,7 +189,9 @@ public enum PhysiologyQuality {
     /// Final binary state, not a deep/light eligibility rule. Shadow inference is not PSG truth.
     public static func contextFromSleep(stages: [StageSegment], start: Int, end: Int,
                                         episodeType: String? = nil) -> [ContextEpoch] {
-        SleepStageSemantics.normalized(stages, start: start, end: end).map { segment in
+        guard PhoneComputeRuntime.permitsLocal("swift.PhysiologyQuality.contextFromSleep") else { return [] }
+        PhoneComputeRuntime.entered("swift.PhysiologyQuality.contextFromSleep")
+        return SleepStageSemantics.normalized(stages, start: start, end: end).map { segment in
             let state: String
             if SleepStageSemantics.isSleep(segment) { state = episodeType == "nap" ? "nap" : "sleep" }
             else if segment.state == "off_body" { state = "off_body" }

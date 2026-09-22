@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.BanisterParityOracleTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.03">
+  <properties/>
+  <testcase name="every intensity matches the compiled Swift twin" classname="com.noop.analytics.BanisterParityOracleTest" time="0.03"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

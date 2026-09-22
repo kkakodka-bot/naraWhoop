@@ -382,6 +382,8 @@ final class Repository: ObservableObject {
     func applyServerScores(_ state: ServerScoreViewState) -> Bool {
         guard accountRuntimeActive, state != serverPresentation else { return false }
         let contentChanged = state.revision != serverPresentation.revision
+            || state.canonicalDays != serverPresentation.canonicalDays
+            || state.pendingCanonicalDays != serverPresentation.pendingCanonicalDays
             || state.generation != serverPresentation.generation
             || state.currentDay != serverPresentation.currentDay
             || state.timezone != serverPresentation.timezone
@@ -924,24 +926,26 @@ final class Repository: ObservableObject {
             // Don't swallow the open failure with `try?` (#222): an import-time open failure (e.g. the iOS
             // data-protected store while the device is locked) was previously invisible, surfacing only as
             // a generic "Couldn't open the local store." Log the real error so the cause is diagnosable.
-            let path: String
-            do {
-                if let storageLayout {
-                    try storageLayout.prepare()
-                    path = storageLayout.databaseURL.path
-                } else {
-                    path = try StorePaths.defaultDatabasePath()
-                }
-            } catch {
-                NSLog("WhoopStore: ensureStore FAILED resolving DB path: \(error)")
-                return nil
-            }
             let s: WhoopStore
             do {
                 if let openStore { s = try await openStore() }
-                else { s = try await WhoopStore(path: path) }
+                else {
+                    let path: String
+                    if let storageLayout {
+                        try storageLayout.prepare()
+                        path = storageLayout.databaseURL.path
+                    } else {
+                        path = try StorePaths.defaultDatabasePath()
+                    }
+                    s = try await WhoopStore(path: path)
+                }
                 try await s.fenceWrites(untilRevoked: writeFence)
                 if let scope = storageLayout?.scope {
+                    // Bind an empty JWT account store before writing enrollment capture metadata.
+                    // Enrolled stores instead require their existing exact owner/source witness.
+                    if CloudRuntimeIdentity.currentEnrollmentSnapshot()?.scope != scope {
+                        try await s.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+                    }
                     try await CloudCaptureScope.prepareStore(s.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
                     try await CloudCaptureScope.bindRuntimeOwner(s, scope: scope)
                 }
@@ -1147,6 +1151,14 @@ final class Repository: ObservableObject {
     func refresh(days nDays: Int = 4000) async {
         let source = readerSource()
         guard let store = await ensureStore(), readerIsCurrent(source) else { return }
+        if PhoneComputeRuntime.isFinalHosted {
+            // Historical phone scores remain in storage with their original provenance, but cannot
+            // re-enter the hosted presentation through imports or source-priority merges.
+            localPresentationDays = []; localPresentationSleeps = []; localPresentationVitals = []
+            importedSleep = [:]; hasLocalPresentation = false
+            publishServerPresentation(); loaded = true; refreshSeq &+= 1
+            return
+        }
         refreshGen &+= 1
         let myGen = refreshGen
         let now = Date()
@@ -1646,6 +1658,8 @@ final class Repository: ObservableObject {
     /// clears the threshold; `habitualMidsleepSec` keeps the longest block per day, so window/order/source
     /// merge differences wash out. (#547)
     func habitualMidsleepSec(days: Int = 4000) async -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("habitual_midsleep") else { return nil }
+        PhoneComputeRuntime.entered("habitual_midsleep")
         guard let store = await ensureStore() else { return nil }
         let now = Int(Date().timeIntervalSince1970)
         let lo = now - days * 86_400, hi = now + 86_400
@@ -1935,6 +1949,8 @@ final class Repository: ObservableObject {
     /// JSON is the fallback awake-only block / unparseable. Used to seed a manually-added nap's efficiency
     /// so its hypnogram footer reads sensibly before the next recompute re-derives it. (#508)
     private func sleepEfficiency(fromStagesJSON json: String?) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("sleep_efficiency_reconstruction") else { return nil }
+        PhoneComputeRuntime.entered("sleep_efficiency_reconstruction")
         guard let json, let data = json.data(using: .utf8),
               let arr = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return nil }
         var asleep = 0.0, total = 0.0
@@ -1960,6 +1976,8 @@ final class Repository: ObservableObject {
                                 source suppliedSource: ReaderSource? = nil,
                                 rawDeviceId suppliedRawDeviceId: String? = nil,
                                 onFailure: @Sendable () -> Void = {}) async -> String? {
+        guard PhoneComputeRuntime.permitsLocal("sleep_restage_edit") else { return nil }
+        PhoneComputeRuntime.entered("sleep_restage_edit")
         let source = suppliedSource ?? readerSource()
         let rawDeviceId = suppliedRawDeviceId ?? source.raw
         guard readerIsCurrent(source, onFailure: onFailure) else { return nil }
@@ -2249,11 +2267,12 @@ final class Repository: ObservableObject {
     /// tables (low frequency, no 86k risk) and bin to the same bucket grid when zoomed out.
     func timelineSeries(metric: TimelineMetric, from: Int, to: Int,
                         targetPoints: Int = 600, source: String? = nil) async -> TimelineSeries {
+        guard metric == .hr || PhoneComputeRuntime.permitsLocal("timeline_physiological_reconstruction") else { return .empty }
         guard to > from, let store = await ensureStore() else { return .empty }
         // Default (no explicit source) → the complete worn WHOOP timeline: active, every registered prior
         // strap, then canonical history. An explicit per-source page still reads that source verbatim.
         let unionIds: [String] = source.map { [$0] } ?? rawPhysiologyReadIds(store: store)
-        let bucket = Self.timelineBucketSeconds(spanSeconds: to - from, targetPoints: targetPoints)
+        let bucket = PhoneComputeRuntime.isFinalHosted ? 1 : Self.timelineBucketSeconds(spanSeconds: to - from, targetPoints: targetPoints)
         let isRaw = bucket <= 1
 
         if metric == .hr {
@@ -3165,6 +3184,14 @@ final class Repository: ObservableObject {
                                              source: ReaderSource,
                                              onFailure: @escaping @Sendable () -> Void = {},
                                              minSamples: Int = 60, cap: Int = 300) async -> [WorkoutRow] {
+        guard PhoneComputeRuntime.permitsLocal("workout_trace_reconstruction") else {
+            return rows.map { row in
+                WorkoutRow(startTs: row.startTs, endTs: row.endTs, sport: row.sport, source: row.source,
+                    durationS: row.durationS, energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil,
+                    distanceM: row.distanceM, zonesJSON: nil, notes: row.notes, steps: nil)
+            }
+        }
+        PhoneComputeRuntime.entered("workout_trace_reconstruction")
         // #833 (on-open freeze): this used to run a SEQUENTIAL per-row loop, each awaiting one
         // `store.hrSamples(.., limit: 8000)` then reducing up to 8000 ints SYNCHRONOUSLY on the @MainActor
         // (sum + max), for up to `cap` rows. On a deep history that beach-balled first paint. The eligible
@@ -3517,6 +3544,8 @@ final class Repository: ObservableObject {
     /// Returns nil when the toggle is off, there's nothing to suggest, or detection finds nothing.
     /// PURE READ: never writes a workout. The window scans from `daysBack` days ago to now.
     func autoDetectCandidate(daysBack: Int = 2) async -> DetectedWorkout? {
+        guard PhoneComputeRuntime.permitsLocal("workout_detection") else { return nil }
+        PhoneComputeRuntime.entered("workout_detection")
         guard PuffinExperiment.autoDetectWorkoutsEnabled else { return nil }
         let now = Int(Date().timeIntervalSince1970)
         let from = now - daysBack * 86_400

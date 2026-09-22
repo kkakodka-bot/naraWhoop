@@ -4,6 +4,7 @@ import StrandAnalytics
 import StrandImport
 import WhoopStore
 import Foundation
+import WhoopProtocol
 #if canImport(MapKit)
 import MapKit
 #endif
@@ -84,13 +85,17 @@ struct WorkoutDetailView: View {
                        // needs no extra macOS NavigationStack of its own.
                        topBackground: liquidScaffoldSky()) {
             headerCard
-            statStrip
             routeCard
-            hrCurveCard
-            zonesCard
-            heartRateRecoveryCard
-            if let strain = row.strain {
-                effortCard(strain: strain)
+            if PhoneComputeRuntime.isFinalHosted {
+                Text("Recorded session window · physiological analysis is server-owned")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                CanonicalPhysiologySection(families: ["workouts"], day: serverDay)
+            } else {
+                statStrip
+                hrCurveCard
+                zonesCard
+                heartRateRecoveryCard
+                if let strain = row.strain { effortCard(strain: strain) }
             }
         }
         .toolbar {
@@ -104,6 +109,11 @@ struct WorkoutDetailView: View {
 
     // MARK: - Load
 
+    private var serverDay: String {
+        ServerScoreDate.day(Date(timeIntervalSince1970: TimeInterval(row.startTs)),
+            timeZone: TimeZone(identifier: repo.serverPresentation.timezone) ?? .current)
+    }
+
     private func load() async {
         // #524: the GPS route, if this session recorded one on-device. A cheap UserDefaults read keyed
         // by the row's natural key (startTs + sport); decoded to points only when ≥2 were captured so the
@@ -113,6 +123,12 @@ struct WorkoutDetailView: View {
             let pts = RouteMath.decode(r.polyline)
             return pts.count >= 2 ? pts : []
         }()
+        guard PhoneComputeRuntime.permitsLocal("workout_detail_analysis") else {
+            route = routePoints; hrPoints = []; zoneMinutes = nil; heartRateRecovery = nil
+            steps = nil; loaded = true
+            return
+        }
+        PhoneComputeRuntime.entered("workout_detail_analysis")
 
         // HR curve over the exact session window — a finer bucket than the 24h chart so a short run
         // still reads as a curve, not a handful of points.
@@ -286,7 +302,7 @@ struct WorkoutDetailView: View {
         if route.count >= 2 {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 SectionHeader("Route", overline: routeOriginLabel,
-                              trailing: distanceLabel(row.distanceM))
+                              trailing: PhoneComputeRuntime.isFinalHosted ? nil : distanceLabel(row.distanceM))
                 NoopCard(padding: 0, tint: StrandPalette.effortColor) {
                     VStack(alignment: .leading, spacing: 0) {
                         WorkoutRouteMap(points: route)
@@ -295,9 +311,11 @@ struct WorkoutDetailView: View {
                                                         style: .continuous))
                             .accessibilityLabel(routeAccessibilityLabel)
                         HStack(spacing: 0) {
-                            routeStat(String(localized: "Distance"), distanceLabel(row.distanceM),
-                                      tint: StrandPalette.metricCyan)
-                            routeStat(String(localized: "Avg pace"), paceLabel, tint: StrandPalette.effortBright)
+                            if !PhoneComputeRuntime.isFinalHosted {
+                                routeStat(String(localized: "Distance"), distanceLabel(row.distanceM),
+                                          tint: StrandPalette.metricCyan)
+                                routeStat(String(localized: "Avg pace"), paceLabel, tint: StrandPalette.effortBright)
+                            }
                             routeStat(String(localized: "Points"), "\(route.count)", tint: StrandPalette.textSecondary)
                         }
                         .padding(NoopMetrics.cardPadding)
@@ -337,7 +355,11 @@ struct WorkoutDetailView: View {
         // Name the file by the workout's start (not export time) so it's stable + matches the Android twin.
         let name = "noop-route-\(row.startTs).\(format.ext)"
         let startTs = row.startTs, endTs = row.endTs, sport = row.sport
-        let distanceM = row.distanceM, energyKcal = row.energyKcal, avgHr = row.avgHr, maxHr = row.maxHr
+        // Route-only export retains acquisition coordinates; it cannot re-export historical local
+        // physiology as if it belonged to the canonical revision shown in the detail.
+        let final = PhoneComputeRuntime.isFinalHosted
+        let distanceM = final ? nil : row.distanceM, energyKcal = final ? nil : row.energyKcal
+        let avgHr = final ? nil : row.avgHr, maxHr = final ? nil : row.maxHr
         Task.detached(priority: .userInitiated) {
             let data = RouteExporter.render(
                 format, route: points, startTs: startTs, endTs: endTs, sport: sport,
@@ -370,6 +392,7 @@ struct WorkoutDetailView: View {
     }
 
     private var routeAccessibilityLabel: String {
+        if PhoneComputeRuntime.isFinalHosted { return "Map of recorded session coordinates" }
         let dist = distanceLabel(row.distanceM)
         return String(localized: "Map of your \(WorkoutSource.displaySport(row.sport)) route, \(dist).")
     }

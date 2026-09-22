@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // WatchRecovery.swift — recovery/Charge from Apple Watch DAILY aggregates.
@@ -59,6 +60,7 @@ public enum WatchRecovery {
     ///   `.calibrating` when today's SDNN is missing, the baseline isn't usable, or history is thin.
     public static func compute(todaySDNN: Double?, todayRHR: Int?,
                                sdnnHistory: [Double], rhrHistory: [Double]) -> Result {
+        PhoneComputeRuntime.entered("swift.WatchRecovery.compute")
         // Build both baselines through the production model (Winsorized EWMA + cold-start gating),
         // exactly as the strap path does. SDNN feeds the HRV config; resting HR feeds the RHR config.
         let hrvBase = Baselines.foldHistory(sdnnHistory.map { Optional($0) }, cfg: Baselines.hrvCfg)

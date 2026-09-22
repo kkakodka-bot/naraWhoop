@@ -97,7 +97,10 @@ object HrZones {
     val customBPMRange: IntRange = 30..250
 
     /** Tanaka (2001) age-predicted max HR: 208 − 0.7 × age (gender-independent). */
-    fun tanakaMaxHR(age: Double): Double = 208.0 - 0.7 * age
+    fun tanakaMaxHR(age: Double): Double {
+        PhoneComputeRuntime.inferenceStarted("HrZones.tanakaMaxHR")
+        return 208.0 - 0.7 * age
+    }
 
     /**
      * Build the 5-zone set from age (Tanaka) or a manual [maxHROverride].
@@ -106,6 +109,7 @@ object HrZones {
      * @param maxHROverride explicit HRmax (bpm); when provided, `source == "manual"`.
      */
     fun zones(age: Double, maxHROverride: Double? = null, customLowerBounds: List<Double>? = null): HrZoneSet {
+        PhoneComputeRuntime.inferenceStarted("HrZones.zones.age")
         val maxHR: Double
         val source: String
         if (maxHROverride != null) {
@@ -124,6 +128,7 @@ object HrZones {
      * falls back to the conventional model, so malformed restored preferences can never create gaps.
      */
     fun zones(maxHR: Double, source: String = "manual", customLowerBounds: List<Double>? = null): HrZoneSet {
+        PhoneComputeRuntime.inferenceStarted("HrZones.zones.maxHR")
         val custom = customLowerBounds?.let(::validCustomLowerBounds)
         val built = ArrayList<HrZone>(5)
         for (i in 0 until 5) {
@@ -148,7 +153,10 @@ object HrZones {
      * The conventional five inclusive lower bounds, rounded up to whole BPM for an editor. Rounding
      * up preserves the existing integer-sample classification (e.g. a 93.5 edge starts at 94 bpm).
      */
-    fun defaultLowerBounds(maxHR: Double): List<Int> = zoneEdges.take(5).map { kotlin.math.ceil(it * maxHR).toInt() }
+    fun defaultLowerBounds(maxHR: Double): List<Int> {
+        PhoneComputeRuntime.inferenceStarted("HrZones.defaultLowerBounds")
+        return zoneEdges.take(5).map { kotlin.math.ceil(it * maxHR).toInt() }
+    }
 
     /**
      * Return a valid five-boundary custom model, or null unless values are positive, finite, and

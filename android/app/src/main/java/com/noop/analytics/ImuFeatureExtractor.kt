@@ -44,6 +44,7 @@ object ImuFeatureExtractor {
 
     /** Extract features from [samples] (from one or more [Whoop5ImuFrame]s, in order) at [sampleRateHz]. */
     fun extract(samples: List<RawImuSample>, sampleRateHz: Int): ImuActivityFeatures {
+        PhoneComputeRuntime.inferenceStarted("ImuFeatureExtractor.extract")
         val n = samples.size
         if (n < 8 || sampleRateHz <= 0) {
             return ImuActivityFeatures(0.0, 0.0, 0.0, null, 0.0, n)
@@ -91,6 +92,7 @@ object ImuFeatureExtractor {
 
     /** Convenience: extract over the concatenated samples of decoded IMU frames. */
     fun extract(frames: List<Whoop5ImuFrame>): ImuActivityFeatures {
+        PhoneComputeRuntime.inferenceStarted("ImuFeatureExtractor.extract")
         val rate = frames.firstOrNull()?.sampleRateHz ?: 100
         return extract(frames.flatMap { it.samples }, rate)
     }

@@ -58,7 +58,7 @@ object LiftingImporter {
     data class Session(
         val startTs: Long,        // unix seconds, UTC
         val endTs: Long,          // unix seconds, UTC (== startTs when no end)
-        val volumeLoadKg: Double, // Σ(weight_kg × reps) over counted sets
+        val volumeLoadKg: Double?, // Server-owned in final hosted mode.
         val setCount: Int,
         val exerciseCount: Int,
         val totalReps: Int,
@@ -75,7 +75,7 @@ object LiftingImporter {
          */
         fun volumeLoadNote(): String {
             val parts = ArrayList<String>(3)
-            if (volumeLoadKg > 0) parts.add("volume load ${groupedKg(volumeLoadKg)} kg")
+            if (volumeLoadKg != null && volumeLoadKg > 0) parts.add("volume load ${groupedKg(volumeLoadKg)} kg")
             parts.add("$setCount set${if (setCount == 1) "" else "s"}")
             if (exerciseCount > 0) parts.add("$exerciseCount exercise${if (exerciseCount == 1) "" else "s"}")
             val body = "Strength · " + parts.joinToString(" · ")
@@ -138,7 +138,7 @@ object LiftingImporter {
         repo.upsertDevice(deviceId, name = "Lifting log")
         repo.upsertWorkouts(rows)
 
-        val totalVolume = result.sessions.sumOf { it.volumeLoadKg }
+        val totalVolume = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else result.sessions.mapNotNull { it.volumeLoadKg }.sum()
         return ImportSummary(
             source = SOURCE_LABEL,
             counts = linkedMapOf("workouts" to rows.size),
@@ -147,7 +147,7 @@ object LiftingImporter {
             message = buildString {
                 append("Imported ${rows.size} workout")
                 if (rows.size != 1) append("s")
-                if (totalVolume > 0) append(" (${groupedKg(totalVolume)} kg total volume)")
+                if (totalVolume != null && totalVolume > 0) append(" (${groupedKg(totalVolume)} kg total volume)")
                 if (result.firstDay != null && result.lastDay != null && result.firstDay != result.lastDay) {
                     append(" from ${result.firstDay} to ${result.lastDay}")
                 }
@@ -253,7 +253,10 @@ object LiftingImporter {
             if (reps != null && reps > 0) this.reps += reps
             if (weightKg != null && weightKg > 0) {
                 top = maxOf(top ?: 0.0, weightKg)
-                if (reps != null && reps > 0) volume += weightKg * reps
+                if (com.noop.analytics.PhoneComputeRuntime.allowsLocal("import_training_volume") && reps != null && reps > 0) {
+                    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("import_training_volume")
+                    volume += weightKg * reps
+                }
             }
         }
 
@@ -263,7 +266,7 @@ object LiftingImporter {
             return Session(
                 startTs = start,
                 endTs = if (end >= start) end else start,
-                volumeLoadKg = volume,
+                volumeLoadKg = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else volume,
                 setCount = sets,
                 exerciseCount = exercises.size,
                 totalReps = reps,
@@ -326,7 +329,10 @@ object LiftingImporter {
                 val w = liftosaurWeightKg(set, entryUnit)
                 if (w != null && w > 0) {
                     top = maxOf(top ?: 0.0, w)
-                    volume += w * r
+                    if (com.noop.analytics.PhoneComputeRuntime.allowsLocal("import_training_volume")) {
+                        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("import_training_volume")
+                        volume += w * r
+                    }
                 }
             }
         }
@@ -335,7 +341,7 @@ object LiftingImporter {
         return Session(
             startTs = start,
             endTs = if (end >= start) end else start,
-            volumeLoadKg = volume,
+            volumeLoadKg = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else volume,
             setCount = sets,
             exerciseCount = exercises,
             totalReps = reps,
@@ -449,4 +455,3 @@ object LiftingImporter {
 }
 
 // MARK: - Stream helper (file-private; the twin in NutritionCsvImporter.kt is not visible here)
-

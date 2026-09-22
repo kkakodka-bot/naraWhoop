@@ -36,12 +36,16 @@ public enum CurrentHRV {
     /// this row shape. Retains null until ingestion supplies proven observations.
     public static func derive(rows: [RRInterval], nowUnix: Int,
                               windowSeconds: Int = CurrentHRV.windowSeconds) -> Snapshot? {
+        guard PhoneComputeRuntime.permitsLocal("swift.CurrentHRV.derive") else { return nil }
+        PhoneComputeRuntime.entered("swift.CurrentHRV.derive")
         guard windowSeconds == HrvWindow.seconds else { return nil }
         return derive(observations: PhysiologyQuality.legacy(rows, deviceId: "legacy-unscoped"), nowUnix: nowUnix)
     }
 
     public static func derive(observations: [PhysiologyQuality.IntervalObservation], nowUnix: Int,
                               policy: HrvWindow.Policy = .init(), inputRevision: String = "unversioned") -> Snapshot? {
+        guard PhoneComputeRuntime.permitsLocal("swift.CurrentHRV.derive") else { return nil }
+        PhoneComputeRuntime.entered("swift.CurrentHRV.derive")
         let result = HrvSeries.selectedWindow(start: completedWindow(nowUnix: nowUnix).lowerBound,
             observations: observations, policy: policy, inputRevision: inputRevision, computationMode: "causal")
         guard result.measurementValid, let rmssd = result.observedRMSSD else { return nil }

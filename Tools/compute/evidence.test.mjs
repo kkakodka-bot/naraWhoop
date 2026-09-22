@@ -1,0 +1,93 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { requiredGates, validateCommand, validateOutput, validateReceipts, sourceSnapshot, sourceContentHash, isSourceEvidencePath, hash } from './evidence.mjs';
+import { validateSwiftProducerGuards } from './final-contract.mjs';
+
+test('shared producer inventory names real first-instruction guards', () => {
+  assert(validateSwiftProducerGuards() >= 395);
+});
+test('native sources, baseline builders and build identities invalidate source-bound receipts', () => {
+  const files = ['scoring-service/legacy-baseline/build.py', 'scoring-service/legacy-baseline/transport.patch',
+    'Sources/input.c', 'Sources/input.h', 'Sources/input.cpp', 'Sources/input.hpp', 'Sources/input.m',
+    'Sources/input.mm', 'api/input.proto', 'CMakeLists.txt', 'Makefile', 'service/Dockerfile',
+    'service/Dockerfile.baseline', 'scoring-service/gradlew', 'android/gradlew.bat',
+    'Packages/WhoopStore/Package.resolved', 'gradle.lockfile', 'Tools/check.zsh', 'Tools/check.bash'];
+  const data = new Map(files.map((file) => [file, 'original bytes']));
+  const before = sourceContentHash(files, (file) => data.get(file));
+  for (const file of files) {
+    assert(isSourceEvidencePath(file), `${file} must bind verification evidence`);
+    data.set(file, 'mutated bytes');
+    assert.notEqual(sourceContentHash(files, (name) => data.get(name)), before, `${file}: mutation escaped evidence identity`);
+    data.set(file, 'original bytes');
+  }
+  assert.equal(sourceContentHash([...files].reverse(), (file) => data.get(file)), before);
+  assert.notEqual(sourceContentHash(files.slice(1), (file) => data.get(file)), before, 'Deleting build input must invalidate evidence');
+  for (const file of ['HANDOFF_compute.md', 'docs/compute/evidence/server-jvm.json', 'docs/compute/evidence/server-jvm.log']) {
+    assert(!isSourceEvidencePath(file), `${file}: evidence cannot hash itself`);
+  }
+});
+test('commands cannot replace executed gates with echoed success or filtered full suites', () => {
+  assert.throws(() => validateCommand('swift-store', ['echo', 'swift', 'test', '--package-path', 'Packages/WhoopStore']));
+  assert.throws(() => validateCommand('swift-store', ['swift', 'test', '--package-path', 'Packages/WhoopStore', '--filter', 'OneTest']));
+  for (const filter of ['--filter=OneTest', '--skip=SlowTest', '--skip']) {
+    assert.throws(() => validateCommand('swift-store', ['swift', 'test', '--package-path', 'Packages/WhoopStore', filter]));
+  }
+  assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:compileDebugKotlin']));
+  assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-only-testing:A/B']));
+  assert.throws(() => validateCommand('ios-final-runtime', ['bash', '-c', 'echo passed']));
+  assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testFullDebugUnitTest']), /--rerun-tasks|execute the unit suite/);
+  validateCommand('android-app', ['./gradlew', ':app:assembleDebug', ':app:testDebugUnitTest', '--rerun-tasks']);
+  validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testFullDebugUnitTest', '--rerun-tasks']);
+  for (const filter of ['--tests', '--tests=OneTest', '-x', '--exclude-task=test', '--dry-run', '-m', '-Dtest.single=One']) {
+    assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testFullDebugUnitTest', '--rerun-tasks', filter]), /without test filters/);
+  }
+  assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testSlimDebugUnitTest']));
+  assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-scheme', 'ComputeChecks', '-destination', 'platform=macOS']));
+  assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-scheme', 'Strand', '-destination', 'platform=iOS Simulator']));
+  assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-scheme', 'Strand']));
+  validateCommand('macos-tests', ['xcodebuild', 'test', '-scheme', 'Strand', '-destination', 'platform=macOS']);
+});
+test('zero-test runs and route-only tests cannot satisfy executed proof', () => {
+  assert.throws(() => validateOutput('swift-analytics', 'Executed 0 tests, with 0 failures'));
+  assert.throws(() => validateOutput('server-pipeline', 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed'));
+  const legacyOnly = 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed\nCanonical runner mutation checks passed: 8 rejections\n' + ['swift', 'kotlin'].map((platform) =>
+    `${platform}: 22 real Edge envelopes passed\n${platform} worker-0.json: decoded and display selection verified\n` +
+    `${platform} account-sleep-only.json: decoded and display selection verified`).join('\n');
+  assert.throws(() => validateOutput('server-pipeline', legacyOnly), /canonical family selection/);
+  validateOutput('server-pipeline', legacyOnly + '\nswift: 22 canonical persisted selections passed\nkotlin: 22 canonical persisted selections passed');
+  assert.throws(() => validateOutput('ios-final-runtime', 'FinalHostedRuntimeTests ** TEST SUCCEEDED **'));
+  validateOutput('ios-final-runtime', 'FinalHostedRuntimeTests FINAL_HOSTED_ZERO path=cold_launch executions=0 ** TEST SUCCEEDED **');
+  for (const suffix of ['UP-TO-DATE', 'FROM-CACHE', 'SKIPPED', 'NO-SOURCE']) {
+    assert.throws(() => validateOutput('android-app', `> Task :app:testFullDebugUnitTest ${suffix}\nBUILD SUCCESSFUL`));
+  }
+  assert.throws(() => validateOutput('android-app', 'BUILD SUCCESSFUL'));
+  validateOutput('android-app', '> Task :app:testFullDebugUnitTest\nBUILD SUCCESSFUL');
+});
+test('receipt validation rejects stale revision content, changed logs, failures and missing gates', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'compute-receipt-tests-'));
+  const actual = sourceSnapshot();
+  // Synthetic unit fixture: never emitted by the production recorder and never used as a gate receipt.
+  const snapshot = { ...actual, source_clean: true, dirty_source_paths: [] };
+  try {
+    const command = ['swift', 'test', '--package-path', 'Packages/StrandAnalytics', '--filter', 'PhoneInferenceRetirementTests'];
+    const output = 'PhoneInferenceRetirementTests testNonoptionalEntrypointsFailLoudlyInFinalHostedMode Executed 5 tests, with 0 failures';
+    fs.writeFileSync(path.join(directory, 'swift-zero-inference.log'), output);
+    const receipt = { schema_version: 1, gate: 'swift-zero-inference', status: 'PASS', command,
+      source_before: snapshot, source_after: snapshot, exit_code: 0,
+      log_path: 'swift-zero-inference.log', log_sha256: hash(output) };
+    const target = path.join(directory, 'swift-zero-inference.json');
+    const write = (value) => fs.writeFileSync(target, JSON.stringify(value));
+    write({ ...receipt, source_before: { ...snapshot, source_content_sha256: 'different' } });
+    assert.throws(() => validateReceipts(directory, snapshot), /stale source evidence/);
+    write({ ...receipt, log_sha256: 'wrong' });
+    assert.throws(() => validateReceipts(directory, snapshot), /evidence log changed/);
+    write({ ...receipt, status: 'FAIL' });
+    assert.throws(() => validateReceipts(directory, snapshot));
+    write(receipt);
+    assert.throws(() => validateReceipts(directory, snapshot), /swift-protocol\.json/);
+    assert(requiredGates.includes('server-pipeline') && requiredGates.includes('android-app'));
+  } finally { fs.rmSync(directory, { recursive: true }); }
+});

@@ -1,4 +1,4 @@
-import { IdentityError, resolveUploadIdentity } from './tokens.ts';
+import { IdentityError, resolveUploadIdentity, resolveJwtUser, bearerToken, looksLikeJwt } from './tokens.ts';
 import { createNoopDeviceResolver, findNoopDevice } from './devices.ts';
 import { isSafeExternalDeviceId, isUuid } from './keys.ts';
 import type { PushFunctionConfig } from './config.ts';
@@ -22,12 +22,7 @@ export async function readOwnerDayScores({ rest, userId, day, deviceId }: {
     throw fail('invalid_day', 400);
   }
   if (!deviceId) {
-    return { server_scoring: {
-      schema_version: 2, user_id: userId, day, algorithm_version: 'frwhoop-physiology-2',
-      daily: null, nights: [], measurements: [], sleep_overrides: [], computed_at: null, stale: true,
-      features: Object.fromEntries(['sleep', 'hrv', 'respiration'].map((feature) => [feature,
-        { status: 'unavailable', reason: 'device_registration_pending' }])),
-    } };
+    return { server_scoring: await rest.rpc('server_scoring_pending_contract',{p_user:userId,p_day:day}) };
   }
   const overlay = await rest.rpc('server_scoring_for_device_day', {
     p_user: userId, p_day: day, p_device: deviceId,
@@ -73,22 +68,72 @@ export async function handleScoresRequest(req: Request, { rest, cfg: _cfg, fetch
   const isDiagnostics = req.method === 'GET' && route === '/diagnostics';
   const isRegister = req.method === 'POST' && route === '/devices';
   const isOverride = req.method === 'POST' && route === '/sleep-overrides';
-  if (!isRead && !isDiagnostics && !isRegister && !isOverride) {
+  const isComputeSubmit = req.method === 'POST' && route === '/compute-requests';
+  const isComputeRead = req.method === 'GET' && route === '/compute-requests';
+  if (!isRead && !isDiagnostics && !isRegister && !isOverride && !isComputeSubmit && !isComputeRead) {
     return Response.json({ error: 'method_not_allowed' }, { status: 405 });
   }
   if (!rest.configured) return Response.json({ error: 'service_role_unconfigured' }, { status: 503 });
   try {
-    const user = await resolveUploadIdentity({ headers: req.headers, rest, allowLegacyFleetUploads: false });
-    if (user.authMode !== 'installation' || !user.sourceId) throw new IdentityError('installation required');
-    const requestBody = isRead || isDiagnostics ? null : await boundedBody(req);
-    const externalDeviceId = isRead || isDiagnostics ? url.searchParams.get('deviceId') : requestBody?.deviceId;
+    const jwt = looksLikeJwt(bearerToken(req.headers));
+    let user: {id: string; sourceId: string};
+    if (jwt) {
+      const account = await resolveJwtUser({headers:req.headers,supabaseUrl:_cfg.supabaseUrl,
+        anonKey:_cfg.supabaseAnonKey,fetchImpl:_fetchImpl});
+      const sourceId = req.headers.get('x-noop-source-id');
+      if (!isUuid(sourceId)) throw new IdentityError('registered source required');
+      if (isRegister) {
+        await rest.rpc('register_account_compute_source',{p_user:account.id,p_source:sourceId});
+      } else {
+        const registered = await rest.select('compute_account_sources',
+          `source_id=eq.${sourceId}&select=user_id,source_id,revoked_at`);
+        const installation = await rest.select('noop_app_installations',
+          `source_id=eq.${sourceId}&select=user_id,revoked_at`);
+        if ((registered?.[0] && (registered[0].user_id!==account.id || registered[0].revoked_at!=null)) ||
+          (installation?.[0] && (installation[0].user_id!==account.id || installation[0].revoked_at!=null))) {
+          throw new IdentityError('source revoked');
+        }
+        if (!registered?.[0] && !installation?.[0]) throw new IdentityError('registered source required');
+      }
+      user={id:account.id,sourceId:sourceId!};
+    } else {
+      const installation=await resolveUploadIdentity({headers:req.headers,rest,allowLegacyFleetUploads:false});
+      if (installation.authMode!=='installation' || !installation.sourceId) throw new IdentityError('installation required');
+      user={id:installation.id,sourceId:installation.sourceId};
+    }
+    const requestBody = isRead || isDiagnostics || isComputeRead ? null : await boundedBody(req);
+    const externalDeviceId = isRead || isDiagnostics || isComputeRead ? url.searchParams.get('deviceId') : requestBody?.deviceId;
     if (!isSafeExternalDeviceId(externalDeviceId)) throw fail('invalid_device_id', 400);
     const lookup = { userId: user.id, sourceId: user.sourceId, externalDeviceId };
     const deviceId = isRegister
       ? await createNoopDeviceResolver({ rest })(lookup)
       : await findNoopDevice({ rest, ...lookup });
-    const identity = { userId: user.id, sourceId: user.sourceId, deviceId, externalDeviceId };
+    const project = _cfg.supabaseUrl.replace(/\/+$/,'');
+    const identity = { userId: user.id, sourceId: user.sourceId, deviceId, externalDeviceId, project };
     if (isRegister) return Response.json({ identity });
+    if (isComputeSubmit || isComputeRead) {
+      if (!deviceId) throw fail('device_registration_pending',409);
+      let result: any;
+      if (isComputeSubmit) {
+        const request=requestBody?.request;
+        const keys=['id','family','session_id','event_start','event_end','timezone_id','input_revision',
+          'algorithm_version','configuration_version','consent','expires_at'];
+        if (!request || Object.keys(request).some(k=>!keys.includes(k)) || keys.some(k=>!(k in request)) ||
+          !isUuid(request.id) || !isUuid(request.session_id) || typeof request.family!=='string' ||
+          typeof request.timezone_id!=='string' || !Number.isSafeInteger(request.input_revision) || request.input_revision<0 ||
+          request.algorithm_version!=='vps-only-1' || request.configuration_version!=='vps-only-1' ||
+          typeof request.consent!=='boolean' || !Number.isFinite(Date.parse(request.event_start)) ||
+          (request.event_end!==null && !Number.isFinite(Date.parse(request.event_end))) ||
+          (request.expires_at!==null && !Number.isFinite(Date.parse(request.expires_at)))) throw fail('invalid_compute_request',400);
+        result=await rest.rpc('submit_compute_session_request',{p_user:user.id,p_device:deviceId,p_source:user.sourceId,p_request:request});
+      } else {
+        const requestId=url.searchParams.get('requestId');
+        if (!isUuid(requestId)) throw fail('invalid_request_id',400);
+        result=await rest.rpc('read_compute_session_result',{p_user:user.id,p_device:deviceId,p_source:user.sourceId,p_request:requestId});
+      }
+      if (result?.result) result.result={...result.result,project};
+      return Response.json({...result,identity},{headers:{'cache-control':'no-store'}});
+    }
     if (isOverride) {
       if (!deviceId) throw fail('device_registration_pending', 409);
       const args = sleepArguments(requestBody?.arguments, deviceId);
@@ -107,10 +152,17 @@ export async function handleScoresRequest(req: Request, { rest, cfg: _cfg, fetch
     }
     const body = await readOwnerDayScores({ rest, userId: user.id,
       day: url.searchParams.get('day') || utcDay(), deviceId });
+    const overlay = body.server_scoring as any;
+    if (overlay?.compute) {
+      overlay.compute={...overlay.compute,project,source_id:user.sourceId};
+      for (const result of Object.values(overlay.compute.families ?? {}) as any[]) {
+        result.project=project; result.source_id=user.sourceId;
+      }
+    }
     return Response.json({ ...body, identity }, { headers: { 'cache-control': 'no-store' } });
   } catch (err: any) {
     if (err instanceof IdentityError) return Response.json({ error: 'unauthorized' }, { status: err.status || 401 });
-    if ([400, 403, 409, 413].includes(err?.status)) {
+    if ([400, 403, 404, 409, 413].includes(err?.status)) {
       return Response.json({ error: err.code || 'request_rejected' }, { status: err.status });
     }
     console.error('[scores] request failed');

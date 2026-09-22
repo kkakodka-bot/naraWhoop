@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerOffWristTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.031">
+  <properties/>
+  <testcase name="wornNightWithDenseHRStillRegisters" classname="com.noop.analytics.SleepStagerOffWristTest" time="0.003"/>
+  <testcase name="offWristFractionAndGapSpans" classname="com.noop.analytics.SleepStagerOffWristTest" time="0.002"/>
+  <testcase name="realNightWithShortOffWristTailIsKept_intervalPath" classname="com.noop.analytics.SleepStagerOffWristTest" time="0.007"/>
+  <testcase name="sparseHRNightDisablesOffWristProxy507" classname="com.noop.analytics.SleepStagerOffWristTest" time="0.0"/>
+  <testcase name="briefWristOffBlipKeepsWornNight" classname="com.noop.analytics.SleepStagerOffWristTest" time="0.002"/>
+  <testcase name="offWristDaytimeGapNotSleep" classname="com.noop.analytics.SleepStagerOffWristTest" time="0.004"/>
+  <testcase name="wristOffIntervalCoveringMostOfRunDropsIt" classname="com.noop.analytics.SleepStagerOffWristTest" time="0.003"/>
+  <testcase name="realNightWithShortOffWristTailIsKept_hrGapPath" classname="com.noop.analytics.SleepStagerOffWristTest" time="0.01"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

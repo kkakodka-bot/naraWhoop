@@ -143,6 +143,7 @@ final class AppModel: ObservableObject {
     /// is recomputed as the window grows so the active card can show strain building in real time.
     struct ActiveWorkout: Equatable {
         let start: Date
+        var sessionID = UUID()
         /// The named sport chosen at start (e.g. "Tennis", "Padel") , persisted as the saved row's
         /// `sport` so a live-tracked session keeps its label instead of the old generic "Workout".
         /// Defaults to the catalogue default ("Other") when started without a pick. (#519)
@@ -153,6 +154,7 @@ final class AppModel: ObservableObject {
         var peakHr: Int = 0
         var pausedAt: Date?
         var pausedDuration: TimeInterval = 0
+        var lastServerRequestTs = 0
 
         var isPaused: Bool { pausedAt != nil }
 
@@ -172,6 +174,24 @@ final class AppModel: ObservableObject {
     /// Trailing-window RMSSD from the last successful strap sync (~30 min of R-R rows). Separate from
     /// nightly `avgHrv` (recovery input); nil when the window is stale, sparse, or fails coverage gates.
     @Published var currentHrv: CurrentHRV.Snapshot?
+    let computeSessions = ServerComputeSessionCoordinator()
+    @Published private(set) var currentServerHrv: ServerCanonicalFamilyResult?
+    @Published private(set) var currentWorkoutRequestID: String?
+
+    @discardableResult
+    func requestServerCompute(family: String, sessionID: UUID, start: Date, end: Date?, consent: Bool = true) -> String {
+        let day = serverScores.currentDay
+        let revision = serverScores.state.canonicalDays[day]?.families.values.compactMap(\.inputRevision).max() ?? 0
+        let needsExpiry = ["live_coaching", "stress_events", "live_workout"].contains(family)
+        let request = ServerComputeRequest(family: family, sessionID: sessionID, start: start, end: end,
+            timezone: .current, inputRevision: revision, consent: consent,
+            expiresAt: needsExpiry ? Date().addingTimeInterval(300) : nil)
+        Task { [weak self] in
+            guard let self else { return }
+            await self.computeSessions.enqueue(request: request, model: self)
+        }
+        return request.id
+    }
 
     // MARK: - v5 pillar snapshot (engines run in the analytics pass; the views read these)
     //
@@ -396,7 +416,7 @@ final class AppModel: ObservableObject {
         _ = CloudCaptureScope.processOwnerId
         self.accountContext = context
         self.enrollmentScope = enrollmentScope
-        self.serverScores = enrollmentScope == nil ? ServerScoreRepository() : ServerScoreRepository(dependencies: .live)
+        self.serverScores = ServerScoreRepository(dependencies: .live)
         self.resourceBudget = resourceBudget
         self.capturePreparationHooks = capturePreparationHooks
         self.currentAccountCheck = isCurrent
@@ -565,12 +585,12 @@ final class AppModel: ObservableObject {
         // Seed it now and keep it in step with any profile edit (objectWillChange fires just before a
         // @Published setter lands, so read the CURRENT values , they're already committed by the time the
         // next reconcile reads `strainProfile`). Display-only; the score itself is unchanged.
-        self.repo.strainProfile = Repository.StrainProfile(hrMax: Double(profile.hrMax), sex: profile.sex)
+        self.repo.strainProfile = PhoneComputeRuntime.isFinalHosted ? nil : Repository.StrainProfile(hrMax: Double(profile.hrMax), sex: profile.sex)
         profile.objectWillChange.sink { [weak self] in
             guard let self, self.isAccountRuntimeActive else { return }
             DispatchQueue.main.async {
                 guard self.isAccountRuntimeActive else { return }
-                self.repo.strainProfile = Repository.StrainProfile(
+                self.repo.strainProfile = PhoneComputeRuntime.isFinalHosted ? nil : Repository.StrainProfile(
                     hrMax: Double(self.profile.hrMax), sex: self.profile.sex)
             }
         }.store(in: &hrCancellables)
@@ -622,7 +642,7 @@ final class AppModel: ObservableObject {
             BatteryNotifier.onBedtimeRunway(
                 nowSecOfDay: Self.localSecOfDayNow(),
                 habitualMidsleepSec: self.habitualMidsleepCache,
-                typicalSleepHours: BatteryEstimator.typicalSleepHours(
+                typicalSleepHours: PhoneComputeRuntime.isFinalHosted ? nil : BatteryEstimator.typicalSleepHours(
                     nightlyHours: self.repo.days.compactMap { $0.totalSleepMin.map { $0 / 60.0 } }),
                 usableRemainingHours: self.live.batteryEstimate.map(BatteryEstimator.usableRemainingHours),
                 charging: self.live.charging,
@@ -908,6 +928,9 @@ final class AppModel: ObservableObject {
         let capturedGeneric = genericCapturePreparation ?? capturedJournal.map { GenericCaptureOwnership(journal: $0) }
         capturedGeneric?.retire()
         runtimeActive = false
+        computeSessions.retire()
+        currentServerHrv = nil
+        currentHrv = nil
         scoringPreferences?.retire()
         accountPreferences.retire()
         healthAlert = nil; illnessSignal = nil; illnessDistance = nil
@@ -1047,7 +1070,7 @@ final class AppModel: ObservableObject {
                                              publication: ScoringPreferenceRuntime.Publication) {
         guard isAccountRuntimeActive, snapshot.context == accountContext else { return }
         preferenceActionError = nil
-        repo.strainProfile = Repository.StrainProfile(hrMax: Double(profile.hrMax), sex: profile.sex)
+        repo.strainProfile = PhoneComputeRuntime.isFinalHosted ? nil : Repository.StrainProfile(hrMax: Double(profile.hrMax), sex: profile.sex)
         repo.noteScoringPreferencesChanged()
         // Hydration is also a retry trigger: a crash may have followed the durable acceptance but
         // preceded this callback. The accepted projection, not a second "owed" write, is the debt.
@@ -1367,6 +1390,7 @@ final class AppModel: ObservableObject {
         serverScores.selectDevice(localDeviceId: repo.deviceId)
         serverScores.startPolling(todayKey: Repository.dayString(Date()))
         serverScores.setForeground(isForeground)
+        computeSessions.resume(model: self)
         await repo.refresh()
         ble.connectFromSystem()
     }
@@ -1493,6 +1517,14 @@ final class AppModel: ObservableObject {
     /// the main actor; publishes on success only. No-ops when the newest R-R row is older than the
     /// backfill interval (stale strap / app was asleep).
     private func deriveCurrentHRV() async {
+        guard PhoneComputeRuntime.permitsLocal("current_hrv") else {
+            currentHrv = nil
+            await serverScores.refreshVisibleDays(todayKey: Repository.dayString(Date()))
+            currentServerHrv = serverScores.state.canonicalResult("current_hrv", day: serverScores.currentDay)
+            await computeSessions.drain(model: self)
+            return
+        }
+        PhoneComputeRuntime.entered("current_hrv")
         guard isAccountRuntimeActive, !Task.isCancelled,
               let store = await repo.storeHandle(), isAccountRuntimeActive else { return }
         let now = Int(Date().timeIntervalSince1970)
@@ -1519,6 +1551,13 @@ final class AppModel: ObservableObject {
     /// Prefers the strap's reported HR; falls back to 60000/R-R. Clamps to a plausible
     /// 30–220 range (rejects 0 / garbage spikes) and publishes the window MEDIAN.
     private func ingestHR() {
+        if PhoneComputeRuntime.isFinalHosted {
+            // Direct wearable observations retain their value; absent HR is not estimated from RR.
+            bpm = live.heartRate
+            captureWorkoutSample()
+            return
+        }
+        PhoneComputeRuntime.entered("rr_hr_fallback_and_smoothing")
         var inst: Double?
         if let hr = live.heartRate, hr >= 30, hr <= 220 {
             inst = Double(hr)
@@ -1630,7 +1669,7 @@ final class AppModel: ObservableObject {
                 peakHr: w.peakHr,
                 liveStrain: w.liveStrain,
                 pausedAtSec: w.pausedAt.map { Int($0.timeIntervalSince1970) },
-                pausedDurationSec: Int(w.pausedDuration)), into: accountDefaults)
+                pausedDurationSec: Int(w.pausedDuration), sessionID: w.sessionID), into: accountDefaults)
     }
 
     /// If a manual workout was in flight when iOS killed the app, rebuild `activeWorkout` from the durable
@@ -1642,6 +1681,7 @@ final class AppModel: ObservableObject {
         var w = ActiveWorkout(start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
                               sport: snap.sport)
         w.samples = snap.samples
+        w.sessionID = snap.sessionID ?? UUID()
         w.avgHr = snap.avgHr
         w.peakHr = snap.peakHr
         w.liveStrain = snap.liveStrain
@@ -1711,7 +1751,7 @@ final class AppModel: ObservableObject {
         let samples = w.samples
         // Save when there's an HR window OR a real GPS route , a GPS-only walk (HR not streaming) is
         // still a workout (parity with Android's `samples.size < 2 && track.size < 2` discard gate).
-        guard samples.count >= 2 || route != nil else {
+        guard PhoneComputeRuntime.isFinalHosted || samples.count >= 2 || route != nil else {
             // Workouts & GPS test mode: record WHY a session vanished (too short / no route), tagged `.workouts`.
             emitWorkoutsTrace(WorkoutsTrace.sessionLine(
                 event: "discarded", sportKey: WorkoutSource.traceSportKey(w.sport),
@@ -1720,9 +1760,11 @@ final class AppModel: ObservableObject {
             return
         }
         let end = Date()
-        let avg = samples.isEmpty ? nil
+        let localScoring = PhoneComputeRuntime.permitsLocal("completed_workout")
+        if localScoring { PhoneComputeRuntime.entered("completed_workout") }
+        let avg = !localScoring || samples.isEmpty ? nil
             : Int((Double(samples.map(\.bpm).reduce(0, +)) / Double(samples.count)).rounded())
-        let peak = samples.map(\.bpm).max()
+        let peak = localScoring ? samples.map(\.bpm).max() : nil
         // #983: score the SAVED workout with the wearer's measured resting HR, not the hardcoded
         // default of 60. %HRR is (bpm - resting) / (max - resting), so the default moves every zone
         // boundary — at 136 bpm with maxHR 190 it is the difference between zone 1 and zone 2. Today's
@@ -1730,7 +1772,7 @@ final class AppModel: ObservableObject {
         // disagree with its own re-score. Read once here, at save time; the live readout during the
         // session is a transient running estimate and deliberately left alone.
         let restingHR = repo.today?.restingHr.map(Double.init) ?? StrainScorer.defaultRestingHR
-        let strain = samples.count >= 2
+        let strain = localScoring && samples.count >= 2
             ? StrainScorer.strain(samples, maxHR: Double(profile.hrMax),
                                   restingHR: restingHR,
                                   method: scoringEffortMethod, sex: profile.sex) : nil
@@ -1738,7 +1780,7 @@ final class AppModel: ObservableObject {
         // auto-detector uses) so a manual session shows energy too, not just duration/strain. (#117)
         let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
                              age: Double(profile.age), sex: profile.sex)
-        let kcal = samples.count >= 2
+        let kcal = localScoring && samples.count >= 2
             // #983: same measured resting HR as the strain above, not nil. The calories model's
             // active-vs-resting threshold sits at resting + 30% HRR, so the default silently shifts what
             // counts as active — and #972 already threads it in the rescore path, so leaving it nil here
@@ -1759,6 +1801,9 @@ final class AppModel: ObservableObject {
         // device only; mirrors the moments / sleepMarks UserDefaults persistence. (#524)
         if let route { RouteStore.store(route, startTs: startTs, sport: w.sport) }
         lastWorkout = row
+        if PhoneComputeRuntime.isFinalHosted {
+            currentWorkoutRequestID = requestServerCompute(family: "workouts", sessionID: w.sessionID, start: w.start, end: end)
+        }
         // Workouts & GPS test mode: one session-end summary tagged `.workouts` (the lastSessionSummary readout
         // source) carrying the captured HR window size, the duration, and the accepted GPS point count, so the
         // lifecycle of a saved session is visible end to end. `pointCount` is the recorder's accepted-fix tally
@@ -1783,6 +1828,18 @@ final class AppModel: ObservableObject {
     private func captureWorkoutSample() {
         guard var w = activeWorkout, !w.isPaused, let hr = bpm else { return }
         w.samples.append(HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr))
+        guard PhoneComputeRuntime.permitsLocal("incremental_workout") else {
+            let now = Int(Date().timeIntervalSince1970)
+            if now - w.lastServerRequestTs >= 60 {
+                w.lastServerRequestTs = now
+                currentWorkoutRequestID = requestServerCompute(family: "live_workout", sessionID: w.sessionID,
+                    start: Date(timeIntervalSince1970: Double(max(Int(w.start.timeIntervalSince1970), now - 60))), end: Date())
+            }
+            activeWorkout = w
+            persistActiveWorkout()
+            return
+        }
+        PhoneComputeRuntime.entered("incremental_workout")
         w.peakHr = max(w.peakHr, hr)
         w.avgHr = Int((Double(w.samples.map(\.bpm).reduce(0, +)) / Double(w.samples.count)).rounded())
         w.liveStrain = StrainScorer.strain(w.samples, maxHR: Double(profile.hrMax),
@@ -1808,6 +1865,8 @@ final class AppModel: ObservableObject {
     /// baseline + rate limit), persisted via `BiofeedbackPrefs` so a relaunch can't re-fire. Honest /
     /// non-clinical: "stress" is an autonomic proxy vs the user's own baseline, never a diagnosis.
     private func evaluateStress() {
+        guard PhoneComputeRuntime.permitsLocal("passive_stress") else { return }
+        PhoneComputeRuntime.entered("passive_stress")
         let fresh = live.rr.filter { $0 > 300 && $0 < 2000 }   // plausible R-R (30–200 bpm)
         guard !fresh.isEmpty else { return }
         rrBuf.append(contentsOf: fresh)
@@ -2508,6 +2567,8 @@ final class AppModel: ObservableObject {
 
     /// HR-zone haptic coaching: buzz when crossing into the top zone (ease off) or back to recovery.
     private func coachZone(_ hr: Int?) {
+        guard PhoneComputeRuntime.permitsLocal("zone_coaching") else { return }
+        PhoneComputeRuntime.entered("zone_coaching")
         guard behavior.zoneCoaching, live.bonded, live.worn, let hr, hr >= 30 else { return }
         guard profile.hrMax > 0 else { return }
         // #531: route the haptic coach through the profile's effective zone set (personalized when set,
@@ -2539,6 +2600,7 @@ final class AppModel: ObservableObject {
     /// and the value moves on a timescale of WEEKS, so recomputing it on every `repo.$days` republish
     /// (several per rollup) would be pure cost for a number that cannot have changed.
     private func refreshHabitualMidsleep() {
+        guard PhoneComputeRuntime.permitsLocal("habitual_sleep") else { habitualMidsleepCache = nil; return }
         if let at = habitualMidsleepCachedAt, Date().timeIntervalSince(at) < 3600 { return }
         habitualMidsleepCachedAt = Date()
         Task { [weak self] in
@@ -2559,6 +2621,7 @@ final class AppModel: ObservableObject {
     private func evaluateIllness(_ days: [DailyMetric]) -> Task<Void, Never>? {
         guard isAccountRuntimeActive else { return nil }
         refreshServerContextPresentation()
+        guard PhoneComputeRuntime.permitsLocal("illness_context") else { return nil }
         let ownsScore = repo.serverPresentation.owns(.illnessScore)
         let ownsDistance = repo.serverPresentation.owns(.illnessDistance)
         guard !ownsScore || !ownsDistance else { return nil }
@@ -2725,6 +2788,8 @@ final class AppModel: ObservableObject {
     /// day gate makes this safe to fire on every days republish; nil recovery (calibrating) yields a
     /// nil band → no target → no notification. Android twin: AppViewModel's days-collector call.
     func evaluateStrainTarget() {
+        guard PhoneComputeRuntime.permitsLocal("strain_target_coaching") else { return }
+        PhoneComputeRuntime.entered("strain_target_coaching")
         guard let row = repo.today else { return }
         StrainTargetNotifier.onDayUpdate(
             day: row.day,
@@ -2825,6 +2890,7 @@ final class AppModel: ObservableObject {
             entry.snapshot.map { $0.userId == (accountContext?.scope ?? enrollmentScope)?.userID } ?? true
         }) else { return }
         if repo.applyServerScores(state) {
+            currentServerHrv = state.canonicalResult("current_hrv", day: state.currentDay)
             refreshServerContextPresentation()
         }
     }

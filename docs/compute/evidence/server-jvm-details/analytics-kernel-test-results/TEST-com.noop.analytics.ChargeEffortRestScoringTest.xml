@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.ChargeEffortRestScoringTest" tests="35" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.002">
+  <properties/>
+  <testcase name="confidence_restTiers" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="charge_nullSkinTempIsIdenticalToBefore" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_effortTiers" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="charge_skinTempDeviationLowersCharge" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_restH9DoesNotFlagLowEfficiencyNight" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="rest_consistencyTermIncluded" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="effort_edwardsZoneGoldens_onZeroHundredScale" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_restCoverageCatchesTheNightH9AndGravityMiss" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="effort_trimpToStrainMapsOntoZeroHundred" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="effort_nullWhenTooFewSamplesOrInvalidHrr" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.001"/>
+  <testcase name="rest_personalNeedRefinementRaisesDuration" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_restCoverageUnknownDoesNotDowngrade" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_restSparseGravityDowngradesEvenHealthyLookingNight" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_restH9NeverUpgradesNonSolidBase" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="charge_skinTempPenaltyIsSymmetric" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_rawStringsMatchSwift" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_restSparseGravityDefaultsFalseSoDenseNightsUnchanged" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="effort_sparseStreamStillNullUnderSampleFloor" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="rest_oversleepDurationClampsAtHundred" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="charge_coldStartGateUnaffectedBySkinTemp" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="effort_sparseStreamScoresOnceItSpansEnoughTime" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="effort_oldGoldensRescaledByHundredOverTwentyOne" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_restH9KeepsSolidWhenRestorativeHealthy" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="effort_scaleConstantsAreRescaled" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_restH9DowngradesLowRestorativeHighEfficiencyNight" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="rest_weightConstants" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.001"/>
+  <testcase name="confidence_chargeTiers" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="effort_lightDayHonestlyScoresZeroNotFabricated" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="effort_sparseStreamScoresRealWorkout" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="rest_compositeWithoutConsistencyUsesNeutral" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_restCoverageKeepsSolidWhenTimelineCoversItsSpan" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="rest_durationDominatesShortNight" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="rest_nullWhenNoAsleepTime" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="confidence_restCoverageDowngradesHoledHypnogram" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <testcase name="charge_weightConstants" classname="com.noop.analytics.ChargeEffortRestScoringTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

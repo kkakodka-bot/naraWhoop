@@ -90,6 +90,7 @@ import UIKit
 import WhoopStore
 import StrandAnalytics
 import StrandImport
+import WhoopProtocol
 
 /// Two-way Apple Health bridge for the iOS app.
 ///
@@ -913,6 +914,13 @@ final class HealthKitBridge: ObservableObject {
             }
         })
         if boundary.guarded { try await boundary.validate() }
+        if PhoneComputeRuntime.isFinalHosted {
+            let selected = repo.serverPresentation
+            try await writeCanonicalResults(selected, boundary: boundary.requiring {
+                self.repo.serverPresentation == selected && self.accountRuntimeActive
+            })
+            return
+        }
         let now = Date()
         guard let fromDate = Calendar.current.date(byAdding: .day, value: -days, to: now) else { return }
         let fromTs = Int(fromDate.timeIntervalSince1970)
@@ -962,6 +970,74 @@ final class HealthKitBridge: ObservableObject {
         await attempt { try await writeWorkouts(whoopStore: whoopStore, fromTs: fromTs, toTs: nowTs, boundary: boundary) }
         if let firstError { throw firstError }
         if boundary.guarded { try await boundary.validate(); try boundary.check() }
+    }
+
+    /// Canonical replacement path. No raw HR averaging, RR analysis, sleep reconstruction, or
+    /// workout calorie scoring is reachable from this writer in final hosted mode.
+    private func writeCanonicalResults(_ state: ServerScoreViewState,
+                                       boundary: HealthWritebackBoundary) async throws {
+        let types: [String: HKQuantityTypeIdentifier] = [
+            "resting_hr_bpm": .restingHeartRate, "hrv_sdnn_ms": .heartRateVariabilitySDNN,
+            "resp_rate_bpm": .respiratoryRate, "spo2_pct": .oxygenSaturation
+        ]
+        func type(_ target: CanonicalHealthWritebackPlan.Target) -> HKSampleType? {
+            switch target {
+            case .quantity(let metric, _):
+                return types[metric].flatMap { HKQuantityType.quantityType(forIdentifier: $0) }
+            case .sleep: return HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)
+            }
+        }
+        func sample(_ record: CanonicalHealthWritebackPlan.Record) throws -> HKSample {
+            var metadata: [String: Any] = record.metadata
+            metadata[HKMetadataKeyExternalUUID] = record.externalUUID
+            switch record.payload {
+            case .quantity(let metric, let value, let measure):
+                guard let identifier = types[metric], let type = HKQuantityType.quantityType(forIdentifier: identifier) else {
+                    throw ServerScoreDecodeError.invalid
+                }
+                let unit: HKUnit
+                switch measure {
+                case .countPerMinute: unit = .count().unitDivided(by: .minute())
+                case .milliseconds: unit = .secondUnit(with: .milli)
+                case .fraction: unit = .percent()
+                }
+                return HKQuantitySample(type: type, quantity: HKQuantity(unit: unit, doubleValue: value),
+                    start: record.start, end: record.end, metadata: metadata)
+            case .sleep(let stage):
+                guard let type = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else { throw ServerScoreDecodeError.invalid }
+                let value: HKCategoryValueSleepAnalysis
+                switch stage {
+                case .inBed: value = .inBed
+                case .awake: value = .awake
+                case .light: value = .asleepCore
+                case .deep: value = .asleepDeep
+                case .rem: value = .asleepREM
+                }
+                return HKCategorySample(type: type, value: value.rawValue,
+                    start: record.start, end: record.end, metadata: metadata)
+            }
+        }
+        let replacements = try CanonicalHealthWritebackPlan.replacements(state: state, accountNamespace: accountNamespace ?? "")
+        try await CanonicalHealthWritebackPlan.publish(replacements, authorized: { target in
+            type(target).map { self.store.authorizationStatus(for: $0) == .sharingAuthorized } ?? false
+        }, perform: { operation in
+            try await boundary.perform {
+                switch operation {
+                case .save(let records): try await self.store.save(records.map(sample))
+                case .delete(let replacement):
+                    guard let sampleType = type(replacement.target) else { throw ServerScoreDecodeError.invalid }
+                    var predicates = [HKQuery.predicateForObjects(from: HKSource.default())]
+                    switch replacement.target {
+                    case .quantity(_, let key):
+                        predicates.append(HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID, allowedValues: [key]))
+                    case .sleep(let day, let account):
+                        predicates += [HKQuery.predicateForObjects(withMetadataKey: "naraAccountNamespace", allowedValues: [account]),
+                            HKQuery.predicateForObjects(withMetadataKey: "naraScoreDay", allowedValues: [day])]
+                    }
+                    _ = try await self.store.deleteObjects(of: sampleType, predicate: NSCompoundPredicate(andPredicateWithSubpredicates: predicates))
+                }
+            }
+        })
     }
 
     /// UserDefaults key for the #1503 stranded-records sweep completion set. Stores the set of

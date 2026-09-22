@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 // MARK: - Garmin Connect "Export Your Data" (GDPR) wellness parser
 //
@@ -88,7 +89,9 @@ enum GarminExportParser {
         let light = sec("lightSleepSeconds", "LightSleepDurationInSeconds")
         let rem = sec("remSleepSeconds", "RemSleepInSeconds")
         let awake = sec("awakeSleepSeconds", "AwakeDurationInSeconds")
-        let total = [deep, light, rem].compactMap { $0 }.reduce(0, +)
+        let localComposite = PhoneComputeRuntime.permitsLocal("import.garmin_sleep_composite")
+        if localComposite { PhoneComputeRuntime.entered("import.garmin_sleep_composite") }
+        let total = localComposite ? [deep, light, rem].compactMap { $0 }.reduce(0, +) : nil
 
         return WearableSleepSession(
             start: start,
@@ -97,7 +100,7 @@ enum GarminExportParser {
             lightMin: light,
             remMin: rem,
             awakeMin: awake,
-            totalSleepMin: total > 0 ? total : nil,
+            totalSleepMin: total.flatMap { $0 > 0 ? $0 : nil },
             efficiencyPct: nil,
             avgHr: nil,
             lowestHr: WearableJSON.posInt(s, "restingHeartRate"),

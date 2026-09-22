@@ -72,6 +72,7 @@ object SleepStagerV2 {
         start: Long, end: Long, grav: List<GravitySample>,
         hr: List<HrSample>, rr: List<RrInterval>, resp: List<RespSample>,
     ): List<StageSegment> {
+        PhoneComputeRuntime.inferenceStarted("SleepStagerV2.stageSession")
         // PERF CLIP (v7.0.2 / #707): bound the grav/hr/rr streams to the only seconds any Epoch feature can
         // possibly READ before doing ANYTHING else — both the fingerprint and the compute then operate on the
         // clipped window, so neither walks the whole multi-day (~54 h / 200 k-sample) stream. `features()`

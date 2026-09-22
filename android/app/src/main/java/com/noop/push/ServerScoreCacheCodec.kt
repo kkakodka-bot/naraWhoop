@@ -31,7 +31,7 @@ object ServerScoreCacheCodec {
             sleepEfficiency = d.num("sleep_efficiency"), respRateBpm = d.num("resp_rate_bpm"), computedAt = d.str("computed_at"),
             sleepUnstagedMin = d.num("sleep_unstaged_min"), stateUnknownMin = d.num("state_unknown_min"),
             offBodyMin = d.num("off_body_min"), opportunityKind = d.str("opportunity_kind"),
-            recovery = d.num("recovery"), strain = d.num("strain"), spo2Pct = d.num("spo2_pct"),
+            recovery = d.num("recovery"), rest = d.num("rest"), strain = d.num("strain"), spo2Pct = d.num("spo2_pct"),
             skinTempC = d.num("skin_temp_c"), skinTempDevC = d.num("skin_temp_dev_c")) }
         val sleep = features["sleep"]
         val nestedHrv = features["hrv"]?.matchesCanonicalSnapshot(sleep) == true
@@ -72,8 +72,10 @@ object ServerScoreCacheCodec {
                 offBodyMin = n.num("off_body_min"), stateCoverage = n.num("state_coverage"), manualEdit = n.bool("manual_edit"),
                 respRateBpm = n.num("resp_rate_bpm"))
         }
+        val compute = ServerComputeContract.decode(o.optJSONObject("compute") ?: root.optJSONObject("compute"), ownerId, day)
         return ServerScoreDayCache(day, o.getString("algorithm_version"), daily, nights, o.str("computed_at"),
-            o.optBoolean("stale", true), fetchedAtMs, ownerId.lowercase(), 2, features, root.toString())
+            o.optBoolean("stale", true), fetchedAtMs, ownerId.lowercase(), 2, features, root.toString(),
+            ownedMetrics = compute?.ownedMetrics, compute = compute)
     }
 
     private fun JSONObject.str(key: String) = (opt(key) as? String)?.takeIf { it.isNotBlank() }

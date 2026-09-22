@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.PrimarySessionRestingHRTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="sampleMeanIsUnweightedByCadence" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="coverageReportsValidCountAndDurationOfLongestSession" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="equalDurationTieSelectsFirst" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="withCoverageMatchesSeparateCalls" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="constantHRExact" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="primarySessionRestingHRCoverageWindowsToLongest" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="coverageThresholdIsParameterised" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="coverageIsNullInLockstepWithMean" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="primarySessionRestingHRExcludesEndBoundarySample" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="invalidSamplesAreExcluded" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="napDoesNotReplaceTheLongerMainNight" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="noSessionsReturnsNull" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <testcase name="insufficientCoverageReturnsNull" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.001"/>
+  <testcase name="primarySessionRestingHRWindowsAndSelectsLongest" classname="com.noop.analytics.PrimarySessionRestingHRTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

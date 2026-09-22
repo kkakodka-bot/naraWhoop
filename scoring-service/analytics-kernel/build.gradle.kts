@@ -42,6 +42,7 @@ val androidTestResources = rootProject.file("../android/app/src/test/resources")
  *  SpotHrvReading / RrEmissionStats remain excluded live-only helpers; no server publication is
  *  introduced for those display/instrumentation paths. */
 val kernelAnalyticsFiles = listOf(
+    "PhoneComputeRuntime.kt",
     "AnalyticsEngine.kt",
     "AnalyticsModels.kt",
     "Baselines.kt",

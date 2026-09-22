@@ -1,5 +1,6 @@
 import Foundation
 import WhoopStore
+import WhoopProtocol
 
 // MARK: - Imported per-workout HR zones
 //
@@ -29,10 +30,15 @@ enum WorkoutZones {
     struct Summary {
         let minutes: [Double]          // index 0 = Z1 … 4 = Z5
         let sessionsWithZones: Int
-        var totalMinutes: Double { minutes.reduce(0, +) }
+        var totalMinutes: Double {
+            PhoneComputeRuntime.entered("workout.zone_total")
+            return minutes.reduce(0, +)
+        }
     }
 
     static func summary(from rows: [WorkoutRow]) -> Summary? {
+        guard PhoneComputeRuntime.permitsLocal("workout.zone_summary") else { return nil }
+        PhoneComputeRuntime.entered("workout.zone_summary")
         var mins = [Double](repeating: 0, count: 5)
         var n = 0
         for r in rows {

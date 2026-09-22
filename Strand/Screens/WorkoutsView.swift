@@ -4,6 +4,7 @@ import StrandDesign
 import StrandAnalytics
 import WhoopStore
 import Foundation
+import WhoopProtocol
 
 private struct WorkoutRecoveryTrendPoint: Identifiable, Equatable {
     let startTs: Int
@@ -170,7 +171,14 @@ struct WorkoutsView: View {
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends: a fixed,
                        // full-bleed time-of-day sky behind the scroll content (it does not scroll).
                        topBackground: liquidScaffoldSky()) {
-            if allRows.isEmpty {
+            if PhoneComputeRuntime.isFinalHosted {
+                workoutActionRow
+                CanonicalPhysiologySection(families: ["workouts", "live_workout"], history: true)
+                let resolved = effectiveRange
+                let windowRows = sessions(for: resolved)
+                rangeBar(rows: windowRows, effectiveRange: resolved)
+                inputSessionsSection(rows: windowRows)
+            } else if allRows.isEmpty {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ComingSoon(what: loaded
                         ? "No workouts yet. They come from your WHOOP and Apple Health history. Import in Data Sources to bring them in, or add one you tracked elsewhere."
@@ -216,6 +224,7 @@ struct WorkoutsView: View {
                 range = defaultRange(for: r)
                 seededInitialRange = true
             }
+            guard !PhoneComputeRuntime.isFinalHosted else { dailyKcal = [:]; return }
             // 13-week active-calorie heatmap: pull ~100 days of daily metrics and map day → active kcal.
             // Loaded AFTER `loaded`/range are set so the secondary heatmap never delays the list's first
             // paint — the card is hidden until this populates, then appears in place.
@@ -323,6 +332,7 @@ struct WorkoutsView: View {
 
     /// Stable task identity: changing the range/filter/rows or HRmax cancels and rebuilds the trend.
     private var recoveryTrendInputKey: String {
+        guard !PhoneComputeRuntime.isFinalHosted else { return "server-workouts|\(repo.refreshSeq)" }
         let rows = recoveryTrendRows
         return "\(repo.refreshSeq)|\(model.profile.hrMax)|"
             + rows.map { "\($0.startTs):\($0.endTs)" }.joined(separator: ",")
@@ -334,6 +344,8 @@ struct WorkoutsView: View {
     }
 
     private func loadRecoveryTrend() async {
+        guard PhoneComputeRuntime.permitsLocal("workout_recovery_trend") else { recoveryTrend = []; return }
+        PhoneComputeRuntime.entered("workout_recovery_trend")
         guard !usesPreviewRows else { recoveryTrend = []; return }
         var built: [WorkoutRecoveryTrendPoint] = []
         for row in recoveryTrendRows {
@@ -401,6 +413,8 @@ struct WorkoutsView: View {
     /// auto-clears. Copy is "usually"/"personal pattern" framed (the engine's own wording) — never a
     /// law. Computes off the freshly reloaded sessions + the merged daily Charge.
     private func showPostLogNote(forSport sport: String) async {
+        guard PhoneComputeRuntime.permitsLocal("workout_activity_cost_note") else { postLogNote = nil; return }
+        PhoneComputeRuntime.entered("workout_activity_cost_note")
         let costs = InsightsView.computeActivityCosts(workouts: allRows, days: repo.days)
         guard let match = costs.first(where: { $0.sport == sport }) else {
             await MainActor.run { postLogNote = nil }
@@ -1185,6 +1199,50 @@ struct WorkoutsView: View {
                     .padding(.horizontal, 4)
             }
             #endif
+        }
+    }
+
+    /// The local log remains editable input/provenance. Physiological summaries come only from
+    /// the revision-bearing server sections above, never from historical cached WorkoutRow fields.
+    private func inputSessionsSection(rows: [WorkoutRow]) -> some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+            HStack {
+                SectionHeader("All Sessions", overline: "Recorded inputs", trailing: "\(rows.count) total")
+                selectPill(rows: rows)
+            }
+            if selectionMode { selectionToolbar(rows: rows) }
+            if rows.isEmpty {
+                Text(loaded ? "No session inputs in this range." : "Loading your sessions…")
+                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+            }
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                NoopCard {
+                    HStack {
+                        Button {
+                            if selectionMode {
+                                if WorkoutMerge.isMergeable(row) { toggleSelection(row) }
+                            } else { openDetail(row) }
+                        } label: {
+                            HStack {
+                                if selectionMode {
+                                    compactSelectionGlyph(selectable: WorkoutMerge.isMergeable(row),
+                                        isSelected: selected.contains(selectionKey(row)))
+                                }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(WorkoutSource.displaySport(row.sport)).font(StrandFont.headline)
+                                    Text("\(dateLabel(row.startTs)) · \(timeRangeLabel(row.startTs, row.endTs))")
+                                        .font(StrandFont.caption)
+                                    Text("Physiological analysis: server-owned. Open for result state.")
+                                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                                }
+                            }
+                        }.buttonStyle(.plain)
+                        Spacer()
+                        sourceBadge(row.source)
+                        if !selectionMode { rowActionsMenu(row) }
+                    }
+                }
+            }
         }
     }
 

@@ -90,6 +90,7 @@ object HrDownPacer {
      * non-increasing HR trajectory yields non-increasing target tempos, so the cue only ever trails down.
      */
     fun next(currentHR: Double, elapsed: Double, config: Config = Config.DEFAULT): Step {
+        PhoneComputeRuntime.inferenceStarted("HrDownPacer.next")
         // Implausible HR (caller should gate on the resting band; this is the last-ditch guard).
         if (!currentHR.isFinite() || currentHR <= 0.0) {
             return Step(intervalMs = null, stop = true, targetBpm = null, stopReason = StopReason.INVALID_HR)

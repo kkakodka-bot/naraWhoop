@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.DeviceEraEpochTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.003">
+  <properties/>
+  <testcase name="oneWhoopBrandAcrossManyIdsIsZero" classname="com.noop.analytics.DeviceEraEpochTest" time="0.001"/>
+  <testcase name="unsortedInputIsSortedInternally" classname="com.noop.analytics.DeviceEraEpochTest" time="0.0"/>
+  <testcase name="fitbitAndGarminAreDistinctBrands" classname="com.noop.analytics.DeviceEraEpochTest" time="0.001"/>
+  <testcase name="sameDayMixedBrandTieBreaksDeterministically" classname="com.noop.analytics.DeviceEraEpochTest" time="0.0"/>
+  <testcase name="brandBucketCollapsesWhoopIdsAndSeparatesWearables" classname="com.noop.analytics.DeviceEraEpochTest" time="0.0"/>
+  <testcase name="epochDropsPreSwitchNightsFromTheFold" classname="com.noop.analytics.DeviceEraEpochTest" time="0.0"/>
+  <testcase name="emptyHistoryIsZero" classname="com.noop.analytics.DeviceEraEpochTest" time="0.0"/>
+  <testcase name="whoopThenOuraReturnsFirstOuraDay" classname="com.noop.analytics.DeviceEraEpochTest" time="0.0"/>
+  <testcase name="ouraThenWhoopReturnsFirstWhoopDay" classname="com.noop.analytics.DeviceEraEpochTest" time="0.0"/>
+  <testcase name="oneWearableBrandOnlyIsZero" classname="com.noop.analytics.DeviceEraEpochTest" time="0.001"/>
+  <testcase name="onlyTheLatestBoundaryMatters_ouraWhoopOura" classname="com.noop.analytics.DeviceEraEpochTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.WholeDaySwiftParityTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:16:57" hostname="mac-studio.lan" time="11.666">
+  <properties/>
+  <testcase name="actualSwiftWholeDays" classname="com.frwhoop.scoring.WholeDaySwiftParityTest" time="11.666"/>
+  <system-out><![CDATA[Actual-Swift kernel_calendar PASS: dense-night-v1
+Actual-Swift kernel_calendar PASS: dense-night-v1-deep-hrv
+Actual-Swift kernel_calendar PASS: dense-night-v1-no-rr-deep-hrv
+Actual-Swift kernel_calendar PASS: dense-night-v2
+Actual-Swift kernel_calendar PASS: dense-night-v2-and-workout
+Actual-Swift kernel_calendar PASS: dense-night-v2-no-deep-hrv
+Actual-Swift kernel_calendar PASS: empty-utc
+Actual-Swift kernel_calendar PASS: fragmented-main-night-and-nap
+Actual-Swift kernel_calendar PASS: whoop4-legacy-boundaries
+Actual-Swift kernel_calendar PASS: whoop5-channel5-order-exclusions
+Actual-Swift kernel_calendar PASS: whoop5-channel7-suspect5-future5
+Actual-Swift kernel_calendar PASS: whoop5-hr-only-night
+Actual-Swift kernel_calendar PASS: whoop5-hr-only-raw-gap
+Actual-Swift corpus modes: {kernel_calendar=13}; kernel_calendar does not establish shipped DST/server_day parity
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

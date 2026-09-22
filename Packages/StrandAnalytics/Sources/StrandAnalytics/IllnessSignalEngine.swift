@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // IllnessSignalEngine.swift — multi-signal "Heads-Up" early-warning with explicit false-positive
@@ -161,6 +162,7 @@ public enum IllnessSignalEngine {
     /// number-formatting locale concerns and identical across platforms.
     public static func evaluate(_ inputs: Inputs, context: Context,
                                 firedLabels: [String: String] = [:]) -> Result {
+        PhoneComputeRuntime.entered("swift.IllnessSignalEngine.evaluate")
         // Order is fixed so firedSignals is deterministic across platforms.
         let ordered: [(key: String, reading: SignalReading?)] = [
             ("restingHR", inputs.restingHR),

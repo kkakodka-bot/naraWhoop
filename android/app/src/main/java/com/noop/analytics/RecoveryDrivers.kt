@@ -112,6 +112,7 @@ object RecoveryDrivers {
         sleepPerf: Double?,
         skinTempDev: Double? = null,
     ): List<ChargeDriver> {
+        PhoneComputeRuntime.inferenceStarted("RecoveryDrivers.chargeDrivers")
         // No score => no real contributions to attribute (cold-start). recovery(...) enforces the usable
         // gate; mirror it so a nil headline never yields fabricated driver rows.
         val full = RecoveryScorer.recovery(

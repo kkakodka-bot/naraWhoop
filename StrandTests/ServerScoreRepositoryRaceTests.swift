@@ -10,18 +10,24 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
     private let ownerKey = "noop.serverScoring.ingestOwnerId"
     private var savedOwner: Any?
     private var savedOverlayLive = false
+    private var ownershipDefaults: UserDefaults!
+    private var ownershipSuite: String!
 
     override func setUp() {
         super.setUp()
         savedOwner = UserDefaults.standard.object(forKey: ownerKey)
         savedOverlayLive = CloudScoreIdentity.overlayLive
         CloudScoreIdentity.clearIngestOwner()
+        ownershipSuite = "compute-repository-tests-" + UUID().uuidString
+        ownershipDefaults = UserDefaults(suiteName: ownershipSuite)!
     }
 
     override func tearDown() {
         if let savedOwner { UserDefaults.standard.set(savedOwner, forKey: ownerKey) }
         else { UserDefaults.standard.removeObject(forKey: ownerKey) }
         CloudScoreIdentity.markOverlayLive(savedOverlayLive)
+        ServerScoringSettings.bindComputeOwnership(nil)
+        ownershipDefaults.removePersistentDomain(forName: ownershipSuite)
         super.tearDown()
     }
 
@@ -112,7 +118,7 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
         CloudScoreIdentity.markOverlayLive(false)
         XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
         CloudScoreIdentity.markOverlayLive(true)
-        XCTAssertTrue(ServerScoringSettings.skipsSyncCoupledRescore)
+        XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
     }
 
     func testEnrollmentPendingAndFailedStatesAreNotFlattenedIntoSuccess() async throws {
@@ -131,6 +137,8 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
     private final class Auth {
         var owner: String?
         var conditionalClears = 0
+        var project = "https://compute.invalid"
+        var ready = true
         init(_ owner: String?) { self.owner = owner }
     }
     private func dependencies(_ auth: Auth,
@@ -142,14 +150,15 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
                 auth.owner = nil
                 return true
             }, signIn: { owner, _ in auth.owner = owner }, fetch: { day, owner, _ in try await fetch(day, owner) },
-            enabled: { true }, ready: { true }, automaticPolling: false,
-            canonicalDeviceId: { _, _ in "device" })
+            enabled: { auth.ready }, ready: { auth.ready }, automaticPolling: false,
+            canonicalDeviceId: { _, _ in "device" }, projectURL: { auth.project },
+            ownershipStore: ServerMetricOwnershipStore(defaults: ownershipDefaults))
     }
     private func snapshot(_ owner: String, revision: Int = 1, device: String = "device") throws -> ServerScoreDayCache {
         let data = try JSONSerialization.data(withJSONObject: ["server_scoring": [
             "schema_version": 2, "user_id": owner, "day": day, "algorithm_version": "per_feature",
             "features": ["sleep": ["status": "available", "device_id": device, "algorithm_version": "frwhoop-server-1",
-                "input_revision": revision, "required_revision": revision]],
+                "input_revision": revision, "required_revision": revision, "computed_at": "2026-09-16T10:00:00Z"]],
             "daily": ["sleep_total_min": 480], "nights": [], "stale": false
         ]])
         return try ServerScoreCacheCodec.parseSnapshot(data, day: day, ownerId: owner,
@@ -318,7 +327,10 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
         offline = true
         repo.selectDevice(localDeviceId: "strap-a")
         await repo.refreshVisibleDays(todayKey: day)
-        XCTAssertEqual(repo.overlay(for: day), first)
+        XCTAssertEqual(repo.overlay(for: day)?.daily, first.daily)
+        XCTAssertEqual(repo.overlay(for: day)?.features, first.features)
+        XCTAssertTrue(repo.overlay(for: day)?.stale == true)
+        XCTAssertEqual(repo.overlay(for: day)?.readFailure, "server_read_failed")
         XCTAssertEqual(repo.lastError, "Server scores unavailable")
         XCTAssertEqual(try ServerScoreCacheStore(db: store.registryWriter)
             .load(ownerId: ownerA, day: day)?.features["sleep"]?.deviceId, "device-b")
@@ -372,5 +384,66 @@ final class ServerScoreRepositoryRaceTests: XCTestCase {
             ownerId: ownerA, localDeviceId: "strap-b", canonicalDeviceId: mapping))
         XCTAssertFalse(ServerScoreRepository.hasConfirmedDeviceLink(
             ownerId: nil, localDeviceId: "strap-a", canonicalDeviceId: mapping))
+    }
+
+    func testOwnedSleepSurvivesReadFailureRestartAndDisablingReads() async throws {
+        let auth = Auth(ownerA), result = try snapshot(ownerA)
+        let store = try await WhoopStore.inMemory()
+        let first = ServerScoreRepository(dependencies: dependencies(auth) { _, _ in result })
+        first.selectDevice(localDeviceId: "strap-a"); first.wire(store: store)
+        await first.refreshVisibleDays(todayKey: day)
+        XCTAssertTrue(first.state.owns(.sleepSessions))
+        first.invalidate()
+
+        let restarted = ServerScoreRepository(dependencies: dependencies(auth) { _, _ in
+            throw URLError(.notConnectedToInternet)
+        })
+        restarted.selectDevice(localDeviceId: "strap-a"); restarted.wire(store: store)
+        await restarted.refreshVisibleDays(todayKey: "2020-01-01")
+        XCTAssertTrue(restarted.state.owns(.sleepSessions))
+        XCTAssertFalse(restarted.state.owns(.hrv))
+        XCTAssertNil(restarted.state.value(.sleepTotal, day: "2020-01-01", local: 321))
+        XCTAssertEqual(restarted.overlay(for: "2020-01-01")?.readFailure, "server_read_failed")
+        auth.ready = false
+        XCTAssertEqual(restarted.overlay(for: "2020-01-01")?.ownedMetrics?.contains("sleep_total_min"), true)
+        XCTAssertNil(restarted.state.value(.sleepTotal, day: "2020-01-01", local: 321))
+    }
+
+    func testRetainedScopedCacheSeedsOwnershipWithoutNetwork() async throws {
+        let auth = Auth(ownerA), store = try await WhoopStore.inMemory()
+        try ServerScoreCacheStore(db: store.registryWriter).upsert(snapshot(ownerA))
+        let repo = ServerScoreRepository(dependencies: dependencies(auth) { _, _ in
+            throw URLError(.notConnectedToInternet)
+        })
+        repo.selectDevice(localDeviceId: "strap-a"); repo.wire(store: store)
+        await repo.refreshVisibleDays(todayKey: day)
+        XCTAssertTrue(repo.state.owns(.sleepTotal))
+        XCTAssertEqual(repo.state.value(.sleepTotal, day: day, local: 321), 480)
+        XCTAssertTrue(repo.overlay(for: day)?.stale == true)
+        XCTAssertFalse(repo.state.owns(.hrv))
+    }
+
+    func testProjectChangeFencesLateSuccessAndOldDiskCache() async throws {
+        let auth = Auth(ownerA), result = try snapshot(ownerA), gate = Gate()
+        var held = false
+        let entered = expectation(description: "old project read")
+        let repo = ServerScoreRepository(dependencies: dependencies(auth) { _, _ in
+            if held { entered.fulfill(); await gate.wait() }
+            return result
+        })
+        let store = try await WhoopStore.inMemory()
+        repo.selectDevice(localDeviceId: "strap-a"); repo.wire(store: store)
+        await repo.refreshVisibleDays(todayKey: day)
+        held = true
+        let pending = Task { await repo.refreshVisibleDays(todayKey: day) }
+        await fulfillment(of: [entered], timeout: 2)
+        auth.project = "https://different.invalid"
+        XCTAssertNil(repo.overlay(for: day))
+        XCTAssertFalse(repo.state.hasServerOwnership)
+        await gate.open(); await pending.value
+        XCTAssertNil(repo.overlay(for: day))
+        XCTAssertFalse(repo.state.hasServerOwnership)
+        XCTAssertNotNil(try ServerScoreCacheStore(db: store.registryWriter).load(ownerId: ownerA, day: day),
+            "The old project's row is retained, not reassigned or deleted")
     }
 }

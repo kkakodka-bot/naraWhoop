@@ -39,6 +39,7 @@ import kotlin.math.max
  */
 @Composable
 fun TrainingLoadCard(days: List<DailyMetric>, modifier: Modifier = Modifier) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { CanonicalFamilyReadout(familyID = "readiness_load"); return }
     // Model straight from the training-load engine — NOT the paired evaluateWithTrainingLoad, which
     // would also run the full Readiness synthesis this card never uses. DailyMetric.strain is the load.
     val loads = days.map { TrainingLoadEngine.DailyLoad(it.day, it.strain) }

@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 /// On-demand "take an HRV reading now" — the single-value spot RMSSD path (#537).
@@ -62,6 +63,7 @@ public enum SpotHrvReading {
     ///     windowed path does NOT use this, so overnight HRV is unchanged.
     public static func compute(_ rrMs: [Int],
                                maxRejectedFraction: Double = HRVAnalyzer.defaultSpotMaxRejectedFraction) -> Outcome {
+        PhoneComputeRuntime.entered("swift.SpotHrvReading.compute")
         let result = HRVAnalyzer.analyze(rawRR: rrMs.map(Double.init),
                                          maxRejectedFraction: maxRejectedFraction)
         guard let rmssd = result.rmssd else {
@@ -75,6 +77,8 @@ public enum SpotHrvReading {
 
     /// Mean heart rate (bpm) from the mean NN interval (ms): 60000 / meanNN. nil when missing or <= 0.
     public static func meanHrFromNN(_ meanNN: Double?) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SpotHrvReading.meanHrFromNN") else { return nil }
+        PhoneComputeRuntime.entered("swift.SpotHrvReading.meanHrFromNN")
         guard let meanNN, meanNN > 0 else { return nil }
         return 60_000.0 / meanNN
     }

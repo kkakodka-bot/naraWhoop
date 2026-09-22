@@ -47,6 +47,7 @@ object WatchRecovery {
         hrvHistory: List<Double>,
         rhrHistory: List<Double>,
     ): Result {
+        PhoneComputeRuntime.inferenceStarted("WatchRecovery.compute")
         // Build both baselines through the production model (Winsorized EWMA + cold-start gating), exactly
         // as the strap path does. HRV feeds the HRV config; resting HR feeds the RHR config.
         val hrvBase = Baselines.foldHistory(hrvHistory, Baselines.hrvCfg)

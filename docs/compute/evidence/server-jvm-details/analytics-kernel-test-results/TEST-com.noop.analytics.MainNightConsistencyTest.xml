@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.MainNightConsistencyTest" tests="45" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.005">
+  <properties/>
+  <testcase name="mainNightEmptyAndTieAreDeterministic" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="honoringEditsMainNightModeTracksEditedNightNotNapSum" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="honoringEditsSumsBiphasicGroup" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="reasonAlignedToUsual" classname="com.noop.analytics.MainNightConsistencyTest" time="0.001"/>
+  <testcase name="habitualMidsleepShiftsThePickForADaytimeSleeper" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="longDaytimeOnsetBeatsShortOvernightFragment" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="honoringEditsFragmentedNightCountsGapAsAwake" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="daytimeNapStillStaysItsOwnBlockUnderWiderBridge" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="honoringEditsLegacySumWhenNoOnsets" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="selectionNullOnEmpty" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="interFragmentAwakeSecondsSumsPositiveGapsOnly" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="biphasicNightGroupsAllFragmentsAndExcludesNap" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="circularMeanReturnsNullForAntipodalMidpoints" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="ambiguousLongDaytimeSleepBeatsShortNightByDesign" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="gapBridgeMergesShortWakeSplitNight" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="tenThirtyOnsetIsTreatedAsOvernightNotDaytime" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="circularDistanceWrapsMidnight" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="shiftSleeperUIAndEngineSelectorPickSameAfternoonBlock" classname="com.noop.analytics.MainNightConsistencyTest" time="0.001"/>
+  <testcase name="realisticNapNeverBeatsRealNightLearnedTiming" classname="com.noop.analytics.MainNightConsistencyTest" time="0.001"/>
+  <testcase name="mainNightPrefersOvernightOverLongerDaytimeNap" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="reasonOnlyBlock" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="habitualMidsleepCircularAcrossMidnight" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="overnightGapAtOrAboveNinetyMinutesDoesNotBridge" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="editedOnsetCrossingBoundaryIsScoredOnTheEffectiveOnset" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="habitualMidsleepNullOnColdStart" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="overnightPlusNapReportsConsistentTotalsNotTheSum" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="habitualMidsleepNullWhenLearnedTimingIsAntipodal" classname="com.noop.analytics.MainNightConsistencyTest" time="0.001"/>
+  <testcase name="mainNightLongestAmongOvernightBlocks" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="overnightNightSplitBySeventyMinuteWakeMergesIntoOneSleepNotNap" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="groupIndicesSingleBlockMatchesBareSelector" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="habitualAlignedShorterNightBeatsLongerAfternoon" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="groupIndicesDoesNotBridgeLongGap" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="habitualMidsleepLearnsRegularTiming" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="realisticNapNeverBeatsRealNightColdStart" classname="com.noop.analytics.MainNightConsistencyTest" time="0.001"/>
+  <testcase name="reasonLongestColdStart" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="crossMidnightOnsetScoresAsNight" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="tightestColdStartMarginNightStillWins" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="honoringEditsHonorsHabitualMidsleep" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="interFragmentAwakeFoldsConsistentlyNoDoubleCount" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="groupIndicesBridgesTwoAdjacentFragments" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="mainNightGroupIndicesByteIdenticalForBiphasicNight" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="groupIndicesBridgedNightOutscoresLoneNap" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="selectionIndexAlwaysMatchesMainNightIndex" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="reasonLongestNearUsual" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <testcase name="napOnlyDayResolvesToTheNapAsMain" classname="com.noop.analytics.MainNightConsistencyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

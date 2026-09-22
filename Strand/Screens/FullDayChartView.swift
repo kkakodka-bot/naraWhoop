@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import WhoopStore
+import WhoopProtocol
 
 // MARK: - Deep Timeline (full-day, full-resolution metric viewer) — #575
 //
@@ -82,6 +83,16 @@ struct FullDayChartView: View {
     private var visibleWindow: ClosedRange<Date> { zoomDomain ?? dayBounds }
 
     var body: some View {
+        if PhoneComputeRuntime.isFinalHosted {
+            ScreenScaffold(title: "Deep Timeline") {
+                dayNav
+                CanonicalPhysiologySection(families: ["strain_energy", "night_hrv", "oxygen", "respiration", "temperature", "sleep"],
+                    day: ServerScoreDate.day(dayStart, timeZone: TimeZone(identifier: repo.serverPresentation.timezone) ?? .current))
+            }
+        } else { referenceBody }
+    }
+
+    private var referenceBody: some View {
         ScreenScaffold(title: "Deep Timeline", subtitle: "Every second of your day, zoomable.") {
             metricPills
             dayNav

@@ -23,6 +23,7 @@ settings:
     # macOS sets its own CFBundleVersion on the Strand target and is unaffected by this.
     CURRENT_PROJECT_VERSION: "371"
     NOOP_SOURCE_REVISION: development
+    COMPUTE_TEST_SCRATCH: $(BUILT_PRODUCTS_DIR)/fixtures
     SWIFT_VERSION: "5.0"
     # Emit localizable strings so Xcode auto-extracts every LocalizedStringKey into the
     # String Catalog on build (the English (US) base entries).
@@ -95,6 +96,7 @@ targets:
           # The liquid Today is now cross-platform: its iOS-only chrome (topBarTrailing / navigationBarTitleDisplayMode
           # / presentationCompactAdaptation / two-param onChange / sensoryFeedback) is guarded, so the mac split-view
           # shell hosts LiquidTodayView too. All Liquid/* now compile into the mac target.
+      - StrandiOSShared/WidgetSnapshot.swift
     # Oura BYO-app OAuth credentials. OuraConfig.xcconfig is a tracked wrapper that optionally
     # includes the untracked, gitignored Strand/Oura/OuraSecrets.xcconfig (template at
     # OuraSecrets.example.xcconfig) — absent secrets leave the $(OURA_*) references in the
@@ -131,6 +133,7 @@ targets:
         NOOPPushToken: $(NOOP_PUSH_TOKEN)
         NOOPSupabaseAnonKey: $(NOOP_SUPABASE_ANON_KEY)
         NOOPSourceRevision: $(NOOP_SOURCE_REVISION)
+        NOOPFinalHostedCompute: true
         # Registers the noop:// URL scheme so ASWebAuthenticationSession's OAuth redirect
         # (noop://oura/callback) reaches OuraOAuthProvider instead of bouncing off the OS.
         CFBundleURLTypes:
@@ -178,13 +181,21 @@ targets:
       - StrandTests
       - path: Tests/Fixtures/context-metrics-swift-v1.json
         buildPhase: resources
+      - path: Tests/Fixtures/compute-account-sleep-only.json
+        buildPhase: resources
+      - path: Tests/Fixtures/W4-POPULATED-CONTEXT-SNAPSHOT-V2-NATIVE-FIXTURE.json
+        buildPhase: resources
       # Compile the exact cross-target snapshot source into the test bundle so the AltStore App Group
-      # resolver is covered without adding this iOS/widget-only type to the macOS application module.
+      # resolver also executes in an independently compiled reader, as in the widget extension.
       - StrandiOSShared/WidgetSnapshot.swift
       # Test the exact live adapters' platform-neutral admission sequences. Their HealthKit and
       # WidgetKit operations remain iOS-only and require a separate iOS integration gate.
       - StrandiOS/Health/HealthKitBridge.swift
       - StrandiOS/Widgets/WidgetPublish.swift
+    postBuildScripts:
+      - name: Stage exact source contracts
+        path: Tools/testing/stage-source-contracts.sh
+        basedOnDependencyAnalysis: false
     # Same wrapper as the app target, so the OURA_CLOUD_IMPORT-gated Oura tests compile exactly
     # when the app's Oura lane does (flag + creds both come from the untracked OuraSecrets.xcconfig).
     configFiles:
@@ -196,6 +207,7 @@ targets:
       - package: WhoopStore
       - package: GRDB
       - package: OuraProtocol
+      - package: ZIPFoundation
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -343,6 +355,7 @@ targets:
         NOOPPushToken: $(NOOP_PUSH_TOKEN)
         NOOPSupabaseAnonKey: $(NOOP_SUPABASE_ANON_KEY)
         NOOPSourceRevision: $(NOOP_SOURCE_REVISION)
+        NOOPFinalHostedCompute: true
         # Registers the noop:// URL scheme so ASWebAuthenticationSession's OAuth redirect
         # (noop://oura/callback) reaches OuraOAuthProvider instead of bouncing off the OS.
         CFBundleURLTypes:
@@ -410,6 +423,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Mirrors the app target: exposes APP_GROUP_ID to the extension at runtime (WidgetSnapshot.suiteName).
         AppGroupIdentifier: "$(APP_GROUP_ID)"
+        NOOPFinalHostedCompute: true
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
@@ -456,6 +470,7 @@ targets:
         # Surfaces APP_GROUP_ID to runtime (WatchScoreStore.suiteName) so the App Group id isn't
         # hard-coded in Swift; stays in sync with the application-groups entitlement (both $(APP_GROUP_ID)).
         AppGroupIdentifier: "$(APP_GROUP_ID)"
+        NOOPFinalHostedCompute: true
         # Modern single-target watchOS app — no separate WatchKit extension.
         WKApplication: true
         # Pairs this watch app to the iPhone companion (must match NOOPiOS PRODUCT_BUNDLE_IDENTIFIER).
@@ -515,6 +530,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Mirrors the watch app: exposes APP_GROUP_ID to the extension at runtime (WatchScoreStore.suiteName).
         AppGroupIdentifier: "$(APP_GROUP_ID)"
+        NOOPFinalHostedCompute: true
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
@@ -547,6 +563,11 @@ schemes:
       config: Debug
       environmentVariables:
         NOOP_HERMETIC_TESTING: "1"
+        NOOP_TEST_DISABLE_BLUETOOTH: "1"
+        NOOP_COMPUTE_REFERENCE_TESTS: "1"
+        NARA_TEST_FIXTURE_ROOT: "$(COMPUTE_TEST_SCRATCH)"
+        SCORING_PREFERENCE_SCRATCH: "$(COMPUTE_TEST_SCRATCH)"
+        TMPDIR: "$(COMPUTE_TEST_SCRATCH)/"
       targets:
         - StrandTests
   NOOPiOS:

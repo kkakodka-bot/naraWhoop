@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 // MARK: - Lifting import (Hevy CSV / Liftosaur JSON) — source "lifting"
 //
@@ -26,7 +27,7 @@ public struct LiftingSession: Sendable, Equatable {
     /// Session end (UTC). Falls back to `start` when the export has no end.
     public var end: Date
     /// Transparent volume load = Σ(weight_kg × reps) across counted (non-warmup) sets.
-    public var volumeLoadKg: Double
+    public var volumeLoadKg: Double?
     /// Number of counted sets contributing to the volume load.
     public var setCount: Int
     /// Distinct exercise count in the session (surfaced in the note for context).
@@ -41,7 +42,7 @@ public struct LiftingSession: Sendable, Equatable {
     public init(
         start: Date,
         end: Date,
-        volumeLoadKg: Double,
+        volumeLoadKg: Double?,
         setCount: Int,
         exerciseCount: Int,
         totalReps: Int,
@@ -207,7 +208,10 @@ public enum LiftingImporter {
             if let r = reps, r > 0 { self.reps += r }
             if let w = weightKg, w > 0 {
                 top = max(top ?? 0, w)
-                if let r = reps, r > 0 { volume += w * Double(r) }
+                if PhoneComputeRuntime.permitsLocal("import.training_volume"), let r = reps, r > 0 {
+                    PhoneComputeRuntime.entered("import.training_volume")
+                    volume += w * Double(r)
+                }
             }
         }
 
@@ -217,7 +221,7 @@ public enum LiftingImporter {
             return LiftingSession(
                 start: start,
                 end: end >= start ? end : start,
-                volumeLoadKg: volume,
+                volumeLoadKg: PhoneComputeRuntime.isFinalHosted ? nil : volume,
                 setCount: sets,
                 exerciseCount: exercises.count,
                 totalReps: reps,
@@ -282,7 +286,10 @@ public enum LiftingImporter {
                 reps += r
                 if let w = liftosaurWeightKg(set, entryUnit: entryUnit), w > 0 {
                     top = max(top ?? 0, w)
-                    volume += w * Double(r)
+                    if PhoneComputeRuntime.permitsLocal("import.training_volume") {
+                        PhoneComputeRuntime.entered("import.training_volume")
+                        volume += w * Double(r)
+                    }
                 }
             }
         }
@@ -291,7 +298,7 @@ public enum LiftingImporter {
         return LiftingSession(
             start: start,
             end: end >= start ? end : start,
-            volumeLoadKg: volume,
+            volumeLoadKg: PhoneComputeRuntime.isFinalHosted ? nil : volume,
             setCount: sets,
             exerciseCount: exercises,
             totalReps: reps,
@@ -424,7 +431,7 @@ public extension LiftingSession {
     /// estimate, not a measured strain — the workout row carries no `strain`, so it never feeds Effort.
     func volumeLoadNote(title includeTitle: Bool = true) -> String {
         var parts: [String] = []
-        if volumeLoadKg > 0 {
+        if let volumeLoadKg, volumeLoadKg > 0 {
             parts.append("volume load \(LiftingImporter.groupedKg(volumeLoadKg)) kg")
         }
         parts.append("\(setCount) set\(setCount == 1 ? "" : "s")")

@@ -214,6 +214,7 @@ object WeeklyDigestEngine {
         anchorDay: String,
         effortDisplayFactor: Double = 1.0,
     ): WeeklyDigest {
+        PhoneComputeRuntime.inferenceStarted("WeeklyDigest.build")
         val monday = mondayOfWeek(anchorDay) ?: return emptyDigest(anchorDay, anchorDay)
         val sunday = addDays(monday, 6)
         val lastMonday = addDays(monday, -7)
@@ -258,6 +259,7 @@ object WeeklyDigestEngine {
 
     /** Summarise a slice into a SeriesStat. Slope is OLS vs the 0-based index. EMPTY when empty. */
     fun stat(values: List<Double>): SeriesStat {
+        PhoneComputeRuntime.inferenceStarted("WeeklyDigest.stat")
         val n = values.size
         if (n == 0) return SeriesStat.EMPTY
 
@@ -277,6 +279,7 @@ object WeeklyDigestEngine {
 
     /** Compare a current slice to a previous slice (delta/direction on the means). */
     fun compare(current: List<Double>, previous: List<Double>): PeriodComparison {
+        PhoneComputeRuntime.inferenceStarted("WeeklyDigest.compare")
         val cur = stat(current)
         val prev = stat(previous)
         val delta = cur.mean - prev.mean

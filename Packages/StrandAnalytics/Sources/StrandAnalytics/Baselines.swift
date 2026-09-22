@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // Baselines.swift — personal rolling baselines per nightly metric.
@@ -263,10 +264,12 @@ public enum Baselines {
 
     /// Convert a half-life in nights to an EWMA smoothing factor.
     static func lambda(halfLife: Double) -> Double {
-        1.0 - pow(0.5, 1.0 / halfLife)
+        PhoneComputeRuntime.entered("swift.Baselines.lambda")
+        return 1.0 - pow(0.5, 1.0 / halfLife)
     }
 
     static func computeStatus(nValid: Int, nightsSinceUpdate: Int) -> BaselineStatus {
+        PhoneComputeRuntime.entered("swift.Baselines.computeStatus")
         if nightsSinceUpdate > staleDays && nValid >= minNightsSeed { return .stale }
         if nValid < minNightsSeed { return .calibrating }
         if nValid < minNightsTrust { return .provisional }
@@ -292,6 +295,7 @@ public enum Baselines {
     /// the strap. Pure and TZ-free (civil-day arithmetic); mirror EXACTLY in the Kotlin twin.
     public static func recentHrvCoverage(dayKeys: [String], nightlyHrv: [Double?], today: String,
                                          window: Int = staleDays) -> (observed: Int, missing: Int) {
+        PhoneComputeRuntime.entered("swift.Baselines.recentHrvCoverage")
         guard let t = isoEpochDay(today) else { return (0, 0) }
         var observed = 0, missing = 0
         for i in 0..<Swift.min(dayKeys.count, nightlyHrv.count) {
@@ -303,6 +307,8 @@ public enum Baselines {
     }
 
     public static func nightsSinceNewestValidNight(dayKeys: [String], nightlyHrv: [Double?], today: String) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.Baselines.nightsSinceNewestValidNight") else { return nil }
+        PhoneComputeRuntime.entered("swift.Baselines.nightsSinceNewestValidNight")
         var newest: String? = nil
         for i in 0..<Swift.min(dayKeys.count, nightlyHrv.count) where nightlyHrv[i] != nil {
             let k = dayKeys[i]
@@ -336,6 +342,7 @@ public enum Baselines {
     /// - otherwise: Winsorized EWMA center + EWMA-abs-dev spread update.
     public static func update(_ state: BaselineState?, value: Double?, cfg: MetricCfg,
                               rejectHardOutliers: Bool = true) -> BaselineState {
+        PhoneComputeRuntime.entered("swift.Baselines.update")
         let lb = lambda(halfLife: cfg.halfLifeB)
         let ls = lambda(halfLife: cfg.halfLifeS)
 
@@ -426,6 +433,7 @@ public enum Baselines {
     /// `nil` entries are treated as missing nights (skip-and-hold).
     public static func foldHistory(_ values: [Double?], cfg: MetricCfg,
                                    rejectHardOutliers: Bool = true) -> BaselineState {
+        PhoneComputeRuntime.entered("swift.Baselines.foldHistory")
         var state: BaselineState? = nil
         for v in values { state = update(state, value: v, cfg: cfg, rejectHardOutliers: rejectHardOutliers) }
         if let s = state { return s }
@@ -501,6 +509,7 @@ public enum Baselines {
 
     public static func foldHistory(_ values: [Double?], dayKeys: [String], cfg: MetricCfg,
                                    baselineEpoch: Double? = nil) -> BaselineState {
+        PhoneComputeRuntime.entered("swift.Baselines.foldHistory")
         let epoch = baselineEpoch ?? hrvBaselineEpoch()
         guard epoch > 0 else { return foldHistory(values, cfg: cfg) }
 
@@ -600,12 +609,14 @@ public enum Baselines {
     /// z-scoring caller (e.g. `DaytimeStress`'s baseline-relative mode) so the conversion has
     /// exactly one definition.
     public static func sigma(_ state: BaselineState) -> Double {
-        max(1.253 * state.spread, 1e-9)
+        PhoneComputeRuntime.entered("swift.Baselines.sigma")
+        return max(1.253 * state.spread, 1e-9)
     }
 
     /// Compute z / delta / ratio / in-normal-range for a value vs a baseline.
     /// z uses (value − baseline) / sigma(state); see `sigma(_:)` for the 1.253 conversion.
     public static func deviation(_ value: Double, state: BaselineState) -> Deviation {
+        PhoneComputeRuntime.entered("swift.Baselines.deviation")
         let sig = sigma(state)
         let z = (value - state.baseline) / sig
         let delta = value - state.baseline
@@ -629,6 +640,7 @@ public enum Baselines {
     ///   - cfg: metric config (bounds + floor spread).
     ///   - window: number of trailing valid nights to use (default 30).
     public static func rollingMeanSD(_ values: [Double?], cfg: MetricCfg, window: Int = 30) -> BaselineState {
+        PhoneComputeRuntime.entered("swift.Baselines.rollingMeanSD")
         let valid = values.compactMap { v -> Double? in
             guard let v = v, cfg.minVal <= v && v <= cfg.maxVal else { return nil }
             return v

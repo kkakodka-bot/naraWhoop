@@ -3,6 +3,7 @@ import Combine
 import WhoopStore
 import StrandAnalytics
 import StrandImport
+import WhoopProtocol
 
 // MARK: - AI Coach (the one networked feature, strictly opt-in, bring-your-own-key)
 //
@@ -39,6 +40,7 @@ struct ChatMessage: Identifiable, Equatable {
 
 /// User-facing failure reasons mapped to clear, non-crashing messages.
 enum AICoachError: LocalizedError {
+    case serverOwnedUnavailable
     case noKey
     case emptyQuestion
     case badKey
@@ -52,6 +54,8 @@ enum AICoachError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .serverOwnedUnavailable:
+            return "Coaching is server-owned. No qualified coaching result is available."
         case .badCustomURL(let message):
             return message
         case .noKey:
@@ -243,7 +247,10 @@ final class AICoachEngine: ObservableObject {
     /// Contextual suggestion chips for the composer, derived from today's bands via `CoachSuggestions`.
     /// Reads only on-device `repo.days`; pure, byte-identical to the Android twin. Returns the stable
     /// generic fallback when there is no usable data for today.
-    var suggestions: [String] { CoachSuggestions.suggestions(for: repo.days.last, recent: repo.days) }
+    var suggestions: [String] {
+        guard PhoneComputeRuntime.permitsLocal("coach_contextual_suggestions") else { return [] }
+        return CoachSuggestions.suggestions(for: repo.days.last, recent: repo.days)
+    }
 
     /// K7: Follow-up suggestion chips shown after each assistant reply. These are generic
     /// conversational follow-ups (not data-derived) so the user can dig deeper without typing.
@@ -570,6 +577,7 @@ final class AICoachEngine: ObservableObject {
     /// message, with no network call — called once when the app opens via a tap on that notification.
     /// No-op if a conversation already exists, so it never duplicates into an active chat.
     func surfaceScheduledBrief(_ text: String) {
+        guard !PhoneComputeRuntime.isFinalHosted else { return }
         guard account.isCurrent, messages.isEmpty else { return }
         appendMessage(ChatMessage(role: .assistant, text: "Today's brief\n\n" + text))
         persistMessages()
@@ -579,6 +587,7 @@ final class AICoachEngine: ObservableObject {
     /// assistant message, unconditionally — unlike `surfaceScheduledBrief`, this always appends so a
     /// mid-conversation tap still shows the fresh brief.
     func appendGeneratedBrief(_ text: String) {
+        guard !PhoneComputeRuntime.isFinalHosted else { return }
         guard account.isCurrent else { return }
         appendMessage(ChatMessage(role: .assistant, text: "Today's brief\n\n" + text))
         persistMessages()
@@ -593,6 +602,10 @@ final class AICoachEngine: ObservableObject {
     /// system prompt + context + running history, parse the reply, append it. Never throws/crashes;
     /// failures land in `errorText`.
     func send(_ userText: String) async {
+        guard PhoneComputeRuntime.permitsLocal("legacy_coach_model_request") else {
+            errorText = AICoachError.serverOwnedUnavailable.errorDescription
+            return
+        }
         guard account.isCurrent else { return }
         let trimmed = userText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { errorText = AICoachError.emptyQuestion.errorDescription; return }
@@ -700,6 +713,7 @@ final class AICoachEngine: ObservableObject {
     /// prescription + one recovery tip, without the user typing. Requires a key + data consent.
     /// K1: streams the brief the same way `send` does.
     func startBriefIfNeeded() async {
+        guard PhoneComputeRuntime.permitsLocal("legacy_coach_brief") else { return }
         guard isConfigured, dataConsent, messages.isEmpty, !sending else { return }
         guard let key = resolvedKey else { return }
         errorText = nil
@@ -783,6 +797,7 @@ final class AICoachEngine: ObservableObject {
     /// context has no UI to stream into). Returns nil when not configured/consented, on any network
     /// failure, or when the reply is empty — the caller treats nil as "brief unavailable"; never throws.
     func generateBrief() async -> String? {
+        guard PhoneComputeRuntime.permitsLocal("legacy_coach_brief") else { return nil }
         guard isConfigured, dataConsent, let key = resolvedKey else { return nil }
         let context = await buildFullContext()
         guard account.isCurrent else { return nil }
@@ -796,6 +811,8 @@ final class AICoachEngine: ObservableObject {
     /// Full data context = the metrics summary + recent workouts (+ an OPT-IN on-device-signals summary
     /// when the second consent is on). Used when the user has granted data access.
     func buildFullContext() async -> String {
+        guard PhoneComputeRuntime.permitsLocal("coach_physiological_context") else { return "Server-owned coaching context unavailable." }
+        PhoneComputeRuntime.entered("coach_physiological_context")
         guard account.isCurrent else { return "" }
         var ctx = buildContext()
         ctx += "\n\n" + (await recentWorkoutsBlock())
@@ -820,6 +837,8 @@ final class AICoachEngine: ObservableObject {
     /// store is unavailable or there are too few clean beats (the histogram needs >= 20), so the line is
     /// simply absent, never a fabricated value. Summary-only: the raw R-R never leaves the device.
     func stressIndexLine() async -> String? {
+        guard PhoneComputeRuntime.permitsLocal("coach_stress_context") else { return nil }
+        PhoneComputeRuntime.entered("coach_stress_context")
         let cal = Calendar.current
         let from = Int(cal.startOfDay(for: Date()).timeIntervalSince1970)
         let to = Int(Date().timeIntervalSince1970)
@@ -839,6 +858,8 @@ final class AICoachEngine: ObservableObject {
     /// raw readings: this rides the same text channel as the metrics summary, so the no-raw-egress posture
     /// holds. Gated by the caller on the second opt-in; returns "" when there's nothing worth adding.
     func onDeviceSignalsBlock() async -> String {
+        guard PhoneComputeRuntime.permitsLocal("coach_signal_context") else { return "" }
+        PhoneComputeRuntime.entered("coach_signal_context")
         var lines: [String] = []
 
         // 1. Strongest behaviour→outcome associations (EffectRanker over the journal × Charge).
@@ -891,6 +912,7 @@ final class AICoachEngine: ObservableObject {
     /// Dispatch to the user's chosen provider client.
     private func callProvider(key: String,
                               messages: [(role: ChatMessage.Role, content: String)]) async throws -> String {
+        guard PhoneComputeRuntime.permitsLocal("legacy_coach_provider") else { throw AICoachError.serverOwnedUnavailable }
         try account.requireCurrent()
         guard resolvedKey == key else { throw CancellationError() }
         let reply = try await provider.client(customConfiguration: customConfiguration).send(
@@ -912,6 +934,7 @@ final class AICoachEngine: ObservableObject {
                                 messages: [(role: ChatMessage.Role, content: String)],
                                 inlineImage: String? = nil,
                                 onDelta: (String) -> Void) async throws {
+        guard PhoneComputeRuntime.permitsLocal("legacy_coach_provider") else { throw AICoachError.serverOwnedUnavailable }
         try account.requireCurrent()
         guard resolvedKey == key else { throw CancellationError() }
         try await provider.client(customConfiguration: customConfiguration).streamWithImage(
@@ -1042,6 +1065,8 @@ final class AICoachEngine: ObservableObject {
     /// recovery/strain/sleep-hours/HRV/restingHR where present, plus 30-day averages, plus a few
     /// recent workouts. Kept well under ~1500 tokens. If there's no data, it says so.
     func buildContext() -> String {
+        guard PhoneComputeRuntime.permitsLocal("coach_physiological_summary") else { return "Server-owned coaching context unavailable." }
+        PhoneComputeRuntime.entered("coach_physiological_summary")
         let days = repo.days // oldest → newest
         var lines: [String] = ["USER BIOMETRIC SUMMARY (the user's own wearable data):"]
 
@@ -1085,6 +1110,7 @@ final class AICoachEngine: ObservableObject {
     /// so callers that want workouts in the context can await this and feed the result to `send`'s
     /// flow via the chat, kept separate so `buildContext()` stays synchronous per the spec.
     func recentWorkoutsBlock(limit: Int = 6) async -> String {
+        guard PhoneComputeRuntime.permitsLocal("coach_workout_summary") else { return "" }
         let rows = await repo.workoutRows(days: 30) // newest first
         guard !rows.isEmpty else { return "Recent workouts: none recorded in the last 30 days." }
         let bodySystem = UnitSystem(

@@ -43,6 +43,8 @@ public enum HeartRateRecovery {
 
     public static func calculate(samples: [HRSample], workoutStart: Int, workoutEnd: Int,
                                  maxHR: Double) -> Result? {
+        guard PhoneComputeRuntime.permitsLocal("swift.HeartRateRecovery.calculate") else { return nil }
+        PhoneComputeRuntime.entered("swift.HeartRateRecovery.calculate")
         guard workoutStart > 0, workoutEnd > workoutStart, maxHR > 0 else { return nil }
         let lowerBound = max(workoutStart, workoutEnd - eligibilityLookbackSeconds)
         let upperBound = workoutEnd + 5 * 60 + measurementToleranceSeconds

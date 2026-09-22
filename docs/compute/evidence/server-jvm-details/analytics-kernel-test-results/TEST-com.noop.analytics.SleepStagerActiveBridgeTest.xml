@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerActiveBridgeTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:22" hostname="mac-studio.lan" time="0.034">
+  <properties/>
+  <testcase name="the original adjacent-pair merge still works" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.001"/>
+  <testcase name="a night with one short interruption is detected as a single session" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.018"/>
+  <testcase name="two consecutive active runs are not absorbed" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="the same night with a genuinely awake interruption is not bridged into one" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.014"/>
+  <testcase name="an active run past the default bound is absorbed when HR stays in the sleep band" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="a short interruption with elevated HR is not absorbed" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="an active run longer than the bound is left alone" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="the wider bound does not apply when HR is elevated" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="a blocked pair reports the bound that blocked it, with the active length" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="the in-band bound is a maximum, never a replacement" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="the pair line renders exactly as its Swift twin does" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.001"/>
+  <testcase name="a brief spike no longer puts the whole interval out of band, a sustained one still does" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="an adjacent-pair merge reports no active bound" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="a short active interruption between two sleep runs is absorbed" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="a dense night is untouched" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <testcase name="the traced pass returns exactly what the plain one does" classname="com.noop.analytics.SleepStagerActiveBridgeTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

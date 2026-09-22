@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.HrZonesTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="invalidCustomBoundariesFallBackToDefaults" classname="com.noop.analytics.HrZonesTest" time="0.001"/>
+  <testcase name="customBpmBoundariesReplacePercentageEdges" classname="com.noop.analytics.HrZonesTest" time="0.0"/>
+  <testcase name="hrZoneSetCache_rebuildsWhenMaxHrChanges" classname="com.noop.analytics.HrZonesTest" time="0.0"/>
+  <testcase name="timeInZone_capsHugePositiveGap" classname="com.noop.analytics.HrZonesTest" time="0.0"/>
+  <testcase name="hrZoneSetCache_reusesSetWhileMaxHrUnchanged" classname="com.noop.analytics.HrZonesTest" time="0.0"/>
+  <testcase name="defaultEditorBoundsPreserveIntegerClassification" classname="com.noop.analytics.HrZonesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

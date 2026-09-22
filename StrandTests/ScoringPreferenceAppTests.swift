@@ -37,7 +37,7 @@ final class ScoringPreferenceAppTests: XCTestCase {
         let model: AppModel
         init(coupled: Bool = false, seed: [String: Any] = [:], registration: [String: Any] = [:]) throws {
             let temporary = ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-                ?? FileManager.default.temporaryDirectory
+                ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             root = temporary.appendingPathComponent("preference-app-" + UUID().uuidString)
             let scope = try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid", userID: UUID().uuidString)
             context = .init(scope: scope, generation: UUID())
@@ -48,6 +48,7 @@ final class ScoringPreferenceAppTests: XCTestCase {
             let context = context, identity = Identity(context), policy = Policy(coupled)
             self.identity = identity; self.policy = policy
             model = AppModel(storageLayout: layout, context: context, captureAllowed: true,
+                capturePreparationHooks: .init(journal: .init(availableBytes: { _ in Int64.max })),
                 scoringInputDependencies: ScoringPreferenceAppTestSupport.dependencies(context: context,
                     isCurrent: { identity.matches($0) }),
                 nativePreferenceCurrent: { identity.matches($0) }, preferenceScoringEnabled: { policy.enabled },
@@ -86,6 +87,22 @@ final class ScoringPreferenceAppTests: XCTestCase {
         await f.model.wireSourceCoordinator()
         XCTAssertNotNil(f.model.deviceRegistry)
         XCTAssertNotNil(f.model.resolvedScoringPreferenceSource)
+    }
+
+    func testFreshAccountStoreBindsBeforeCaptureMetadataAndRegistryDiscovery() async throws {
+        let f = try fixture()
+        let opened = await f.model.repo.storeHandle()
+        let store = try XCTUnwrap(opened)
+        let owner = try await store.registryWriter.read { db in
+            try Row.fetchOne(db, sql: "SELECT projectURL,userID FROM localAccountOwner WHERE singleton=1")
+        }
+        XCTAssertEqual(owner?["projectURL"] as String?, f.context.scope.projectURL)
+        XCTAssertEqual(owner?["userID"] as String?, f.context.scope.userID)
+        try await connectRegistry(f)
+        do {
+            try await store.bindAccountOwner(projectURL: f.context.scope.projectURL, userID: UUID().uuidString)
+            XCTFail("A new account cannot rebind the initialized store")
+        } catch LocalAccountOwnershipError.mismatchedOwner { }
     }
 
     func testHydrationUsesOnlyAccountDomainAndCreatesNoAction() async throws {
@@ -243,6 +260,7 @@ final class ScoringPreferenceAppTests: XCTestCase {
         XCTAssertEqual(ticket.state, .held(.retired))
         XCTAssertNil(f.model.acceptedScoringPreferences)
         XCTAssertThrowsError(try f.model.completePreferenceAction([.init(key: .weightKg, value: .number(91))]))
-        XCTAssertNil(f.model.accountDefaults.object(forKey: "profile.weightKg"))
+        XCTAssertNil(f.model.accountDefaults.persistentDomain(forName: f.layout.preferencesSuite)?["profile.weightKg"],
+                     "Retirement must not persist an action; registration-domain defaults are not account data")
     }
 }

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.HrvAnalyzerRollingTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.003">
+  <properties/>
+  <testcase name="usesExclusiveLeftWindowBoundary" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.0"/>
+  <testcase name="repeatedValuesCannotReattachRejectedTimestamp" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.0"/>
+  <testcase name="cleansEachRawWindowIndependently" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.0"/>
+  <testcase name="emitsWindowedRmssdNotRawInterval" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.001"/>
+  <testcase name="gaplessWindowIsUnchanged" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.0"/>
+  <testcase name="rangeFilterDropsOutOfRangeBeatsFromWindows" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.0"/>
+  <testcase name="excludesDifferencesStraddlingADroppedBeat" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.0"/>
+  <testcase name="timestampsAreThePerSampleWindowEnd" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.001"/>
+  <testcase name="windowBoundsTheBeatsConsidered" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.0"/>
+  <testcase name="emptyOnFewerThanTwoRows" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.0"/>
+  <testcase name="stepSecThinsEmission" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.001"/>
+  <testcase name="honestNoEmDashAndNoFabricatedValuesOnEmpty" classname="com.noop.analytics.HrvAnalyzerRollingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

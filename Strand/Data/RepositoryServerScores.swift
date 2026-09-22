@@ -1,5 +1,6 @@
 import Foundation
 import WhoopStore
+import WhoopProtocol
 
 /// Presentation-only mapping. An owned null/pending day remains absent, never a local fallback.
 enum RepositoryServerScores {
@@ -16,6 +17,7 @@ enum RepositoryServerScores {
 
     static func shouldOwn(key: String, source: String, deviceId: String,
                           state: ServerScoreViewState) -> Bool {
+        if PhoneComputeRuntime.isFinalHosted { return true }
         guard ["my-whoop", "my-whoop-noop", deviceId, deviceId + "-noop", "server-snapshot"].contains(source),
               let metric = metric(key: key) else { return false }
         return state.owns(metric)
@@ -24,7 +26,7 @@ enum RepositoryServerScores {
     static func daily(_ local: [DailyMetric], state: ServerScoreViewState) -> [DailyMetric] {
         guard state.hasServerOwnership else { return local }
         let byDay = Dictionary(local.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
-        let keys = Set(byDay.keys).union(state.days.keys).union(state.enrollmentValues.keys)
+        let keys = Set(byDay.keys).union(state.days.keys).union(state.enrollmentValues.keys).union(state.canonicalDays.keys)
             .union(state.currentDay.isEmpty ? [] : [state.currentDay])
         return keys.sorted().compactMap { ServerScoreDisplay.daily(local: byDay[$0], day: $0, state: state) }
     }

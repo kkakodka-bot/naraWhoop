@@ -50,6 +50,7 @@ object StressIndex {
 
     /** Full SI components from a raw R-R series (ms). Pure, deterministic, no clock / IO. */
     fun componentsRaw(rawRR: List<Double>): Components? {
+        PhoneComputeRuntime.inferenceStarted("StressIndex.componentsRaw")
         val clean = HrvAnalyzer.cleanRR(rawRR)
         if (clean.size < MIN_BEATS) return null
         // #585 spot-honesty gate, matching HrvAnalyzer.analyzeRaw: a mostly-rejected capture (out-of-range

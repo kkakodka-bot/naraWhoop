@@ -43,6 +43,7 @@ object HrvWindow {
     fun measure(start: Int, observations: List<PhysiologyQuality.IntervalObservation>,
                 context: List<PhysiologyQuality.ContextEpoch> = emptyList(), policy: Policy = Policy(),
                 inputRevision: String = "unversioned", computationMode: String = "retrospective"): Result {
+        PhoneComputeRuntime.inferenceStarted("HrvWindow.measure")
         val lo = start.toDouble()
         val hi = lo + 300
         val inWindow = PhysiologyQuality.propagatingEndpointRejections(observations).filter { row -> row.eventTime >= lo && row.eventTime < hi ||

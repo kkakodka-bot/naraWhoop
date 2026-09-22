@@ -34,6 +34,7 @@ extension AutoWorkoutDetector {
                                    savedSpans: [SavedWorkoutSpan] = [],
                                    path: String = "autoDetect")
         -> (results: [DetectedWorkout], trace: [String]) {
+        PhoneComputeRuntime.entered("swift.AutoWorkoutDetector+Trace.detectTrace")
 
         // The result the Today card reads, verbatim, so the trace cannot diverge from it.
         let results = detect(hr: hr, restingBpm: restingBpm, motion: motion, savedSpans: savedSpans)

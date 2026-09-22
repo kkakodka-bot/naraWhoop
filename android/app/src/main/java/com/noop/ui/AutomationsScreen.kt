@@ -86,7 +86,7 @@ fun AutomationsScreen(viewModel: AppViewModel) {
     val zoneCoaching by viewModel.zoneCoaching.collectAsStateWithLifecycle()
     val zoneCoachRecovery by viewModel.zoneCoachRecovery.collectAsStateWithLifecycle()
     // The Zone 5 entry threshold (≥ 90% of HR-max), from the same HrZones model used everywhere.
-    val zone5Bpm = remember(profile.hrMax) {
+    val zone5Bpm = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else remember(profile.hrMax) {
         profile.hrZoneSet.zones.firstOrNull { it.number == 5 }?.lower?.roundToInt() ?: 0
     }
 
@@ -208,7 +208,7 @@ fun AutomationsScreen(viewModel: AppViewModel) {
         ) {
             ToggleRow(
                 label = uiString(R.string.l10n_automations_screen_hr_zone_coaching_9306e6e1),
-                help = "A triple-buzz when you climb into your top zone (Zone 5, ≥ $zone5Bpm bpm), a cue to ease off. Max HR comes from Settings.",
+                help = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) "Coaching decisions require a qualified, unexpired server result." else "A triple-buzz when you climb into your top zone (Zone 5, ≥ $zone5Bpm bpm), a cue to ease off. Max HR comes from Settings.",
                 checked = zoneCoaching,
                 onChange = { viewModel.setZoneCoaching(it) },
             )

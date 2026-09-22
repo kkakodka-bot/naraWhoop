@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.RespRateRsaTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.002">
+  <properties/>
+  <testcase name="respRateFromRR_compressedBankingProducesNoSplicesSoOnlyTheGateCatchesIt" classname="com.noop.analytics.RespRateRsaTest" time="0.0"/>
+  <testcase name="respRateFromRR_slowBreatherIsNotDoubled" classname="com.noop.analytics.RespRateRsaTest" time="0.0"/>
+  <testcase name="respRateFromRR_recoversKnownBreathingFrequency" classname="com.noop.analytics.RespRateRsaTest" time="0.001"/>
+  <testcase name="respRateFromRR_tooFewBeatsIsNaN" classname="com.noop.analytics.RespRateRsaTest" time="0.0"/>
+  <testcase name="respRateFromRR_batchedTimestampsIsNaN" classname="com.noop.analytics.RespRateRsaTest" time="0.0"/>
+  <testcase name="respRateFromRR_bankedStreamWithoutBreathingStillLooksPlausibleUngated" classname="com.noop.analytics.RespRateRsaTest" time="0.001"/>
+  <testcase name="respRateFromRR_retimingABankedStreamDefeatsTheGate_knownLimitation" classname="com.noop.analytics.RespRateRsaTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

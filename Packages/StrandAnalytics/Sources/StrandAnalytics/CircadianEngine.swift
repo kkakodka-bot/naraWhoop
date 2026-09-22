@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // CircadianEngine.swift — on-device body-clock phase estimate + a jet-lag / shift-work LIGHT & SLEEP-TIMING
@@ -119,6 +120,8 @@ public enum CircadianEngine {
     ///   acrophase  = atan2(γ, β) converted to a clock hour in [0, 24); this is the time of the PEAK.
     /// Returns nil with fewer than 3 distinct points or a degenerate design (zero variance).
     public static func cosinor(_ bins: [ActivityBin]) -> CosinorFit? {
+        guard PhoneComputeRuntime.permitsLocal("swift.CircadianEngine.cosinor") else { return nil }
+        PhoneComputeRuntime.entered("swift.CircadianEngine.cosinor")
         guard bins.count >= 3 else { return nil }
         let w = 2.0 * Double.pi / 24.0
         let n = Double(bins.count)
@@ -207,6 +210,8 @@ public enum CircadianEngine {
                                      daysObserved: Int,
                                      habitualWakeHour: Double,
                                      observedTempMinHour: Double? = nil) -> PhaseEstimate? {
+        guard PhoneComputeRuntime.permitsLocal("swift.CircadianEngine.estimatePhase") else { return nil }
+        PhoneComputeRuntime.entered("swift.CircadianEngine.estimatePhase")
         guard let fit = cosinor(bins) else { return nil }
 
         let relativeAmplitude = fit.mesor != 0 ? fit.amplitude / abs(fit.mesor) : 0
@@ -299,6 +304,7 @@ public enum CircadianEngine {
     public static func planShift(shiftHours: Double,
                                  currentSleepHour: Double,
                                  currentWakeHour: Double) -> JetLagPlan {
+        PhoneComputeRuntime.entered("swift.CircadianEngine.planShift")
         let magnitude = abs(shiftHours)
         guard magnitude >= 0.5 else {
             return JetLagPlan(direction: .none, totalShiftHours: 0, estimatedDays: 0, days: [],
@@ -400,6 +406,8 @@ public enum CircadianEngine {
     /// 24 h ring, and silently wrapping it would draw a full circle that means nothing.
     public static func idealSleepWindow(tempMinHour: Double,
                                         durationHours: Double) -> (bedHour: Double, wakeHour: Double)? {
+        guard PhoneComputeRuntime.permitsLocal("swift.CircadianEngine.idealSleepWindow") else { return nil }
+        PhoneComputeRuntime.entered("swift.CircadianEngine.idealSleepWindow")
         guard durationHours > 0, durationHours < 24 else { return nil }
         let wake = wrap24(tempMinHour + cbtMinBeforeWakeHours)
         return (bedHour: wrap24(wake - durationHours), wakeHour: wake)
@@ -416,7 +424,8 @@ public enum CircadianEngine {
     /// Anchored on wake rather than bedtime because `idealSleepWindow` builds the ideal window from the
     /// wake end; comparing bedtimes would fold the night's DURATION into a phase reading.
     public static func sleepWindowOffsetHours(tempMinHour: Double, actualWakeHour: Double) -> Double {
-        signedHourDelta(from: wrap24(tempMinHour + cbtMinBeforeWakeHours), to: wrap24(actualWakeHour))
+        PhoneComputeRuntime.entered("swift.CircadianEngine.sleepWindowOffsetHours")
+        return signedHourDelta(from: wrap24(tempMinHour + cbtMinBeforeWakeHours), to: wrap24(actualWakeHour))
     }
 
     /// Bucket an ABSOLUTE temperature-minimum clock hour into a lean.
@@ -425,6 +434,7 @@ public enum CircadianEngine {
     /// morning lean — and a naive `23.5 > 5.5` would call it evening instead. Pure, so the boundaries are
     /// assertable without building a fit.
     public static func chronotype(tempMinHour: Double) -> Chronotype {
+        PhoneComputeRuntime.entered("swift.CircadianEngine.chronotype")
         let delta = signedHourDelta(from: chronotypeAnchorHour, to: wrap24(tempMinHour))
         if delta < -chronotypeBandHours { return .morning }
         if delta > chronotypeBandHours { return .evening }
@@ -437,6 +447,8 @@ public enum CircadianEngine {
     /// offset the card already shows, but a NAMED category reads as a fact about the person rather than a
     /// reading of the week, so it waits for the stronger tier. `.unreadable` never names one.
     public static func chronotype(_ estimate: PhaseEstimate) -> Chronotype? {
+        guard PhoneComputeRuntime.permitsLocal("swift.CircadianEngine.chronotype") else { return nil }
+        PhoneComputeRuntime.entered("swift.CircadianEngine.chronotype")
         guard estimate.confidence == .solid else { return nil }
         return chronotype(tempMinHour: estimate.tempMinHour)
     }

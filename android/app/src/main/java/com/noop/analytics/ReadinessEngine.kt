@@ -135,6 +135,7 @@ object ReadinessEngine {
      * cosmetic reorder does not. The cached result is a small immutable [Readiness]; no row arrays retained.
      */
     fun evaluate(days: List<DailyMetric>, today: String? = null): Readiness {
+        PhoneComputeRuntime.inferenceStarted("ReadinessEngine.evaluate")
         val key = readinessKey(today, days)
         synchronized(evaluateCacheLock) { evaluateCache[key] }?.let { return it }
         val result = evaluateUncached(days, today)   // computed OUTSIDE the lock (the expensive sort/walk)
@@ -144,6 +145,7 @@ object ReadinessEngine {
 
     /** Server admission keeps calendar holes; existing app evaluation retains its observed-row policy. */
     fun evaluateCalendar(days: List<DailyMetric>, today: String): Readiness {
+        PhoneComputeRuntime.inferenceStarted("ReadinessEngine.evaluateCalendar")
         val end = LocalDate.parse(today)
         val byDay = days.filter { it.day <= today }.associateBy { it.day }
         require(byDay.size == days.count { it.day <= today }) { "duplicate_readiness_day" }

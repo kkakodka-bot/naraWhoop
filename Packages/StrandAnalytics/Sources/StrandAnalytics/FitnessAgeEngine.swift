@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // FitnessAgeEngine.swift — on-device "Fitness Age" from resting HR + activity + profile.
@@ -52,6 +53,7 @@ public enum FitnessAgeEngine {
 
     /// Body-mass index from metric height/weight (used by callers; not required for Fitness Age).
     public static func bmi(weightKg: Double, heightCm: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.FitnessAgeEngine.bmi")
         let m = heightCm / 100.0
         guard m > 0 else { return 0 }
         return weightKg / (m * m)
@@ -60,6 +62,7 @@ public enum FitnessAgeEngine {
     /// Nes 2011 waist-variant VO₂max (ml/kg/min). Optional display metric — needs a waist measurement.
     public static func estimateVO2max(age: Double, sex: String, waistCm: Double,
                                       restingHR: Double, paIndex: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.FitnessAgeEngine.estimateVO2max")
         let (intercept, ageC, wcC, rhrC, paiC) = coeffs(sex)
         return intercept - ageC*age + paiC*paIndex - wcC*waistCm - rhrC*restingHR
     }
@@ -67,6 +70,7 @@ public enum FitnessAgeEngine {
     /// Self-consistent Fitness Age (years, clamped [20,80]). The waist term cancels, so this needs only
     /// age, sex, resting HR and the PA-index: `FA = age + (rhrC·(RHR−RHRref) − paiC·(PAI−PAIref)) / ageC`.
     public static func fitnessAge(age: Double, sex: String, restingHR: Double, paIndex: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.FitnessAgeEngine.fitnessAge")
         let (_, ageC, _, rhrC, paiC) = coeffs(sex)
         let fa = age + (rhrC*(restingHR - restingHRReference) - paiC*(paIndex - paiReference)) / ageC
         return min(maxAge, max(minAge, fa))
@@ -80,6 +84,7 @@ public enum FitnessAgeEngine {
     public static func physicalActivityIndex(activeDaysPerWeek: Int,
                                              avgActiveMinutesPerDay: Double,
                                              highIntensityFraction: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.FitnessAgeEngine.physicalActivityIndex")
         let frequency: Double
         switch activeDaysPerWeek {
         case ..<1: frequency = 0.0
@@ -114,6 +119,7 @@ public enum FitnessAgeEngine {
     /// strain ≈60) lands near PA-index 5.
     public static func physicalActivityIndexFromStrain(activeDaysPerWeek: Int,
                                                        meanActiveStrain: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.FitnessAgeEngine.physicalActivityIndexFromStrain")
         let frequency: Double
         switch activeDaysPerWeek {
         case ..<1: frequency = 0.0
@@ -132,6 +138,8 @@ public enum FitnessAgeEngine {
     /// measurement is supplied; callers gate data-coverage (≥4 of 7 days) separately.
     public static func compute(age: Double, sex: String, restingHR: Double, paIndex: Double,
                                waistCm: Double? = nil, lowerConfidence: Bool = false) -> FitnessAgeResult? {
+        guard PhoneComputeRuntime.permitsLocal("swift.FitnessAgeEngine.compute") else { return nil }
+        PhoneComputeRuntime.entered("swift.FitnessAgeEngine.compute")
         guard age > 0, restingHR > 0 else { return nil }
         let fa = fitnessAge(age: age, sex: sex, restingHR: restingHR, paIndex: paIndex)
         let vo2: Double?
@@ -202,7 +210,10 @@ extension FitnessAgeEngine {
     /// not-ready card shows ("N more nights of wear…"). 0 once `minCoverageDays` is met. Assumes continued
     /// nightly wear (a skipped night just doesn't advance the count). Shared with the Android engine so both
     /// platforms show the same number.
-    public static func nightsUntilReady(rhrDays: Int) -> Int { max(0, minCoverageDays - rhrDays) }
+    public static func nightsUntilReady(rhrDays: Int) -> Int {
+        PhoneComputeRuntime.entered("swift.FitnessAgeEngine.nightsUntilReady")
+        return max(0, minCoverageDays - rhrDays)
+    }
 
     private static func coverageStatus(_ days: Int, floor: Int) -> FitnessReadinessStatus {
         if days >= goodCoverageDays { return .satisfied }
@@ -215,6 +226,7 @@ extension FitnessAgeEngine {
     public static func assessReadiness(hasAge: Bool, hasSex: Bool,
                                        rhrDays: Int, activityDays: Int,
                                        hasHeightWeight: Bool, hasWaist: Bool) -> FitnessAgeReadiness {
+        PhoneComputeRuntime.entered("swift.FitnessAgeEngine.assessReadiness")
         let items: [FitnessReadinessItem] = [
             FitnessReadinessItem(key: "age", label: "Your age",
                 status: hasAge ? .satisfied : .missing, required: true, role: .drivesAge,

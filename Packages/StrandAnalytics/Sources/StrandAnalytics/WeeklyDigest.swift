@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // WeeklyDigest.swift — a deterministic, offline "week in review".
@@ -233,6 +234,7 @@ public enum WeeklyDigestEngine {
     public static func build(byMetric: [WeeklyMetric: [String: Double]],
                              anchorDay: String,
                              effortDisplayFactor: Double = 1.0) -> WeeklyDigest {
+        PhoneComputeRuntime.entered("swift.WeeklyDigest.build")
         guard let monday = mondayOfWeek(containing: anchorDay) else {
             return emptyDigest(weekStart: anchorDay, weekEnd: anchorDay)
         }
@@ -291,6 +293,7 @@ public enum WeeklyDigestEngine {
     static let balanceBand: Double = 10.0
 
     static func balanceRead(_ summaries: [WeeklyMetricSummary]) -> BalanceRead {
+        PhoneComputeRuntime.entered("swift.WeeklyDigest.balanceRead")
         guard
             let effort = summaries.first(where: { $0.metric == .effort })?.thisWeek,
             let charge = summaries.first(where: { $0.metric == .charge })?.thisWeek,
@@ -321,6 +324,8 @@ public enum WeeklyDigestEngine {
                             balance: BalanceRead,
                             consistencySD: Double?,
                             effortDisplayFactor: Double = 1.0) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.WeeklyDigest.focalPoints") else { return [] }
+        PhoneComputeRuntime.entered("swift.WeeklyDigest.focalPoints")
         // Rank movers by |normalised move|, significant (enough days) first.
         let movers = summaries
             .filter { $0.weekOverWeek.current.n >= minDaysForFocus

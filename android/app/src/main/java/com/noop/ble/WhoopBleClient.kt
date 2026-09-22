@@ -4779,6 +4779,7 @@ class WhoopBleClient(
      * user's cadence or alerts a distinct new bout separated by movement.
      */
     private fun maybeBuzzInactivity() {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("passive_activity_coaching")) return
         if (!InactivityPrefs.enabled(context)) return
         ioScope.launch {
             try {
@@ -4825,6 +4826,8 @@ class WhoopBleClient(
      * See docs/superpowers/specs/2026-06-19-v5-haptic-biofeedback-design.md (L3).
      */
     private fun maybeNudgeStress() {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("stress_events")) return
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("stress_events")
         val config = BiofeedbackPrefs.stressConfig(context)
         // Cheap master gate before any DB work — inert when the feature/auto-nudge is off.
         if (!config.enabled || !config.autoNudge) return
@@ -4882,6 +4885,7 @@ class WhoopBleClient(
      * Self-gates on the NapPrefs toggle (default OFF, opt-in), so it's fully inert until enabled.
      */
     private fun maybeDetectNaps() {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("sleep_nap_detection")) return
         if (!NapPrefs.enabled(context)) return   // cheap master gate before any DB work
         ioScope.launch {
             try {

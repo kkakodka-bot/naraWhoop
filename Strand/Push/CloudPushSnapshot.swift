@@ -98,8 +98,19 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 predicate = "deviceId = ? AND startTs >= ? AND startTs < ?"
                 arguments = [deviceId, window.startTsInclusive, window.endTsExclusive]
             }
+            // The cross-platform wire contract includes routes, but the Apple
+            // workout schema does not require that optional column. Keep a
+            // stored route when present; otherwise publish its explicit null.
+            // All other required columns remain strict schema requirements.
+            var selectColumns = spec.columns
+            if table == .workout,
+               try !db.columns(in: spec.sqlName).contains(where: { $0.name == "routePolyline" }) {
+                selectColumns = spec.columns.map {
+                    $0 == "routePolyline" ? "NULL AS routePolyline" : $0
+                }
+            }
             let sql = """
-                SELECT \(spec.columns.joined(separator: ", "))
+                SELECT \(selectColumns.joined(separator: ", "))
                 FROM \(spec.sqlName)
                 WHERE \(predicate)
                 ORDER BY \(spec.keyColumns.joined(separator: ", ")) ASC
@@ -525,6 +536,12 @@ struct CloudPushSnapshot: PushSnapshotSource {
         let dbValue: DatabaseValue = row[column]
         if dbValue.isNull { return .null }
         if boolean, let v = Int64.fromDatabaseValue(dbValue) { return .bool(v != 0) }
+        // Nanosecond clocks can exceed JavaScript's exact integer range. The
+        // receipt wire contract uses decimal strings on both mobile platforms,
+        // even for small clocks, so Edge never rounds a timing observation.
+        if column == "receivedMonotonicNs", let v = Int64.fromDatabaseValue(dbValue) {
+            return .string(String(v))
+        }
         if let v = Int64.fromDatabaseValue(dbValue) { return .int(v) }
         if let v = Double.fromDatabaseValue(dbValue) { return .double(v) }
         if let v = String.fromDatabaseValue(dbValue) { return .string(v) }

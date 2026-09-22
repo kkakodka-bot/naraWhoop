@@ -29,20 +29,12 @@ final class DeviceRawSourceParityTests: XCTestCase {
     }
 
     private func fixture() throws -> Fixture {
-        let testFile = URL(fileURLWithPath: #filePath)
-        let url = testFile.deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Tools/parity_cases/device_raw_sources.json")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
-                      "Shared device-source parity fixture is missing; parity must fail closed")
-        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: url))
+        try JSONDecoder().decode(Fixture.self, from: SourceContractResources.data(
+            "Tools/parity_cases/device_raw_sources.json", in: Bundle(for: Self.self)))
     }
 
     private func production(_ path: String) throws -> String {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let url = root.appendingPathComponent(path)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
-                      "Production source missing: \(path); consumer wiring guard must fail closed")
-        return try String(contentsOf: url, encoding: .utf8)
+        try SourceContractResources.text(path, in: Bundle(for: Self.self))
     }
 
     func testSourceResolutionMatchesSharedOracle() throws {
@@ -68,9 +60,7 @@ final class DeviceRawSourceParityTests: XCTestCase {
     }
 
     func testStressCannotPinRawReadsToCanonicalNamespace() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let source = try String(contentsOf: root.appendingPathComponent("Strand/Screens/StressView.swift"),
-                                encoding: .utf8)
+        let source = try production("Strand/Screens/StressView.swift")
         let withoutComments = source.replacingOccurrences(of: #"/\*.*?\*/"#, with: "",
                                                            options: .regularExpression)
             .split(separator: "\n", omittingEmptySubsequences: false)

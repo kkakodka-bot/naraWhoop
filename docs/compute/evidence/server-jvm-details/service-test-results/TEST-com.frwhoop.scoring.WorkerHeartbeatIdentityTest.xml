@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.WorkerHeartbeatIdentityTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:17:10" hostname="mac-studio.lan" time="0.004">
+  <properties/>
+  <testcase name="anExistingImageMarkerNeverFallsBackToTheBundledRevision" classname="com.frwhoop.scoring.WorkerHeartbeatIdentityTest" time="0.001"/>
+  <testcase name="aRestartHasAnotherProcessIdentityButRetainsItsDeploymentAndSource" classname="com.frwhoop.scoring.WorkerHeartbeatIdentityTest" time="0.0"/>
+  <testcase name="missingMalformedAndMismatchedIdentityFailClosedWithoutExposingValues" classname="com.frwhoop.scoring.WorkerHeartbeatIdentityTest" time="0.002"/>
+  <testcase name="nativeDistributionRequiresItsImmutableBundledRevision" classname="com.frwhoop.scoring.WorkerHeartbeatIdentityTest" time="0.001"/>
+  <testcase name="preflightRejectsMissingIdentityBeforeTryingAnyDatabaseOrHttp" classname="com.frwhoop.scoring.WorkerHeartbeatIdentityTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -90,7 +90,8 @@ final class ServerVitalSelectionTests: XCTestCase {
         for metric in [ServerVitalSelection.Metric.hrv, .sleep, .respiratory] {
             let value = ServerVitalSelection.resolve(metric, serverEnabled: true, selectedDay: day,
                                                      overlay: overlay, localValue: 99)
-            XCTAssertNil(value.value); XCTAssertTrue(value.fromServer); XCTAssertEqual(value.status, "unavailable")
+            XCTAssertNil(value.value); XCTAssertTrue(value.fromServer)
+            XCTAssertEqual(value.status, overlay.features[metric.feature]?.reason ?? "unavailable")
         }
         XCTAssertTrue(ServerSleepEpisode.episodes(overlay, day: day).isEmpty)
         XCTAssertTrue(ServerHrvSeries.from(overlay, day: day).windows.isEmpty)

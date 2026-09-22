@@ -17,7 +17,7 @@ final class BackupSyncRoundTripTests: XCTestCase {
     private var suites: [String] = []
 
     override func setUpWithError() throws {
-        tmp = FileManager.default.temporaryDirectory
+        tmp = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("backupsync-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }

@@ -6,7 +6,7 @@ import WhoopStore
 @MainActor
 final class W1ImuRetirementTests: XCTestCase {
     private func fixture() throws -> (BLEManager, URL, UserDefaults, AccountScope) {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let suite = "W1ImuRetirementTests." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

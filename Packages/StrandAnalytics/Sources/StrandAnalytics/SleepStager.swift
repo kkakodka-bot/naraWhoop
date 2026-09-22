@@ -466,6 +466,8 @@ public enum SleepStager {
     /// previous record. First record → 0. (No dropout sentinel needed: GravitySample
     /// always carries finite x/y/z.)
     static func gravityDeltas(_ grav: [GravitySample]) -> [Double] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.gravityDeltas") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.gravityDeltas")
         var deltas: [Double] = []
         deltas.reserveCapacity(grav.count)
         var prev: GravitySample? = nil
@@ -541,6 +543,7 @@ public enum SleepStager {
     /// decide whether a pure gravity gap is a real wake or just a dropout. With no baseline or no
     /// HR in the interval, the answer is false (cannot vouch for the gap → treat as a real break).
     static func hrSleepBandAcross(_ a: Int, _ b: Int, hr: [HRSample], baseline: Double?) -> Bool {
+        PhoneComputeRuntime.entered("swift.SleepStager.hrSleepBandAcross")
         guard let baseline = baseline else { return false }
         let seg = hr.filter { $0.ts > a && $0.ts <= b }
         if seg.isEmpty { return false }
@@ -557,6 +560,8 @@ public enum SleepStager {
 
     /// Per-record sleep flags from a rolling fraction of "still" samples.
     static func classifyStill(_ grav: [GravitySample], _ deltas: [Double]) -> [Bool] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.classifyStill") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.classifyStill")
         let n = grav.count
         if n < 2 { return [Bool](repeating: false, count: n) }
         let half = windowSize(grav.map { $0.ts }) / 2
@@ -589,6 +594,8 @@ public enum SleepStager {
     /// closes the run, and the dense path (`sparse == false`) is byte-identical to the original.
     static func buildRuns(_ grav: [GravitySample], _ flags: [Bool],
                           sparse: Bool = false, hr: [HRSample] = [], baseline: Double? = nil) -> [Period] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.buildRuns") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.buildRuns")
         let n = grav.count
         if n == 0 { return [] }
         let times = grav.map { $0.ts }
@@ -651,19 +658,25 @@ public enum SleepStager {
     /// the value is always one the wearer actually recorded and the two platforms cannot disagree on a
     /// rounding rule.
     static func hrOnlyBaseline(_ hr: [HRSample]) -> Double? {
-        hrPercentile(hr, hrOnlyAnchorPercentile)
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.hrOnlyBaseline") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.hrOnlyBaseline")
+        return hrPercentile(hr, hrOnlyAnchorPercentile)
     }
 
     /// The `p` percentile of `hr` by bpm, nearest-rank. Shared with `hrOnlyBaseline` so the spread the
     /// trace reports is measured by the SAME rule as the anchor it is meant to be judged against.
     static func hrPercentile(_ hr: [HRSample], _ p: Double) -> Double? {
-        percentileOfSorted(hr.map { Double($0.bpm) }.sorted(), p)
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.hrPercentile") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.hrPercentile")
+        return percentileOfSorted(hr.map { Double($0.bpm) }.sorted(), p)
     }
 
     /// The `p` percentile of an ALREADY-SORTED bpm list, nearest-rank. Split out because the caller
     /// needs three percentiles from the same window, and the obvious spelling sorts once per
     /// percentile — ~160k samples sorted three times per scored day across a 21-day rescore.
     static func percentileOfSorted(_ sorted: [Double], _ p: Double) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.percentileOfSorted") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.percentileOfSorted")
         if sorted.isEmpty { return nil }
         let idx = min(max(Int(Double(sorted.count - 1) * p), 0), sorted.count - 1)
         return sorted[idx]
@@ -719,6 +732,8 @@ public enum SleepStager {
     static func hrOnlySleepRuns(_ hr: [HRSample], baseline: Double?,
                                 epochS: Int = hrOnlyEpochS,
                                 maxGapMinutes: Int = maxGapMin) -> [Period] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.hrOnlySleepRuns") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.hrOnlySleepRuns")
         guard let baseline = baseline, baseline > 0 else { return [] }
         if hr.isEmpty || epochS <= 0 { return [] }
         var byEpoch: [Int: [Double]] = [:]
@@ -785,6 +800,8 @@ public enum SleepStager {
     public static func hrOnlySessions(hr: [HRSample], rr: [RRInterval], resp: [RespSample],
                                       minMinutes: Int = minSleepMin,
                                       traceSink: ((String) -> Void)? = nil) -> [SleepSession] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.hrOnlySessions") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.hrOnlySessions")
         let hrS = hr.sorted { $0.ts < $1.ts }
         // ONE sort of the bpm axis, reused for the anchor and for the spread the trace reports.
         let sortedBpm = hrS.map { Double($0.bpm) }.sorted()
@@ -850,6 +867,8 @@ public enum SleepStager {
 
     /// Absorb runs shorter than mergeMin minutes into their neighbours.
     static func mergePeriods(_ periods: [Period], mergeMinutes: Int = mergeMin) -> [Period] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.mergePeriods") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.mergePeriods")
         if periods.isEmpty { return [] }
         var pending = periods
         let thresholdS = mergeMinutes * 60
@@ -927,6 +946,7 @@ public enum SleepStager {
     /// no trace. Merge and trace are one pass now. Kotlin twin: `bridgeSparseSleepTraced`.
     static func bridgeSparseSleepTraced(_ periods: [Period], sparse: Bool, hr: [HRSample],
                                         baseline: Double?) -> ([Period], [SparseBridgeAttempt]) {
+        PhoneComputeRuntime.entered("swift.SleepStager.bridgeSparseSleepTraced")
         if !sparse || periods.isEmpty { return (periods, []) }
         let bridgeGapS = sparseBridgeGapMin * 60
         let activeMaxS = sparseBridgeActiveMaxMin * 60
@@ -1004,7 +1024,9 @@ public enum SleepStager {
     /// this function will read this comment first.
     static func bridgeSparseSleep(_ periods: [Period], sparse: Bool,
                                   hr: [HRSample], baseline: Double?) -> [Period] {
-        bridgeSparseSleepTraced(periods, sparse: sparse, hr: hr, baseline: baseline).0
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.bridgeSparseSleep") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.bridgeSparseSleep")
+        return bridgeSparseSleepTraced(periods, sparse: sparse, hr: hr, baseline: baseline).0
     }
 
     // MARK: - HR refinement
@@ -1015,6 +1037,8 @@ public enum SleepStager {
 
     /// Day HR baseline = median bpm over all HR samples; nil if none.
     static func hrBaseline(_ hr: [HRSample]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.hrBaseline") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.hrBaseline")
         let vals = hr.map { Double($0.bpm) }
         guard !vals.isEmpty else { return nil }
         return HRVAnalyzer.median(vals)
@@ -1034,6 +1058,7 @@ public enum SleepStager {
     /// the detection call site passes the night's gravity. Mirrors Kotlin `confirmSleepWithHR`.
     static func confirmSleepWithHR(_ p: Period, hr: [HRSample], baseline: Double?,
                                    grav: [GravitySample] = [], sleepHRBaseline: Double? = nil) -> Bool {
+        PhoneComputeRuntime.entered("swift.SleepStager.confirmSleepWithHR")
         let effBaseline = sleepHRBaseline ?? baseline
         guard let effBaseline = effBaseline else { return true }
         let seg = rowsBetween(hr, start: p.start, end: p.end) { $0.ts }
@@ -1086,6 +1111,7 @@ public enum SleepStager {
     /// over at least `quiescentMinStableMinutes` such minutes. Empty/sparse gravity → false (motion unprovable,
     /// defer to the strict HR band). Pure + deterministic.
     static func runIsDeeplyQuiescent(_ p: Period, grav: [GravitySample]) -> Bool {
+        PhoneComputeRuntime.entered("swift.SleepStager.runIsDeeplyQuiescent")
         if grav.isEmpty || p.end <= p.start { return false }
         var byMinute: [Int: [GravitySample]] = [:]
         for g in grav where g.ts >= p.start && g.ts < p.end { byMinute[g.ts / 60, default: []].append(g) }
@@ -1104,6 +1130,8 @@ public enum SleepStager {
     /// turn-over. nil below 2 samples (a single sample has zero variance by construction and would read as a
     /// false "stable"). Shared shape with the stage-level posture check and the Kotlin twin.
     static func posturVarianceG2(_ samples: [GravitySample]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.posturVarianceG2") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.posturVarianceG2")
         guard samples.count >= 2 else { return nil }
         let n = Double(samples.count)
         var sx = 0.0, sy = 0.0, sz = 0.0
@@ -1124,6 +1152,8 @@ public enum SleepStager {
     /// not scored asleep: the returned value is never below `adaptiveBaselineFloor` bpm. Pure + deterministic.
     public static let adaptiveBaselineFloor: Double = 40.0
     public static func adaptiveOvernightHRBaseline(recentOvernightMedians: [Double]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.adaptiveOvernightHRBaseline") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.adaptiveOvernightHRBaseline")
         let vals = recentOvernightMedians.filter { $0.isFinite && $0 > 0 }
         guard !vals.isEmpty else { return nil }
         return max(adaptiveBaselineFloor, HRVAnalyzer.median(vals))
@@ -1166,6 +1196,7 @@ public enum SleepStager {
     /// real nap, so it is rejected — sedentary daytime stillness without a measured HR dip
     /// is far more likely than an unmonitored nap, and this path can never touch the night.
     static func passesDaytimeGuard(_ p: Period, restingHR: Int?, baseline: Double?) -> Bool {
+        PhoneComputeRuntime.entered("swift.SleepStager.passesDaytimeGuard")
         let daytimeMinSleepS = daytimeMinSleepMin * 60
         if (p.end - p.start) < daytimeMinSleepS { return false }
         guard let baseline = baseline, let resting = restingHR else { return false }
@@ -1183,6 +1214,7 @@ public enum SleepStager {
     static func passesMorningStillnessGuard(_ p: Period, restingHR: Int?, baseline: Double?,
                                             morningWakeEnd: Int?,
                                             bandSleepState: [(ts: Int, state: Int)] = []) -> Bool {
+        PhoneComputeRuntime.entered("swift.SleepStager.passesMorningStillnessGuard")
         // Only a daytime block beginning within the post-wake window of an overnight chain is suspected.
         guard let wakeEnd = morningWakeEnd, p.start >= wakeEnd,
               (p.start - wakeEnd) <= morningStillnessWindowMin * 60 else {
@@ -1205,6 +1237,7 @@ public enum SleepStager {
     /// re-onset. Empty/absent band state → false (no anchor → fall back to the HR bar); we never invent a
     /// "asleep" reading the strap did not bank. Pure + deterministic. (#531 / H8 consume)
     static func bandStateConfirmsAsleep(_ p: Period, bandSleepState: [(ts: Int, state: Int)]) -> Bool {
+        PhoneComputeRuntime.entered("swift.SleepStager.bandStateConfirmsAsleep")
         let inBlock = bandSleepState.filter { $0.ts >= p.start && $0.ts <= p.end }
         guard !inBlock.isEmpty else { return false }
         let asleep = inBlock.reduce(0) { $0 + ($1.state == bandStateAsleep ? 1 : 0) }
@@ -1277,6 +1310,8 @@ public enum SleepStager {
                                        bandSleepState: [(ts: Int, state: Int)],
                                        enabled: Bool = bandStateWakeVetoEnabled,
                                        cutoffTs: Int = bandStateWakeVetoCutoffTs) -> [StageSegment] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.applyBandStateWakeVeto") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.applyBandStateWakeVeto")
         guard enabled, !bandSleepState.isEmpty, !stages.isEmpty, end > start else {
             return stages
         }
@@ -1333,6 +1368,7 @@ public enum SleepStager {
     /// this returns [] (the gravity-only path is left to the existing guards — we can't assert
     /// off-wrist without HR). These spans are UNIONed with the WRIST_OFF intervals by `offWristFraction`.
     static func offWristHRGapSpans(_ p: Period, hr: [HRSample]) -> [(start: Int, end: Int)] {
+        PhoneComputeRuntime.entered("swift.SleepStager.offWristHRGapSpans")
         if hr.isEmpty || p.end <= p.start { return [] }
         // Density gate (#507): only trust the HR-gap off-wrist proxy when the HR STREAM is dense enough
         // that a long gap is anomalous. A WHOOP 4.0 synced night is motion-reconstructed with sparse HR,
@@ -1366,6 +1402,7 @@ public enum SleepStager {
     /// off-wrist tail scores low and is kept; an all-day desk strap (HR-gap ≈100%, no events needed) or a
     /// session genuinely spent off the wrist scores high and is dropped.
     static func offWristFraction(_ p: Period, hr: [HRSample], wristOff: [(start: Int, end: Int)]) -> Double {
+        PhoneComputeRuntime.entered("swift.SleepStager.offWristFraction")
         let dur = p.end - p.start
         if dur <= 0 { return 0 }
         // Collect every off-wrist span, clipped to the run: HR-gap proxy spans + explicit wrist-off events.
@@ -1435,6 +1472,8 @@ public enum SleepStager {
                                    sleepHRBaseline: Double? = nil,
                                    timezone: TimeZone? = nil,
                                    traceSink: ((String) -> Void)? = nil) -> [SleepSession] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.detectSleep") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.detectSleep")
         // Sleep & Rest test mode only: when a trace is requested we MUST run the live ladder, not a
         // memoized result, so each gate verdict is emitted for THIS night. The trace is side-effect-
         // only and never changes the sessions, so a traced and an untraced call return the identical
@@ -1712,6 +1751,7 @@ public enum SleepStager {
 
     /// asleep / in-bed in [0, 1]; asleep = in-bed − wake.
     static func efficiency(start: Int, end: Int, stages: [StageSegment]) -> Double {
+        PhoneComputeRuntime.entered("swift.SleepStager.efficiency")
         let inBed = Double(end - start)
         if inBed <= 0 { return 0 }
         let asleep = SleepStageSemantics.normalized(stages, start: start, end: end)
@@ -1725,6 +1765,7 @@ public enum SleepStager {
 
     /// First persistent-sleep epoch (onset) and last sleep epoch (final wake).
     static func onsetAndFinalWake(_ ckFlags: [Bool]) -> (Int, Int) {
+        PhoneComputeRuntime.entered("swift.SleepStager.onsetAndFinalWake")
         let n = ckFlags.count
         if n == 0 { return (0, 0) }
         var onset: Int? = nil
@@ -1749,6 +1790,8 @@ public enum SleepStager {
     public static func stageSession(start: Int, end: Int, grav: [GravitySample],
                                     hr: [HRSample], rr: [RRInterval], resp: [RespSample],
                                     hrvObservations: [PhysiologyQuality.IntervalObservation] = []) -> [StageSegment] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.stageSession") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.stageSession")
         let grav = grav.filter(SleepSignalValidity.gravity)
         let hr = hr.filter(SleepSignalValidity.heartRate)
         // Existing cache fingerprints lack original provenance. Never reuse them for proven input.
@@ -1853,6 +1896,8 @@ public enum SleepStager {
     /// persists NULL (no fabricated zero series). Pure + deterministic; shares `buildEpochGrid` with staging
     /// so the grids align epoch-for-epoch. (H8)
     public static func sessionEpochMotion(start: Int, end: Int, grav: [GravitySample]) -> [Double] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.sessionEpochMotion") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.sessionEpochMotion")
         let gSeg = rowsBetween(grav, start: start, end: end) { $0.ts }
         if gSeg.count < 2 { return [] }
         let gDeltas = gravityDeltas(gSeg)
@@ -1874,6 +1919,8 @@ public enum SleepStager {
     /// carried VERBATIM — this never converts an unproven code into a derived stage; consumers decide meaning.
     public static func sessionEpochSleepState(start: Int, end: Int,
                                               sleepState: [(ts: Int, state: Int)]) -> [Int] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.sessionEpochSleepState") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.sessionEpochSleepState")
         let seg = rowsBetween(sleepState, start: start, end: end) { $0.ts }.sorted { $0.ts < $1.ts }
         guard !seg.isEmpty, end > start else { return [] }
         let nEpochs = max(1, Int(ceil(Double(end - start) / epochS)))
@@ -1910,6 +1957,7 @@ public enum SleepStager {
     static func buildEpochGrid(start: Double, end: Double,
                                gravTimes: [Int], gravDeltas: [Double],
                                hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> EpochGrid {
+        PhoneComputeRuntime.entered("swift.SleepStager.buildEpochGrid")
         if end <= start {
             return EpochGrid(start: start, end: end, edges: [start], counts: [],
                              moveFrac: [], hr: [], rr: [], resp: [])
@@ -1965,10 +2013,14 @@ public enum SleepStager {
     // MARK: - Cole–Kripke
 
     static func rescaleCounts(_ counts: [Double]) -> [Double] {
-        counts.map { min($0 / ckCountDivisor, ckCountClip) }
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.rescaleCounts") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.rescaleCounts")
+        return counts.map { min($0 / ckCountDivisor, ckCountClip) }
     }
 
     static func coleKripke(_ rescaled: [Double]) -> [Bool] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.coleKripke") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.coleKripke")
         let n = rescaled.count
         var flags: [Bool] = []
         flags.reserveCapacity(n)
@@ -1988,6 +2040,8 @@ public enum SleepStager {
     // MARK: - Walch difference-of-Gaussians HR variability
 
     static func gaussianKernel(sigmaS: Double, dtS: Double = epochS) -> [Double] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.gaussianKernel") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.gaussianKernel")
         let sigma = max(sigmaS / dtS, 1e-6)  // σ in epochs
         let radius = max(1, Int(ceil(3 * sigma)))
         var k = [Double]()
@@ -1998,6 +2052,8 @@ public enum SleepStager {
 
     /// Same-length convolution with reflect padding (edge-stable).
     static func convolveReflect(_ x: [Double], _ kernel: [Double]) -> [Double] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.convolveReflect") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.convolveReflect")
         let r = kernel.count / 2
         // A signal shorter than the kernel radius can't be reflect-padded (the mirror reads x[r]
         // and x[x.count-2-i]) — return it unchanged rather than indexing out of bounds. In practice
@@ -2026,6 +2082,8 @@ public enum SleepStager {
     /// DoG-filtered HR (σ1=120 s minus σ2=600 s). NaNs linearly interpolated first;
     /// all-NaN → zeros.
     static func dogHRVariability(_ hrPerEpoch: [Double]) -> [Double] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.dogHRVariability") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.dogHRVariability")
         let n = hrPerEpoch.count
         if n == 0 { return [] }
         let maskIdx = (0..<n).filter { !hrPerEpoch[$0].isNaN }
@@ -2063,6 +2121,7 @@ public enum SleepStager {
     /// NOTE: faithful port of sleep_features.resp_rate_and_rrv (which the Python
     /// source derives without neurokit), using a simple local-maxima peak finder.
     static func respRateAndRRV(_ respRaw: [Double], dtS: Double = 1.0) -> (Double, Double) {
+        PhoneComputeRuntime.entered("swift.SleepStager.respRateAndRRV")
         let nan = Double.nan
         if respRaw.count < 8 { return (nan, nan) }
         let mean = respRaw.reduce(0, +) / Double(respRaw.count)
@@ -2091,6 +2150,8 @@ public enum SleepStager {
     /// a sample is a peak if strictly greater than both neighbours and ≥ height;
     /// peaks closer than `distance` are resolved by keeping the taller.
     static func findPeaks(_ x: [Double], distance: Int, height: Double) -> [Int] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.findPeaks") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.findPeaks")
         let n = x.count
         if n < 3 { return [] }
         var candidates: [Int] = []
@@ -2183,6 +2244,7 @@ public enum SleepStager {
     /// single spurious peak among a five-minute window's worth.
     /// Returns NaN when too few intervals survive (honest no-data).
     static func respRateFromRR(_ rr: [RRInterval], start: Int, end: Int) -> Double {
+        PhoneComputeRuntime.entered("swift.SleepStager.respRateFromRR")
         let nan = Double.nan
         if end <= start { return nan }
 
@@ -2352,6 +2414,8 @@ public enum SleepStager {
 
     static func extractFeatures(grid: EpochGrid, ckFlags: [Bool], dogHR: [Double],
                                 onsetIdx: Int, finalWakeIdx: Int, hrvMeasurements: [HrvWindowResult] = []) -> [EpochFeatures] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.extractFeatures") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.extractFeatures")
         let n = grid.nEpochs
         let rescaled = rescaleCounts(grid.counts)
         let halfW = Int((featureWindowS / epochS / 2).rounded())
@@ -2393,6 +2457,8 @@ public enum SleepStager {
 
     /// numpy-style linear-interpolated percentile over finite values; nil if none.
     static func percentile(_ values: [Double], _ pct: Double) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.percentile") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.percentile")
         let vals = values.filter { $0.isFinite }.sorted()
         if vals.isEmpty { return nil }
         return StrainScorer.percentile(vals, pct)
@@ -2401,6 +2467,8 @@ public enum SleepStager {
     // MARK: - Classifier seam (Stage 2)
 
     static func classifyEpochs(_ features: [EpochFeatures]) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.classifyEpochs") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.classifyEpochs")
         let n = features.count
         if n == 0 { return [] }
 
@@ -2427,6 +2495,7 @@ public enum SleepStager {
     /// which the WAKE rule must NOT treat as cardiac activation. Same `!rmssd.isFinite` signal already
     /// trusted for the pro-deep RMSSD handling (#127/#129), aggregated across the night. (#705)
     static func isCardiacSparse(_ sleepFeats: [EpochFeatures]) -> Bool {
+        PhoneComputeRuntime.entered("swift.SleepStager.isCardiacSparse")
         if sleepFeats.isEmpty { return false }
         let sparse = sleepFeats.reduce(0) { $0 + (($1.rmssd.isFinite) ? 0 : 1) }
         return Double(sparse) >= cardiacSparseEpochFrac * Double(sleepFeats.count)
@@ -2556,6 +2625,7 @@ public enum SleepStager {
     static func classifyOne(_ f: EpochFeatures, hrLo: Double?, hrHi: Double?,
                             rmssdHi: Double?, hrvarHi: Double?, rrvHi: Double?, rrvLo: Double?,
                             cardiacSparse: Bool = false) -> String {
+        PhoneComputeRuntime.entered("swift.SleepStager.classifyOne")
         let hasHR = f.hr.isFinite
         let hrLow = hasHR && hrLo != nil && f.hr <= hrLo!
         let hrHigh = hasHR && hrHi != nil && f.hr >= hrHi!
@@ -2602,6 +2672,8 @@ public enum SleepStager {
     // MARK: - Post-processing (Stage 3)
 
     static func smoothLabels(_ labels: [String], window: Int = smoothEpochs) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.smoothLabels") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.smoothLabels")
         let n = labels.count
         if n == 0 || window <= 1 { return labels }
         var w = window
@@ -2627,6 +2699,8 @@ public enum SleepStager {
 
     static func reimposePhysiology(_ labels: [String], features: [EpochFeatures],
                                    onsetIdx: Int, finalWakeIdx: Int) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.reimposePhysiology") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.reimposePhysiology")
         var out = labels
         let noREMEpochs = Int((noREMAfterOnsetMin * 60.0 / epochS).rounded())
         // "Deep is front-loaded" re-imposes scattered late "deep" back to light — BUT only when there's
@@ -2719,6 +2793,7 @@ public enum SleepStager {
     static func remRejectReason(_ f: EpochFeatures, hrLo: Double?, hrHi: Double?,
                                 rmssdHi: Double?, hrvarHi: Double?, rrvHi: Double?, rrvLo: Double?,
                                 cardiacSparse: Bool = false) -> REMRejectReason {
+        PhoneComputeRuntime.entered("swift.SleepStager.remRejectReason")
         // Mirror classifyOne's derived predicates exactly.
         let hasHR = f.hr.isFinite
         let hrLow = hasHR && hrLo != nil && f.hr <= hrLo!
@@ -2756,6 +2831,8 @@ public enum SleepStager {
     public static func remFunnelDiagnostic(start: Int, end: Int, grav: [GravitySample],
                                            hr: [HRSample], rr: [RRInterval],
                                            resp: [RespSample]) -> REMFunnelDiagnostic? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.remFunnelDiagnostic") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.remFunnelDiagnostic")
         let gSeg = rowsBetween(grav, start: start, end: end) { $0.ts }
         if gSeg.count < 2 { return nil }
         let gDeltas = gravityDeltas(gSeg)
@@ -2832,6 +2909,7 @@ public enum SleepStager {
     /// mergeFragments to bias an ambiguous merge toward the LIGHTER stage so smoothing
     /// can never inflate deep/REM. Unknown labels rank lightest (0) — they never win deep.
     static func stageDepthRank(_ stage: String) -> Int {
+        PhoneComputeRuntime.entered("swift.SleepStager.stageDepthRank")
         switch stage {
         case "light": return 1
         case "rem":   return 2
@@ -2856,6 +2934,8 @@ public enum SleepStager {
     /// Swift and Kotlin ports stay byte-identical. A run already ≥ threshold is a real
     /// transition and is always preserved.
     static func mergeFragments(_ labels: [String], thresholdEpochs: Int = fragmentMergeEpochs) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.mergeFragments") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.mergeFragments")
         let n = labels.count
         if n == 0 || thresholdEpochs <= 1 { return labels }
 
@@ -2959,6 +3039,8 @@ public enum SleepStager {
     public static func rhrBinGateLogLine(day: String, sessions: [(Int, Int)], hr: [HRSample],
                                          shippedFloor: Int, minBinSamples: Int = 5,
                                          minPlausibleBpm: Double = 25) -> String? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.rhrBinGateLogLine") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.rhrBinGateLogLine")
         let windowS = 5 * 60
         var bins = 0, thin = 0, implausible = 0, bestN = 0
         var best: Double?
@@ -2992,6 +3074,8 @@ public enum SleepStager {
     }
 
     public static func sessionRestingHR(start: Int, end: Int, hr: [HRSample]) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.sessionRestingHR") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.sessionRestingHR")
         let seg = hr.filter { $0.ts >= start && $0.ts <= end }
         guard !seg.isEmpty else { return nil }
         let windowS = 5 * 60
@@ -3030,6 +3114,8 @@ public enum SleepStager {
                               observations: [PhysiologyQuality.IntervalObservation]? = nil,
                               context: [PhysiologyQuality.ContextEpoch] = [],
                               inputRevision: String = "unversioned") -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.sessionAvgHRV") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStager.sessionAvgHRV")
         let measurements = HrvSeries.windows(start: start, end: end,
             observations: observations ?? PhysiologyQuality.legacy(rr, deviceId: "legacy-unscoped"),
             context: context, inputRevision: inputRevision)
@@ -3041,7 +3127,9 @@ public enum SleepStager {
                                   observations: [PhysiologyQuality.IntervalObservation]? = nil,
                                   context: [PhysiologyQuality.ContextEpoch] = [],
                                   inputRevision: String = "unversioned") -> [HrvWindow] {
-        HrvSeries.windows(start: start, end: end,
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.sessionHrvWindows") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.sessionHrvWindows")
+        return HrvSeries.windows(start: start, end: end,
             observations: observations ?? PhysiologyQuality.legacy(rr, deviceId: "legacy-unscoped"),
             context: context, inputRevision: inputRevision).map { result in
                 let center = result.start + 150
@@ -3056,6 +3144,8 @@ public enum SleepStager {
     /// The LAST contiguous run of deep-stage windows in `windows` — the WHOOP-style "last slow-wave-sleep"
     /// comparator for the HRV nightly trace. Empty when no deep window is present. (#141)
     static func lastDeepRun(_ windows: [HrvWindow]) -> [HrvWindow] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStager.lastDeepRun") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStager.lastDeepRun")
         var lastRun: [HrvWindow] = []
         var cur: [HrvWindow] = []
         for w in windows {
@@ -3086,6 +3176,7 @@ public enum SleepStager {
     }
 
     public static func hypnogramMetrics(_ session: SleepSession) -> HypnogramMetrics {
+        PhoneComputeRuntime.entered("swift.SleepStager.hypnogramMetrics")
         let segs = SleepStageSemantics.normalized(session.stages, start: session.start, end: session.end)
         let tib = max(0.0, Double(session.end - session.start))
 
@@ -3132,6 +3223,7 @@ public enum SleepStager {
 
     /// Population standard deviation (numpy default, ddof=0).
     static func standardDeviation(_ values: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.SleepStager.standardDeviation")
         guard !values.isEmpty else { return 0 }
         let mean = values.reduce(0, +) / Double(values.count)
         var ss = 0.0

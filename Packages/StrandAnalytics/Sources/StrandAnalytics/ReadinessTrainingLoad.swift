@@ -1,3 +1,4 @@
+import WhoopProtocol
 import WhoopStore
 
 public extension ReadinessEngine {
@@ -28,6 +29,7 @@ public extension ReadinessEngine {
         today: String? = nil,
         trainingLoadConfiguration: TrainingLoadEngine.Configuration = .standard
     ) -> TrainingLoadAnalysis {
+        PhoneComputeRuntime.entered("swift.ReadinessTrainingLoad.evaluateWithTrainingLoad")
         let readiness = evaluate(days: days, today: today)
         let trainingDays = days.map { TrainingLoadEngine.DailyLoad(day: $0.day, load: $0.strain) }
         let trainingLoad = TrainingLoadEngine.evaluate(

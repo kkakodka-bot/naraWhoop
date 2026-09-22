@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.FitnessAgeEngineTest" tests="21" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.003">
+  <properties/>
+  <testcase name="readinessPartialIsEstimate" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.002"/>
+  <testcase name="vo2maxWomen" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="fitterIsYounger" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="readinessMissingRhrIsNotReady" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="paiHigh" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="computeWithWaistFillsVO2max" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="computeNilNoRhr" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="clampHigh" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="unfitterIsOlder" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="clampLow" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="readinessNoBodyMetricsStillReady" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="bmiHelper" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="paiFromStrain" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="readinessMissingAgeIsNotReady" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="paiModerate" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="computeNonBinaryLowerConfidence" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="referenceFitPersonEqualsChronoAge" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="paiSedentary" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.001"/>
+  <testcase name="readinessAllPresentIsReady" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="computeReferencePerson" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <testcase name="vo2maxMen" classname="com.noop.analytics.FitnessAgeEngineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

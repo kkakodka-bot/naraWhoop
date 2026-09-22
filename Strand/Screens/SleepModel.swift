@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import WhoopProtocol
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
@@ -517,6 +518,8 @@ extension SleepModel {
     /// `SleepView.buildModel()` body, re-expressed over explicit inputs. (#940)
     static func build(_ inputs: SleepModelInputs,
                       compute: ServerScoreLocalComputePolicy = .init()) -> SleepModel? {
+        guard PhoneComputeRuntime.permitsLocal("sleep_composites") else { return nil }
+        PhoneComputeRuntime.entered("sleep_composites")
         // Replicate `navSessions`: fall back to the one-per-night list until the fuller list loads.
         let navSessions = inputs.allSessions.isEmpty ? inputs.sleeps : inputs.allSessions
         let dayGroups = navDays(navSessions: navSessions)

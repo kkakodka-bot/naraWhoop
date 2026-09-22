@@ -76,6 +76,7 @@ object AutoWorkoutDetector {
      * First row → 0. Returns a ts→intensity map for O(1) window lookups. Empty input → empty map.
      */
     internal fun motionIntensityByTs(gravity: List<GravitySample>): Map<Long, Double> {
+        PhoneComputeRuntime.inferenceStarted("AutoWorkoutDetector.motionIntensityByTs")
         if (gravity.isEmpty()) return emptyMap()
         val rows = gravity.sortedBy { it.ts }
         val out = LinkedHashMap<Long, Double>(rows.size)
@@ -123,6 +124,7 @@ object AutoWorkoutDetector {
         gravity: List<GravitySample> = emptyList(),
         savedWorkouts: List<Pair<Long, Long>> = emptyList(),
     ): List<DetectedWorkout> {
+        PhoneComputeRuntime.inferenceStarted("AutoWorkoutDetector.detect")
         val seg = cleanHR(hr)
         if (seg.isEmpty()) return emptyList()
 

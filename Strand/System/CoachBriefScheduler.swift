@@ -1,5 +1,6 @@
 import Foundation
 import UserNotifications
+import WhoopProtocol
 #if os(iOS)
 import BackgroundTasks
 import WidgetKit
@@ -50,7 +51,7 @@ enum CoachBriefScheduler {
     static let notificationCategoryId = "coach-brief"
     private static let requestIdPrefix = "coach-brief-"
 
-    static var isEnabled: Bool { UserDefaults.standard.bool(forKey: K.enabled) }
+    static var isEnabled: Bool { !PhoneComputeRuntime.isFinalHosted && UserDefaults.standard.bool(forKey: K.enabled) }
 
     /// Time-of-day to generate, minutes since local midnight. Clamped to a valid minute. Default 07:00.
     static var timeMinutes: Int {
@@ -70,6 +71,7 @@ enum CoachBriefScheduler {
     /// first message without re-generating or re-sending anything. Returns nil (and leaves state
     /// untouched) when there's nothing unconsumed, so a normal open is unaffected.
     static func consumeStoredBrief() -> String? {
+        guard !PhoneComputeRuntime.isFinalHosted else { return nil }
         guard hasUnconsumedBrief, let text = storedBrief else { return nil }
         UserDefaults.standard.set(false, forKey: K.hasUnconsumed)
         return text
@@ -125,6 +127,7 @@ enum CoachBriefScheduler {
     static func setEnabled(_ on: Bool,
                             generateBrief: @escaping () async -> String?,
                             completion: (@MainActor (EnableOutcome) -> Void)? = nil) {
+        guard !PhoneComputeRuntime.isFinalHosted else { cancel(); completion?(.off); return }
         guard on else {
             UserDefaults.standard.set(false, forKey: K.enabled)
             cancel()
@@ -172,6 +175,7 @@ enum CoachBriefScheduler {
     /// after a relaunch, re-submits the iOS request) and a slot missed while the app wasn't open still
     /// generates once. No-op when the feature is off.
     static func activateIfEnabled(generateBrief: @escaping () async -> String?) {
+        guard !PhoneComputeRuntime.isFinalHosted else { cancel(); return }
         guard isEnabled else { return }
         scheduleNext(generateBrief: generateBrief)
         Task { await catchUpIfDue(generateBrief: generateBrief) }
@@ -183,7 +187,8 @@ enum CoachBriefScheduler {
     /// Returns the brief text, or nil on failure (no key/consent/network) — the caller surfaces that.
     @discardableResult
     static func generateNow(generateBrief: () async -> String?) async -> String? {
-        await generateBrief()
+        guard PhoneComputeRuntime.permitsLocal("legacy_scheduled_coaching") else { return nil }
+        return await generateBrief()
     }
 
     // MARK: - Due check + generation
@@ -198,6 +203,7 @@ enum CoachBriefScheduler {
     /// retry on the next wake instead of marking the day done on a failure).
     @discardableResult
     static func catchUpIfDue(generateBrief: () async -> String?) async -> Bool {
+        guard PhoneComputeRuntime.permitsLocal("legacy_scheduled_coaching") else { return false }
         guard isEnabled else { return true }
         let now = Date()
         let cal = Calendar.current
@@ -241,6 +247,7 @@ enum CoachBriefScheduler {
     }
 
     private static func postNotification(title: String, body: String, isRetry: Bool = false) {
+        guard !PhoneComputeRuntime.isFinalHosted else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -282,6 +289,7 @@ enum CoachBriefScheduler {
     /// (Re)arm the next occurrence. macOS uses a foreground `DispatchSourceTimer`; iOS submits a
     /// background-refresh request. Both target the next wall-clock occurrence of `timeMinutes`.
     private static func scheduleNext(generateBrief: @escaping () async -> String?) {
+        guard !PhoneComputeRuntime.isFinalHosted else { return }
         #if os(macOS)
         macTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: .main)

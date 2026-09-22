@@ -60,6 +60,7 @@ object V5HealthSignals {
         activityBins: List<CircadianEngine.ActivityBin> = emptyList(),
         daysObserved: Int = 0,
     ): Snapshot {
+        PhoneComputeRuntime.inferenceStarted("illness_cycle_circadian")
         val baselineTrusted = days.count { hasAnyVital(it) } >= MIN_BASELINE_NIGHTS
 
         // ── Per-night z-scores against each signal's trailing rolling baseline ──

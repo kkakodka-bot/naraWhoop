@@ -17,10 +17,10 @@ enum SyncDrainPolicy {
         case manual
     }
 
-    /// Derived-tail order. SyncEngine runs cloudPush through independent owner/transport admission
-    /// BEFORE this tail; rescore/backlog guards below apply only to derived Health/widget exports.
+    /// Raw transport runs through independent owner/transport admission before the backlog-gated
+    /// derived tail; rescore readiness below gates only Health/widget exports.
     static let stageOrder: [SyncJobKind] = [
-        .rescore, .cloudPush, .healthWriteback, .widgetPublish,
+        .cloudPush, .rescore, .healthWriteback, .widgetPublish,
     ]
 
     /// A wake may see debt from an intermediate chunk. Wait until the BLE burst reaches its terminal
@@ -42,6 +42,7 @@ enum SyncDrainPolicy {
     /// leaves all downstream tokens owed for the next foreground or processing wake.
     static func shouldContinue(after stage: SyncJobKind, succeeded: Bool,
                                rescoreStillOwed: Bool) -> Bool {
+        if stage == .cloudPush { return true }
         guard !rescoreStillOwed else { return false }
         if stage == .rescore { return succeeded }
         return true

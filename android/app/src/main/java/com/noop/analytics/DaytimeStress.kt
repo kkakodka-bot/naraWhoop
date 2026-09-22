@@ -325,6 +325,7 @@ object DaytimeStress {
         mode: ScoringMode = ScoringMode.DayRelative,
         timezone: ZoneId? = null,
     ): Result {
+        PhoneComputeRuntime.inferenceStarted("DaytimeStress.analyze")
         if (hr.isEmpty()) return Result.EMPTY
 
         // 1) Bucket HR + R-R into LOCAL hour-of-day buckets, keyed by the bucket start

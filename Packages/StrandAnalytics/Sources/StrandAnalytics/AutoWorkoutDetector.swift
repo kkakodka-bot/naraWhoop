@@ -91,6 +91,8 @@ public enum AutoWorkoutDetector {
     /// First row → 0. Empty input → []. Mirrors the Kotlin `motionIntensityByTs` (and
     /// `WorkoutDetector.activitySeries`) so a caller can build the optional `motion` argument.
     public static func motionPoints(_ gravity: [GravitySample]) -> [MotionPoint] {
+        guard PhoneComputeRuntime.permitsLocal("swift.AutoWorkoutDetector.motionPoints") else { return [] }
+        PhoneComputeRuntime.entered("swift.AutoWorkoutDetector.motionPoints")
         if gravity.isEmpty { return [] }
         let rows = gravity.sorted { $0.ts < $1.ts }
         var out: [MotionPoint] = []
@@ -139,6 +141,8 @@ public enum AutoWorkoutDetector {
                               restingBpm: Int?,
                               motion: [MotionPoint]? = nil,
                               savedSpans: [SavedWorkoutSpan] = []) -> [DetectedWorkout] {
+        guard PhoneComputeRuntime.permitsLocal("swift.AutoWorkoutDetector.detect") else { return [] }
+        PhoneComputeRuntime.entered("swift.AutoWorkoutDetector.detect")
         let seg = hr.sorted { $0.ts < $1.ts }
         if seg.isEmpty { return [] }
 

@@ -102,7 +102,7 @@ final class W4ResolvedSleepSeamTests: XCTestCase {
         XCTAssertEqual(only.restingHR, SleepStager.sessionRestingHR(start: start, end: end, hr: raw.hr))
         XCTAssertEqual(only.avgHRV, SleepStager.sessionAvgHRV(start: start, end: end, rr: raw.rr))
         XCTAssertEqual(only.restingHR, 47)
-        XCTAssertNotNil(only.avgHRV)
+        XCTAssertNil(only.avgHRV, "Coarse RR does not establish verified beat timing")
         XCTAssertFalse(actual.sleepSessions.contains { $0.start == old.start })
         XCTAssertNotNil(actual.sessionMotionByStart[start])
         XCTAssertFalse(actual.workouts.isEmpty)
@@ -113,7 +113,8 @@ final class W4ResolvedSleepSeamTests: XCTestCase {
         let raw = rawSignals(), detected = analyze(raw)
         let nap = session(midnight + 12 * 3_600, midnight + 12 * 3_600 + 1_800)
         let actual = analyze(raw, provided: [nap])
-        XCTAssertEqual(actual.sleepSessions, detected.sleepSessions + [nap])
+        XCTAssertEqual(actual.sleepSessions, detected.sleepSessions + [
+            W4QualifiedSessionFixture.session(nap, episode: "nap", boundary: "provided_boundary")])
         let direct = AnalyticsEngine.analyzeDay(day: day, hr: raw.hr, rr: raw.rr, gravity: raw.gravity,
             steps: raw.steps, dayHr: raw.hr, daySteps: raw.steps, dayGravity: raw.gravity,
             profile: UserProfile(), providedSleep: [nap])
@@ -129,10 +130,12 @@ final class W4ResolvedSleepSeamTests: XCTestCase {
         let input = [nap, second, first] // filtered candidates [1,2] must not be used as indices [0,1]
         let baseline = analyze(raw, resolved: input)
         let actual = analyze(raw, resolved: input, exclusions: [nap.start])
-        XCTAssertEqual(actual.sleepSessions, input)
+        XCTAssertEqual(actual.sleepSessions, [W4QualifiedSessionFixture.session(nap, episode: "nap"),
+            W4QualifiedSessionFixture.session(second, episode: "main_sleep", groupStart: first.start),
+            W4QualifiedSessionFixture.session(first, episode: "main_sleep", groupStart: first.start)])
         XCTAssertEqual(actual.daily.totalSleepMin, 100)
         XCTAssertEqual(try XCTUnwrap(actual.daily.efficiency), 100.0 / 120.0, accuracy: 1e-12)
-        XCTAssertEqual(actual.daily.disturbances, 1)
+        XCTAssertEqual(actual.daily.disturbances, 0, "Missing inter-fragment observations are not wake")
         XCTAssertEqual(actual.daily.restingHr, 42)
         XCTAssertEqual(actual.daily.avgHrv, baseline.daily.avgHrv)
         XCTAssertEqual(actual.daily.avgSdnn, baseline.daily.avgSdnn)
@@ -147,7 +150,7 @@ final class W4ResolvedSleepSeamTests: XCTestCase {
         XCTAssertEqual(actual.sleepSessions.count, 1)
         assertNoSleepDuration(actual)
         XCTAssertEqual(actual.daily.restingHr, 50)
-        XCTAssertNotNil(actual.daily.avgHrv)
+        XCTAssertNil(actual.daily.avgHrv)
         XCTAssertNotNil(actual.sessionMotionByStart[nap.start])
         XCTAssertFalse(actual.workouts.isEmpty)
     }
@@ -157,13 +160,16 @@ final class W4ResolvedSleepSeamTests: XCTestCase {
         let interval = session(midnight + 3_600, midnight + 7_200, rhr: nil, hrv: nil, staged: false, hrOnly: true)
         let actual = analyze(raw, resolved: [interval])
         assertNoSleepDuration(actual)
-        XCTAssertTrue(try XCTUnwrap(actual.sleepSessions.first).stages.isEmpty)
+        XCTAssertEqual(try XCTUnwrap(actual.sleepSessions.first).stages, [
+            StageSegment(start: interval.start, end: interval.end, stage: "unknown", state: "state_unknown",
+                evidenceCoverage: 0, abstentionReason: "no_epoch_observations", computationMode: "retrospective",
+                algorithmVersion: "sleep-evidence-v2", probabilitiesCalibrated: false)])
         XCTAssertEqual(actual.sleepSessions.first?.hrOnly, true)
         XCTAssertEqual(actual.daily.restingHr, 50)
-        XCTAssertNotNil(actual.daily.avgHrv)
+        XCTAssertNil(actual.daily.avgHrv)
         let legacyProvided = analyze(raw, provided: [interval])
-        XCTAssertEqual(legacyProvided.daily.totalSleepMin, 0, "default evidence semantics must remain historical")
-        XCTAssertEqual(legacyProvided.daily.efficiency, 0)
+        XCTAssertNil(legacyProvided.daily.totalSleepMin, "Unknown sleep is unavailable, not measured zero")
+        XCTAssertNil(legacyProvided.daily.efficiency)
     }
 
     func testExcludedStagedNapCannotSupplyEvidenceForUnstagedMain() {
@@ -172,17 +178,19 @@ final class W4ResolvedSleepSeamTests: XCTestCase {
         let nap = session(midnight + 14 * 3_600, midnight + 15 * 3_600)
         let actual = analyze(raw, resolved: [nap, main], exclusions: [nap.start])
         assertNoSleepDuration(actual)
-        XCTAssertEqual(actual.sleepSessions, [nap, main])
+        XCTAssertEqual(actual.sleepSessions, [W4QualifiedSessionFixture.session(nap, episode: "nap"),
+            W4QualifiedSessionFixture.session(main, episode: "uncertain", groupStart: main.start)])
     }
 
-    func testResolvedPreservesSuppliedPhysiologyAndHROnlyPreference() {
+    func testResolvedPreservesDirectRHRButDoesNotPromoteSuppliedUnqualifiedHRV() {
         let raw = rawSignals()
         let primary = session(midnight + 3_600, midnight + 7_200, rhr: 57, hrv: 31)
         let hrOnly = session(midnight + 8_400, midnight + 10_800, rhr: 40, hrv: 100, hrOnly: true)
         let actual = analyze(raw, resolved: [hrOnly, primary], exclusions: [hrOnly.start])
-        XCTAssertEqual(actual.sleepSessions, [hrOnly, primary])
+        XCTAssertEqual(actual.sleepSessions, [W4QualifiedSessionFixture.session(hrOnly, episode: "nap"),
+            W4QualifiedSessionFixture.session(primary, episode: "main_sleep", groupStart: primary.start)])
         XCTAssertEqual(actual.daily.restingHr, 57, "motion-backed physiology remains preferred")
-        XCTAssertEqual(actual.daily.avgHrv, 31)
+        XCTAssertNil(actual.daily.avgHrv)
         XCTAssertEqual(actual.daily.sleepHrOnly, false)
     }
 }

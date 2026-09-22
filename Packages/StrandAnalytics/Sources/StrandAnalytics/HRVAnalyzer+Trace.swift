@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // HRVAnalyzer+Trace.swift - the HRV & Autonomic test-mode cleaning trace.
@@ -28,6 +29,7 @@ extension HRVAnalyzer {
                                     maxRejectedFraction: Double? = nil,
                                     path: String = "spot")
         -> (result: HRVResult, trace: [String]) {
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer+Trace.analyzeTrace")
 
         func r2(_ x: Double) -> Double { (x * 100.0).rounded() / 100.0 }
 

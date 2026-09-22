@@ -18,6 +18,7 @@ fun ReadinessEngine.evaluateWithTrainingLoad(
     today: String? = null,
     trainingLoadConfiguration: TrainingLoadEngine.Configuration = TrainingLoadEngine.standard,
 ): ReadinessTrainingLoadAnalysis {
+    PhoneComputeRuntime.inferenceStarted("ReadinessEngine.evaluateWithTrainingLoad")
     val readiness = evaluate(days, today)
     val trainingDays = days.map { TrainingLoadEngine.DailyLoad(it.day, it.strain) }
     val trainingLoad = TrainingLoadEngine.evaluate(

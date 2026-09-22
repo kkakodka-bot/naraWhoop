@@ -39,6 +39,8 @@ public enum SleepStagerV2 {
     /// WHOOP 4 and 5. The recipe stages "wake" naturally (no separate pre-onset / post-wake forcing).
     public static func stageSession(start: Int, end: Int, grav: [GravitySample],
                                     hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStagerV2.stageSession") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStagerV2.stageSession")
         if end-start > SleepOpportunityDetector.maximumEpisodeSeconds {
             return [SleepStageSemantics.unknown(start: start,end: end,reason: "episode_exceeds_supported_duration")]
         }
@@ -206,7 +208,8 @@ public enum SleepStagerV2 {
     /// to push it awake is held. Motion (`zmvv`) and the jerk gate — which by construction cannot fire on a
     /// quiescent epoch (`jerkMax ≤ floor × gateMult`) — still drive wake on any epoch that actually moved.
     static func motionQuiescent(_ f: Epoch) -> Bool {
-        f.moveFrac <= 0.0 && f.jerkMax <= f.jerkScale * jerkFloorGateMult
+        PhoneComputeRuntime.entered("swift.SleepStagerV2.motionQuiescent")
+        return f.moveFrac <= 0.0 && f.jerkMax <= f.jerkScale * jerkFloorGateMult
     }
 
     /// Weight of the RSA respiration-regularity term (regular → deep, irregular → REM).
@@ -271,6 +274,8 @@ public enum SleepStagerV2 {
     /// session edges exactly as before; only rows no window could touch were dropped.
     static func features(start: Int, end: Int, grav: [GravitySample],
                          hr: [HRSample], rr: [RRInterval]) -> [Epoch] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStagerV2.features") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStagerV2.features")
         if end <= start { return [] }
         let span = Double(max(1, end - start))
 
@@ -410,6 +415,8 @@ public enum SleepStagerV2 {
     /// 0.15–0.40 Hz (9–24 brpm) band. Returns spectral peakedness (higher = more regular breathing) or nil
     /// when there are too few beats. A direct band-limited DFT (only the ~50 in-band bins are needed).
     static func respRegularity(_ beats: [(Double, Double)]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStagerV2.respRegularity") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStagerV2.respRegularity")
         if beats.count < 12 { return nil }
         let t0 = beats.first!.0, tN = beats.last!.0
         if tN <= t0 { return nil }
@@ -471,7 +478,8 @@ public enum SleepStagerV2 {
     /// Clamped to `[0, K]` so a PRE-onset epoch — negative elapsed time, and unbounded when detection places
     /// the window start hours early (#271) — can never be penalised harder than the onset instant itself.
     static func remLatencyGuard(_ minutesSinceOnset: Double) -> Double {
-        remLatencyPenalty * min(1.0, max(0.0, 1.0 - minutesSinceOnset / remLatencyMinutes))
+        PhoneComputeRuntime.entered("swift.SleepStagerV2.remLatencyGuard")
+        return remLatencyPenalty * min(1.0, max(0.0, 1.0 - minutesSinceOnset / remLatencyMinutes))
     }
 
     /// Soft sleep-cycle prior added to the log-emission: deep concentrated early (decays, never hard-wiped);
@@ -491,7 +499,8 @@ public enum SleepStagerV2 {
     /// replaced therefore scaled a fixed physiological interval by session length: across one WHOOP 5 user's
     /// own recorded nights it ranged 7.4–84.5 min, an 11× spread, for the same wearer and the same physiology.
     static func cyclePrior(_ c: Double, _ minutesSinceOnset: Double) -> [String: Double] {
-        ["deep": 1.2 * max(0.0, 1.0 - c / 0.55),
+        PhoneComputeRuntime.entered("swift.SleepStagerV2.cyclePrior")
+        return ["deep": 1.2 * max(0.0, 1.0 - c / 0.55),
          "rem": 1.0 * c - remLatencyGuard(minutesSinceOnset),
          "light": 0.0, "awake": 0.0]
     }
@@ -505,6 +514,8 @@ public enum SleepStagerV2 {
     /// window). Runs are counted in epochs, not wall clock, so a coverage gap that drops an epoch cannot
     /// silently satisfy the rule with less evidence.
     static func sustainedSleepOnset(_ labels: [String]) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStagerV2.sustainedSleepOnset") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStagerV2.sustainedSleepOnset")
         var run = 0
         for i in labels.indices {
             if labels[i] == "awake" { run = 0; continue }
@@ -517,6 +528,8 @@ public enum SleepStagerV2 {
     /// Viterbi most-likely path over the per-epoch log-emissions with the sticky transition matrix and a
     /// uniform start. Ties resolve to the earlier stage in `stageNames`.
     static func viterbi(_ emSeq: [[String: Double]]) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStagerV2.viterbi") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStagerV2.viterbi")
         if emSeq.isEmpty { return [] }
         // Floor before ln so a zeroed transition entry can never hit ln(0) = -Inf and poison the lattice.
         // LOAD-BEARING, not defensive: the awake row carries wake→deep = wake→rem = 0.0, so this floor is
@@ -559,6 +572,8 @@ public enum SleepStagerV2 {
     /// whole thing anyway. When no sustained run exists the origin falls back to the window start, which is
     /// exactly the origin the shipped `c`-based guard used.
     static func stageEpochs(_ feats: [Epoch]) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStagerV2.stageEpochs") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStagerV2.stageEpochs")
         if feats.isEmpty { return [] }
 
         // Per-night z-score over the present values (population std; 0 std → 1 so a flat channel is neutral).

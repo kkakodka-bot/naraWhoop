@@ -255,7 +255,11 @@ struct LiveView: View {
     /// rolling RMSSD, last frame/event). Side-by-side on a wide window (Mac), stacked on a narrow one
     /// (iPhone) via ViewThatFits. Both halves are leaf views that own LiveState so the 1 Hz HR / R-R
     /// notifies re-render only them, not the whole console. The card carries the Effort tint world.
-    private var bodyConsole: some View {
+    @ViewBuilder private var bodyConsole: some View {
+        if PhoneComputeRuntime.isFinalHosted {
+            DeviceReportedHeartRateSection()
+            CanonicalPhysiologySection(families: ["current_hrv", "ppg_hr", "stress", "stress_events"])
+        } else {
         card {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: NoopMetrics.space6) {
@@ -271,6 +275,7 @@ struct LiveView: View {
                     LivePhysiology()
                 }
             }
+        }
         }
     }
 
@@ -953,6 +958,8 @@ private struct LivePhysiology: View {
     /// A "feel" RMSSD over the recent R-R buffer — time-gap-unaware on purpose (a live indicator, not a
     /// clinical figure; it's blanked on disconnect by clearBiometrics). nil until ≥3 intervals land.
     private var rollingRMSSD: Double? {
+        guard PhoneComputeRuntime.permitsLocal("live_rolling_hrv") else { return nil }
+        PhoneComputeRuntime.entered("live_rolling_hrv")
         let values = Array(live.rrRecent.suffix(12)).map(Double.init)
         guard values.count >= 3 else { return nil }
         let diffs = zip(values.dropFirst(), values).map { $0 - $1 }
@@ -1021,6 +1028,8 @@ private struct LiveSignalTrustRail: View {
     }
 
     private var rollingRMSSD: Double? {
+        guard PhoneComputeRuntime.permitsLocal("signal_trust_rolling_hrv") else { return nil }
+        PhoneComputeRuntime.entered("signal_trust_rolling_hrv")
         let values = Array(live.rrRecent.suffix(12)).map(Double.init)
         guard values.count >= 3 else { return nil }
         let diffs = zip(values.dropFirst(), values).map { $0 - $1 }
@@ -1091,6 +1100,10 @@ private struct ActiveWorkoutLive: View {
     let effortScale: EffortScale
 
     var body: some View {
+        if PhoneComputeRuntime.isFinalHosted {
+            DeviceReportedHeartRateSection().environmentObject(model.live)
+            ServerSessionResultView(coordinator: model.computeSessions, requestID: model.currentWorkoutRequestID)
+        } else {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: NoopMetrics.gap) {
                 stat("HR", model.bpm.map { "\($0)" } ?? "—",
@@ -1104,6 +1117,7 @@ private struct ActiveWorkoutLive: View {
             LiquidTube(frac: max(0, min(1, workout.liveStrain / 100)),
                        tint: StrandPalette.strainColor(workout.liveStrain), height: 10, animated: true)
                 .accessibilityHidden(true)
+        }
         }
     }
 

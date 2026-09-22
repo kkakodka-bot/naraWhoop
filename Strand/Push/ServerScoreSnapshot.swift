@@ -1,4 +1,6 @@
 import Foundation
+import WhoopProtocol
+import WhoopStore
 
 enum ServerScoreMetric: String, CaseIterable, Codable, Sendable {
     case hrv = "hrv_rmssd_ms", sdnn = "hrv_sdnn_ms", restingHR = "resting_hr_bpm"
@@ -467,27 +469,41 @@ struct ServerScoreViewState: Equatable, Sendable {
     /// The enrollment endpoint has scalar results but no account snapshot revision contract.
     /// Keep those values separate instead of inventing snapshot revisions or provenance.
     var enrollmentValues: [String: [String: Double]] = [:]
+    var canonicalDays: [String: ServerCanonicalResults] = [:]
+    var pendingCanonicalDays: [String: ServerPendingCanonicalResults] = [:]
 
     static let empty = Self(generation: nil, revision: 0, currentDay: "", timezone: "UTC", configured: false,
                             authenticated: false, capabilities: [], activated: [], days: [:])
-    var hasServerOwnership: Bool { configured && authenticated && !activated.intersection(capabilities).isEmpty }
+    var hasServerOwnership: Bool { PhoneComputeRuntime.isFinalHosted || configured && authenticated && !activated.intersection(capabilities).isEmpty }
     var hasSleepPresentationOwnership: Bool {
         ServerScoreMetric.sleep.union(ServerScoreMetric.sleepHistory).union([.respiration]).contains(where: owns)
     }
     func hasScalarContent(day: String) -> Bool {
+        if PhoneComputeRuntime.isFinalHosted || canonicalDays[day] != nil {
+            return canonicalDays[day]?.families.values.contains { result in
+                result.metrics.contains { result.number($0) != nil }
+            } == true
+        }
         if hasServerOwnership, let values = enrollmentValues[day] { return !values.isEmpty }
         guard hasServerOwnership, let snapshot = days[day]?.snapshot else { return false }
         return activated.intersection(capabilities).contains { snapshot.value($0) != nil }
     }
     func owns(_ metric: ServerScoreMetric) -> Bool {
-        configured && authenticated && capabilities.contains(metric) && activated.contains(metric)
+        PhoneComputeRuntime.isFinalHosted || configured && authenticated && capabilities.contains(metric) && activated.contains(metric)
     }
     func value(_ metric: ServerScoreMetric, day: String, local: @autoclosure () -> Double?) -> Double? {
         owns(metric) ? scalar(metric, day: day) : local()
     }
 
     func scalar(_ metric: ServerScoreMetric, day: String) -> Double? {
+        if PhoneComputeRuntime.isFinalHosted || canonicalDays[day] != nil {
+            return canonicalDays[day]?.result(for: metric.rawValue)?.number(metric.rawValue)
+        }
         if let values = enrollmentValues[day] { return values[metric.rawValue] }
         return days[day]?.snapshot?.value(metric)
+    }
+
+    func canonicalResult(_ metric: String, day: String) -> ServerCanonicalFamilyResult? {
+        canonicalDays[day]?.result(for: metric)
     }
 }

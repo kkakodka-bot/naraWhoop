@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.HrvOverCountGateTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.015">
+  <properties/>
+  <testcase name="itRefusesTheSameVerdictsAsTheSdnnGate" classname="com.noop.analytics.HrvOverCountGateTest" time="0.0"/>
+  <testcase name="onlyTheTwoOverCountVerdictsRefuse" classname="com.noop.analytics.HrvOverCountGateTest" time="0.001"/>
+  <testcase name="sameSecondOverCountIsWithheld" classname="com.noop.analytics.HrvOverCountGateTest" time="0.005"/>
+  <testcase name="aPlausibleNightStillReportsItsHrv" classname="com.noop.analytics.HrvOverCountGateTest" time="0.004"/>
+  <testcase name="anUnderCoveredNightIsUnavailable" classname="com.noop.analytics.HrvOverCountGateTest" time="0.001"/>
+  <testcase name="crossSecondOverCountIsWithheld" classname="com.noop.analytics.HrvOverCountGateTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

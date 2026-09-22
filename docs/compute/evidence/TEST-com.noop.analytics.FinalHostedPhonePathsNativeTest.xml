@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.FinalHostedPhonePathsNativeTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:45" hostname="mac-studio.lan" time="2.922">
+  <properties/>
+  <testcase name="attachedApplicationBlocksProviderInferenceBeforeOnCreate" classname="com.noop.analytics.FinalHostedPhonePathsNativeTest" time="1.282"/>
+  <testcase name="coldApplicationAndViewModelRemainCaptureOnly" classname="com.noop.analytics.FinalHostedPhonePathsNativeTest" time="1.64"/>
+  <system-out><![CDATA[FINAL_HOSTED_PROVIDER_STARTUP admitted=0 forbidden=0 attach_only=true provider_callback=true
+FINAL_HOSTED_PROVIDER_NEGATIVE_CONTROL admitted=0 forbidden=1 blocked_before_body=true
+FINAL_HOSTED_COLD_LAUNCH admitted=0 forbidden=0 application_and_viewmodel=true preferences_and_diagnostics=true profile_fitness=true
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

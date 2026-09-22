@@ -26,7 +26,8 @@ async function fixture() {
     if (name === 'register_noop_device') return args.p_device;
     if (name === 'enrolled_physiology_sleep_override') return 2;
     return { schema_version: 2, user_id: args.p_user, day: args.p_day, features: {
-      hrv: { device_id: args.p_device, status: 'unavailable', reason: 'awaiting_result' },
+      hrv: { device_id: args.p_device, status: 'unavailable', reason:
+        name==='server_scoring_pending_contract'?'device_registration_pending':'awaiting_result' },
     } };
   };
   return { rest, calls };
@@ -40,10 +41,12 @@ function request(path = `?day=2026-09-19&deviceId=${LOCAL}`, body?: unknown, bea
   });
 }
 
-Deno.test('enrolled scores: fleet-only, legacy and JWT credentials cannot read personal data', async () => {
+Deno.test('scores: fleet-only, legacy and unvalidated JWT credentials cannot read personal data', async () => {
   for (const bearer of ['noop_fleet', 'noop_legacy', 'header.payload.signature']) {
     const { rest, calls } = await fixture();
-    assertEquals((await handleScoresRequest(request(undefined, undefined, bearer), { rest, cfg })).status, 401);
+    assertEquals((await handleScoresRequest(request(undefined, undefined, bearer), {
+      rest, cfg, fetchImpl:async()=>Response.json({error:'invalid_token'},{status:401}),
+    })).status, 401);
     assertEquals(calls.length, 0);
   }
 });
@@ -58,19 +61,52 @@ Deno.test('enrolled scores: expired token, revoked installation and missing flee
   }
 });
 
+Deno.test('account scores: explicit source revocation cannot fall back to an active installation', async () => {
+  for (const binding of [
+    { user_id: USER, revoked_at: '2026-09-20T00:00:00Z' },
+    { user_id: OTHER, revoked_at: null },
+  ]) {
+    const { rest, calls } = await fixture();
+    await rest.upsert('compute_account_sources', { ...binding, source_id: SOURCE });
+    const req = request(undefined, undefined, 'header.payload.signature');
+    req.headers.set('x-noop-source-id', SOURCE);
+    const response = await handleScoresRequest(req, {
+      rest, cfg, fetchImpl: async () => Response.json({ id: USER }),
+    });
+    assertEquals(response.status, 401);
+    assertEquals(calls, []);
+  }
+});
+
+Deno.test('account scores: an active owned account source and enrollment use the same selected-device RPC', async () => {
+  const { rest, calls } = await fixture();
+  await rest.upsert('compute_account_sources', { user_id: USER, source_id: SOURCE, revoked_at: null });
+  const account = request(undefined, undefined, 'header.payload.signature');
+  account.headers.set('x-noop-source-id', SOURCE);
+  const response = await handleScoresRequest(account, {
+    rest, cfg, fetchImpl: async () => Response.json({ id: USER }),
+  });
+  assertEquals(response.status, 200);
+  const accountBody = await response.json();
+  const enrolled = await handleScoresRequest(request(), { rest, cfg });
+  assertEquals(await enrolled.json(), accountBody);
+  assertEquals(calls.length, 2);
+  assertEquals(calls[0], calls[1]);
+});
+
 Deno.test('enrolled scores: requested user cannot override token owner; missing device never defaults', async () => {
   const { rest, calls } = await fixture();
   const res = await handleScoresRequest(request(`?day=2026-09-19&deviceId=${LOCAL}&userId=${OTHER}`), { rest, cfg });
   assertEquals(res.status, 200);
   const body = await res.json();
-  assertEquals(body.identity, { userId: USER, sourceId: SOURCE, deviceId: DEVICE, externalDeviceId: LOCAL });
+  assertEquals(body.identity, { userId: USER, sourceId: SOURCE, deviceId: DEVICE, externalDeviceId: LOCAL, project:cfg.supabaseUrl });
   assertEquals(calls[0].args, { p_user: USER, p_day: '2026-09-19', p_device: DEVICE });
   calls.length = 0;
   const other = await handleScoresRequest(request('?day=2026-09-19&deviceId=whoop-OTHER123'), { rest, cfg });
   const unavailable = await other.json();
   assertEquals(unavailable.identity.deviceId, null);
   assertEquals(unavailable.server_scoring.features.hrv.reason, 'device_registration_pending');
-  assertEquals(calls.length, 0);
+  assertEquals(calls, [{name:'server_scoring_pending_contract',args:{p_user:USER,p_day:'2026-09-19'}}]);
   assertEquals((await handleScoresRequest(request('?day=2026-09-19'), { rest, cfg })).status, 400);
 });
 

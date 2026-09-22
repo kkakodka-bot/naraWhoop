@@ -2,10 +2,10 @@ import Foundation
 import XCTest
 @testable import StrandAnalytics
 
-/// Default-behavior compatibility with historical evidence, not verification of current source hashes.
-/// The original source-freeze gates and manifest are deliberately left unchanged.
+/// Historical evidence integrity plus exact qualified-kernel output. The older unqualified numerical
+/// contract is no longer the live default; the original source-freeze gates and files stay unchanged.
 final class W4Kernel13CompatibilityTests: XCTestCase {
-    func testCurrentDefaultDTOsMatchAllThirteenImmutableHistoricalCases() async throws {
+    func testAllThirteenQualifiedDTOsAndImmutableHistoricalCases() async throws {
         typealias Exporter = WholeDaySwiftParityExporter
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { root.deleteLastPathComponent() }
@@ -24,10 +24,11 @@ final class W4Kernel13CompatibilityTests: XCTestCase {
             XCTAssertEqual(entry["mode"] as? String, "kernel_calendar")
             let historical = try Data(contentsOf: directory.appendingPathComponent(filename))
             XCTAssertEqual(Exporter.digest(historical), entry["sha256"] as? String, recipe.id)
-            let actual = try Exporter.bytes(await Exporter.export(recipe))
+            let value = try await Exporter.export(recipe)
+            let actual = try Exporter.bytes(value)
             // Covers the entire case, including every full DTO field and selected Store row identity.
             // Digests keep a failure from dumping megabytes of raw synthetic sample arrays.
-            XCTAssertEqual(Exporter.digest(actual), Exporter.digest(historical), "default behavior drift: \(recipe.id)")
+            try WholeDaySwiftQualifiedOracle.assertActual(value, id: recipe.id, version: "v1", historical: historical)
             print("IMMUTABLE_KERNEL_COMPAT \(recipe.id) sha256=\(Exporter.digest(actual))")
         }
         XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("manifest.json")), manifestData)

@@ -2,6 +2,7 @@ import SwiftUI
 import Foundation
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 
 // MARK: - Stress Monitor
@@ -74,7 +75,10 @@ struct StressView: View {
                        // fixed, full-bleed time-of-day sky behind the scroll content (does not scroll), so the
                        // Stress screen sits in the same liquid atmosphere as every other tab.
                        topBackground: liquidScaffoldSky()) {
-            if let model {
+            if PhoneComputeRuntime.isFinalHosted {
+                CanonicalPhysiologySection(families: ["stress", "stress_events", "current_hrv"])
+                NavigationLink("Breathe") { BreathingView() }.buttonStyle(.noopGhost)
+            } else if let model {
                 content(model)
             } else if !loaded {
                 ComingSoon(what: "Reading your heart-rate variability and resting heart rate…")
@@ -88,6 +92,7 @@ struct StressView: View {
     }
 
     private func load() async {
+        guard PhoneComputeRuntime.permitsLocal("StressView.load") else { return }
         let load = ScoringPreferenceViewLoad(app: app, repo: repo)
         guard load.isCurrent(app: app, repo: repo) else { return }
         let stored = await repo.series(key: "stress", source: "my-whoop")
@@ -102,6 +107,8 @@ struct StressView: View {
     /// window [midnight, now]; the helper buckets it into waking hours and reuses the
     /// daily score's math, so this is the same proxy at a finer grain — never a new score.
     private func loadDaytime(load: ScoringPreferenceViewLoad) async {
+        guard PhoneComputeRuntime.permitsLocal("StressView.loadDaytime") else { return }
+        PhoneComputeRuntime.entered("StressView.loadDaytime")
         guard load.isCurrent(app: app, repo: repo) else { return }
         let cal = Calendar.current
         let startOfDay = cal.startOfDay(for: Date())
@@ -193,6 +200,7 @@ struct StressView: View {
     /// actually changed since the last build. Equality is an O(n) value compare,
     /// far cheaper than the model rebuild it guards.
     private func rebuildModelIfNeeded() {
+        guard PhoneComputeRuntime.permitsLocal("StressView.rebuildModel") else { return }
         let signature = StressInputs(days: repo.days, stored: storedSeries)
         guard signature != modelSignature else { return }
         modelSignature = signature
@@ -795,6 +803,8 @@ struct StressModel {
     /// Build from oldest→newest daily metrics plus any stored "stress" series.
     /// Returns nil only when there is no usable signal at all.
     init?(days: [DailyMetric], stored: [(day: String, value: Double)]) {
+        guard PhoneComputeRuntime.permitsLocal("StressModel.init") else { return nil }
+        PhoneComputeRuntime.entered("StressModel.init")
         // Stored values keyed by day, clamped to 0–3.
         let storedByDay: [String: Double] = Dictionary(
             stored.map { ($0.day, min(max($0.value, 0), 3)) },

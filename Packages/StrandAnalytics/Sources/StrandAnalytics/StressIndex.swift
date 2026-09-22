@@ -51,21 +51,29 @@ public enum StressIndex {
     /// Returns nil when too few clean beats survive or the variation range is degenerate (all-equal beats,
     /// MxDMn == 0, would divide by zero, an honest nil, not Infinity).
     public static func stressIndex(rr: [RRInterval]) -> Double? {
-        components(rr: rr)?.si
+        guard PhoneComputeRuntime.permitsLocal("swift.StressIndex.stressIndex") else { return nil }
+        PhoneComputeRuntime.entered("swift.StressIndex.stressIndex")
+        return components(rr: rr)?.si
     }
 
     /// As `stressIndex(rr:)` but from a raw R-R series in milliseconds.
     public static func stressIndex(rawRR: [Double]) -> Double? {
-        components(rawRR: rawRR)?.si
+        guard PhoneComputeRuntime.permitsLocal("swift.StressIndex.stressIndex") else { return nil }
+        PhoneComputeRuntime.entered("swift.StressIndex.stressIndex")
+        return components(rawRR: rawRR)?.si
     }
 
     /// Full SI components from R-R intervals.
     public static func components(rr: [RRInterval]) -> Components? {
-        components(rawRR: rr.map { Double($0.rrMs) })
+        guard PhoneComputeRuntime.permitsLocal("swift.StressIndex.components") else { return nil }
+        PhoneComputeRuntime.entered("swift.StressIndex.components")
+        return components(rawRR: rr.map { Double($0.rrMs) })
     }
 
     /// Full SI components from a raw R-R series (ms). Pure, deterministic, no clock / IO.
     public static func components(rawRR: [Double]) -> Components? {
+        guard PhoneComputeRuntime.permitsLocal("swift.StressIndex.components") else { return nil }
+        PhoneComputeRuntime.entered("swift.StressIndex.components")
         let clean = HRVAnalyzer.cleanRR(rawRR)
         guard clean.count >= minBeats else { return nil }
         // #585 spot-honesty gate, matching HRVAnalyzer.analyze: a mostly-rejected capture (out-of-range or

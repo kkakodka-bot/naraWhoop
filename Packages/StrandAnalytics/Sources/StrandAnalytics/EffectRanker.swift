@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // EffectRanker.swift — the unified, LAG-AWARE "what moves your Charge" ranker.
@@ -107,6 +108,8 @@ public enum EffectRanker {
                             controls: [String: Set<String>],
                             outcomeByDay: [String: Double],
                             outcome: String) -> [RankedEffect] {
+        guard PhoneComputeRuntime.permitsLocal("swift.EffectRanker.rank") else { return [] }
+        PhoneComputeRuntime.entered("swift.EffectRanker.rank")
         var rows: [RankedEffect] = []
         // Sort behaviour names so the build order is deterministic regardless of dict order.
         for name in behaviors.keys.sorted() {
@@ -130,6 +133,8 @@ public enum EffectRanker {
                                outcomeByDay: [String: Double],
                                behavior: String,
                                outcome: String) -> RankedEffect? {
+        guard PhoneComputeRuntime.permitsLocal("swift.EffectRanker.bestLag") else { return nil }
+        PhoneComputeRuntime.entered("swift.EffectRanker.bestLag")
         var best: (lag: Int, effect: BehaviorEffect)?
         for lag in lagSet {
             let shifted = shiftedOutcome(outcomeByDay, byLag: lag)

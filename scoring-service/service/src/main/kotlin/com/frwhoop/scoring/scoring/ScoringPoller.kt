@@ -31,6 +31,7 @@ class ScoringPoller(
     private val archiveOutbox: DerivedArchiveOutbox? = null,
     private val maximumAttemptDuration: Duration = Duration.ofSeconds(90),
     private val cancellationGrace: Duration = Duration.ofSeconds(2),
+    private val publishComputeDispositions: (ScoringWorkQueue.WorkItem) -> Unit = {},
 ) {
     init {
         require(maximumAttemptDuration.toMillis() in 100..105_000)
@@ -130,6 +131,8 @@ class ScoringPoller(
                     shadowBudget = { Duration.ofNanos((deadline-System.nanoTime()).coerceAtLeast(0)).minusSeconds(15) })
                 requireActive()
                 writer.write(bundle, item, Duration.ofNanos((deadline-System.nanoTime()).coerceAtLeast(0)))
+                requireActive()
+                publishComputeDispositions(item)
                 requireActive()
                 queue.markDone(item, ((System.nanoTime()-started)/1_000_000).toInt())
             }

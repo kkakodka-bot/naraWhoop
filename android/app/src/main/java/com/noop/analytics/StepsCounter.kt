@@ -51,6 +51,8 @@ object StepsCounter {
      * Sorts by `ts` internally and returns `null` for fewer than two samples or no retained movement.
      */
     fun stepsInWindow(samples: List<StepSample>): Int? {
+        if (!PhoneComputeRuntime.allowsLocal("step_derivation")) return null
+        PhoneComputeRuntime.inferenceStarted("step_derivation")
         val sorted = samples.sortedBy { it.ts }
         if (sorted.size < 2) return null
         val hasActivityClasses = hasActivityClasses(sorted)

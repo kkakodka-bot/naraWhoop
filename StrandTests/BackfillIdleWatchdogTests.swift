@@ -92,7 +92,7 @@ final class BackfillIdleWatchdogTests: XCTestCase {
     }
 
     private func durableArchive(trace: Trace) async throws -> DurableArchive {
-        let directory = FileManager.default.temporaryDirectory
+        let directory = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("BackfillIdleWatchdog-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }

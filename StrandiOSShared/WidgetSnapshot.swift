@@ -1,4 +1,5 @@
 import Foundation
+import StrandDesign
 
 /// Small, Codable glance snapshot shared between the iOS app and its widget/Live-Activity extension
 /// via an App Group. The app writes it; the widget reads it. Keeping it tiny avoids any cross-process
@@ -22,11 +23,15 @@ public struct WidgetSnapshot: Codable, Equatable {
     /// True when `effortDisplay` is on WHOOP's 0–21 axis; false/nil means 0–100. Accessibility only.
     public var effortWhoop: Bool?
     public var accountNamespace: String?
+    public var finalHosted: Bool?
+    public var canonicalLedger: CanonicalConsumerLedger?
+    public var insights: String?
 
     public init(recovery: Int?, bpm: Int?, batteryPct: Int?, bonded: Bool, updated: Date,
                 effort: Int? = nil, rest: Int? = nil, hrv: Int? = nil, restingHr: Int? = nil,
                 effortDisplay: String? = nil, effortWhoop: Bool? = nil,
-                accountNamespace: String? = nil) {
+                accountNamespace: String? = nil, finalHosted: Bool? = nil,
+                canonicalLedger: CanonicalConsumerLedger? = nil, insights: String? = nil) {
         self.recovery = recovery
         self.bpm = bpm
         self.batteryPct = batteryPct
@@ -39,6 +44,9 @@ public struct WidgetSnapshot: Codable, Equatable {
         self.effortDisplay = effortDisplay
         self.effortWhoop = effortWhoop
         self.accountNamespace = accountNamespace
+        self.finalHosted = finalHosted
+        self.canonicalLedger = canonicalLedger
+        self.insights = insights
     }
 
     /// App Group suite the app and widget both use. Injected from the `APP_GROUP_ID` build setting
@@ -128,7 +136,26 @@ public struct WidgetSnapshot: Codable, Equatable {
         if let active = defaults.string(forKey: accountKey) {
             guard !active.isEmpty, snap.accountNamespace == active else { return nil }
         }
+        if Bundle.main.object(forInfoDictionaryKey: "NOOPFinalHostedCompute") as? Bool == true {
+            guard snap.hasCanonicalAdmission else { return nil }
+        }
         return snap
+    }
+
+    public var hasCanonicalAdmission: Bool {
+        guard finalHosted == true else { return false }
+        guard let ledger = canonicalLedger else {
+            return recovery == nil && effort == nil && rest == nil && hrv == nil && restingHr == nil && insights == nil
+        }
+        if !ledger.permitsRead {
+            return ledger.isValid && recovery == nil && effort == nil && rest == nil && hrv == nil && restingHr == nil && insights == nil
+        }
+        return ledger.isValid && (recovery == nil || ledger.families["recovery"]?.permitsValue == true)
+            && (effort == nil || ledger.families["strain_energy"]?.permitsValue == true)
+            && (rest == nil || ledger.families["sleep_history"]?.permitsValue == true)
+            && (hrv == nil || ledger.families["night_hrv"]?.permitsValue == true)
+            && (restingHr == nil || ledger.families["night_hrv"]?.permitsValue == true)
+            && (insights == nil || ledger.families["insights"]?.permitsValue == true)
     }
 
     /// Persist this snapshot into the shared suite.
@@ -152,6 +179,9 @@ public struct WidgetSnapshot: Codable, Equatable {
         guard let previous else { return true }
         return previous.recovery != next.recovery
             || previous.accountNamespace != next.accountNamespace
+            || previous.finalHosted != next.finalHosted
+            || previous.canonicalLedger != next.canonicalLedger
+            || previous.insights != next.insights
             || previous.bpm != next.bpm
             || previous.batteryPct != next.batteryPct
             || previous.bonded != next.bonded

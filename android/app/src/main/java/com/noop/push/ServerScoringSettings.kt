@@ -17,11 +17,9 @@ object ServerScoringSettings {
     /** During an active offload, flush push at most once per this interval (spec: ≤10 s). */
     const val SYNC_PUSH_INTERVAL_MS = 10_000L
 
-    fun skipsSyncCoupledRescore(context: Context): Boolean = skipsSyncCoupledRescore(prefs(context))
-    // A server physiology snapshot does not cover the whole local analysis pass or its history.
-    // Preserve the existing coalesced/fingerprint-gated schedule for the remaining local metrics.
-    @Suppress("UNUSED_PARAMETER")
-    fun skipsSyncCoupledRescore(prefs: SharedPreferences): Boolean = false
+    fun skipsSyncCoupledRescore(context: Context): Boolean =
+        com.noop.analytics.PhoneComputeRuntime.finalHosted || skipsSyncCoupledRescore(ServerMetricOwnershipStore(context).load())
+    fun skipsSyncCoupledRescore(ownership: ServerMetricOwnership?): Boolean = ownership?.canRetireDailyKernel == true
 
     fun overlayLive(prefs: SharedPreferences): Boolean = prefs.getBoolean(OVERLAY_LIVE_KEY, false)
     fun markOverlayLive(prefs: SharedPreferences, live: Boolean) {
@@ -36,7 +34,7 @@ object ServerScoringSettings {
 
     fun isEnabled(context: Context): Boolean =
         isEnabled(prefs(context))
-    fun isEnabled(prefs: SharedPreferences): Boolean = prefs.getBoolean(DEFAULTS_KEY, true)
+    fun isEnabled(prefs: SharedPreferences): Boolean = com.noop.analytics.PhoneComputeRuntime.finalHosted || prefs.getBoolean(DEFAULTS_KEY, true)
 
     fun setEnabled(context: Context, enabled: Boolean) {
         setEnabled(prefs(context), enabled)

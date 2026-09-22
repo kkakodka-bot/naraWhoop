@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.OuraRespScoringExclusionTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.156">
+  <properties/>
+  <testcase name="aOneHertzStreamOfTheSameValuesWouldMoveStaging" classname="com.noop.analytics.OuraRespScoringExclusionTest" time="0.134"/>
+  <testcase name="ringRespirationNeverReachesTheStager" classname="com.noop.analytics.OuraRespScoringExclusionTest" time="0.001"/>
+  <testcase name="todaysCadenceWouldNotHaveMovedStagingEitherWay" classname="com.noop.analytics.OuraRespScoringExclusionTest" time="0.021"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

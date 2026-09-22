@@ -16,6 +16,8 @@ enum SleepSignalValidity {
             && magnitudeSquared.isFinite && (0.25...2.25).contains(magnitudeSquared)
     }
     static func movement(_ samples: [GravitySample]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepOpportunityDetector.movement") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepOpportunityDetector.movement")
         let unit = samples.filter(hasOrientation).map { row -> [Double] in
             let norm = sqrt(row.x*row.x+row.y*row.y+row.z*row.z)
             return [row.x/norm, row.y/norm, row.z/norm]
@@ -75,6 +77,8 @@ public enum SleepOpportunityDetector {
     /// Qualify complete groups before ranking so an ineligible nap cannot hide eligible main sleep.
     public static func mainSleepGroupIndices(_ sessions: [SleepSession], offsetSeconds: Int,
                                              habitualMidsleepSec: Int? = nil) -> [Int] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepOpportunityDetector.mainSleepGroupIndices") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepOpportunityDetector.mainSleepGroupIndices")
         let candidates = sessions.indices.filter { acceptedSleepSeconds(sessions[$0]) > 0 &&
             sessions[$0].end-sessions[$0].start <= maximumEpisodeSeconds }.sorted { sessions[$0].start < sessions[$1].start }
         var groups: [[Int]] = []
@@ -96,11 +100,13 @@ public enum SleepOpportunityDetector {
     }
 
     public static func acceptedSleepSeconds(_ session: SleepSession) -> Int {
-        SleepStageSemantics.normalized(session.stages, start: session.start, end: session.end)
+        PhoneComputeRuntime.entered("swift.SleepOpportunityDetector.acceptedSleepSeconds")
+        return SleepStageSemantics.normalized(session.stages, start: session.start, end: session.end)
             .filter(SleepStageSemantics.isSleep).reduce(0) { $0+$1.end-$1.start }
     }
 
     public static func episodeType(_ session: SleepSession, isMain: Bool) -> String {
+        PhoneComputeRuntime.entered("swift.SleepOpportunityDetector.episodeType")
         let accepted = acceptedSleepSeconds(session), span = session.end-session.start
         guard accepted > 0, span > 0, span <= maximumEpisodeSeconds else { return "uncertain" }
         if isMain { return "main_sleep" }
@@ -109,7 +115,9 @@ public enum SleepOpportunityDetector {
 
     /// A stage model cannot revoke independently qualified binary sleep.
     public static func stagesPreservingBinarySleep(_ stages: [StageSegment], start: Int, end: Int) -> [StageSegment] {
-        SleepStageSemantics.normalized(stages, start: start, end: end).map { original in
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepOpportunityDetector.stagesPreservingBinarySleep") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepOpportunityDetector.stagesPreservingBinarySleep")
+        return SleepStageSemantics.normalized(stages, start: start, end: end).map { original in
             var segment = original
             if !["light","deep","rem"].contains(segment.stage) {
                 segment.abstentionReason = SleepStageVocabulary.isWake(segment.stage)
@@ -124,6 +132,7 @@ public enum SleepOpportunityDetector {
     public static func detect(start: Int, end: Int, hr: [HRSample], gravity: [GravitySample],
                               steps: [StepSample] = [], context: [SleepContextSpan] = [],
                               policy: Policy = Policy()) -> Result {
+        PhoneComputeRuntime.entered("swift.SleepOpportunityDetector.detect")
         precondition(end > start && end-start <= 76*3600 && (300...14400).contains(policy.minimumSleepSeconds))
         precondition((0.5...1).contains(policy.minimumFeatureBinCoverage) && (0.5...0.99).contains(policy.maximumRelativeHr)
             && (0.5...0.99).contains(policy.maximumRelativeHrWithoutOrientation)

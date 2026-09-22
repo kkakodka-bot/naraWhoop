@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.HrvPayloadCodecTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:02" hostname="mac-studio.lan" time="0.004">
+  <properties/>
+  <testcase name="malformedDurationCannotBecomeBaselineEvidence" classname="com.frwhoop.scoring.HrvPayloadCodecTest" time="0.001"/>
+  <testcase name="unavailableIsNullNotZeroAndInvalidOwnerFails" classname="com.frwhoop.scoring.HrvPayloadCodecTest" time="0.001"/>
+  <testcase name="zeroAndAllProvenanceRoundTripWithoutRenamingSdnn" classname="com.frwhoop.scoring.HrvPayloadCodecTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

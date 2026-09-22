@@ -40,7 +40,7 @@ final class ScoringInputTestState: @unchecked Sendable {
 @MainActor
 final class ScoringInputCoordinatorTests: XCTestCase {
     private func fixture() throws -> (URL, AccountStorageLayout, AccountSessionContext) {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         let scope = try AccountScope(projectURL: "https://input-fixture.invalid", userID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
         return (root, .init(baseDirectory: root, scope: scope), .init(scope: scope, generation: UUID()))
     }

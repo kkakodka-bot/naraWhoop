@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:46" hostname="mac-studio.lan" time="1.29">
+  <properties/>
+  <testcase name="contiguousReadinessNumericsAndConfidenceRemainTheExistingEngine" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.053"/>
+  <testcase name="fractionalUtcResetDoesNotAdmitItsPartiallyElapsedDay" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.049"/>
+  <testcase name="actualNoDataCycleDayCannotBecomeAConfidentFollicularTransition" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.12"/>
+  <testcase name="fullCycleResetRetainsHistoricalChartsButCannotReuseTheirFeaturesAfterFourteenNights" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.14"/>
+  <testcase name="cycleCountsExactlyFortyTwoEligibleFeaturesAndUsesFractionalUtcBoundaryInAllZones" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.002"/>
+  <testcase name="actualDayScorerCannotResurrectStaleOrFullyResetReadinessAndStress" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.192"/>
+  <testcase name="actualObservedDecreaseStillClassifiesAndSourceEraDoesNotReuseOldCycle" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.091"/>
+  <testcase name="checkpointJsonReopenAndFreshReplayHaveIdenticalResetAdmission" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.28"/>
+  <testcase name="recentCalendarGapCannotBorrowOldStrainAndPhysiologyFoldKeepsMissingSlots" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.033"/>
+  <testcase name="sourceEraAndEffortRecipeSwitchDoNotBorrowOldLoad" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.036"/>
+  <testcase name="gapInsideChronicWindowRestartsItsObservedSuffixInsteadOfCompressingDays" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.034"/>
+  <testcase name="partialResetsKeepOnlyIndependentEligiblePhysiology" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.033"/>
+  <testcase name="missingTemperatureCanUseDeclaredCurrentCorroborationButNotAnEmptyCurrentSlot" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.095"/>
+  <testcase name="cyclePartialResetMasksOnlyItsOwnFeaturesAndKeepsImmutableCharts" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.002"/>
+  <testcase name="unknownCalendarSlotDoesNotCreateANewObservedCycleOnset" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.089"/>
+  <testcase name="missingCurrentDayNeverPublishesOldWeeklyOrReadinessOutputs" classname="com.frwhoop.scoring.HistoricalOrchestrationAdmissionTest" time="0.041"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

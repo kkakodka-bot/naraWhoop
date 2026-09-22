@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.agreement.RrVersionRundownTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:24" hostname="mac-studio.lan" time="0.01">
+  <properties/>
+  <testcase name="rundown" classname="com.noop.analytics.agreement.RrVersionRundownTest" time="0.01"/>
+  <system-out><![CDATA[RR-RUNDOWN written to /Volumes/Untitled/WHOOP NARA-vps-only-compute/scoring-service/analytics-kernel/build/rr-rundown.md
+MAE ryanbr=0.41 +2PR=0.17 rr-opt=0.11
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

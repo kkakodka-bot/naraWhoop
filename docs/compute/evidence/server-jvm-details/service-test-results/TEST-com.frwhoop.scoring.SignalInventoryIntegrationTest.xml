@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.SignalInventoryIntegrationTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:16:42" hostname="mac-studio.lan" time="0.58">
+  <properties/>
+  <testcase name="ownershipAndCalendarBoundsCannotBorrowAnotherPeriod" classname="com.frwhoop.scoring.SignalInventoryIntegrationTest" time="0.032"/>
+  <testcase name="occupiedBinsAreScopedAndNeverClaimContinuousAcquisitionOrMutateWork" classname="com.frwhoop.scoring.SignalInventoryIntegrationTest" time="0.481"/>
+  <testcase name="RawCatalogueClaimsDoNotBecomeVerifiedCoverageOrPruningPermission" classname="com.frwhoop.scoring.SignalInventoryIntegrationTest" time="0.067"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-139 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-139 - Added connection org.postgresql.jdbc.PgConnection@2a6c751f
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-139 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-139 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-139 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-140 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-140 - Added connection org.postgresql.jdbc.PgConnection@71418a4a
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-140 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-140 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-140 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-141 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-141 - Added connection org.postgresql.jdbc.PgConnection@611587f7
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-141 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-141 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-141 - Shutdown completed.
+]]></system-err>
+</testsuite>

@@ -33,7 +33,7 @@ final class CaptureDurabilityTests: XCTestCase {
     }
 
     private func imu() throws -> ImuSessionFileStore {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let dir = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         addTeardownBlock { try FileManager.default.removeItem(at: dir) }
         let suite = "CaptureDurabilityTests.\(UUID().uuidString)"
@@ -345,7 +345,8 @@ final class CaptureDurabilityTests: XCTestCase {
             XCTAssertEqual(first.payload, retry.payload)
             // The merged protocol defines packed raw endTs as inclusive; manifests are exclusive.
             XCTAssertEqual(first.startTs, record.startTs)
-            XCTAssertEqual(first.endTs, record.endTs + 1)
+            XCTAssertEqual(first.endTs, record.endTs + 1,
+                "Raw capture bounds are inclusive; object manifest bounds are exclusive")
         }
     }
 }

@@ -18,7 +18,7 @@ final class ShortcutHealthExportTests: XCTestCase {
     override func setUpWithError() throws {
         suiteName = "ShortcutHealthExportTests-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
-        dir = FileManager.default.temporaryDirectory.appendingPathComponent(suiteName)
+        dir = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(suiteName)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 

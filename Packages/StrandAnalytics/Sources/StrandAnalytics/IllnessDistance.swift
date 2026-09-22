@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // IllnessDistance.swift, an ALTERNATIVE, multivariate illness-anomaly distance (Mahalanobis).
@@ -101,6 +102,7 @@ public enum IllnessDistance {
     ///     identity. Must be square with side == features.present.count when non-nil.
     public static func evaluate(features: FeatureVector,
                                 correlation: [[Double]]? = nil) -> Result {
+        PhoneComputeRuntime.entered("swift.IllnessDistance.evaluate")
         let x = features.present
         let k = x.count
         guard k > 0 else {
@@ -155,6 +157,7 @@ public enum IllnessDistance {
     /// inverse is 1/diag (treating off-diagonals as zero), with any zero/sign-degenerate diagonal entry
     /// mapped to 1 so the result is the identity in that coordinate (graceful, never NaN/Inf).
     static func invertOrDiagonal(_ a: [[Double]]) -> (inverse: [[Double]], fellBack: Bool) {
+        PhoneComputeRuntime.entered("swift.IllnessDistance.invertOrDiagonal")
         let n = a.count
         // Augment [a | I].
         var m = [[Double]](repeating: [Double](repeating: 0, count: 2 * n), count: n)
@@ -190,6 +193,8 @@ public enum IllnessDistance {
     /// Diagonal inverse: 1/diag on the diagonal, zeros elsewhere. A non-positive diagonal entry maps to 1
     /// (identity in that coordinate) so the fallback is always finite.
     static func diagonalInverse(_ a: [[Double]]) -> [[Double]] {
+        guard PhoneComputeRuntime.permitsLocal("swift.IllnessDistance.diagonalInverse") else { return [] }
+        PhoneComputeRuntime.entered("swift.IllnessDistance.diagonalInverse")
         let n = a.count
         var inv = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
         for i in 0..<n {

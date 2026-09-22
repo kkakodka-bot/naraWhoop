@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.HistoricalScoringPollerIntegrationTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:58" hostname="mac-studio.lan" time="0.214">
+  <properties/>
+  <testcase name="productionPollerInvokesAllOrchestratorsAndPublishesOwnerDeviceBoundShadows" classname="com.frwhoop.scoring.HistoricalScoringPollerIntegrationTest" time="0.214"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

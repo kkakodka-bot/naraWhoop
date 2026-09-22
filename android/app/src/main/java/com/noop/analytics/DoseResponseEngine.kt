@@ -112,6 +112,7 @@ object DoseResponseEngine {
         doseByDay: Map<String, Int>,
         outcomeByDay: Map<String, Double>,
     ): DoseResponse? {
+        PhoneComputeRuntime.inferenceStarted("DoseResponseEngine.estimate")
         val prior = DoseResponsePriors.prior(behavior, outcome) ?: return null
 
         // Pair each logged dose day D with the NEXT-day outcome (D+1) — the L=1 alignment.

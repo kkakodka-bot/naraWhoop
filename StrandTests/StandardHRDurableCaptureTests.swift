@@ -50,7 +50,7 @@ final class StandardHRDurableCaptureTests: XCTestCase {
     }
     private func store(_ user: String? = nil) async throws -> WhoopStore {
         let base = ProcessInfo.processInfo.environment["STANDARD_HR_CAPTURE_FIXTURES"]
-            .map { URL(fileURLWithPath: $0) } ?? FileManager.default.temporaryDirectory
+            .map { URL(fileURLWithPath: $0) } ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         let directory = base.appendingPathComponent("standard-hr-durable-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let store = try await WhoopStore(path: directory.appendingPathComponent("capture.sqlite").path)
@@ -637,7 +637,7 @@ final class StandardHRDurableCaptureTests: XCTestCase {
 
     private func crash(_ boundary: String, expectedOriginals: Int, expectedBeforeRecovery: Int) async throws {
         let base = ProcessInfo.processInfo.environment["STANDARD_HR_CAPTURE_FIXTURES"]
-            .map { URL(fileURLWithPath: $0) } ?? FileManager.default.temporaryDirectory
+            .map { URL(fileURLWithPath: $0) } ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         let directory = base.appendingPathComponent("standard-hr-cold-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let executable = CommandLine.arguments[0], path = directory.appendingPathComponent("capture.sqlite").path

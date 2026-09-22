@@ -3,6 +3,7 @@ import Foundation
 import WatchConnectivity
 import StrandDesign
 import WhoopStore   // DailyMetric (the anchor row's recovery / strain / sleep fields)
+import WhoopProtocol
 
 /// The PHONE side of the watch link (M3). The iPhone is the brain: M1 computes Charge / Effort / Rest
 /// with confidence + provenance. This bridge takes the latest computed scores, builds a
@@ -72,7 +73,8 @@ final class WatchSessionBridge: NSObject, ObservableObject {
         lastPushedAt = nil
         send(WatchScoreSnapshot(charge: nil, chargeCalibrating: false,
              effort: nil, effortCalibrating: false, rest: nil, restCalibrating: false,
-             hr: nil, sleepSummary: "", asOf: Date(), accountNamespace: namespace))
+             hr: nil, sleepSummary: "", asOf: Date(), accountNamespace: namespace,
+             finalHosted: PhoneComputeRuntime.isFinalHosted ? true : nil))
     }
 
     /// Build a snapshot from the latest computed scores + their confidence and push it to the watch.
@@ -98,7 +100,7 @@ final class WatchSessionBridge: NSObject, ObservableObject {
         // without touching lastPushedAt/lastSent, so the first real snapshot passes the gate untouched.
         let contentless = snap.scoreDay == nil && snap.charge == nil && snap.effort == nil
             && snap.rest == nil && snap.sleepSummary.isEmpty
-        if contentless { return }
+        if contentless && !PhoneComputeRuntime.isFinalHosted { return }
         let now = Date()
         guard shouldPush(snap, now: now) else { return }
         lastPushedAt = now
@@ -119,6 +121,8 @@ final class WatchSessionBridge: NSObject, ObservableObject {
     /// pushed this process, passes). (2) Substance: the snapshot's HEADLINE values differ from the last
     /// pushed one, so an unchanged dashboard never burns a transfer re-stating the same scores.
     private func shouldPush(_ snap: WatchScoreSnapshot, now: Date) -> Bool {
+        // A result revision or revocation replaces the wrist's prior authority immediately.
+        if snap.finalHosted == true, snap.canonicalLedger != lastSent?.canonicalLedger { return true }
         if let at = lastPushedAt, now.timeIntervalSince(at) < Self.minPushInterval { return false }
         return Self.headlineChanged(from: lastSent, to: snap)
     }
@@ -132,6 +136,8 @@ final class WatchSessionBridge: NSObject, ObservableObject {
         guard let last else { return true }
         return last.charge != next.charge
             || last.accountNamespace != next.accountNamespace
+            || last.finalHosted != next.finalHosted
+            || last.canonicalLedger != next.canonicalLedger
             || last.chargeCalibrating != next.chargeCalibrating
             || last.effort != next.effort
             || last.effortCalibrating != next.effortCalibrating
@@ -144,6 +150,10 @@ final class WatchSessionBridge: NSObject, ObservableObject {
     /// Build the snapshot off the app state. Pure read; no side effects. Split out so the wiring is easy
     /// to follow and the calibrating logic sits in one place.
     static func buildSnapshot(from model: AppModel) async -> WatchScoreSnapshot {
+        if PhoneComputeRuntime.isFinalHosted {
+            return CanonicalConsumerPublication.watchSnapshot(state: model.repo.serverPresentation,
+                accountNamespace: model.accountStorage?.scope?.namespace, heartRate: model.live.heartRate)
+        }
         // #911: anchor the way Today does, through the SHARED `Repository.widgetAnchor` the Home/Lock
         // widget and the iOS Live Activity now also use, so the wrist, the widget, the Live Activity and
         // Today always describe the same day. `Date()` is read here so the day rolls live as the phone

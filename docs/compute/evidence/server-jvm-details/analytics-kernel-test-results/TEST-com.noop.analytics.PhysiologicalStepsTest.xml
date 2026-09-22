@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.PhysiologicalStepsTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.003">
+  <properties/>
+  <testcase name="nextOnsetWinsAndCurrentCycleFallsBackToNow" classname="com.noop.analytics.PhysiologicalStepsTest" time="0.001"/>
+  <testcase name="internalRadioGapDoesNotSwitchAwayFromTheHigherPriorityOwner" classname="com.noop.analytics.PhysiologicalStepsTest" time="0.001"/>
+  <testcase name="mainSleepOnsetWinsOverASeparateDaytimeNap" classname="com.noop.analytics.PhysiologicalStepsTest" time="0.0"/>
+  <testcase name="longDaytimeNapCannotHideAShorterValidMainNight" classname="com.noop.analytics.PhysiologicalStepsTest" time="0.001"/>
+  <testcase name="onlyCycleOnsetMayReadAPredecessorNeverANewOwnerSeam" classname="com.noop.analytics.PhysiologicalStepsTest" time="0.0"/>
+  <testcase name="middayReAddSwitchesOwnersAtRawCoverageBoundaryAndOverlapNeverDoubles" classname="com.noop.analytics.PhysiologicalStepsTest" time="0.0"/>
+  <testcase name="productionClassificationRejectsShortOrDaytimeNapShapes" classname="com.noop.analytics.PhysiologicalStepsTest" time="0.0"/>
+  <testcase name="napOnlyNeverOpensACycleEvenWhenItIsLong" classname="com.noop.analytics.PhysiologicalStepsTest" time="0.0"/>
+  <testcase name="historicalWindowsHaveOnlySleepBoundariesAndKeepTheLastOneOpen" classname="com.noop.analytics.PhysiologicalStepsTest" time="0.0"/>
+  <testcase name="ownerSegmentsFollowResolvedCalendarOwnersWithoutCrossDeviceSeams" classname="com.noop.analytics.PhysiologicalStepsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

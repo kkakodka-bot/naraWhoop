@@ -7,6 +7,8 @@ import UIKit
 import UniformTypeIdentifiers
 import WhoopStore
 import StrandImport
+import WhoopProtocol
+import NoopPush
 
 /// Settings → Backup & restore → "Export CSV…": serialize the merged WHOOP history (imported wins
 /// per day — exactly what the dashboards show; Apple Health rows are deliberately EXCLUDED so a
@@ -33,6 +35,7 @@ enum CsvExport {
 
     @MainActor
     static func run(repo: Repository) async -> ExportResult {
+        if PhoneComputeRuntime.isFinalHosted { return await runCanonical(repo: repo) }
         guard let store = await repo.storeHandle() else {
             return .failure("Couldn't open the local store.")
         }
@@ -220,6 +223,64 @@ enum CsvExport {
             return .failure("CSV export failed: \(error.localizedDescription)")
         }
     }
+
+    private struct HistoricalRows: Encodable {
+        let provenance = "historical_persisted_source_not_canonical"
+        let source: String
+        let daily: [DailyMetric]
+        let sleep: [CachedSleepSession]
+        let workouts: [WorkoutRow]
+        let journal: [JournalEntry]
+    }
+
+    @MainActor
+    private static func runCanonical(repo: Repository) async -> ExportResult {
+        let selected = repo.serverPresentation
+        let device = repo.deviceId
+        let context = CloudRuntimeIdentity.snapshot().context
+        guard let store = await repo.storeHandle() else { return .failure("Couldn't open the local store.") }
+        do {
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            var entries: [(name: String, data: Data)] = []
+            for (index, source) in Array(Set(repo.importedReadIds + repo.computedReadIds + [Repository.journalDeviceId])).sorted().enumerated() {
+                let rows = HistoricalRows(source: source,
+                    daily: try await store.dailyMetrics(deviceId: source, from: "0000-01-01", to: "9999-12-31"),
+                    sleep: try await store.sleepSessions(deviceId: source, from: 0, to: Int(Date().timeIntervalSince1970), limit: 100_000),
+                    workouts: try await store.workouts(deviceId: source, from: 0, to: Int(Date().timeIntervalSince1970), limit: 100_000),
+                    journal: try await store.journalEntries(deviceId: source, from: "0000-01-01", to: "9999-12-31"))
+                guard repo.serverPresentation == selected, repo.deviceId == device,
+                      CloudRuntimeIdentity.snapshot().context == context else { throw AccountAuthError.staleOperation }
+                entries.append(("historical_source_\(index).json", try encoder.encode(rows)))
+            }
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
+            try CanonicalExport.writeArchive(state: selected, historicalEntries: entries, to: tmp)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            func validate() throws {
+                guard repo.serverPresentation == selected, repo.deviceId == device,
+                      CloudRuntimeIdentity.snapshot().context == context else { throw AccountAuthError.staleOperation }
+            }
+            try validate()
+            #if os(macOS)
+            let panel = NSSavePanel()
+            panel.title = "Export canonical server results"
+            panel.nameFieldStringValue = defaultName()
+            panel.allowedContentTypes = [.zip]
+            guard panel.runModal() == .OK, let destination = panel.url else { return .cancelled }
+            try CanonicalExport.installArchive(from: tmp, to: destination, validate: validate)
+            return .exported(destination)
+            #else
+            guard let folder = await DocumentPicker.pickFolder() else { return .cancelled }
+            let destination = folder.appendingPathComponent(defaultName())
+            try CanonicalExport.installArchive(from: tmp, to: destination, access: {
+                let scoped = folder.startAccessingSecurityScopedResource()
+                return { if scoped { folder.stopAccessingSecurityScopedResource() } }
+            }, validate: validate)
+            return .exported(destination)
+            #endif
+        } catch { return .failure("Canonical export failed: \(error.localizedDescription)") }
+    }
+
+    static func canonicalCSV(_ state: ServerScoreViewState) -> String { CanonicalExport.csv(state) }
 
     /// Classify a workout row for the parser-ignored Source column. The strings match how each row
     /// is written on this Mac: WhoopImporter uses source "whoop"; AppModel manual logging uses

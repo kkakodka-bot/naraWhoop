@@ -323,6 +323,9 @@ private struct SystemCloudEnrollmentKeychain: CloudEnrollmentKeychainBackend {
     }
 
     func read(service: String, account: String) throws -> Data? {
+        // Hosted XCTest must never borrow the developer's enrollment or trigger a Keychain prompt.
+        // Enrollment tests inject their own backend; production authorization is unchanged.
+        guard !AppRuntimeMode.isUnitTesting else { return nil }
         var query = baseQuery(service: service, account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -336,6 +339,7 @@ private struct SystemCloudEnrollmentKeychain: CloudEnrollmentKeychainBackend {
     }
 
     func write(_ data: Data, service: String, account: String) throws {
+        guard !AppRuntimeMode.isUnitTesting else { throw KeychainStatusError(status: errSecInteractionNotAllowed) }
         let query = baseQuery(service: service, account: account)
         let updateStatus = SecItemUpdate(
             query as CFDictionary,
@@ -365,6 +369,7 @@ private struct SystemCloudEnrollmentKeychain: CloudEnrollmentKeychainBackend {
     }
 
     func delete(service: String, account: String) throws {
+        guard !AppRuntimeMode.isUnitTesting else { throw KeychainStatusError(status: errSecInteractionNotAllowed) }
         let status = SecItemDelete(baseQuery(service: service, account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainStatusError(status: status)

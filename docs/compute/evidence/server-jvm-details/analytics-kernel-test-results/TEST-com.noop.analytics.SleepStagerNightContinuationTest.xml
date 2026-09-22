@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerNightContinuationTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.018">
+  <properties/>
+  <testcase name="overnightSleepTailPastNoonKeepsLateWake" classname="com.noop.analytics.SleepStagerNightContinuationTest" time="0.018"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

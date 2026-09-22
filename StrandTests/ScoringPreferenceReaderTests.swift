@@ -47,7 +47,7 @@ final class ScoringPreferenceReaderTests: XCTestCase {
     private func model(seed: [String: Any] = [:]) throws -> AppModel {
         try XCTSkipUnless(AppRuntimeMode.isUnitTesting, "requires hermetic app construction")
         let temporary = ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.temporaryDirectory
+            ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         let root = temporary.appendingPathComponent("preference-readers-" + UUID().uuidString)
         let context = try context(), layout = AccountStorageLayout(baseDirectory: root, scope: context.scope)
         let defaults = try XCTUnwrap(UserDefaults(suiteName: layout.preferencesSuite))
@@ -158,7 +158,7 @@ final class ScoringPreferenceReaderTests: XCTestCase {
         XCTAssertEqual(repo.captureScoringReaderInputs()?.algorithms, captured.algorithms)
     }
 
-    func testActualAnalysisReadsProviderOnceBeforeStoreSuspension() async throws {
+    func testActualAnalysisRejectsChangedPreferenceIdentityBeforeOpeningEvaluation() async throws {
         try globals([RescoreBackgroundScheduler.owedKey: false,
             RescoreBackgroundScheduler.owedTokenKey: "reader-fixture",
             RescoreBackgroundScheduler.lastPassSecondsKey: 0.0])
@@ -166,23 +166,31 @@ final class ScoringPreferenceReaderTests: XCTestCase {
         let initial = ScoringPreferenceSnapshot.seed(context: owner, domain: ["noop.hrvBaselineEpoch": 1234.25])
         var current: ScoringPreferenceSnapshot? = initial
         var observed: [ScoringPreferenceSnapshot?] = []
+        var coreCheckpoints = 0
         let gate = StoreGate(store: store, entered: expectation(description: "analysis suspended at actual store opener"))
         let repo = Repository(deviceId: "reader", openStore: { store }, scoringPreferences: { current })
         let engine = IntelligenceEngine(repo: repo, profile: ProfileStore(defaults: defaults), deviceId: "reader",
             defaults: defaults, scoringPreferences: { observed.append(current); return current },
-            analysisStoreProvider: { await gate.open() })
+            analysisStoreProvider: { await gate.open() },
+            lifecycleCheckpoint: { _ in coreCheckpoints += 1 })
         let running = Task { await engine.analyzeRecent(maxDays: 0) }
         await fulfillment(of: [gate.entered], timeout: 5)
         current = .seed(context: owner, domain: ["noop.hrvBaselineEpoch": 9000.75, "noopBanisterEffort": true])
         await gate.release()
         await running.value
-        XCTAssertEqual(observed, [initial], "the whole pass, including self-healing, must use its original capture")
+        // The preference evaluator intentionally checks current identity again after its store await.
+        // Its captured request is immutable; a changed identity must stop it, not score either recipe.
+        XCTAssertEqual(observed, [initial, initial, current])
+        XCTAssertEqual(coreCheckpoints, 0)
+        XCTAssertTrue(engine.results.isEmpty)
+        XCTAssertEqual(engine.preferenceWorkDisposition, .unvalidated)
         XCTAssertEqual(engine.configuredHrvWindow, .whole)
         engine.shutdownForAccountChange(); repo.shutdownForAccountChange()
     }
 
     func testActualRestageKeepsCapturedNativeRecipeAcrossOpen() async throws {
         let store = try await WhoopStore.inMemory(), owner = try context()
+        try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: nil)
         let start = 1_700_000_000, duration = 6 * 3_600
         let hr = (0..<duration).map { HRSample(ts: start + $0, bpm: 52 + ($0 / 60) % 3) }
         let gravity = (0..<duration).map { GravitySample(ts: start + $0, x: 0, y: 0, z: 1) }
@@ -211,6 +219,7 @@ final class ScoringPreferenceReaderTests: XCTestCase {
 
     func testActualWorkoutFillUsesCapturedEffortRecipeAcrossOpen() async throws {
         let store = try await WhoopStore.inMemory(), owner = try context()
+        try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: nil)
         let start = Int(Date().timeIntervalSince1970) - 7200, duration = 3600
         let hr = (0..<duration).map { HRSample(ts: start + $0, bpm: 125) }
         _ = try await store.insert(Streams(hr: hr), deviceId: "reader")

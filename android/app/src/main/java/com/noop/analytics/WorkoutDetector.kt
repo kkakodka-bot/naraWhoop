@@ -426,6 +426,7 @@ object WorkoutDetector {
         // computing, the counters just record it.
         funnel: ((DetectionFunnel) -> Unit)? = null,
     ): List<ExerciseSession> {
+        PhoneComputeRuntime.inferenceStarted("WorkoutDetector.detect")
         // try/finally (Swift uses `defer`) so the funnel is reported on EVERY exit, including the early
         // returns below. A day that bails at "no motion rows at all" is precisely the day whose report
         // matters most, and it is the one a happy-path-only emit would stay silent about.
@@ -725,6 +726,7 @@ object Calories {
         hrmax: Double?,
         restingHR: Double?,
     ): Pair<Double, Double> {
+        PhoneComputeRuntime.inferenceStarted("WorkoutDetector.estimateBoutCalories")
         val weightKg = if (profile.weightKg > 0) profile.weightKg else 70.0
         val heightCm = if (profile.heightCm > 0) profile.heightCm else 170.0
         val age = if (profile.age > 0) profile.age else 30.0
@@ -802,6 +804,7 @@ object Calories {
         hrmax: Double?,
         restingHR: Double?,
     ): DayEnergyEstimate {
+        PhoneComputeRuntime.inferenceStarted("WorkoutDetector.estimateDayEnergy")
         if (hrSamples.isEmpty()) return DayEnergyEstimate(0.0, 0.0, 0.0)
 
         val weightKg = if (profile.weightKg > 0) profile.weightKg else 70.0
@@ -878,6 +881,7 @@ object Calories {
         hrmax: Double?,
         restingHR: Double?,
     ): Double {
+        PhoneComputeRuntime.inferenceStarted("WorkoutDetector.estimateDayCalories")
         return estimateDayEnergy(hrSamples, profile, hrmax, restingHR).totalKcal
     }
 }

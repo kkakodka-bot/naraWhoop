@@ -1,0 +1,83 @@
+include:
+  - path: ../../project.yml
+name: ComputeChecks
+targets:
+  ComputeChecksTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - ../../StrandTests/SyncDrainPolicyTests.swift
+      - ../../StrandTests/ServerScoreRepositoryRaceTests.swift
+      - ../../StrandTests/ServerScoringRescoreSkipTests.swift
+      - ../../StrandTests/ScoringPreferenceContainmentTests.swift
+      - ../../StrandTests/ScoringPreferenceAppTests.swift
+      - Tests/FinalHostedRuntimeTests.swift
+      - ../../StrandTests/CanonicalPhysiologySurfaceTests.swift
+      - ../../StrandTests/CanonicalConsumerPublicationTests.swift
+      - ../../StrandTests/CanonicalWorkoutInputTests.swift
+      - ../../StrandTests/ImportTraceEmitTests.swift
+      - ../../StrandTests/WorkoutZonesTests.swift
+      - ../../StrandiOSShared/WidgetSnapshot.swift
+      - ../../StrandiOS/Health/HealthKitBridge.swift
+      - path: ../../Tests/Fixtures/compute-account-sleep-only.json
+        buildPhase: resources
+    dependencies:
+      - target: Strand
+      - package: WhoopProtocol
+      - package: WhoopStore
+      - package: NoopPush
+      - package: StrandAnalytics
+      - package: StrandDesign
+      - package: GRDB
+      - package: ZIPFoundation
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX).computechecks
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NOOP Staging.app/Contents/MacOS/NOOP Staging"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  SyncRenderChecks:
+    build:
+      targets:
+        Strand: all
+    test:
+      config: Debug
+      environmentVariables:
+        NOOP_HERMETIC_TESTING: "1"
+        NOOP_TEST_DISABLE_BLUETOOTH: "1"
+        NOOP_COMPUTE_REFERENCE_TESTS: "1"
+        NARA_SYNC_RENDER_ISOLATED_HOST: "1"
+        NARA_TEST_FIXTURE_ROOT: "$(COMPUTE_TEST_SCRATCH)"
+        SCORING_PREFERENCE_SCRATCH: "$(COMPUTE_TEST_SCRATCH)"
+      targets:
+        - name: StrandTests
+          selectedTests:
+            - ScoringSyncControlRenderTests
+  FinalHostedChecks:
+    build:
+      targets:
+        Strand: all
+    test:
+      config: Debug
+      environmentVariables:
+        NOOP_HERMETIC_TESTING: "1"
+        NOOP_TEST_DISABLE_BLUETOOTH: "1"
+        NOOP_COMPUTE_REFERENCE_TESTS: "0"
+        NARA_TEST_FIXTURE_ROOT: "$(BUILT_PRODUCTS_DIR)/fixtures"
+      targets:
+        - ComputeChecksTests
+  ComputeChecks:
+    build:
+      targets:
+        Strand: all
+    test:
+      config: Debug
+      environmentVariables:
+        NOOP_HERMETIC_TESTING: "1"
+        NOOP_TEST_DISABLE_BLUETOOTH: "1"
+        NOOP_COMPUTE_REFERENCE_TESTS: "1"
+        NARA_TEST_FIXTURE_ROOT: "$(BUILT_PRODUCTS_DIR)/fixtures"
+      targets:
+        - ComputeChecksTests

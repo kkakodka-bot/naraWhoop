@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.LocalDayWindowsTest" tests="25" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.012">
+  <properties/>
+  <testcase name="testWindowReportsOffsetInEffectAtItsStart" classname="com.noop.analytics.LocalDayWindowsTest" time="0.002"/>
+  <testcase name="testTransitionThatRepeatsLocalMidnight" classname="com.noop.analytics.LocalDayWindowsTest" time="0.001"/>
+  <testcase name="testConsecutiveWindowsMeetExactly" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testInstantInsideTwentyFiveHourDayResolvesToThatDaysStart" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testDefaultZoneIsThePlatformsTrackingDeviceZone" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testSpringForwardDayIsTwentyThreeHours" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testLongRunReachesTheRightCalendarDate" classname="com.noop.analytics.LocalDayWindowsTest" time="0.003"/>
+  <testcase name="testRunContainingASkippedDateIsShorterThanRequested" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testResultDoesNotDependOnTheReferenceInstant" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testDayWithFortyFiveMinuteOffsetStartsAtItsOwnLocalMidnight" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testDefaultReferenceInstantIsThePlatformsCurrentInstant" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testDayKeyHoldsAcrossTheWholeOfATwentyFiveHourDay" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testKotlinTestAssertsTheCommittedOracle" classname="com.noop.analytics.LocalDayWindowsTest" time="0.005"/>
+  <testcase name="testPrecedingDatesWindowReachesTheNextExistingDate" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testDayKeyChangesExactlyAtTheWindowBoundary" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testTransitionThatSkipsLocalMidnight" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testContainingDayStartOfAStartInstantIsItself" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testRunAcrossATransitionIsConsecutiveAndCorrectlyAnchored" classname="com.noop.analytics.LocalDayWindowsTest" time="0.001"/>
+  <testcase name="testFallBackDayIsTwentyFiveHours" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testResolvedStartDiffersFromFixedOffsetArithmeticAcrossATransition" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testDayInZoneWithoutDaylightSavingIsTwentyFourHours" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testSkippedCalendarDateProducesNoStart" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testPastTwentyFiveHourDayReachesItsOwnNextStart" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testCurrentDatesWindowStopsAtTheReferenceInstant" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <testcase name="testMismatchNoteNamesBothDatabaseVersions" classname="com.noop.analytics.LocalDayWindowsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.RecentHrvCoverageTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="a day after today is ignored" classname="com.noop.analytics.RecentHrvCoverageTest" time="0.001"/>
+  <testcase name="a complete window reports nothing missing" classname="com.noop.analytics.RecentHrvCoverageTest" time="0.0"/>
+  <testcase name="counts observed nights and the empty ones among them" classname="com.noop.analytics.RecentHrvCoverageTest" time="0.0"/>
+  <testcase name="a day outside the window is not observed" classname="com.noop.analytics.RecentHrvCoverageTest" time="0.0"/>
+  <testcase name="empty and unparseable inputs are zero" classname="com.noop.analytics.RecentHrvCoverageTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

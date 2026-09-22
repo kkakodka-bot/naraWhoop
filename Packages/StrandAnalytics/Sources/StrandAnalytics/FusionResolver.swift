@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // MARK: - FusionResolver (v5 — Local Multi-Device Fusion)
@@ -21,6 +22,8 @@ public enum FusionResolver {
     /// Its value passes through unchanged. The agreement state classifies how far the OTHER sources sit
     /// from the winning value, per the metric's tolerance band.
     public static func resolve(metricKey: String, inputs: [FusionInput]) -> FusedMetricPoint? {
+        guard PhoneComputeRuntime.permitsLocal("swift.FusionResolver.resolve") else { return nil }
+        PhoneComputeRuntime.entered("swift.FusionResolver.resolve")
         guard !inputs.isEmpty else { return nil }
         let kind = MetricArbitrationPolicy.kind(forKey: metricKey)
 
@@ -63,6 +66,7 @@ public enum FusionResolver {
     public static func classify(metric: MetricArbitrationPolicy.MetricKind,
                                 winningValue: Double,
                                 contributors: [ContributingSource]) -> AgreementState {
+        PhoneComputeRuntime.entered("swift.FusionResolver.classify")
         // Only one source reported the metric → nothing to compare against.
         guard contributors.count >= 2 else { return .single }
 

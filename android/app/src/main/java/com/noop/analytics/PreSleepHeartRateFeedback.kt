@@ -145,6 +145,7 @@ object PreSleepHeartRateFeedback {
         minimumValidSamples: Int = DEFAULT_MINIMUM_VALID_SAMPLES,
         preSleepWindowSeconds: Int = DEFAULT_PRE_SLEEP_WINDOW_SECONDS,
     ): Feedback {
+        PhoneComputeRuntime.inferenceStarted("PreSleepHeartRateFeedback.evaluate")
         fun closed(e: Eligibility, obs: Observation? = null, unc: List<Uncertainty> = emptyList(),
                    ctx: List<JournalFact> = emptyList()) =
             Feedback(e, obs, null, unc, Inference.NOT_ESTABLISHED, Recommendation.UNSUPPORTED, ctx)

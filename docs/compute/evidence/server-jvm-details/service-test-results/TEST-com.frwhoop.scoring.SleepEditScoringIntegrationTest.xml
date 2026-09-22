@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.SleepEditScoringIntegrationTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:16:50" hostname="mac-studio.lan" time="3.936">
+  <properties/>
+  <testcase name="unmatchedManualNapIsPublishedWithoutInventingStagesOrMeasuredPhysiology" classname="com.frwhoop.scoring.SleepEditScoringIntegrationTest" time="0.268"/>
+  <testcase name="boundaryCorrectionRestagesFreshRawButNeverChangesOriginalIdentity" classname="com.frwhoop.scoring.SleepEditScoringIntegrationTest" time="0.929"/>
+  <testcase name="newEditFencesAlreadyClaimedWorkerBeforeRangeExpansion" classname="com.frwhoop.scoring.SleepEditScoringIntegrationTest" time="0.287"/>
+  <testcase name="asOfReaderUsesProfileAndConfigRevisionsNotFutureMutableDefaults" classname="com.frwhoop.scoring.SleepEditScoringIntegrationTest" time="0.096"/>
+  <testcase name="movedWakeDayRemovesOldDayAndPreservesAnchorsOnNewDay" classname="com.frwhoop.scoring.SleepEditScoringIntegrationTest" time="0.553"/>
+  <testcase name="dstFallBackEditUsesRealEpochBoundsAndNoClientStages" classname="com.frwhoop.scoring.SleepEditScoringIntegrationTest" time="0.593"/>
+  <testcase name="rawBackedManualNapIsRestagedByServerAndKeepsObservedGapEmpty" classname="com.frwhoop.scoring.SleepEditScoringIntegrationTest" time="0.43"/>
+  <testcase name="dismissAndUndoRoundTripSameManualEntityWithNoLocalRecompute" classname="com.frwhoop.scoring.SleepEditScoringIntegrationTest" time="0.78"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

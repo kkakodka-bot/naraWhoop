@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.VendorRespRateTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.349">
+  <properties/>
+  <testcase name="aFragmentOfANightIsRefused" classname="com.noop.analytics.VendorRespRateTest" time="0.001"/>
+  <testcase name="rowsOutsideTheSessionAreIgnored" classname="com.noop.analytics.VendorRespRateTest" time="0.0"/>
+  <testcase name="respBaselineFoldsTheCurrentDeviceEraOnly" classname="com.noop.analytics.VendorRespRateTest" time="0.0"/>
+  <testcase name="anImplausibleMedianIsRefused" classname="com.noop.analytics.VendorRespRateTest" time="0.0"/>
+  <testcase name="noRowsAndNoSessionsYieldNothing" classname="com.noop.analytics.VendorRespRateTest" time="0.0"/>
+  <testcase name="nightlyValueIsTheMedianOfTheInSessionRows" classname="com.noop.analytics.VendorRespRateTest" time="0.0"/>
+  <testcase name="analyzeDayPrefersTheDeviceMeasuredRate" classname="com.noop.analytics.VendorRespRateTest" time="0.188"/>
+  <testcase name="aSingleBrandHistoryIsUnscoped" classname="com.noop.analytics.VendorRespRateTest" time="0.0"/>
+  <testcase name="emptyVendorRespIsByteIdenticalToOmitting" classname="com.noop.analytics.VendorRespRateTest" time="0.16"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

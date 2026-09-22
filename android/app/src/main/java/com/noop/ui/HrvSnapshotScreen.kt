@@ -105,6 +105,7 @@ fun HrvSnapshotScreen(
     var runningRmssd by remember { mutableStateOf<Double?>(null) }
     // The completed analysis (null until Done).
     var result by remember { mutableStateOf<HrvAnalyzer.HrvResult?>(null) }
+    var serverRequestId by remember { mutableStateOf<String?>(null) }
     // Whether the just-finished snapshot has been saved (drives the Save button → "Saved").
     var saved by remember { mutableStateOf(false) }
 
@@ -128,7 +129,7 @@ fun HrvSnapshotScreen(
                 if (!captureWindowOpen(start.elapsedNow().inWholeMilliseconds)) return@collect
                 val merged = captureBuffer.value + rr
                 captureBuffer.value = merged
-                runningRmssd = HrvAnalyzer.rmssdRaw(merged.map { it.toDouble() })
+                runningRmssd = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else HrvAnalyzer.rmssdRaw(merged.map { it.toDouble() })
             }
     }
 
@@ -146,6 +147,14 @@ fun HrvSnapshotScreen(
         }
         // End the capture and run the full cleaning analysis over everything collected.
         val captureMs = start.elapsedNow().inWholeMilliseconds
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            val end = System.currentTimeMillis() / 1000
+            serverRequestId = viewModel.serverScores.computeRequests.capture("spot_hrv", end - captureMs / 1000, end, consent = true)
+            phase = HrvPhase.Done
+            result = null
+            viewModel.serverScores.computeRequests.drain()
+            return@LaunchedEffect
+        }
         val raw = captureBuffer.value.map { it.toDouble() }
         // A capture whose collected beat time exceeds the wall clock it ran for held duplicated
         // beats (e.g. overlapping live sources) — refuse the number rather than publish it.
@@ -314,6 +323,9 @@ fun HrvSnapshotScreen(
 
         // Result.
         val done = result
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted && phase == HrvPhase.Done) {
+            item { CanonicalSessionReadout(viewModel, serverRequestId) }
+        }
         if (phase == HrvPhase.Done && done != null) {
             item { ResultCard(done) }
         }
@@ -557,8 +569,11 @@ internal fun formatHrv(value: Double?, fmt: String): String =
  * Mean heart rate (bpm) from the mean NN interval (ms): 60000 / meanNN. null when meanNN is missing
  * or non-positive. Mirrors HRVSnapshotView.meanHR.
  */
-internal fun meanHr(meanNN: Double?): Double? =
-    if (meanNN == null || meanNN <= 0) null else 60_000.0 / meanNN
+internal fun meanHr(meanNN: Double?): Double? {
+    if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("spot_display_rr_to_hr")) return null
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("spot_display_rr_to_hr")
+    return if (meanNN == null || meanNN <= 0) null else 60_000.0 / meanNN
+}
 
 /** The reading's local calendar day (yyyy-MM-dd) — the `day` of the metric store's natural key. */
 private fun hrvDayKey(date: Date): String =

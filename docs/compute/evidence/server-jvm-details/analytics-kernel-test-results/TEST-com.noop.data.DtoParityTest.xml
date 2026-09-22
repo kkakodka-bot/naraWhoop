@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.data.DtoParityTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:24" hostname="mac-studio.lan" time="0.009">
+  <properties/>
+  <testcase name="stepSampleParity" classname="com.noop.data.DtoParityTest" time="0.002"/>
+  <testcase name="sourceKindParity" classname="com.noop.data.DtoParityTest" time="0.001"/>
+  <testcase name="sleepSessionParity" classname="com.noop.data.DtoParityTest" time="0.001"/>
+  <testcase name="respSampleParity" classname="com.noop.data.DtoParityTest" time="0.001"/>
+  <testcase name="gravitySampleParity" classname="com.noop.data.DtoParityTest" time="0.001"/>
+  <testcase name="rrIntervalParity" classname="com.noop.data.DtoParityTest" time="0.0"/>
+  <testcase name="hrSampleParity" classname="com.noop.data.DtoParityTest" time="0.001"/>
+  <testcase name="spo2SampleParity" classname="com.noop.data.DtoParityTest" time="0.0"/>
+  <testcase name="dailyMetricParity" classname="com.noop.data.DtoParityTest" time="0.001"/>
+  <testcase name="skinTempSampleParity" classname="com.noop.data.DtoParityTest" time="0.001"/>
+  <testcase name="eventRowParity" classname="com.noop.data.DtoParityTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -21,7 +21,7 @@ enum S11Fixtures {
         input.journal[1] = F.journal(.config, 2, day: day, payload: flags)
         let lo = try V.validate(input).dayLo
         // Bounded raw density: 10-second original measurements, not synthetic daily observations.
-        // The actual stager must establish sleep and HRV availability in native tests.
+        // Sleep may be established, but coarse RR without beat-clock proof must remain unavailable.
         for offset in stride(from: 0, through: 10_800, by: 10) {
             let ts = lo + offset
             append(&input, .hr, ts, ["bpm": .number(Double(52 + offset / 300 % 3))])
@@ -76,7 +76,7 @@ final class ServerDaySwiftV3HistoryTests: XCTestCase {
         XCTAssertEqual(actual.record.body.hrvWindows, reference.hrvWindows)
         XCTAssertFalse(actual.record.body.rawNight.sessions.isEmpty)
         XCTAssertFalse(actual.record.body.rawNight.sessions.flatMap(\.stages).isEmpty)
-        XCTAssertNotNil(actual.record.body.checkpoint.observation.measurements.values["hrv"])
+        XCTAssertNil(actual.record.body.checkpoint.observation.measurements.values["hrv"])
         XCTAssertNotNil(actual.record.body.checkpoint.observation.measurements.values["skin_temp"])
         XCTAssertEqual(actual.record.body.input, input)
     }
@@ -90,7 +90,8 @@ final class ServerDaySwiftV3HistoryTests: XCTestCase {
             XCTAssertEqual(output.reusedCheckpoint, index > 0)
             XCTAssertEqual(output.record.body.input.raw.count, 3_543)
             XCTAssertFalse(output.record.body.rawNight.sessions.isEmpty)
-            XCTAssertNotNil(output.record.body.checkpoint.observation.measurements.values["hrv"])
+            XCTAssertNil(output.record.body.checkpoint.observation.measurements.values["hrv"])
+            XCTAssertNotNil(output.record.body.checkpoint.observation.measurements.values["resting_hr"])
             first.append(output.record)
         }
         let last = first.last!
@@ -99,7 +100,8 @@ final class ServerDaySwiftV3HistoryTests: XCTestCase {
                 rejectHardOutliers: metric != "readiness_hrv_ln")
             XCTAssertEqual(try last.body.checkpoint.baselinesAfter[metric]?.native(), actual, metric)
         }
-        XCTAssertEqual(last.body.checkpoint.baselinesAfter["hrv"]?.nValid, 131)
+        XCTAssertEqual(last.body.checkpoint.baselinesAfter["hrv"]?.nValid, 0)
+        XCTAssertEqual(last.body.checkpoint.baselinesAfter["resting_hr"]?.nValid, 131)
         let restored = try JSONDecoder().decode([R.Record].self, from: C.bytes(Array(first.prefix(66))))
         var replay = restored
         for index in 66..<131 {
@@ -124,14 +126,18 @@ final class ServerDaySwiftV3HistoryTests: XCTestCase {
             original.append(try await F.run(input, original).record)
             if index < 5 { corrected.append(original.last!) }
             else {
-                let changed = try F.input(F.day(index), variation: index == 5 ? 52 : index % 2 == 0 ? 40 : 42)
+                // Exercise a qualified thermal correction, not an unqualified RR-derived HRV value.
+                let changed = try F.input(F.day(index), raw: index == 5 ? 3302 : 3300,
+                                          variation: index == 5 ? 52 : index % 2 == 0 ? 40 : 42)
                 corrected.append(try await F.run(changed, corrected).record)
             }
         }
         XCTAssertEqual(Array(original.prefix(5)), Array(corrected.prefix(5)))
         XCTAssertNotEqual(original[5].inputDigest, corrected[5].inputDigest)
         XCTAssertNotEqual(original.last?.digest, corrected.last?.digest)
-        XCTAssertNotEqual(original.last?.body.checkpoint.baselinesAfter["hrv"], corrected.last?.body.checkpoint.baselinesAfter["hrv"])
+        XCTAssertNotEqual(original.last?.body.checkpoint.baselinesAfter["skin_temp"], corrected.last?.body.checkpoint.baselinesAfter["skin_temp"])
+        XCTAssertEqual(original.last?.body.checkpoint.baselinesAfter["hrv"]?.nValid, 0)
+        XCTAssertEqual(corrected.last?.body.checkpoint.baselinesAfter["hrv"]?.nValid, 0)
         let next = try F.lineage(F.input(F.day(108)), corrected)
         do { _ = try await R.run(next, history: corrected, predecessor: original.last?.restart); XCTFail("Stale raw-lineage checkpoint accepted") }
         catch { XCTAssertEqual(error as? C.Failure, .invalid("s10:s11_restart_lineage")) }

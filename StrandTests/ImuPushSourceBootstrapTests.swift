@@ -31,7 +31,7 @@ final class ImuPushSourceBootstrapTests: XCTestCase {
 
     private func fixture() throws -> Fixture {
         let id = UUID().uuidString
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(id)
+        let directory = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(id)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let suite = "ImuPushSourceBootstrapTests.\(id)"

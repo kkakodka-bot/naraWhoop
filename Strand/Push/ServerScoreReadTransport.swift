@@ -24,8 +24,13 @@ enum ServerScoreReadTransport {
     static func read(_ request: URLRequest, context: AccountSessionContext,
                      configuration: URLSessionConfiguration? = nil,
                      isCurrent: @escaping @Sendable (AccountSessionContext) -> Bool = { CloudAuthClient.isCurrent($0) }) async throws -> Data {
-        let expected = URL(string: context.scope.projectURL)?.appendingPathComponent("rest/v1/rpc/get_server_score_snapshot_v2")
-        guard request.url == expected, request.httpMethod == "POST" else {
+        guard let expected = request.url, let base = URL(string: context.scope.projectURL),
+              expected.scheme == base.scheme, expected.host == base.host, expected.port == base.port,
+              expected.user == nil, expected.password == nil,
+              ["/rest/v1/rpc/get_server_score_snapshot_v2", "/functions/v1/scores",
+               "/functions/v1/scores/devices", "/functions/v1/scores/compute-requests",
+               "/functions/v1/scores/sleep-overrides"].contains(expected.path),
+              ["GET", "POST"].contains(request.httpMethod ?? "") else {
             throw ServerScoreClient.FetchError.invalidResponse
         }
         try Task.checkCancellation()
@@ -46,6 +51,7 @@ enum ServerScoreReadTransport {
             throw ServerScoreClient.FetchError.invalidResponse
         }
         if http.statusCode == 401 || http.statusCode == 403 { throw ServerScoreClient.FetchError.unauthorized }
+        if http.statusCode == 409 { throw ServerScoreClient.FetchError.conflict }
         guard http.statusCode == 200 else { throw ServerScoreClient.FetchError.invalidResponse }
         guard response.expectedContentLength <= Int64(maximumResponseBytes) else { throw ServerScoreDecodeError.tooLarge }
         var data = Data()

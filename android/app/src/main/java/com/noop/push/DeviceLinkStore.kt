@@ -32,9 +32,12 @@ class DeviceLinkStore internal constructor(private val prefs: SharedPreferences)
     companion object {
         fun from(context: Context) = DeviceLinkStore(SecurePrefs.of(context, "noop_enrolled_device_links"))
         fun identity(context: Context): Identity? {
-            val credential = EnrollmentDataScope.credential(context) ?: return null
-            val endpoint = SelfHostedPushSettings.from(context).configuredEndpoint()?.url ?: return null
-            return Identity(endpoint, credential.userId, credential.sourceId, ServerScoreClient.localDeviceId(context))
+            val credential = EnrollmentDataScope.credential(context)
+            val owner = credential?.userId ?: CloudAuthClient.identitySnapshot(context).scope?.userID ?: return null
+            val endpoint = if (credential != null) SelfHostedPushSettings.from(context).configuredEndpoint()?.url
+                else CloudAuthClient.identitySnapshot(context).scope?.projectURL?.trimEnd('/')?.plus("/functions/v1/push")
+            if (endpoint == null) return null
+            return Identity(endpoint, owner, credential?.sourceId ?: SelfHostedPushSettings.from(context).sourceId(), ServerScoreClient.localDeviceId(context))
         }
         fun currentConfirmed(context: Context): Boolean = runCatching {
             val identity = identity(context) ?: return false

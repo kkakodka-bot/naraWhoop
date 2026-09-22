@@ -640,6 +640,8 @@ object TrendsReportShare {
         range: ReportRange,
         stressByDay: Map<String, Double> = emptyMap(),
     ) {
+        check(!com.noop.analytics.PhoneComputeRuntime.finalHosted) { "Use canonical result export in final hosted mode" }
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("TrendsReport.export")
         runCatching {
             val today = LocalDate.now().toString()
             // The user's display settings, resolved once for BOTH the headline sentences (built
@@ -686,6 +688,10 @@ object TrendsReportShare {
 @Composable
 fun TrendsReportExportSection(vm: AppViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalExportButton(vm, context)
+        return
+    }
     val days by vm.recentDays.collectAsStateWithLifecycle()
     var range by remember { mutableStateOf(ReportRange.Days90) }
 

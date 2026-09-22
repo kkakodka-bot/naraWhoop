@@ -308,6 +308,13 @@ fun TodayScreen(
     // the call site stays compiling; AppRoot binds it to nav.navigateTopLevel(Insights), same as Sleep.
     onOpenJournal: () -> Unit = {},
 ) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalPhysiologyScreen(viewModel, "Today", com.noop.push.ServerComputeContract.familyIDs,
+            mapOf("Quick actions" to onQuickActions, "Sleep" to onOpenSleep, "Journal" to onOpenJournal,
+                "Workout" to onOpenActiveWorkout, "Hydration" to onOpenHydration, "Devices" to onOpenDevices,
+                "Settings" to onOpenSettings))
+        return
+    }
     val today by viewModel.today.collectAsStateWithLifecycle()
     val alert by viewModel.healthAlert.collectAsStateWithLifecycle()
     val days by viewModel.recentDays.collectAsStateWithLifecycle()
@@ -397,17 +404,20 @@ fun TodayScreen(
     }
     val context = LocalContext.current
     val serverSignedIn by viewModel.serverScores.signedIn.collectAsStateWithLifecycle()
-    val serverEnabled by viewModel.serverScores.enabled.collectAsStateWithLifecycle()
+    val serverReadsEnabled by viewModel.serverScores.enabled.collectAsStateWithLifecycle()
     val serverReady = com.noop.push.ServerScoringSettings.ready(context)
     // Observe refreshes, but re-read the inexpensive owner-scoped cache instead of memoizing an owner.
-    val serverOverlay = viewModel.serverScores.lastFetchedAtMs.collectAsStateWithLifecycle().value.let {
-        if (serverReady && serverSignedIn) viewModel.serverScores.overlay(selectedDayKey) else null
+    val serverOverlay = (viewModel.serverScores.lastFetchedAtMs.collectAsStateWithLifecycle().value to
+        viewModel.serverScores.lastError.collectAsStateWithLifecycle().value).let {
+        if (serverSignedIn) viewModel.serverScores.overlay(selectedDayKey) else null
     }
+    // Read configuration cannot acquire ownership or release a persisted feature claim.
+    val serverEnabled = serverOverlay?.ownedMetrics?.isNotEmpty() == true
     LaunchedEffect(selectedDayKey, serverOverlay?.computedAt, serverOverlay?.stale) {
         androidx.compose.runtime.withFrameNanos { }
         viewModel.serverScores.recordDisplayed(serverOverlay)
     }
-    LaunchedEffect(selectedDayKey, serverEnabled, serverReady, serverSignedIn) {
+    LaunchedEffect(selectedDayKey, serverReadsEnabled, serverReady, serverSignedIn) {
         if (com.noop.push.ServerScoringSettings.isEnabled(context)) {
             viewModel.serverScores.refreshDay(selectedDayKey)
         }
@@ -889,11 +899,10 @@ fun TodayScreen(
     // figure and a Bluetooth-only user sees the on-device composite. Null until loaded / no night yet.
     var restScoreForDay by remember { mutableStateOf<Double?>(null) }
     LaunchedEffect(days, selectedDayKey, selectedDayOffset, serverOverlay, serverEnabled) {
-        val overlayEfficiency = com.noop.push.ServerVitalSelection.resolve(
-            com.noop.push.ServerVitalSelection.Metric.SLEEP, serverEnabled, selectedDayKey, serverOverlay, null)
-        if (overlayEfficiency.fromServer) {
-            val efficiency = serverOverlay?.daily?.sleepEfficiency
-            restScoreForDay = efficiency?.let { if (it <= 1.5) it * 100 else it }
+        val serverRest = com.noop.push.ServerVitalSelection.resolve(
+            com.noop.push.ServerVitalSelection.Metric.REST, serverEnabled, selectedDayKey, serverOverlay, null)
+        if (serverRest.fromServer) {
+            restScoreForDay = serverRest.value
             return@LaunchedEffect
         }
         val byDay = runCatching {

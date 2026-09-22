@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.PhysiologyWearDependencyIntegrationTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:24" hostname="mac-studio.lan" time="1.252">
+  <properties/>
+  <testcase name="delayedOffInsertAndDeleteDirtyExistingDistantDaysTransactionallyButReplayDoesNot" classname="com.frwhoop.scoring.PhysiologyWearDependencyIntegrationTest" time="0.413"/>
+  <testcase name="readerCarriesPrecedingOffAndClosedOnIntoCurrentContext" classname="com.frwhoop.scoring.PhysiologyWearDependencyIntegrationTest" time="0.325"/>
+  <testcase name="nextTransitionEndsInfluenceAndConflictingSameSecondStateRemainsOff" classname="com.frwhoop.scoring.PhysiologyWearDependencyIntegrationTest" time="0.514"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-84 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-84 - Added connection org.postgresql.jdbc.PgConnection@7dee835
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-84 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-84 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-84 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-85 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-85 - Added connection org.postgresql.jdbc.PgConnection@69a024a0
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-85 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-85 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-85 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-86 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-86 - Added connection org.postgresql.jdbc.PgConnection@196624bf
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-86 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-86 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-86 - Shutdown completed.
+]]></system-err>
+</testsuite>

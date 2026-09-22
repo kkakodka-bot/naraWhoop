@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // ActivityCostEngine.swift — "what each activity costs your recovery".
@@ -126,6 +127,8 @@ public enum ActivityCostEngine {
     ///   Empty input (or no sport thick enough) → an empty array.
     public static func evaluate(activityDaysBySport: [String: Set<String>],
                                 recoveryByDay: [String: Double]) -> [ActivityCost] {
+        guard PhoneComputeRuntime.permitsLocal("swift.ActivityCostEngine.evaluate") else { return [] }
+        PhoneComputeRuntime.entered("swift.ActivityCostEngine.evaluate")
         guard !activityDaysBySport.isEmpty, !recoveryByDay.isEmpty else { return [] }
 
         // Rest days = days WITH a Charge value that are neither tagged with ANY sport NOR sit inside
@@ -192,6 +195,8 @@ public enum ActivityCostEngine {
     static func forwardDaysToBaseline(taggedDays: Set<String>,
                                       recoveryByDay: [String: Double],
                                       baselineMean: Double) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.ActivityCostEngine.forwardDaysToBaseline") else { return nil }
+        PhoneComputeRuntime.entered("swift.ActivityCostEngine.forwardDaysToBaseline")
         let target = baselineMean - tolerance
         for k in 1...maxLookahead {
             var vals: [Double] = []
@@ -210,7 +215,9 @@ public enum ActivityCostEngine {
 
     /// Stable rank: |delta| desc, then .solid before .building, then sport name asc.
     static func rank(_ items: [ActivityCost]) -> [ActivityCost] {
-        items.sorted { a, b in
+        guard PhoneComputeRuntime.permitsLocal("swift.ActivityCostEngine.rank") else { return [] }
+        PhoneComputeRuntime.entered("swift.ActivityCostEngine.rank")
+        return items.sorted { a, b in
             let da = abs(a.delta), db = abs(b.delta)
             if da != db { return da > db }
             let ra = confidenceRank(a.confidence), rb = confidenceRank(b.confidence)
@@ -231,6 +238,7 @@ public enum ActivityCostEngine {
     // MARK: - Stats (self-contained so the Kotlin mirror is line-for-line)
 
     static func mean(_ values: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.ActivityCostEngine.mean")
         guard !values.isEmpty else { return 0 }
         return values.reduce(0, +) / Double(values.count)
     }

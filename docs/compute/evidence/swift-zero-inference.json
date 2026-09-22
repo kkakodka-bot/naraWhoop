@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "gate": "swift-zero-inference",
+  "status": "PASS",
+  "command": [
+    "swift",
+    "test",
+    "--package-path",
+    "Packages/StrandAnalytics",
+    "--scratch-path",
+    ".derived/analytics-optimized-assertions",
+    "--jobs",
+    "4",
+    "-Xswiftc",
+    "-O",
+    "-Xswiftc",
+    "-assert-config",
+    "-Xswiftc",
+    "Debug",
+    "--filter",
+    "PhoneInferenceRetirementTests"
+  ],
+  "cwd": ".",
+  "started_at": "2026-09-22T06:33:50.725Z",
+  "finished_at": "2026-09-22T06:33:54.430Z",
+  "source_before": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "source_after": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "exit_code": 0,
+  "failure": null,
+  "log_path": "swift-zero-inference.log",
+  "log_sha256": "99af12528e03a21e3813e1ab086e375dbcf7630c47918063dd43bb0d081e826a"
+}

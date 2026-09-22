@@ -125,6 +125,7 @@ object WakeMotionRefinement {
      * window is degenerate, or the density self-gate declines.
      */
     fun refine(segments: List<StageSegment>, grav: List<GravitySample>, steps: List<StepSample>): List<StageSegment> {
+        PhoneComputeRuntime.inferenceStarted("WakeMotionRefinement.refine")
         val windowStart = segments.firstOrNull()?.start ?: return segments
         val windowEnd = segments.lastOrNull()?.end ?: return segments
         if (windowEnd <= windowStart) return segments
@@ -160,6 +161,7 @@ object WakeMotionRefinement {
      * Identity passthrough when [refine] makes no change to the stages.
      */
     fun refine(session: DetectedSleep, grav: List<GravitySample>, steps: List<StepSample>): DetectedSleep {
+        PhoneComputeRuntime.inferenceStarted("WakeMotionRefinement.refine")
         val newStages = refine(session.stages, grav, steps)
         if (newStages == session.stages) return session
         val newEfficiency = SleepStager.efficiency(session.start, session.end, newStages)
@@ -220,6 +222,7 @@ object WakeMotionRefinement {
         gravByMinute: Map<Long, List<GravitySample>>,
         ticksByMinute: Map<Long, Int>,
     ): List<StageSegment> {
+        PhoneComputeRuntime.inferenceStarted("WakeMotionRefinement.refineSegment")
         if (!SleepStageVocabulary.isWake(seg.stage) || seg.end - seg.start < MIN_WAKE_SEGMENT_SECONDS) return listOf(seg)
         val mins = minutes(seg.start, seg.end)
         if (mins.isEmpty()) return listOf(seg)

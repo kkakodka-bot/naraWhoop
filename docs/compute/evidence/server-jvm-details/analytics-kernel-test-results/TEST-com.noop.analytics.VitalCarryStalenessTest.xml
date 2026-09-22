@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.VitalCarryStalenessTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:24" hostname="mac-studio.lan" time="0.0">
+  <properties/>
+  <testcase name="cutoffKeyHandlesLeapYear" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="windowEdgeIsInclusive" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="cutoffKeyCrossesMonthAndYearBoundaries" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="judgesOnlyTheNewestPoint" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="carryWindowIsShorterThanBaselineStaleness" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="futureDatedRowIsNotFilteredHere" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="dropsTheFourteenDayOldImportThatShowed156" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="todaysOwnValueAlwaysCarries" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="carriesAValueInsideTheWindow" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="cutoffKeyIsTodayMinusCarryDays" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="cutoffKeyFailsClosedOnGarbage" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <testcase name="emptySeriesCarriesNothing" classname="com.noop.analytics.VitalCarryStalenessTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

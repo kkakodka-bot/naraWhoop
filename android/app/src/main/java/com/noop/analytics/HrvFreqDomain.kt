@@ -58,12 +58,14 @@ object HrvFreqDomain {
      * few clean beats or span < [MIN_SPAN_FOR_HF_SEC].
      */
     fun freqDomain(rr: List<RrInterval>): Bands? {
+        PhoneComputeRuntime.inferenceStarted("HrvFreqDomain.freqDomain")
         val raw = rr.sortedBy { it.ts }.map { it.rrMs.toDouble() }
         return freqDomainRaw(raw)
     }
 
     /** As [freqDomain] but from a raw, time-ordered R-R series in milliseconds. */
     fun freqDomainRaw(rawRR: List<Double>): Bands? {
+        PhoneComputeRuntime.inferenceStarted("HrvFreqDomain.freqDomainRaw")
         val clean = HrvAnalyzer.cleanRR(rawRR)
         if (clean.size < MIN_BEATS) return null
 

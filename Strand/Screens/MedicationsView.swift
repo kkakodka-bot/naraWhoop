@@ -2,6 +2,7 @@ import SwiftUI
 import Charts
 import StrandDesign
 import WhoopStore
+import WhoopProtocol
 
 /// Medications tab — dose logging for the session plus a vital-response preview from real nightly metrics.
 /// Nothing is persisted yet; added medications reset on relaunch. The response chart reads Repository
@@ -64,7 +65,9 @@ struct MedicationsView: View {
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 scheduleCard
-                if !trackedMedications.isEmpty {
+                if PhoneComputeRuntime.isFinalHosted {
+                    CanonicalPhysiologySection(families: ["insights", "illness"])
+                } else if !trackedMedications.isEmpty {
                     vitalResponseCard
                 }
             }
@@ -452,6 +455,8 @@ struct MedicationsView: View {
     }
 
     private func average(for metric: VitalMetric, beforeStart: Bool) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("MedicationsView.physiological_response") else { return nil }
+        PhoneComputeRuntime.entered("MedicationsView.physiological_response")
         guard let start = selectedStartDate else { return nil }
         let startKey = Repository.localDayKey(start)
         let slice = metricPoints(for: metric).filter {

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepDebtTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="importedOnlyGapDoesNotConsumeOneOfFourteenUsableNights" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="windowCap_keepsMostRecent" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="calculatedDebtBelowTenMinutesClearsButExactlyTenRemains" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="debtCarriesAtFiftyFivePercentAndSurplusDoesNotBank" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="meetingNeedIncludingCurrentDebtClearsItCompletely" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="importedDebtIsVerbatimButDoesNotSeedFollowingFallback" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="skipsNoDataNights" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="napMinutes_addDebtRepaymentCredit" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="debtSeriesRoundsLocalOutputsToTheLedgerSurfacePrecision" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="round1_halfTiesAwayFromZero" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="onTarget_netsToZero" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="emptyLedger" classname="com.noop.analytics.SleepDebtTest" time="0.001"/>
+  <testcase name="defaultNeed_isEightHours" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="napCredit_requiresMainSleepAndIgnoresNegativeNapMinutes" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <testcase name="debtSeriesKeepsFullOutputHistoryAndRecomputesEachDayFromTrailingUsableWindow" classname="com.noop.analytics.SleepDebtTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

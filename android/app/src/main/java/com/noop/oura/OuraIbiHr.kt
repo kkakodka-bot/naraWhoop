@@ -23,6 +23,8 @@ object OuraIbiHr {
      * same-timestamped beats into ONE row, matching the `hrSample (deviceId, ts)` key.
      */
     fun perRecordMedianHR(ibis: List<OuraIBI>): List<OuraHR> {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("oura_ibi_hr")) return emptyList()
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("oura_ibi_hr")
         val byRingTime = HashMap<Long, MutableList<Int>>()
         for (ibi in ibis) {
             if (ibi.ibiMs in 300..2000) byRingTime.getOrPut(ibi.ringTimestamp) { ArrayList() }.add(ibi.ibiMs)

@@ -1,0 +1,2032 @@
+{
+  "schema_version": 1,
+  "policy": "BuildConfig.FINAL_HOSTED_COMPUTE installs an irreversible process policy before NoopApplication account runtimes; plain JVM reference/server runners do not install it.",
+  "coverage": "Reviewed numerical entrypoints and explicit final-mode admission refusals. UI final-mode routing and canonical consumer selection are independently checked by the metric registry. Static presence is not executed zero-inference evidence.",
+  "entries": [
+    {
+      "file": "android/app/src/main/java/com/noop/ai/AiCoach.kt",
+      "symbol": "chat",
+      "producer": "AiCoach.chat",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"AiCoach.chat\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ai/AiCoach.kt",
+      "symbol": "chatStream",
+      "producer": "AiCoach.chatStream",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"AiCoach.chatStream\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ai/AiCoach.kt",
+      "symbol": "suggestions",
+      "producer": "AiCoach.suggestions",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"AiCoach.suggestions\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ai/AiCoach.kt",
+      "symbol": "buildContext",
+      "producer": "AiCoach.buildContext",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"AiCoach.buildContext\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/alarm/SleepWindowWatcher.kt",
+      "symbol": "shouldWake",
+      "producer": "smart_alarm_sleep_inference",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"smart_alarm_sleep_inference\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/alarm/SleepWindowWatcher.kt",
+      "symbol": "shouldWake",
+      "producer": "SleepWindowWatcher.shouldWake",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"SleepWindowWatcher.shouldWake\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/ActivityCostEngine.kt",
+      "symbol": "evaluate",
+      "producer": "ActivityCostEngine.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"ActivityCostEngine.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/AdaptiveExpenditureEngine.kt",
+      "symbol": "estimate",
+      "producer": "AdaptiveExpenditureEngine.estimate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"AdaptiveExpenditureEngine.estimate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/Analytics.kt",
+      "symbol": "rmssd",
+      "producer": "Hrv.rmssd",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"Hrv.rmssd\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/Analytics.kt",
+      "symbol": "hrMaxTanaka",
+      "producer": "Zones.hrMaxTanaka",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"Zones.hrMaxTanaka\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/Analytics.kt",
+      "symbol": "evaluate",
+      "producer": "illness_watch",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"illness_watch\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/Analytics.kt",
+      "symbol": "evaluate",
+      "producer": "illness_watch",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"illness_watch\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/AnalyticsEngine.kt",
+      "symbol": "analyzeDay",
+      "producer": "AnalyticsEngine.analyzeDay",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"AnalyticsEngine.analyzeDay\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/AnalyticsEngine.kt",
+      "symbol": "restFromDaily",
+      "producer": "rest_reconstruction",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"rest_reconstruction\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/AnalyticsEngine.kt",
+      "symbol": "restFromDaily",
+      "producer": "rest_reconstruction",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"rest_reconstruction\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/AutoWorkoutDetector.kt",
+      "symbol": "motionIntensityByTs",
+      "producer": "AutoWorkoutDetector.motionIntensityByTs",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"AutoWorkoutDetector.motionIntensityByTs\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/AutoWorkoutDetector.kt",
+      "symbol": "detect",
+      "producer": "AutoWorkoutDetector.detect",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"AutoWorkoutDetector.detect\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/Baselines.kt",
+      "symbol": "update",
+      "producer": "Baselines.update",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"Baselines.update\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/Baselines.kt",
+      "symbol": "foldHistory",
+      "producer": "Baselines.foldHistory",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"Baselines.foldHistory\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/Baselines.kt",
+      "symbol": "foldHistory",
+      "producer": "Baselines.foldHistoryWithEpoch",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"Baselines.foldHistoryWithEpoch\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CaffeineDecay.kt",
+      "symbol": "fractionRemaining",
+      "producer": "CaffeineDecay.fractionRemaining",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"CaffeineDecay.fractionRemaining\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CaffeineDecay.kt",
+      "symbol": "hoursUntilFraction",
+      "producer": "CaffeineDecay.hoursUntilFraction",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"CaffeineDecay.hoursUntilFraction\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CaffeineDecay.kt",
+      "symbol": "compute",
+      "producer": "CaffeineActiveEstimate.compute",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"CaffeineActiveEstimate.compute\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CircadianEngine.kt",
+      "symbol": "cosinor",
+      "producer": "CircadianEngine.cosinor",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"CircadianEngine.cosinor\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CircadianEngine.kt",
+      "symbol": "estimatePhase",
+      "producer": "CircadianEngine.estimatePhase",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"CircadianEngine.estimatePhase\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CircadianEngine.kt",
+      "symbol": "planShift",
+      "producer": "CircadianEngine.planShift",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"CircadianEngine.planShift\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CircadianEngine.kt",
+      "symbol": "idealSleepWindow",
+      "producer": "CircadianEngine.idealSleepWindow",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"CircadianEngine.idealSleepWindow\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CoachSuggestions.kt",
+      "symbol": "suggestions",
+      "producer": "CoachSuggestions.suggestions",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"CoachSuggestions.suggestions\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CurrentHrv.kt",
+      "symbol": "derive",
+      "producer": "current_hrv",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"current_hrv\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CurrentHrv.kt",
+      "symbol": "derive",
+      "producer": "current_hrv",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"current_hrv\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CurrentHrv.kt",
+      "symbol": "deriveObservations",
+      "producer": "current_hrv",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"current_hrv\")",
+      "occurrence": 2,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CurrentHrv.kt",
+      "symbol": "deriveObservations",
+      "producer": "current_hrv",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"current_hrv\")",
+      "occurrence": 2,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CyclePhaseEngine.kt",
+      "symbol": "classifyCalendar",
+      "producer": "CyclePhaseEngine.classifyCalendar",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"CyclePhaseEngine.classifyCalendar\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/CyclePhaseEngine.kt",
+      "symbol": "fusedIndex",
+      "producer": "CyclePhaseEngine.fusedIndex",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"CyclePhaseEngine.fusedIndex\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/DayCycleIntelligenceIntegration.kt",
+      "symbol": "compute",
+      "producer": "DayCycleIntelligenceIntegration.compute",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"DayCycleIntelligenceIntegration.compute\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/DaytimeBaselines.kt",
+      "symbol": "dayDaytimeAggregate",
+      "producer": "DaytimeBaselines.dayDaytimeAggregate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"DaytimeBaselines.dayDaytimeAggregate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/DaytimeBaselines.kt",
+      "symbol": "foldDaytimeBaselines",
+      "producer": "DaytimeBaselines.foldDaytimeBaselines",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"DaytimeBaselines.foldDaytimeBaselines\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/DaytimeBaselines.kt",
+      "symbol": "scoringMode",
+      "producer": "DaytimeBaselines.scoringMode",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"DaytimeBaselines.scoringMode\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/DaytimeStress.kt",
+      "symbol": "analyze",
+      "producer": "DaytimeStress.analyze",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"DaytimeStress.analyze\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/DoseResponseEngine.kt",
+      "symbol": "estimate",
+      "producer": "DoseResponseEngine.estimate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"DoseResponseEngine.estimate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/EffectRanker.kt",
+      "symbol": "rank",
+      "producer": "EffectRanker.rank",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"EffectRanker.rank\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/EffectRanker.kt",
+      "symbol": "rankNoLag",
+      "producer": "EffectRanker.rankNoLag",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"EffectRanker.rankNoLag\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/EffectRanker.kt",
+      "symbol": "bestLag",
+      "producer": "EffectRanker.bestLag",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"EffectRanker.bestLag\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/FitnessAgeEngine.kt",
+      "symbol": "bmi",
+      "producer": "FitnessAgeEngine.bmi",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"FitnessAgeEngine.bmi\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/FitnessAgeEngine.kt",
+      "symbol": "estimateVO2max",
+      "producer": "FitnessAgeEngine.estimateVO2max",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"FitnessAgeEngine.estimateVO2max\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/FitnessAgeEngine.kt",
+      "symbol": "fitnessAge",
+      "producer": "FitnessAgeEngine.fitnessAge",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"FitnessAgeEngine.fitnessAge\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/FitnessAgeEngine.kt",
+      "symbol": "physicalActivityIndex",
+      "producer": "FitnessAgeEngine.physicalActivityIndex",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"FitnessAgeEngine.physicalActivityIndex\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/FitnessAgeEngine.kt",
+      "symbol": "physicalActivityIndexFromStrain",
+      "producer": "FitnessAgeEngine.physicalActivityIndexFromStrain",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"FitnessAgeEngine.physicalActivityIndexFromStrain\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/FitnessAgeEngine.kt",
+      "symbol": "compute",
+      "producer": "FitnessAgeEngine.compute",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"FitnessAgeEngine.compute\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/FusionResolver.kt",
+      "symbol": "resolve",
+      "producer": "FusionResolver.resolve",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"FusionResolver.resolve\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HRVReadiness.kt",
+      "symbol": "evaluate",
+      "producer": "HRVReadiness.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HRVReadiness.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HeartRateRecovery.kt",
+      "symbol": "calculate",
+      "producer": "HeartRateRecovery.calculate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HeartRateRecovery.calculate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HeartRateWindows.kt",
+      "symbol": "windows",
+      "producer": "HeartRateWindows.windows",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HeartRateWindows.windows\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrDownPacer.kt",
+      "symbol": "next",
+      "producer": "HrDownPacer.next",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrDownPacer.next\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrZones.kt",
+      "symbol": "tanakaMaxHR",
+      "producer": "HrZones.tanakaMaxHR",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrZones.tanakaMaxHR\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrZones.kt",
+      "symbol": "zones",
+      "producer": "HrZones.zones.age",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrZones.zones.age\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrZones.kt",
+      "symbol": "zones",
+      "producer": "HrZones.zones.maxHR",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrZones.zones.maxHR\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrZones.kt",
+      "symbol": "defaultLowerBounds",
+      "producer": "HrZones.defaultLowerBounds",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrZones.defaultLowerBounds\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvAnalyzer.kt",
+      "symbol": "rmssdRaw",
+      "producer": "HrvAnalyzer.rmssdRaw",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvAnalyzer.rmssdRaw\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvAnalyzer.kt",
+      "symbol": "sdnnRaw",
+      "producer": "HrvAnalyzer.sdnnRaw",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvAnalyzer.sdnnRaw\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvAnalyzer.kt",
+      "symbol": "sdnnIndex",
+      "producer": "HrvAnalyzer.sdnnIndex",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvAnalyzer.sdnnIndex\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvAnalyzer.kt",
+      "symbol": "analyze",
+      "producer": "HrvAnalyzer.analyze",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvAnalyzer.analyze\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvAnalyzer.kt",
+      "symbol": "analyzeRaw",
+      "producer": "HrvAnalyzer.analyzeRaw",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvAnalyzer.analyzeRaw\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvAnalyzer.kt",
+      "symbol": "rollingRmssd",
+      "producer": "HrvAnalyzer.rollingRmssd",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvAnalyzer.rollingRmssd\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvFreqDomain.kt",
+      "symbol": "freqDomain",
+      "producer": "HrvFreqDomain.freqDomain",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvFreqDomain.freqDomain\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvFreqDomain.kt",
+      "symbol": "freqDomainRaw",
+      "producer": "HrvFreqDomain.freqDomainRaw",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvFreqDomain.freqDomainRaw\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvSeries.kt",
+      "symbol": "windows",
+      "producer": "HrvSeries.windows",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvSeries.windows\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvSeries.kt",
+      "symbol": "selectedWindow",
+      "producer": "HrvSeries.selectedWindow",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvSeries.selectedWindow\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvSeries.kt",
+      "symbol": "baseline",
+      "producer": "HrvSeries.baseline",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvSeries.baseline\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvSeries.kt",
+      "symbol": "summarize",
+      "producer": "HrvSeries.summarize",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvSeries.summarize\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HrvWindow.kt",
+      "symbol": "measure",
+      "producer": "HrvWindow.measure",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HrvWindow.measure\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/HydrationGoal.kt",
+      "symbol": "dailyGoalMl",
+      "producer": "HydrationGoal.dailyGoalMl",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"HydrationGoal.dailyGoalMl\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/IllnessDistance.kt",
+      "symbol": "evaluate",
+      "producer": "IllnessDistance.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"IllnessDistance.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/IllnessSignalEngine.kt",
+      "symbol": "evaluate",
+      "producer": "IllnessSignalEngine.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"IllnessSignalEngine.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/ImuFeatureExtractor.kt",
+      "symbol": "extract",
+      "producer": "ImuFeatureExtractor.extract",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"ImuFeatureExtractor.extract\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/ImuFeatureExtractor.kt",
+      "symbol": "extract",
+      "producer": "ImuFeatureExtractor.extract",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"ImuFeatureExtractor.extract\")",
+      "occurrence": 2,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt",
+      "symbol": "analyzeRecent",
+      "producer": "daily_kernel",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"daily_kernel\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt",
+      "symbol": "analyzeRecent",
+      "producer": "daily_kernel",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"daily_kernel\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt",
+      "symbol": "runEffortRescoreIfNeeded",
+      "producer": "preference_rescore",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"preference_rescore\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt",
+      "symbol": "runEffortRescoreIfNeeded",
+      "producer": "preference_rescore",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"preference_rescore\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt",
+      "symbol": "recomputeFitnessAgeOnly",
+      "producer": "profile_fitness_recompute",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"profile_fitness_recompute\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt",
+      "symbol": "recomputeFitnessAgeOnly",
+      "producer": "profile_fitness_recompute",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"profile_fitness_recompute\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/LiveSessionEngine.kt",
+      "symbol": "update",
+      "producer": "LiveSessionEngine.update",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"LiveSessionEngine.update\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/ManualWorkoutRescore.kt",
+      "symbol": "scored",
+      "producer": "ManualWorkoutRescore.scored",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"ManualWorkoutRescore.scored\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/NapDetector.kt",
+      "symbol": "longestQuietRun",
+      "producer": "NapDetector.longestQuietRun",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"NapDetector.longestQuietRun\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/NapDetector.kt",
+      "symbol": "meanHrIn",
+      "producer": "NapDetector.meanHrIn",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"NapDetector.meanHrIn\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/NapDetector.kt",
+      "symbol": "evaluate",
+      "producer": "NapDetector.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"NapDetector.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/PhysiologicalStepCycleEngine.kt",
+      "symbol": "compute",
+      "producer": "PhysiologicalStepCycleEngine.compute",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"PhysiologicalStepCycleEngine.compute\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/PreSleepHeartRateFeedback.kt",
+      "symbol": "evaluate",
+      "producer": "PreSleepHeartRateFeedback.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"PreSleepHeartRateFeedback.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/PrimarySessionRestingHR.kt",
+      "symbol": "meanHR",
+      "producer": "PrimarySessionRestingHR.meanHR",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"PrimarySessionRestingHR.meanHR\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/RangeReport.kt",
+      "symbol": "build",
+      "producer": "RangeReport.build",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"RangeReport.build\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/ReadinessEngine.kt",
+      "symbol": "evaluate",
+      "producer": "ReadinessEngine.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"ReadinessEngine.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/ReadinessEngine.kt",
+      "symbol": "evaluateCalendar",
+      "producer": "ReadinessEngine.evaluateCalendar",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"ReadinessEngine.evaluateCalendar\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/ReadinessTrainingLoad.kt",
+      "symbol": "ReadinessEngine.evaluateWithTrainingLoad",
+      "producer": "ReadinessEngine.evaluateWithTrainingLoad",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"ReadinessEngine.evaluateWithTrainingLoad\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/RecoveryDrivers.kt",
+      "symbol": "chargeDrivers",
+      "producer": "RecoveryDrivers.chargeDrivers",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"RecoveryDrivers.chargeDrivers\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/RecoveryForecast.kt",
+      "symbol": "forecast",
+      "producer": "RecoveryForecast.forecast",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"RecoveryForecast.forecast\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/RecoveryScorer.kt",
+      "symbol": "recovery",
+      "producer": "RecoveryScorer.recovery",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"RecoveryScorer.recovery\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/ResonanceEngine.kt",
+      "symbol": "scorePace",
+      "producer": "ResonanceEngine.scorePace",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"ResonanceEngine.scorePace\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/ResonanceEngine.kt",
+      "symbol": "sweep",
+      "producer": "ResonanceEngine.sweep",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"ResonanceEngine.sweep\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/RespirationEstimator.kt",
+      "symbol": "estimate",
+      "producer": "RespirationEstimator.estimate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"RespirationEstimator.estimate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/RhythmScreener.kt",
+      "symbol": "screenWindow",
+      "producer": "RhythmScreener.screenWindow",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"RhythmScreener.screenWindow\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/RhythmScreener.kt",
+      "symbol": "summarizeNight",
+      "producer": "RhythmScreener.summarizeNight",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"RhythmScreener.summarizeNight\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/RhythmScreener.kt",
+      "symbol": "computeStats",
+      "producer": "RhythmScreener.computeStats",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"RhythmScreener.computeStats\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SedentaryDetector.kt",
+      "symbol": "evaluate",
+      "producer": "SedentaryDetector.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SedentaryDetector.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepAwareStepCounter.kt",
+      "symbol": "count",
+      "producer": "SleepAwareStepCounter.count",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepAwareStepCounter.count\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepDebt.kt",
+      "symbol": "creditedSleepMin",
+      "producer": "SleepDebt.creditedSleepMin",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepDebt.creditedSleepMin\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepDebt.kt",
+      "symbol": "debtSeries",
+      "producer": "SleepDebt.debtSeries",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepDebt.debtSeries\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepDebt.kt",
+      "symbol": "ledger",
+      "producer": "SleepDebt.ledger",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepDebt.ledger\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepHeartRateContrast.kt",
+      "symbol": "evaluate",
+      "producer": "SleepHeartRateContrast.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepHeartRateContrast.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepOpportunityDetector.kt",
+      "symbol": "detect",
+      "producer": "SleepOpportunityDetector.detect",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepOpportunityDetector.detect\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepStageHealer.kt",
+      "symbol": "restageFromRaw",
+      "producer": "SleepStageHealer.restageFromRaw",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepStageHealer.restageFromRaw\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepStageHealer.kt",
+      "symbol": "restageFromSamples",
+      "producer": "SleepStageHealer.restageFromSamples",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepStageHealer.restageFromSamples\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepStageHealer.kt",
+      "symbol": "selfHealEditedStages",
+      "producer": "SleepStageHealer.selfHealEditedStages",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepStageHealer.selfHealEditedStages\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepStageTotals.kt",
+      "symbol": "minutes",
+      "producer": "sleep_stage_totals",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"sleep_stage_totals\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepStageTotals.kt",
+      "symbol": "minutes",
+      "producer": "sleep_stage_totals",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"sleep_stage_totals\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepStageTotals.kt",
+      "symbol": "dailyAggregate",
+      "producer": "sleep_composite",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"sleep_composite\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepStageTotals.kt",
+      "symbol": "dailyAggregate",
+      "producer": "sleep_composite",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"sleep_composite\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepStager.kt",
+      "symbol": "hrOnlySessions",
+      "producer": "SleepStager.detectSleep",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepStager.detectSleep\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepStager.kt",
+      "symbol": "detectSleep",
+      "producer": "SleepStager.detectSleep",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepStager.detectSleep\")",
+      "occurrence": 2,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepStagerV2.kt",
+      "symbol": "stageSession",
+      "producer": "SleepStagerV2.stageSession",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepStagerV2.stageSession\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepWindowReclip.kt",
+      "symbol": "reclip",
+      "producer": "sleep_edit_reclip",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"sleep_edit_reclip\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SleepWindowReclip.kt",
+      "symbol": "reclip",
+      "producer": "SleepWindowReclip.reclip",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SleepWindowReclip.reclip\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SpotHrvReading.kt",
+      "symbol": "compute",
+      "producer": "SpotHrvReading.compute",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"SpotHrvReading.compute\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SpotHrvReading.kt",
+      "symbol": "meanHrFromNN",
+      "producer": "spot_rr_to_hr",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"spot_rr_to_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/SpotHrvReading.kt",
+      "symbol": "meanHrFromNN",
+      "producer": "spot_rr_to_hr",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"spot_rr_to_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/StepsCounter.kt",
+      "symbol": "stepsInWindow",
+      "producer": "step_derivation",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"step_derivation\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/StepsCounter.kt",
+      "symbol": "stepsInWindow",
+      "producer": "step_derivation",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"step_derivation\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/StepsEstimateEngine.kt",
+      "symbol": "status",
+      "producer": "StepsEstimateEngine.status",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"StepsEstimateEngine.status\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/StepsEstimateEngine.kt",
+      "symbol": "dayMotionIntensity",
+      "producer": "StepsEstimateEngine.dayMotionIntensity",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"StepsEstimateEngine.dayMotionIntensity\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/StepsEstimateEngine.kt",
+      "symbol": "calibrate",
+      "producer": "StepsEstimateEngine.calibrate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"StepsEstimateEngine.calibrate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/StepsEstimateEngine.kt",
+      "symbol": "estimate",
+      "producer": "StepsEstimateEngine.estimate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"StepsEstimateEngine.estimate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/StrainScorer.kt",
+      "symbol": "strain",
+      "producer": "strain",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"strain\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/StrainScorer.kt",
+      "symbol": "strain",
+      "producer": "strain",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"strain\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/StressIndex.kt",
+      "symbol": "componentsRaw",
+      "producer": "StressIndex.componentsRaw",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"StressIndex.componentsRaw\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/StressOnsetDetector.kt",
+      "symbol": "evaluate",
+      "producer": "StressOnsetDetector.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"StressOnsetDetector.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/TrainingLoadEngine.kt",
+      "symbol": "evaluate",
+      "producer": "TrainingLoadEngine.evaluate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"TrainingLoadEngine.evaluate\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/TrainingLoadEngine.kt",
+      "symbol": "evaluateDense",
+      "producer": "TrainingLoadEngine.evaluateDense",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"TrainingLoadEngine.evaluateDense\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/V5HealthSignals.kt",
+      "symbol": "evaluate",
+      "producer": "illness_cycle_circadian",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"illness_cycle_circadian\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/VitalityEngine.kt",
+      "symbol": "sleepConsistency",
+      "producer": "VitalityEngine.sleepConsistency",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"VitalityEngine.sleepConsistency\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/VitalityEngine.kt",
+      "symbol": "contributions",
+      "producer": "VitalityEngine.contributions",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"VitalityEngine.contributions\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/VitalityEngine.kt",
+      "symbol": "compute",
+      "producer": "VitalityEngine.compute",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"VitalityEngine.compute\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WakeMotionRefinement.kt",
+      "symbol": "refine",
+      "producer": "WakeMotionRefinement.refine",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WakeMotionRefinement.refine\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WakeMotionRefinement.kt",
+      "symbol": "refine",
+      "producer": "WakeMotionRefinement.refine",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WakeMotionRefinement.refine\")",
+      "occurrence": 2,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WakeMotionRefinement.kt",
+      "symbol": "refineSegment",
+      "producer": "WakeMotionRefinement.refineSegment",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WakeMotionRefinement.refineSegment\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WatchRecovery.kt",
+      "symbol": "compute",
+      "producer": "WatchRecovery.compute",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WatchRecovery.compute\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WeeklyDigest.kt",
+      "symbol": "build",
+      "producer": "WeeklyDigest.build",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WeeklyDigest.build\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WeeklyDigest.kt",
+      "symbol": "stat",
+      "producer": "WeeklyDigest.stat",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WeeklyDigest.stat\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WeeklyDigest.kt",
+      "symbol": "compare",
+      "producer": "WeeklyDigest.compare",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WeeklyDigest.compare\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WorkoutDetector.kt",
+      "symbol": "detect",
+      "producer": "WorkoutDetector.detect",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WorkoutDetector.detect\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WorkoutDetector.kt",
+      "symbol": "estimateBoutCalories",
+      "producer": "WorkoutDetector.estimateBoutCalories",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WorkoutDetector.estimateBoutCalories\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WorkoutDetector.kt",
+      "symbol": "estimateDayEnergy",
+      "producer": "WorkoutDetector.estimateDayEnergy",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WorkoutDetector.estimateDayEnergy\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WorkoutDetector.kt",
+      "symbol": "estimateDayCalories",
+      "producer": "WorkoutDetector.estimateDayCalories",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WorkoutDetector.estimateDayCalories\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WorkoutTypeClassifier.kt",
+      "symbol": "classify",
+      "producer": "WorkoutTypeClassifier.classify",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WorkoutTypeClassifier.classify\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WorkoutTypeClassifier.kt",
+      "symbol": "extract",
+      "producer": "WorkoutTypeClassifier.extract",
+      "guard_kind": "hosted_admission",
+      "guard": "PhoneComputeRuntime.allowsLocal(\"WorkoutTypeClassifier.extract\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/analytics/WorkoutTypeClassifier.kt",
+      "symbol": "extract",
+      "producer": "WorkoutTypeClassifier.extract",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "PhoneComputeRuntime.inferenceStarted(\"WorkoutTypeClassifier.extract\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ble/PuffinDeepBufferLog.kt",
+      "symbol": "decodedImuField",
+      "producer": "diagnostic_imu_activity_features",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"diagnostic_imu_activity_features\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ble/WhoopBleClient.kt",
+      "symbol": "maybeBuzzInactivity",
+      "producer": "passive_activity_coaching",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"passive_activity_coaching\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ble/WhoopBleClient.kt",
+      "symbol": "maybeNudgeStress",
+      "producer": "stress_events",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"stress_events\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ble/WhoopBleClient.kt",
+      "symbol": "maybeNudgeStress",
+      "producer": "stress_events",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"stress_events\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ble/WhoopBleClient.kt",
+      "symbol": "maybeDetectNaps",
+      "producer": "sleep_nap_detection",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"sleep_nap_detection\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/data/WhoopRepository.kt",
+      "symbol": "sleepEfficiency",
+      "producer": "sleep_edit_efficiency",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"sleep_edit_efficiency\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/data/WhoopRepository.kt",
+      "symbol": "sleepEfficiency",
+      "producer": "sleep_edit_efficiency",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"sleep_edit_efficiency\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/ActivityFileImporter.kt",
+      "symbol": "build",
+      "producer": "activity_import_hr_summary",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"activity_import_hr_summary\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/ActivityFileImporter.kt",
+      "symbol": "build",
+      "producer": "fit_import_hr_summary",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"fit_import_hr_summary\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/AppleHealthImporter.kt",
+      "symbol": "add",
+      "producer": "health_import_mean",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_import_mean\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/AppleHealthImporter.kt",
+      "symbol": "finishDays",
+      "producer": "health_import_sleep_composite",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_import_sleep_composite\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "import",
+      "producer": "health_connect_workout_energy",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_connect_workout_energy\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "import",
+      "producer": "health_connect_workout_hr",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_connect_workout_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "import",
+      "producer": "health_connect_daily_hr",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_connect_daily_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "import",
+      "producer": "health_connect_daily_physiology",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_connect_daily_physiology\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "derivedBmi",
+      "producer": "import_bmi",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"import_bmi\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "derivedBmi",
+      "producer": "import_bmi",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"import_bmi\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "basalKcal",
+      "producer": "health_connect_basal",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_connect_basal\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "basalKcal",
+      "producer": "health_connect_basal",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"health_connect_basal\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "workoutKcal",
+      "producer": "health_connect_workout_energy",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_connect_workout_energy\")",
+      "occurrence": 2,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "workoutKcal",
+      "producer": "health_connect_workout_energy",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"health_connect_workout_energy\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "workoutKcal",
+      "producer": "health_connect_workout_energy",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_connect_workout_energy\")",
+      "occurrence": 3,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/HealthConnectImporter.kt",
+      "symbol": "workoutKcal",
+      "producer": "health_connect_workout_energy",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"health_connect_workout_energy\")",
+      "occurrence": 2,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/LiftingImporter.kt",
+      "symbol": "add",
+      "producer": "import_training_volume",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"import_training_volume\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/LiftingImporter.kt",
+      "symbol": "add",
+      "producer": "import_training_volume",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"import_training_volume\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/LiftingImporter.kt",
+      "symbol": "liftosaurSession",
+      "producer": "import_training_volume",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"import_training_volume\")",
+      "occurrence": 2,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/LiftingImporter.kt",
+      "symbol": "liftosaurSession",
+      "producer": "import_training_volume",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"import_training_volume\")",
+      "occurrence": 2,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/oura/Decoders.kt",
+      "symbol": "decodeLiveHRPush",
+      "producer": "oura_live_ibi_hr",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"oura_live_ibi_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/oura/Decoders.kt",
+      "symbol": "decodeLiveHRPush",
+      "producer": "oura_live_ibi_hr",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"oura_live_ibi_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/oura/OuraIbiHr.kt",
+      "symbol": "perRecordMedianHR",
+      "producer": "oura_ibi_hr",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"oura_ibi_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/oura/OuraIbiHr.kt",
+      "symbol": "perRecordMedianHR",
+      "producer": "oura_ibi_hr",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"oura_ibi_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/protocol/PpgHr.kt",
+      "symbol": "estimateRecords",
+      "producer": "ppg_hr",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"ppg_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/protocol/PpgHr.kt",
+      "symbol": "estimateRecords",
+      "producer": "ppg_hr",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"ppg_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/protocol/PpgHr.kt",
+      "symbol": "estimateSelected",
+      "producer": "ppg_estimate",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"ppg_estimate\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/protocol/PpgHr.kt",
+      "symbol": "estimateSelected",
+      "producer": "PpgHr.estimateSelected",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"PpgHr.estimateSelected\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/AppViewModel.kt",
+      "symbol": "circadianBinsFrom",
+      "producer": "circadianBinsFrom",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"circadianBinsFrom\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/AppViewModel.kt",
+      "symbol": "circadianActivityBins",
+      "producer": "circadian_bins",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"circadian_bins\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/AppViewModel.kt",
+      "symbol": "circadianActivityBins",
+      "producer": "circadian_bins",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"circadian_bins\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/AppViewModel.kt",
+      "symbol": "ingestHr",
+      "producer": "hr_smoothing",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"hr_smoothing\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/AppViewModel.kt",
+      "symbol": "captureWorkoutSample",
+      "producer": "live_workout",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"live_workout\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/AppViewModel.kt",
+      "symbol": "coachZone",
+      "producer": "zone_coaching",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"zone_coaching\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/AppViewModel.kt",
+      "symbol": "coachZone",
+      "producer": "zone_coaching",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"zone_coaching\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/BreatheScreen.kt",
+      "symbol": "breatheOutcomeCore",
+      "producer": "biofeedback_outcome",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"biofeedback_outcome\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/BreatheScreen.kt",
+      "symbol": "breatheOutcomeCore",
+      "producer": "biofeedback_outcome",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"biofeedback_outcome\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/CoachBriefScheduler.kt",
+      "symbol": "generateNow",
+      "producer": "CoachBrief.generate",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"CoachBrief.generate\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/CoupledScreen.kt",
+      "symbol": "optimalStrainRange",
+      "producer": "optimal_strain",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"optimal_strain\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/CoupledScreen.kt",
+      "symbol": "optimalStrainRange",
+      "producer": "optimal_strain",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"optimal_strain\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/HealthLiveHrLogic.kt",
+      "symbol": "displayHr",
+      "producer": "HealthLiveHrLogic.rr_to_hr",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"HealthLiveHrLogic.rr_to_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/HealthLiveHrLogic.kt",
+      "symbol": "hrSeries",
+      "producer": "HealthLiveHrLogic.rr_series",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"HealthLiveHrLogic.rr_series\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/HrvSnapshotScreen.kt",
+      "symbol": "meanHr",
+      "producer": "spot_display_rr_to_hr",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"spot_display_rr_to_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/HrvSnapshotScreen.kt",
+      "symbol": "meanHr",
+      "producer": "spot_display_rr_to_hr",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"spot_display_rr_to_hr\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/InsightsScreen.kt",
+      "symbol": "computeActivityCosts",
+      "producer": "activity_cost",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"activity_cost\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/InsightsScreen.kt",
+      "symbol": "computeActivityCosts",
+      "producer": "activity_cost",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"activity_cost\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/InsightsScreen.kt",
+      "symbol": "buildExperimentSnapshot",
+      "producer": "experiment_inference",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"experiment_inference\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/InsightsScreen.kt",
+      "symbol": "buildExperimentSnapshot",
+      "producer": "experiment_inference",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"experiment_inference\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/InsightsScreen.kt",
+      "symbol": "rankEffects",
+      "producer": "insight_effects",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"insight_effects\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/InsightsScreen.kt",
+      "symbol": "rankEffects",
+      "producer": "insight_effects",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"insight_effects\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/InsightsScreen.kt",
+      "symbol": "computeRelationships",
+      "producer": "insight_relationships",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"insight_relationships\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/InsightsScreen.kt",
+      "symbol": "computeRelationships",
+      "producer": "insight_relationships",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"insight_relationships\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/LiveScreen.kt",
+      "symbol": "rollingRMSSD",
+      "producer": "live_console_hrv",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"live_console_hrv\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/LiveScreen.kt",
+      "symbol": "rollingRMSSD",
+      "producer": "live_console_hrv",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"live_console_hrv\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/StressScreen.kt",
+      "symbol": "loadDaytimeStress",
+      "producer": "stress_screen",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"stress_screen\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/StressScreen.kt",
+      "symbol": "loadDaytimeStress",
+      "producer": "stress_screen",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"stress_screen\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/StressScreen.kt",
+      "symbol": "build",
+      "producer": "stress_screen_baseline",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"stress_screen_baseline\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/StressScreen.kt",
+      "symbol": "build",
+      "producer": "stress_screen_baseline",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"stress_screen_baseline\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ui/TrendsReport.kt",
+      "symbol": "export",
+      "producer": "TrendsReport.export",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"TrendsReport.export\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/AppleHealthImporter.kt",
+      "symbol": "addSample",
+      "producer": "health_import_daily_aggregation",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_import_daily_aggregation\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/AppleHealthImporter.kt",
+      "symbol": "addSleep",
+      "producer": "health_import_stage_aggregation",
+      "guard_kind": "hosted_admission",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.allowsLocal(\"health_import_stage_aggregation\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/AppleHealthImporter.kt",
+      "symbol": "addSleep",
+      "producer": "AppleHealthImporter.addSleep",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"AppleHealthImporter.addSleep\")",
+      "occurrence": 1,
+      "first_body_statement": false
+    },
+    {
+      "file": "android/app/src/main/java/com/noop/ingest/WhoopCsvExporter.kt",
+      "symbol": "stageMinutes",
+      "producer": "WhoopCsvExporter.stageMinutes",
+      "guard_kind": "numerical_entrypoint",
+      "guard": "com.noop.analytics.PhoneComputeRuntime.inferenceStarted(\"WhoopCsvExporter.stageMinutes\")",
+      "occurrence": 1,
+      "first_body_statement": true
+    }
+  ]
+}

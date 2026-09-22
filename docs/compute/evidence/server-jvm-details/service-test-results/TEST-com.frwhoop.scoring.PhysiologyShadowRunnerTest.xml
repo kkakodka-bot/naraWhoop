@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.PhysiologyShadowRunnerTest" tests="23" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:23" hostname="mac-studio.lan" time="1.252">
+  <properties/>
+  <testcase name="missing optional configuration preserves repeated interval respiration" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.018"/>
+  <testcase name="invalid oversized shadow request abstains without failing caller or poisoning slot" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.009"/>
+  <testcase name="motion gaps aggregate fractions contamination and quality failures cannot certify windows" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.023"/>
+  <testcase name="expired publication budget abstains before starting model work" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.009"/>
+  <testcase name="exactly full respiration budget does not report omitted candidates" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.013"/>
+  <testcase name="respiration candidate sets below the budget remain exhaustive" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.0"/>
+  <testcase name="catalogue outage is retryable instead of terminal missing physiology" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.002"/>
+  <testcase name="deterministic publication never invokes slow optional model" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.01"/>
+  <testcase name="valid configuration remains gated on verified model input adapter" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.011"/>
+  <testcase name="unrelated corrupt activation cannot block selected model startup" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.001"/>
+  <testcase name="configured job path executes but cannot switch owner or revision" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.001"/>
+  <testcase name="bounded respiration samples a long sleep across its full span despite fragmented awake rest" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.013"/>
+  <testcase name="unavailable python cannot prevent canonical worker construction" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.02"/>
+  <testcase name="publication budget is independent of configured two minute model lane" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.009"/>
+  <testcase name="missing and malformed activations preserve interval respiration" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.038"/>
+  <testcase name="isolated model deadline is an unavailable retryable output" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="1.01"/>
+  <testcase name="selected corrupt activation cannot become a different configured model" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.01"/>
+  <testcase name="configuration fallback never reads optional raw objects in deterministic lane" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.009"/>
+  <testcase name="malformed optional configuration is unavailable without leaking contents" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.019"/>
+  <testcase name="maximum fragmented context count cannot consume the long sleep budget" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.009"/>
+  <testcase name="bounded respiration attempts are shared across qualified contexts" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.008"/>
+  <testcase name="missing raw does not disable independently verified interval respiration" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.009"/>
+  <testcase name="coarse timing and wrong owner do not produce measurements" classname="com.frwhoop.scoring.PhysiologyShadowRunnerTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

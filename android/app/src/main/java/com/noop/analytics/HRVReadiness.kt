@@ -98,6 +98,7 @@ object HRVReadiness {
      *   (outside [Baselines.hrvCfg] 5..250 ms) are dropped as decode artefacts.
      */
     fun evaluate(avgHrv: List<Double?>): HRVReadinessResult? {
+        PhoneComputeRuntime.inferenceStarted("HRVReadiness.evaluate")
         val cfg = Baselines.hrvCfg
         // Drop nulls + physiologically implausible nights (shared bounds), keep order oldest -> newest.
         val valid = avgHrv.mapNotNull { v ->

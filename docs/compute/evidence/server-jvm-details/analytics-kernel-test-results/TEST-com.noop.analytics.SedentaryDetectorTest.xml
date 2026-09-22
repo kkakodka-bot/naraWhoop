@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SedentaryDetectorTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.005">
+  <properties/>
+  <testcase name="emptyOrSingle_yieldsNothing" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="continuousWalking_yieldsNothing" classname="com.noop.analytics.SedentaryDetectorTest" time="0.001"/>
+  <testcase name="windowContains_handlesWrapAround" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="firesAfterIdleThreshold" classname="com.noop.analytics.SedentaryDetectorTest" time="0.001"/>
+  <testcase name="replayedOffloadDoesNotReBuzz" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="doesNotFireUnderThreshold" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="respectsDisabledFlag" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="respectsNotificationMasterOff" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="newBoutAfterMovementAlertsImmediately" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="doesNotFireInsideCooldown" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="localMinuteOfDay_mapsInstantToLocalMinute" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="respectsOnlyWhenWorn" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="resetsOnDetectedMovement" classname="com.noop.analytics.SedentaryDetectorTest" time="0.001"/>
+  <testcase name="isolatedReachesDoNotFragmentIt" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="sittingThenWalking_yieldsOneBoutEndingAtTheWalk" classname="com.noop.analytics.SedentaryDetectorTest" time="0.001"/>
+  <testcase name="shortStretchUnderMinMinutes_dropped" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <testcase name="doesNotFireOutsideActiveHours" classname="com.noop.analytics.SedentaryDetectorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -439,7 +439,9 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             continue
         }
     }
-    if derivePpgHeartRate {
+    // Derive per-second HR from the collected v26 PPG bursts (issue #156). Empty when there were no v26
+    // records (the WHOOP 4 / v18-only common case), so this is a no-op cost there.
+    if derivePpgHeartRate && PhoneComputeRuntime.permitsLocal("ppg_hr") {
         out.ppgHr = PpgHr.derivePpgHr(waveforms: out.ppgWaveform, subLagInterp: subLagInterp)
     }
     out.unhandledPacketTypes = unhandledTypes     // #891 diag census (not persisted, not encoded)

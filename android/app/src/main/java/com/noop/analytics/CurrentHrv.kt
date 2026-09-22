@@ -37,6 +37,8 @@ object CurrentHrv {
         nowUnix: Int,
         windowSeconds: Int = WINDOW_SECONDS,
     ): Snapshot? {
+        if (!PhoneComputeRuntime.allowsLocal("current_hrv")) return null
+        PhoneComputeRuntime.inferenceStarted("current_hrv")
         if (windowSeconds != HrvWindow.SECONDS) return null
         return deriveObservations(PhysiologyQuality.legacy(rows, "legacy-unscoped"), nowUnix)
     }
@@ -44,6 +46,8 @@ object CurrentHrv {
     /** The latest completed UTC window, never pooled with a previous sparse window. */
     fun deriveObservations(observations: List<PhysiologyQuality.IntervalObservation>, nowUnix: Int,
                            policy: HrvWindow.Policy = HrvWindow.Policy(), inputRevision: String = "unversioned"): Snapshot? {
+        if (!PhoneComputeRuntime.allowsLocal("current_hrv")) return null
+        PhoneComputeRuntime.inferenceStarted("current_hrv")
         val result = HrvSeries.selectedWindow(completedWindow(nowUnix).first,
             observations, policy = policy, inputRevision = inputRevision, computationMode = "causal")
         val rmssd = result.observedRMSSD ?: return null

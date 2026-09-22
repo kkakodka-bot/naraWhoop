@@ -6,22 +6,18 @@ import XCTest
 /// the attach checkbox are all present, so a hand-edit can't silently break the prefilled report link.
 final class BugReportTemplateTests: XCTestCase {
 
-    private func templateText() -> String {
-        // The repo root is two levels above StrandTests at build time; resolve from this file.
-        let here = URL(fileURLWithPath: #filePath)
-        let repoRoot = here.deletingLastPathComponent().deletingLastPathComponent()
-        let yml = repoRoot.appendingPathComponent(".github/ISSUE_TEMPLATE/bug_report.yml")
-        return (try? String(contentsOf: yml, encoding: .utf8)) ?? ""
+    private func templateText() throws -> String {
+        try SourceContractResources.text(".github/ISSUE_TEMPLATE/bug_report.yml", in: Bundle(for: Self.self))
     }
 
-    func testHasTestProfileDropdownWithId() {
-        let t = templateText()
+    func testHasTestProfileDropdownWithId() throws {
+        let t = try templateText()
         XCTAssertTrue(t.contains("id: test_profile"))
         XCTAssertTrue(t.contains("type: dropdown"))
     }
 
-    func testTestProfileOptionsCoverAllProfilesPlusEscapes() {
-        let t = templateText()
+    func testTestProfileOptionsCoverAllProfilesPlusEscapes() throws {
+        let t = try templateText()
         for label in ["Sleep & Rest", "Connection & Sync", "Workouts & GPS",
                       "Display & Performance", "Import & Data Ingest", "Steps",
                       "Notifications, Alarm & Wake", "Battery & Charging", "Recovery (Charge)",
@@ -32,22 +28,22 @@ final class BugReportTemplateTests: XCTestCase {
         }
     }
 
-    func testSourceDropdownGainsImporters() {
-        let t = templateText()
+    func testSourceDropdownGainsImporters() throws {
+        let t = try templateText()
         for label in ["Oura import", "Fitbit import", "Garmin import",
                       "Xiaomi import", "FIT / GPX / TCX import"] {
             XCTAssertTrue(t.contains(label), "missing source importer: \(label)")
         }
     }
 
-    func testLogTextareaTellsToAttachZipNotPaste() {
-        let t = templateText()
+    func testLogTextareaTellsToAttachZipNotPaste() throws {
+        let t = try templateText()
         XCTAssertTrue(t.contains("Attach your exported"))
         XCTAssertTrue(t.contains("Do NOT paste the whole log inline"))
     }
 
-    func testAttachZipCheckboxPresent() {
-        let t = templateText()
+    func testAttachZipCheckboxPresent() throws {
+        let t = try templateText()
         XCTAssertTrue(t.contains("I attached my exported NOOP"))
         XCTAssertTrue(t.contains("not a screenshot of the Live screen"))
     }

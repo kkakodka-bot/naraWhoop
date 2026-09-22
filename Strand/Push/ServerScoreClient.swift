@@ -174,28 +174,14 @@ enum ServerScoreClient {
     }
 
     static func saveSleepOverride(_ target: ServerSleepEditTarget, localDeviceId: String, start: Int, end: Int, tombstone: Bool) async throws -> Int64 {
-        guard let base = ServerScoringSettings.supabaseProjectURL(), let anon = ServerScoringSettings.anonKey() else { throw FetchError.notConfigured }
         let arguments = try target.rpcArguments(start: start, end: end, tombstone: tombstone)
-        guard let credential = CloudEnrollment.currentCredential(), credential.userId == target.ownerId.lowercased(),
-              CloudCaptureScope.isActive(for: credential.userId),
-              let fleet = CloudPushSettings.resolvedFleetToken() else { throw FetchError.sessionChanged }
-        let token = credential.uploadToken
-        try Task.checkCancellation()
-        var request = URLRequest(url: base.appendingPathComponent("functions/v1/scores/sleep-overrides"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(anon, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue(fleet, forHTTPHeaderField: CloudPushTransport.fleetTokenHeader)
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["deviceId": localDeviceId, "arguments": arguments])
-        let (data, response) = try await CloudPushTransport.makeSession().data(for: request)
-        try Task.checkCancellation()
-        guard CloudEnrollment.currentCredential() == credential else { throw FetchError.sessionChanged }
-        guard let http = response as? HTTPURLResponse else { throw FetchError.decode }
-        if http.statusCode == 401 || http.statusCode == 403 { throw FetchError.unauthorized(accessToken: token) }
+        let identity = try await CanonicalScoreTransport.capture()
+        guard identity.context.scope.userID == target.ownerId.lowercased() else { throw FetchError.sessionChanged }
+        let data = try await CanonicalScoreTransport.request(identity: identity, path: "/sleep-overrides",
+            body: JSONSerialization.data(withJSONObject: ["deviceId": localDeviceId, "arguments": arguments]))
         let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-        if http.statusCode == 409 || (object as? [String: Any])?["code"] as? String == "40001" { throw FetchError.conflict }
-        guard http.statusCode == 200, let revision = object as? NSNumber, revision.int64Value > target.expectedRevision else { throw FetchError.decode }
+        if (object as? [String: Any])?["code"] as? String == "40001" { throw FetchError.conflict }
+        guard let revision = object as? NSNumber, revision.int64Value > target.expectedRevision else { throw FetchError.decode }
         return revision.int64Value
     }
 

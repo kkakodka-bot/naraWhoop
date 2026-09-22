@@ -278,6 +278,11 @@ fun WorkoutsScreen(vm: AppViewModel) {
         item {
         WorkoutStartSection(vm, onAdd = { dialog = DialogTarget(null) })
         }
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            item { CanonicalFamilyReadout(vm, "workouts") }
+            item { CanonicalSessionReadout(vm, vm.serverScores.computeRequests.latestId("workouts")) }
+            item { CanonicalFamilyReadout(vm, "live_workout") }
+        }
 
         if (allRows.isEmpty()) {
             item {
@@ -312,11 +317,13 @@ fun WorkoutsScreen(vm: AppViewModel) {
             )
             }
             postLogNote?.let { item { PostLogNoteBanner(it) } }
+            if (!com.noop.analytics.PhoneComputeRuntime.finalHosted) {
             item { EffortHero(rows = windowRows, effectiveRange = resolved, groups = groups) }
             item { SummarySection(rows = windowRows, effectiveRange = resolved, groups = groups) }
             item { CalorieHeatmapSection(recentDays) }
             item { BreakdownSection(groups = groups, rows = windowRows) }
             item { ZonesSection(windowRows) }
+            }
             if (recoveryTrend.isNotEmpty()) {
                 item { RecoveryTrendSection(recoveryTrend, recoveryRange.localizedCaption()) }
             }

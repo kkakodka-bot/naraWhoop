@@ -196,6 +196,9 @@ private fun ServerSleepScreen(vm: AppViewModel) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(status, style = NoopType.subhead)
                     cache?.sleepMetadataLines?.forEach { Text(it, style = NoopType.footnote, color = Palette.textSecondary) }
+                    cache?.compute?.families?.get("sleep")?.let {
+                        Text("Result: ${it.resultRevision ?: "pending publication"} · ${it.status}", style = NoopType.footnote)
+                    }
                     if (episodes.isEmpty()) Text(uiString(R.string.server_sleep_empty), style = NoopType.footnote)
                     editMessage?.let { Text(it,style=NoopType.footnote) }
                     (editError ?: error)?.let { Text(it,style=NoopType.footnote,color=Palette.statusCritical) }
@@ -228,7 +231,16 @@ private fun ServerSleepScreen(vm: AppViewModel) {
                     else {
                         for (state in serverSleepStates) {
                             val bands = episode.bands.filter { it.state == state }
-                            val total = bands.sumOf { it.end - it.start } / 60.0
+                            val night = cache?.nights?.firstOrNull { it.id == episode.id }
+                            val total = when (state) {
+                                "wake" -> night?.awakeMin
+                                "light" -> night?.lightMin
+                                "deep" -> night?.deepMin
+                                "rem" -> night?.remMin
+                                "sleep_unstaged" -> night?.sleepUnstagedMin
+                                "off_body" -> night?.offBodyMin
+                                else -> night?.stateUnknownMin
+                            }
                             val color = when (state) {
                                 "wake" -> Palette.sleepAwake; "light" -> Palette.sleepLight
                                 "deep" -> Palette.sleepDeep; "rem" -> Palette.sleepREM
@@ -247,7 +259,7 @@ private fun ServerSleepScreen(vm: AppViewModel) {
                                             Size(size.width * (band.end - band.start) / span, size.height))
                                     }
                                 }
-                                Text(if (bands.isEmpty()) "—" else uiString(R.string.server_sleep_minutes_decimal, total),
+                                Text(total?.let { uiString(R.string.server_sleep_minutes_decimal, it) } ?: "—",
                                     Modifier.width(48.dp), style = NoopType.footnote)
                             }
                         }
@@ -355,7 +367,7 @@ fun SleepScreen(
     onOpenJournal: () -> Unit = {},
 ) {
     val serverEnabled by vm.serverScores.enabled.collectAsStateWithLifecycle()
-    if (serverEnabled) {
+    if (serverEnabled || com.noop.analytics.PhoneComputeRuntime.finalHosted) {
         ServerSleepScreen(vm)
         return
     }

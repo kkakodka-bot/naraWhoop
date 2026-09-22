@@ -85,6 +85,7 @@ object SleepAwareStepCounter {
         gravity: List<GravitySample> = emptyList(),
         aux: List<V18AuxRow> = emptyList(),
     ): Count {
+        PhoneComputeRuntime.inferenceStarted("SleepAwareStepCounter.count")
         val sorted = samples.sortedBy { it.ts }
         return Accumulator(sleepSessions, StepsCounter.hasActivityClasses(sorted))
             .observeMotionPage(gravity, aux)

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepProductionCandidateTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:22" hostname="mac-studio.lan" time="0.084">
+  <properties/>
+  <testcase name="frozenStreamsAndOverlongEpisodesBecomeUnknown" classname="com.noop.analytics.SleepProductionCandidateTest" time="0.039"/>
+  <testcase name="acceptedDurationWinsOverClockAndOuterSpan" classname="com.noop.analytics.SleepProductionCandidateTest" time="0.0"/>
+  <testcase name="binarySleepSurvivesStagerWakeAndMainSelection" classname="com.noop.analytics.SleepProductionCandidateTest" time="0.0"/>
+  <testcase name="impossibleGravityAndSingleModalityCannotStage" classname="com.noop.analytics.SleepProductionCandidateTest" time="0.002"/>
+  <testcase name="stagingRejectsFrozenStreamsAndFindsOffsetAcquisitionClocks" classname="com.noop.analytics.SleepProductionCandidateTest" time="0.002"/>
+  <testcase name="napOtherAndUncertainRemainDistinct" classname="com.noop.analytics.SleepProductionCandidateTest" time="0.0"/>
+  <testcase name="fullDayContextSurvivesWithoutAnEpisodeAndRoundTrips" classname="com.noop.analytics.SleepProductionCandidateTest" time="0.041"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -430,6 +430,8 @@ object IntelligenceEngine {
         effortMethod: StrainScorer.Method = StrainScorer.Method.EDWARDS,
         dayCycleMode: DayCycleMode = DayCycleMode.SLEEP_ONSET,
     ): List<Computed> = withContext(Dispatchers.Default) {
+        if (!PhoneComputeRuntime.allowsLocal("daily_kernel")) return@withContext emptyList()
+        PhoneComputeRuntime.inferenceStarted("daily_kernel")
         // #1005: time the whole pass so a re-score STORM is visible in the strap log (the trigger lines
         // record WHY each pass runs; this records how many nights and how long — the CPU cost per run).
         val reScoreStart = System.nanoTime()
@@ -492,6 +494,8 @@ object IntelligenceEngine {
         // once. Without it every day of that rewrite reads the skin-temp scale as WHOOP5 (see analyzeRecent).
         ownerSource: DayOwnerSource? = null,
     ) {
+        if (!PhoneComputeRuntime.allowsLocal("preference_rescore")) return
+        PhoneComputeRuntime.inferenceStarted("preference_rescore")
         if (flagGet()) return
         analyzeRecent(
             repo = repo,
@@ -2550,6 +2554,8 @@ object IntelligenceEngine {
     suspend fun recomputeFitnessAgeOnly(
         repo: WhoopRepository, profile: UserProfile, importedDeviceId: String, maxDays: Int = 21,
     ): Boolean {
+        if (!PhoneComputeRuntime.allowsLocal("profile_fitness_recompute")) return false
+        PhoneComputeRuntime.inferenceStarted("profile_fitness_recompute")
         val computedId = importedDeviceId + "-noop"
         val nowSeconds = System.currentTimeMillis() / 1_000L
         val tzOffsetSeconds = java.util.TimeZone.getDefault().getOffset(nowSeconds * 1_000L) / 1_000L

@@ -35,7 +35,9 @@ final class W4AutomaticSleepForwardingTests: XCTestCase {
             let direct = F.detect(raw, offset: vector.staleOffset, zone: zone, v2: v2)
             XCTAssertEqual(actual.sleepSessions.count, 1)
             XCTAssertTrue(stale.sleepSessions.isEmpty, "must exercise automatic forwarding, not supplied sessions")
-            XCTAssertEqual(actual.sleepSessions, direct.filter { bounds.contains($0.end) })
+            XCTAssertEqual(actual.sleepSessions, direct.filter { bounds.contains($0.end) }.map {
+                W4QualifiedSessionFixture.session($0, episode: v2 ? "uncertain" : "main_sleep", groupStart: $0.start)
+            })
             XCTAssertEqual(try bytes(actual), try bytes(traced))
             XCTAssertTrue(lines.contains { $0.contains("KEPT gate=accepted") })
             XCTAssertTrue(lines.contains { $0.contains("sleep-detect summary:") })
@@ -108,10 +110,12 @@ final class W4AutomaticSleepForwardingTests: XCTestCase {
         var lines: [String] = []
         let result = analyze(raw, day: day, offset: 0, zone: zone, bounds: bounds,
                              resolved: supplied, exclusions: [nap.start]) { lines.append($0) }
-        XCTAssertEqual(result.sleepSessions, supplied)
+        XCTAssertEqual(result.sleepSessions, [W4QualifiedSessionFixture.session(nap, episode: "nap"),
+            W4QualifiedSessionFixture.session(second, episode: "main_sleep", groupStart: first.start),
+            W4QualifiedSessionFixture.session(first, episode: "main_sleep", groupStart: first.start)])
         XCTAssertEqual(result.daily.totalSleepMin, 100)
         XCTAssertEqual(try XCTUnwrap(result.daily.efficiency), 100.0 / 120.0, accuracy: 1e-12)
-        XCTAssertEqual(result.daily.disturbances, 1)
+        XCTAssertEqual(result.daily.disturbances, 0, "An unobserved split-night gap is not observed wake")
         XCTAssertEqual(result.daily.restingHr, 42)
         XCTAssertFalse(lines.contains { $0.contains("sleep-detect") })
     }
@@ -125,11 +129,12 @@ final class W4AutomaticSleepForwardingTests: XCTestCase {
         let admitted = analyze(raw, day: day, offset: vector.staleOffset, zone: zone,
                                bounds: session.start..<(session.end + 1))
         XCTAssertTrue(excluded.sleepSessions.isEmpty)
-        XCTAssertEqual(admitted.sleepSessions, [session])
+        let expected = W4QualifiedSessionFixture.session(session, episode: "main_sleep", groupStart: session.start)
+        XCTAssertEqual(admitted.sleepSessions, [expected])
         let differentDay = "2026-11-02"
         XCTAssertTrue(analyze(raw, day: differentDay, offset: 0, zone: zone).sleepSessions.isEmpty,
                       "zone cannot silently derive or override membership")
         XCTAssertEqual(analyze(raw, day: differentDay, offset: 0, zone: zone,
-            bounds: session.start..<(session.end + 1)).sleepSessions, [session])
+            bounds: session.start..<(session.end + 1)).sleepSessions, [expected])
     }
 }

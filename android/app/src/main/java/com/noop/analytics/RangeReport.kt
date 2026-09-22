@@ -243,6 +243,7 @@ object RangeReportEngine {
         end: String,
         units: ReportDisplayUnits = ReportDisplayUnits.STORED,
     ): RangeReport {
+        PhoneComputeRuntime.inferenceStarted("RangeReport.build")
         // A valid window requires start <= end (ISO string compare == chronological).
         if (start > end) {
             return RangeReport(start = start, end = end, totalDays = 0,

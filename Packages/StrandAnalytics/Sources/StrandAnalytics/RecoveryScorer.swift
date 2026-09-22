@@ -186,6 +186,7 @@ public enum RecoveryScorer {
     ///     HRV, the guard refuses to guess and never fires.
     /// - Returns: whether the signature fired, plus the eased HRV z and damp fraction it would imply.
     static func parasympatheticSaturation(hrvZ: Double, rhrZ: Double?) -> ParasympatheticSaturation {
+        PhoneComputeRuntime.entered("swift.RecoveryScorer.parasympatheticSaturation")
         // Without a resting-HR term there is nothing to corroborate the low HRV: benign saturation
         // and real fatigue are indistinguishable from HRV alone, so report no saturation.
         guard let rhrZ = rhrZ else {
@@ -250,6 +251,8 @@ public enum RecoveryScorer {
                                          seed: Int = Baselines.minNightsSeed,
                                          cfg: MetricCfg = Baselines.hrvCfg,
                                          baselineEpoch: Double? = nil) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.RecoveryScorer.calibrationNights") else { return nil }
+        PhoneComputeRuntime.entered("swift.RecoveryScorer.calibrationNights")
         guard !hasRecovery else { return nil }
         let n = Baselines.foldHistory(nightlyHrv, dayKeys: dayKeys, cfg: cfg,
                                       baselineEpoch: baselineEpoch).nValid
@@ -275,6 +278,7 @@ public enum RecoveryScorer {
 
     /// Robust z-score using EWMA spread: (value − mean) / (1.253 × spread).
     static func zScore(_ value: Double, mean: Double, spread: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.RecoveryScorer.zScore")
         let sigma = max(1.253 * spread, 1e-9)
         return (value - mean) / sigma
     }
@@ -324,6 +328,8 @@ public enum RecoveryScorer {
                                 recoveryIndexSlope: Double? = nil,
                                 effortBaseline: DriverBaseline? = nil,
                                 priorDayEffort: Double? = nil) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.RecoveryScorer.recovery") else { return nil }
+        PhoneComputeRuntime.entered("swift.RecoveryScorer.recovery")
         // Cold-start gate: HRV is the dominant driver; if its baseline isn't
         // usable, refuse to score (more honest than a fabricated value).
         if !hrvBaselineUsable { return nil }
@@ -383,6 +389,7 @@ public enum RecoveryScorer {
     /// through the EXACT same curve the real score does and cannot drift from it. Same expression as
     /// before it was extracted, so every existing score is unchanged.
     static func logisticScore(compositeZ z: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.RecoveryScorer.logisticScore")
         let score = 100.0 / (1.0 + exp(-logisticK * (z - logisticZ0)))
         return max(0.0, min(100.0, score))
     }
@@ -400,7 +407,9 @@ public enum RecoveryScorer {
                                 recoveryIndexSlope: Double? = nil,
                                 effortBaseline: BaselineState? = nil,
                                 priorDayEffort: Double? = nil) -> Double? {
-        recovery(hrv: hrv,
+        guard PhoneComputeRuntime.permitsLocal("swift.RecoveryScorer.recovery") else { return nil }
+        PhoneComputeRuntime.entered("swift.RecoveryScorer.recovery")
+        return recovery(hrv: hrv,
                  rhr: rhr,
                  resp: resp,
                  hrvBaseline: DriverBaseline(hrvBaseline),

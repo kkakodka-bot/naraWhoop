@@ -193,6 +193,8 @@ public enum SedentaryDetector {
                                             moveThresholdG: Double = defaultMoveThresholdG,
                                             minMinutes: Int = defaultMinMinutes,
                                             smoothWindowSeconds: Double = defaultSmoothWindowS) -> [InactivityPeriod] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SedentaryDetector.detectSedentaryBouts") else { return [] }
+        PhoneComputeRuntime.entered("swift.SedentaryDetector.detectSedentaryBouts")
         let rows = gravity.sorted { $0.ts < $1.ts }
         if rows.count < 2 { return [] }
         let motion = WorkoutDetector.activitySeries(rows)
@@ -275,6 +277,7 @@ public enum SedentaryDetector {
                                 worn: Bool,
                                 nowSec: Int,
                                 tzOffsetSec: Int) -> SedentaryDecision {
+        PhoneComputeRuntime.entered("swift.SedentaryDetector.evaluate")
         func noBuzz(_ next: SedentaryState, _ bout: InactivityPeriod? = nil) -> SedentaryDecision {
             SedentaryDecision(shouldBuzz: false, buzzLoops: config.buzzLoops, bout: bout, nextState: next)
         }

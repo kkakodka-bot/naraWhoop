@@ -477,12 +477,12 @@ struct DataSourcesView: View {
                 }
                 try await store.upsertWorkouts(rows, deviceId: LiftingImporter.sourceId)
                 await repo.refresh()
-                let totalVolume = result.sessions.reduce(0.0) { $0 + $1.volumeLoadKg }
+                let totalVolume = PhoneComputeRuntime.isFinalHosted ? nil : result.sessions.compactMap(\.volumeLoadKg).reduce(0, +)
                 // Whole-phrase variants per count so translators never see a stitched plural.
                 var msg = result.sessionCount == 1
                     ? String(localized: "Imported 1 workout")
                     : String(localized: "Imported \(result.sessionCount) workouts")
-                if totalVolume > 0 {
+                if let totalVolume, totalVolume > 0 {
                     msg += " · " + String(localized: "\(LiftingImporter.groupedKg(totalVolume)) kg total volume")
                 }
                 if let a = result.earliest, let b = result.latest {

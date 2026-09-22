@@ -66,10 +66,10 @@ final class WholeDaySwiftV2CorpusTests: XCTestCase {
             let parent = try object(parentBytes)
             let value = try await Exporter.export(recipe) // actual SQLite selection + Swift kernels
             let bytes = try Exporter.bytes(value)
-            // The correction changes raw input, not the intended decoded state. Every expected field,
-            // selected row ID, timestamp, physiological value, group index and state bin must still agree.
-            XCTAssertEqual(Exporter.digest(try Exporter.bytes(value["expected"]!)),
-                           Exporter.digest(try Exporter.bytes(parent["expected"]!)), "expected output drift: \(recipe.id)")
+            // The band-byte correction preserves the intended decoded state. Physiological output now
+            // follows the separately pinned timing/unknown-state contract, not the pre-qualification v1.
+            let previousV2 = try Data(contentsOf: Corpus.directory.appendingPathComponent("\(recipe.id).json"))
+            try WholeDaySwiftQualifiedOracle.assertActual(value, id: recipe.id, version: "v2", historical: previousV2)
             let input = try XCTUnwrap(value["input"] as? [String: Any])
             var parentInput = try XCTUnwrap(parent["input"] as? [String: Any])
             parentInput["raw"] = recipe.raw
@@ -77,7 +77,7 @@ final class WholeDaySwiftV2CorpusTests: XCTestCase {
             let result = try XCTUnwrap((value["expected"] as? [String: Any])?["result"] as? [String: Any])
             let band = try XCTUnwrap(result["sessionSleepStateByStart"] as? [String: Any])
             if recipe.id == "dense-night-v1" { XCTAssertEqual(Set(band.keys), ["1781485200"]) }
-            print("SWIFT_V2_CASE \(recipe.id) sha256=\(Exporter.digest(bytes)) expectedMatchesParent=true")
+            print("SWIFT_V2_CASE \(recipe.id) sha256=\(Exporter.digest(bytes)) qualifiedContract=true")
             cases.append((recipe.id, bytes))
         }
         XCTAssertEqual(try Corpus.sourceHashes(), sourceHashes, "source changed while executing")
@@ -98,7 +98,8 @@ final class WholeDaySwiftV2CorpusTests: XCTestCase {
                 XCTAssertEqual(entry["mode"] as? String, "kernel_calendar")
                 let saved = try Data(contentsOf: Corpus.directory.appendingPathComponent("\(id).json"))
                 XCTAssertEqual(Exporter.digest(saved), entry["sha256"] as? String, id)
-                XCTAssertEqual(Exporter.digest(bytes), Exporter.digest(saved), "actual Swift replay: \(id)")
+                let value = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+                try WholeDaySwiftQualifiedOracle.assertActual(value, id: id, version: "v2", historical: saved)
             }
         }
     }

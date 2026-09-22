@@ -1,6 +1,8 @@
 #if os(iOS)
 import Foundation
 import ActivityKit
+import WhoopProtocol
+import StrandDesign
 
 /// Starts, updates, and ends the live-HR Live Activity. The activity appears on the Lock Screen and
 /// in the Dynamic Island while the strap is bonded and streaming heart rate.
@@ -8,6 +10,7 @@ import ActivityKit
 final class LiveActivityController {
     private var activity: Activity<NOOPActivityAttributes>?
     private var lastPush: Date = .distantPast
+    private var lastLedger: CanonicalConsumerLedger?
     /// Cached `ActivityAuthorizationInfo` — `update` runs at ~1 Hz off the live HR stream, and
     /// instantiating this system bridge per tick is needless allocation. ActivityKit's auth status
     /// only changes via Settings, so caching for the controller's lifetime is safe.
@@ -26,7 +29,25 @@ final class LiveActivityController {
     /// Drive the activity from the latest live values. Lazily starts when the strap is CONNECTED (the
     /// live link, not the sticky "paired" flag) and a heart rate is present; ends the moment the link
     /// drops. Throttled to ~once every 2 s so we stay well under the Live Activity update budget.
-    func update(bpm: Int?, recovery: Int?, connected: Bool, effort: Int? = nil) {
+    func update(from model: AppModel) {
+        if PhoneComputeRuntime.isFinalHosted {
+            let state = model.repo.serverPresentation
+            let result = state.canonicalDays[CanonicalConsumerPublication.day(in: state)]
+            update(bpm: model.live.connected ? model.live.heartRate : nil,
+                   recovery: CanonicalConsumerPublication.value("recovery", in: result, state: state).map { Int($0.rounded()) },
+                   connected: model.live.connected,
+                   effort: CanonicalConsumerPublication.value("strain", in: result, state: state).map { Int($0.rounded()) },
+                   canonicalLedger: CanonicalConsumerPublication.ledger(result, state: state))
+        } else {
+            let day = model.repo.cachedWidgetAnchor()
+            update(bpm: model.live.connected ? (model.bpm ?? model.live.heartRate) : nil,
+                   recovery: day?.recovery.map { Int($0.rounded()) }, connected: model.live.connected,
+                   effort: day?.strain.map { Int($0.rounded()) })
+        }
+    }
+
+    func update(bpm: Int?, recovery: Int?, connected: Bool, effort: Int? = nil,
+                canonicalLedger: CanonicalConsumerLedger? = nil) {
         guard authInfo.areActivitiesEnabled else { return }
 
         // Re-adopt an activity that outlived a previous app session. ActivityKit keeps Live Activities
@@ -51,15 +72,22 @@ final class LiveActivityController {
             Task { await end() }
             return
         }
-        guard bpm != nil else { return }
+        // An existing activity must also receive scope/revision clears between device HR samples.
+        // Only initial creation requires a direct device observation.
+        guard bpm != nil || activity != nil else { return }
 
-        let state = NOOPActivityAttributes.ContentState(bpm: bpm, recovery: recovery, bonded: connected,
-                                                        effort: effort)
+        let final = PhoneComputeRuntime.isFinalHosted
+        let admitted = !final || canonicalLedger?.isValid == true
+        let state = NOOPActivityAttributes.ContentState(bpm: bpm, recovery: admitted ? recovery : nil, bonded: connected,
+            effort: admitted ? effort : nil, finalHosted: final ? true : nil, canonicalLedger: canonicalLedger)
         let staleDate = Date().addingTimeInterval(Self.staleAfter)
 
         if let activity {
-            guard Date().timeIntervalSince(lastPush) > 2 else { return }
+            // A revision, read failure or identity change must not wait for another device HR tick.
+            let replacesAuthority = final && canonicalLedger != lastLedger
+            guard replacesAuthority || Date().timeIntervalSince(lastPush) > 2 else { return }
             lastPush = Date()
+            lastLedger = canonicalLedger
             Task { await activity.update(ActivityContent(state: state, staleDate: staleDate)) }
         } else {
             // Set the start gate SYNCHRONOUSLY before any await so a second `update` arriving on the
@@ -74,6 +102,7 @@ final class LiveActivityController {
                     pushType: nil
                 )
                 lastPush = Date()
+                lastLedger = canonicalLedger
             } catch {
                 activity = nil
             }
@@ -89,6 +118,7 @@ final class LiveActivityController {
             await act.end(nil, dismissalPolicy: .immediate)
         }
         self.activity = nil
+        self.lastLedger = nil
     }
 }
 #endif

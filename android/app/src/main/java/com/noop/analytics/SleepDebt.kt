@@ -91,6 +91,7 @@ object SleepDebt {
      * outside that group. Mirrors Swift `SleepDebt.creditedSleepMin` value-for-value.
      */
     fun creditedSleepMin(mainSleepMin: Double?, napSleepMin: Double = 0.0): Double? {
+        PhoneComputeRuntime.inferenceStarted("SleepDebt.creditedSleepMin")
         val main = mainSleepMin?.takeIf { it > 0.0 } ?: return null
         return main + napSleepMin.coerceAtLeast(0.0)
     }
@@ -105,6 +106,7 @@ object SleepDebt {
         importedDebtMin: Map<String, Double> = emptyMap(),
         window: Int = DEFAULT_WINDOW_NIGHTS,
     ): List<Pair<String, Double>> {
+        PhoneComputeRuntime.inferenceStarted("SleepDebt.debtSeries")
         val cap = window.coerceAtLeast(1)
         val usableHistory = ArrayList<Pair<String, Double?>>(cap)
         val result = ArrayList<Pair<String, Double>>(series.size)
@@ -142,6 +144,7 @@ object SleepDebt {
         needHours: Double = RestScorer.defaultSleepNeedHours,
         window: Int = DEFAULT_WINDOW_NIGHTS,
     ): SleepDebtLedger {
+        PhoneComputeRuntime.inferenceStarted("SleepDebt.ledger")
         val needMin = needHours.coerceAtLeast(0.0) * 60.0
         val cap = window.coerceAtLeast(1)
 

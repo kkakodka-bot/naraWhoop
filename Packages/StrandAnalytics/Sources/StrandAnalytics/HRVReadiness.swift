@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // HRVReadiness.swift — OPT-IN experimental "HRV readiness (Plews/Altini)" tier readout.
@@ -91,6 +92,8 @@ public enum HRVReadiness {
     /// - Parameter avgHrv: nightly RMSSD (ms), oldest -> newest; nils = missing nights. Out-of-range nights
     ///   (outside `Baselines.hrvCfg` 5..250 ms) are dropped as decode artefacts.
     public static func evaluate(avgHrv: [Double?]) -> HRVReadinessResult? {
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVReadiness.evaluate") else { return nil }
+        PhoneComputeRuntime.entered("swift.HRVReadiness.evaluate")
         let cfg = Baselines.hrvCfg
         // Drop nils + physiologically implausible nights (shared bounds), keep order oldest -> newest.
         let valid = avgHrv.compactMap { v -> Double? in

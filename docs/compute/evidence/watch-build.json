@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "gate": "watch-build",
+  "status": "PASS",
+  "command": [
+    "xcodebuild",
+    "-project",
+    ".derived/compute-checks/ComputeChecks.xcodeproj",
+    "-scheme",
+    "NOOPWatch",
+    "-destination",
+    "generic/platform=watchOS",
+    "-derivedDataPath",
+    ".derived/compute-watch",
+    "CODE_SIGNING_ALLOWED=NO",
+    "build"
+  ],
+  "cwd": ".",
+  "started_at": "2026-09-22T06:13:32.172Z",
+  "finished_at": "2026-09-22T06:13:34.685Z",
+  "source_before": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "source_after": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "exit_code": 0,
+  "failure": null,
+  "log_path": "watch-build.log",
+  "log_sha256": "9c82683942d9eec1d67007ad343a885d3ee45dac863e1e96f474d251d3571a09"
+}

@@ -13,6 +13,7 @@ struct AISystemKeychain: AIKeychainAccess {
          kSecAttrService as String: service, kSecAttrAccount as String: account]
     }
     func read(service: String, account: String) -> Data? {
+        guard !AppRuntimeMode.isUnitTesting else { return nil }
         var attributes = query(service: service, account: account)
         attributes[kSecReturnData as String] = kCFBooleanTrue
         attributes[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -21,6 +22,7 @@ struct AISystemKeychain: AIKeychainAccess {
         return result as? Data
     }
     func write(_ data: Data, service: String, account: String) -> Bool {
+        guard !AppRuntimeMode.isUnitTesting else { return false }
         let attributes = query(service: service, account: account)
         let update = [kSecValueData as String: data]
         let status = SecItemUpdate(attributes as CFDictionary, update as CFDictionary)
@@ -32,6 +34,7 @@ struct AISystemKeychain: AIKeychainAccess {
         return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
     }
     func remove(service: String, account: String) -> Bool {
+        guard !AppRuntimeMode.isUnitTesting else { return false }
         let status = SecItemDelete(query(service: service, account: account) as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
     }

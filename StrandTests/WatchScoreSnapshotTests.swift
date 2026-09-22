@@ -21,7 +21,7 @@ final class WatchScoreSnapshotTests: XCTestCase {
             restCalibrating: false,
             hr: 58,
             sleepSummary: "7h 12m · 81%",
-            asOf: asOf
+            asOf: asOf, finalHosted: true, canonicalLedger: CanonicalGlanceFixture.ledger()
         )
 
         let data = try JSONEncoder().encode(original)
@@ -34,6 +34,8 @@ final class WatchScoreSnapshotTests: XCTestCase {
         XCTAssertEqual(decoded.hr, 58)
         XCTAssertEqual(decoded.sleepSummary, "7h 12m · 81%")
         XCTAssertEqual(decoded.asOf, asOf)
+        XCTAssertTrue(decoded.hasCanonicalAdmission)
+        XCTAssertEqual(decoded.canonicalLedger?.families["recovery"]?.resultRevision, "compute:7")
         XCTAssertFalse(decoded.chargeCalibrating)
         XCTAssertFalse(decoded.effortCalibrating)
         XCTAssertFalse(decoded.restCalibrating)
@@ -52,7 +54,8 @@ final class WatchScoreSnapshotTests: XCTestCase {
             restCalibrating: false,
             hr: nil,
             sleepSummary: "",
-            asOf: Date(timeIntervalSince1970: 1_700_000_000)
+            asOf: Date(timeIntervalSince1970: 1_700_000_000),
+            finalHosted: true, canonicalLedger: CanonicalGlanceFixture.ledger()
         )
 
         let data = try JSONEncoder().encode(original)
@@ -86,17 +89,33 @@ final class WatchScoreSnapshotTests: XCTestCase {
             effort: nil, effortCalibrating: true,
             rest: nil, restCalibrating: true,
             hr: 61, sleepSummary: "6h 40m · 88%",
-            asOf: Date(timeIntervalSince1970: 1_700_000_500)
+            asOf: Date(timeIntervalSince1970: 1_700_000_500),
+            finalHosted: true, canonicalLedger: CanonicalGlanceFixture.ledger()
         )
         snap.save(to: defaults)
 
         let loaded = try XCTUnwrap(WatchScoreSnapshot.load(from: defaults))
         XCTAssertEqual(loaded, snap)
+        XCTAssertTrue(loaded.hasCanonicalAdmission)
+        XCTAssertEqual(loaded.canonicalLedger, snap.canonicalLedger)
         // The calibrating Effort + Rest survive the app-group round trip nil + flagged.
         XCTAssertNil(loaded.effort)
         XCTAssertTrue(loaded.effortCalibrating)
         XCTAssertNil(loaded.rest)
         XCTAssertTrue(loaded.restCalibrating)
+    }
+
+    func testHostedWatchRejectsUnrevisionedLegacySnapshot() throws {
+        let suiteName = "test.watchScoreSnapshot.legacy.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacy = WatchScoreSnapshot(charge: 64, chargeCalibrating: false,
+            effort: nil, effortCalibrating: true, rest: nil, restCalibrating: true,
+            hr: 61, sleepSummary: "6h 40m", asOf: Date())
+        XCTAssertFalse(legacy.hasCanonicalAdmission)
+        legacy.save(to: defaults)
+        XCTAssertNotNil(defaults.data(forKey: WatchScoreSnapshot.storageKey), "Historical bytes remain intact")
+        XCTAssertNil(WatchScoreSnapshot.load(from: defaults), "Final hosted readers cannot adopt unrevisioned physiology")
     }
 
     func testStorageContractMatchesWatchSideExpectation() {

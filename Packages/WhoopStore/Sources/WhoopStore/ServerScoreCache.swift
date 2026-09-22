@@ -241,6 +241,12 @@ public struct ServerSignalWindowCache: Equatable {
 }
 
 public struct ServerScoreDayCache: Equatable, Codable {
+    public var canonicalResults: ServerCanonicalResults?
+    public var pendingCanonicalResults: ServerPendingCanonicalResults?
+    /// Populated from the separate account/device cutover ledger at read time.
+    public var ownedMetrics: Set<String>? = nil
+    /// Transport state is separate from the server's processing/publication status.
+    public var readFailure: String? = nil
     public var ownerId: String = ""
     public var schemaVersion: Int = 2
     public var features: [String: ServerScoreFeatureCache] = [:]
@@ -290,7 +296,7 @@ public struct ServerScoreDayCache: Equatable, Codable {
     public let daily: ServerScoreDailyCache?
     public let nights: [ServerScoreNightCache]
     public let computedAt: String?
-    public let stale: Bool
+    public var stale: Bool
     public let fetchedAt: Date
 }
 
@@ -410,6 +416,26 @@ public enum ServerScoreCacheCodec {
         var result = ServerScoreDayCache(day: day, algorithmVersion: version, daily: daily, nights: nights,
             computedAt: o["computed_at"] as? String, stale: o["stale"] as? Bool ?? true, fetchedAt: fetchedAt)
         result.ownerId = ownerId.lowercased(); result.features = features
+        if let compute = o["compute"] ?? root["compute"] {
+            let encoded = try JSONSerialization.data(withJSONObject: compute)
+            if (compute as? [String: Any])?["device_id"] is NSNull {
+                let pending = try JSONDecoder().decode(ServerPendingCanonicalResults.self, from: encoded)
+                try pending.validate(owner: ownerId, day: day)
+                guard daily == nil, nights.isEmpty, result.computedAt == nil,
+                      features.values.allSatisfy({ $0.deviceId == nil && $0.status == "unavailable" }) else {
+                    throw DecodeError.invalidPayload
+                }
+                result.pendingCanonicalResults = pending
+                result.ownedMetrics = pending.ownedMetrics
+            } else {
+            let canonical = try JSONDecoder().decode(ServerCanonicalResults.self, from: encoded)
+            try canonical.validate(owner: ownerId, day: day)
+            guard features.values.allSatisfy({ $0.deviceId == nil || $0.deviceId == canonical.deviceID }) else {
+                throw DecodeError.invalidScope
+            }
+            result.canonicalResults = canonical
+            }
+        }
         if let epochs = (o["daily"] as? [String: Any])?["full_day_sleep_epochs"] as? [[String: Any]] {
             result.fullDaySleepEpochs = try epochs.map { s in
                 guard let lo = number(s["start"]), let hi = number(s["end"]), hi > lo,

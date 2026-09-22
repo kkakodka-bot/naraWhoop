@@ -131,6 +131,7 @@ object ActivityCostEngine {
         activityDaysBySport: Map<String, Set<String>>,
         recoveryByDay: Map<String, Double>,
     ): List<ActivityCost> {
+        PhoneComputeRuntime.inferenceStarted("ActivityCostEngine.evaluate")
         if (activityDaysBySport.isEmpty() || recoveryByDay.isEmpty()) return emptyList()
 
         // Rest days = days WITH a Charge value that are neither tagged with ANY sport NOR inside the

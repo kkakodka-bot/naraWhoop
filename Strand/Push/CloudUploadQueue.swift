@@ -27,6 +27,7 @@ actor CloudUploadQueue {
     private let fleetToken: @Sendable () -> String?
     private let isCurrent: Current
     private let policy: @Sendable () -> CloudUploadPolicy
+    private let resourceBudget: ResourceBudget
     private let control: @Sendable (URLRequest) async throws -> PushTransportResponse
     private let now: @Sendable () -> Date
     private let randomUnit: @Sendable () -> Double
@@ -45,7 +46,8 @@ actor CloudUploadQueue {
         let batchID: String
     }
 
-    init(context: AccountSessionContext, layout: AccountStorageLayout,
+    init(resourceBudget: ResourceBudget = .shared,
+         context: AccountSessionContext, layout: AccountStorageLayout,
          adapter: any CloudUploadSessionAdapter, authorize: @escaping Authorize,
          isCurrent: @escaping Current, policy: @escaping @Sendable () -> CloudUploadPolicy,
          control: @escaping @Sendable (URLRequest) async throws -> PushTransportResponse,
@@ -61,6 +63,7 @@ actor CloudUploadQueue {
         self.fleetToken = fleetToken
         self.isCurrent = isCurrent
         self.policy = policy
+        self.resourceBudget = resourceBudget
         self.control = control
         self.now = now
         self.randomUnit = randomUnit
@@ -109,7 +112,7 @@ actor CloudUploadQueue {
                           beforeFreshAdmission: @Sendable () throws -> Void = {}) throws {
         try check(captured)
         guard value.owner == context.scope else { throw CloudUploadError.staleOwner }
-        guard ResourceBudget.shared.permits(.bulk) else { throw CloudUploadError.retryScheduled }
+        try checkBulkAdmission(captured: captured)
         let legacyJobs = jobs.values.filter { $0.preparedSelectionID == nil }.count
         // This synchronous actor-local boundary precedes any new reservation/body publication.
         // An exact existing reservation (including interrupted publication) keeps its original
@@ -155,6 +158,17 @@ actor CloudUploadQueue {
         state.published = true
         try journal.saveContinuation(state)
     }
+
+    /// Rechecked before encoding/reserving new bytes and immediately before scheduling a transfer.
+    /// Tests may inject a deterministic environment; production always defaults to the shared budget.
+    func checkBulkAdmission(captured: AccountSessionContext) throws {
+        try check(captured)
+        guard resourceBudget.permits(.bulk) else { throw CloudUploadError.retryScheduled }
+    }
+
+    /// A synchronous preparation hint avoids introducing a new suspension before preference
+    /// validation. The actor still rechecks the same budget at reservation and transfer boundaries.
+    nonisolated func permitsBulkPreparation() -> Bool { resourceBudget.permits(.bulk) }
 
     private func verifyPublished(_ saved: CloudPushPreparedSelection, state: CloudPreparedContinuation) throws {
         func verify(_ id: String, _ bytes: Data) throws {
@@ -830,7 +844,7 @@ actor CloudUploadQueue {
             defer { SyncPipelineTrace.end(interval, outcome: outcome) }
             do {
                 try check(context)
-                guard ResourceBudget.shared.permits(.bulk) else { throw CloudUploadError.retryScheduled }
+                try checkBulkAdmission(captured: context)
                 if job.authenticationRefreshPending == true {
                     job.authenticationRefreshPending = false
                     job.phase = .pausedTerminal

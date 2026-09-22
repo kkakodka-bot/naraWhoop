@@ -89,6 +89,7 @@ object WhoopCsvExporter {
      * Unusable / empty input → all-null, so the column exports blank rather than a bogus zero.
      */
     internal fun stageMinutes(stagesJSON: String?): StageMinutes {
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("WhoopCsvExporter.stageMinutes")
         val none = StageMinutes(null, null, null, null)
         if (stagesJSON.isNullOrBlank()) return none
         return runCatching {
@@ -335,6 +336,7 @@ object WhoopCsvExporter {
         repo: WhoopRepository,
         deviceId: String,
     ): String {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return com.noop.ui.CanonicalResultExport.writeTo(context, uri)
         val hi = System.currentTimeMillis() / 1000 + 86_400
         // physiological_cycles keys each row by the LOCAL calendar day (analyze, #277); the sleeps
         // "Cycle start time" must use the SAME local end-day so the two CSVs reconcile by cycle — else a

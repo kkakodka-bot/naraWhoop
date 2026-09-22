@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:15:03" hostname="mac-studio.lan" time="2.586">
+  <properties/>
+  <testcase name="authenticatedRpcSelectsOnlyOwnResultAndPreservesPendingSnapshot" classname="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" time="0.053"/>
+  <testcase name="successfulRenewalMovesDeadlineAndBlocksOtherConsumer" classname="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" time="0.03"/>
+  <testcase name="arrivalsWhileRunningFencePublicationAndPreserveNewGeneration" classname="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" time="0.046"/>
+  <testcase name="failuresBackOffAndDeadLetterButNewInputRecovers" classname="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" time="0.034"/>
+  <testcase name="newAlgorithmGetsExistingDaysAndStrandedLegacyRepairIsBoundedIdempotent" classname="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" time="0.07"/>
+  <testcase name="concurrentConsumersClaimEachJobOnceAndOnlyWhenRunnable" classname="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" time="0.031"/>
+  <testcase name="moreThanOneHundredSuccessfulGenerationsNeverExhaustFailures" classname="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" time="2.087"/>
+  <testcase name="deviceOrderDoesNotChooseResultAndSleepReplacementRemovesShiftedAndDeletedSessions" classname="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" time="0.107"/>
+  <testcase name="publicationRollsBackSnapshotArchiveAndSettlementTogether" classname="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" time="0.07"/>
+  <testcase name="expiredWorkerCannotRenewFailOrPublishOverReplacement" classname="com.frwhoop.scoring.ScoringDurabilityIntegrationTest" time="0.056"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

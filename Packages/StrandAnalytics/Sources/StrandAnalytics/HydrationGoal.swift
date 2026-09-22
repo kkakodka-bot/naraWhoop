@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // HydrationGoal.swift — pure daily hydration goal math for the opt-in Hydration tracker (MVP).
@@ -44,6 +45,7 @@ public enum HydrationGoal {
     /// their baselines, anything else ("nonbinary", "other", "", unknown) maps to the unspecified baseline
     /// — we never guess a sex we weren't given.
     public static func baselineForSex(_ sex: String) -> Int {
+        PhoneComputeRuntime.entered("swift.HydrationGoal.baselineForSex")
         switch sex.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "male", "m":   return baselineMaleML
         case "female", "f": return baselineFemaleML
@@ -56,6 +58,7 @@ public enum HydrationGoal {
     /// FIRST then clamps the OUTPUT (matching the Kotlin twin), so an out-of-range input can't blow past
     /// the cap. A non-finite effort is treated as "no Effort" (0).
     public static func effortBump(effort: Double?) -> Int {
+        PhoneComputeRuntime.entered("swift.HydrationGoal.effortBump")
         guard let effort, effort.isFinite else { return 0 }
         let raw = Int((effort / 100.0 * Double(maxEffortBumpML)).rounded())
         return min(maxEffortBumpML, max(0, raw))
@@ -73,7 +76,8 @@ public enum HydrationGoal {
     /// The day's hydration goal in ml: `roundToNearest(sexBaseline + effortBump, 50)`. Pure — feed it the
     /// profile sex token and the day's Effort score (or nil). The result is always a multiple of 50.
     public static func dailyGoalML(sex: String, effort: Double?) -> Int {
-        roundToNearest(baselineForSex(sex) + effortBump(effort: effort), step: roundToML)
+        PhoneComputeRuntime.entered("swift.HydrationGoal.dailyGoalML")
+        return roundToNearest(baselineForSex(sex) + effortBump(effort: effort), step: roundToML)
     }
 
     // MARK: - Display helpers

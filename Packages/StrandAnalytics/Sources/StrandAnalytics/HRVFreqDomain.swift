@@ -92,6 +92,8 @@ public enum HRVFreqDomain {
     /// (`HRVAnalyzer.cleanRR`) before the tachogram is built, so an artifact beat cannot inject spurious
     /// power. Returns nil when there are too few clean beats or the R-R span is under `minSpanForHFSec`.
     public static func freqDomain(rr: [RRInterval]) -> Bands? {
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVFreqDomain.freqDomain") else { return nil }
+        PhoneComputeRuntime.entered("swift.HRVFreqDomain.freqDomain")
         // Stable sort: same-second beats keep their #823 emission order (see sortedByTsStable).
         let raw = rr.sortedByTsStable().map { Double($0.rrMs) }
         return freqDomain(rawRR: raw)
@@ -101,6 +103,8 @@ public enum HRVFreqDomain {
     /// CLEANED intervals (in seconds) forms each sample's timestamp on the tachogram; the cleaned R-R values
     /// (mean-removed) are the samples. Returns nil under the same gates as the `[RRInterval]` overload.
     public static func freqDomain(rawRR: [Double]) -> Bands? {
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVFreqDomain.freqDomain") else { return nil }
+        PhoneComputeRuntime.entered("swift.HRVFreqDomain.freqDomain")
         let clean = HRVAnalyzer.cleanRR(rawRR)
         guard clean.count >= minBeats else { return nil }
 
@@ -153,6 +157,7 @@ public enum HRVFreqDomain {
     /// (Numerical Recipes) form; we integrate it over frequency so the result is a band POWER (ms^2),
     /// proportional across bands and stable under the chosen grid.
     static func bandPower(times: [Double], y: [Double], fLow: Double, fHigh: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.HRVFreqDomain.bandPower")
         guard fHigh > fLow else { return 0 }
         // Variance of the (already mean-removed) signal; Lomb-Scargle scales power by it.
         let n = Double(y.count)
@@ -184,6 +189,7 @@ public enum HRVFreqDomain {
     /// `variance` is the sample variance of the mean-removed series. The time-offset tau makes the estimate
     /// invariant to time translation, which is what lets it handle the uneven tachogram spacing correctly.
     static func lombScarglePower(times: [Double], y: [Double], freqHz: Double, variance: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.HRVFreqDomain.lombScarglePower")
         let omega = 2.0 * Double.pi * freqHz
 
         // tau: the phase offset that orthogonalises the sine and cosine sums (Lomb 1976, eq. for tau).

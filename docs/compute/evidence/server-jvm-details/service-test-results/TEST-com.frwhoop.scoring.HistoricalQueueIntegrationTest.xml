@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.HistoricalQueueIntegrationTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:48" hostname="mac-studio.lan" time="10.539">
+  <properties/>
+  <testcase name="profileRevisionMismatchAndPredecessorMismatchPublishNothing" classname="com.frwhoop.scoring.HistoricalQueueIntegrationTest" time="0.064"/>
+  <testcase name="claimsAndPublishesMoreThanOneHundredDaysInOrderThenReplaysEntireSuffix" classname="com.frwhoop.scoring.HistoricalQueueIntegrationTest" time="10.172"/>
+  <testcase name="historyReaderNeverBorrowsMutableProfileWithoutEligibleJournal" classname="com.frwhoop.scoring.HistoricalQueueIntegrationTest" time="0.031"/>
+  <testcase name="pastCorrectionFromSecondConnectionFencesAlreadyClaimedLaterDayBeforeExpansion" classname="com.frwhoop.scoring.HistoricalQueueIntegrationTest" time="0.071"/>
+  <testcase name="checkpointInsertFailureRollsBackResultLegacyArchiveAndSettlement" classname="com.frwhoop.scoring.HistoricalQueueIntegrationTest" time="0.078"/>
+  <testcase name="twoConnectionsCannotSkipLeasedOrLockedPredecessorAndLegacyClaimCannotSteal" classname="com.frwhoop.scoring.HistoricalQueueIntegrationTest" time="0.032"/>
+  <testcase name="rawCorrectionUsesConservativeHistoricalWindowNotMutableCurrentTimezone" classname="com.frwhoop.scoring.HistoricalQueueIntegrationTest" time="0.09"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

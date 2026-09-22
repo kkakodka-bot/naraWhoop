@@ -3,6 +3,7 @@ import Foundation
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -48,6 +49,7 @@ private struct ServerSleepScreen: View {
                     }
                 }
             }
+            CanonicalPhysiologySection(families: ["sleep", "sleep_history", "night_hrv", "respiration"], day: day)
             ForEach(episodes) { episode in
                 episodeCard(episode, cache: cache)
             }
@@ -91,6 +93,7 @@ private struct ServerSleepScreen: View {
                     .font(StrandFont.subhead)
                 Text(episode.clockLabel)
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                if let revision = episode.canonicalResult?.resultRevision { Text("Result \(revision)").font(StrandFont.caption) }
                 Text("Asleep \(minutes(episode.asleepMin)) · \(String(localized: String.LocalizationValue(episode.opportunityLabel))) \(minutes(episode.inBedMin))")
                     .font(StrandFont.subhead)
                 if let night = cache?.nights.first(where: { $0.id == episode.id }) {
@@ -107,7 +110,7 @@ private struct ServerSleepScreen: View {
                 } else {
                     ForEach(ServerSleepEpisode.states, id: \.self) { state in
                         let bands = episode.bands.filter { $0.state == state }
-                        let total = bands.reduce(0) { $0 + $1.end - $1.start }
+                        let total = publishedMinutes(state, night: cache?.nights.first { $0.id == episode.id })
                         HStack(spacing: 8) {
                             Text(ServerSleepEpisode.label(state)).font(StrandFont.footnote).frame(width: 100, alignment: .leading)
                             GeometryReader { geo in
@@ -120,7 +123,7 @@ private struct ServerSleepScreen: View {
                                     }
                                 }
                             }.frame(height: 10)
-                            Text(bands.isEmpty ? "—" : String(format: String(localized: "%.1fm"), locale: .current, Double(total) / 60)).font(StrandFont.footnote).frame(width: 48, alignment: .trailing)
+                            Text(total.map { String(format: "%.1fm", $0) } ?? "—").font(StrandFont.footnote).frame(width: 48, alignment: .trailing)
                         }
                     }
                     Text("Actual server epochs · blank space has no epoch evidence")
@@ -137,6 +140,18 @@ private struct ServerSleepScreen: View {
         let feature = cache.features["sleep"]
         let value = "\(feature?.status ?? "unavailable")\(feature?.reason.map { " · \($0)" } ?? "")"
         return cache.stale ? String(localized: "Stale · \(value)") : value
+    }
+    private func publishedMinutes(_ state: String, night: ServerScoreNightCache?) -> Double? {
+        switch state {
+        case "wake": return night?.awakeMin
+        case "light": return night?.lightMin
+        case "deep": return night?.deepMin
+        case "rem": return night?.remMin
+        case "sleep_unstaged": return night?.sleepUnstagedMin
+        case "unknown": return night?.stateUnknownMin
+        case "off_body": return night?.offBodyMin
+        default: return nil
+        }
     }
     private func minutes(_ value: Double?) -> String {
         value.map { String(format: String(localized: "%.0f min"), locale: .current, $0) } ?? "—"

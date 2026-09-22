@@ -101,6 +101,7 @@ internal fun circadianBinsFrom(
     buckets: List<com.noop.data.HrBucket>,
     tzOffsetSeconds: Long,
 ): Pair<List<CircadianEngine.ActivityBin>, Int> {
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("circadianBinsFrom")
     if (buckets.size < 24) return emptyList<CircadianEngine.ActivityBin>() to 0
     val sums = DoubleArray(24)
     val counts = IntArray(24)
@@ -496,6 +497,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * Returns an empty list when there is too little to read; the caller treats that as "no estimate".
      */
     private suspend fun circadianActivityBins(): Pair<List<CircadianEngine.ActivityBin>, Int> {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("circadian_bins")) return emptyList<CircadianEngine.ActivityBin>() to 0
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("circadian_bins")
         val nowMs = System.currentTimeMillis()
         val now = nowMs / 1000L
         val from = now - 14L * 86_400L
@@ -742,7 +745,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         .distinctUntilChanged()
         .flatMapLatest { activeId ->
             repository.recentDaysMergedFlow(activeId).flatMapLatest days@{ days ->
-                if (days.isEmpty()) return@days flowOf(null)
+                if (days.isEmpty() || com.noop.analytics.PhoneComputeRuntime.finalHosted) return@days flowOf(null)
                 val from = days.first().day
                 val to = days.last().day
                 combine(
@@ -1018,7 +1021,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     lastCircadianBins = circadianActivityBins()
                     val loggedPeriodStarts = CycleTrackingStore(repository).starts()
                     _periodStarts.value = loggedPeriodStarts
-                    _v5Signals.value = V5HealthSignals.evaluate(
+                    _v5Signals.value = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else V5HealthSignals.evaluate(
                         days = days,
                         cycleOptedIn = _cycleTrackingEnabled.value,
                         loggedPeriodStarts = loggedPeriodStarts,
@@ -1426,6 +1429,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun ingestHr(raw: Int) {
         if (raw <= 0) return
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            _bpm.value = raw
+            captureWorkoutSample(raw)
+            return
+        }
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("hr_smoothing")
         hrWindow.addLast(raw)
         while (hrWindow.size > hrWindowSize) hrWindow.removeFirst()
         val sorted = hrWindow.sorted()
@@ -1716,8 +1725,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val endMs = System.currentTimeMillis()
         val pausedMs = w.pausedDurationMs + (w.pausedAtMs?.let { endMs - it } ?: 0L)
         val activeDurationMs = (endMs - w.startMs - pausedMs).coerceAtLeast(0L)
-        val avg = if (samples.isNotEmpty()) samples.sumOf { it.bpm } / samples.size else null
-        val peak = if (samples.isNotEmpty()) samples.maxOf { it.bpm } else null
+        val avg = if (!com.noop.analytics.PhoneComputeRuntime.finalHosted && samples.isNotEmpty()) samples.sumOf { it.bpm } / samples.size else null
+        val peak = if (!com.noop.analytics.PhoneComputeRuntime.finalHosted && samples.isNotEmpty()) samples.maxOf { it.bpm } else null
         // #983: score the SAVED workout with the wearer's measured resting HR, not the hardcoded
         // default of 60. %HRR is (bpm - resting) / (max - resting), so the default moves every zone
         // boundary — at 136 bpm with maxHR 190 it is the difference between zone 1 and zone 2. Today's
@@ -1725,13 +1734,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // disagree with its own re-score. Read once here, at save time; the live readout during the
         // session is a transient running estimate and deliberately left alone.
         val restingHR = _today.value?.restingHr?.toDouble() ?: StrainScorer.defaultRestingHR
-        val strain = if (samples.size >= 2)
+        val strain = if (!com.noop.analytics.PhoneComputeRuntime.finalHosted && samples.size >= 2)
             StrainScorer.strain(samples, maxHR = profileStore.hrMax.toDouble(),
                 restingHR = restingHR, method = NoopPrefs.effortMethod(appContext),
                 sex = profileStore.sex) else null
         // Estimate calories from the captured HR window (same Keytel/Harris–Benedict model the
         // auto-detector uses) so a manual session shows energy too, not just duration/strain. (#117)
-        val energyKcal = if (samples.size >= 2)
+        val energyKcal = if (!com.noop.analytics.PhoneComputeRuntime.finalHosted && samples.size >= 2)
             // #983: same measured resting HR as the strain above, not null. The calories model's
             // active-vs-resting threshold sits at resting + 30% HRR, so the default silently shifts what
             // counts as active — and #972 already threads it in the rescore path, so leaving it null here
@@ -1761,6 +1770,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         buzz(2, HapticPrefs.WORKOUT)
         viewModelScope.launch {
             runCatching { repository.upsertWorkouts(listOf(row)) }
+            if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+                serverScores.computeRequests.capture("workouts", row.startTs, row.endTs, consent = true)
+                serverScores.computeRequests.drain()
+            }
             // #528: persist the live 1 Hz workout HR into hrSample so it can export to Health Connect
             // at full resolution NOW (the HR export keeps workout-window samples un-decimated), instead
             // of only after the next strap offload sync. IGNORE-on-conflict makes a later sync of the
@@ -1777,12 +1790,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun endGpsWorkout(w: ActiveWorkout) = launchGpsMutation {
         val row = gpsFinalizer.finish(checkNotNull(w.gpsSessionId), com.noop.location.GpsWorkoutFinalizer.Inputs(
-            samples = w.samples, profile = currentProfile(), maxHr = profileStore.hrMax.toDouble(),
+            samples = w.samples, profile = currentProfile(), maxHr = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) Double.NaN else profileStore.hrMax.toDouble(),
             restingHr = _today.value?.restingHr?.toDouble() ?: StrainScorer.defaultRestingHR,
             method = NoopPrefs.effortMethod(appContext), sex = profileStore.sex))
         if (noopApp.closed || !noopApp.context.isCurrent()) return@launchGpsMutation
         gpsJob?.cancel(); gpsJob = null
         _activeWorkout.value = null; _lastWorkout.value = row
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            serverScores.computeRequests.capture("workouts", row.startTs, row.endTs, sessionId = checkNotNull(w.gpsSessionId), consent = true)
+            serverScores.computeRequests.drain()
+        }
         if (!NoopPrefs.backgroundConnection(appContext)) WhoopConnectionService.stop(appContext)
         buzz(2, HapticPrefs.WORKOUT)
         if (_hcWriteback.value) {
@@ -1793,6 +1810,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Append the current smoothed bpm to the active workout and recompute its running strain. Called
      *  from ingestHr on every fresh sample; a no-op when no workout is running. */
+    private var lastWorkoutComputeMinute: Long? = null
     private fun captureWorkoutSample(bpm: Int) {
         // `_activeWorkout` (declared further down) can still be null HERE: the HR collector in the first
         // init block can fire ingestHr -> captureWorkoutSample INLINE during construction (a StateFlow
@@ -1804,6 +1822,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (w.pausedAtMs != null) return
         if (w.gpsEnabled && w.sourceDeviceId != deviceId) return
         val s = w.samples + HrSample(deviceId = w.sourceDeviceId ?: deviceId, ts = System.currentTimeMillis() / 1000, bpm = bpm)
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            val updated = w.copy(samples = s)
+            _activeWorkout.value = updated
+            persistNonGpsWorkout(updated)
+            val now = System.currentTimeMillis() / 1000
+            if (lastWorkoutComputeMinute != now / 60) {
+                lastWorkoutComputeMinute = now / 60
+                val sessionId = w.gpsSessionId ?: java.util.UUID.nameUUIDFromBytes("${deviceId}:${w.startMs}".toByteArray()).toString()
+                serverScores.computeRequests.capture("live_workout", w.startMs / 1000, now, sessionId = sessionId,
+                    consent = true, expiresAt = now + 120)
+                viewModelScope.launch { serverScores.computeRequests.drain() }
+            }
+            return
+        }
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("live_workout")
         val strain = StrainScorer.strain(
             s, maxHR = profileStore.hrMax.toDouble(),
             method = NoopPrefs.effortMethod(appContext), sex = profileStore.sex) ?: 0.0
@@ -2022,7 +2055,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             // split and a peak — every one of them derived from the samples the average claimed not to
             // have. The fill's own doc promises "display == graph == zones == effort by construction";
             // this is the line that has to pass the same id for that to hold.
-            val filled = repository.fillWorkoutHrFromStrap(
+            val filled = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) whoop + apple + detected + activityFiles else repository.fillWorkoutHrFromStrap(
                 (whoop + apple + detected + activityFiles),
                 strapDeviceId = deviceId,
                 strainMaxHR = profileStore.hrMax.toDouble(),
@@ -2103,6 +2136,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         source: String = "",
         rowDeviceId: String = deviceId,
     ): List<com.noop.data.HrBucket> {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return emptyList()
         if (to <= from) return emptyList()
         val span = to - from
         val bucket = (span / 120).coerceIn(15L, 300L)
@@ -2126,6 +2160,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         source: String = "",
         rowDeviceId: String = deviceId,
     ): List<Double>? {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return null
         if (to <= from) return null
         // #856: the same resolved ids the chart and Avg HR use. Binning a different strap's samples
         // than the curve plots would put three different answers on one card.
@@ -2147,6 +2182,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         source: String = "",
         rowDeviceId: String = deviceId,
     ): com.noop.analytics.HeartRateRecovery.Result? {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return null
         if (to <= from) return null
         val readFrom = maxOf(from, to - com.noop.analytics.HeartRateRecovery.eligibilityLookbackSeconds)
         val readTo = to + 5 * 60 + com.noop.analytics.HeartRateRecovery.measurementToleranceSeconds
@@ -2821,7 +2857,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val days = recentDays.value
             val bins = freshCircadianBins()
             runCatching {
-                _v5Signals.value = V5HealthSignals.evaluate(
+                _v5Signals.value = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else V5HealthSignals.evaluate(
                     days = days,
                     cycleOptedIn = enabled,
                     loggedPeriodStarts = _periodStarts.value,
@@ -2888,7 +2924,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _periodStarts.value = starts
         val days = recentDays.value
         val bins = freshCircadianBins()
-        _v5Signals.value = V5HealthSignals.evaluate(
+        _v5Signals.value = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else V5HealthSignals.evaluate(
             days = days,
             cycleOptedIn = _cycleTrackingEnabled.value,
             loggedPeriodStarts = starts,
@@ -3103,6 +3139,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  Fires once per zone change; mirrors macOS AppModel.coachZone. The buzz decision is the pure
      *  [zoneCoachBuzzLoops] so it can be unit-tested without a strap. */
     private fun coachZone(state: LiveState) {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("zone_coaching")) return
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("zone_coaching")
         if (!_zoneCoaching.value || !state.bonded || !state.worn) return
         val hr = _bpm.value ?: return
         if (hr < 30) return

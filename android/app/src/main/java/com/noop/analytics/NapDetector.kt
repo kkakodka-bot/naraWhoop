@@ -133,6 +133,7 @@ object NapDetector {
         stillThresholdG: Double = DEFAULT_STILL_THRESHOLD_G,
         smoothWindowSeconds: Double = DEFAULT_SMOOTH_WINDOW_S,
     ): Pair<Long, Long>? {
+        PhoneComputeRuntime.inferenceStarted("NapDetector.longestQuietRun")
         val rows = gravity.sortedBy { it.ts }
         if (rows.size < 2) return null
         val motion = WorkoutDetector.activitySeries(rows)
@@ -167,6 +168,7 @@ object NapDetector {
 
     /** Mean HR (bpm) over `[start, end]`, or null when no sample fell in the window. */
     fun meanHrIn(hr: List<HrRow>, start: Long, end: Long): Int? {
+        PhoneComputeRuntime.inferenceStarted("NapDetector.meanHrIn")
         val inWindow = hr.filter { it.ts in start..end && it.bpm in 25..220 }
         if (inWindow.isEmpty()) return null
         return (inWindow.sumOf { it.bpm }.toDouble() / inWindow.size).toInt()
@@ -197,6 +199,7 @@ object NapDetector {
         restingHr: Int?,
         config: NapConfig,
     ): NapDecision {
+        PhoneComputeRuntime.inferenceStarted("NapDetector.evaluate")
         if (!config.enabled) return NapDecision(NapVerdict.INCONCLUSIVE, null)
 
         if (!isWindowDense(gravity)) return NapDecision(NapVerdict.INCONCLUSIVE, null)

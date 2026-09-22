@@ -28,6 +28,7 @@ object HrvSeries {
     fun windows(start: Int, end: Int, observations: List<PhysiologyQuality.IntervalObservation>,
                 context: List<PhysiologyQuality.ContextEpoch> = emptyList(), policy: HrvWindow.Policy = HrvWindow.Policy(),
                 inputRevision: String = "unversioned", computationMode: String = "retrospective"): List<HrvWindow.Result> {
+                    PhoneComputeRuntime.inferenceStarted("HrvSeries.windows")
         if (end <= start) return emptyList()
         val starts = (HrvWindow.alignedStart(start) until end step HrvWindow.SECONDS).toList()
         val lo = starts.first().toDouble(); val hi = starts.last() + 300.0
@@ -54,6 +55,7 @@ object HrvSeries {
     fun selectedWindow(start: Int, observations: List<PhysiologyQuality.IntervalObservation>,
                        context: List<PhysiologyQuality.ContextEpoch> = emptyList(), policy: HrvWindow.Policy = HrvWindow.Policy(),
                        inputRevision: String = "unversioned", computationMode: String = "retrospective"): HrvWindow.Result {
+                           PhoneComputeRuntime.inferenceStarted("HrvSeries.selectedWindow")
         fun measure(rows: List<PhysiologyQuality.IntervalObservation>) = HrvWindow.measure(start, rows, context, policy, inputRevision, computationMode)
         val owned = PhysiologyQuality.propagatingEndpointRejections(observations).filter { it.eventTime >= start && it.eventTime < start + 300 ||
             it.verifiedSpan?.let { span -> span.start < start + 300 && span.end > start } == true }
@@ -81,6 +83,7 @@ object HrvSeries {
 
     fun baseline(current: HrvWindow.Result, history: List<HrvWindow.Result>, windowDays: Int = 28,
                  minimumSamples: Int = 20): Baseline {
+                     PhoneComputeRuntime.inferenceStarted("HrvSeries.baseline")
         // A changed validity/context result must invalidate its older eligible counterpart first.
         val candidates = unambiguous(history.filter { it.end <= current.start &&
             it.start >= current.start.toLong() - maxOf(0, windowDays).toLong() * 86400 &&
@@ -121,6 +124,7 @@ object HrvSeries {
 
     fun summarize(windows: List<HrvWindow.Result>, start: Int, end: Int, context: String = "sleep",
                   policy: SummaryPolicy = SummaryPolicy()): Summary {
+                      PhoneComputeRuntime.inferenceStarted("HrvSeries.summarize")
         val overlapping = windows.filter { it.start < end && it.end > start }
         val overlappingCount = overlapping.map { it.start }.toSet().size
         val inEpisode = unambiguous(overlapping.filter { it.start >= start && it.end <= end })

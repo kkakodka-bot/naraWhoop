@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.StrainSampleDurationTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.0">
+  <properties/>
+  <testcase name="edgesMatchTheOldFallbacks" classname="com.noop.analytics.StrainSampleDurationTest" time="0.0"/>
+  <testcase name="addingContextAroundAWindowNeverShrinksItsTrimp" classname="com.noop.analytics.StrainSampleDurationTest" time="0.0"/>
+  <testcase name="dropoutGapIsClampedNotCredited" classname="com.noop.analytics.StrainSampleDurationTest" time="0.0"/>
+  <testcase name="thirtySecondCadenceIsNotClamped" classname="com.noop.analytics.StrainSampleDurationTest" time="0.0"/>
+  <testcase name="mixedCadenceNoLongerCollapsesTheWindow" classname="com.noop.analytics.StrainSampleDurationTest" time="0.0"/>
+  <testcase name="uniformSeriesIsByteIdenticalToTheOldComputation" classname="com.noop.analytics.StrainSampleDurationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

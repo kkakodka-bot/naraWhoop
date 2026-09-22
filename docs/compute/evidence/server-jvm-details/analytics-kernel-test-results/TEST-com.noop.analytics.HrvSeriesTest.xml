@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.HrvSeriesTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.19">
+  <properties/>
+  <testcase name="sourcesAreQualifiedSeparatelyInEachWindowAndNeverSpliced" classname="com.noop.analytics.HrvSeriesTest" time="0.008"/>
+  <testcase name="summaryExclusionsCountOnlyUniqueOverlappingBuckets" classname="com.noop.analytics.HrvSeriesTest" time="0.012"/>
+  <testcase name="denseSingleNightAndSeriallyCorrelatedNightsCannotMatureBaseline" classname="com.noop.analytics.HrvSeriesTest" time="0.123"/>
+  <testcase name="invalidatedOrReclassifiedHistoryCannotRetainItsOldBaselineValue" classname="com.noop.analytics.HrvSeriesTest" time="0.01"/>
+  <testcase name="zerosAndColdStartAreExplicit" classname="com.noop.analytics.HrvSeriesTest" time="0.008"/>
+  <testcase name="recomputedOvernightOverlapIgnoresOnlyPublicationRevision" classname="com.noop.analytics.HrvSeriesTest" time="0.01"/>
+  <testcase name="nightlyArithmeticAndRestNapSeparation" classname="com.noop.analytics.HrvSeriesTest" time="0.007"/>
+  <testcase name="denseEarlyIslandCannotRepresentNight" classname="com.noop.analytics.HrvSeriesTest" time="0.003"/>
+  <testcase name="baselineUsesOnlyPastComparablePositiveMeasurements" classname="com.noop.analytics.HrvSeriesTest" time="0.008"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

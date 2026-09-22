@@ -196,6 +196,10 @@ private fun WidgetContent(snap: WidgetSnapshot, dark: Boolean) {
             )
         }
         Spacer(modifier = GlanceModifier.height(2.dp))
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) Text(
+            text = if (snap.resultRevisions.isEmpty()) "Server results unavailable" else "Server revision " + snap.resultRevisions.values.distinct().joinToString(" · "),
+            style = TextStyle(color = textSecondary, fontSize = 9.sp), maxLines = 2,
+        )
         Text(
             text = when {
                 snap.connected -> "Connected"

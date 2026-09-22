@@ -1,5 +1,6 @@
 import SwiftUI
 import StrandDesign
+import WhoopProtocol
 
 /// Caffeine window (#526) — log a caffeine intake (time + OPTIONAL mg) and see a plain on-device
 /// "still active" hint. OPT-IN, manual-first: nothing shows until the user logs an intake, and the
@@ -39,18 +40,25 @@ struct CaffeineLogCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Caffeine", overline: "Log")
+            if PhoneComputeRuntime.isFinalHosted {
+                CanonicalPhysiologySection(families: ["insights"])
+            }
             NoopCard(tint: StrandPalette.accent) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Log a coffee, tea, or energy drink and NARA shows a rough estimate of how much may still be active. It's a guide based on a typical 5 to 6 hour half-life, not a measurement.")
+                    Text(PhoneComputeRuntime.isFinalHosted
+                         ? "Log a coffee, tea, or energy drink. Physiological caffeine-decay estimates are server-owned and currently unavailable."
+                         : "Log a coffee, tea, or energy drink and NARA shows a rough estimate of how much may still be active. It's a guide based on a typical 5 to 6 hour half-life, not a measurement.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
 
+                    if !PhoneComputeRuntime.isFinalHosted {
                     activeHint
 
                     // PR#566 — the late-intake nudge sits right under the active hint when the cutoff is on
                     // and a logged intake is past it, so the timing warning is the first thing read.
                     lateIntakeNudge
+                    }
 
                     Divider().overlay(StrandPalette.hairline)
 
@@ -78,7 +86,7 @@ struct CaffeineLogCard: View {
                     }
 
                     Divider().overlay(StrandPalette.hairline)
-                    cutoffSection
+                    if !PhoneComputeRuntime.isFinalHosted { cutoffSection }
 
                     if !store.intakes.isEmpty {
                         Divider().overlay(StrandPalette.hairline)

@@ -44,6 +44,7 @@ object CoachSuggestions {
      * string here, change it in the Swift twin in the same PR.
      */
     fun suggestions(today: DailyMetric?, recent: List<DailyMetric>): List<String> {
+        PhoneComputeRuntime.inferenceStarted("CoachSuggestions.suggestions")
         if (today == null) return fallback
         val charge = today.recovery
         val hrv = today.avgHrv

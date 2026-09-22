@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 /// Decode a sleep session's `stagesJSON` (either the on-device segment array `[{start,end,stage}]` or
@@ -22,6 +23,8 @@ public enum SleepStageTotals {
     /// Stage minutes for one session's `stagesJSON`, or nil if it decodes to nothing usable. The on-device
     /// stager calls awake "wake"; the importer "awake" — both map to `awake`.
     public static func minutes(fromStagesJSON json: String?) -> Minutes? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.minutes") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.minutes")
         guard let json, let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) else { return nil }
         if let arr = obj as? [[String: Any]] {                 // segment array (computed)
@@ -98,7 +101,9 @@ public enum SleepStageTotals {
     }
 
     public static func dailyAggregate(_ stagesJSONs: [String?]) -> DailySleep? {
-        dailyAggregate(stagesJSONs, interFragmentAwakeSeconds: 0)
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.dailyAggregate") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.dailyAggregate")
+        return dailyAggregate(stagesJSONs, interFragmentAwakeSeconds: 0)
     }
 
     /// As `dailyAggregate(_:)`, but folds the OUT-OF-BED time between bridged main-night fragments into the
@@ -111,6 +116,8 @@ public enum SleepStageTotals {
     /// in-bed. `interFragmentAwakeSeconds` ≤ 0 reproduces the legacy sum-of-stages behaviour. (#777/#705)
     public static func dailyAggregate(_ stagesJSONs: [String?],
                                       interFragmentAwakeSeconds: Double) -> DailySleep? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.dailyAggregate") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.dailyAggregate")
         var total = Minutes()
         var any = false
         for j in stagesJSONs {
@@ -138,6 +145,7 @@ public enum SleepStageTotals {
     /// of "awake between fragments" both `analyzeDay` and the edit/recompute seam fold into AWAKE, so the two
     /// paths agree (no seam double-count). Pure + deterministic; cross-platform identical. (#777/#705)
     public static func interFragmentAwakeSeconds(_ spans: [(start: Int, end: Int)]) -> Double {
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.interFragmentAwakeSeconds")
         guard spans.count > 1 else { return 0 }
         let sorted = spans.sorted { $0.start < $1.start }
         var gap = 0
@@ -287,6 +295,7 @@ public enum SleepStageTotals {
     /// `alignmentBonusMin` within `alignmentFullWindowSec`, decaying linearly to 0 by `alignmentZeroSec`.
     /// `blockMidSec` and `targetMidSec` are local times-of-day in seconds. (#547)
     static func alignmentBonusMinutes(blockMidSec: Int, targetMidSec: Int) -> Double {
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.alignmentBonusMinutes")
         let d = circularDistanceSec(blockMidSec, targetMidSec)
         if d <= alignmentFullWindowSec { return alignmentBonusMin }
         if d >= alignmentZeroSec { return 0 }
@@ -307,6 +316,8 @@ public enum SleepStageTotals {
     /// by sorting on `start` first (the selector is order-independent, but bridging must see neighbours).
     /// Pure + deterministic. (#547)
     public static func bridgeAdjacent(_ blocks: [NightBlock]) -> [NightBlock] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.bridgeAdjacent") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.bridgeAdjacent")
         guard blocks.count > 1 else { return blocks }
         let sorted = blocks.sorted { $0.start < $1.start }
         let bridgeS = gapBridgeMaxMin * 60
@@ -346,6 +357,8 @@ public enum SleepStageTotals {
     /// deterministic; Kotlin twin `bridgedNightGroups`. (#364)
     public static func bridgedNightGroups(_ blocks: [NightBlock], offsetSec: Int,
                                           timezone: TimeZone? = nil) -> [BridgedNightGroup] {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.bridgedNightGroups") else { return [] }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.bridgedNightGroups")
         guard !blocks.isEmpty else { return [] }
         // Sort indices by onset so bridging sees neighbours, exactly as `bridgeAdjacent` sorts the blocks.
         let order = blocks.indices.sorted { blocks[$0].start < blocks[$1].start }
@@ -405,6 +418,8 @@ public enum SleepStageTotals {
     public static func mainNightGroupIndices(_ blocks: [NightBlock], offsetSec: Int,
                                              habitualMidsleepSec: Int? = nil,
                                              timezone: TimeZone? = nil) -> [Int]? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.mainNightGroupIndices") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.mainNightGroupIndices")
         guard !blocks.isEmpty else { return nil }
         let all = bridgedNightGroups(blocks, offsetSec: offsetSec, timezone: timezone)
         // Rebuild each group's bridged span for scoring: sorted-ascending fragments make the span
@@ -432,6 +447,8 @@ public enum SleepStageTotals {
     public static func mainNightIndex(_ blocks: [NightBlock], offsetSec: Int,
                                       habitualMidsleepSec: Int? = nil,
                                       timezone: TimeZone? = nil) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.mainNightIndex") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.mainNightIndex")
         guard !blocks.isEmpty else { return nil }
         let target = targetMidsleepSec(habitualMidsleepSec)
         func score(_ b: NightBlock) -> Double {
@@ -472,6 +489,8 @@ public enum SleepStageTotals {
     /// platform-stable. `asleepSeconds` is the chosen block's clock span. (spec 2026-06-20)
     public static func mainNightSelection(_ blocks: [NightBlock], offsetSec: Int,
                                           habitualMidsleepSec: Int? = nil) -> MainNightSelection? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.mainNightSelection") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.mainNightSelection")
         guard let idx = mainNightIndex(blocks, offsetSec: offsetSec,
                                        habitualMidsleepSec: habitualMidsleepSec) else { return nil }
         let chosen = blocks[idx]
@@ -493,6 +512,7 @@ public enum SleepStageTotals {
     /// uses, so "would duration alone have picked this same block?" is decided identically on both
     /// platforms. Returns the first onset when empty (callers never pass empty). (spec 2026-06-20)
     static func durationOnlyWinnerOnset(asleepSecs: [Int], onsets: [Int]) -> Int {
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.durationOnlyWinnerOnset")
         guard !asleepSecs.isEmpty else { return 0 }
         var bestIdx = 0
         for i in 1..<asleepSecs.count {
@@ -517,6 +537,7 @@ public enum SleepStageTotals {
     static func mainNightReason(chosenAsleepSec: Int, chosenOnset: Int, chosenMidLocalSec: Int,
                                 blockCount: Int, longestAsleepSec: Int, longestOnset: Int,
                                 chosenIsDurationWinnerOnset: Int, habitualMidsleepSec: Int?) -> MainNightReason {
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.mainNightReason")
         if blockCount <= 1 { return .onlyBlock }
         let chosenIsLongest = (chosenAsleepSec == longestAsleepSec)
             && (chosenIsDurationWinnerOnset == longestOnset)
@@ -560,6 +581,8 @@ public enum SleepStageTotals {
         // bonus). Existing callers compile unchanged. (#547)
         habitualMidsleepSec: Int? = nil
     ) -> (sleep: DailySleep, editApplied: Bool)? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.dailyAggregateHonoringEdits") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.dailyAggregateHonoringEdits")
         // Substitute an edited block's stages ONLY when the edit has usable (non-nil) stages — an edit
         // that reshaped to nil must fall back to the detected stages, never drop the block (which would
         // collapse the night's sleep total). `editApplied` likewise reflects a real substitution. We keep
@@ -641,6 +664,8 @@ public enum SleepStageTotals {
     static func mainNightGroupIndicesByStages(_ blocks: [(startTs: Int, stagesJSON: String?)],
                                               onsetByStart: [Int: Int], offsetSec: Int,
                                               habitualMidsleepSec: Int? = nil) -> [Int]? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.mainNightGroupIndicesByStages") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.mainNightGroupIndicesByStages")
         guard !blocks.isEmpty else { return nil }
         func onset(_ b: (startTs: Int, stagesJSON: String?)) -> Int { onsetByStart[b.startTs] ?? b.startTs }
         func effEnd(_ b: (startTs: Int, stagesJSON: String?)) -> Int {
@@ -700,6 +725,8 @@ public enum SleepStageTotals {
     /// minutes — used only to SCORE a bridged group as one block (decoded asleep minutes + in-bed span). Pure;
     /// returns nil when nothing decodes (the group then scores 0, like an undecodable block). (#561)
     static func summedStagesJSON(_ stagesJSONs: [String?]) -> String? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.summedStagesJSON") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.summedStagesJSON")
         var total = Minutes()
         var any = false
         for j in stagesJSONs {
@@ -732,6 +759,8 @@ public enum SleepStageTotals {
     static func mainNightIndexByStages(_ blocks: [(startTs: Int, stagesJSON: String?)],
                                        onsetByStart: [Int: Int], offsetSec: Int,
                                        habitualMidsleepSec: Int? = nil) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.mainNightIndexByStages") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.mainNightIndexByStages")
         guard !blocks.isEmpty else { return nil }
         let target = targetMidsleepSec(habitualMidsleepSec)
         func onset(_ b: (startTs: Int, stagesJSON: String?)) -> Int { onsetByStart[b.startTs] ?? b.startTs }
@@ -766,6 +795,8 @@ public enum SleepStageTotals {
     static func mainNightSelectionByStages(_ blocks: [(startTs: Int, stagesJSON: String?)],
                                            onsetByStart: [Int: Int], offsetSec: Int,
                                            habitualMidsleepSec: Int? = nil) -> MainNightSelection? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.mainNightSelectionByStages") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.mainNightSelectionByStages")
         guard let idx = mainNightIndexByStages(blocks, onsetByStart: onsetByStart, offsetSec: offsetSec,
                                                habitualMidsleepSec: habitualMidsleepSec) else { return nil }
         func onset(_ b: (startTs: Int, stagesJSON: String?)) -> Int { onsetByStart[b.startTs] ?? b.startTs }
@@ -815,6 +846,8 @@ public enum SleepStageTotals {
     /// is learned correctly. `offsetSec` turns each midpoint local; `minDays` is the cold-start floor. (#547)
     public static func habitualMidsleepSec(_ history: [HistoryBlock], offsetSec: Int,
                                            minDays: Int = habitualMinDays) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.habitualMidsleepSec") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.habitualMidsleepSec")
         guard !history.isEmpty else { return nil }
         // Longest block per local day (selection-independent). Ties within a day → earlier onset (stable).
         var longestByDay: [String: HistoryBlock] = [:]
@@ -848,6 +881,8 @@ public enum SleepStageTotals {
     /// back to cold-start rather than emit a meaningless (and cross-platform-divergent) anchor. Used for
     /// the habitual-midsleep anchor so near-midnight times average correctly. (#547)
     static func circularMeanSec(_ secs: [Int]) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepStageTotals.circularMeanSec") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepStageTotals.circularMeanSec")
         guard !secs.isEmpty else { return nil }
         var sumSin = 0.0, sumCos = 0.0
         let k = 2.0 * Double.pi / Double(secondsPerDay)
