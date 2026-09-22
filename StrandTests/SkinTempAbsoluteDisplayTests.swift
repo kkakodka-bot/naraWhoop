@@ -33,6 +33,26 @@ final class SkinTempAbsoluteDisplayTests: XCTestCase {
                       "the day must still be there — got \(caption)")
     }
 
+    func testDayKeyCaptionPreservesDateAcrossTimezoneAndCalendarBoundaries() throws {
+        let key = "2000-01-01"
+        let midnight = try XCTUnwrap(BodyVitalSigns.dayParser.date(from: key))
+        let reference = DateFormatter()
+        reference.locale = Locale(identifier: "en_US_POSIX")
+        reference.dateFormat = "yyyy-MM-dd"
+        reference.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        XCTAssertEqual(reference.string(from: midnight), "1999-12-31",
+                       "The fixture crosses the day and year boundary if treated as a local instant")
+        reference.timeZone = try XCTUnwrap(TimeZone(identifier: "Pacific/Kiritimati"))
+        XCTAssertEqual(reference.string(from: midnight), key)
+
+        for (day, expected) in [(key, "1 Jan"), ("2000-02-29", "29 Feb"),
+                                ("2000-03-01", "1 Mar"), ("2024-03-10", "10 Mar"),
+                                ("2024-11-03", "3 Nov")] {
+            XCTAssertEqual(BodyVitalReading.dayLabel(day), expected,
+                           "A daily row's caption must retain its stored calendar date")
+        }
+    }
+
     func testWithoutASecondaryTheCaptionIsUnchanged() {
         // Every other vital passes nil, so their captions must be byte-identical to before.
         let caption = reading(secondary: nil).stateCaption
