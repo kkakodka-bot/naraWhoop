@@ -78,6 +78,9 @@ jobs:
             -only-testing:StrandTests/CloudMetadataMigrationTests \
             -only-testing:StrandTests/CloudPushReceiptIntegrationTests \
             -only-testing:StrandTests/CloudAuxiliaryIdentityTests \
+            -only-testing:StrandTests/CloudImuPushSourceTests \
+            -only-testing:StrandTests/RawCaptureManifestTests \
+            -only-testing:StrandTests/CaptureDurabilityTests \
             -only-testing:StrandTests/CollectorImuRepairTests \
             -only-testing:StrandTests/ScoringPreferenceRecomputeTests \
             -only-testing:StrandTests/HistoricalCommitLeaseTests \
