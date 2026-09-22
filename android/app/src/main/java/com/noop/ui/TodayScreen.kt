@@ -308,6 +308,13 @@ fun TodayScreen(
     // the call site stays compiling; AppRoot binds it to nav.navigateTopLevel(Insights), same as Sleep.
     onOpenJournal: () -> Unit = {},
 ) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalPhysiologyScreen(viewModel, "Today", com.noop.push.ServerComputeContract.familyIDs,
+            mapOf("Quick actions" to onQuickActions, "Sleep" to onOpenSleep, "Journal" to onOpenJournal,
+                "Workout" to onOpenActiveWorkout, "Hydration" to onOpenHydration, "Devices" to onOpenDevices,
+                "Settings" to onOpenSettings))
+        return
+    }
     val today by viewModel.today.collectAsStateWithLifecycle()
     val alert by viewModel.healthAlert.collectAsStateWithLifecycle()
     val days by viewModel.recentDays.collectAsStateWithLifecycle()

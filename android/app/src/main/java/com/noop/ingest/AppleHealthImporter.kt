@@ -716,8 +716,8 @@ private class Aggregator {
     private class Mean {
         var sum = 0.0
         var n = 0
-        fun add(v: Double) { sum += v; n += 1 }
-        fun value(): Double? = if (n == 0) null else sum / n
+        fun add(v: Double) { if (com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_import_mean")) { sum += v; n += 1 } }
+        fun value(): Double? = if (com.noop.analytics.PhoneComputeRuntime.finalHosted || n == 0) null else sum / n
     }
 
     /** Latest-by-end value. */
@@ -892,7 +892,7 @@ private class Aggregator {
                 spo2Pct = a.spo2.value(),
                 respRate = a.resp.value(),
                 avgHr = a.hr.value(),
-                maxHr = if (a.hasHr) a.maxHr else null,
+                maxHr = if (!com.noop.analytics.PhoneComputeRuntime.finalHosted && a.hasHr) a.maxHr else null,
                 walkingHr = a.walking.value(),
                 steps = a.stepsBySource.values.maxOrNull(),   // #589 max source, not cross-source sum
                 activeKcal = if (a.hasActive) a.active else null,
@@ -902,7 +902,7 @@ private class Aggregator {
                 bodyFatPct = a.bodyFat.value,
                 leanMassKg = a.lean.value,
                 bmi = a.bmi.value,
-                asleepMin = if (a.hasSleep) a.core + a.deep + a.rem + a.unspecified else null,
+                asleepMin = if (com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_import_sleep_composite") && a.hasSleep) a.core + a.deep + a.rem + a.unspecified else null,
                 deepMin = if (a.hasSleep) a.deep else null,
                 remMin = if (a.hasSleep) a.rem else null,
                 coreMin = if (a.hasSleep) a.core else null,

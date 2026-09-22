@@ -14,8 +14,9 @@ object ServerScoreClient {
     class Conflict : IllegalStateException("override revision changed")
 
     internal fun localDeviceId(context: Context): String {
-        val app = context.applicationContext as com.noop.NoopApplication
-        return app.sourceCoordinator.activeDeviceId.value ?: app.activeDeviceId
+        val runtime = com.noop.account.AccountStorageContext.runtime(context)
+            ?: error("captured account runtime unavailable")
+        return runtime.sourceCoordinator.activeDeviceId.value ?: runtime.activeDeviceId
     }
 
     internal fun ownerId(context: Context): String? = EnrollmentDataScope.credential(context)?.userId

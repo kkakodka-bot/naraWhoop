@@ -52,6 +52,10 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun IntelligenceScreen(vm: AppViewModel) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalPhysiologyScreen(vm, "Intelligence", setOf("baselines", "insights", "readiness_load", "fitness_longevity"))
+        return
+    }
     val days by vm.recentDays.collectAsStateWithLifecycle()
     // PERF (#scroll-jank): the BLE live state ticks ~1Hz. This screen reads `live` ONLY for the
     // "syncing history" note (backfilling + the chunk count), so reading the whole `live` object at

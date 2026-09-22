@@ -239,6 +239,10 @@ private fun statOf(values: List<Double>): Stat {
 
 @Composable
 fun TrendsExploreScreen(vm: AppViewModel) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalPhysiologyScreen(vm, "Metric explorer", com.noop.push.ServerComputeContract.familyIDs)
+        return
+    }
     // The Deep Timeline (#575) is presented INLINE from Explore , no NavHost route needed, so this stays
     // self-contained in the Explore entry-point file. System back / the in-screen reset returns here.
     var showDeepTimeline by remember { mutableStateOf(false) }

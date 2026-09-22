@@ -96,8 +96,8 @@ fun LiveWorkoutScreen(vm: AppViewModel, onClose: () -> Unit) {
     LaunchedEffect(w == null) { if (w == null) onClose() }
     if (w == null) return
 
-    val zoneSet = remember(profile.hrMax, profile.hrZoneThresholds) { profile.hrZoneSet }
-    val zone = bpm?.let { zoneSet.zoneNumber(it.toDouble()) } ?: 0
+    val zoneSet = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else remember(profile.hrMax, profile.hrZoneThresholds) { profile.hrZoneSet }
+    val zone = bpm?.let { zoneSet?.zoneNumber(it.toDouble()) } ?: 0
 
     // Guards the destructive End action behind a confirm (#517) — a stray tap on the full-width
     // button used to end the workout instantly with no way back.
@@ -178,13 +178,18 @@ fun LiveWorkoutScreen(vm: AppViewModel, onClose: () -> Unit) {
 
             // The accumulating Effort — same liveStrain source and 0–21 / 0–100 scale, rendered as a centered
             // free metric to sit alongside TIME and HEART RATE. Keeps the "of N" scale the iOS redesign dropped.
-            EffortGauge(liveStrain = w.liveStrain, effortScale = effortScale)
+            if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+                CanonicalFamilyReadout(vm, "live_workout")
+                CanonicalSessionReadout(vm, vm.serverScores.computeRequests.latestId("live_workout", w.startMs / 1000))
+            }
+            else EffortGauge(liveStrain = w.liveStrain, effortScale = effortScale)
 
             // Zone section — the zone label capsule on the header row, the five-segment rail, and the band.
-            ZoneRail(zone = zone, zoneSet = zoneSet)
+            if (zoneSet != null) ZoneRail(zone = zone, zoneSet = zoneSet)
+            else Text("HR zones: awaiting server result")
 
             // Live stats grid — avg / peak / effort, from the captured window.
-            Row(horizontalArrangement = Arrangement.spacedBy(Metrics.gap), modifier = Modifier.fillMaxWidth()) {
+            if (!com.noop.analytics.PhoneComputeRuntime.finalHosted) Row(horizontalArrangement = Arrangement.spacedBy(Metrics.gap), modifier = Modifier.fillMaxWidth()) {
                 StatTile(modifier = Modifier.weight(1f), label = uiString(R.string.l10n_live_workout_screen_avg_cdc93143), value = if (w.avgHr > 0) "${w.avgHr}" else "—",
                     accent = if (w.avgHr > 0) Palette.metricRose else Palette.textPrimary)
                 StatTile(modifier = Modifier.weight(1f), label = uiString(R.string.l10n_live_workout_screen_peak_c83dbbd3), value = if (w.peakHr > 0) "${w.peakHr}" else "—",

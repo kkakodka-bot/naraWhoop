@@ -19,10 +19,13 @@ data class ServerComputeFamily(
         (algorithmVersion == "frwhoop-server-1" && canonicalQualification == "retained_legacy" ||
             canonicalQualification == "signed_reference_approval" &&
             featureManifestHash?.matches(Regex("^[a-f0-9]{64}$")) == true)
-    fun value(metric: String): Any? = if (!authorized || metric !in metrics) null else
+    fun expired(nowMs: Long = System.currentTimeMillis()): Boolean = expiresAt?.let {
+        runCatching { java.time.Instant.parse(it).toEpochMilli() <= nowMs }.getOrDefault(true)
+    } ?: false
+    fun value(metric: String): Any? = if (!authorized || expired() || metric !in metrics) null else
         JSONObject(json).optJSONObject("values")?.opt(metric)?.takeUnless { it == JSONObject.NULL }
     fun number(metric: String): Double? = (value(metric) as? Number)?.toDouble()?.takeIf { it.isFinite() }
-    fun detail(name: String): Any? = if (authorized) JSONObject(json).optJSONObject("details")?.opt(name)
+    fun detail(name: String): Any? = if (authorized && !expired()) JSONObject(json).optJSONObject("details")?.opt(name)
         ?.takeUnless { it == JSONObject.NULL } else null
     fun usableDecision(nowMs: Long): Boolean = authorized && decisionId != null &&
         expiresAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() > nowMs }.getOrDefault(false) } == true

@@ -58,7 +58,8 @@ class ServerScoreRepository(
     private val readFailures = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private var pollingDay: String? = null
     private fun currentOwnerId() = ServerScoreClient.ownerId(appContext)
-    private fun currentIdentityKey() = ServerScoreClient.requestIdentity(appContext)
+    private fun currentIdentityKey() = if (com.noop.analytics.PhoneComputeRuntime.finalHosted ||
+        EnrollmentDataScope.credential(appContext) != null) ServerScoreClient.requestIdentity(appContext) else null
     private var activeIdentityKey: String? = currentIdentityKey()
 
     private val _enabled = MutableStateFlow(ServerScoringSettings.isEnabled(appContext))

@@ -111,6 +111,15 @@ object CoachBriefScheduler {
     suspend fun generateNow(context: Context): String? {
         val ctx = AccountStorageContext.capture(context)
         if (ctx.identity.scope == null || !ctx.isCurrent()) return null
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            val source = ctx.runtime?.serverScoreRepository ?: return null
+            source.refreshDay(java.time.LocalDate.now().toString())
+            val cache = source.overlay(java.time.LocalDate.now().toString()) ?: return null
+            val family = cache.compute?.families?.get("insights") ?: return null
+            if (cache.stale || cache.readFailure != null || !family.authorized) return null
+            return family.detail("brief") as? String
+        }
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("CoachBrief.generate")
         val provider = AiKeyStore.readProvider(ctx)
         val model = AiKeyStore.readModel(ctx, provider)
         val consent = AiKeyStore.readConsent(ctx)
@@ -170,6 +179,11 @@ object CoachBriefScheduler {
         if (!account.isCurrent()) return
         val prefs = account.getSharedPreferences("noop_widget", Context.MODE_PRIVATE)
         val e = prefs.edit()
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            val family = account.runtime?.serverScoreRepository?.overlay(java.time.LocalDate.now().toString())
+                ?.compute?.families?.get("insights")
+            e.putString("coachBriefCanonicalResult", family?.json)
+        }
         if (text != null) {
             e.putString(WIDGET_BRIEF_KEY, text)
             e.putLong(WIDGET_BRIEF_DATE_KEY, System.currentTimeMillis())
@@ -182,6 +196,12 @@ object CoachBriefScheduler {
 
     @SuppressLint("MissingPermission") // guarded by areNotificationsEnabled() + runCatching
     private fun postBrief(context: Context, text: String) {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            val account = AccountStorageContext.capture(context)
+            val source = account.runtime?.serverScoreRepository ?: return
+            val family = source.overlay(java.time.LocalDate.now().toString())?.compute?.families?.get("insights") ?: return
+            if (!source.computeRequests.admitDecision(family)) return
+        }
         runCatching {
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
             ensureChannel(context)

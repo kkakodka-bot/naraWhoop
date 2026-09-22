@@ -88,6 +88,11 @@ fun CoupledScreen(
     vm: AppViewModel,
     onOpenSleep: () -> Unit = {},
 ) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalPhysiologyScreen(vm, "Daily results", setOf("recovery", "strain_energy", "sleep", "sleep_history", "readiness_load"),
+            mapOf("Sleep" to onOpenSleep))
+        return
+    }
     val today by vm.today.collectAsStateWithLifecycle()
     val days by vm.recentDays.collectAsStateWithLifecycle()
 
@@ -687,6 +692,8 @@ internal data class OptimalStrainRange(val low: Int, val high: Int)
 
 /** The pure recovery->optimal-strain band, or null when recovery is unknown. */
 internal fun optimalStrainRange(recovery: Double?): OptimalStrainRange? {
+    if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("optimal_strain")) return null
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("optimal_strain")
     val r = recovery ?: return null
     return when {
         r >= 67 -> OptimalStrainRange(14, 18)

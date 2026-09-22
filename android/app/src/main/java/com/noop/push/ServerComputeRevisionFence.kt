@@ -11,6 +11,10 @@ object ServerComputeRevisionFence {
         return old.families.all { (key, before) ->
             val after = fresh.families[key] ?: return@all false
             if (before.deviceId != after.deviceId || before.window != after.window) return@all false
+            // Authorization is live read-time evidence: revocation/missingness must evict a formerly
+            // admitted value even when the immutable stored result identity has not changed.
+            if (!after.authorized) return@all true
+            if (!before.authorized) return@all true
             if (before.algorithmVersion == after.algorithmVersion && before.inputRevision != null && after.inputRevision != null &&
                 after.inputRevision < before.inputRevision) return@all false
             if (before.resultRevision == null || before.resultRevision != after.resultRevision) return@all true

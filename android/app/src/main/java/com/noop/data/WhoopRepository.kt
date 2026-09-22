@@ -2471,7 +2471,8 @@ class WhoopRepository(
         }
 
         /** Build a repository backed by the process-wide singleton database. */
-        fun from(context: Context): WhoopRepository = WhoopRepository(WhoopDatabase.get(context))
+        fun from(context: Context): WhoopRepository =
+            com.noop.account.AccountStorageContext.runtime(context)?.repository ?: WhoopRepository(WhoopDatabase.get(context))
 
         // MARK: - Compact per-epoch JSON (v18 motionJSON / sleepStateJSON), byte-equivalent with Swift's
         // JSONEncoder/JSONDecoder on [Double] / [Int]: a bare `[..]` array, whole doubles emitted WITHOUT a

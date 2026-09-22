@@ -450,8 +450,9 @@ object ActivityFileImporter {
 
         val distance = summaryDistanceM ?: if (route.size >= 2) routeDistanceM(route) else null
         val ascent = summaryAscentM ?: ascentM(samples)
-        val avg = summaryAvgHr ?: if (hrs.isEmpty()) null else (hrs.sum().toDouble() / hrs.size).roundToInt()
-        val mx = summaryMaxHr ?: hrs.maxOrNull()
+        val localSummary = com.noop.analytics.PhoneComputeRuntime.allowsLocal("activity_import_hr_summary")
+        val avg = summaryAvgHr ?: if (!localSummary || hrs.isEmpty()) null else (hrs.sum().toDouble() / hrs.size).roundToInt()
+        val mx = summaryMaxHr ?: if (localSummary) hrs.maxOrNull() else null
 
         val a = Activity(
             kind = kind,
@@ -849,8 +850,9 @@ internal class FitDecoder(raw: ByteArray) {
         val ascent = sessionAscent ?: if (lapAscentSum > 0) lapAscentSum else ActivityFileImporter.ascentM(samples)
 
         val sampledHrs = samples.mapNotNull { it.hr }
-        val avgHr = sessionAvgHr ?: if (sampledHrs.isEmpty()) null else (sampledHrs.sum().toDouble() / sampledHrs.size).roundToInt()
-        val maxHr = sessionMaxHr ?: lapMaxHr ?: sampledHrs.maxOrNull()
+        val localSummary = com.noop.analytics.PhoneComputeRuntime.allowsLocal("fit_import_hr_summary")
+        val avgHr = sessionAvgHr ?: if (!localSummary || sampledHrs.isEmpty()) null else (sampledHrs.sum().toDouble() / sampledHrs.size).roundToInt()
+        val maxHr = sessionMaxHr ?: lapMaxHr ?: if (localSummary) sampledHrs.maxOrNull() else null
 
         val start = times.minOrNull() ?: sessionStartS ?: 0L
         val computedEnd = times.maxOrNull() ?: start
@@ -878,4 +880,3 @@ internal class FitDecoder(raw: ByteArray) {
         return ActivityFileImporter.Result(activity, ActivityFileImporter.Kind.FIT, skipped)
     }
 }
-

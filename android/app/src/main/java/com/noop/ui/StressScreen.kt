@@ -93,6 +93,10 @@ import kotlin.math.sqrt
 
 @Composable
 fun StressScreen(vm: AppViewModel, onBreathe: () -> Unit = {}) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalPhysiologyScreen(vm, "Stress", setOf("stress", "stress_events", "current_hrv"), mapOf("Breathe" to onBreathe))
+        return
+    }
     val days by vm.recentDays.collectAsStateWithLifecycle()
 
     // #698: the liquid day-of-sky backdrop is gated on the same "Day-cycle background" setting as Today,
@@ -176,6 +180,9 @@ private data class DaytimeReadout(
  * then fed to the two additive HRV engines (no extra fetch, no DB / schema change).
  */
 private suspend fun loadDaytimeStress(vm: AppViewModel, personalBaseline: Boolean): DaytimeReadout {
+    if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("stress_screen"))
+        return DaytimeReadout(DaytimeStress.Result.EMPTY, null, null)
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("stress_screen")
     val nowSeconds = System.currentTimeMillis() / 1000L
     val zone = ZoneId.systemDefault()
     val todayWindow = stressLocalDayWindowContaining(nowSeconds, zone)
@@ -1290,6 +1297,8 @@ internal class StressModel private constructor(
         /** Build from oldest→newest daily metrics plus any stored "stress" series.
          *  Returns null only when there is no usable signal at all. */
         fun build(days: List<DailyMetric>, stored: Map<String, Double>): StressModel? {
+            if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("stress_screen_baseline")) return null
+            com.noop.analytics.PhoneComputeRuntime.inferenceStarted("stress_screen_baseline")
             // Carry (#543): today's own row is often vitals-less until the overnight is analyzed —
             // especially right after an app update relaunches and re-runs the pass — so score the NEWEST
             // day that actually carries usable signal (RHR/HRV, or a stored/imported stress value) instead

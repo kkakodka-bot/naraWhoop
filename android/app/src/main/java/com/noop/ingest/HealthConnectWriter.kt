@@ -129,6 +129,7 @@ object HealthConnectWriter {
     private suspend fun writeLocked(context: Context, repo: WhoopRepository, deviceId: String): WritebackResult {
         checkAdmitted(context)
         if (HealthConnectClient.getSdkStatus(context) != HealthConnectClient.SDK_AVAILABLE) return WritebackResult.UNAVAILABLE
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return writeCanonical(context, repo)
 
         // Guard the pre-insert work (client acquisition + the day read) the same way the concern inserts
         // below are guarded, so a provider race or DB error can't throw PAST recordStatus and leave the
@@ -216,6 +217,66 @@ object HealthConnectWriter {
     private fun recordStatus(context: Context, result: WritebackResult) {
         checkAdmitted(context)
         NoopPrefs.setHcWritebackStatus(context, result.statusCode, result.written, System.currentTimeMillis())
+    }
+
+    private suspend fun writeCanonical(context: Context, repo: WhoopRepository): WritebackResult {
+        val account = AccountStorageContext.capture(context)
+        val source = account.runtime?.serverScoreRepository ?: return WritebackResult.UNAVAILABLE
+        val snapshots = source.canonicalDays.value.values.toList()
+        val records = ArrayList<Record>()
+        val receipts = account.getSharedPreferences("noop_health_compute_revisions", Context.MODE_PRIVATE)
+        val pendingReceipts = linkedMapOf<String, String>()
+        for (cache in snapshots) {
+            for ((familyID, family) in cache.compute?.families.orEmpty()) {
+                if (!family.authorized || cache.stale || cache.readFailure != null) continue
+                val revision = family.resultRevision ?: continue
+                val computed = family.computedAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: continue
+                val observed = family.observedThrough?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                val identity = "${family.project}:${family.ownerId}:${family.deviceId}:$familyID:${family.window}"
+                val metadata = Metadata(clientRecordId = accountRecordId(context, identity), clientRecordVersion = computed.toEpochMilli())
+                when (familyID) {
+                    "night_hrv" -> {
+                        if (observed == null) continue
+                        family.number("resting_hr_bpm")?.let { records.add(RestingHeartRateRecord(observed, null, it.toLong(), metadata)) }
+                        family.number("hrv_rmssd_ms")?.let { records.add(HeartRateVariabilityRmssdRecord(observed, null, it, Metadata(clientRecordId = accountRecordId(context, "$identity:hrv"), clientRecordVersion = computed.toEpochMilli()))) }
+                    }
+                    "respiration" -> if (observed != null) family.number("resp_rate_bpm")?.let { records.add(RespiratoryRateRecord(observed, null, it, metadata)) }
+                    "oxygen" -> if (observed != null) family.number("spo2_pct")?.let { records.add(OxygenSaturationRecord(observed, null, Percentage(it), metadata)) }
+                    "sleep" -> cache.nights.forEach { night ->
+                        val start = Instant.parse(night.startAt); val end = Instant.parse(night.endAt)
+                        val stages = night.stages.mapNotNull { stage ->
+                            val kind = when (stage.stage) {
+                                "wake", "awake" -> SleepSessionRecord.STAGE_TYPE_AWAKE
+                                "light" -> SleepSessionRecord.STAGE_TYPE_LIGHT
+                                "deep" -> SleepSessionRecord.STAGE_TYPE_DEEP
+                                "rem" -> SleepSessionRecord.STAGE_TYPE_REM
+                                else -> return@mapNotNull null
+                            }
+                            SleepSessionRecord.Stage(Instant.ofEpochSecond(stage.start), Instant.ofEpochSecond(stage.end), kind)
+                        }
+                        records.add(SleepSessionRecord(start, null, end, null, title = null, notes = "Server result $revision", stages = stages,
+                            metadata = Metadata(clientRecordId = accountRecordId(context, "$identity:${night.id}"), clientRecordVersion = computed.toEpochMilli())))
+                    }
+                }
+                pendingReceipts[identity] = family.json
+            }
+        }
+        return runCatching {
+            checkAdmitted(context)
+            check(snapshots.all { saved -> source.overlay(saved.day)?.compute == saved.compute }) { "Canonical result changed during Health export" }
+            val client = HealthConnectClient.getOrCreate(context)
+            var count = 0
+            records.chunked(1000).forEach { batch ->
+                checkAdmitted(context)
+                check(snapshots.all { saved -> source.overlay(saved.day)?.compute == saved.compute })
+                client.insertRecords(batch); count += batch.size
+            }
+            account.runtime?.activeDeviceId?.let { device -> count += writeHeartRate(client, context, repo, device, System.currentTimeMillis()) }
+            checkAdmitted(context)
+            val editor = receipts.edit(); pendingReceipts.forEach { (id, json) -> editor.putString(id, json) }
+            check(editor.commit()) { "Health result receipt not durable" }
+            WritebackResult(count, emptyList())
+        }.getOrElse { WritebackResult(0, listOf(it.writebackCategory())) }.also { recordStatus(context, it) }
     }
 
     private fun meta(metric: String, day: String, version: Long, ownerPrefix: String = "") = Metadata(

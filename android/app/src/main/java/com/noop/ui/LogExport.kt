@@ -83,7 +83,8 @@ object LogExport {
      * multi-MB bundle doesn't stall the caller's dispatcher; only the chooser intent fires back on
      * whatever dispatcher the caller resumed on (Main, for every UI call site today).
      */
-    suspend fun exportBundle(context: Context, entries: List<Pair<String, ByteArray>>, suggestedName: String): File? =
+    suspend fun exportBundle(context: Context, entries: List<Pair<String, ByteArray>>, suggestedName: String,
+                             admit: () -> Unit = {}): File? =
         runCatching {
             val file = withContext(Dispatchers.IO) {
                 zipEntries(entries)?.let { bytes ->
@@ -91,6 +92,7 @@ object LogExport {
                     File(dir, suggestedName).also { it.writeBytes(bytes) }
                 }
             } ?: return null
+            admit()
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "application/zip"
                 putExtra(Intent.EXTRA_STREAM, fileUri(context, file))

@@ -196,6 +196,9 @@ private fun ServerSleepScreen(vm: AppViewModel) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(status, style = NoopType.subhead)
                     cache?.sleepMetadataLines?.forEach { Text(it, style = NoopType.footnote, color = Palette.textSecondary) }
+                    cache?.compute?.families?.get("sleep")?.let {
+                        Text("Result: ${it.resultRevision ?: "pending publication"} · ${it.status}", style = NoopType.footnote)
+                    }
                     if (episodes.isEmpty()) Text(uiString(R.string.server_sleep_empty), style = NoopType.footnote)
                     editMessage?.let { Text(it,style=NoopType.footnote) }
                     (editError ?: error)?.let { Text(it,style=NoopType.footnote,color=Palette.statusCritical) }
@@ -355,7 +358,7 @@ fun SleepScreen(
     onOpenJournal: () -> Unit = {},
 ) {
     val serverEnabled by vm.serverScores.enabled.collectAsStateWithLifecycle()
-    if (serverEnabled) {
+    if (serverEnabled || com.noop.analytics.PhoneComputeRuntime.finalHosted) {
         ServerSleepScreen(vm)
         return
     }

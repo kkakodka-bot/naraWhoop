@@ -598,7 +598,7 @@ object HealthConnectImporter {
             // exercise sessions must not pay for two sorts of a ten-year record list to answer nothing.
             val activeIndex by lazy(LazyThreadSafetyMode.NONE) { KcalIndex(activeKcalRecords) }
             val totalIndex by lazy(LazyThreadSafetyMode.NONE) { KcalIndex(totalKcalRecords) }
-            for (i in workouts.indices) {
+            for (i in workouts.indices.filter { com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_connect_workout_energy") }) {
                 val w = workouts[i]
                 if (w.endTs <= w.startTs) continue
                 val day = acc[workoutDays[i]]   // #1002: the key from the record's own offset
@@ -615,7 +615,7 @@ object HealthConnectImporter {
             // (the day-aggregate HeartRateRecord pass above streams the full range and must not be
             // buffered). readAll swallows a per-session failure, so one bad session can't fail the
             // import. ≥60 samples (~1 min) required so a few strays can't fabricate an average.
-            for (i in workouts.indices) {
+            for (i in workouts.indices.filter { com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_connect_workout_hr") }) {
                 val w = workouts[i]
                 if (w.endTs <= w.startTs) continue
                 var sum = 0L
@@ -789,7 +789,7 @@ object HealthConnectImporter {
                         activeKcal = if (dayActiveKcal > 0.0) round1(dayActiveKcal) else null,
                         basalKcal = basalKcal(dayTotalKcal, dayActiveKcal),
                         vo2max = a.vo2max?.let { round1(it) },
-                        avgHr = if (a.hrCount > 0) round(a.hrSum.toDouble() / a.hrCount).toInt() else null,
+                        avgHr = if (com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_connect_daily_hr") && a.hrCount > 0) round(a.hrSum.toDouble() / a.hrCount).toInt() else null,
                         maxHr = null,
                         walkingHr = null,
                         weightKg = a.weightKg?.let { round2(it) },
@@ -816,7 +816,7 @@ object HealthConnectImporter {
 
             // DailyMetric (my-whoop): resting-HR / HRV / sleep-minutes / SpO2 / respiration,
             // ONLY for days the strap does not already cover (raw OR computed).
-            if (day !in coveredDays) {
+            if (com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_connect_daily_physiology") && day !in coveredDays) {
                 val rhr = if (a.rhrCount > 0) round(a.rhrSum.toDouble() / a.rhrCount).toInt() else null
                 val hrv = if (a.hrvCount > 0) round1(a.hrvSum / a.hrvCount) else null
                 val sleep = if (a.hasSleep) round1(a.sleepMin) else null
@@ -1187,6 +1187,8 @@ object HealthConnectImporter {
      * unit-tested without a HealthConnectClient.
      */
     internal fun derivedBmi(weightKg: Double?, heightCm: Double): Double? {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("import_bmi")) return null
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("import_bmi")
         if (heightCm <= 0.0) return null
         val w = weightKg ?: return null
         return round2(FitnessAgeEngine.bmi(w, heightCm))
@@ -1198,6 +1200,8 @@ object HealthConnectImporter {
      * so basal is computed from the same source-deduplicated totals the row writes for active.
      */
     private fun basalKcal(totalKcal: Double, activeKcal: Double): Double? {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_connect_basal")) return null
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("health_connect_basal")
         if (totalKcal <= 0.0) return null
         val basal = totalKcal - activeKcal
         return if (basal > 0.0) round1(basal) else null
@@ -1349,6 +1353,8 @@ object HealthConnectImporter {
         startS: Long,
         endS: Long,
     ): Double? {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_connect_workout_energy")) return null
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("health_connect_workout_energy")
         if (endS <= startS) return null
         val fromActive = activeIndex.sumInWindow(startS, endS)
         val totalInWindow = totalIndex.sumInWindow(startS, endS)
@@ -1387,6 +1393,8 @@ object HealthConnectImporter {
         startS: Long,
         endS: Long,
     ): Double? {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("health_connect_workout_energy")) return null
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("health_connect_workout_energy")
         if (endS <= startS) return null
         val fromActive = sumKcalInWindow(activeRecords, startS, endS)
         val totalInWindow = sumKcalInWindow(totalRecords, startS, endS)

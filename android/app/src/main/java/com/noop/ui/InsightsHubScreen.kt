@@ -86,6 +86,7 @@ import kotlin.math.roundToInt
 
 @Composable
 fun InsightsHubScreen(vm: AppViewModel) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { CanonicalPhysiologyScreen(vm, "Insights", setOf("insights", "baselines")); return }
     val days by vm.recentDays.collectAsState()
     val hub = remember { InsightsHubViewModel() }
     val state by hub.state.collectAsState()

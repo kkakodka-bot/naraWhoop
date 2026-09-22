@@ -67,6 +67,20 @@ class ServerComputeRequests(context: Context) {
             .takeIf { it.getString("scope") == identity.key }?.optJSONObject("response") }.getOrNull()
     }
 
+    fun latestId(family: String, start: Long? = null): String? {
+        val identity = DeviceLinkStore.identity(account) ?: return null
+        if (!account.isCurrent()) return null
+        return synchronized(lock) { prefs.all.filterKeys { it.startsWith("request:") }.values.mapNotNull { raw ->
+            runCatching {
+                val entry = JSONObject(raw as String)
+                val request = entry.getJSONObject("body").getJSONObject("request")
+                if (entry.getString("scope") != identity.key || request.getString("family") != family ||
+                    (start != null && request.getString("event_start") != Instant.ofEpochSecond(start).toString())) null
+                else request
+            }.getOrNull()
+        }.maxByOrNull { it.optString("event_end", it.getString("event_start")) }?.getString("id") }
+    }
+
     fun result(id: String): ServerComputeFamily? = runCatching {
         val identity = DeviceLinkStore.identity(account) ?: return null
         if (!account.isCurrent()) return null

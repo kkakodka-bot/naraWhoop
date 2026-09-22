@@ -131,7 +131,7 @@ fun HealthScreen(
     val cycleHidden by vm.cycleAwarenessHidden.collectAsStateWithLifecycle()
     val periodStarts by vm.periodStarts.collectAsStateWithLifecycle()
     var showCycleTracker by remember { mutableStateOf(false) }
-    val hrMax = profile.hrMax
+    val hrMax = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) 0 else profile.hrMax
 
     // Health Monitor shows live HR too, so it must keep the realtime stream on while it's visible —
     // otherwise leaving the Live page stopped the stream and this page froze (issue #18). Ref-counted
@@ -197,6 +197,9 @@ fun HealthScreen(
             item { HeartRateSection(vm = vm, hrMax = hrMax) }
             item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
             item {
+                if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+                    listOf("night_hrv", "respiration", "oxygen", "temperature").forEach { CanonicalFamilyReadout(vm, it) }
+                } else {
                 VitalsSection(
                     title = uiString(R.string.l10n_health_screen_vital_signs_e7d9e1b1),
                     overline = "Latest readings",
@@ -211,6 +214,7 @@ fun HealthScreen(
                     onVitalClick = onVitalClick,
                     captionMode = VitalCaptionMode.AS_OF,
                 )
+                }
             }
             // FITNESS AGE — the weekly Saturday number from the engine (resting HR + activity vs your
             // age), with an honest readiness checklist behind a tap. Authoritative value comes from the
@@ -223,6 +227,10 @@ fun HealthScreen(
             // destination (umbrella §2.4). Non-clinical observations about your own numbers.
             item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
             item {
+                if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+                    listOf("cycle", "circadian", "illness").forEach { CanonicalFamilyReadout(vm, it) }
+                    TextButton(onClick = { showCycleTracker = true }) { Text("Period log") }
+                }
                 SkinTempSuiteSection(
                     signals = v5Signals,
                     cycleEnabled = cycleEnabled,
@@ -241,7 +249,7 @@ fun HealthScreen(
             // CONTRIBUTORS (README screen #5, recovery detail) — the signals behind recovery as
             // labelled progress bars in the shared stage/zone bar style, mirroring Today's section.
             item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
-            item { HealthContributorsSection(today) }
+            item { if (com.noop.analytics.PhoneComputeRuntime.finalHosted) CanonicalFamilyReadout(vm, "baselines") else HealthContributorsSection(today) }
             // RECORDS & SOURCES (Swift parity) — deep-link rows into the local Lab Book and the
             // "Your Data, Fused" record, so both are discoverable from Health, not just the drawer.
             item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
@@ -255,16 +263,14 @@ fun HealthScreen(
     }
 
     if (showCycleTracker) {
-        v5Signals?.cycle?.let { cycle ->
             CycleTrackerDialog(
-                result = cycle,
+                result = v5Signals?.cycle,
                 starts = periodStarts,
                 onLog = vm::logPeriodStart,
                 onDelete = vm::deletePeriodStart,
                 onDeleteAll = vm::deleteAllPeriodStarts,
                 onDismiss = { showCycleTracker = false },
             )
-        }
     }
 }
 
@@ -680,6 +686,7 @@ private fun rememberFitnessReadiness(days: List<DailyMetric>, profile: ProfileSt
 
 @Composable
 private fun FitnessAgeSection(vm: AppViewModel, days: List<DailyMetric>, profile: ProfileStore, onOpenSettings: () -> Unit = {}) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { CanonicalFamilyReadout(vm, "fitness_longevity"); return }
     val context = LocalContext.current
     // Latest weekly value + its optional VO₂max companion, read once (metricSeries has no Flow, so we
     // re-read whenever the merged history changes — a fresh sync/import is what moves these).
@@ -789,6 +796,7 @@ private fun FitnessAgeSection(vm: AppViewModel, days: List<DailyMetric>, profile
  *  from your habits — NOT a clinical biological age. Recomputes the live best/worst factor for the why. */
 @Composable
 private fun VitalitySection(vm: AppViewModel, days: List<DailyMetric>, profile: ProfileStore) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) { CanonicalFamilyReadout(vm, "fitness_longevity"); return }
     var vitality by remember { mutableStateOf<Double?>(null) }
     var bodyAge by remember { mutableStateOf<Double?>(null) }
     LaunchedEffect(days) {
@@ -1217,6 +1225,10 @@ private fun yearWord(years: Int): String = if (kotlin.math.abs(years) == 1) "yea
 
 @Composable
 fun VitalSignsScreen(vm: AppViewModel, onVitalClick: (String) -> Unit = {}) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalPhysiologyScreen(vm, "Vital signs", setOf("night_hrv", "current_hrv", "respiration", "oxygen", "temperature"))
+        return
+    }
     val days by vm.recentDays.collectAsStateWithLifecycle()
     val spo2CandidateByDay by vm.spo2CandidateByDay.collectAsStateWithLifecycle()
     val hrvOverCountByDay by vm.hrvOverCountByDay.collectAsStateWithLifecycle()   // #1118
@@ -1265,6 +1277,12 @@ fun VitalSignsScreen(vm: AppViewModel, onVitalClick: (String) -> Unit = {}) {
 
 @Composable
 private fun HeartRateSection(vm: AppViewModel, hrMax: Int) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        val observed by vm.live.collectAsStateWithLifecycle()
+        Text("Device heart rate: ${observed.heartRate?.toString() ?: "unavailable"}")
+        CanonicalFamilyReadout(vm, "current_hrv")
+        return
+    }
     // PERF (#scroll-jank): collect the BLE live state + smoothed bpm HERE, in the HR hero leaf, instead
     // of receiving them from the screen body. Both tick ~1Hz; reading them at body scope recomposed the
     // whole Health screen on every heartbeat. Scoping the collection to this section confines the ~1Hz
@@ -1853,6 +1871,15 @@ internal fun spo2EmptyState(
 
 @Composable
 fun VitalDetailScreen(vm: AppViewModel, key: String) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        val family = when (key) {
+            "hrv", "rhr" -> "night_hrv"; "resp" -> "respiration"; "spo2" -> "oxygen"
+            "skin_temp", "skin_temp_dev" -> "temperature"; "fitness_age", "vitality" -> "fitness_longevity"
+            else -> key.takeIf { it in com.noop.push.ServerComputeContract.familyIDs } ?: "baselines"
+        }
+        CanonicalPhysiologyScreen(vm, key.replace('_', ' '), setOf(family))
+        return
+    }
     val days by vm.recentDays.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val tempUnit = UnitPrefs.temperature(context)

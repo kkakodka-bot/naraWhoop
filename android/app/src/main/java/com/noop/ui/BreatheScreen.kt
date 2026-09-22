@@ -265,7 +265,7 @@ fun BreatheScreen(viewModel: AppViewModel) {
     var endedOutcome by remember { mutableStateOf<String?>(null) }
     // SharedPreferences isn't reactive: read once, mirror writes into this state.
     var lastStoredOutcome by remember {
-        mutableStateOf(NoopPrefs.of(context).getString(KEY_BREATHE_LAST_OUTCOME, "").orEmpty())
+        mutableStateOf(if (com.noop.analytics.PhoneComputeRuntime.finalHosted) "" else NoopPrefs.of(context).getString(KEY_BREATHE_LAST_OUTCOME, "").orEmpty())
     }
 
     val proto = selectedProtocol(pace)
@@ -378,7 +378,7 @@ fun BreatheScreen(viewModel: AppViewModel) {
             .collect { rr ->
                 val merged = (rrBuffer.value + rr).takeLast(rrWindow)
                 rrBuffer.value = merged
-                val r = if (merged.size >= 2) Hrv.rmssd(merged) else null
+                val r = if (!com.noop.analytics.PhoneComputeRuntime.finalHosted && merged.size >= 2) Hrv.rmssd(merged) else null
                 rmssd = r
                 // Outcome capture: while running, lock the baseline (first value
                 // inside ~60s when none was available at start) and stream the
@@ -766,7 +766,8 @@ fun BreatheScreen(viewModel: AppViewModel) {
         }
 
         // Coherence estimate.
-        CoherenceCard(rmssd)
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) CanonicalFamilyReadout(viewModel, "biofeedback")
+        else CoherenceCard(rmssd)
 
         if (!live.bonded) HapticHint()
     }
@@ -891,6 +892,8 @@ internal fun breatheOutcomeCore(
     peak: Double,
     seconds: Int,
 ): String? {
+    if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("biofeedback_outcome")) return null
+    com.noop.analytics.PhoneComputeRuntime.inferenceStarted("biofeedback_outcome")
     if (seconds < 120) return null
     if (baseline == null || baseline <= 0 || count == 0) return "—"
     val mean = sum / count
@@ -1084,6 +1087,7 @@ private fun ResonanceMode(
     var sweepLabel by remember { mutableStateOf<String?>(null) }
     var sweepProgress by remember { mutableDoubleStateOf(0.0) }
     var result by remember { mutableStateOf<ResonanceEngine.SweepResult?>(null) }
+    var serverRequest by remember { mutableStateOf(viewModel.serverScores.computeRequests.latestId("biofeedback")) }
     val secondsPerPace = 120
 
     // The sweep coroutine: pace each candidate, collect its clean R-R, score the whole thing.
@@ -1114,6 +1118,14 @@ private fun ResonanceMode(
             samples.add(ResonanceEngine.PaceSample(bpm, bucket, startTs, endTs))
             sweepProgress = (index + 1).toDouble() / paces.size
         }
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            val end = System.currentTimeMillis() / 1000
+            serverRequest = viewModel.serverScores.computeRequests.capture("biofeedback", end - paces.size * secondsPerPace, end, consent = true)
+            sweepLabel = "Awaiting server analysis"
+            sweeping = false
+            viewModel.serverScores.computeRequests.drain()
+            return@LaunchedEffect
+        }
         val swept = ResonanceEngine.sweep(samples)
         result = swept
         if (swept.didLock) {
@@ -1127,6 +1139,7 @@ private fun ResonanceMode(
 
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
         // Explainer.
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) CanonicalSessionReadout(viewModel, serverRequest)
         NoopCard(tint = Palette.restColor) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1311,6 +1324,10 @@ private fun RsaCurve(scores: List<ResonanceEngine.PaceScore>) {
  */
 @Composable
 private fun CalmMode(viewModel: AppViewModel, live: com.noop.ble.LiveState, bpm: Int?) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        Text("Adaptive pacing: awaiting an authorized, unexpired server decision. Fixed breathing timers remain available.")
+        return
+    }
     var running by remember { mutableStateOf(false) }
     var startHr by remember { mutableStateOf<Int?>(null) }
     var targetBpm by remember { mutableStateOf<Double?>(null) }

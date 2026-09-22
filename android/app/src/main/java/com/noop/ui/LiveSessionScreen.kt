@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.noop.analytics.LiveSessionEngine
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -103,8 +104,9 @@ fun startOrResumeLiveSession(vm: AppViewModel, context: Context): LiveSessionRun
         ?: vm.recentDays.value.lastOrNull { it.restingHr != null }?.restingHr
         ?: 60
     val profile = ProfileStore.from(context.applicationContext)
+    val sessionId = java.util.UUID.randomUUID().toString()
     val runner = LiveSessionRunner(
-        config = LiveSessionEngine.Config(
+        config = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else LiveSessionEngine.Config(
             restingHR = restingHr.toDouble(),
             hrMax = profile.hrMax.toDouble(),
             charge = today?.recovery,
@@ -115,6 +117,12 @@ fun startOrResumeLiveSession(vm: AppViewModel, context: Context): LiveSessionRun
         buzz = { loops -> vm.buzz(loops, HapticPrefs.LIVE_SESSION) },
         persist = { row -> vm.repo.upsertLiveSession(row) },
         realtimeHr = { arm -> if (arm) vm.requestRealtimeHr() else vm.releaseRealtimeHr() },
+        submitSession = { start, end ->
+            vm.serverScores.computeRequests.capture("live_coaching", start, end,
+                sessionId = sessionId,
+                consent = true, expiresAt = (end ?: System.currentTimeMillis() / 1000) + 30)
+            vm.viewModelScope.launch { vm.serverScores.computeRequests.drain() }
+        },
     )
     // begin() is replace-guarded: an in-flight session is returned as-is and the fresh runner (which has
     // no side effects until started) is simply dropped, so a double-tap can never fork two sessions.
@@ -230,7 +238,7 @@ private fun LiveSessionBody(
             // the (illegal) implicit receiver for the ColumnScope.AnimatedVisibility extension.
             androidx.compose.animation.AnimatedVisibility(visible = chargeSentenceVisible, exit = fadeOut(tween(900))) {
                 Text(
-                    liveSessionChargeSentence(runner.config.charge),
+                    liveSessionChargeSentence(runner.config?.charge),
                     style = NoopType.footnote,
                     color = Palette.textTertiary,
                     textAlign = TextAlign.Center,

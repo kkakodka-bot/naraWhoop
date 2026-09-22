@@ -42,7 +42,7 @@ import java.util.Locale
 /** Local-only cycle-day-1 logger and editable history. It never presents fertility or safe-day claims. */
 @Composable
 fun CycleTrackerDialog(
-    result: CyclePhaseEngine.Result,
+    result: CyclePhaseEngine.Result?,
     starts: List<String>,
     onLog: (String) -> Unit,
     onDelete: (String) -> Unit,
@@ -66,12 +66,12 @@ fun CycleTrackerDialog(
             ) {
                 Text(uiString(com.noop.R.string.cycle_tracker_current_estimate).uppercase(Locale.getDefault()), style = NoopType.overline, color = Palette.textTertiary)
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                    Text(cycleTrackerPhase(result.phase), style = NoopType.headline, color = Palette.textPrimary)
+                    Text(result?.let { cycleTrackerPhase(it.phase) } ?: "Server result unavailable", style = NoopType.headline, color = Palette.textPrimary)
                     Spacer(Modifier.weight(1f))
-                    cycleTrackerDay(result)?.let { Text(it, style = NoopType.bodyNumber, color = Palette.textSecondary) }
+                    result?.let(::cycleTrackerDay)?.let { Text(it, style = NoopType.bodyNumber, color = Palette.textSecondary) }
                 }
-                Text(result.note, style = NoopType.subhead, color = Palette.textSecondary)
-                result.nextPeriodWindow?.let {
+                result?.note?.let { Text(it, style = NoopType.subhead, color = Palette.textSecondary) }
+                result?.nextPeriodWindow?.let {
                     Text(
                         uiString(com.noop.R.string.cycle_tracker_likely_window, cycleTrackerPrettyDay(it.earliestDay), cycleTrackerPrettyDay(it.latestDay)),
                         style = NoopType.footnote,
