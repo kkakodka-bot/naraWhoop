@@ -168,6 +168,78 @@ public struct ServerScoreNightCache: Equatable, Codable {
     public let restingHrBpm: Int?
 }
 
+public struct ServerSignalWindowCache: Equatable {
+    public let windowId: String, kind: String, modality: String, unit: String
+    public let start: Int64, end: Int64, inputRevision: Int64
+    public let measurementStatus: String, reason: String?, freshnessStatus: String
+    public let observedFraction: Double?
+
+    init?(_ row: [String: Any], owner: String, device: String) {
+        guard !owner.isEmpty, !device.isEmpty, Self.integer(row["schema_version"]) == 1,
+              row["algorithm_version"] as? String == "sensor-windows-1", row["user_id"] as? String == owner,
+              row["device_id"] as? String == device, let kind = row["kind"] as? String,
+              ["hrv", "ppg", "imu", "temperature", "spo2"].contains(kind),
+              let start = Self.integer(row["start"]), let end = Self.integer(row["end"]),
+              let duration = Self.integer(row["duration_seconds"]), Self.integer(row["stride_seconds"]) == duration,
+              duration == (kind == "spo2" ? 900 : 300), start >= 0, end <= 4_102_444_800, start % duration == 0,
+              end > start, end - start == duration, row["publication_status"] as? String == "shadow",
+              row["values"] is NSNull, let state = row["measurement_status"] as? String,
+              ["unavailable", "unqualified", "blocked"].contains(state),
+              let revisionText = row["input_revision"] as? String, let revision = Self.revision(revisionText),
+              row["result_revision"] as? String == revisionText,
+              let identifier = row["window_id"] as? String, UUID(uuidString: identifier) != nil,
+              let modality = row["modality"] as? String, let unit = row["unit"] as? String,
+              let freshness = row["freshness_status"] as? String,
+              let reason = row["reason"] as? String, reason.range(of: "^[a-z][a-z0-9_]{0,95}\\z", options: .regularExpression) != nil,
+              row["quality"] is [String: Any], row["computation_mode"] as? String == "retrospective",
+              row["provenance"] as? String == "vps_estimate", row["calibration_status"] as? String == "not_reference_validated",
+              Self.nonemptyString(row["computed_at"]), Self.nonemptyString(row["quality_policy_version"]),
+              Self.nonemptyString(row["preprocess_version"]),
+              row["published_at"] is NSNull || Self.nonemptyString(row["published_at"]),
+              row["source"] is NSNull || Self.nonemptyString(row["source"]),
+              Self.nullableNumber(row["observed_fraction"], within: 0...1),
+              Self.nullableNumber(row["maximum_gap_seconds"], within: 0...Double(duration)),
+              Self.nullableNumber(row["observed_through"], within: Double(start)...Double(end)) else { return nil }
+        let required: Int64?
+        if row["required_revision"] is NSNull { required = nil }
+        else {
+            guard let value = Self.integer(row["required_revision"]), value > 0 else { return nil }
+            required = value
+        }
+        guard freshness == (required.map { $0 > revision } == true ? "stale" : "snapshot") else { return nil }
+        let units = ["hrv": "ms", "ppg": "bpm", "imu": "m_s2_and_rad_s", "temperature": "degC_skin", "spo2": "percent"]
+        guard unit == units[kind], kind == "hrv" ? ["unknown", "ppg_ibi", "ecg_nn"].contains(modality) : modality == (kind == "spo2" ? "unknown" : kind),
+              kind != "spo2" || state == "blocked" else { return nil }
+        let fraction = Self.number(row["observed_fraction"])
+        self.windowId = identifier; self.kind = kind; self.start = start; self.end = end
+        self.modality = modality; self.unit = unit; self.measurementStatus = state
+        self.reason = reason; self.inputRevision = revision
+        self.freshnessStatus = freshness; self.observedFraction = fraction
+    }
+
+    private static func nonemptyString(_ value: Any?) -> Bool {
+        guard let value = value as? String else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private static func number(_ value: Any?) -> Double? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else { return nil }
+        return number.doubleValue
+    }
+    private static func integer(_ value: Any?) -> Int64? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        return Int64(number.stringValue)
+    }
+    private static func revision(_ text: String) -> Int64? {
+        guard text.range(of: "^[1-9][0-9]{0,18}$", options: .regularExpression) != nil else { return nil }
+        return Int64(text)
+    }
+    private static func nullableNumber(_ value: Any?, within range: ClosedRange<Double>) -> Bool {
+        if value is NSNull { return true }
+        guard let value = number(value) else { return false }
+        return range.contains(value)
+    }
+}
+
 public struct ServerScoreDayCache: Equatable, Codable {
     public var ownerId: String = ""
     public var schemaVersion: Int = 2
@@ -180,6 +252,16 @@ public struct ServerScoreDayCache: Equatable, Codable {
               let overlay = root["server_scoring"] as? [String: Any], let values = overlay["measurements"] as? [Any],
               let encoded = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]) else { return nil }
         return String(data: encoded, encoding: .utf8)
+    }
+    /// Missingness from the separate shadow diagnostic contract never authorizes a headline value.
+    public var signalWindows: [ServerSignalWindowCache] {
+        guard let data = rawSnapshotJSON?.data(using: .utf8),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let overlay = root["server_scoring"] as? [String: Any],
+              overlay["user_id"] as? String == ownerId, overlay["day"] as? String == day,
+              let device = overlay["signal_windows_device_id"] as? String,
+              let rows = overlay["signal_windows"] as? [[String: Any]], rows.count <= 4096 else { return [] }
+        return rows.compactMap { ServerSignalWindowCache($0, owner: ownerId, device: device) }
     }
     public var scopeKey: String {
         let pairs = features.keys.sorted().map { [$0, features[$0]?.deviceId ?? "", features[$0]?.algorithmVersion ?? ""] }
