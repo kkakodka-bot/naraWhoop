@@ -36,7 +36,7 @@ export function intakeError(err: unknown): never {
   for (const code of ['device_owner_conflict', 'object_owner_conflict']) {
     if (message.includes(code)) throw new PushProtocolError(code, 403);
   }
-  for (const code of ['batch_id_conflict', 'object_id_conflict', 'receipt_immutable']) {
+  for (const code of ['batch_id_conflict', 'object_id_conflict', 'receipt_immutable', 'object_unavailable']) {
     if (message.includes(code)) throw new PushProtocolError(code, 409);
   }
   throw err;
@@ -131,42 +131,68 @@ export async function completeDurableObject({ rest, raw, row }: {
   if (['deleted', 'deleting', 'expired'].includes(row.status)) mismatch('object_unavailable');
   const owner = await rest.select('devices', `id=eq.${row.device_id}&user_id=eq.${row.user_id}&select=id`);
   if (!owner.length) throw new PushProtocolError('device_owner_conflict', 403);
-  const prior = row.durability_receipt as DurabilityReceipt | null;
-  // Unique snapshot keys prevent a racing or still-valid staging PUT from replacing an attested
-  // object. Never presign this namespace. A crash before publication can leave an unreferenced
-  // snapshot; it is safe to retain it, not safe to guess whether an ambiguous commit succeeded.
+  let prior = row.durability_receipt as DurabilityReceipt | null;
+  // Reserve a unique server-only key durably before COPY. An ambiguous outcome remains tracked;
+  // only the leased receipt transaction may publish it and only the sweeper may retire it.
   const uploadKey = row.upload_object_key || row.object_key;
-  const verifiedKey = prior?.objectKey || `${uploadKey.slice(0, uploadKey.lastIndexOf('/'))}/verified/${row.id}/${crypto.randomUUID()}/${uploadKey.split('/').pop()}`;
+  let intent: any = null;
   if (!prior) {
-    const head = await raw.head(uploadKey);
-    if (!head?.exists || (head.contentLength != null && Number(head.contentLength) !== Number(row.compressed_bytes))) {
-      await rest.request(`object_manifests?id=eq.${row.id}&durability_receipt=is.null`, { method: 'PATCH', body: { status: 'failed' } });
-      mismatch(!head?.exists ? 'object_missing' : 'size_mismatch');
+    try {
+      const reserved = await rest.rpc('noop_reserve_copy_intent', { p_user_id: row.user_id, p_object_id: row.id });
+      if (reserved?.receipt) prior = reserved.receipt;
+      else {
+        if (!reserved?.id || !reserved.lease_token || !reserved.verified_key || reserved.upload_key !== uploadKey) {
+          throw new Error('invalid_copy_intent');
+        }
+        intent = reserved;
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('copy_attempt_limit')) {
+        throw new PushProtocolError('copy_attempt_limit', 503);
+      }
+      intakeError(err);
     }
-    await raw.copyObject(uploadKey, verifiedKey);
   }
-  let verified;
-  try { verified = await verifyStoredObject(raw, row, verifiedKey); }
-  catch (err) {
-    // Do not let a stale failing attempt demote a concurrent successful receipt.
-    if (!prior) await rest.request(`object_manifests?id=eq.${row.id}&durability_receipt=is.null`, {
-      method: 'PATCH', body: { status: 'failed' },
-    });
-    throw err;
-  }
-  let receipt: DurabilityReceipt;
+  const verifiedKey = prior?.objectKey || intent.verified_key;
+  let failureCode = 'copy_failed';
   try {
-    receipt = await rest.rpc(verified.auxiliaryValidation ? 'noop_commit_aux_object_receipt' : 'noop_commit_object_receipt', {
-      p_user_id: row.user_id, p_object_id: row.id, p_verified_key: verifiedKey,
+    if (!prior) {
+      const head = await raw.head(uploadKey);
+      if (!head?.exists || (head.contentLength != null && Number(head.contentLength) !== Number(row.compressed_bytes))) {
+        mismatch(!head?.exists ? 'object_missing' : 'size_mismatch');
+      }
+      await raw.copyObject(uploadKey, verifiedKey);
+    }
+    failureCode = 'verification_failed';
+    const started = performance.now();
+    const verified = await verifyStoredObject(raw, row, verifiedKey);
+    failureCode = 'receipt_failed';
+    const verifiedArgs = {
       p_wire_sha256: verified.wireSha256, p_content_sha256: verified.contentSha256,
       p_compressed_bytes: verified.compressedBytes, p_uncompressed_bytes: verified.uncompressedBytes,
-      ...(verified.auxiliaryValidation ? { p_validation: verified.auxiliaryValidation } : {}),
-    });
-  } catch (err) { intakeError(err); }
-  if (receipt!.version !== 1 || receipt!.state !== 'verified_indexed') throw new Error('invalid_durability_receipt');
-  // A simultaneous identical completion may have published a different verified snapshot.
-  if (receipt!.objectKey !== verifiedKey) await raw.deleteObject(verifiedKey).catch(() => {});
-  return receipt!;
+    };
+    const receipt: DurabilityReceipt = intent
+      ? await rest.rpc('noop_commit_copy_receipt', {
+        p_intent_id: intent.id, p_lease_token: intent.lease_token, ...verifiedArgs,
+        p_verification_ms: Math.max(0, Math.round(performance.now() - started)),
+        p_validation: verified.auxiliaryValidation ?? null,
+      })
+      : await rest.rpc(verified.auxiliaryValidation ? 'noop_commit_aux_object_receipt' : 'noop_commit_object_receipt', {
+        p_user_id: row.user_id, p_object_id: row.id, p_verified_key: verifiedKey, ...verifiedArgs,
+        ...(verified.auxiliaryValidation ? { p_validation: verified.auxiliaryValidation } : {}),
+      });
+    if (receipt.version !== 1 || receipt.state !== 'verified_indexed') throw new Error('invalid_durability_receipt');
+    return receipt;
+  } catch (err) {
+    if (intent) await rest.rpc('noop_abandon_copy_intent', {
+      p_intent_id: intent.id, p_lease_token: intent.lease_token, p_failure_code: failureCode,
+    }).catch(() => {});
+    // A failed or ambiguous commit never demotes a concurrent successful receipt.
+    if (!prior) await rest.request(`object_manifests?id=eq.${row.id}&durability_receipt=is.null`, {
+      method: 'PATCH', body: { status: 'failed' },
+    }).catch(() => {});
+    intakeError(err);
+  }
 }
 
 /** The DB cursor persists across stateless worker invocations and wraps after the last page. */

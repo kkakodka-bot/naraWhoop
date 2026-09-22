@@ -7,6 +7,7 @@ scoring review repairs `030000`, and projection debt `040000`, and stops its ser
 The separate scalar integration fixture opts into actual `050000` plus additive `060000`;
 the shared harness default remains through `040000` for root's Swift loopback runner.
 The identity/provenance and actual Swift IMU fixtures opt into the entire chain through `070000`.
+All fixtures also apply additive `20260922010000_object_copy_intents.sql`.
 It never accepts a production database URL, reads an env file, or invokes a device.
 Cluster data, SQL/server logs and `receipt-example.json` remain on the external SSD.
 The older failed bootstrap fixtures are retained as evidence too, not running services.
@@ -59,9 +60,45 @@ Operational notes: raw completion now needs bucket **read and CopyObject** capab
 well as upload capability. Only staging keys are presigned; manifests/windows point to the
 server-only verified key. Reconciliation processes 16 pending/repair objects per invocation
 (SQL cap 64); its singleton cursor is fleet-wide and wraps. Confirm an adequate deployment
-schedule. A crash or ambiguous RPC failure may leave an unreferenced snapshot; it is retained
-conservatively, not automatically deleted. PPG/IMU research retention remains indefinite;
+schedule. New COPY attempts have a durable reservation before object creation and a conservative
+orphan sweep after 24 hours; legacy untracked snapshots are retained. PPG/IMU research retention remains indefinite;
 auxiliary diagnostics retain the prior short retention policy. No receipt promises more.
+
+## Immutable-copy recovery
+
+Apply `20260922010000_object_copy_intents.sql` before the updated Edge code. Each attempt reserves a
+random server-only key and a ten-minute publication lease before COPY. Verification still streams
+the snapshot and checks both sizes/digests. Receipt/index publication and attempt settlement share
+one PostgreSQL transaction. Staging remains mutable and is never reused as the verified key.
+
+The authenticated worker's `copies` result is a bounded sweep of tracked attempts: default 16 rows,
+512 MiB of declared candidate bytes, and ten seconds of admission time per invocation. An in-flight
+storage request has its own 30-second timeout; this is not a hard ten-second wall-clock guarantee.
+Attempts must be at least 24 hours old with expired publication/sweep leases. Claiming locks the
+attempt and manifest and excludes either current manifest or exact receipt references. A claimed
+attempt cannot publish afterward. Exact HEAD version IDs are used for DELETE because B2's ordinary
+DELETE creates a hide marker and retains bytes. Missing version IDs or failed deletion retain debt.
+Published snapshots and staging objects are never deleted by this worker.
+
+Tombstones remain in the ledger and are rechecked daily so a very late COPY remains discoverable.
+Deleting a manifest/account nulls its identity references while preserving the minimal key/attempt
+cleanup record; detached attempts cannot publish a receipt. A maximum of 64
+unswept attempts per object bounds repeated failed copies; reaching it returns a retryable 503 until
+maintenance clears debt. Lost commit responses and duplicate completion return the existing exact
+receipt. This does not retrofit unknown historical snapshot keys or certify production B2 permissions,
+object-lock policy, physical byte reclamation, sweep scheduling, fleet throughput, or orphan drain.
+
+`noop_copy_intake_metrics` and `noop_projection_metrics` are service-only aggregate views; the
+worker response includes counts, oldest intake debt, candidate bytes, attempt counts, verification
+and receipt timing, and projection debt. Candidate byte counts are ledger estimates, not a physical
+bucket census. No owner/device identifiers or health values are exposed in these metrics.
+
+`copy_intents_integration_test.ts` uses real PostgreSQL/PostgREST and loopback signed object HTTP
+for reservation-before-COPY failure, both COPY crash boundaries, expired publisher rejection,
+lost committed responses, racing completions, current-key preservation, stale sweep tokens,
+late-COPY tombstones after account/manifest deletion, version races between HEAD and DELETE,
+row/byte/admission budgets, missing version IDs, and account-role RPC denials.
+These synthetic process-boundary failures do not simulate a B2 outage or machine power loss.
 
 ## Projection recovery contract (P1-4)
 

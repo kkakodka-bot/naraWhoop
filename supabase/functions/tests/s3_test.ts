@@ -64,3 +64,19 @@ Deno.test('s3 deleteObject reports a server error instead of swallowing it', asy
   }
   assert(threw, 'deleteObject must throw on a non-404 failure');
 });
+
+Deno.test('s3 orphan deletion signs the exact HEAD version instead of adding a hide marker', async () => {
+  const version = 'version/+equals=';
+  const requests: { url: string; method: string; authorization: string }[] = [];
+  const s3 = makeS3(async (url, init) => {
+    requests.push({ url, method: init.method, authorization: init.headers.authorization });
+    return new Response(null, { status: init.method === 'HEAD' ? 200 : 204,
+      headers: { 'x-amz-version-id': version, 'content-length': '42' } });
+  });
+  const head = await s3.head('server/verified/key');
+  assertEquals(head?.versionId, version);
+  await s3.deleteObject('server/verified/key', { versionId: head?.versionId });
+  assertEquals(new URL(requests[1].url).searchParams.get('versionId'), version);
+  assert(requests[1].authorization.includes('AWS4-HMAC-SHA256'));
+  assertEquals(requests.map((request) => request.method), ['HEAD', 'DELETE']);
+});

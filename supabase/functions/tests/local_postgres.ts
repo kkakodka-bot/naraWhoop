@@ -79,6 +79,7 @@ export async function startLocalPostgres({ scalarProjections = false, auxiliaryI
       '20260918060000_production_scalar_projections.sql');
     if (auxiliaryIdentity) migrations.push('20260918070000_production_aux_identity_provenance.sql',
       '20260918080000_production_ppg_input_selection.sql');
+    migrations.push('20260922010000_object_copy_intents.sql');
     for (const migration of migrations) {
       const file = new URL(`../../migrations/${migration}`, import.meta.url);
       await run(`${bin}/psql`, ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-h', base, '-U', 'edge_test', '-d', 'postgres', '-f', decodeURIComponent(file.pathname)]);

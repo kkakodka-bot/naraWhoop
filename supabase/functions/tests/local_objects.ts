@@ -1,8 +1,17 @@
 import { createS3 } from '../_shared/s3.ts';
 
 /** Synthetic, loopback-only object server. Uses the real signed S3 client and streamed reads. */
-export function startObjectHttp() {
+export function startObjectHttp({ versioned = false }: { versioned?: boolean } = {}) {
   const objects = new Map<string, Uint8Array>();
+  const versions = new Map<string, Map<string, Uint8Array>>();
+  function save(key: string, bytes: Uint8Array) {
+    objects.set(key, bytes);
+    if (versioned) {
+      const saved = versions.get(key) ?? new Map<string, Uint8Array>();
+      saved.set(crypto.randomUUID(), bytes);
+      versions.set(key, saved);
+    }
+  }
   const abort = new AbortController();
   let failCopy = false;
   let omitLength = false;
@@ -14,16 +23,27 @@ export function startObjectHttp() {
         if (failCopy) return new Response('<Error><Code>FixtureCopyFailure</Code></Error>');
         const body = objects.get(decodeURIComponent(source.slice('/fixture/'.length)));
         if (!body) return new Response('<Error/>', { status: 404 });
-        objects.set(key, body.slice());
+        save(key, body.slice());
         return new Response('<CopyObjectResult><ETag>synthetic</ETag></CopyObjectResult>');
       }
-      objects.set(key, new Uint8Array(await req.arrayBuffer()));
+      save(key, new Uint8Array(await req.arrayBuffer()));
       return new Response(null, { status: 200 });
     }
-    if (req.method === 'DELETE') { objects.delete(key); return new Response(null, { status: 204 }); }
+    if (req.method === 'DELETE') {
+      const version = new URL(req.url).searchParams.get('versionId');
+      if (versioned && version) {
+        const saved = versions.get(key);
+        saved?.delete(version);
+        const remaining = saved && [...saved.values()].at(-1);
+        if (remaining) objects.set(key, remaining); else objects.delete(key);
+      } else { objects.delete(key); }
+      return new Response(null, { status: 204 });
+    }
     const bytes = objects.get(key);
     if (!bytes) return new Response(null, { status: 404 });
     const headers: Record<string, string> = omitLength ? {} : { 'content-length': String(bytes.length) };
+    headers['x-amz-version-id'] = versioned
+      ? [...versions.get(key)!.keys()].at(-1)! : 'fixture-version';
     if (req.method === 'HEAD') return new Response(null, { headers });
     return new Response(new ReadableStream({ start(controller) {
       for (let i = 0; i < bytes.length; i += 31) controller.enqueue(bytes.slice(i, i + 31));
@@ -32,6 +52,6 @@ export function startObjectHttp() {
   });
   const endpoint = `http://127.0.0.1:${(server.addr as Deno.NetAddr).port}`;
   const raw = createS3({ endpoint, bucket: 'fixture', region: 'local', accessKeyId: 'fixture', secretAccessKey: 'fixture' });
-  return { raw, objects, async close() { abort.abort(); await server.finished; },
+  return { raw, objects, versions, async close() { abort.abort(); await server.finished; },
     setFailCopy(value: boolean) { failCopy = value; }, setOmitLength(value: boolean) { omitLength = value; } };
 }
