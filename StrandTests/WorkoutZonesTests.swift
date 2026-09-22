@@ -1,5 +1,6 @@
 import XCTest
 import WhoopStore
+import WhoopProtocol
 @testable import Strand
 
 /// Pins the Workouts HR-zone card's parsing/aggregation to the real stored shapes:
@@ -7,6 +8,20 @@ import WhoopStore
 /// {"zone1".."zone5"} for the same data — both must parse so a cache moved between
 /// platforms still renders. Mirrors the Android WorkoutZonesTest case-for-case.
 final class WorkoutZonesTests: XCTestCase {
+
+    func testHostedModeReadsReportedPercentagesWithoutReconstructingZoneMinutes() {
+        PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            let zones = #"{"z1":100}"#
+            let row = WorkoutRow(startTs: 0, endTs: 3600, sport: "Running", source: "whoop",
+                durationS: 3600, energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil,
+                distanceM: nil, zonesJSON: zones, notes: nil, steps: nil)
+            XCTAssertEqual(WorkoutZones.percents(zones), [100, 0, 0, 0, 0])
+            XCTAssertNil(WorkoutZones.summary(from: [row]))
+            XCTAssertTrue(PhoneComputeRuntime.counters().executions.isEmpty)
+            XCTAssertEqual(PhoneComputeRuntime.counters().denied["workout.zone_summary"], 1)
+        }
+    }
 
     func testParsesMacKeyShape() {
         XCTAssertEqual(WorkoutZones.percents(#"{"z1":12.5,"z5":4.5}"#), [12.5, 0, 0, 0, 4.5])
