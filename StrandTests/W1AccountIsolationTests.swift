@@ -136,12 +136,15 @@ final class W1AccountIsolationTests: XCTestCase {
         _ = try await seed.markJobsOwed(kinds: ["cloudPush"], note: "fixture IMU debt")
         let index = directory.appendingPathComponent("RawImuUploadIndex")
         try Data([1]).write(to: index)
-        let state = LiveState()
+        let state = LiveState(defaults: defaults, logNamespace: fixture.suite)
         let manager = BLEManager(state: state, startCentral: false, databasePath: path,
             storageDirectory: directory, accountScope: scope, defaults: defaults, resourceBudget: fixture.budget)
         fixture.managers.append(manager)
         await manager.bootstrapStore()
         await manager.waitForCaptureMaintenance()
+        let deferredMessage = "Capture archive preparation deferred; durable local debt retained."
+        XCTAssertEqual(state.log.filter { $0.contains(deferredMessage) }.count, 1,
+            "the blocked index path must exercise the actual maintenance failure, not merely skip preparation")
         XCTAssertNil(manager.imuPushSource)
         let ingest = try XCTUnwrap(manager.ingestStore, "cloud-index failure must not block durable local capture")
         XCTAssertNil(CloudPushCaptureBindings.binding(for: ingest.registryWriter),
@@ -157,6 +160,8 @@ final class W1AccountIsolationTests: XCTestCase {
         XCTAssertTrue((CloudPushCaptureBindings.binding(for: ingest.registryWriter)?.imuSource as? CloudImuPushSource) === source)
         let retainedJobs = try await seed.owedJobs()
         XCTAssertTrue(retainedJobs.contains { $0.kind == "cloudPush" }, "preparation is not a verified cloud receipt")
+        XCTAssertEqual(state.log.filter { $0.contains(deferredMessage) }.count, 1,
+            "the repaired index must finish without another deferred-preparation failure")
         XCTAssertNil(state.lastSyncError)
     }
 

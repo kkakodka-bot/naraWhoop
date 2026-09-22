@@ -246,6 +246,10 @@ final class ScoringPreferenceAppTests: XCTestCase {
         XCTAssertEqual(ticket.state, .held(.retired))
         XCTAssertNil(f.model.acceptedScoringPreferences)
         XCTAssertThrowsError(try f.model.completePreferenceAction([.init(key: .weightKg, value: .number(91))]))
+        await f.model.scoringPreferences?.waitForRetirement()
+        try await f.model.scoringInputs?.waitForRetirement()
+        XCTAssertEqual(ticket.state, .held(.retired), "retirement must remain terminal after the queued worker drains")
+        XCTAssertNil(f.model.acceptedScoringPreferences, "a delayed completion cannot republish into the retired runtime")
         // A suite's search list includes process-global/registration defaults; only this account's
         // persistent domain can prove whether the retired action published an account mirror.
         XCTAssertNil(f.model.accountDefaults.persistentDomain(forName: f.layout.preferencesSuite)?["profile.weightKg"])
