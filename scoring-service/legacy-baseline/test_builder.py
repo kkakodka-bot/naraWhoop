@@ -129,6 +129,10 @@ class BaselineBuilderTests(unittest.TestCase):
 
     def test_selected_v1_integration_fixture_matches_current_schema(self):
         source = MODULE_PATH.with_name("transport.patch").read_text()
+        self.assertIn(
+            "insert into internal.app_secrets(name,value) values ('ingest','test') on conflict(name) do update set value=excluded.value",
+            source,
+        )
         self.assertIn("insert into auth.users(id) values", source)
         self.assertIn("on conflict(id) do update set timezone=excluded.timezone", source)
         self.assertIn(

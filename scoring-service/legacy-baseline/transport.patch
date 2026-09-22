@@ -711,7 +711,7 @@ new file mode 100644
 index 0000000..c85700f
 --- /dev/null
 +++ b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,194 @@
 +package com.frwhoop.scoring
 +
 +import com.frwhoop.scoring.db.PostgresClient
@@ -754,6 +754,7 @@ index 0000000..c85700f
 +        require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
 +        db = PostgresClient(url)
 +        queue = ScoringWorkQueue(db)
++        sql("insert into internal.app_secrets(name,value) values ('ingest','test') on conflict(name) do update set value=excluded.value")
 +        sql("insert into auth.users(id) values ('$user')")
 +        sql("insert into profiles(id,timezone) values ('$user','UTC') on conflict(id) do update set timezone=excluded.timezone")
 +        sql("insert into devices(id,user_id,source_kind,external_device_id,device_family) values ('$device','$user','noop_push','$device','whoop5')")
