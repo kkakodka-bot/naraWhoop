@@ -51,6 +51,11 @@ export function validateFinalSourceContracts(registry) {
   contains('android/app/src/main/java/com/noop/analytics/PhoneComputeRuntime.kt', ['finalHosted', 'inferenceStarted']);
   contains('android/app/src/main/java/com/noop/NoopApplication.kt', ['PhoneComputeRuntime.installFinalHosted()']);
   contains('android/app/build.gradle.kts', ['buildConfigField("boolean", "FINAL_HOSTED_COMPUTE", "true")']);
+  contains('Strand/Screens/CoachView.swift', ['PhoneComputeRuntime.isFinalHosted', 'CanonicalPhysiologySection(families: ["live_coaching", "insights"])']);
+  contains('Strand/AI/AICoach.swift', ['permitsLocal("coach_physiological_context")',
+    'permitsLocal("coach_stress_context")', 'permitsLocal("legacy_coach_provider")']);
+  contains('Strand/System/CoachBriefScheduler.swift', ['!PhoneComputeRuntime.isFinalHosted', 'permitsLocal("legacy_scheduled_coaching")']);
+  contains('Tools/compute/Tests/FinalHostedRuntimeTests.swift', ['AICoachError.serverOwnedUnavailable', 'CoachBriefScheduler.consumeStoredBrief()']);
   assert([...read('project.yml').matchAll(/NOOPFinalHostedCompute: true/g)].length >= 2,
     'Both shipped Apple app targets must declare immutable final-hosted mode');
 
@@ -65,6 +70,16 @@ export function validateFinalSourceContracts(registry) {
       `${entry.id}: missing concrete consumer and validation source inventory`);
     for (const file of [...evidence.consumerFiles, ...evidence.testFiles]) assert(fs.existsSync(path.join(root, file)), `${entry.id}: missing ${file}`);
     assert(evidence.disposition === 'qualified_or_explicit_server_state', `${entry.id}: missing final disposition`);
+  }
+  for (const file of [...registry.sharedConsumers, ...registry.sessionContract.consumers]) {
+    assert(fs.existsSync(path.join(root, file)), `Shared canonical consumer missing: ${file}`);
+  }
+  assert.deepEqual(registry.retirementExtensions.map((entry) => entry.output).sort(),
+    ['caffeine_estimate', 'hydration_goal_ml', 'rhythm_summary'], 'Retired auxiliary physiology must remain inventoried');
+  for (const extension of registry.retirementExtensions) {
+    assert(extension.family === 'insights' && extension.status === 'unsupported' && extension.numericContract === false,
+      `${extension.output}: no unqualified auxiliary producer may publish a numeric result`);
+    for (const file of [extension.localProducer, ...extension.consumerFiles]) assert(fs.existsSync(path.join(root, file)), file);
   }
   return { families: Object.keys(expected).length, swiftProducerEntrypoints,
     sourceAssertions: ['exact family/metric maps across registry, SQL, Swift and Android',

@@ -3239,7 +3239,14 @@
             "Strand/Push/ServerScoreRepository.swift",
             "Strand/Screens/CanonicalPhysiologySection.swift",
             "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
-            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt",
+            "Strand/Screens/CoachView.swift",
+            "Strand/AI/AICoach.swift",
+            "Strand/System/CoachBriefScheduler.swift",
+            "android/app/src/main/java/com/noop/ui/CoachScreen.kt",
+            "android/app/src/main/java/com/noop/ui/CoachViewModel.kt",
+            "android/app/src/main/java/com/noop/ai/AiCoach.kt",
+            "android/app/src/main/java/com/noop/ui/CoachBriefScheduler.kt"
           ],
           "sharedConsumers": "#/sharedConsumers",
           "testFiles": [
@@ -3251,7 +3258,8 @@
             "supabase/functions/tests/enrolled_scores_test.ts",
             "scoring-service/scripts/test-server-pipeline.sh"
           ],
-          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt",
+          "coachingAdmission": "Canonical server family only; legacy context/model/BYOK and delayed scheduled-brief replay are closed in final hosted mode."
         }
       }
     },
@@ -3347,7 +3355,14 @@
             "Strand/Push/ServerScoreRepository.swift",
             "Strand/Screens/CanonicalPhysiologySection.swift",
             "android/app/src/main/java/com/noop/push/ServerScoreRepository.kt",
-            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt"
+            "android/app/src/main/java/com/noop/ui/CanonicalPhysiologyScreen.kt",
+            "Strand/Screens/CoachView.swift",
+            "Strand/AI/AICoach.swift",
+            "Strand/System/CoachBriefScheduler.swift",
+            "android/app/src/main/java/com/noop/ui/CoachScreen.kt",
+            "android/app/src/main/java/com/noop/ui/CoachViewModel.kt",
+            "android/app/src/main/java/com/noop/ai/AiCoach.kt",
+            "android/app/src/main/java/com/noop/ui/CoachBriefScheduler.kt"
           ],
           "sharedConsumers": "#/sharedConsumers",
           "testFiles": [
@@ -3359,7 +3374,8 @@
             "supabase/functions/tests/enrolled_scores_test.ts",
             "scoring-service/scripts/test-server-pipeline.sh"
           ],
-          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
+          "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt",
+          "coachingAdmission": "Canonical server family only; legacy context/model/BYOK and delayed scheduled-brief replay are closed in final hosted mode."
         }
       }
     }
