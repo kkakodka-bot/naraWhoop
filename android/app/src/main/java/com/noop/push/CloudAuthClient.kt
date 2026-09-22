@@ -6,7 +6,6 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.noop.BuildConfig
 import java.net.HttpURLConnection
-import java.net.URI
 import java.net.URL
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -37,14 +36,8 @@ class AccountScope private constructor(val projectURL: String, val userID: Strin
             return AccountScope(canonicalProjectURL(projectURL), uuid.toString())
         }
         fun canonicalProjectURL(value: String): String {
-            val uri = URI(value)
-            val scheme = uri.scheme?.lowercase()
-            val host = uri.host?.lowercase() ?: throw AccountAuthException(AuthFailure.NOT_CONFIGURED)
-            require(uri.userInfo == null && uri.query == null && uri.fragment == null &&
-                !value.contains('\u0000') && !uri.path.orEmpty().contains(".."))
-            require(scheme == "https" || (scheme == "http" && host in setOf("localhost", "127.0.0.1", "[::1]")))
-            val port = if ((scheme == "https" && uri.port == 443) || (scheme == "http" && uri.port == 80)) -1 else uri.port
-            return URI(scheme, null, host, port, uri.path.orEmpty().trimEnd('/'), null, null).toString()
+            return ProjectURLCanonicalizer.canonicalOrNull(value)
+                ?: throw AccountAuthException(AuthFailure.NOT_CONFIGURED)
         }
         fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

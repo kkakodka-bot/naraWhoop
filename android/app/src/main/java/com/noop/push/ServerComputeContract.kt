@@ -73,7 +73,7 @@ data class ServerComputeContract(val project: String, val ownerId: String, val s
             require(compute.getString("mode") == "final_hosted" && compute.getString("policy_version") == "vps-only-1")
             require(canonicalUuid(owner)) { "Invalid compute owner" }
             val project = compute.getString("project").trimEnd('/')
-            require(AccountScope.canonicalProjectURL(project) == project &&
+            require(ProjectURLCanonicalizer.canonicalOrNull(project) == project &&
                 compute.getString("owner_id").equals(owner, true) && compute.getString("day") == day) {
                 "Invalid compute scope"
             }

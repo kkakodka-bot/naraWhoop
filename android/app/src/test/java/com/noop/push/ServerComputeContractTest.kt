@@ -219,6 +219,13 @@ class ServerComputeContractTest {
         }
         val timezone = body(); family(timezone, "night_hrv").put("timezone_id", "Mars/Olympus_Mons")
         assertThrows(IllegalArgumentException::class.java) { decode(timezone) }
+
+        for (invalidProject in listOf("https://COMPUTE.invalid:443/", "https://user@compute.invalid",
+            "https://compute.invalid?tenant=other", "https://compute.invalid/../other")) {
+            val malformed = body()
+            malformed.getJSONObject("server_scoring").getJSONObject("compute").put("project", invalidProject)
+            assertThrows(invalidProject, RuntimeException::class.java) { decode(malformed) }
+        }
     }
     @Test fun immutableButWithheldCompatibilityStillRequiresExactTransportBindings() {
         for ((status, freshness) in listOf("available" to "expired", "revoked" to "current")) {

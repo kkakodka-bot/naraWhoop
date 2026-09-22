@@ -11,9 +11,11 @@ dependencies {
 sourceSets {
     main {
         kotlin.srcDir("../../../android/app/src/main/java")
-        kotlin.include("DecodeContract.kt", "com/noop/push/ServerScoreCacheCodec.kt", "com/noop/push/ServerScoreModels.kt",
+        kotlin.include("DecodeContract.kt", "com/noop/push/ProjectURLCanonicalizer.kt",
+            "com/noop/push/ServerScoreCacheCodec.kt", "com/noop/push/ServerScoreModels.kt",
             "com/noop/push/ServerVitalSelection.kt", "com/noop/push/ServerMetricOwnership.kt", "com/noop/push/ServerComputeContract.kt", "com/noop/push/ServerComputeRevisionFence.kt",
-            "com/noop/push/ServerHrvSeries.kt", "com/noop/push/ServerRespirationSummary.kt")
+            "com/noop/push/ServerHrvSeries.kt", "com/noop/push/ServerRespirationSummary.kt",
+            "com/noop/push/ServerConsumerProjection.kt")
     }
     test {
         kotlin.srcDir("../../../android/app/src/test/java")

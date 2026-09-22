@@ -443,12 +443,12 @@ class WhoopRepository(
         energyKcal = null, zonesJSON = null, steps = null)
     fun canonicalCache(day: String) = canonicalReader?.invoke()?.overlay(day)
     private fun canonicalDays() = canonicalReader?.invoke()?.canonicalDays?.value.orEmpty().values
-        .sortedBy { it.day }.mapNotNull(com.noop.push.ServerConsumerProjection::day)
+        .sortedBy { it.day }.mapNotNull(com.noop.push.ServerConsumerEntityProjection::day)
     private fun canonicalFlow(): Flow<List<DailyMetric>> = canonicalReader?.invoke()?.canonicalDays
-        ?.map { it.values.sortedBy { c -> c.day }.mapNotNull(com.noop.push.ServerConsumerProjection::day) }
+        ?.map { it.values.sortedBy { c -> c.day }.mapNotNull(com.noop.push.ServerConsumerEntityProjection::day) }
         ?: kotlinx.coroutines.flow.flowOf(emptyList())
     private fun canonicalSleeps(from: Long, to: Long, limit: Int) = canonicalReader?.invoke()?.canonicalDays?.value.orEmpty()
-        .values.flatMap(com.noop.push.ServerConsumerProjection::sleeps).filter { it.startTs < to && it.endTs > from }
+        .values.flatMap(com.noop.push.ServerConsumerEntityProjection::sleeps).filter { it.startTs < to && it.endTs > from }
         .distinctBy { it.deviceId to it.startTs }.sortedBy { it.startTs }.take(limit)
     private fun canonicalSeries(key: String, from: String, to: String): List<MetricSeriesRow> {
         val metric = com.noop.push.ServerConsumerProjection.metricKey(key)
