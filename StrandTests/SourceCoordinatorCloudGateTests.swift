@@ -19,6 +19,7 @@ final class SourceCoordinatorCloudGateTests: XCTestCase {
     }
 
     private func coordinator(_ registry: DeviceRegistry, _ state: SourcePolicyState,
+                             captureReady: Bool = true,
                              store: @escaping () async -> WhoopStore?) -> SourceCoordinator {
         SourceCoordinator(registry: registry, live: LiveState(), storeHandle: store,
             startWhoop: { state.whoopStarts += 1 }, stopWhoop: { state.whoopStops += 1 },
@@ -29,7 +30,17 @@ final class SourceCoordinatorCloudGateTests: XCTestCase {
                 let source = FakeCloudGatedSource(deviceId: id, persist: callbacks.persist)
                 state.sources.append(source)
                 return source
-            })
+            }, genericCapture: captureReady ? GenericCaptureJournal { streams, device in
+                guard let writer = await store() else { throw CocoaError(.fileReadNoSuchFile) }
+                _ = try await writer.insert(streams, deviceId: device)
+            } : nil)
+    }
+
+    func testReadyPrivacyPolicyCannotSubstituteForPreparedCaptureWriter() async throws {
+        let store = try await WhoopStore.inMemory(), state = SourcePolicyState(ready: true)
+        let coordinator = coordinator(registry(store), state, captureReady: false, store: { store })
+        coordinator.start()
+        XCTAssertTrue(state.sources.isEmpty, "A source must not connect without durable capture ownership")
     }
 
     func testRestoredGenericPairingDoesNotConnectBeforeEnrollmentAndConsent() async throws {

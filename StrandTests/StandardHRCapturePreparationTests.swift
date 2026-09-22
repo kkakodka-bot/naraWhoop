@@ -46,6 +46,10 @@ final class StandardHRCapturePreparationTests: XCTestCase {
         let handles = Handles()
 
         init(hooks: StandardHRJournalHooks, beforeClose: @escaping @Sendable () async throws -> Void = {}) throws {
+            var hooks = hooks
+            // These tests exercise preparation/retirement, not the host volume's changing free space.
+            // Capacity fault suites retain their explicit low-space hooks and production is unchanged.
+            if hooks.availableBytes == nil { hooks.availableBytes = { _ in 4 * 1_024 * 1_024 * 1_024 } }
             let temporary = ProcessInfo.processInfo.environment["NARA_CAPTURE_TEST_ROOT"]
                 .map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory
             let root = temporary.appendingPathComponent("capture-wiring-" + UUID().uuidString, isDirectory: true)
