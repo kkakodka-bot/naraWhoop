@@ -159,8 +159,9 @@ class PushCoordinator(
     }
 
     suspend fun pushBinary(table: PushBinaryTable, deviceId: String): PushResult {
+        val progressDevice = binaryProgressDevice(table, deviceId)
         val stored = try {
-            progress.binaryCursor(table, deviceId)
+            progress.binaryCursor(table, progressDevice)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
@@ -202,9 +203,9 @@ class PushCoordinator(
         val accepted = deliverBinary(batch)
         if (accepted !is PushResult.Accepted) return accepted
         return try {
-            batch.endCursor?.let { progress.saveBinaryCursor(table, deviceId, it) }
-            source.acknowledgeBinary(table, deviceId, rows)
-            val hasMore = table != PushBinaryTable.RAW_BATCH && rows.size > batch.sampleCount
+            batch.endCursor?.let { progress.saveBinaryCursor(table, progressDevice, it) }
+            source.acknowledgeBinary(table, deviceId, rows.take(batch.sampleCount))
+            val hasMore = table == PushBinaryTable.RAW_BATCH || rows.size > batch.sampleCount
             accepted.copy(hasMore = hasMore)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -217,9 +218,10 @@ class PushCoordinator(
 
     suspend fun pushObjects(table: PushBinaryTable, deviceId: String, lane: PushObjectLane,
                             protocolVersion: String = PushProtocol.OBJECT_VERSION): PushResult {
-        val freezePrefix = table == PushBinaryTable.V18_AUX_SAMPLE && protocolVersion == "1.4"
-        val progressDevice = if (freezePrefix)
-            "$deviceId:v18AuxSample.identity-v2" else deviceId
+        val auxIdentity = table == PushBinaryTable.V18_AUX_SAMPLE && protocolVersion == "1.4"
+        val freezePrefix = auxIdentity || table == PushBinaryTable.RAW_IMU_SESSION
+        val progressDevice = if (auxIdentity) "$deviceId:v18AuxSample.identity-v2"
+            else binaryProgressDevice(table, deviceId)
         var prepared: PushPreparedBoundary? = null
         val stored = try {
             val cursor = progress.binaryCursor(table, progressDevice)
@@ -303,7 +305,7 @@ class PushCoordinator(
                 progress.savePreparedBoundary(table, progressDevice, null)
                 check(progress.preparedBoundary(table, progressDevice) == null)
             }
-            val hasMore = table != PushBinaryTable.RAW_BATCH && rows.size > batch.sampleCount
+            val hasMore = table == PushBinaryTable.RAW_BATCH || rows.size > batch.sampleCount
             accepted.copy(hasMore = hasMore)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -313,6 +315,9 @@ class PushCoordinator(
             rejected(PushFailure(PushFailureCode.LOCAL_DATABASE))
         }
     }
+
+    private fun binaryProgressDevice(table: PushBinaryTable, deviceId: String): String =
+        if (table == PushBinaryTable.RAW_IMU_SESSION) "$deviceId:imu-membership-v1" else deviceId
 
     private fun mutableRecordDay(table: PushMutableTable, record: PushMutableRecord): LocalDate = when (table) {
         PushMutableTable.DAILY_METRIC, PushMutableTable.JOURNAL -> {

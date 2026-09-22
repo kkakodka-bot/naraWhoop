@@ -22,32 +22,27 @@ class ImuSessionFileStore internal constructor(
     private val prefs: SharedPreferences,
     private val directory: File,
     namespace: String,
+    private val ownerNamespace: String? = null,
 ) : ImuSessionPushSource {
-    constructor(context: Context, namespace: String = NAMESPACE_SESSIONS) : this(
-        com.noop.account.AccountStorageContext.capture(context).let { storage ->
-            storage.getSharedPreferences(
-                com.noop.push.EnrollmentDataScope.storageName(storage, preferencesName(namespace)),
-                Context.MODE_PRIVATE,
-            )
-        },
-        File(
-            com.noop.account.AccountStorageContext.capture(context).filesDir,
-            com.noop.push.EnrollmentDataScope.storageName(
-                com.noop.account.AccountStorageContext.capture(context),
-                directoryName(namespace),
-            ),
-        ),
-        namespace,
-    )
+    constructor(context: Context, namespace: String = NAMESPACE_SESSIONS) :
+        this(com.noop.account.AccountStorageContext.capture(context), namespace)
+
+    private constructor(storage: com.noop.account.AccountStorageContext, namespace: String) : this(
+        storage.getSharedPreferences(com.noop.push.EnrollmentDataScope.storageName(storage,
+            preferencesName(namespace)), Context.MODE_PRIVATE),
+        File(storage.filesDir, com.noop.push.EnrollmentDataScope.storageName(storage, directoryName(namespace))),
+        namespace, storage.namespace)
 
     data class Stats(val bytes: Long, val coveredSeconds: Int, val firstTs: Long?)
     data class WindowInfo(val id: String, val deviceId: String, val from: Long, val to: Long?)
     data class SegmentInfo(val id: String, val bucket: Long, val bytes: Long)
     data class ExportSegment(val name: String, val data: ByteArray, val startTs: Long, val endTs: Long,
                              val sampleCount: Int)
+    data class PushSegment(val window: WindowInfo, val bucket: Long)
+    data class PushSnapshot(val bytes: ByteArray, val records: List<ImuPushRecord>)
     private data class Record(val ts: Long, val receivedAtMs: Long, val columns: ShortArray)
-    // Instances serving the same store share pending writes, but a continuous-local capture must
-    // never enter the bounded-session cloud-push store even when window identifiers coincide.
+    // Instances serving the same store share pending writes. Continuous and bounded-session
+    // captures retain separate origins even when their window identifiers coincide.
     private val state = synchronized(lock) {
         states.getOrPut("${directory.canonicalPath}\u0000$namespace") { StoreState() }
     }
@@ -236,6 +231,67 @@ class ImuSessionFileStore internal constructor(
         ids().mapNotNull { id -> prefs.getString("$id.device", null)?.takeIf { it.isNotEmpty() } }.toSet()
     }
 
+    fun pushOwnerMatches(namespace: String): Boolean = ownerNamespace == namespace
+
+    fun pushSegments(deviceId: String): List<PushSegment> = synchronized(lock) {
+        registeredWindows().filter { it.deviceId == deviceId }.flatMap { window ->
+            flushSession(window.id)
+            segmentFiles(window.id).map { file ->
+                PushSegment(window, checkNotNull(segmentBucket(file)) { "Invalid IMU segment header" })
+            }
+        }
+    }
+
+    /** A fully verified snapshot. A torn block cannot become upload membership or coverage. */
+    fun pushSnapshot(segment: PushSegment): PushSnapshot = synchronized(lock) {
+        check(registeredWindows().any { it.id == segment.window.id && it.deviceId == segment.window.deviceId })
+        flushSession(segment.window.id)
+        val file = segmentFile(segment.window.id, segment.bucket)
+        check(file.length() in FILE_HEADER_BYTES.toLong()..MAX_SEGMENT_BYTES) { "IMU segment size invalid" }
+        val bytes = file.readBytes()
+        val records = ArrayList<ImuPushRecord>()
+        DataInputStream(ByteArrayInputStream(bytes)).use { input ->
+            val magic = ByteArray(MAGIC.size); input.readFully(magic)
+            check(magic.contentEquals(MAGIC) && input.readLong() == segment.bucket &&
+                input.readInt() == SAMPLE_RATE && input.readInt() == AXES) { "IMU segment header invalid" }
+            while (input.available() > 0) {
+                val count = input.readInt(); val rawSize = input.readInt(); val compressedSize = input.readInt()
+                check(count in 1..BLOCK_SECONDS && rawSize.toLong() == count * (PAYLOAD_BYTES + RECORD_HEADER_BYTES) &&
+                    compressedSize in 1..MAX_BLOCK_BYTES + 128 && compressedSize <= input.available()) { "IMU block invalid" }
+                val compressed = ByteArray(compressedSize); input.readFully(compressed)
+                val inflater = Inflater()
+                val raw = ByteArray(rawSize)
+                try {
+                    inflater.setInput(compressed)
+                    check(inflater.inflate(raw) == rawSize && inflater.finished() && inflater.remaining == 0) {
+                        "IMU block incomplete"
+                    }
+                } finally { inflater.end() }
+                DataInputStream(ByteArrayInputStream(raw)).use { block -> repeat(count) {
+                    val ts = block.readLong(); block.readLong()
+                    check(ts >= segment.bucket && ts < segment.bucket + SEGMENT_SECONDS &&
+                        block.readInt() == PAYLOAD_BYTES) { "IMU member invalid" }
+                    val columns = ByteArray(PAYLOAD_BYTES); block.readFully(columns)
+                    records += ImuPushRecord(ts, columns)
+                } }
+                check(records.size <= SEGMENT_SECONDS) { "IMU segment count invalid" }
+            }
+        }
+        check(records.map { it.ts }.toSet().size == records.size) { "Duplicate IMU member" }
+        PushSnapshot(bytes, records)
+    }
+
+    /** Append-only files allow immutable archive retries without copying whole captures into SQLite. */
+    fun pushArchivePrefix(windowId: String, bucket: Long, length: Int, sha256: String): ByteArray = synchronized(lock) {
+        check(length.toLong() in FILE_HEADER_BYTES.toLong()..MAX_SEGMENT_BYTES)
+        val file = segmentFile(windowId, bucket)
+        check(file.isFile && file.length() >= length) { "IMU archive source unavailable" }
+        val bytes = ByteArray(length)
+        file.inputStream().use { DataInputStream(it).readFully(bytes) }
+        check(com.noop.push.PushBinaryCodec.sha256Hex(bytes) == sha256) { "IMU archive source changed" }
+        bytes
+    }
+
     override fun pushRecords(deviceId: String, afterTs: Long, limit: Int): List<ImuPushRecord> = synchronized(lock) {
         val sessionIds = ids().filter { prefs.getString("$it.device", null) == deviceId }
         if (sessionIds.isEmpty() || limit <= 0) return emptyList()
@@ -295,7 +351,7 @@ class ImuSessionFileStore internal constructor(
             if (input.readInt() != SAMPLE_RATE || input.readInt() != AXES) return emptyList()
             while (true) try {
                 val count = input.readInt(); val rawSize = input.readInt(); val compressedSize = input.readInt()
-                if (count !in 1..BLOCK_SECONDS || rawSize !in 1..MAX_BLOCK_BYTES || compressedSize !in 1..MAX_BLOCK_BYTES) break
+                if (count !in 1..BLOCK_SECONDS || rawSize !in 1..MAX_BLOCK_BYTES || compressedSize !in 1..MAX_BLOCK_BYTES + 128) break
                 val compressed = ByteArray(compressedSize); input.readFully(compressed)
                 val raw = inflate(compressed, rawSize) ?: break
                 var valid = true
@@ -427,6 +483,7 @@ class ImuSessionFileStore internal constructor(
         const val CONFLICTS_FILE_NAME = "imu-conflicts.json"
         private const val RECORD_HEADER_BYTES = 20L; private const val FILE_HEADER_BYTES = 24
         private const val MAX_BLOCK_BYTES = BLOCK_SECONDS * (PAYLOAD_BYTES + 20)
+        private const val MAX_SEGMENT_BYTES = 4 * 1024 * 1024L
         internal fun bucketStart(ts: Long) = Math.floorDiv(ts, SEGMENT_SECONDS) * SEGMENT_SECONDS
         internal fun utcName(ts: Long): String = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
             .withZone(java.time.ZoneOffset.UTC).format(java.time.Instant.ofEpochSecond(ts))

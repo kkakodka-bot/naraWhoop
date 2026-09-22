@@ -2781,7 +2781,6 @@
     <string name="imu_recorder_storage">Speicher</string>
     <string name="imu_recorder_disk_use">Speicherbelegung: %1$s</string>
     <string name="imu_recorder_retention_limit">Aufbewahrungslimit</string>
-    <string name="imu_recorder_retention_policy">Bei Erreichen des Limits werden die ältesten Segmente zuerst entfernt; das gerade geschriebene Segment wird nie entfernt. Entfernte Sekunden bleiben entfernt — nachträgliche Historie kann sie nicht zurückbringen.</string>
     <string name="imu_recorder_counters">Entfernte Segmente: %1$d · Konflikte: %2$d · Übersprungene Duplikate: %3$d</string>
     <string name="imu_recorder_battery_warning">100-Hz-Aufzeichnung entlädt den Armband-Akku etwa 1,5–2,3× schneller als normales Tragen (gemessen an einem WHOOP 5.0).</string>
     <string name="imu_recorder_export">Aufzeichnung exportieren</string>
@@ -2789,7 +2788,6 @@
     <string name="imu_recorder_delete_all">Alle aufgezeichneten Daten löschen</string>
     <string name="imu_recorder_delete_disabled">Schalte die Aufzeichnung vor dem Löschen aus.</string>
     <string name="imu_recorder_privacy_title">Datenschutz</string>
-    <string name="imu_recorder_privacy">Diese 100-Hz-Daten bleiben auf diesem Gerät. Sie sind nie im Cloud-Push enthalten — Exportieren ist der einzige Weg hinaus, und nur wenn du es wählst.</string>
     <string name="imu_recorder_delete_title">Alle IMU-Daten löschen?</string>
     <string name="imu_recorder_delete_message">Alle kontinuierlich aufgezeichneten 100-Hz-Daten auf diesem Gerät werden endgültig gelöscht.</string>
     <string name="imu_recorder_delete_confirm">Löschen</string>

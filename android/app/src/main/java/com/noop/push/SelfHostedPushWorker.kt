@@ -10,7 +10,6 @@ import androidx.work.WorkerParameters
 import androidx.sqlite.db.SimpleSQLiteQuery
 import com.noop.R
 import com.noop.data.WhoopDatabase
-import com.noop.testcentre.ImuSessionFileStore
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -242,10 +241,11 @@ class SelfHostedPushWorker(
                     database,
                     captured.scope,
                     sourceId,
-                    ImuSessionFileStore(storageContext),
+                    CloudImuPushSource(storageContext, sourceId),
                 )
                 AccountPushCaptureBindings.binding(captured)
             } ?: throw AccountAuthException(AuthFailure.UNBOUND_CAPTURE)
+            if (binding.sourceID != sourceId) throw AccountAuthException(AuthFailure.UNBOUND_CAPTURE)
             AccountPushCaptureBindings.validateOwner(binding)
             AccountPushAdmission(captured, binding.scope, sourceId) { identityStillCurrent() }
         } else {
@@ -315,9 +315,9 @@ class SelfHostedPushWorker(
         val snapshotSource: PushSnapshotSource = if (admission != null && captured != null) {
             val binding = AccountPushCaptureBindings.binding(captured)
                 ?: throw AccountAuthException(AuthFailure.UNBOUND_CAPTURE)
-            AccountFencedSnapshot(binding.database.pushDao(binding.imuSource), admission)
+            AccountFencedSnapshot(binding.database.pushDao(binding.imuSource?.forDestination(namespace)), admission)
         } else {
-            WhoopDatabase.get(storageContext).pushDao(ImuSessionFileStore(storageContext))
+            WhoopDatabase.get(storageContext).pushDao(CloudImuPushSource(storageContext, sourceId).forDestination(namespace))
         }
         val baseProgress = EndpointScopedProgressStore(
             SharedPrefsPushProgressStore.from(storageContext),

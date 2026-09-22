@@ -91,7 +91,7 @@ class PushObjectLaneTest {
         val progress = MemoryObjectProgress()
         progress.saveInFlightObject(
             PushBinaryTable.RAW_IMU_SESSION,
-            "dev",
+            "dev:imu-membership-v1",
             PushInFlightObject(batch.objectId, "k/resume", batch.contentSha256, uploaded = true),
         )
         var intentCalls = 0
@@ -171,7 +171,7 @@ class PushObjectLaneTest {
         val progress = MemoryObjectProgress()
         progress.saveInFlightObject(
             PushBinaryTable.RAW_IMU_SESSION,
-            "dev",
+            "dev:imu-membership-v1",
             PushInFlightObject(batch.objectId, "k/resume", batch.contentSha256, uploaded = false),
         )
         var intentCalls = 0
@@ -205,7 +205,7 @@ class PushObjectLaneTest {
     }
 
     @Test
-    fun objectIdConflictRetriesOnceThenGivesUp() = runBlocking {
+    fun objectIdConflictKeepsFrozenImuIdentity() = runBlocking {
         val row = PushRawImuRecord(100, 100, imuColumns(1))
         val lane = PushObjectLane(
             endpoint = "/api/push/objects",
@@ -233,7 +233,7 @@ class PushObjectLaneTest {
         ).pushObjects(PushBinaryTable.RAW_IMU_SESSION, "dev", lane)
         assertTrue(result is PushResult.Rejected)
         assertFalse((result as PushResult.Rejected).retryable)
-        assertEquals(2, intentCalls)
+        assertEquals(1, intentCalls)
     }
 
     @Test
@@ -302,12 +302,21 @@ private class FakeImuSource(private val rows: List<PushRawImuRecord>) : PushSnap
 
 private class MemoryObjectProgress : PushProgressStore {
     private val inflight = mutableMapOf<String, PushInFlightObject>()
+    private val cursors = mutableMapOf<String, PushCursor>()
+    private val prepared = mutableMapOf<String, PushPreparedBoundary>()
     override suspend fun knownDeviceIds(): Set<String> = emptySet()
     override suspend fun rememberDeviceId(deviceId: String) {}
     override suspend fun cursor(table: PushAppendTable, deviceId: String) = null
     override suspend fun saveCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor) {}
-    override suspend fun binaryCursor(table: PushBinaryTable, deviceId: String) = null
-    override suspend fun saveBinaryCursor(table: PushBinaryTable, deviceId: String, cursor: PushCursor) {}
+    override suspend fun binaryCursor(table: PushBinaryTable, deviceId: String) = cursors["${table.wireName}.$deviceId"]
+    override suspend fun saveBinaryCursor(table: PushBinaryTable, deviceId: String, cursor: PushCursor) {
+        cursors["${table.wireName}.$deviceId"] = cursor
+    }
+    override suspend fun preparedBoundary(table: PushBinaryTable, deviceId: String) = prepared["${table.wireName}.$deviceId"]
+    override suspend fun savePreparedBoundary(table: PushBinaryTable, deviceId: String, prepared: PushPreparedBoundary?) {
+        val key = "${table.wireName}.$deviceId"
+        if (prepared == null) this.prepared.remove(key) else this.prepared[key] = prepared
+    }
     override suspend fun window(table: PushMutableTable, deviceId: String) = null
     override suspend fun saveWindow(table: PushMutableTable, deviceId: String, progress: PushWindowProgress) {}
     override suspend fun inFlightObject(table: PushBinaryTable, deviceId: String): PushInFlightObject? =

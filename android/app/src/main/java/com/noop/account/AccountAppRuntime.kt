@@ -11,7 +11,6 @@ import com.noop.data.WhoopDatabase
 import com.noop.data.WhoopRepository
 import com.noop.ui.NoopPrefs
 import com.noop.push.*
-import com.noop.testcentre.ImuSessionFileStore
 import kotlinx.coroutines.*
 
 /** Every handle and closure in this object belongs to one immutable account session. */
@@ -40,8 +39,8 @@ class AccountAppRuntime(val context: AccountStorageContext) {
                 database.openHelper.writableDatabase
                 identity.context?.let { captured ->
                     if (closed || !CloudAuthClient.isCurrent(context, captured)) return@launch
-                    AccountPushCaptureBindings.bind(database, captured.scope,
-                        SelfHostedPushSettings.from(context).sourceId(), ImuSessionFileStore(context))
+                    val sourceId = SelfHostedPushSettings.from(context).sourceId()
+                    AccountPushCaptureBindings.bind(database, captured.scope, sourceId, CloudImuPushSource(context, sourceId))
                     if (repository.hasOwedSyncJobs()) ble.resumeOwedPostBackfillWork()
                     SelfHostedPushScheduler.enqueueLaunchCatchUp(context)
                     scoringContextConsent.load()

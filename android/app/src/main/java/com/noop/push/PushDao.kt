@@ -55,7 +55,8 @@ class PushDao internal constructor(
                 while (cursor.moveToNext()) cursor.getString(0)?.takeIf { it.isNotBlank() }?.let(::add)
             }
         }.toMutableSet()
-        if (PushBinaryTable.RAW_IMU_SESSION in capabilities.binaryTables) {
+        if (PushBinaryTable.RAW_IMU_SESSION in capabilities.binaryTables ||
+            PushBinaryTable.RAW_BATCH in capabilities.binaryTables) {
             imuPushSource?.pushDeviceIds()?.let { ids.addAll(it) }
         }
         ids.sorted()
@@ -153,9 +154,8 @@ class PushDao internal constructor(
             PushBinaryTable.RAW_BATCH -> return null
             PushBinaryTable.RAW_IMU_SESSION -> {
                 val source = imuPushSource ?: return null
-                val record = source.pushRecords(deviceId, rowId - 1, 1).firstOrNull()?.takeIf { it.ts == rowId }
-                    ?: return null
-                return PushBinaryRow.RawImuSession(PushRawImuRecord(record.ts, record.ts, record.columns))
+                val record = source.indexedPushRecord(deviceId, rowId) ?: return null
+                return PushBinaryRow.RawImuSession(PushRawImuRecord(record.rowId, record.ts, record.columns))
             }
             else -> Unit
         }
@@ -177,11 +177,12 @@ class PushDao internal constructor(
         afterRowId: Long,
         limit: Int,
     ): List<PushBinaryRow> {
-        if (table == PushBinaryTable.RAW_BATCH) return emptyList()
+        if (table == PushBinaryTable.RAW_BATCH) return (imuPushSource as? ImuExactArchiveSource)
+            ?.archiveRows(deviceId, minOf(limit, 2))?.map { PushBinaryRow.RawBatch(it) }.orEmpty()
         if (table == PushBinaryTable.RAW_IMU_SESSION) {
             val source = imuPushSource ?: return emptyList()
-            return source.pushRecords(deviceId, afterRowId, limit)
-                .map { PushBinaryRow.RawImuSession(PushRawImuRecord(it.ts, it.ts, it.columns)) }
+            return source.indexedPushRows(deviceId, afterRowId, limit)
+                .map { PushBinaryRow.RawImuSession(PushRawImuRecord(it.rowId, it.ts, it.columns)) }
         }
         require(limit >= 1)
         val spec = binarySpec(table) ?: return emptyList()
@@ -201,7 +202,10 @@ class PushDao internal constructor(
         deviceId: String,
         rows: List<PushBinaryRow>,
     ) {
-        // Android has no rawBatch table; ppg/v18 rows need no local acknowledgement marker.
+        if (table == PushBinaryTable.RAW_BATCH) {
+            val source = imuPushSource as? ImuExactArchiveSource ?: return
+            rows.forEach { source.acknowledgeArchive(deviceId, (it as PushBinaryRow.RawBatch).record) }
+        }
     }
 
     private fun ensureSnapshotBounded(sql: String, args: Array<Any?>) {

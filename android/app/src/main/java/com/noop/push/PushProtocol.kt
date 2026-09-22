@@ -292,7 +292,8 @@ object PushProtocol {
     ): List<PushBinaryRow> {
         val selected = ArrayList<PushBinaryRow>()
         var decodedBytes = PushBinaryCodec.packedHeaderSize(table)
-        var windowStartTs: Long? = null
+        var imuMin: Long? = null
+        var imuMax: Long? = null
         var auxMin: Long? = null
         var auxMax: Long? = null
         var previousRowId: Long? = null
@@ -308,15 +309,16 @@ object PushProtocol {
             if (table == PushBinaryTable.RAW_IMU_SESSION) {
                 val record = (row as? PushBinaryRow.RawImuSession)?.record
                     ?: throw PushProtocolException("binary row kind mismatch")
-                if (windowStartTs != null && record.ts - windowStartTs >= MAX_IMU_OBJECT_WINDOW_SECONDS) break
+                val min = minOf(imuMin ?: record.ts, record.ts)
+                val max = maxOf(imuMax ?: record.ts, record.ts)
+                if (record.ts <= 0 || record.ts == Long.MAX_VALUE || max - min >= MAX_IMU_OBJECT_WINDOW_SECONDS) break
+                if (previousRowId != null && record.rowId <= previousRowId) throw PushProtocolException("IMU membership rows must be ordered")
+                imuMin = min; imuMax = max; previousRowId = record.rowId
             }
             val rowSize = PushBinaryCodec.packedRowSize(row, ppgIdentityV2, auxIdentityV2)
             if (decodedBytes + rowSize > decodedLimit) break
             selected += row
             decodedBytes += rowSize
-            if (table == PushBinaryTable.RAW_IMU_SESSION && windowStartTs == null) {
-                windowStartTs = (row as PushBinaryRow.RawImuSession).record.ts
-            }
         }
         if (selected.isEmpty()) throw PushProtocolException("first binary row exceeds the decoded batch limit")
         return selected

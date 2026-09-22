@@ -142,7 +142,7 @@ data class PushRawBatchRecord(
     }
 }
 
-/** One second of 100 Hz six-axis IMU: 600 little-endian i16 columns. `rowId` mirrors `ts`. */
+/** One second of 100 Hz six-axis IMU. The durable membership cursor is independent of event time. */
 data class PushRawImuRecord(
     val rowId: Long,
     val ts: Long,
@@ -389,17 +389,27 @@ data class PushPreparedBoundary(
 interface ImuSessionPushSource {
     fun pushDeviceIds(): Set<String>
     fun pushRecords(deviceId: String, afterTs: Long, limit: Int): List<ImuPushRecord>
+    fun indexedPushRows(deviceId: String, afterRowId: Long, limit: Int): List<ImuPushRecord> =
+        pushRecords(deviceId, afterRowId, limit)
+    fun indexedPushRecord(deviceId: String, rowId: Long): ImuPushRecord? =
+        indexedPushRows(deviceId, rowId - 1, 1).firstOrNull()?.takeIf { it.rowId == rowId }
+    fun forDestination(namespace: String): ImuSessionPushSource = this
 }
 
-data class ImuPushRecord(val ts: Long, val columns: ByteArray) {
+interface ImuExactArchiveSource : ImuSessionPushSource {
+    fun archiveRows(deviceId: String, limit: Int): List<PushRawBatchRecord>
+    fun acknowledgeArchive(deviceId: String, row: PushRawBatchRecord)
+}
+
+data class ImuPushRecord(val ts: Long, val columns: ByteArray, val rowId: Long = ts) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is ImuPushRecord) return false
-        return ts == other.ts && columns.contentEquals(other.columns)
+        return rowId == other.rowId && ts == other.ts && columns.contentEquals(other.columns)
     }
 
     override fun hashCode(): Int {
-        var result = ts.hashCode()
+        var result = 31 * rowId.hashCode() + ts.hashCode()
         result = 31 * result + columns.contentHashCode()
         return result
     }
