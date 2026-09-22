@@ -25,6 +25,7 @@ struct BackfillSessionSnapshot: Sendable {
 /// Main-actor callbacks the serial offload pipeline invokes (BLE writes, UI tallies, archives).
 struct BackfillMainHooks: Sendable {
     let ackTrim: @Sendable (UInt32, [UInt8]) async -> Void
+    /// Legacy injected-test observer. Production uses chunkInfo and never starts workers here.
     let onBankedOffload: @Sendable ((hr: Int, rr: Int, events: Int, battery: Int,
                                     spo2: Int, skinTemp: Int, resp: Int, gravity: Int)) async -> Void
     let log: @Sendable (String) async -> Void
@@ -51,7 +52,17 @@ private final class BackfillPipelineSink: @unchecked Sendable {
     private var deliverySession: UUID?
     private var pendingFrames = 0
     private var pendingBytes = 0
+    private let pressureOwner = UUID()
+    private var arrivals: [TimeInterval] = []
+    private var arrivalHead = 0
     private let maxPendingBytes = 8 * 1_048_576
+
+    deinit { ResourceBudget.shared.pipeline(owner: pressureOwner, depth: 0, oldestUptime: nil) }
+
+    private func publishPressure() {
+        ResourceBudget.shared.pipeline(owner: pressureOwner, depth: pendingFrames,
+            oldestUptime: arrivalHead < arrivals.count ? arrivals[arrivalHead] : nil)
+    }
 
     func install(_ continuation: AsyncStream<BackfillPipelineItem>.Continuation) {
         lock.lock(); defer { lock.unlock() }
@@ -111,7 +122,10 @@ private final class BackfillPipelineSink: @unchecked Sendable {
         }
         pendingFrames += 1
         pendingBytes += frame.count
-        continuation.yield(.frame(frame, sessionID: currentSession))
+        let receivedAt = ProcessInfo.processInfo.systemUptime
+        arrivals.append(receivedAt)
+        publishPressure()
+        continuation.yield(.frame(frame, sessionID: currentSession, receivedAt: receivedAt))
         return true
     }
 
@@ -119,6 +133,15 @@ private final class BackfillPipelineSink: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         pendingFrames -= 1
         pendingBytes -= bytes
+        arrivalHead += 1
+        if arrivalHead == arrivals.count {
+            arrivals.removeAll(keepingCapacity: true)
+            arrivalHead = 0
+        } else if arrivalHead >= 1_024 {
+            arrivals.removeFirst(arrivalHead)
+            arrivalHead = 0
+        }
+        publishPressure()
     }
 
     @discardableResult
@@ -131,7 +154,7 @@ private final class BackfillPipelineSink: @unchecked Sendable {
 }
 
 private enum BackfillPipelineItem {
-    case frame([UInt8], sessionID: UUID)
+    case frame([UInt8], sessionID: UUID, receivedAt: TimeInterval)
     case begin(family: DeviceFamily, continuedAfterRows: Bool, sessionID: UUID, done: CheckedContinuation<Bool, Never>)
     case timeout(sessionID: UUID?, done: CheckedContinuation<Void, Never>)
     case deviceID(String)
@@ -365,7 +388,7 @@ actor BackfillActor {
                 backfiller?.timeoutFired()
                 pipelineSink.finish()
                 done.resume()
-            case .frame(let frame, let sessionID):
+            case .frame(let frame, let sessionID, let receivedAt):
                 defer { pipelineSink.consumedFrame(bytes: frame.count) }
                 guard acceptingFrames, activeSessionID == sessionID,
                       pipelineSink.isCurrent(sessionID) else { continue }
@@ -376,7 +399,7 @@ actor BackfillActor {
                     pipelineSink.setDelivery(nil)
                 }
                 guard let backfiller else { continue }
-                await backfiller.ingest(frame)
+                await backfiller.ingest(frame, receivedAt: receivedAt)
                 // Summaries scale with the session. Rebuild only after a chunk or
                 // completion, not for each sensor record within the chunk.
                 if backfiller.sessionPhaseTimingSamples().count != completedSnapshot?.phaseSamples.count

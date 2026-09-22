@@ -74,7 +74,7 @@ extension WhoopStore: BackfillStoreWriting {}
 // MARK: - Offload chunk phase timing (T2-0)
 
 /// One HISTORY_END handler sample, including time awaiting main-actor callbacks.
-/// Excludes time queued before the handler and the subsequent BLE write confirmation.
+/// FIFO delay is measured from frame handoff; ATT completion has a separate transport interval.
 struct BackfillChunkPhaseSample: Sendable {
     let frameCount: Int
     let gapMs: Int?
@@ -90,6 +90,8 @@ struct BackfillChunkPhaseSample: Sendable {
     /// END-handler entry to the transport's writeValue submission; nil if no write was submitted.
     var ackSubmissionMs: Int?
     var postAckPresentationMs: Int = 0
+    var fifoWaitMs: Int = 0
+    var receivedToACKMs: Int?
 }
 
 /// Ordered observations for one chunk. They do not control durability or BLE acknowledgements.
@@ -119,6 +121,7 @@ enum BackfillChunkInfo: Sendable {
 ///
 /// Runs on `BackfillActor` (off the main actor). BLE writes and UI tallies hop to the main actor via injected async closures.
 final class Backfiller {
+    private enum HistoricalChunkFailure: Error { case imuFlush }
     /// (parsed frames, deviceClockRef, wallClockRef, sessionOldestUnix?, sessionNewestUnix?) → Streams.
     /// The trailing session-range markers are the strap's GET_DATA_RANGE oldest/newest for THIS sync
     /// (#547 session-relative gate); nil when the range isn't known yet (the absolute-only floor applies).
@@ -466,7 +469,7 @@ final class Backfiller {
     }
 
     /// Feed one raw BLE frame into the state machine. May trigger async store operations.
-    func ingest(_ frame: [UInt8]) async {
+    func ingest(_ frame: [UInt8], receivedAt: TimeInterval? = nil) async {
         guard !persistStalled else { return }
         guard frame.count <= maximumChunkBytes - chunkBytes, chunk.count < 16_384 else {
             persistStalled = true
@@ -490,7 +493,7 @@ final class Backfiller {
             chunkBytes = 0
             chunkOpen = true
         case .end(let unix, let trim):
-            await finishChunk(unix: unix, trim: trim, endFrame: frame)
+            await finishChunk(unix: unix, trim: trim, endFrame: frame, receivedAt: receivedAt)
         case .complete:
             isBackfilling = false
             chunk.removeAll(keepingCapacity: true)
@@ -581,6 +584,7 @@ final class Backfiller {
         line += " rawMs=\(sample.rawMs) imuMs=\(sample.imuMs) cursorMs=\(sample.cursorMs) ackMs=\(sample.ackMs)"
         line += " totalMs=\(sample.totalMs) diagnosticsMs=\(sample.diagnosticsMs) archiveMs=\(sample.archiveMs)"
         line += " ackSubmissionMs=\(sample.ackSubmissionMs.map(String.init) ?? "none") postAckPresentationMs=\(sample.postAckPresentationMs)"
+        line += " fifoWaitMs=\(sample.fifoWaitMs) receivedToACKMs=\(sample.receivedToACKMs.map(String.init) ?? "none")"
         return line
     }
 
@@ -754,7 +758,7 @@ final class Backfiller {
         let imuRecords: [(baseTs: Int, columns: [Int16])]
     }
 
-    private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8]) async {
+    private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8], receivedAt: TimeInterval?) async {
         guard let endData = Backfiller.endData(from: endFrame, family: family) else { return }
         let deviceId = sessionDeviceID ?? self.deviceId
         let scope = (captureScope ?? .unassigned(deviceID: deviceId)).forDevice(deviceId)
@@ -771,6 +775,7 @@ final class Backfiller {
         }
 
         let chunkArrival = monotonic()
+        let fifoWaitMs = receivedAt.map { Int(max(0, chunkArrival - $0) * 1_000) } ?? 0
         let gapMs = lastChunkArrival.map { Int((chunkArrival - $0) * 1000) }
         lastChunkArrival = chunkArrival
         var decodeMs = 0, insertMs = 0, rawMs = 0, imuMs = 0, ackMs = 0
@@ -832,7 +837,9 @@ final class Backfiller {
                                           totalMs: Int((monotonic() - chunkArrival) * 1000),
                                           diagnosticsMs: diagnosticsMs, archiveMs: archiveMs,
                                           cursorMs: cursorMs, ackSubmissionMs: ackSubmissionMs,
-                                          postAckPresentationMs: postAckPresentationMs)
+                                          postAckPresentationMs: postAckPresentationMs,
+                                          fifoWaitMs: fifoWaitMs,
+                                          receivedToACKMs: ackSubmissionMs.map { $0 + fifoWaitMs })
             chunkPhaseSamples.append(sample)
             await emitConnection(Backfiller.chunkPhaseDetailLine(trim: trim, sample: sample))
         }
@@ -1033,19 +1040,29 @@ final class Backfiller {
                 // The durable debt is part of the SAME transaction as the decoded rows (safe trim): if the
                 // job upsert fails, the insert rolls back too and this chunk stays on the strap for replay.
                 if let durableStore = store as? WhoopStore {
-                    let touchesIMU = !d.imuRecords.isEmpty
-                    if !enableRawCapture && !touchesIMU && !persistStalled {
-                        outcome = try await durableStore.commitHistoricalChunk(decoded, scope: scope,
-                            family: String(describing: family), trim: trim, recoveryFrames: rejected,
-                            clockRef: ref, postOffloadJobKinds: postOffloadJobKinds,
-                            note: "historical chunk committed")
-                        cursorCommittedWithChunk = true
-                    } else {
-                        // External raw/IMU writers retain their existing flush-before-cursor boundary.
-                        outcome = try await durableStore.insertAndMarkJobsOwed(
-                            decoded, deviceId: deviceId, postOffloadJobKinds: postOffloadJobKinds,
-                            note: "historical rows committed", captureScope: scope)
+                    // External files must be durable before the one SQLite authorization commit.
+                    if !d.imuRecords.isEmpty {
+                        guard let imuSessionSink else { throw HistoricalChunkFailure.imuFlush }
+                        let start = monotonic()
+                        let saved = imuSessionSink(deviceId, d.imuRecords)
+                        imuMs = Int((monotonic() - start) * 1_000)
+                        guard saved else { throw HistoricalChunkFailure.imuFlush }
                     }
+                    var rawCapture: HistoricalRawCapture?
+                    if enableRawCapture {
+                        let bounds = try RawBatchMeta.captureBounds(streams: decoded, fallbackTimestamp: Int(unix))
+                        let meta = RawBatchMeta(
+                            batchId: "hist-\(scope.key)-\(trim)-\(DurableIngestScope.sha256(Data(frames.flatMap { $0 })))",
+                            deviceId: deviceId, clockRef: ref, capturedAt: Int(Date().timeIntervalSince1970),
+                            startTs: bounds.startTs, endTs: bounds.endTs, frameCount: frames.count,
+                            byteSize: frames.reduce(0) { $0 + $1.count }, captureScope: scope)
+                        rawCapture = HistoricalRawCapture(meta: meta, frames: frames)
+                    }
+                    outcome = try await durableStore.commitHistoricalChunk(decoded, scope: scope,
+                        family: String(describing: family), trim: trim, recoveryFrames: rejected,
+                        clockRef: ref, postOffloadJobKinds: postOffloadJobKinds, rawCapture: rawCapture,
+                        note: "historical chunk committed")
+                    cursorCommittedWithChunk = true
                 } else {
                     outcome = try await store.insertAndMarkJobsOwed(
                         decoded, deviceId: deviceId, postOffloadJobKinds: postOffloadJobKinds,
@@ -1131,7 +1148,7 @@ final class Backfiller {
             if cursorCommittedWithChunk { ordinaryQuarantinedCount = rejected.count }
 
             // Optional research capture is additional to the unconditional recovery archive.
-            if enableRawCapture {
+            if enableRawCapture && !cursorCommittedWithChunk {
                 let rawStart = monotonic()
                 do {
                     // Prefer decoded capture times; decoded-empty history retains the END timestamp
@@ -1169,7 +1186,7 @@ final class Backfiller {
             // safe-trim invariant as the decoded rows above. Only CRC-valid IMU-shaped frames are
             // offered; a flush failure holds the ack so the strap re-sends the chunk next session
             // rather than trimming past session data we never durably stored.
-            if let imuSessionSink {
+            if !cursorCommittedWithChunk, let imuSessionSink {
                 let imuRecords = d.imuRecords
                 if !imuRecords.isEmpty {
                     let imuStart = monotonic()
@@ -1222,7 +1239,15 @@ final class Backfiller {
 
         let cursorStart = monotonic()
         do {
-            if !cursorCommittedWithChunk { try await store.setCursor("strap_trim:\(scope.key)", Int(trim)) }
+            if !cursorCommittedWithChunk {
+                if let durableStore = store as? WhoopStore {
+                    // Empty END packets still validate the captured owner at the commit boundary.
+                    let ref = clockRef ?? ClockRef(device: Int(unix), wall: Int(unix))
+                    _ = try await durableStore.commitHistoricalChunk(Streams(), scope: scope,
+                        family: String(describing: family), trim: trim, recoveryFrames: [], clockRef: ref,
+                        postOffloadJobKinds: postOffloadJobKinds, note: "empty historical chunk committed")
+                } else { try await store.setCursor("strap_trim:\(scope.key)", Int(trim)) }
+            }
         } catch {
             await flushInfo()
             cursorMs = Int((monotonic() - cursorStart) * 1000)
