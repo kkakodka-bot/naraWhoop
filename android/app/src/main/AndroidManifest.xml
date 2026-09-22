@@ -168,6 +168,17 @@
         android:theme="@style/Theme.NOOP"
         tools:targetApi="34">
 
+        <!-- Immutable release-candidate identity. Gradle substitutes the full
+             integration SHA for phone-test builds; ordinary local builds say
+             `development`. Both fields live inside the signed APK manifest so
+             offline artifact verification does not trust a sidecar filename. -->
+        <meta-data
+            android:name="com.noop.release.source_revision"
+            android:value="${noopSourceRevision}" />
+        <meta-data
+            android:name="com.noop.release.final_hosted_compute"
+            android:value="true" />
+
         <!--
           MainActivity no longer carries the LAUNCHER intent-filter itself. The home-screen entry
           point is split into two <activity-alias> elements below (.IconDefault / .IconNavy), each

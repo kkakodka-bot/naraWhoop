@@ -346,10 +346,18 @@ test('actual deployment rejects incompatible single-worker manifests and archive
 
 test('actual Dockerfile binds either release-tool revision and rejects contradictory source labels', () => {
   const dockerfile = fs.readFileSync(path.resolve(scripts, '../../../scoring-service/Dockerfile'), 'utf8');
-  assert.match(dockerfile, /ARG BUILD_IMAGE=eclipse-temurin:17-jdk-jammy/);
-  assert.match(dockerfile, /ARG RUNTIME_IMAGE=eclipse-temurin:17-jre-jammy/);
+  assert.match(dockerfile, /ARG BUILD_IMAGE=docker\.io\/library\/eclipse-temurin@sha256:e573c097106f35634857604fdfbe70a2a2bbcaa52574bca3d2025703d0df994d/);
+  assert.match(dockerfile, /ARG RUNTIME_IMAGE=docker\.io\/library\/eclipse-temurin@sha256:24cd8eed18b5976441d27b45823490eb5e8efff4b3ecdc632e442717ea66f160/);
+  assert.match(dockerfile, /ARG RELEASE_PLATFORM=linux\/amd64/);
+  assert.match(dockerfile, /FROM --platform=\$\{RELEASE_PLATFORM\} \$\{BUILD_IMAGE\} AS build/);
+  assert.match(dockerfile, /FROM --platform=\$\{RELEASE_PLATFORM\} \$\{RUNTIME_IMAGE\}/);
   assert.match(dockerfile, /ARG VCS_REF\nARG RELEASE_SHA=\$\{VCS_REF\}/);
   assert.match(dockerfile, /LABEL org\.opencontainers\.image\.revision=\$RELEASE_SHA/);
+  assert.match(dockerfile, /io\.frwhoop\.algorithm\.roles="frwhoop-physiology-2,frwhoop-server-2-history"/);
+  assert.match(dockerfile, /io\.frwhoop\.heartbeat\.contract="physiology_worker_heartbeats-v1"/);
+  assert.match(dockerfile, /io\.frwhoop\.build\.image=\$BUILD_IMAGE/);
+  assert.match(dockerfile, /io\.frwhoop\.runtime\.image=\$RUNTIME_IMAGE/);
+  assert.match(dockerfile, /io\.frwhoop\.image\.platform=\$RELEASE_PLATFORM/);
   assert.match(dockerfile, /test -z "\$VCS_REF" \|\| test "\$VCS_REF" = "\$RELEASE_SHA"/);
   assert.match(dockerfile, /> \/app\/release.sha && chmod 444/);
   assert.match(dockerfile, /:service:installDist --no-daemon -x test -PscoringSourceRevision="\$RELEASE_SHA"/);

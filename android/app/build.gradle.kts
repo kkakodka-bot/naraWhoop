@@ -14,6 +14,18 @@ val isStagingRelease = project.hasProperty("stagingRelease")
 val requestedReleaseBuild = gradle.startParameter.taskNames.any {
     it.contains("Release", ignoreCase = true)
 }
+// Release-candidate builds pass the exact integration SHA with
+// `-PnoopSourceRevision=<40 lowercase hex>`. Ordinary developer and upstream
+// builds retain an explicit `development` marker. The value is also written to
+// the signed AndroidManifest so an APK can be bound to its source without
+// trusting a filename or an adjacent receipt.
+val noopSourceRevision = providers.gradleProperty("noopSourceRevision")
+    .orElse("development")
+    .get()
+    .trim()
+require(noopSourceRevision == "development" || Regex("[0-9a-f]{40}").matches(noopSourceRevision)) {
+    "noopSourceRevision must be development or an exact lowercase Git SHA"
+}
 val keystoreProps = Properties().apply {
     if (requestedReleaseBuild && !isStagingRelease && keystorePropsFile.exists()) {
         keystorePropsFile.inputStream().use { load(it) }
@@ -49,6 +61,8 @@ android {
         versionCode = 450
         versionName = "11.1.1"
         buildConfigField("boolean", "FINAL_HOSTED_COMPUTE", "true")
+        buildConfigField("String", "NOOP_SOURCE_REVISION", "\"$noopSourceRevision\"")
+        manifestPlaceholders["noopSourceRevision"] = noopSourceRevision
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
