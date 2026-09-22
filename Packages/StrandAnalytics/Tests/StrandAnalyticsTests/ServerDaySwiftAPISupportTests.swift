@@ -129,9 +129,17 @@ final class ServerDaySwiftAPISupportTests: XCTestCase {
         formatter.calendar = calendar; formatter.timeZone = calendar.timeZone
         formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
         let days = (0..<131).map { formatter.string(from: Date(timeIntervalSince1970: Double(start + $0 * 86_400))) }
-        let hrv: [Double?] = (0..<131).map { $0 % 17 == 0 ? nil : Double(40 + $0 % 4) }
+        let hrv: [Double?] = (0..<131).map { (index: Int) -> Double? in
+            if index % 17 == 0 { return nil }
+            let value: Int = 40 + index % 4
+            return Double(value)
+        }
         let rhr: [Double?] = (0..<131).map { Double(50 + $0 % 3) }
-        let sleep: [Double?] = (0..<131).map { $0 % 19 == 0 ? nil : Double(420 + ($0 % 4) * 20) }
+        let sleep: [Double?] = (0..<131).map { (index: Int) -> Double? in
+            if index % 19 == 0 { return nil }
+            let value: Int = 420 + (index % 4) * 20
+            return Double(value)
+        }
         let folded = Baselines.foldHistory(hrv, cfg: Baselines.hrvCfg)
         var replay: BaselineState?
         for value in hrv { replay = Baselines.update(replay, value: value, cfg: Baselines.hrvCfg) }
