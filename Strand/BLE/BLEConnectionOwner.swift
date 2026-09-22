@@ -75,9 +75,9 @@ final class BLEConnectionOwner {
     }
 
     /// Restoration can hand us a link whose OS-owned teardown is already in progress.
-    /// Retain an admitted generation so its disconnect callback can submit the standing
-    /// connection; dropping the token here would make that callback look obsolete.
-    func awaitRestoredDisconnect(_ id: UUID) -> Token? {
+    /// Give that teardown a generation so the driver can fence it and immediately leave
+    /// the replacement standing request, independently of the cancellation callback.
+    func adoptRestoredTeardown(_ id: UUID) -> Token? {
         guard !intentionallyStopped, phase == .restoring, token == nil else { return nil }
         let current = nextToken(id)
         recoveryDisconnectPending = true
@@ -132,7 +132,19 @@ final class BLEConnectionOwner {
     }
 
     func subscribing() { if phase == .discovering { phase = .subscribing } }
+    func notificationsLost() { if phase == .ready { phase = .subscribing } }
     func ready() { if phase == .subscribing || phase == .discovering { phase = .ready } }
+
+    /// A finite setup opportunity ended. Invalidate all GATT callbacks before cancelling the
+    /// local link; the driver may then leave one OS-owned request without waiting for teardown.
+    func cancelSetup(_ value: Token) -> Bool {
+        guard !intentionallyStopped, token == value,
+              [.discovering, .subscribing, .failed].contains(phase)
+                || (phase == .reconnecting && recoveryDisconnectPending) else { return false }
+        invalidate()
+        phase = .reconnecting
+        return true
+    }
 
     /// Two idempotent retries per stage and generation, then one cancel/reconnect flow.
     func recover(stage: String, retry: () -> Void, reconnect: () -> Void) {

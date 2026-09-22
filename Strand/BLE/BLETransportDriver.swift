@@ -37,6 +37,7 @@ final class BLETransportDriver<Central: BLECentralTransport> {
     enum Event {
         case connected(Peripheral, Token)
         case restored(Peripheral, Token)
+        case setupExpired(Peripheral)
         case disconnected(Peripheral, Error?, isReconnecting: Bool, retryDelay: TimeInterval?)
         case failedToConnect(Peripheral, Error?, retryDelay: TimeInterval?)
         case services(Peripheral, Token, Error?)
@@ -57,6 +58,7 @@ final class BLETransportDriver<Central: BLECentralTransport> {
     var admitRequest: ((Peripheral) -> Bool)?
     private var lastDisconnectTimestamp: TimeInterval?
     private var intentionalDisconnectDelivered = false
+    private var setupCancellationPending: (peripheral: Peripheral, retiredToken: Token)?
 
     init(central: Central, owner: BLEConnectionOwner) {
         self.central = central
@@ -65,8 +67,14 @@ final class BLETransportDriver<Central: BLECentralTransport> {
 
     @discardableResult
     func request(_ peripheral: Peripheral, startDelay: TimeInterval = 0) -> Bool {
+        submitRequest(peripheral, startDelay: startDelay, cancelledLocalLink: false)
+    }
+
+    private func submitRequest(_ peripheral: Peripheral, startDelay: TimeInterval,
+                               cancelledLocalLink: Bool) -> Bool {
         guard central.poweredOn, admitRequest?(peripheral) ?? true else { return false }
-        return owner.request(peripheral.identifier, link: peripheral.linkState, startDelay: startDelay) { request in
+        return owner.request(peripheral.identifier, link: cancelledLocalLink ? .disconnected : peripheral.linkState,
+                             startDelay: startDelay) { request in
             if self.peripheral !== peripheral { lastDisconnectTimestamp = nil }
             self.peripheral = peripheral
             intentionalDisconnectDelivered = false
@@ -90,12 +98,12 @@ final class BLETransportDriver<Central: BLECentralTransport> {
         for candidate in candidates where candidate !== selected { central.cancel(candidate) }
         peripheral = selected
         if selected.linkState == .disconnecting {
-            guard let token = owner.awaitRestoredDisconnect(selected.identifier) else { return nil }
+            guard let token = owner.adoptRestoredTeardown(selected.identifier) else { return nil }
             intentionalDisconnectDelivered = false
             willSubmit?(selected, token)
-            // This is idempotent teardown. The generation above admits its eventual native
-            // callback, which leaves a standing request before returning if still authorized.
-            central.cancel(selected)
+            // Adopt and fence the restored teardown, then leave the standing request now.
+            // A missing cancellation callback cannot consume the only restored wake.
+            _ = expireSetup(on: selected, token: token)
         } else if selected.linkState == .connected {
             guard let token = owner.attachRestored(selected.identifier) else { return nil }
             intentionalDisconnectDelivered = false
@@ -132,7 +140,7 @@ final class BLETransportDriver<Central: BLECentralTransport> {
         if let peripheral { central.cancel(peripheral) }
     }
 
-    func radioUnavailable() { owner.radioUnavailable() }
+    func radioUnavailable() { setupCancellationPending = nil; owner.radioUnavailable() }
 
     @discardableResult
     func connected(_ peripheral: Peripheral, originatingToken: Token? = nil) -> Bool {
@@ -142,6 +150,7 @@ final class BLETransportDriver<Central: BLECentralTransport> {
               originatingToken == nil || originatingToken == owner.token,
               owner.connected(peripheral.identifier), let token = owner.token else { return false }
         intentionalDisconnectDelivered = false
+        setupCancellationPending = nil
         onEvent?(.connected(peripheral, token))
         return true
     }
@@ -149,8 +158,11 @@ final class BLETransportDriver<Central: BLECentralTransport> {
     @discardableResult
     func disconnected(_ peripheral: Peripheral, error: Error? = nil, timestamp: TimeInterval? = nil,
                       isReconnecting: Bool, originatingToken: Token? = nil) -> Bool {
+        let cancelledSetup = setupCancellationPending.map {
+            $0.peripheral === peripheral && (originatingToken == nil || originatingToken == $0.retiredToken)
+        } ?? false
         guard peripheral === self.peripheral, peripheral.linkState != .connected,
-              originatingToken == nil || originatingToken == owner.token else { return false }
+              originatingToken == nil || originatingToken == owner.token || cancelledSetup else { return false }
         // On supported systems the modern callback is authoritative about automatic
         // reconnect. A duplicate legacy callback has no timestamp or reconnect flag
         // and must not replace an OS-owned reconnect with a manual connection.
@@ -160,10 +172,17 @@ final class BLETransportDriver<Central: BLECentralTransport> {
             lastDisconnectTimestamp = timestamp
         }
         if owner.intentionallyStopped {
+            setupCancellationPending = nil
             guard !intentionalDisconnectDelivered else { return false }
             intentionalDisconnectDelivered = true
             onEvent?(.disconnected(peripheral, error, isReconnecting: false, retryDelay: nil))
             return true
+        }
+        if cancelledSetup {
+            // cancelPeripheralConnection is nonblocking. Its eventual callback acknowledges
+            // the old local cancellation; it must not consume the replacement standing request.
+            setupCancellationPending = nil
+            return false
         }
         guard owner.token?.peripheralID == peripheral.identifier,
               owner.phase != .bluetoothUnavailable else { return false }
@@ -189,7 +208,19 @@ final class BLETransportDriver<Central: BLECentralTransport> {
 
     func recover(stage: String, on peripheral: Peripheral, token: Token, retry: () -> Void) {
         guard accepts(peripheral, token: token) else { return }
-        owner.recover(stage: stage, retry: retry) { central.cancel(peripheral) }
+        owner.recover(stage: stage, retry: retry) { _ = expireSetup(on: peripheral, token: token) }
+    }
+
+    @discardableResult
+    func expireSetup(on peripheral: Peripheral, token: Token) -> Bool {
+        guard peripheral === self.peripheral, owner.cancelSetup(token) else { return false }
+        setupCancellationPending = (peripheral, token)
+        central.cancel(peripheral)
+        onEvent?(.setupExpired(peripheral))
+        // Apple defines a cancelled local link as effectively disconnected even while the
+        // physical link/state is still disconnecting. One delayed request belongs to the OS;
+        // no app timer is needed, and repeated assertion denial cannot create a tight loop.
+        return submitRequest(peripheral, startDelay: 30, cancelledLocalLink: true)
     }
 
     func accepts(_ peripheral: Peripheral, token: Token) -> Bool {

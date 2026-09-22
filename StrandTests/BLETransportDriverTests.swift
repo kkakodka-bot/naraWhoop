@@ -33,6 +33,7 @@ final class BLETransportDriverTests: XCTestCase {
         var connected: [Peripheral] = []
         var requests: [(Peripheral, BLEConnectionOwner.Request)] = []
         var cancelled: [Peripheral] = []
+        var onCancel: ((Peripheral) -> Void)?
         var effects: [String] = []
         func retrieve(_ identifiers: [UUID]) -> [Peripheral] {
             effects.append("retrieve")
@@ -48,7 +49,7 @@ final class BLETransportDriverTests: XCTestCase {
             effects.append("connect")
             requests.append((peripheral, request))
         }
-        func cancel(_ peripheral: Peripheral) { cancelled.append(peripheral) }
+        func cancel(_ peripheral: Peripheral) { cancelled.append(peripheral); onCancel?(peripheral) }
     }
 
     private typealias Driver = BLETransportDriver<Central>
@@ -265,24 +266,24 @@ final class BLETransportDriverTests: XCTestCase {
         }
     }
 
-    func testDisconnectingRestorationCallbackCreatesStandingRequestWithoutManualRetry() {
+    func testDisconnectingRestorationCreatesStandingRequestBeforeAnyCallback() {
         let central = Central(), owner = BLEConnectionOwner(), peripheral = Peripheral()
         let driver = Driver(central: central, owner: owner)
         peripheral.linkState = .disconnecting
         XCTAssertTrue(driver.restore([peripheral], registeredID: peripheral.identifier, accountApproved: true) === peripheral)
-        XCTAssertEqual(owner.phase, .reconnecting)
+        XCTAssertEqual(owner.phase, .pendingConnection)
         let waiting = owner.token!
         XCTAssertFalse(owner.accepts(waiting))
         XCTAssertEqual(central.cancelled.count, 1)
-        XCTAssertTrue(central.requests.isEmpty)
+        XCTAssertEqual(central.requests.count, 1)
         XCTAssertNil(driver.restore([peripheral], registeredID: peripheral.identifier, accountApproved: true))
         XCTAssertEqual(central.cancelled.count, 1)
         peripheral.linkState = .disconnected
-        XCTAssertTrue(driver.disconnected(peripheral, timestamp: 1, isReconnecting: false))
+        XCTAssertFalse(driver.disconnected(peripheral, timestamp: 1, isReconnecting: false))
         XCTAssertEqual(central.requests.count, 1)
         XCTAssertEqual(owner.phase, .pendingConnection)
-        XCTAssertNotEqual(waiting, central.requests[0].1.token)
-        XCTAssertEqual(central.requests[0].1.startDelay, 0)
+        XCTAssertEqual(waiting, central.requests[0].1.token)
+        XCTAssertEqual(central.requests[0].1.startDelay, 30)
     }
 
     func testIntentionalShutdownDuringRestoredDisconnectNeverReconnects() {
@@ -293,7 +294,7 @@ final class BLETransportDriverTests: XCTestCase {
         driver.stop()
         peripheral.linkState = .disconnected
         XCTAssertTrue(driver.disconnected(peripheral, timestamp: 1, isReconnecting: true))
-        XCTAssertTrue(central.requests.isEmpty)
+        XCTAssertEqual(central.requests.count, 1)
         XCTAssertEqual(owner.phase, .intentionallyDisconnected)
     }
 
@@ -302,9 +303,9 @@ final class BLETransportDriverTests: XCTestCase {
         let driver = Driver(central: central, owner: owner)
         var accountActive = true
         driver.admitRequest = { _ in accountActive }
+        central.onCancel = { _ in accountActive = false }
         peripheral.linkState = .disconnecting
         driver.restore([peripheral], registeredID: peripheral.identifier, accountApproved: true)
-        accountActive = false
         peripheral.linkState = .disconnected
         driver.disconnected(peripheral, timestamp: 1, isReconnecting: false)
         XCTAssertTrue(central.requests.isEmpty)
@@ -395,7 +396,8 @@ final class BLETransportDriverTests: XCTestCase {
         for _ in 0..<10 { driver.discoveredServices(peripheral, token: token, error: NSError(domain: "synthetic", code: 1)) }
         XCTAssertEqual(peripheral.effects, ["services:a", "services:a"])
         XCTAssertEqual(central.cancelled.count, 1)
-        XCTAssertEqual(owner.phase, .failed)
+        XCTAssertEqual(owner.phase, .pendingConnection)
+        XCTAssertEqual(central.requests.count, 2)
         peripheral.linkState = .disconnected
         driver.disconnected(peripheral, isReconnecting: false)
         XCTAssertEqual(central.requests.count, 2)
@@ -419,6 +421,8 @@ final class BLETransportDriverTests: XCTestCase {
         }
         XCTAssertEqual(peripheral.effects, ["notify:true", "notify:true"])
         XCTAssertEqual(central.cancelled.count, 1)
+        XCTAssertEqual(owner.phase, .pendingConnection)
+        XCTAssertEqual(central.requests.count, 2)
     }
 
     func testCharacteristicDiscoveryRetriesAreBoundedForCurrentService() {
@@ -439,7 +443,8 @@ final class BLETransportDriverTests: XCTestCase {
         }
         XCTAssertEqual(peripheral.effects, ["characteristics", "characteristics"])
         XCTAssertEqual(central.cancelled.count, 1)
-        XCTAssertEqual(owner.phase, .failed)
+        XCTAssertEqual(owner.phase, .pendingConnection)
+        XCTAssertEqual(central.requests.count, 2)
     }
 
     func testHistoryWriteEffectRequiresOwnerReadiness() {
@@ -567,5 +572,116 @@ final class BLETransportDriverTests: XCTestCase {
         replacement.linkState = .connected
         XCTAssertTrue(driver.connected(replacement))
         XCTAssertTrue(driver.accepts(replacement, token: owner.token!))
+    }
+
+    func testAbsentSetupCallbacksExpireToStandingRequestAndFenceAllOldGATT() {
+        for stage in ["services", "characteristics", "notification"] {
+            let central = Central(), owner = BLEConnectionOwner(), peripheral = Peripheral()
+            let driver = Driver(central: central, owner: owner)
+            driver.request(peripheral)
+            peripheral.linkState = .connected
+            driver.connected(peripheral)
+            let token = owner.token!
+            var deadline: (() -> Void)?
+            let lease = BLEConnectionSetupLease(begin: { _ in 1 }, end: { _ in },
+                schedule: { _, callback in deadline = callback; return {} }, failed: { _ in
+                    XCTAssertTrue(driver.expireSetup(on: peripheral, token: token))
+                })
+            XCTAssertTrue(driver.discoverServices(["service"], on: peripheral, token: token))
+            if stage != "services" {
+                driver.discoveredServices(peripheral, token: token, error: nil)
+                XCTAssertTrue(driver.discoverCharacteristics(nil, for: peripheral.service, on: peripheral, token: token))
+            }
+            if stage == "notification" {
+                driver.discoveredCharacteristics(peripheral, token: token, service: peripheral.service, error: nil)
+                owner.subscribing()
+                XCTAssertTrue(driver.setNotify(true, for: peripheral.characteristic, on: peripheral, token: token))
+            }
+            deadline?()
+            XCTAssertTrue(lease.isFinished)
+            XCTAssertEqual(central.cancelled.count, 1)
+            XCTAssertEqual(central.requests.count, 2)
+            XCTAssertEqual(central.requests.last?.1.startDelay, 30)
+            XCTAssertEqual(owner.phase, .pendingConnection)
+            XCTAssertFalse(driver.accepts(peripheral, token: token))
+            XCTAssertFalse(driver.write(Data([1]), for: peripheral.characteristic, on: peripheral,
+                token: token, withResponse: true))
+            var delivered = 0
+            driver.onEvent = { _ in delivered += 1 }
+            driver.discoveredServices(peripheral, token: token, error: nil)
+            driver.discoveredCharacteristics(peripheral, token: token, service: peripheral.service, error: nil)
+            driver.notificationChanged(peripheral, token: token, characteristic: peripheral.characteristic,
+                notifying: true, error: nil)
+            XCTAssertEqual(delivered, 0)
+        }
+    }
+
+    func testSetupCancellationCallbackCannotConsumeReplacementRequest() {
+        for synchronous in [true, false] {
+            let central = Central(), owner = BLEConnectionOwner(), peripheral = Peripheral()
+            let driver = Driver(central: central, owner: owner)
+            driver.request(peripheral); peripheral.linkState = .connected; driver.connected(peripheral)
+            let token = owner.token!
+            if synchronous {
+                central.onCancel = { p in
+                    p.linkState = .disconnecting
+                    XCTAssertFalse(driver.disconnected(p, timestamp: 10, isReconnecting: false))
+                }
+            }
+            XCTAssertTrue(driver.expireSetup(on: peripheral, token: token))
+            let replacement = owner.token
+            if !synchronous {
+                peripheral.linkState = .disconnecting
+                XCTAssertFalse(driver.disconnected(peripheral, timestamp: 10, isReconnecting: false))
+            }
+            XCTAssertEqual(owner.token, replacement)
+            XCTAssertEqual(central.requests.count, 2)
+            peripheral.linkState = .connected
+            XCTAssertTrue(driver.connected(peripheral))
+            XCTAssertFalse(driver.disconnected(peripheral, timestamp: 10, isReconnecting: false))
+            XCTAssertEqual(owner.token, replacement)
+            XCTAssertEqual(owner.phase, .discovering)
+        }
+    }
+
+    func testAccountShutdownDuringSetupExpirationPreventsStandingRequest() {
+        let central = Central(), owner = BLEConnectionOwner(), peripheral = Peripheral()
+        let driver = Driver(central: central, owner: owner)
+        driver.request(peripheral); peripheral.linkState = .connected; driver.connected(peripheral)
+        let token = owner.token!
+        driver.onEvent = { event in if case .setupExpired = event { owner.stop() } }
+        XCTAssertFalse(driver.expireSetup(on: peripheral, token: token))
+        XCTAssertEqual(central.requests.count, 1)
+        peripheral.linkState = .disconnected
+        XCTAssertTrue(driver.disconnected(peripheral, timestamp: 1, isReconnecting: false))
+        XCTAssertEqual(owner.phase, .intentionallyDisconnected)
+        XCTAssertFalse(driver.expireSetup(on: peripheral, token: token))
+    }
+
+    func testReadyOrStaleSetupDeadlineCannotCancelCurrentConnection() {
+        let central = Central(), owner = BLEConnectionOwner(), peripheral = Peripheral()
+        let driver = Driver(central: central, owner: owner)
+        let token = makeReady(driver, peripheral)
+        XCTAssertFalse(driver.expireSetup(on: peripheral, token: token))
+        XCTAssertTrue(central.cancelled.isEmpty)
+        XCTAssertEqual(owner.phase, .ready)
+    }
+
+    func testNotificationLossAfterReadinessGetsFiniteRepairAndBlocksHistory() {
+        let central = Central(), owner = BLEConnectionOwner(), peripheral = Peripheral()
+        let driver = Driver(central: central, owner: owner)
+        let token = makeReady(driver, peripheral)
+        owner.notificationsLost()
+        XCTAssertTrue(driver.setNotify(true, for: peripheral.characteristic, on: peripheral, token: token))
+        XCTAssertFalse(driver.write(Data([22]), for: peripheral.characteristic, on: peripheral,
+            token: token, withResponse: true, requiresHistoryReady: true))
+        var deadline: (() -> Void)?
+        let lease = BLEConnectionSetupLease(begin: { _ in 1 }, end: { _ in },
+            schedule: { _, callback in deadline = callback; return {} },
+            failed: { _ in _ = driver.expireSetup(on: peripheral, token: token) })
+        deadline?()
+        XCTAssertTrue(lease.isFinished)
+        XCTAssertEqual(owner.phase, .pendingConnection)
+        XCTAssertEqual(central.requests.count, 2)
     }
 }

@@ -75,6 +75,19 @@ connection policy. Create one `CoreBluetoothCentralTransport(central)` and one
   helper request path. Clear it when resetting the connection. While waiting for a
   cached subscription's OFF callback, an ON cannot authorize readiness. A duplicate
   OFF during pending ON also leaves the request pending without a second enable.
+- Begin `BLEConnectionSetupLease` before normal/restored connected discovery. Its
+  20-second deadline and finite UIKit assertion end at required readiness or teardown.
+  Assertion expiration, background denial, and missing setup callbacks fence the
+  generation before releasing the assertion. Denial while foreground permits setup
+  until the deadline, but entering background without an assertion ends that attempt.
+  macOS retains the deadline without claiming a UIKit assertion.
+- `expireSetup` cancels the old local connection and immediately submits one OS-owned
+  request with a 30-second start delay. Exhausted GATT retries and restored disconnecting
+  links use the same effect. The eventual old cancellation callback cannot consume that
+  request. Apple defines the local link as effectively disconnected after cancellation;
+  actual radio scheduling and delivery order still require physical acceptance.
+  The known WHOOP 5 suppressed-hello fallback explicitly ends setup with its existing
+  limited-session hint, without authorizing history.
 
 `CoreBluetoothCentralTransport.wrap` caches exact native-object wrappers; callers must
 use it rather than constructing a second wrapper. The driver verifies object identity
@@ -100,3 +113,7 @@ These are deterministic transport tests, not full `BLEManager` app execution or
 physical scheduling evidence. Required notification profiles, locked operation,
 genuine restoration, timing, energy, and firmware behavior require the separate app
 and physical acceptance suites. No physical measurements are claimed here.
+The finite setup deadline is not a guarantee that iOS schedules the app within 20
+wall-clock seconds. The assertion may expire earlier, and no repeating app timer owns
+reconnection. See Apple's [cancellation contract](https://developer.apple.com/documentation/corebluetooth/cbcentralmanager/cancelperipheralconnection(_:))
+and [finite background execution guidance](https://developer.apple.com/documentation/uikit/extending-your-app-s-background-execution-time).

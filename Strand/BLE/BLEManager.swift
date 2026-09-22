@@ -952,6 +952,10 @@ public final class BLEManager: NSObject, ObservableObject {
     private var pendingReadyTrigger: BackfillTrigger?
     private var readinessTimeout: DispatchWorkItem?
     private var readinessGeneration = UUID()
+    private var connectionSetupLease: BLEConnectionSetupLease?
+    #if DEBUG
+    var connectionSetupLeaseFactoryForTesting: ((@escaping (BLEConnectionSetupLease.Failure) -> Void) -> BLEConnectionSetupLease)?
+    #endif
     private var requiredHistoryNotifyUUIDs: [CBUUID] {
         selectedModel.deviceFamily == .whoop5
             ? Self.whoop5NotifyChars : [Self.cmdNotifyChar, Self.eventNotifyChar, Self.dataNotifyChar]
@@ -965,8 +969,19 @@ public final class BLEManager: NSObject, ObservableObject {
 
     private func publishHistoryReadiness() {
         state.historyReady = historyTransportReady
-        guard state.historyReady else { return }
+        guard state.historyReady else {
+            // A required channel lost after initial readiness is another finite setup
+            // opportunity. Its repair must not depend on a later foreground cadence tick.
+            if connectionOwner.phase == .ready,
+               !requiredHistoryNotifyUUIDs.allSatisfy({ confirmedNotifyUUIDs.contains($0) }),
+               let peripheral, peripheral.state == .connected {
+                connectionOwner.notificationsLost()
+                _ = startConnectionSetup(on: peripheral)
+            }
+            return
+        }
         connectionOwner.ready()
+        finishConnectionSetup()
         if let trigger = pendingReadyTrigger {
             pendingReadyTrigger = nil
             readinessTimeout?.cancel()
@@ -1140,7 +1155,12 @@ public final class BLEManager: NSObject, ObservableObject {
                 self.state.connected = true
                 self.connectedPeripheralUUID = candidate.identifier.uuidString
                 self.restoreNeedsResubscribe = true
-                self.discoverPrimaryServices(on: candidate.native)
+                if self.startConnectionSetup(on: candidate.native) {
+                    self.discoverPrimaryServices(on: candidate.native)
+                }
+            case .setupExpired(let candidate):
+                self.handleDisconnect(central, peripheral: candidate.native, isReconnecting: true,
+                                      error: nil, logicalDisconnect: true)
             case .disconnected(let candidate, let error, let reconnecting, _):
                 self.handleDisconnect(central, peripheral: candidate.native, isReconnecting: reconnecting, error: error)
             case .failedToConnect(let candidate, let error, _):
@@ -1165,6 +1185,35 @@ public final class BLEManager: NSObject, ObservableObject {
         guard let token = connectionOwner.token else { return }
         let driver = transport(for: central)
         driver.read(characteristic, on: driver.central.wrap(p), token: token)
+    }
+
+    private func finishConnectionSetup() {
+        connectionSetupLease?.finish()
+        connectionSetupLease = nil
+    }
+
+    private func startConnectionSetup(on p: CBPeripheral) -> Bool {
+        guard !accountShutdown, !intentionalDisconnect, p === peripheral,
+              let token = connectionOwner.token, connectionOwner.accepts(token) else { return false }
+        finishConnectionSetup()
+        let started = ProcessInfo.processInfo.systemUptime
+        let expired: (BLEConnectionSetupLease.Failure) -> Void = { [weak self, weak p] reason in
+            guard let self, let p, self.connectionOwner.accepts(token), !self.accountShutdown,
+                  !self.intentionalDisconnect else { return }
+            self.log("gatt_setup_expired reason=\(reason.rawValue) elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))")
+            self.state.lastSyncError = "Bluetooth subscriptions are taking longer than expected. Connection recovery is pending."
+            let driver = self.transport(for: self.central)
+            driver.expireSetup(on: driver.central.wrap(p), token: token)
+        }
+        let lease: BLEConnectionSetupLease
+        #if DEBUG
+        lease = connectionSetupLeaseFactoryForTesting?(expired) ?? BLEConnectionSetupLease.acquire(failed: expired)
+        #else
+        lease = BLEConnectionSetupLease.acquire(failed: expired)
+        #endif
+        guard connectionOwner.accepts(token), !lease.isFinished else { lease.finish(); return false }
+        connectionSetupLease = lease
+        return true
     }
 
     @discardableResult
@@ -1723,6 +1772,7 @@ public final class BLEManager: NSObject, ObservableObject {
         realtimeRawIntent.endConnection(clearIntent: true)
         captureMaintenanceTask?.cancel()
         ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false)
+        finishConnectionSetup()
         connectionOwner.stop()
         restorationTask?.cancel()
         restorationGeneration = UUID()
@@ -2283,6 +2333,7 @@ public final class BLEManager: NSObject, ObservableObject {
         realtimeIntent.endConnection(clearIntent: true)
         realtimeRawIntent.endConnection(clearIntent: true)
         intentionalDisconnect = true
+        finishConnectionSetup()
         connectionOwner.stop()
         restorationTask?.cancel()
         restorationGeneration = UUID()
@@ -2323,6 +2374,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // strap" and that is the only place its identifier can still be read.
         let releasedUUID = peripheralId ?? peripheral?.identifier.uuidString
         intentionalDisconnect = true            // defuses the disconnect→3s-reconnect loop's guard
+        finishConnectionSetup()
         connectionOwner.stop()
         restorationTask?.cancel()
         restorationGeneration = UUID()
@@ -6197,18 +6249,17 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     private func recoverGATT(_ stage: String, on p: CBPeripheral, retry: () -> Void) {
-        guard p === peripheral, !accountShutdown, !intentionalDisconnect else { return }
+        guard p === peripheral, !accountShutdown, !intentionalDisconnect,
+              let token = connectionOwner.token else { return }
         state.historyReady = false
         let elapsed = connSessionStartedAt.map { max(0, Int(Date().timeIntervalSince($0) * 1000)) } ?? 0
         log("gatt_recovery stage=\(stage) elapsed_ms=\(elapsed)")
-        connectionOwner.recover(stage: stage, retry: retry) {
-            invalidateBackfillDelivery()
-            notificationController.reset()
-            central.cancelPeripheralConnection(p)
-        }
+        let driver = transport(for: central)
+        driver.recover(stage: stage, on: driver.central.wrap(p), token: token, retry: retry)
     }
 
     private func resetCharacteristics() {
+        finishConnectionSetup()
         notificationController.reset()
         cmdNotifyConfirmedActive = false
         connectSettledSignaled = false
@@ -7180,7 +7231,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             state.append(log: "connect up gen=\(connectGeneration) "
                 + "latencyMs=\(latencyMs.map(String.init) ?? "?") uptimeStart=\(nowUnix)", domain: .connection)
         }
-        discoverPrimaryServices(on: peripheral)
+        if startConnectionSetup(on: peripheral) { discoverPrimaryServices(on: peripheral) }
     }
 
     /// Connection test mode: a STABLE, integer-token reason for a BLE error, for parity with Android's
@@ -7257,8 +7308,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     }
 
     private func handleDisconnect(_ central: CBCentralManager, peripheral: CBPeripheral,
-                                  isReconnecting: Bool, error: Error?) {
-        guard !accountShutdown, peripheral === self.peripheral, peripheral.state != .connected else { return }
+                                  isReconnecting: Bool, error: Error?, logicalDisconnect: Bool = false) {
+        guard !accountShutdown, peripheral === self.peripheral,
+              logicalDisconnect || peripheral.state != .connected else { return }
+        finishConnectionSetup()
         readinessGeneration = UUID()
         notificationController.reset()
         readinessTimeout?.cancel()
@@ -7938,6 +7991,9 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 helloRetryRequested = false
                 let helloSuppressed = HelloSuppressionStore.suppressed(peripheral.identifier.uuidString)
                 if !shouldSendClientHello(suppressedForDevice: helloSuppressed, userInitiated: helloUserAsked) {
+                    // A deliberate limited live-HR session is a resolved setup outcome, not an
+                    // absent callback. History remains unavailable and the existing hint explains why.
+                    finishConnectionSetup()
                     // #1635: says what happened and what has actually worked, not "try again". This strap
                     // refuses the handshake, so a retry is the one thing that cannot help - and suggesting
                     // it invites the hammering this suppression exists to stop. Mirrors the user-facing
