@@ -283,14 +283,12 @@ export function makeMemRest() {
         const windows = rowsFor('noop_signal_windows');
         const start = Math.floor(Date.parse(row.start_at) / 1000);
         const end = Math.max(start + 1, Math.ceil(Date.parse(row.end_at) / 1000));
-        const expected = ['ppgWaveformSample', 'v18AuxSample', 'rawImuSession'].includes(row.object_kind) ? end - start : null;
         const window = {
           user_id: row.user_id, device_id: row.device_id, stream: row.object_kind,
           hour_start: Math.floor(start / 3600) * 3600, start_ts: start, end_ts: end,
           object_id: row.id, object_key: receipt.objectKey,
-          expected_records: expected, received_records: row.sample_count ?? 0,
-          missing_records: expected == null ? null : Math.max(0, expected - (row.sample_count ?? 0)),
-          coverage: expected == null ? null : Math.min(1, (row.sample_count ?? 0) / expected),
+          expected_records: null, received_records: row.sample_count ?? 0,
+          missing_records: null, coverage: null,
           interpolated_records: 0, compressed_bytes: args.p_compressed_bytes, uncompressed_bytes: args.p_uncompressed_bytes,
         };
         const index = windows.findIndex((r) => ['user_id', 'device_id', 'stream', 'hour_start', 'object_id']
