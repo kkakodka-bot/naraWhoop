@@ -50,7 +50,7 @@ const PROTOCOL_1_1_ONLY_APPEND = new Set([
   'stepSample', 'sleepStateSample', 'ppgHrSample', 'appleStepHour', 'ouraRaw', 'coachMessage',
 ]);
 const PROTOCOL_1_1_ONLY_REPLACE = new Set([
-  'metricSeries', 'appleDaily', 'scoreInputProvenance', 'labMarker', 'liveSession',
+  'metricSeries', 'appleDaily', 'scoreInputProvenance', 'labMarker', 'liveSession', 'eventLabel',
 ]);
 
 export const PROTOCOL_1_0_STREAMS = new Set([
