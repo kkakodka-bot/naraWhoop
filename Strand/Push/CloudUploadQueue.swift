@@ -166,6 +166,10 @@ actor CloudUploadQueue {
         guard resourceBudget.permits(.bulk) else { throw CloudUploadError.retryScheduled }
     }
 
+    /// A synchronous preparation hint avoids introducing a new suspension before preference
+    /// validation. The actor still rechecks the same budget at reservation and transfer boundaries.
+    nonisolated func permitsBulkPreparation() -> Bool { resourceBudget.permits(.bulk) }
+
     private func verifyPublished(_ saved: CloudPushPreparedSelection, state: CloudPreparedContinuation) throws {
         func verify(_ id: String, _ bytes: Data) throws {
             guard let job = jobs[id], job.preparedSelectionID == saved.id, job.owner == saved.owner,

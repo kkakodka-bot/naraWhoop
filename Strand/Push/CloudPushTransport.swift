@@ -286,7 +286,7 @@ struct CloudPushTransport: PushTransport {
     func prepareSelection(_ selection: PushPreparedSelection, progressVersion: String) async throws {
         requirePreparedSelections()
         let (queue, captured, state) = try durableQueue()
-        try await queue.checkBulkAdmission(captured: captured)
+        guard queue.permitsBulkPreparation() else { throw CloudUploadError.retryScheduled }
         let value = try CloudPushPreparedSelection(context: captured, endpoint: endpoint.url,
             receiverStateID: state, progressVersion: progressVersion, selection: selection,
             inlineGzip: selection.restoredInlineBatches().map { try Self.gzip($0.body) })
