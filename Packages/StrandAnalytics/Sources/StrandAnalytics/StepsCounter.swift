@@ -44,6 +44,8 @@ public enum StepsCounter {
     /// window is legacy-unclassed, all valid increments retain the historical counter-only fallback. Sorts
     /// by `ts` internally and returns `nil` for fewer than two samples or no retained movement.
     public static func stepsInWindow(_ samples: [StepSample]) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.StepsCounter.stepsInWindow") else { return nil }
+        PhoneComputeRuntime.entered("swift.StepsCounter.stepsInWindow")
         let sorted = samples.sorted { $0.ts < $1.ts }
         if sorted.count < 2 { return nil }
         let hasActivityClasses = hasActivityClasses(sorted)

@@ -177,6 +177,7 @@ public enum StepsEstimateEngine {
     /// days (same filter the fit uses) and report `.calibrated` once `minCalibrationDays` are met, else
     /// `.needsMoreDays`. Mirror of the Kotlin `status(...)`.
     public static func status(_ points: [CalibrationPoint], manualOverride: Double? = nil) -> CalibrationStatus {
+        PhoneComputeRuntime.entered("swift.StepsEstimateEngine.status")
         let usableDays = points.filter(isUsableCalibrationPoint).count
         if let k = manualOverride, k > 0 {
             return .manual(coefficient: k, sampleDays: usableDays)
@@ -193,6 +194,7 @@ public enum StepsEstimateEngine {
     /// between consecutive samples). This is movement VOLUME over the day, the same proxy the sleep stager
     /// uses for stillness, integrated. Sparse-but-monotone-with-activity, so it calibrates cleanly to steps.
     public static func dayMotionIntensity(_ grav: [GravitySample]) -> Double {
+        PhoneComputeRuntime.entered("swift.StepsEstimateEngine.dayMotionIntensity")
         guard grav.count > 1 else { return 0 }
         var total = 0.0
         var prev = grav[0]
@@ -214,6 +216,8 @@ public enum StepsEstimateEngine {
     /// volume. Returns nil when there aren't enough usable days AND no manual override is supplied. A non-nil
     /// `manualOverride` always wins (confidence 1.0) — for users with no phone step data.
     public static func calibrate(_ points: [CalibrationPoint], manualOverride: Double? = nil) -> Calibration? {
+        guard PhoneComputeRuntime.permitsLocal("swift.StepsEstimateEngine.calibrate") else { return nil }
+        PhoneComputeRuntime.entered("swift.StepsEstimateEngine.calibrate")
         let usable = points.filter(isUsableCalibrationPoint)
         if let k = manualOverride, k > 0 {
             return Calibration(coefficient: k, sampleDays: usable.count, confidence: 1.0, manual: true)
@@ -242,6 +246,8 @@ public enum StepsEstimateEngine {
     /// Estimated steps for a day from its motion volume and the personal calibration. nil below
     /// `minMotionForFit` (too little movement to say anything) — the UI then shows "—", never a fake 0.
     public static func estimate(motion: Double, calibration: Calibration) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.StepsEstimateEngine.estimate") else { return nil }
+        PhoneComputeRuntime.entered("swift.StepsEstimateEngine.estimate")
         guard motion >= minMotionForFit, calibration.coefficient > 0 else { return nil }
         let raw = motion * calibration.coefficient
         return Int(raw.rounded()).clamped(0, maxDailySteps)

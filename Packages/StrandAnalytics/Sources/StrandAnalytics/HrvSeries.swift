@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 /// Context-specific summaries and past-only comparison. No baseline clamps a measured value.
@@ -49,6 +50,8 @@ public enum HrvSeries {
     public static func windows(start: Int, end: Int, observations: [PhysiologyQuality.IntervalObservation],
                                context: [PhysiologyQuality.ContextEpoch] = [], policy: HrvWindow.Policy = .init(),
                                inputRevision: String = "unversioned", computationMode: String = "retrospective") -> [HrvWindow.Result] {
+        guard PhoneComputeRuntime.permitsLocal("swift.HrvSeries.windows") else { return [] }
+        PhoneComputeRuntime.entered("swift.HrvSeries.windows")
         guard end > start else { return [] }
         let starts = Array(stride(from: HrvWindow.alignedStart(start), to: end, by: HrvWindow.seconds))
         let lo = Double(starts[0]), hi = Double(starts.last!) + 300
@@ -76,6 +79,7 @@ public enum HrvSeries {
     public static func selectedWindow(start: Int, observations: [PhysiologyQuality.IntervalObservation],
                                      context: [PhysiologyQuality.ContextEpoch] = [], policy: HrvWindow.Policy = .init(),
                                      inputRevision: String = "unversioned", computationMode: String = "retrospective") -> HrvWindow.Result {
+        PhoneComputeRuntime.entered("swift.HrvSeries.selectedWindow")
         func measure(_ rows: [PhysiologyQuality.IntervalObservation]) -> HrvWindow.Result {
             HrvWindow.measure(start: start, observations: rows, context: context, policy: policy,
                 inputRevision: inputRevision, computationMode: computationMode)
@@ -116,6 +120,7 @@ public enum HrvSeries {
     }
     public static func baseline(current: HrvWindow.Result, history: [HrvWindow.Result],
                                 windowDays: Int = 28, minimumSamples: Int = 20) -> Baseline {
+        PhoneComputeRuntime.entered("swift.HrvSeries.baseline")
         // A changed validity/context result must invalidate its older eligible counterpart first.
         let candidates = unambiguous(history.filter {
             $0.end <= current.start && $0.start >= current.start - max(0, windowDays) * 86400 &&
@@ -166,6 +171,7 @@ public enum HrvSeries {
     /// Arithmetic mean is primary; representativeness is measured across three equal episode spans.
     public static func summarize(_ windows: [HrvWindow.Result], start: Int, end: Int,
                                  context: String = "sleep", policy: SummaryPolicy = .init()) -> Summary {
+        PhoneComputeRuntime.entered("swift.HrvSeries.summarize")
         let overlapping = windows.filter { $0.start < end && $0.end > start }
         let overlappingCount = Set(overlapping.map(\.start)).count
         let inEpisode = unambiguous(overlapping.filter { $0.start >= start && $0.end <= end })

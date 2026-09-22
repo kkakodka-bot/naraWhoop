@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // CyclePhaseEngine.swift — on-device menstrual-cycle PHASE AWARENESS from the nightly skin-temperature
@@ -135,7 +136,8 @@ public enum CyclePhaseEngine {
     public static func classify(_ nights: [Night],
                                 baselineUsable: Bool,
                                 loggedPeriodStarts: [String] = []) -> Result {
-        classifyInputs(nights, baselineUsable: baselineUsable, loggedPeriodStarts: loggedPeriodStarts,
+        PhoneComputeRuntime.entered("swift.CyclePhaseEngine.classify")
+        return classifyInputs(nights, baselineUsable: baselineUsable, loggedPeriodStarts: loggedPeriodStarts,
                        preserveUnknown: false)
     }
 
@@ -148,6 +150,7 @@ public enum CyclePhaseEngine {
     /// and admits features under the requested day's source/reset/context policy.
     public static func classifyCalendar(_ nights: [Night], baselineUsable: Bool, through: String,
                                         loggedPeriodStarts: [String] = []) throws -> Result {
+        PhoneComputeRuntime.entered("swift.CyclePhaseEngine.classifyCalendar")
         let end = try calendarDate(through)
         var byDay: [String: Night] = [:]
         for night in nights {
@@ -315,6 +318,8 @@ public enum CyclePhaseEngine {
     /// Weighted fused luteal index for one night. The HRV z is negated (a drop is luteal-ward). Weights
     /// are renormalised over only the signals that are present, so a temp-only night still scores.
     public static func fusedIndex(tempZ: Double?, rhrZ: Double?, hrvZ: Double?) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.CyclePhaseEngine.fusedIndex") else { return nil }
+        PhoneComputeRuntime.entered("swift.CyclePhaseEngine.fusedIndex")
         var weighted = 0.0
         var wSum = 0.0
         if let t = tempZ { weighted += wTemp * t; wSum += wTemp }
@@ -344,6 +349,7 @@ public enum CyclePhaseEngine {
     // MARK: - Small stats / day helpers (self-contained so the engine stays I/O-free and parity-clean)
 
     static func median(_ xs: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.CyclePhaseEngine.median")
         guard !xs.isEmpty else { return 0 }
         let s = xs.sorted()
         let n = s.count
@@ -352,6 +358,7 @@ public enum CyclePhaseEngine {
 
     /// Median absolute deviation about `center` — a robust spread estimate.
     static func medianAbsoluteDeviation(_ xs: [Double], center: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.CyclePhaseEngine.medianAbsoluteDeviation")
         guard !xs.isEmpty else { return 0 }
         return median(xs.map { abs($0 - center) })
     }

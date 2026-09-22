@@ -35,6 +35,8 @@ extension StepsEstimateEngine {
     /// `StepsEstimateEngineTrace.calibrationTrace`.
     public static func calibrationTrace(points: [CalibrationPoint],
                                         manualOverride: Double? = nil) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.StepsEstimateEngine+Trace.calibrationTrace") else { return [] }
+        PhoneComputeRuntime.entered("swift.StepsEstimateEngine+Trace.calibrationTrace")
         func r2(_ x: Double) -> Double { (x * 100.0).rounded() / 100.0 }
 
         var lines: [String] = []
@@ -87,6 +89,8 @@ extension StepsEstimateEngine {
                                        dayKey: String,
                                        tzOffsetSeconds: Int,
                                        ticksPerStep: Double) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.StepsEstimateEngine+Trace.rawCounterTrace") else { return [] }
+        PhoneComputeRuntime.entered("swift.StepsEstimateEngine+Trace.rawCounterTrace")
         // The SAME maxStepDelta gate AnalyticsEngine.analyzeDay uses for the daily steps total.
         let maxStepDelta = 512
 

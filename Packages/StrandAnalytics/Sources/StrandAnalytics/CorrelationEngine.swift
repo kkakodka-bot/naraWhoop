@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // CorrelationEngine.swift — relationships between two daily series.
@@ -54,6 +55,8 @@ public enum CorrelationEngine {
     /// Returns nil when fewer than 3 pairs, or when either variable has zero
     /// variance (r undefined).
     public static func pearson(_ xy: [(Double, Double)]) -> Correlation? {
+        guard PhoneComputeRuntime.permitsLocal("swift.CorrelationEngine.pearson") else { return nil }
+        PhoneComputeRuntime.entered("swift.CorrelationEngine.pearson")
         let n = xy.count
         guard n >= 3 else { return nil }
         let nD = Double(n)
@@ -114,6 +117,8 @@ public enum CorrelationEngine {
     public static func lagged(x: [(day: String, value: Double)],
                               y: [(day: String, value: Double)],
                               lagDays: Int) -> Correlation? {
+        guard PhoneComputeRuntime.permitsLocal("swift.CorrelationEngine.lagged") else { return nil }
+        PhoneComputeRuntime.entered("swift.CorrelationEngine.lagged")
         var mapY: [String: Double] = [:]
         for row in y { mapY[row.day] = row.value }
 
@@ -134,6 +139,7 @@ public enum CorrelationEngine {
     /// Two-sided p-value for H0: r = 0 via t = r·sqrt((n−2)/(1−r²)) and a normal
     /// approximation of the t tail. n ≤ 2 → 1.0 (no evidence); |r| = 1 → 0.0.
     static func pValue(r: Double, n: Int) -> Double {
+        PhoneComputeRuntime.entered("swift.CorrelationEngine.pValue")
         guard n > 2 else { return 1.0 }
         let oneMinusR2 = 1.0 - r * r
         if oneMinusR2 <= 0 { return 0.0 }  // |r| == 1
@@ -144,11 +150,13 @@ public enum CorrelationEngine {
 
     /// Standard-normal CDF Φ(z) using the A&S 7.1.26 erf approximation.
     static func normalCDF(_ z: Double) -> Double {
-        0.5 * (1.0 + erfApprox(z / 2.0.squareRoot()))
+        PhoneComputeRuntime.entered("swift.CorrelationEngine.normalCDF")
+        return 0.5 * (1.0 + erfApprox(z / 2.0.squareRoot()))
     }
 
     /// erf(x) — Abramowitz & Stegun 7.1.26, |error| ≤ 1.5e-7.
     static func erfApprox(_ x: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.CorrelationEngine.erfApprox")
         let sign = x < 0 ? -1.0 : 1.0
         let ax = abs(x)
         let t = 1.0 / (1.0 + 0.3275911 * ax)

@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // HRDownPacer.swift — the L2 "buzz-below-heart-rate" relaxation metronome. Give the heart a felt rhythm a
@@ -103,6 +104,7 @@ public enum HRDownPacer {
     /// (settled / timeout / invalidHR). Pure + monotone in the documented sense: for a given config a
     /// non-increasing HR trajectory yields non-increasing target tempos, so the cue only ever trails down.
     public static func next(currentHR: Double, elapsed: Double, config: Config = .default) -> Step {
+        PhoneComputeRuntime.entered("swift.HRDownPacer.next")
         // Implausible HR (caller should gate on the resting band; this is the last-ditch guard).
         guard currentHR.isFinite, currentHR > 0 else {
             return Step(intervalMs: nil, stop: true, targetBpm: nil, stopReason: .invalidHR)
@@ -132,6 +134,7 @@ public enum HRDownPacer {
     /// The Δ-below-HR for a given elapsed time: linear ramp `startDeltaBpm → maxDeltaBpm` over
     /// `deltaRampSeconds`, clamped to `maxDeltaBpm` after. Exposed for tests / the UI ramp readout.
     public static func rampedDelta(elapsed: Double, config: Config = .default) -> Double {
+        PhoneComputeRuntime.entered("swift.HRDownPacer.rampedDelta")
         guard config.deltaRampSeconds > 0 else { return config.maxDeltaBpm }
         let t = min(max(elapsed, 0), config.deltaRampSeconds) / config.deltaRampSeconds
         return config.startDeltaBpm + (config.maxDeltaBpm - config.startDeltaBpm) * t

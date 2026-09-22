@@ -101,6 +101,8 @@ public enum WakeMotionRefinement {
     /// `steps` should cover at least that window. Byte-identical passthrough when `segments` is empty, the
     /// window is degenerate, or the density self-gate declines.
     public static func refine(_ segments: [StageSegment], grav: [GravitySample], steps: [StepSample]) -> [StageSegment] {
+        guard PhoneComputeRuntime.permitsLocal("swift.WakeMotionRefinement.refine") else { return [] }
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.refine")
         guard let windowStart = segments.first?.start, let windowEnd = segments.last?.end, windowEnd > windowStart else {
             return segments
         }
@@ -123,7 +125,9 @@ public enum WakeMotionRefinement {
     /// `PuffinExperiment.motionAwareWakeEnabled` off-path), `enabled = true` runs `refine`.
     public static func apply(_ segments: [StageSegment], grav: [GravitySample], steps: [StepSample],
                              enabled: Bool) -> [StageSegment] {
-        enabled ? refine(segments, grav: grav, steps: steps) : segments
+        guard PhoneComputeRuntime.permitsLocal("swift.WakeMotionRefinement.apply") else { return [] }
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.apply")
+        return enabled ? refine(segments, grav: grav, steps: steps) : segments
     }
 
     /// Session-level convenience: refines `session.stages` and recomputes `efficiency` from the result
@@ -132,6 +136,7 @@ public enum WakeMotionRefinement {
     /// (same instance's fields, no allocation of a changed copy beyond the equality check) when `refine`
     /// makes no change to the stages.
     public static func refine(_ session: SleepSession, grav: [GravitySample], steps: [StepSample]) -> SleepSession {
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.refine")
         let newStages = refine(session.stages, grav: grav, steps: steps)
         guard newStages != session.stages else { return session }
         let newEfficiency = SleepStager.efficiency(start: session.start, end: session.end, stages: newStages)
@@ -148,7 +153,8 @@ public enum WakeMotionRefinement {
     /// Toggle-shaped convenience for the session-level overload (see `apply(_:grav:steps:enabled:)`).
     public static func apply(_ session: SleepSession, grav: [GravitySample], steps: [StepSample],
                              enabled: Bool) -> SleepSession {
-        enabled ? refine(session, grav: grav, steps: steps) : session
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.apply")
+        return enabled ? refine(session, grav: grav, steps: steps) : session
     }
 
     // MARK: - Density self-gate (#345)
@@ -157,6 +163,7 @@ public enum WakeMotionRefinement {
     /// per-minute locomotion/posture evidence across `[start, end)`. See the file header for why this
     /// checks the streams themselves rather than a strap family/model string.
     static func isMotionDense(start: Int, end: Int, grav: [GravitySample], steps: [StepSample]) -> Bool {
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.isMotionDense")
         let gravDensity = denseMinuteFraction(grav, from: start, to: end,
                                               minPerMinute: minGravitySamplesPerMinuteForVariance, ts: { $0.ts })
         let stepDensity = denseMinuteFraction(steps, from: start, to: end,
@@ -168,6 +175,7 @@ public enum WakeMotionRefinement {
     /// of `samples`. 0 for a degenerate (empty or inverted) window.
     static func denseMinuteFraction<T>(_ samples: [T], from start: Int, to end: Int, minPerMinute: Int,
                                        ts: (T) -> Int) -> Double {
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.denseMinuteFraction")
         guard end > start else { return 0 }
         let firstMinute = start / 60
         let lastMinute = (end - 1) / 60
@@ -191,6 +199,8 @@ public enum WakeMotionRefinement {
     /// this pass only ever acts when BOTH read "hot-but-still".
     static func refineSegment(_ seg: StageSegment, gravByMinute: [Int: [GravitySample]],
                               ticksByMinute: [Int: Int]) -> [StageSegment] {
+        guard PhoneComputeRuntime.permitsLocal("swift.WakeMotionRefinement.refineSegment") else { return [] }
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.refineSegment")
         guard SleepStageVocabulary.isWake(seg.stage), seg.end - seg.start >= minWakeSegmentSeconds else { return [seg] }
         let mins = minutes(from: seg.start, to: seg.end)
         guard !mins.isEmpty else { return [seg] }
@@ -225,6 +235,7 @@ public enum WakeMotionRefinement {
     /// reads as 0 ticks and breaks a building streak, matching "no evidence of walking" rather than
     /// crediting it.
     static func hasLocomotion(_ mins: [Int], ticksByMinute: [Int: Int]) -> Bool {
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.hasLocomotion")
         var consecutive = 0
         for m in mins {
             let ticks = ticksByMinute[m] ?? 0
@@ -246,6 +257,8 @@ public enum WakeMotionRefinement {
     /// with too few gravity samples to compute a variance (`postureVariance` returns nil) is conservatively
     /// treated as a burst minute — silence is not proof of stillness.
     static func stableBurstMinutes(_ mins: [Int], gravByMinute: [Int: [GravitySample]]) -> Set<Int>? {
+        guard PhoneComputeRuntime.permitsLocal("swift.WakeMotionRefinement.stableBurstMinutes") else { return nil }
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.stableBurstMinutes")
         var burstMinutes: Set<Int> = []
         var stableCount = 0
         for m in mins {
@@ -267,6 +280,8 @@ public enum WakeMotionRefinement {
     /// positions inside the minute (a turn-over). `nil` below `minGravitySamplesPerMinuteForVariance`
     /// samples — too few to say anything (see `stableBurstMinutes`'s nil handling).
     static func postureVariance(_ samples: [GravitySample]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.WakeMotionRefinement.postureVariance") else { return nil }
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.postureVariance")
         guard samples.count >= minGravitySamplesPerMinuteForVariance else { return nil }
         let n = Double(samples.count)
         var sx = 0.0, sy = 0.0, sz = 0.0
@@ -287,6 +302,7 @@ public enum WakeMotionRefinement {
     /// is deliberately NOT counted as locomotion; it still shows up in `postureVariance` instead. Minutes
     /// with no qualifying tick are simply absent from the result (callers read `?? 0`).
     static func walkClassTicksPerMinute(_ steps: [StepSample]) -> [Int: Int] {
+        PhoneComputeRuntime.entered("swift.WakeMotionRefinement.walkClassTicksPerMinute")
         let sorted = steps.sorted { $0.ts < $1.ts }
         guard sorted.count >= 2 else { return [:] }
         var out: [Int: Int] = [:]

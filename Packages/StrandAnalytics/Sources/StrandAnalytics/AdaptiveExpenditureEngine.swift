@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 /// One day's inputs for the retrospective expenditure estimate. Both fields are optional because the two
@@ -80,6 +81,8 @@ public enum AdaptiveExpenditureEngine {
     /// nil when the history cannot support an estimate — the normal answer for most installs, and the
     /// point of the gates. `days` need not be sorted or contiguous.
     public static func estimate(days: [AdaptiveExpenditureDay]) -> AdaptiveExpenditureEstimate? {
+        guard PhoneComputeRuntime.permitsLocal("swift.AdaptiveExpenditureEngine.estimate") else { return nil }
+        PhoneComputeRuntime.entered("swift.AdaptiveExpenditureEngine.estimate")
         let ordered = days.sorted { $0.day < $1.day }
         guard let first = ordered.first?.day, let last = ordered.last?.day,
               let span = dayCount(from: first, to: last), span >= minWindowDays else { return nil }

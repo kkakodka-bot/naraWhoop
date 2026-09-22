@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 import WhoopStore
 
@@ -91,6 +92,7 @@ public enum ReadinessEngine {
     /// Evaluate readiness from daily metrics. `days` may be in any order; the most recent day is
     /// treated as "today" unless `today` (a YYYY-MM-DD string) is given.
     public static func evaluate(days: [DailyMetric], today: String? = nil) -> Readiness {
+        PhoneComputeRuntime.entered("swift.ReadinessEngine.evaluate")
         // v7.0.2 perf (#707): `evaluate` SORTS the entire daily history and walks trailing windows every
         // call, and it is read from a SwiftUI computed property — so a `body` re-evaluation (the iOS twin of
         // a Compose recompose) re-runs the full-history sort on each ~1 Hz live-HR tick. The Today view also
@@ -110,6 +112,7 @@ public enum ReadinessEngine {
     /// Opt-in dated history: missing nights age freshness, and load cannot bridge a missing day.
     /// The caller supplies already owner/source/reset-admitted observations; no current settings are read.
     public static func evaluateCalendar(days: [DailyMetric], today: String) throws -> Readiness {
+        PhoneComputeRuntime.entered("swift.ReadinessEngine.evaluateCalendar")
         let end = try calendarDate(today)
         var byDay: [String: DailyMetric] = [:]
         for row in days {
@@ -397,11 +400,15 @@ public enum ReadinessEngine {
     // MARK: Stats helpers
 
     static func mean(_ xs: [Double]) -> Double? {
-        xs.isEmpty ? nil : xs.reduce(0, +) / Double(xs.count)
+        guard PhoneComputeRuntime.permitsLocal("swift.ReadinessEngine.mean") else { return nil }
+        PhoneComputeRuntime.entered("swift.ReadinessEngine.mean")
+        return xs.isEmpty ? nil : xs.reduce(0, +) / Double(xs.count)
     }
 
     /// Sample standard deviation (n-1). nil for fewer than 2 points.
     static func sampleSD(_ xs: [Double]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.ReadinessEngine.sampleSD") else { return nil }
+        PhoneComputeRuntime.entered("swift.ReadinessEngine.sampleSD")
         guard xs.count >= 2, let m = mean(xs) else { return nil }
         let ss = xs.reduce(0) { $0 + ($1 - m) * ($1 - m) }
         return (ss / Double(xs.count - 1)).squareRoot()

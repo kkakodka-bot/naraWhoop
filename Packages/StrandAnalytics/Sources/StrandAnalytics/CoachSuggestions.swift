@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 import WhoopStore
 
@@ -45,6 +46,8 @@ public enum CoachSuggestions {
     ///   - recent: recent days oldest→newest, for the HRV baseline. May be empty or may include today.
     /// - Returns: 2–4 chip strings (contextual) or the 4-string `fallback`.
     public static func suggestions(for today: DailyMetric?, recent: [DailyMetric]) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.CoachSuggestions.suggestions") else { return [] }
+        PhoneComputeRuntime.entered("swift.CoachSuggestions.suggestions")
         guard let today else { return fallback }
         let charge = today.recovery
         let hrv = today.avgHrv

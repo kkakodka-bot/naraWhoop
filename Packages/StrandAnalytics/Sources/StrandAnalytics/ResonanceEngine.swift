@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // ResonanceEngine.swift — find a user's personal resonance-frequency breathing pace by sweeping candidate
@@ -114,6 +115,7 @@ public enum ResonanceEngine {
     /// (RSA amplitude). RMSSD (shared `HRVAnalyzer`) corroborates. Unscorable (too few beats/cycles) →
     /// `rsaAmplitude == nil`.
     public static func scorePace(_ sample: PaceSample) -> PaceScore {
+        PhoneComputeRuntime.entered("swift.ResonanceEngine.scorePace")
         let cycleMs = 60_000.0 / max(sample.bpm, BreathPacer.minBpm)
         let cycleSec = cycleMs / 1000.0
 
@@ -183,6 +185,7 @@ public enum ResonanceEngine {
     /// amplitude (RMSSD breaks ties — higher RMSSD wins, a sanity corroboration). When fewer than
     /// `minScoredPaces` candidates scored, no confident lock: fall back to `fallbackBpm` (coherence).
     public static func sweep(_ samples: [PaceSample]) -> SweepResult {
+        PhoneComputeRuntime.entered("swift.ResonanceEngine.sweep")
         let scores = samples.map { scorePace($0) }
         let scored = scores.filter { $0.scored }
 
@@ -208,6 +211,8 @@ public enum ResonanceEngine {
     /// Re-attach timestamps to the cleaned rrMs series. Cleaning (`HRVAnalyzer.cleanRR`) preserves order
     /// and only DROPS beats, so we walk `steady` in order consuming the next match for each cleaned value.
     static func repairTimestamps(steady: [RrBeat], cleanMs: [Double]) -> [CleanBeat] {
+        guard PhoneComputeRuntime.permitsLocal("swift.ResonanceEngine.repairTimestamps") else { return [] }
+        PhoneComputeRuntime.entered("swift.ResonanceEngine.repairTimestamps")
         var out: [CleanBeat] = []
         out.reserveCapacity(cleanMs.count)
         var si = 0

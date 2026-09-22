@@ -69,6 +69,7 @@ public extension DaytimeStress {
     /// hour with R-R but no HR contributes neither.
     static func dayDaytimeAggregate(hr: [HRSample], rr: [RRInterval],
                                     tzOffsetSeconds: Int, timezone: TimeZone? = nil) -> (hr: Double?, rmssd: Double?) {
+        PhoneComputeRuntime.entered("swift.DaytimeBaselines.dayDaytimeAggregate")
         guard !hr.isEmpty else { return (nil, nil) }
 
         // Bucket HR + R-R into LOCAL hour-of-day buckets, byte-for-byte the scorer's step 1.
@@ -118,6 +119,7 @@ public extension DaytimeStress {
     /// the scorer honestly runs HR-only rather than z-scoring against a 1–2-day, untrustworthy HRV
     /// baseline — the whole-baseline grain of the per-hour graceful-nil already in `rawScore`.
     static func foldDaytimeBaselines(days: [DaytimeDayStreams]) -> (hr: BaselineState, rmssd: BaselineState?) {
+        PhoneComputeRuntime.entered("swift.DaytimeBaselines.foldDaytimeBaselines")
         var hrAggs: [Double?] = []
         var rmssdAggs: [Double?] = []
         hrAggs.reserveCapacity(days.count)
@@ -138,6 +140,7 @@ public extension DaytimeStress {
     /// unchanged default). This is the single graceful-degradation gate: a cold start, or a trailing
     /// window that is all sparse/imported days, keeps EXACTLY today's pre-existing day-relative behaviour.
     static func scoringMode(history days: [DaytimeDayStreams]) -> ScoringMode {
+        PhoneComputeRuntime.entered("swift.DaytimeBaselines.scoringMode")
         let baselines = foldDaytimeBaselines(days: days)
         guard baselines.hr.usable else { return .dayRelative }
         // RMSSD stays out of the LIVE score until it has its own validation pass — see

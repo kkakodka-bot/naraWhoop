@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // RecoveryForecast.swift — an evening estimate of TOMORROW-morning Charge.
@@ -147,6 +148,8 @@ public enum RecoveryForecaster {
                                 plannedSleepHours: Double,
                                 needHours: Double? = nil,
                                 needNights: Int = 0) -> RecoveryForecast? {
+        guard PhoneComputeRuntime.permitsLocal("swift.RecoveryForecast.forecast") else { return nil }
+        PhoneComputeRuntime.entered("swift.RecoveryForecast.forecast")
         let chargeWindow = Array(recentCharge.suffix(baselineWindow))
         let nights = chargeWindow.count
         guard nights >= minBaselineNights else { return nil }
@@ -196,12 +199,14 @@ public enum RecoveryForecaster {
     // MARK: - Stats (self-contained so the Kotlin mirror is line-for-line)
 
     static func mean(_ values: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.RecoveryForecast.mean")
         guard !values.isEmpty else { return 0 }
         return values.reduce(0, +) / Double(values.count)
     }
 
     /// Sample standard deviation (ddof = 1); 0 for fewer than 2 values.
     static func sampleSD(_ values: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.RecoveryForecast.sampleSD")
         let n = values.count
         guard n >= 2 else { return 0 }
         let m = mean(values)
@@ -212,6 +217,7 @@ public enum RecoveryForecaster {
 
     /// OLS slope of value vs the 0-based index (per-day trend); 0 for < 2 points.
     static func leastSquaresSlope(_ values: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.RecoveryForecast.leastSquaresSlope")
         let n = values.count
         guard n >= 2 else { return 0 }
         let meanX = Double(n - 1) / 2.0

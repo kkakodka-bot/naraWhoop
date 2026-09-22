@@ -51,6 +51,8 @@ public enum ManualWorkoutRescore {
                               restingHR: Double? = nil,
                               // #1545: see WorkoutDetector.detect — Edwards by default, threaded by the app.
                               effortMethod: StrainScorer.Method = .edwards) -> Scored? {
+        guard PhoneComputeRuntime.permitsLocal("swift.ManualWorkoutRescore.scored") else { return nil }
+        PhoneComputeRuntime.entered("swift.ManualWorkoutRescore.scored")
         guard windowSamples.count >= 2 else { return nil }
         let bpms = windowSamples.map(\.bpm)
         let avg = Int((Double(bpms.reduce(0, +)) / Double(bpms.count)).rounded())

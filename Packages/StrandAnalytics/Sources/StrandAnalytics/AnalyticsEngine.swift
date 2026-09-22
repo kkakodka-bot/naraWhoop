@@ -294,6 +294,8 @@ public enum AnalyticsEngine {
     ///     path is clamped to, so one corrupt record can never publish an impossible rate.
     public static func vendorRespRateBpm(_ rows: [RespSample],
                                          sessions: [(start: Int, end: Int)]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.AnalyticsEngine.vendorRespRateBpm") else { return nil }
+        PhoneComputeRuntime.entered("swift.AnalyticsEngine.vendorRespRateBpm")
         guard !rows.isEmpty, !sessions.isEmpty else { return nil }
         let inSession = rows.filter { r in sessions.contains { r.ts >= $0.start && r.ts <= $0.end } }
         guard let first = inSession.map(\.ts).min(), let last = inSession.map(\.ts).max(),
@@ -509,6 +511,7 @@ public enum AnalyticsEngine {
                                   // Per-instant offsets for main-night grouping and automatic detection.
                                   // Day membership still requires localDayBounds or uses the fixed offset.
                                   timezone: TimeZone? = nil) -> DayResult {
+        PhoneComputeRuntime.entered("swift.AnalyticsEngine.analyzeDay")
 
         // Precompute the day's UTC bounds ONCE (#996). `dayString(ts, offsetSec:)` formats the UTC
         // calendar day of (ts + offset) with a FIXED offset, so "== day" is exactly membership in
@@ -1220,6 +1223,7 @@ public enum AnalyticsEngine {
         /// as "Strong"). Deliberately the target, not the minimum: flooring at the low end of the
         /// range would understate a sleep-deprived (vs genuinely short-sleeping) user's deficit.
         public static func populationNeedFloorHours(age: Int?) -> Double {
+            PhoneComputeRuntime.entered("swift.AnalyticsEngine.populationNeedFloorHours")
             guard let age, age > 0 else { return 8.0 }   // unknown → adult target
             switch age {
             case ..<18: return 9.0     // children/teens need more (NSF 8–12; target ~9)
@@ -1235,6 +1239,7 @@ public enum AnalyticsEngine {
         /// than `minNeedNights` scorable nights → the population default (cold-start). Zero/negative
         /// entries (no-data days) are dropped and do not count toward the minimum.
         public static func personalizedNeedHours(nightlyHours: [Double], age: Int?) -> Double {
+            PhoneComputeRuntime.entered("swift.AnalyticsEngine.personalizedNeedHours")
             let floor = populationNeedFloorHours(age: age)
             let xs = nightlyHours.filter { $0 > 0 }.sorted()
             guard xs.count >= minNeedNights else {
@@ -1257,6 +1262,7 @@ public enum AnalyticsEngine {
                                      needHours: Double,
                                      consistency: Double?,
                                      deepSeconds: Double? = nil) -> Double {
+            PhoneComputeRuntime.entered("swift.AnalyticsEngine.composite")
             func clamp01(_ x: Double) -> Double { max(0.0, min(1.0, x)) }
 
             let needSeconds = max(needHours, 0.1) * 3600.0
@@ -1288,6 +1294,8 @@ public enum AnalyticsEngine {
         /// "Rest quality" term agree. `consistency` is the caller's regularity signal (nil → neutral).
         public static func composite(daily d: DailyMetric, needHours: Double = defaultNeedHours,
                                      consistency: Double? = nil) -> Double? {
+            guard PhoneComputeRuntime.permitsLocal("swift.AnalyticsEngine.composite") else { return nil }
+            PhoneComputeRuntime.entered("swift.AnalyticsEngine.composite")
             guard let tstMin = d.totalSleepMin, tstMin > 0, let eff = d.efficiency else { return nil }
             let tstSec = tstMin * 60.0
             let deepSec = (d.deepMin ?? 0) * 60.0
@@ -1339,7 +1347,9 @@ public enum AnalyticsEngine {
                                      // today's exact-timestamp match, byte-identical for every existing
                                      // caller. See `skinTempFunnel`'s doc for why a ring needs this > 0.
                                      wornToleranceSec: Int = 0) -> Double? {
-        skinTempFunnel(sessions, hr: hr, skinTemp: skinTemp, family: family,
+        guard PhoneComputeRuntime.permitsLocal("swift.AnalyticsEngine.wornNightlySkinTempC") else { return nil }
+        PhoneComputeRuntime.entered("swift.AnalyticsEngine.wornNightlySkinTempC")
+        return skinTempFunnel(sessions, hr: hr, skinTemp: skinTemp, family: family,
                        anchorRaw: anchorRaw, minSamples: minSamples,
                        wornToleranceSec: wornToleranceSec).mean
     }
@@ -1354,6 +1364,8 @@ public enum AnalyticsEngine {
     /// exclude, and this name — matching the Kotlin `nightlySpo2RawMeans` twin — avoids the "worn"
     /// prefix's false implication of a gate. (#93)
     static func nightlySpo2RawMeans(_ sessions: [SleepSession], spo2: [SpO2Sample]) -> (red: Int, ir: Int)? {
+        guard PhoneComputeRuntime.permitsLocal("swift.AnalyticsEngine.nightlySpo2RawMeans") else { return nil }
+        PhoneComputeRuntime.entered("swift.AnalyticsEngine.nightlySpo2RawMeans")
         guard !sessions.isEmpty, !spo2.isEmpty else { return nil }
         var redSum = 0, irSum = 0, kept = 0
         for s in spo2 where sessions.contains(where: { $0.start <= s.ts && s.ts <= $0.end }) {
@@ -1394,6 +1406,8 @@ public enum AnalyticsEngine {
     /// `nightlySpo2CandidateMean`.
     public static func nightlySpo2CandidateMean(_ sessions: [SleepSession],
                                          aux: [V18AuxSample]) -> (mean: Int, samples: Int)? {
+        guard PhoneComputeRuntime.permitsLocal("swift.AnalyticsEngine.nightlySpo2CandidateMean") else { return nil }
+        PhoneComputeRuntime.entered("swift.AnalyticsEngine.nightlySpo2CandidateMean")
         guard !sessions.isEmpty, !aux.isEmpty else { return nil }
         var sum = 0, kept = 0
         for a in aux {
@@ -1441,6 +1455,8 @@ public enum AnalyticsEngine {
     /// `nightlySpo2CeilingMean`.
     public static func nightlySpo2CeilingMean(_ sessions: [SleepSession],
                                         spo2: [SpO2Sample]) -> (mean: Int, samples: Int)? {
+        guard PhoneComputeRuntime.permitsLocal("swift.AnalyticsEngine.nightlySpo2CeilingMean") else { return nil }
+        PhoneComputeRuntime.entered("swift.AnalyticsEngine.nightlySpo2CeilingMean")
         guard !sessions.isEmpty, !spo2.isEmpty else { return nil }
         var sum = 0, kept = 0
         for s in spo2 {
@@ -1462,7 +1478,9 @@ public enum AnalyticsEngine {
         sessions: [SleepSession], hr: [HRSample],
         validBpm: ClosedRange<Int> = PrimarySessionRestingHR.defaultValidBpm,
         minValidSamples: Int = PrimarySessionRestingHR.defaultMinValidSamples) -> Double? {
-        PrimarySessionRestingHR.meanHR(sessions: primarySessions(sessions: sessions, hr: hr),
+        guard PhoneComputeRuntime.permitsLocal("swift.AnalyticsEngine.primarySessionRestingHR") else { return nil }
+        PhoneComputeRuntime.entered("swift.AnalyticsEngine.primarySessionRestingHR")
+        return PrimarySessionRestingHR.meanHR(sessions: primarySessions(sessions: sessions, hr: hr),
                                        validBpm: validBpm, minValidSamples: minValidSamples)
     }
 
@@ -1474,7 +1492,9 @@ public enum AnalyticsEngine {
         sessions: [SleepSession], hr: [HRSample],
         validBpm: ClosedRange<Int> = PrimarySessionRestingHR.defaultValidBpm,
         minValidSamples: Int = PrimarySessionRestingHR.defaultMinValidSamples) -> PrimarySessionRestingHR.Coverage? {
-        PrimarySessionRestingHR.coverage(sessions: primarySessions(sessions: sessions, hr: hr),
+        guard PhoneComputeRuntime.permitsLocal("swift.AnalyticsEngine.primarySessionRestingHRCoverage") else { return nil }
+        PhoneComputeRuntime.entered("swift.AnalyticsEngine.primarySessionRestingHRCoverage")
+        return PrimarySessionRestingHR.coverage(sessions: primarySessions(sessions: sessions, hr: hr),
                                          validBpm: validBpm, minValidSamples: minValidSamples)
     }
 
@@ -1498,6 +1518,7 @@ public enum AnalyticsEngine {
         validBpm: ClosedRange<Int> = PrimarySessionRestingHR.defaultValidBpm,
         minValidSamples: Int = PrimarySessionRestingHR.defaultMinValidSamples)
         -> (mean: Double?, coverage: PrimarySessionRestingHR.Coverage?) {
+        PhoneComputeRuntime.entered("swift.AnalyticsEngine.primarySessionRestingHRWithCoverage")
         let built = primarySessions(sessions: sessions, hr: hr)
         return (PrimarySessionRestingHR.meanHR(sessions: built, validBpm: validBpm, minValidSamples: minValidSamples),
                 PrimarySessionRestingHR.coverage(sessions: built, validBpm: validBpm, minValidSamples: minValidSamples))
@@ -1616,6 +1637,7 @@ public enum AnalyticsEngine {
                                       // value. IntelligenceEngine threads it per the OWNER device, never
                                       // globally, so WHOOP behavior is untouched by construction.
                                       wornToleranceSec: Int = 0) -> SkinTempFunnelDiagnostic {
+        PhoneComputeRuntime.entered("swift.AnalyticsEngine.skinTempFunnel")
         let total = skinTemp.count
         // #skin-diag: raw-ADC band + resolved anchor — PURE observation of the input, computed once and
         // reported on both return paths. Never touches the mean/gate logic below (byte-parity preserved).

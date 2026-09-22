@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // RangeReport.swift — the data model for a shareable offline "trends report" over a
@@ -272,6 +273,7 @@ public enum RangeReportEngine {
     public static func build(metrics: [ReportMetric: [String: Double]],
                              start: String, end: String,
                              units: ReportDisplayUnits = .stored) -> RangeReport {
+        PhoneComputeRuntime.entered("swift.RangeReport.build")
         // A valid window requires start <= end (ISO string compare == chronological).
         guard start <= end else {
             return RangeReport(start: start, end: end, totalDays: 0,
@@ -371,12 +373,15 @@ public enum RangeReportEngine {
     /// so movers on different units are comparable. Folds in good/bad framing.
     static func makeHeadlines(_ stats: [MetricRangeStat],
                               units: ReportDisplayUnits = .stored) -> [String] {
+        guard PhoneComputeRuntime.permitsLocal("swift.RangeReport.makeHeadlines") else { return [] }
+        PhoneComputeRuntime.entered("swift.RangeReport.makeHeadlines")
         let ranked = stats.sorted { salience($0) > salience($1) }
         return ranked.map { headline($0, units: units) }
     }
 
     /// |half delta| normalised by the metric's trend threshold (a units-agnostic move).
     static func salience(_ s: MetricRangeStat) -> Double {
+        PhoneComputeRuntime.entered("swift.RangeReport.salience")
         let t = s.metric.trendSlopeThreshold
         return t > 0 ? abs(s.halfDelta) / t : abs(s.halfDelta)
     }
@@ -415,6 +420,7 @@ public enum RangeReportEngine {
     /// Map an OLS slope-per-day to a direction against a small threshold. Within ±
     /// threshold reads as flat (noise), so a near-level series never fakes a trend.
     static func trendFromSlope(_ slope: Double, threshold: Double) -> ReportTrend {
+        PhoneComputeRuntime.entered("swift.RangeReport.trendFromSlope")
         if slope > threshold { return .rising }
         if slope < -threshold { return .falling }
         return .flat
@@ -462,12 +468,14 @@ public enum RangeReportEngine {
     // MARK: - Stats (self-contained so the Kotlin mirror is line-for-line)
 
     static func mean(_ values: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.RangeReport.mean")
         guard !values.isEmpty else { return 0 }
         return values.reduce(0, +) / Double(values.count)
     }
 
     /// OLS slope of value vs the 0-based index (per-day trend); 0 for < 2 points.
     static func leastSquaresSlope(_ values: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.RangeReport.leastSquaresSlope")
         let n = values.count
         guard n >= 2 else { return 0 }
         let meanX = Double(n - 1) / 2.0

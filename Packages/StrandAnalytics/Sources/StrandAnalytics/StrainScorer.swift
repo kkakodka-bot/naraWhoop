@@ -62,7 +62,8 @@ public enum StrainScorer {
     /// ceiling ~14% (men) or ~32% (women) higher than Banister can actually reach, so nobody would ever
     /// see 100 and the two methods would not be on the same axis. (#1545)
     static func banisterDailyCeiling(b: Double) -> Double {
-        24.0 * 60.0 * 1.0 * banisterScale * exp(b)
+        PhoneComputeRuntime.entered("swift.StrainScorer.banisterDailyCeiling")
+        return 24.0 * 60.0 * 1.0 * banisterScale * exp(b)
     }
 
     /// The %HRR a waking, sedentary body sits at — the "cost of being alive", not training load.
@@ -82,7 +83,8 @@ public enum StrainScorer {
 
     /// TRIMP per minute at `banisterSedentaryHRR` — the rate subtracted from every day.
     static func banisterBaselineRatePerMinute(b: Double) -> Double {
-        banisterScale * banisterSedentaryHRR * exp(b * banisterSedentaryHRR)
+        PhoneComputeRuntime.entered("swift.StrainScorer.banisterBaselineRatePerMinute")
+        return banisterScale * banisterSedentaryHRR * exp(b * banisterSedentaryHRR)
     }
 
     /// The sedentary TRIMP accrued over `minutes`, subtracted from a day's Banister TRIMP so the axis
@@ -90,7 +92,8 @@ public enum StrainScorer {
     /// theoretical maximum day still maps to exactly `maxStrain` — anchoring only the bottom would trade
     /// one mismatched end for the other.
     static func banisterBaseline(minutes: Double, b: Double) -> Double {
-        banisterBaselineRatePerMinute(b: b) * minutes
+        PhoneComputeRuntime.entered("swift.StrainScorer.banisterBaseline")
+        return banisterBaselineRatePerMinute(b: b) * minutes
     }
 
 
@@ -98,6 +101,7 @@ public enum StrainScorer {
     /// which recipe. Ceiling + 1 in both cases, mirroring how `strainDenominator` was derived, so a
     /// theoretical maximum day maps to exactly `maxStrain` under either method.
     public static func logMapDenominator(method: Method, sex: String) -> Double {
+        PhoneComputeRuntime.entered("swift.StrainScorer.logMapDenominator")
         switch method {
         case .edwards:
             return strainDenominator
@@ -136,13 +140,20 @@ public enum StrainScorer {
     // MARK: - HRmax helpers
 
     /// Tanaka (2001): HRmax = 208 − 0.7 × age (gender-independent).
-    public static func tanakaHRmax(age: Double) -> Double { 208.0 - 0.7 * age }
+    public static func tanakaHRmax(age: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.StrainScorer.tanakaHRmax")
+        return 208.0 - 0.7 * age
+    }
 
     /// Classic 220 − age. Last-resort fallback only.
-    public static func defaultMaxHR(age: Int = defaultAge) -> Int { 220 - age }
+    public static func defaultMaxHR(age: Int = defaultAge) -> Int {
+        PhoneComputeRuntime.entered("swift.StrainScorer.defaultMaxHR")
+        return 220 - age
+    }
 
     /// Linear-interpolated percentile of an already-sorted sequence (numpy-style).
     static func percentile(_ sortedValues: [Double], _ pct: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.StrainScorer.percentile")
         let n = sortedValues.count
         if n == 0 { return 0 }
         if n == 1 { return sortedValues[0] }
@@ -156,6 +167,7 @@ public enum StrainScorer {
     /// Estimate a personalized HRmax from a trailing HR series.
     /// Returns (hrmax bpm, source) where source ∈ {"observed", "tanaka", "unknown"}.
     public static func estimateHRmax(_ hrHistory: [Double], age: Double?) -> (Double, String) {
+        PhoneComputeRuntime.entered("swift.StrainScorer.estimateHRmax")
         let n = hrHistory.count
         let tanaka = age.map { tanakaHRmax(age: $0) }
 
@@ -172,6 +184,7 @@ public enum StrainScorer {
 
     /// Karvonen %HRR, clamped [0, 100].
     static func pctHRR(_ bpm: Double, restingHR: Double, hrReserve: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.StrainScorer.pctHRR")
         let pct = (bpm - restingHR) / hrReserve * 100.0
         if pct < 0 { return 0 }
         if pct > 100 { return 100 }
@@ -181,6 +194,7 @@ public enum StrainScorer {
     /// Edwards 5-zone weight (0–5) from %HRR (unclamped; extremes agree with
     /// the clamped path at both ends).
     static func zoneWeight(_ bpm: Double, restingHR: Double, hrReserve: Double) -> Int {
+        PhoneComputeRuntime.entered("swift.StrainScorer.zoneWeight")
         let pct = (bpm - restingHR) / hrReserve * 100.0
         for (threshold, weight) in edwardsZones where pct >= threshold { return weight }
         return 0
@@ -223,6 +237,7 @@ public enum StrainScorer {
     /// uniform-identity regression test can compare the new accumulation against the SHIPPED old formula
     /// rather than a reimplementation of it. Delete it if that test ever goes.
     static func sampleDurationMinutes(_ hr: [HRSample]) -> Double {
+        PhoneComputeRuntime.entered("swift.StrainScorer.sampleDurationMinutes")
         guard hr.count >= 2 else { return fallbackSampleMin }
         let deltaS = abs(Double(hr[1].ts - hr[0].ts))
         return deltaS > 0 ? deltaS / 60.0 : fallbackSampleMin
@@ -242,6 +257,8 @@ public enum StrainScorer {
     /// and the resulting TRIMP is unchanged — which is why no existing test moves. Byte-parity twin of
     /// Kotlin `sampleDurationsMinutes`.
     static func sampleDurationsMinutes(_ hr: [HRSample]) -> [Double] {
+        guard PhoneComputeRuntime.permitsLocal("swift.StrainScorer.sampleDurationsMinutes") else { return [] }
+        PhoneComputeRuntime.entered("swift.StrainScorer.sampleDurationsMinutes")
         if hr.isEmpty { return [] }
         if hr.count == 1 { return [fallbackSampleMin] }
         var out: [Double] = []
@@ -257,6 +274,7 @@ public enum StrainScorer {
 
     static func edwardsTRIMP(_ hr: [HRSample], restingHR: Double, hrReserve: Double,
                              durations: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.StrainScorer.edwardsTRIMP")
         var acc = 0.0
         for i in hr.indices {
             acc += Double(zoneWeight(Double(hr[i].bpm), restingHR: restingHR, hrReserve: hrReserve))
@@ -277,6 +295,7 @@ public enum StrainScorer {
     static func banisterTRIMP(_ hr: [HRSample], restingHR: Double, hrReserve: Double,
                               durations: [Double], b: Double,
                               floorRatePerMinute: Double = 0.0) -> Double {
+        PhoneComputeRuntime.entered("swift.StrainScorer.banisterTRIMP")
         var acc = 0.0
         for i in hr.indices {
             let x = pctHRR(Double(hr[i].bpm), restingHR: restingHR, hrReserve: hrReserve) / 100.0
@@ -297,6 +316,7 @@ public enum StrainScorer {
     /// scored against the wrong ceiling and reads low — prefer `strain(…)`, which resolves the
     /// method's own denominator, or pass `logMapDenominator(method:sex:)` yourself. (#1545)
     public static func trimpToStrain(_ trimp: Double, denominator: Double = strainDenominator) -> Double {
+        PhoneComputeRuntime.entered("swift.StrainScorer.trimpToStrain")
         if trimp <= 0 { return 0 }
         let value = maxStrain * log(trimp + 1.0) / log(denominator)
         return (value * 100).rounded() / 100
@@ -309,6 +329,7 @@ public enum StrainScorer {
     /// (reference_strain pairs must be on the same 0–maxStrain axis as the output.)
     /// Throws when fewer than 2 usable pairs (TRIMP>0, strain>0) or degenerate.
     public static func fitStrainDenominator(_ pairs: [(trimp: Double, strain: Double)]) throws -> Double {
+        PhoneComputeRuntime.entered("swift.StrainScorer.fitStrainDenominator")
         let usable = pairs.filter { $0.trimp > 0 && $0.strain > 0 }
         guard usable.count >= 2 else { throw StrainError.tooFewPairs }
         var sumXX = 0.0, sumXY = 0.0
@@ -356,6 +377,8 @@ public enum StrainScorer {
                               // the day at live-HR tick rate before the scoring pass asks.
                               diag: ((String) -> Void)? = nil,
                               day: String = "") -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.StrainScorer.strain") else { return nil }
+        PhoneComputeRuntime.entered("swift.StrainScorer.strain")
         // Resolve BEFORE the memo key is built, or a Banister request would be cached under Edwards'
         // denominator and a later Edwards request could collide with it.
         let resolvedDenominator = denominator ?? logMapDenominator(method: method, sex: sex)

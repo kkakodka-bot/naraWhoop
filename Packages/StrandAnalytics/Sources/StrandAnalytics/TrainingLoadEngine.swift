@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 /// Long-horizon training-load model using exponentially weighted daily load.
@@ -123,6 +124,7 @@ public enum TrainingLoadEngine {
     public static func evaluate(days: [DailyLoad],
                                 through targetDay: String? = nil,
                                 configuration: Configuration = .standard) -> Result {
+        PhoneComputeRuntime.entered("swift.TrainingLoadEngine.evaluate")
         guard configuration.isValid else {
             return unavailable(.invalidConfiguration, contiguousDays: 0)
         }
@@ -216,6 +218,7 @@ public enum TrainingLoadEngine {
     /// labels are synthetic but deterministic; the model math is identical to `evaluate(days:)`.
     public static func evaluateDense(_ loads: [Double],
                                      configuration: Configuration = .standard) -> Result {
+        PhoneComputeRuntime.entered("swift.TrainingLoadEngine.evaluateDense")
         let baseOrdinal = dayOrdinal("2000-01-01")!
         let days = loads.enumerated().map { offset, load in
             DailyLoad(day: dayString(ordinal: baseOrdinal + offset), load: load)

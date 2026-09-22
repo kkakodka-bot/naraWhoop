@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // LiveSessionEngine.swift — the "silent guardian" coach for a Live Session. Pure, deterministic, DB-free.
@@ -141,6 +142,7 @@ public struct LiveSessionEngine {
     /// The recovery-gated target band. Charge scales the ceiling between the low/high anchors; the floor sits
     /// a fixed HRR width below, never under `minFloorPctHRR`. Expressed in both %HRR and bpm.
     public static func band(config: Config) -> Band {
+        PhoneComputeRuntime.entered("swift.LiveSessionEngine.band")
         let cn: Double = {
             guard let c = config.charge else { return defaultChargeFraction }
             return min(max(c / 100.0, 0.0), 1.0)
@@ -159,7 +161,9 @@ public struct LiveSessionEngine {
     // MARK: - State
 
     private let config: Config
-    private let baseBand: Band
+    // Constructing a session records configuration only. The physiological band is evaluated
+    // only beneath update's admission; final-hosted capture can still allocate session state.
+    private var baseBand: Band { LiveSessionEngine.band(config: config) }
     private let startTs: Int
 
     private struct Reading { let ts: Int; let bpm: Int }
@@ -182,7 +186,6 @@ public struct LiveSessionEngine {
 
     public init(config: Config, startTs: Int) {
         self.config = config
-        self.baseBand = LiveSessionEngine.band(config: config)
         self.startTs = startTs
         self.lastUpdateTs = startTs
     }
@@ -192,6 +195,7 @@ public struct LiveSessionEngine {
     /// Advance the session to `now`. Pass the live bpm if one arrived this tick, or nil for a plain time tick
     /// (used to detect staleness when the stream goes quiet). Returns the current coaching state + any cue.
     public mutating func update(now: Int, bpm: Int?) -> Output {
+        PhoneComputeRuntime.entered("swift.LiveSessionEngine.update")
         let dt = max(now - lastUpdateTs, 0)
 
         // 1. Validate + accept the sample (never-fabricate guard).

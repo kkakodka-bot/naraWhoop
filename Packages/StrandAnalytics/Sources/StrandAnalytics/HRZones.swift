@@ -59,6 +59,7 @@ public struct HRZoneSet: Equatable, Sendable {
 
     /// Return the zone number (1...5) for a bpm value, or 0 when below Zone 1.
     public func zoneNumber(forBPM bpm: Double) -> Int {
+        PhoneComputeRuntime.entered("swift.HRZones.zoneNumber")
         for z in zones {
             // Top zone is inclusive at its upper edge so HRmax itself lands in z5.
             if z.number == 5 {
@@ -104,7 +105,8 @@ public enum HRZones {
 
     /// Tanaka (2001) age-predicted max HR: 208 − 0.7 × age (gender-independent).
     public static func tanakaMaxHR(age: Double) -> Double {
-        208.0 - 0.7 * age
+        PhoneComputeRuntime.entered("swift.HRZones.tanakaMaxHR")
+        return 208.0 - 0.7 * age
     }
 
     /// Build the 5-zone set from age (Tanaka) or a manual `maxHROverride`.
@@ -115,6 +117,7 @@ public enum HRZones {
     public static func zones(age: Double,
                              maxHROverride: Double? = nil,
                              customLowerBounds: [Double]? = nil) -> HRZoneSet {
+        PhoneComputeRuntime.entered("swift.HRZones.zones")
         let maxHR: Double
         let source: String
         if let override = maxHROverride {
@@ -133,6 +136,7 @@ public enum HRZones {
     public static func zones(maxHR: Double,
                              source: String = "manual",
                              customLowerBounds: [Double]? = nil) -> HRZoneSet {
+        PhoneComputeRuntime.entered("swift.HRZones.zones")
         let custom = customLowerBounds.flatMap(validCustomLowerBounds)
         var built: [HRZone] = []
         for i in 0..<5 {
@@ -155,7 +159,9 @@ public enum HRZones {
     /// The conventional five inclusive lower bounds, rounded up to whole BPM for an editor. Rounding
     /// up preserves the existing integer-sample classification (e.g. a 93.5 edge starts at 94 bpm).
     public static func defaultLowerBounds(maxHR: Double) -> [Int] {
-        Array(zoneEdges.prefix(5)).map { Int(ceil($0 * maxHR)) }
+        guard PhoneComputeRuntime.permitsLocal("swift.HRZones.defaultLowerBounds") else { return [] }
+        PhoneComputeRuntime.entered("swift.HRZones.defaultLowerBounds")
+        return Array(zoneEdges.prefix(5)).map { Int(ceil($0 * maxHR)) }
     }
 
     /// Return a valid five-boundary custom model, or nil unless values are positive, finite, and
@@ -179,6 +185,7 @@ public enum HRZones {
     ///   - hr: time-ordered (or unordered) `[HRSample]`.
     ///   - zoneSet: the zone definitions to bucket against.
     public static func timeInZone(_ hr: [HRSample], zoneSet: HRZoneSet) -> TimeInZone {
+        PhoneComputeRuntime.entered("swift.HRZones.timeInZone")
         let sorted = hr.sorted { $0.ts < $1.ts }
         var zoneSeconds = [Double](repeating: 0, count: 5)
         var below: Double = 0
@@ -213,6 +220,7 @@ public enum HRZones {
     /// Median spacing between consecutive timestamps, restricted to plausible
     /// (0, 300 s] gaps. Falls back to 1.0 s when no plausible gap exists.
     static func medianInterval(_ sorted: [HRSample]) -> Double {
+        PhoneComputeRuntime.entered("swift.HRZones.medianInterval")
         guard sorted.count >= 2 else { return 1.0 }
         var gaps: [Double] = []
         for i in 1..<sorted.count {

@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 import WhoopStore
 
@@ -31,6 +32,7 @@ public enum ScoreConfidence: String, Equatable, Sendable, Codable {
     /// - solid:       a score exists AND the HRV baseline is fully trusted.
     /// - building:    a score exists but the HRV baseline is only provisional.
     public static func charge(recovery: Double?, hrvBaseline: BaselineState?) -> ScoreConfidence {
+        PhoneComputeRuntime.entered("swift.ScoreConfidence.charge")
         guard recovery != nil, let b = hrvBaseline, b.usable else { return .calibrating }
         return b.trusted ? .solid : .building
     }
@@ -40,6 +42,7 @@ public enum ScoreConfidence: String, Equatable, Sendable, Codable {
     /// - solid:       a read exists AND the full baseline window is present.
     /// - building:    a read exists but the baseline is shorter than the full window (e.g. 7–29 of 30).
     public static func readiness(hasRead: Bool, baselineNights: Int, fullWindow: Int) -> ScoreConfidence {
+        PhoneComputeRuntime.entered("swift.ScoreConfidence.readiness")
         guard hasRead else { return .calibrating }
         return baselineNights >= fullWindow ? .solid : .building
     }
@@ -50,6 +53,7 @@ public enum ScoreConfidence: String, Equatable, Sendable, Codable {
     /// - building:    a score exists but the HR window is thin (PPG-backed / short day).
     public static let solidEffortReadings: Int = 3600  // ~1 h at 1 Hz of HR coverage
     public static func effort(strain: Double?, hrSampleCount: Int) -> ScoreConfidence {
+        PhoneComputeRuntime.entered("swift.ScoreConfidence.effort")
         guard strain != nil else { return .calibrating }
         return hrSampleCount >= solidEffortReadings ? .solid : .building
     }
@@ -60,6 +64,7 @@ public enum ScoreConfidence: String, Equatable, Sendable, Codable {
     ///                (staged sleep present so restorative + efficiency are real).
     /// - building:    a session exists but stages/inputs are partial.
     public static func rest(hasSession: Bool, hasStagedSleep: Bool) -> ScoreConfidence {
+        PhoneComputeRuntime.entered("swift.ScoreConfidence.rest")
         guard hasSession else { return .calibrating }
         return hasStagedSleep ? .solid : .building
     }
@@ -106,6 +111,7 @@ public enum ScoreConfidence: String, Equatable, Sendable, Codable {
                             asleepSeconds: Double, restorativeSeconds: Double,
                             efficiency: Double, gravitySparse: Bool = false,
                             stageCoverage: Double? = nil) -> ScoreConfidence {
+        PhoneComputeRuntime.entered("swift.ScoreConfidence.rest")
         let base = rest(hasSession: hasSession, hasStagedSleep: hasStagedSleep)
         if base != .solid { return base }
         if gravitySparse { return .building }   // #345: sparse-motion staging can't earn a SOLID Rest

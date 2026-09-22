@@ -151,6 +151,7 @@ public enum PreSleepHeartRateFeedback {
                                 history: [HistoricalReading], journalEntries: [JournalEntry], day: String,
                                 minimumValidSamples: Int = defaultMinimumValidSamples,
                                 preSleepWindowSeconds: Int = defaultPreSleepWindowSeconds) -> Feedback {
+        PhoneComputeRuntime.entered("swift.PreSleepHeartRateFeedback.evaluate")
         let unsupported = Recommendation.unsupported
         let noInference = Inference.notEstablished
         guard enabled else {

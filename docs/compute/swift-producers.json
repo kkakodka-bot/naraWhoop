@@ -1,0 +1,2773 @@
+{
+  "schema_version": 1,
+  "scope": "shared Swift physiological producer entrypoints",
+  "policy": "final hosted blocks entry before numerical work; reference tools remain enabled",
+  "excluded": "Transport framing, durable input capture, timestamps/timers, data structures, user-input validation, canonical selection, unit conversion and text formatting.",
+  "entrypoints": [
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func vendorRespRateBpm(_ rows: [RespSample], sessions: [(start: Int, end: Int)]) -> Double?",
+      "producer": "swift.AnalyticsEngine.vendorRespRateBpm",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func analyzeDay(day: String, strainDiag: ((String) -> Void)? = nil, hr: [HRSample] = [], rr: [RRInterval] = [], hrvObservations: [PhysiologyQuality.IntervalObservation]? = nil, hrvContext: [PhysiologyQuality.ContextEpoch] = [], hrvHistory: [HrvWindowResult] = [], inputRevision: String = \"unversioned\", resp: [RespSample] = [], vendorResp: [RespSample] = [], gravity: [GravitySample] = [], steps: [StepSample] = [], dayHr: [HRSample]? = nil, daySteps: [StepSample]? = nil, dayGravity: [GravitySample]? = nil, skinTemp: [SkinTempSample] = [], skinTempFamily: DeviceFamily = .whoop5, skinTempAnchorRaw: Double? = nil, skinTempWornToleranceSec: Int = 0, spo2: [SpO2Sample] = [], profile: UserProfile, baselines: ProfileBaselines = ProfileBaselines(), maxHROverride: Double? = nil, tzOffsetSeconds: Int = 0, wristOff: [(start: Int, end: Int)] = [], sleepNeedHours: Double = Rest.defaultNeedHours, sleepConsistency: Double? = nil, habitualMidsleepSec: Int? = nil, bandSleepState: [(ts: Int, state: Int)] = [], useSleepStagerV2: Bool = false, useMotionAwareWake: Bool = false, providedSleep: [SleepSession] = [], sleepProvenance: SleepProvenance = .measured, traceSink: ((String) -> Void)? = nil, hrvTraceSink: ((String) -> Void)? = nil, hrvWindowDetail: Bool = false, deepHrvWindow: Bool = false, effortMethod: StrainScorer.Method = .edwards, localDayStart: Int? = nil, localDayEndExclusive: Int? = nil, sleepContext: [SleepContextSpan] = [], sleepComputationMode: String = \"retrospective\", sleepObservedThrough: Int? = nil, useFullDaySleepOpportunities: Bool = false, localDayOwnership: [(start: Int,end: Int)]? = nil, measurementObservedThrough: Int? = nil, resolvedSleep: [SleepSession]? = nil, excludedMainSleepStarts: Set<Int> = [], localDayBounds: Range<Int>? = nil, timezone: TimeZone? = nil) -> DayResult",
+      "producer": "swift.AnalyticsEngine.analyzeDay",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func populationNeedFloorHours(age: Int?) -> Double",
+      "producer": "swift.AnalyticsEngine.populationNeedFloorHours",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func personalizedNeedHours(nightlyHours: [Double], age: Int?) -> Double",
+      "producer": "swift.AnalyticsEngine.personalizedNeedHours",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func composite(tstSeconds: Double, inBedSeconds: Double, efficiency: Double, restorativeSeconds: Double, needHours: Double, consistency: Double?, deepSeconds: Double? = nil) -> Double",
+      "producer": "swift.AnalyticsEngine.composite",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func composite(daily d: DailyMetric, needHours: Double = defaultNeedHours, consistency: Double? = nil) -> Double?",
+      "producer": "swift.AnalyticsEngine.composite",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "static func wornNightlySkinTempC(_ sessions: [SleepSession], hr: [HRSample], skinTemp: [SkinTempSample], family: DeviceFamily = .whoop5, anchorRaw: Double? = nil, minSamples: Int = minSkinTempSamples, wornToleranceSec: Int = 0) -> Double?",
+      "producer": "swift.AnalyticsEngine.wornNightlySkinTempC",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "static func nightlySpo2RawMeans(_ sessions: [SleepSession], spo2: [SpO2Sample]) -> (red: Int, ir: Int)?",
+      "producer": "swift.AnalyticsEngine.nightlySpo2RawMeans",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func nightlySpo2CandidateMean(_ sessions: [SleepSession], aux: [V18AuxSample]) -> (mean: Int, samples: Int)?",
+      "producer": "swift.AnalyticsEngine.nightlySpo2CandidateMean",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func nightlySpo2CeilingMean(_ sessions: [SleepSession], spo2: [SpO2Sample]) -> (mean: Int, samples: Int)?",
+      "producer": "swift.AnalyticsEngine.nightlySpo2CeilingMean",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func primarySessionRestingHR( sessions: [SleepSession], hr: [HRSample], validBpm: ClosedRange<Int> = PrimarySessionRestingHR.defaultValidBpm, minValidSamples: Int = PrimarySessionRestingHR.defaultMinValidSamples) -> Double?",
+      "producer": "swift.AnalyticsEngine.primarySessionRestingHR",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func primarySessionRestingHRCoverage( sessions: [SleepSession], hr: [HRSample], validBpm: ClosedRange<Int> = PrimarySessionRestingHR.defaultValidBpm, minValidSamples: Int = PrimarySessionRestingHR.defaultMinValidSamples) -> PrimarySessionRestingHR.Coverage?",
+      "producer": "swift.AnalyticsEngine.primarySessionRestingHRCoverage",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func primarySessionRestingHRWithCoverage( sessions: [SleepSession], hr: [HRSample], validBpm: ClosedRange<Int> = PrimarySessionRestingHR.defaultValidBpm, minValidSamples: Int = PrimarySessionRestingHR.defaultMinValidSamples) -> (mean: Double?, coverage: PrimarySessionRestingHR.Coverage?)",
+      "producer": "swift.AnalyticsEngine.primarySessionRestingHRWithCoverage",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+      "symbol": "public static func skinTempFunnel(_ sessions: [SleepSession], hr: [HRSample], skinTemp: [SkinTempSample], family: DeviceFamily = .whoop5, anchorRaw: Double? = nil, minSamples: Int = minSkinTempSamples, wornToleranceSec: Int = 0) -> SkinTempFunnelDiagnostic",
+      "producer": "swift.AnalyticsEngine.skinTempFunnel",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines.swift",
+      "symbol": "static func lambda(halfLife: Double) -> Double",
+      "producer": "swift.Baselines.lambda",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines.swift",
+      "symbol": "static func computeStatus(nValid: Int, nightsSinceUpdate: Int) -> BaselineStatus",
+      "producer": "swift.Baselines.computeStatus",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines.swift",
+      "symbol": "public static func recentHrvCoverage(dayKeys: [String], nightlyHrv: [Double?], today: String, window: Int = staleDays) -> (observed: Int, missing: Int)",
+      "producer": "swift.Baselines.recentHrvCoverage",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines.swift",
+      "symbol": "public static func nightsSinceNewestValidNight(dayKeys: [String], nightlyHrv: [Double?], today: String) -> Int?",
+      "producer": "swift.Baselines.nightsSinceNewestValidNight",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines.swift",
+      "symbol": "public static func update(_ state: BaselineState?, value: Double?, cfg: MetricCfg, rejectHardOutliers: Bool = true) -> BaselineState",
+      "producer": "swift.Baselines.update",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines.swift",
+      "symbol": "public static func foldHistory(_ values: [Double?], cfg: MetricCfg, rejectHardOutliers: Bool = true) -> BaselineState",
+      "producer": "swift.Baselines.foldHistory",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines.swift",
+      "symbol": "public static func foldHistory(_ values: [Double?], dayKeys: [String], cfg: MetricCfg, baselineEpoch: Double? = nil) -> BaselineState",
+      "producer": "swift.Baselines.foldHistory",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines.swift",
+      "symbol": "public static func sigma(_ state: BaselineState) -> Double",
+      "producer": "swift.Baselines.sigma",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines.swift",
+      "symbol": "public static func deviation(_ value: Double, state: BaselineState) -> Deviation",
+      "producer": "swift.Baselines.deviation",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines.swift",
+      "symbol": "public static func rollingMeanSD(_ values: [Double?], cfg: MetricCfg, window: Int = 30) -> BaselineState",
+      "producer": "swift.Baselines.rollingMeanSD",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines+Trace.swift",
+      "symbol": "public static func updateTrace(_ state: BaselineState?, value: Double?, cfg: MetricCfg, metric: String, rejectHardOutliers: Bool = true) -> (state: BaselineState, lines: [String])",
+      "producer": "swift.Baselines+Trace.updateTrace",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines+Trace.swift",
+      "symbol": "public static func foldHistoryTrace(_ values: [Double?], cfg: MetricCfg, metric: String, rejectHardOutliers: Bool = true, tail: Int? = nil) -> (state: BaselineState, lines: [String])",
+      "producer": "swift.Baselines+Trace.foldHistoryTrace",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/Baselines+Trace.swift",
+      "symbol": "public static func foldHistoryTrace(_ values: [Double?], dayKeys: [String], cfg: MetricCfg, metric: String, baselineEpoch: Double, tail: Int? = nil) -> (state: BaselineState, lines: [String])",
+      "producer": "swift.Baselines+Trace.foldHistoryTrace",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRZones.swift",
+      "symbol": "public func zoneNumber(forBPM bpm: Double) -> Int",
+      "producer": "swift.HRZones.zoneNumber",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRZones.swift",
+      "symbol": "public static func tanakaMaxHR(age: Double) -> Double",
+      "producer": "swift.HRZones.tanakaMaxHR",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRZones.swift",
+      "symbol": "public static func zones(age: Double, maxHROverride: Double? = nil, customLowerBounds: [Double]? = nil) -> HRZoneSet",
+      "producer": "swift.HRZones.zones",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRZones.swift",
+      "symbol": "public static func zones(maxHR: Double, source: String = \"manual\", customLowerBounds: [Double]? = nil) -> HRZoneSet",
+      "producer": "swift.HRZones.zones",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRZones.swift",
+      "symbol": "public static func defaultLowerBounds(maxHR: Double) -> [Int]",
+      "producer": "swift.HRZones.defaultLowerBounds",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRZones.swift",
+      "symbol": "public static func timeInZone(_ hr: [HRSample], zoneSet: HRZoneSet) -> TimeInZone",
+      "producer": "swift.HRZones.timeInZone",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRZones.swift",
+      "symbol": "static func medianInterval(_ sorted: [HRSample]) -> Double",
+      "producer": "swift.HRZones.medianInterval",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryScorer.swift",
+      "symbol": "static func parasympatheticSaturation(hrvZ: Double, rhrZ: Double?) -> ParasympatheticSaturation",
+      "producer": "swift.RecoveryScorer.parasympatheticSaturation",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryScorer.swift",
+      "symbol": "public static func calibrationNights(nightlyHrv: [Double?], dayKeys: [String], hasRecovery: Bool, seed: Int = Baselines.minNightsSeed, cfg: MetricCfg = Baselines.hrvCfg, baselineEpoch: Double? = nil) -> Int?",
+      "producer": "swift.RecoveryScorer.calibrationNights",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryScorer.swift",
+      "symbol": "static func zScore(_ value: Double, mean: Double, spread: Double) -> Double",
+      "producer": "swift.RecoveryScorer.zScore",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryScorer.swift",
+      "symbol": "public static func recovery(hrv: Double, rhr: Double, resp: Double?, hrvBaseline: DriverBaseline?, rhrBaseline: DriverBaseline?, respBaseline: DriverBaseline?, sleepPerf: Double?, skinTempDev: Double? = nil, hrvBaselineUsable: Bool = true, recoveryIndexSlope: Double? = nil, effortBaseline: DriverBaseline? = nil, priorDayEffort: Double? = nil) -> Double?",
+      "producer": "swift.RecoveryScorer.recovery",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryScorer.swift",
+      "symbol": "static func logisticScore(compositeZ z: Double) -> Double",
+      "producer": "swift.RecoveryScorer.logisticScore",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryScorer.swift",
+      "symbol": "public static func recovery(hrv: Double, rhr: Double, resp: Double?, hrvBaseline: BaselineState, rhrBaseline: BaselineState?, respBaseline: BaselineState?, sleepPerf: Double?, skinTempDev: Double? = nil, recoveryIndexSlope: Double? = nil, effortBaseline: BaselineState? = nil, priorDayEffort: Double? = nil) -> Double?",
+      "producer": "swift.RecoveryScorer.recovery",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ChargeDrivers.swift",
+      "symbol": "public static func skinTempRelative(deviationC: Double?) -> SkinTempRelative?",
+      "producer": "swift.ChargeDrivers.skinTempRelative",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ChargeDrivers.swift",
+      "symbol": "public static func chargeDrivers(hrv: Double, rhr: Double, resp: Double?, hrvBaseline: BaselineState, rhrBaseline: BaselineState?, respBaseline: BaselineState?, sleepPerf: Double?, skinTempDev: Double? = nil) -> [ChargeDriver]",
+      "producer": "swift.ChargeDrivers.chargeDrivers",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ChargeDrivers.swift",
+      "symbol": "static func hrvVerdict(value: Double, baseline: Double, saturationDetected: Bool = false) -> String",
+      "producer": "swift.ChargeDrivers.hrvVerdict",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ChargeDrivers.swift",
+      "symbol": "static func rhrVerdict(value: Double, baseline: Double) -> String",
+      "producer": "swift.ChargeDrivers.rhrVerdict",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ChargeDrivers.swift",
+      "symbol": "static func respVerdict(value: Double, baseline: Double) -> String",
+      "producer": "swift.ChargeDrivers.respVerdict",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ChargeDrivers.swift",
+      "symbol": "static func sleepVerdict(sleepPerf: Double) -> String",
+      "producer": "swift.ChargeDrivers.sleepVerdict",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ChargeDrivers.swift",
+      "symbol": "static func skinTempVerdict(_ dev: Double) -> String",
+      "producer": "swift.ChargeDrivers.skinTempVerdict",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SkinTempBackfill.swift",
+      "symbol": "public static func resolveAnchor(family: DeviceFamily, windowAnchorRaw: Double?) -> Double?",
+      "producer": "swift.SkinTempBackfill.resolveAnchor",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SkinTempBackfill.swift",
+      "symbol": "public static func computeNight( candidate: NightCandidate, sessions: [SleepSession], hr: [HRSample], skinTemp: [SkinTempSample], family: DeviceFamily, windowAnchorRaw: Double?, dayStart: Int, wornToleranceSec: Int = 0 ) -> NightResult",
+      "producer": "swift.SkinTempBackfill.computeNight",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CyclePhaseEngine.swift",
+      "symbol": "public static func classify(_ nights: [Night], baselineUsable: Bool, loggedPeriodStarts: [String] = []) -> Result",
+      "producer": "swift.CyclePhaseEngine.classify",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CyclePhaseEngine.swift",
+      "symbol": "public static func classifyCalendar(_ nights: [Night], baselineUsable: Bool, through: String, loggedPeriodStarts: [String] = []) throws -> Result",
+      "producer": "swift.CyclePhaseEngine.classifyCalendar",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CyclePhaseEngine.swift",
+      "symbol": "public static func fusedIndex(tempZ: Double?, rhrZ: Double?, hrvZ: Double?) -> Double?",
+      "producer": "swift.CyclePhaseEngine.fusedIndex",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CyclePhaseEngine.swift",
+      "symbol": "static func median(_ xs: [Double]) -> Double",
+      "producer": "swift.CyclePhaseEngine.median",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CyclePhaseEngine.swift",
+      "symbol": "static func medianAbsoluteDeviation(_ xs: [Double], center: Double) -> Double",
+      "producer": "swift.CyclePhaseEngine.medianAbsoluteDeviation",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HrvWindow.swift",
+      "symbol": "public static func measure(start: Int, observations: [PhysiologyQuality.IntervalObservation], context: [PhysiologyQuality.ContextEpoch] = [], policy: Policy = Policy(), inputRevision: String = \"unversioned\", computationMode: String = \"retrospective\") -> Result",
+      "producer": "swift.HrvWindow.measure",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HydrationGoal.swift",
+      "symbol": "public static func baselineForSex(_ sex: String) -> Int",
+      "producer": "swift.HydrationGoal.baselineForSex",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HydrationGoal.swift",
+      "symbol": "public static func effortBump(effort: Double?) -> Int",
+      "producer": "swift.HydrationGoal.effortBump",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HydrationGoal.swift",
+      "symbol": "public static func dailyGoalML(sex: String, effort: Double?) -> Int",
+      "producer": "swift.HydrationGoal.dailyGoalML",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RangeReport.swift",
+      "symbol": "public static func build(metrics: [ReportMetric: [String: Double]], start: String, end: String, units: ReportDisplayUnits = .stored) -> RangeReport",
+      "producer": "swift.RangeReport.build",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RangeReport.swift",
+      "symbol": "static func makeHeadlines(_ stats: [MetricRangeStat], units: ReportDisplayUnits = .stored) -> [String]",
+      "producer": "swift.RangeReport.makeHeadlines",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RangeReport.swift",
+      "symbol": "static func salience(_ s: MetricRangeStat) -> Double",
+      "producer": "swift.RangeReport.salience",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RangeReport.swift",
+      "symbol": "static func trendFromSlope(_ slope: Double, threshold: Double) -> ReportTrend",
+      "producer": "swift.RangeReport.trendFromSlope",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RangeReport.swift",
+      "symbol": "static func mean(_ values: [Double]) -> Double",
+      "producer": "swift.RangeReport.mean",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RangeReport.swift",
+      "symbol": "static func leastSquaresSlope(_ values: [Double]) -> Double",
+      "producer": "swift.RangeReport.leastSquaresSlope",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepHeartRateContrast.swift",
+      "symbol": "public static func evaluate(wakeHR: [Double?], primarySleepHR: [Double?], minimumValidSamples: Int = defaultMinimumValidSamples) -> Result?",
+      "producer": "swift.SleepHeartRateContrast.evaluate",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVFreqDomain.swift",
+      "symbol": "public static func freqDomain(rr: [RRInterval]) -> Bands?",
+      "producer": "swift.HRVFreqDomain.freqDomain",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVFreqDomain.swift",
+      "symbol": "public static func freqDomain(rawRR: [Double]) -> Bands?",
+      "producer": "swift.HRVFreqDomain.freqDomain",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVFreqDomain.swift",
+      "symbol": "static func bandPower(times: [Double], y: [Double], fLow: Double, fHigh: Double) -> Double",
+      "producer": "swift.HRVFreqDomain.bandPower",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVFreqDomain.swift",
+      "symbol": "static func lombScarglePower(times: [Double], y: [Double], freqHz: Double, variance: Double) -> Double",
+      "producer": "swift.HRVFreqDomain.lombScarglePower",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryForecast.swift",
+      "symbol": "public static func forecast(recentCharge: [Double], recentEffort: [Double] = [], todayEffort: Double?, plannedSleepHours: Double, needHours: Double? = nil, needNights: Int = 0) -> RecoveryForecast?",
+      "producer": "swift.RecoveryForecast.forecast",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryForecast.swift",
+      "symbol": "static func mean(_ values: [Double]) -> Double",
+      "producer": "swift.RecoveryForecast.mean",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryForecast.swift",
+      "symbol": "static func sampleSD(_ values: [Double]) -> Double",
+      "producer": "swift.RecoveryForecast.sampleSD",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryForecast.swift",
+      "symbol": "static func leastSquaresSlope(_ values: [Double]) -> Double",
+      "producer": "swift.RecoveryForecast.leastSquaresSlope",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StressOnsetDetector.swift",
+      "symbol": "public static func evaluate(rrBuffer: [Int], currentHR: Double?, recentMotionG: Double?, sessionActive: Bool, state: State, config: Config, nowSec: Int, tzOffsetSec: Int) -> Decision",
+      "producer": "swift.StressOnsetDetector.evaluate",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RestSubScoreTrace.swift",
+      "symbol": "public static func medianBpm(_ bpms: [Int]) -> Int?",
+      "producer": "swift.RestSubScoreTrace.medianBpm",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RestSubScoreTrace.swift",
+      "symbol": "public static func subScoreLine(tstSeconds: Double, inBedSeconds: Double, efficiency: Double, restorativeSeconds: Double, needHours: Double, consistency: Double?, deepSeconds: Double?, groupFragments: Int, groupInBedSeconds: Double) -> String",
+      "producer": "swift.RestSubScoreTrace.subScoreLine",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CircadianEngine.swift",
+      "symbol": "public static func cosinor(_ bins: [ActivityBin]) -> CosinorFit?",
+      "producer": "swift.CircadianEngine.cosinor",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CircadianEngine.swift",
+      "symbol": "public static func estimatePhase(bins: [ActivityBin], daysObserved: Int, habitualWakeHour: Double, observedTempMinHour: Double? = nil) -> PhaseEstimate?",
+      "producer": "swift.CircadianEngine.estimatePhase",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CircadianEngine.swift",
+      "symbol": "public static func planShift(shiftHours: Double, currentSleepHour: Double, currentWakeHour: Double) -> JetLagPlan",
+      "producer": "swift.CircadianEngine.planShift",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CircadianEngine.swift",
+      "symbol": "public static func idealSleepWindow(tempMinHour: Double, durationHours: Double) -> (bedHour: Double, wakeHour: Double)?",
+      "producer": "swift.CircadianEngine.idealSleepWindow",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CircadianEngine.swift",
+      "symbol": "public static func sleepWindowOffsetHours(tempMinHour: Double, actualWakeHour: Double) -> Double",
+      "producer": "swift.CircadianEngine.sleepWindowOffsetHours",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CircadianEngine.swift",
+      "symbol": "public static func chronotype(tempMinHour: Double) -> Chronotype",
+      "producer": "swift.CircadianEngine.chronotype",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CircadianEngine.swift",
+      "symbol": "public static func chronotype(_ estimate: PhaseEstimate) -> Chronotype?",
+      "producer": "swift.CircadianEngine.chronotype",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "public static func activitySeries(_ gravity: [GravitySample]) -> [ActivityPoint]",
+      "producer": "swift.WorkoutDetector.activitySeries",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "static func cleanHR(_ hr: [HRSample]) -> [(ts: Int, bpm: Double)]",
+      "producer": "swift.WorkoutDetector.cleanHR",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "static func deriveRestingHR(_ hrSeg: [(ts: Int, bpm: Double)]) -> Double",
+      "producer": "swift.WorkoutDetector.deriveRestingHR",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "static func smoothedIntensity(_ motion: [ActivityPoint], windowS: Double) -> [Double]",
+      "producer": "swift.WorkoutDetector.smoothedIntensity",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "static func boutIntensity(_ hrSeries: [(ts: Int, bpm: Double)], restingHR: Double, maxHR: Double) -> ([Int: Double], Double?)",
+      "producer": "swift.WorkoutDetector.boutIntensity",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "static func bridgeRuns(_ runs: [(Int, Int)], hrSeg: [(ts: Int, bpm: Double)], hrFloor: Double) -> [(Int, Int)]",
+      "producer": "swift.WorkoutDetector.bridgeRuns",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "static func backdatedStart(_ coreStart: Int, _ motionTs: [Int], _ smooth: [Double]) -> Int",
+      "producer": "swift.WorkoutDetector.backdatedStart",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "public static func detect(hr: [HRSample], gravity: [GravitySample], restingHR: Double? = nil, maxHR: Double? = nil, age: Double? = nil, profile: UserProfile? = nil, effortMethod: StrainScorer.Method = .edwards, funnel: ((DetectionFunnel) -> Void)? = nil) -> [ExerciseSession]",
+      "producer": "swift.WorkoutDetector.detect",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "static func resolveCoeffs(_ sex: String) -> Coeffs",
+      "producer": "swift.WorkoutDetector.resolveCoeffs",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "static func restingKcalPerS(_ c: Coeffs, weightKg: Double, heightCm: Double, age: Double) -> Double",
+      "producer": "swift.WorkoutDetector.restingKcalPerS",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "public static func vo2maxFor(hrmax: Double, restingHR: Double?) -> Double?",
+      "producer": "swift.WorkoutDetector.vo2maxFor",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "static func activeKcalPerS(_ c: Coeffs, hr: Double, hrmax: Double, weightKg: Double, age: Double, vo2max: Double? = nil) -> Double",
+      "producer": "swift.WorkoutDetector.activeKcalPerS",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "public static func estimateBoutCalories(_ hrSamples: [HRSample], profile: UserProfile, hrmax: Double?, restingHR: Double?) -> (Double, Double)",
+      "producer": "swift.WorkoutDetector.estimateBoutCalories",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "public static func estimateDayEnergy(_ hrSamples: [HRSample], profile: UserProfile, hrmax: Double?, restingHR: Double?) -> DayEnergyEstimate",
+      "producer": "swift.WorkoutDetector.estimateDayEnergy",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutDetector.swift",
+      "symbol": "public static func estimateDayCalories(_ hrSamples: [HRSample], profile: UserProfile, hrmax: Double?, restingHR: Double?) -> Double",
+      "producer": "swift.WorkoutDetector.estimateDayCalories",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/FitnessAgeEngine.swift",
+      "symbol": "public static func bmi(weightKg: Double, heightCm: Double) -> Double",
+      "producer": "swift.FitnessAgeEngine.bmi",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/FitnessAgeEngine.swift",
+      "symbol": "public static func estimateVO2max(age: Double, sex: String, waistCm: Double, restingHR: Double, paIndex: Double) -> Double",
+      "producer": "swift.FitnessAgeEngine.estimateVO2max",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/FitnessAgeEngine.swift",
+      "symbol": "public static func fitnessAge(age: Double, sex: String, restingHR: Double, paIndex: Double) -> Double",
+      "producer": "swift.FitnessAgeEngine.fitnessAge",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/FitnessAgeEngine.swift",
+      "symbol": "public static func physicalActivityIndex(activeDaysPerWeek: Int, avgActiveMinutesPerDay: Double, highIntensityFraction: Double) -> Double",
+      "producer": "swift.FitnessAgeEngine.physicalActivityIndex",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/FitnessAgeEngine.swift",
+      "symbol": "public static func physicalActivityIndexFromStrain(activeDaysPerWeek: Int, meanActiveStrain: Double) -> Double",
+      "producer": "swift.FitnessAgeEngine.physicalActivityIndexFromStrain",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/FitnessAgeEngine.swift",
+      "symbol": "public static func compute(age: Double, sex: String, restingHR: Double, paIndex: Double, waistCm: Double? = nil, lowerConfidence: Bool = false) -> FitnessAgeResult?",
+      "producer": "swift.FitnessAgeEngine.compute",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/FitnessAgeEngine.swift",
+      "symbol": "public static func nightsUntilReady(rhrDays: Int) -> Int",
+      "producer": "swift.FitnessAgeEngine.nightsUntilReady",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/FitnessAgeEngine.swift",
+      "symbol": "public static func assessReadiness(hasAge: Bool, hasSex: Bool, rhrDays: Int, activityDays: Int, hasHeightWeight: Bool, hasWaist: Bool) -> FitnessAgeReadiness",
+      "producer": "swift.FitnessAgeEngine.assessReadiness",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/PhysiologyQuality.swift",
+      "symbol": "public static func signalRejectionReason(_ row: IntervalObservation) -> String?",
+      "producer": "swift.PhysiologyQuality.signalRejectionReason",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/PhysiologyQuality.swift",
+      "symbol": "public static func propagatingEndpointRejections(_ observations: [IntervalObservation]) -> [IntervalObservation]",
+      "producer": "swift.PhysiologyQuality.propagatingEndpointRejections",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/PhysiologyQuality.swift",
+      "symbol": "public static func hasAmbiguousAlternation(_ observations: [IntervalObservation]) -> Bool",
+      "producer": "swift.PhysiologyQuality.hasAmbiguousAlternation",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/PhysiologyQuality.swift",
+      "symbol": "public static func contextFromSleep(stages: [StageSegment], start: Int, end: Int, episodeType: String? = nil) -> [ContextEpoch]",
+      "producer": "swift.PhysiologyQuality.contextFromSleep",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CurrentHRV.swift",
+      "symbol": "public static func derive(rows: [RRInterval], nowUnix: Int, windowSeconds: Int = CurrentHRV.windowSeconds) -> Snapshot?",
+      "producer": "swift.CurrentHRV.derive",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CurrentHRV.swift",
+      "symbol": "public static func derive(observations: [PhysiologyQuality.IntervalObservation], nowUnix: Int, policy: HrvWindow.Policy = .init(), inputRevision: String = \"unversioned\") -> Snapshot?",
+      "producer": "swift.CurrentHRV.derive",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CoachSuggestions.swift",
+      "symbol": "public static func suggestions(for today: DailyMetric?, recent: [DailyMetric]) -> [String]",
+      "producer": "swift.CoachSuggestions.suggestions",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/TrainingLoadEngine.swift",
+      "symbol": "public static func evaluate(days: [DailyLoad], through targetDay: String? = nil, configuration: Configuration = .standard) -> Result",
+      "producer": "swift.TrainingLoadEngine.evaluate",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/TrainingLoadEngine.swift",
+      "symbol": "public static func evaluateDense(_ loads: [Double], configuration: Configuration = .standard) -> Result",
+      "producer": "swift.TrainingLoadEngine.evaluateDense",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DailyPresentationMath.swift",
+      "symbol": "public static func mean(_ values: [Double]) -> Double?",
+      "producer": "swift.DailyPresentationMath.mean",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DailyPresentationMath.swift",
+      "symbol": "public static func populationSD(_ values: [Double], mean: Double?) -> Double",
+      "producer": "swift.DailyPresentationMath.populationSD",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DailyPresentationMath.swift",
+      "symbol": "public static func dailyStressRaw( rhrToday: Double?, meanRHR: Double?, sdRHR: Double, hrvToday: Double?, meanHRV: Double?, sdHRV: Double ) -> Double",
+      "producer": "swift.DailyPresentationMath.dailyStressRaw",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DailyPresentationMath.swift",
+      "symbol": "public static func dailyStressSquash(_ raw: Double) -> Double",
+      "producer": "swift.DailyPresentationMath.dailyStressSquash",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DailyPresentationMath.swift",
+      "symbol": "public static func positiveMean(_ values: [Double?]) -> Double?",
+      "producer": "swift.DailyPresentationMath.positiveMean",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DailyPresentationMath.swift",
+      "symbol": "public static func descriptiveSleepNeed(observedMinutes: [Double?]) -> Double",
+      "producer": "swift.DailyPresentationMath.descriptiveSleepNeed",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DailyPresentationMath.swift",
+      "symbol": "public static func bedtimeConsistencySeries(localBedMinutes: [Double]) -> [Double]",
+      "producer": "swift.DailyPresentationMath.bedtimeConsistencySeries",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DailyPresentationMath.swift",
+      "symbol": "public static func hoursVsNeededPercent(asleepMin: Double?, needMin: Double) -> Double?",
+      "producer": "swift.DailyPresentationMath.hoursVsNeededPercent",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DailyPresentationMath.swift",
+      "symbol": "public static func restorativeMinutes(deepMin: Double?, remMin: Double?) -> Double?",
+      "producer": "swift.DailyPresentationMath.restorativeMinutes",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DailyPresentationMath.swift",
+      "symbol": "public static func restorativePercent(deepMin: Double?, remMin: Double?, asleepMin: Double?) -> Double?",
+      "producer": "swift.DailyPresentationMath.restorativePercent",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeStress.swift",
+      "symbol": "static func mean(_ xs: [Double]) -> Double?",
+      "producer": "swift.DaytimeStress.mean",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeStress.swift",
+      "symbol": "static func std(_ xs: [Double], mean m: Double?) -> Double",
+      "producer": "swift.DaytimeStress.std",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeStress.swift",
+      "symbol": "static func rawScore(hr: Double?, meanHR: Double?, sdHR: Double, rmssd: Double?, meanRMSSD: Double?, sdRMSSD: Double) -> Double",
+      "producer": "swift.DaytimeStress.rawScore",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeStress.swift",
+      "symbol": "static func squash(_ raw: Double) -> Double",
+      "producer": "swift.DaytimeStress.squash",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeStress.swift",
+      "symbol": "static func marginToSigma(marginBPM: Double, atBand band: Double) -> Double",
+      "producer": "swift.DaytimeStress.marginToSigma",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeStress.swift",
+      "symbol": "public static func analyze(hr: [HRSample], rr: [RRInterval], gravity: [GravitySample] = [], tzOffsetSeconds: Int = 0, mode: ScoringMode = .dayRelative, timezone: TimeZone? = nil) -> Result",
+      "producer": "swift.DaytimeStress.analyze",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeStress.swift",
+      "symbol": "static func calmReference(_ xs: [Double], calmIsLow: Bool) -> Double?",
+      "producer": "swift.DaytimeStress.calmReference",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeStress.swift",
+      "symbol": "static func quantile(_ sorted: [Double], _ q: Double) -> Double",
+      "producer": "swift.DaytimeStress.quantile",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeBaselines.swift",
+      "symbol": "static func dayDaytimeAggregate(hr: [HRSample], rr: [RRInterval], tzOffsetSeconds: Int, timezone: TimeZone? = nil) -> (hr: Double?, rmssd: Double?)",
+      "producer": "swift.DaytimeBaselines.dayDaytimeAggregate",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeBaselines.swift",
+      "symbol": "static func foldDaytimeBaselines(days: [DaytimeDayStreams]) -> (hr: BaselineState, rmssd: BaselineState?)",
+      "producer": "swift.DaytimeBaselines.foldDaytimeBaselines",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DaytimeBaselines.swift",
+      "symbol": "static func scoringMode(history days: [DaytimeDayStreams]) -> ScoringMode",
+      "producer": "swift.DaytimeBaselines.scoringMode",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryScorer+Trace.swift",
+      "symbol": "public static func recoveryTrace(hrv: Double, rhr: Double, resp: Double?, hrvBaseline: BaselineState, rhrBaseline: BaselineState?, respBaseline: BaselineState?, sleepPerf: Double?, skinTempDev: Double? = nil) -> (score: Double?, trace: [String])",
+      "producer": "swift.RecoveryScorer+Trace.recoveryTrace",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func minutes(fromStagesJSON json: String?) -> Minutes?",
+      "producer": "swift.SleepStageTotals.minutes",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func dailyAggregate(_ stagesJSONs: [String?]) -> DailySleep?",
+      "producer": "swift.SleepStageTotals.dailyAggregate",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func dailyAggregate(_ stagesJSONs: [String?], interFragmentAwakeSeconds: Double) -> DailySleep?",
+      "producer": "swift.SleepStageTotals.dailyAggregate",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func interFragmentAwakeSeconds(_ spans: [(start: Int, end: Int)]) -> Double",
+      "producer": "swift.SleepStageTotals.interFragmentAwakeSeconds",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "static func alignmentBonusMinutes(blockMidSec: Int, targetMidSec: Int) -> Double",
+      "producer": "swift.SleepStageTotals.alignmentBonusMinutes",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func bridgeAdjacent(_ blocks: [NightBlock]) -> [NightBlock]",
+      "producer": "swift.SleepStageTotals.bridgeAdjacent",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func bridgedNightGroups(_ blocks: [NightBlock], offsetSec: Int, timezone: TimeZone? = nil) -> [BridgedNightGroup]",
+      "producer": "swift.SleepStageTotals.bridgedNightGroups",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func mainNightGroupIndices(_ blocks: [NightBlock], offsetSec: Int, habitualMidsleepSec: Int? = nil, timezone: TimeZone? = nil) -> [Int]?",
+      "producer": "swift.SleepStageTotals.mainNightGroupIndices",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func mainNightIndex(_ blocks: [NightBlock], offsetSec: Int, habitualMidsleepSec: Int? = nil, timezone: TimeZone? = nil) -> Int?",
+      "producer": "swift.SleepStageTotals.mainNightIndex",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func mainNightSelection(_ blocks: [NightBlock], offsetSec: Int, habitualMidsleepSec: Int? = nil) -> MainNightSelection?",
+      "producer": "swift.SleepStageTotals.mainNightSelection",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "static func durationOnlyWinnerOnset(asleepSecs: [Int], onsets: [Int]) -> Int",
+      "producer": "swift.SleepStageTotals.durationOnlyWinnerOnset",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "static func mainNightReason(chosenAsleepSec: Int, chosenOnset: Int, chosenMidLocalSec: Int, blockCount: Int, longestAsleepSec: Int, longestOnset: Int, chosenIsDurationWinnerOnset: Int, habitualMidsleepSec: Int?) -> MainNightReason",
+      "producer": "swift.SleepStageTotals.mainNightReason",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func dailyAggregateHonoringEdits( detected: [(startTs: Int, stagesJSON: String?)], edited: [Int: String?], manual: [(startTs: Int, stagesJSON: String?)] = [], onsetByStart: [Int: Int]? = nil, offsetSec: Int = 0, habitualMidsleepSec: Int? = nil ) -> (sleep: DailySleep, editApplied: Bool)?",
+      "producer": "swift.SleepStageTotals.dailyAggregateHonoringEdits",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "static func mainNightGroupIndicesByStages(_ blocks: [(startTs: Int, stagesJSON: String?)], onsetByStart: [Int: Int], offsetSec: Int, habitualMidsleepSec: Int? = nil) -> [Int]?",
+      "producer": "swift.SleepStageTotals.mainNightGroupIndicesByStages",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "static func summedStagesJSON(_ stagesJSONs: [String?]) -> String?",
+      "producer": "swift.SleepStageTotals.summedStagesJSON",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "static func mainNightIndexByStages(_ blocks: [(startTs: Int, stagesJSON: String?)], onsetByStart: [Int: Int], offsetSec: Int, habitualMidsleepSec: Int? = nil) -> Int?",
+      "producer": "swift.SleepStageTotals.mainNightIndexByStages",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "static func mainNightSelectionByStages(_ blocks: [(startTs: Int, stagesJSON: String?)], onsetByStart: [Int: Int], offsetSec: Int, habitualMidsleepSec: Int? = nil) -> MainNightSelection?",
+      "producer": "swift.SleepStageTotals.mainNightSelectionByStages",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "public static func habitualMidsleepSec(_ history: [HistoryBlock], offsetSec: Int, minDays: Int = habitualMinDays) -> Int?",
+      "producer": "swift.SleepStageTotals.habitualMidsleepSec",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStageTotals.swift",
+      "symbol": "static func circularMeanSec(_ secs: [Int]) -> Int?",
+      "producer": "swift.SleepStageTotals.circularMeanSec",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/PhysiologicalSteps.swift",
+      "symbol": "public static func classifyForCycle(_ blocks: [SleepBlock], offsetSec: Int, habitualMidsleepSec: Int?, timezone: TimeZone? = nil) -> [SleepBlock]",
+      "producer": "swift.PhysiologicalSteps.classifyForCycle",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/PhysiologicalSteps.swift",
+      "symbol": "public static func cycleWindows(_ boundaries: [CycleBoundary], now: Int) -> [CycleWindow]",
+      "producer": "swift.PhysiologicalSteps.cycleWindows",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/PhysiologicalSteps.swift",
+      "symbol": "public static func ownerSegmentsFromCoverage(_ window: CycleWindow, coverage: [OwnerCoverage], fallbackOwner: String) -> [OwnerSegment]",
+      "producer": "swift.PhysiologicalSteps.ownerSegmentsFromCoverage",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func gravityDeltas(_ grav: [GravitySample]) -> [Double]",
+      "producer": "swift.SleepStager.gravityDeltas",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func hrSleepBandAcross(_ a: Int, _ b: Int, hr: [HRSample], baseline: Double?) -> Bool",
+      "producer": "swift.SleepStager.hrSleepBandAcross",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func classifyStill(_ grav: [GravitySample], _ deltas: [Double]) -> [Bool]",
+      "producer": "swift.SleepStager.classifyStill",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func buildRuns(_ grav: [GravitySample], _ flags: [Bool], sparse: Bool = false, hr: [HRSample] = [], baseline: Double? = nil) -> [Period]",
+      "producer": "swift.SleepStager.buildRuns",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func hrOnlyBaseline(_ hr: [HRSample]) -> Double?",
+      "producer": "swift.SleepStager.hrOnlyBaseline",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func hrPercentile(_ hr: [HRSample], _ p: Double) -> Double?",
+      "producer": "swift.SleepStager.hrPercentile",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func percentileOfSorted(_ sorted: [Double], _ p: Double) -> Double?",
+      "producer": "swift.SleepStager.percentileOfSorted",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func hrOnlySleepRuns(_ hr: [HRSample], baseline: Double?, epochS: Int = hrOnlyEpochS, maxGapMinutes: Int = maxGapMin) -> [Period]",
+      "producer": "swift.SleepStager.hrOnlySleepRuns",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "public static func hrOnlySessions(hr: [HRSample], rr: [RRInterval], resp: [RespSample], minMinutes: Int = minSleepMin, traceSink: ((String) -> Void)? = nil) -> [SleepSession]",
+      "producer": "swift.SleepStager.hrOnlySessions",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func mergePeriods(_ periods: [Period], mergeMinutes: Int = mergeMin) -> [Period]",
+      "producer": "swift.SleepStager.mergePeriods",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func bridgeSparseSleepTraced(_ periods: [Period], sparse: Bool, hr: [HRSample], baseline: Double?) -> ([Period], [SparseBridgeAttempt])",
+      "producer": "swift.SleepStager.bridgeSparseSleepTraced",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func bridgeSparseSleep(_ periods: [Period], sparse: Bool, hr: [HRSample], baseline: Double?) -> [Period]",
+      "producer": "swift.SleepStager.bridgeSparseSleep",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func hrBaseline(_ hr: [HRSample]) -> Double?",
+      "producer": "swift.SleepStager.hrBaseline",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func confirmSleepWithHR(_ p: Period, hr: [HRSample], baseline: Double?, grav: [GravitySample] = [], sleepHRBaseline: Double? = nil) -> Bool",
+      "producer": "swift.SleepStager.confirmSleepWithHR",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func runIsDeeplyQuiescent(_ p: Period, grav: [GravitySample]) -> Bool",
+      "producer": "swift.SleepStager.runIsDeeplyQuiescent",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func posturVarianceG2(_ samples: [GravitySample]) -> Double?",
+      "producer": "swift.SleepStager.posturVarianceG2",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "public static func adaptiveOvernightHRBaseline(recentOvernightMedians: [Double]) -> Double?",
+      "producer": "swift.SleepStager.adaptiveOvernightHRBaseline",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func passesDaytimeGuard(_ p: Period, restingHR: Int?, baseline: Double?) -> Bool",
+      "producer": "swift.SleepStager.passesDaytimeGuard",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func passesMorningStillnessGuard(_ p: Period, restingHR: Int?, baseline: Double?, morningWakeEnd: Int?, bandSleepState: [(ts: Int, state: Int)] = []) -> Bool",
+      "producer": "swift.SleepStager.passesMorningStillnessGuard",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func bandStateConfirmsAsleep(_ p: Period, bandSleepState: [(ts: Int, state: Int)]) -> Bool",
+      "producer": "swift.SleepStager.bandStateConfirmsAsleep",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func applyBandStateWakeVeto(_ stages: [StageSegment], start: Int, end: Int, bandSleepState: [(ts: Int, state: Int)], enabled: Bool = bandStateWakeVetoEnabled, cutoffTs: Int = bandStateWakeVetoCutoffTs) -> [StageSegment]",
+      "producer": "swift.SleepStager.applyBandStateWakeVeto",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func offWristHRGapSpans(_ p: Period, hr: [HRSample]) -> [(start: Int, end: Int)]",
+      "producer": "swift.SleepStager.offWristHRGapSpans",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func offWristFraction(_ p: Period, hr: [HRSample], wristOff: [(start: Int, end: Int)]) -> Double",
+      "producer": "swift.SleepStager.offWristFraction",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "public static func detectSleep(hr: [HRSample] = [], rr: [RRInterval] = [], resp: [RespSample] = [], gravity: [GravitySample], tzOffsetSeconds: Int = 0, wristOff: [(start: Int, end: Int)] = [], bandSleepState: [(ts: Int, state: Int)] = [], useSleepStagerV2: Bool = false, sleepHRBaseline: Double? = nil, timezone: TimeZone? = nil, traceSink: ((String) -> Void)? = nil) -> [SleepSession]",
+      "producer": "swift.SleepStager.detectSleep",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func efficiency(start: Int, end: Int, stages: [StageSegment]) -> Double",
+      "producer": "swift.SleepStager.efficiency",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func onsetAndFinalWake(_ ckFlags: [Bool]) -> (Int, Int)",
+      "producer": "swift.SleepStager.onsetAndFinalWake",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "public static func stageSession(start: Int, end: Int, grav: [GravitySample], hr: [HRSample], rr: [RRInterval], resp: [RespSample], hrvObservations: [PhysiologyQuality.IntervalObservation] = []) -> [StageSegment]",
+      "producer": "swift.SleepStager.stageSession",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "public static func sessionEpochMotion(start: Int, end: Int, grav: [GravitySample]) -> [Double]",
+      "producer": "swift.SleepStager.sessionEpochMotion",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "public static func sessionEpochSleepState(start: Int, end: Int, sleepState: [(ts: Int, state: Int)]) -> [Int]",
+      "producer": "swift.SleepStager.sessionEpochSleepState",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func buildEpochGrid(start: Double, end: Double, gravTimes: [Int], gravDeltas: [Double], hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> EpochGrid",
+      "producer": "swift.SleepStager.buildEpochGrid",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func rescaleCounts(_ counts: [Double]) -> [Double]",
+      "producer": "swift.SleepStager.rescaleCounts",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func coleKripke(_ rescaled: [Double]) -> [Bool]",
+      "producer": "swift.SleepStager.coleKripke",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func gaussianKernel(sigmaS: Double, dtS: Double = epochS) -> [Double]",
+      "producer": "swift.SleepStager.gaussianKernel",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func convolveReflect(_ x: [Double], _ kernel: [Double]) -> [Double]",
+      "producer": "swift.SleepStager.convolveReflect",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func dogHRVariability(_ hrPerEpoch: [Double]) -> [Double]",
+      "producer": "swift.SleepStager.dogHRVariability",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func respRateAndRRV(_ respRaw: [Double], dtS: Double = 1.0) -> (Double, Double)",
+      "producer": "swift.SleepStager.respRateAndRRV",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func findPeaks(_ x: [Double], distance: Int, height: Double) -> [Int]",
+      "producer": "swift.SleepStager.findPeaks",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func respRateFromRR(_ rr: [RRInterval], start: Int, end: Int) -> Double",
+      "producer": "swift.SleepStager.respRateFromRR",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func extractFeatures(grid: EpochGrid, ckFlags: [Bool], dogHR: [Double], onsetIdx: Int, finalWakeIdx: Int, hrvMeasurements: [HrvWindowResult] = []) -> [EpochFeatures]",
+      "producer": "swift.SleepStager.extractFeatures",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func percentile(_ values: [Double], _ pct: Double) -> Double?",
+      "producer": "swift.SleepStager.percentile",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func classifyEpochs(_ features: [EpochFeatures]) -> [String]",
+      "producer": "swift.SleepStager.classifyEpochs",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func isCardiacSparse(_ sleepFeats: [EpochFeatures]) -> Bool",
+      "producer": "swift.SleepStager.isCardiacSparse",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func classifyOne(_ f: EpochFeatures, hrLo: Double?, hrHi: Double?, rmssdHi: Double?, hrvarHi: Double?, rrvHi: Double?, rrvLo: Double?, cardiacSparse: Bool = false) -> String",
+      "producer": "swift.SleepStager.classifyOne",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func smoothLabels(_ labels: [String], window: Int = smoothEpochs) -> [String]",
+      "producer": "swift.SleepStager.smoothLabels",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func reimposePhysiology(_ labels: [String], features: [EpochFeatures], onsetIdx: Int, finalWakeIdx: Int) -> [String]",
+      "producer": "swift.SleepStager.reimposePhysiology",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func remRejectReason(_ f: EpochFeatures, hrLo: Double?, hrHi: Double?, rmssdHi: Double?, hrvarHi: Double?, rrvHi: Double?, rrvLo: Double?, cardiacSparse: Bool = false) -> REMRejectReason",
+      "producer": "swift.SleepStager.remRejectReason",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "public static func remFunnelDiagnostic(start: Int, end: Int, grav: [GravitySample], hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> REMFunnelDiagnostic?",
+      "producer": "swift.SleepStager.remFunnelDiagnostic",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func stageDepthRank(_ stage: String) -> Int",
+      "producer": "swift.SleepStager.stageDepthRank",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func mergeFragments(_ labels: [String], thresholdEpochs: Int = fragmentMergeEpochs) -> [String]",
+      "producer": "swift.SleepStager.mergeFragments",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "public static func rhrBinGateLogLine(day: String, sessions: [(Int, Int)], hr: [HRSample], shippedFloor: Int, minBinSamples: Int = 5, minPlausibleBpm: Double = 25) -> String?",
+      "producer": "swift.SleepStager.rhrBinGateLogLine",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "public static func sessionRestingHR(start: Int, end: Int, hr: [HRSample]) -> Int?",
+      "producer": "swift.SleepStager.sessionRestingHR",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func sessionAvgHRV(start: Int, end: Int, rr: [RRInterval], observations: [PhysiologyQuality.IntervalObservation]? = nil, context: [PhysiologyQuality.ContextEpoch] = [], inputRevision: String = \"unversioned\") -> Double?",
+      "producer": "swift.SleepStager.sessionAvgHRV",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func sessionHrvWindows(start: Int, end: Int, rr: [RRInterval], stages: [StageSegment], observations: [PhysiologyQuality.IntervalObservation]? = nil, context: [PhysiologyQuality.ContextEpoch] = [], inputRevision: String = \"unversioned\") -> [HrvWindow]",
+      "producer": "swift.SleepStager.sessionHrvWindows",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func lastDeepRun(_ windows: [HrvWindow]) -> [HrvWindow]",
+      "producer": "swift.SleepStager.lastDeepRun",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "public static func hypnogramMetrics(_ session: SleepSession) -> HypnogramMetrics",
+      "producer": "swift.SleepStager.hypnogramMetrics",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+      "symbol": "static func standardDeviation(_ values: [Double]) -> Double",
+      "producer": "swift.SleepStager.standardDeviation",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RhythmScreener.swift",
+      "symbol": "public static func screenWindow(_ input: WindowInput) -> WindowResult",
+      "producer": "swift.RhythmScreener.screenWindow",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RhythmScreener.swift",
+      "symbol": "public static func summarizeNight(_ windows: [WindowResult]) -> NightRhythmSummary",
+      "producer": "swift.RhythmScreener.summarizeNight",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVReadiness.swift",
+      "symbol": "public static func evaluate(avgHrv: [Double?]) -> HRVReadinessResult?",
+      "producer": "swift.HRVReadiness.evaluate",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStagerV2.swift",
+      "symbol": "public static func stageSession(start: Int, end: Int, grav: [GravitySample], hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment]",
+      "producer": "swift.SleepStagerV2.stageSession",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStagerV2.swift",
+      "symbol": "static func motionQuiescent(_ f: Epoch) -> Bool",
+      "producer": "swift.SleepStagerV2.motionQuiescent",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStagerV2.swift",
+      "symbol": "static func features(start: Int, end: Int, grav: [GravitySample], hr: [HRSample], rr: [RRInterval]) -> [Epoch]",
+      "producer": "swift.SleepStagerV2.features",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStagerV2.swift",
+      "symbol": "static func respRegularity(_ beats: [(Double, Double)]) -> Double?",
+      "producer": "swift.SleepStagerV2.respRegularity",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStagerV2.swift",
+      "symbol": "static func remLatencyGuard(_ minutesSinceOnset: Double) -> Double",
+      "producer": "swift.SleepStagerV2.remLatencyGuard",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStagerV2.swift",
+      "symbol": "static func cyclePrior(_ c: Double, _ minutesSinceOnset: Double) -> [String: Double]",
+      "producer": "swift.SleepStagerV2.cyclePrior",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStagerV2.swift",
+      "symbol": "static func sustainedSleepOnset(_ labels: [String]) -> Int?",
+      "producer": "swift.SleepStagerV2.sustainedSleepOnset",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStagerV2.swift",
+      "symbol": "static func viterbi(_ emSeq: [[String: Double]]) -> [String]",
+      "producer": "swift.SleepStagerV2.viterbi",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStagerV2.swift",
+      "symbol": "static func stageEpochs(_ feats: [Epoch]) -> [String]",
+      "producer": "swift.SleepStagerV2.stageEpochs",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WeeklyDigest.swift",
+      "symbol": "public static func build(byMetric: [WeeklyMetric: [String: Double]], anchorDay: String, effortDisplayFactor: Double = 1.0) -> WeeklyDigest",
+      "producer": "swift.WeeklyDigest.build",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WeeklyDigest.swift",
+      "symbol": "static func balanceRead(_ summaries: [WeeklyMetricSummary]) -> BalanceRead",
+      "producer": "swift.WeeklyDigest.balanceRead",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WeeklyDigest.swift",
+      "symbol": "static func focalPoints(summaries: [WeeklyMetricSummary], balance: BalanceRead, consistencySD: Double?, effortDisplayFactor: Double = 1.0) -> [String]",
+      "producer": "swift.WeeklyDigest.focalPoints",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRDownPacer.swift",
+      "symbol": "public static func next(currentHR: Double, elapsed: Double, config: Config = .default) -> Step",
+      "producer": "swift.HRDownPacer.next",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRDownPacer.swift",
+      "symbol": "public static func rampedDelta(elapsed: Double, config: Config = .default) -> Double",
+      "producer": "swift.HRDownPacer.rampedDelta",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ResonanceEngine.swift",
+      "symbol": "public static func scorePace(_ sample: PaceSample) -> PaceScore",
+      "producer": "swift.ResonanceEngine.scorePace",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ResonanceEngine.swift",
+      "symbol": "public static func sweep(_ samples: [PaceSample]) -> SweepResult",
+      "producer": "swift.ResonanceEngine.sweep",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ResonanceEngine.swift",
+      "symbol": "static func repairTimestamps(steady: [RrBeat], cleanMs: [Double]) -> [CleanBeat]",
+      "producer": "swift.ResonanceEngine.repairTimestamps",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/IllnessSignalEngine.swift",
+      "symbol": "public static func evaluate(_ inputs: Inputs, context: Context, firedLabels: [String: String] = [:]) -> Result",
+      "producer": "swift.IllnessSignalEngine.evaluate",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/IllnessDistance.swift",
+      "symbol": "public static func evaluate(features: FeatureVector, correlation: [[Double]]? = nil) -> Result",
+      "producer": "swift.IllnessDistance.evaluate",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/IllnessDistance.swift",
+      "symbol": "static func invertOrDiagonal(_ a: [[Double]]) -> (inverse: [[Double]], fellBack: Bool)",
+      "producer": "swift.IllnessDistance.invertOrDiagonal",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/IllnessDistance.swift",
+      "symbol": "static func diagonalInverse(_ a: [[Double]]) -> [[Double]]",
+      "producer": "swift.IllnessDistance.diagonalInverse",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AdaptiveExpenditureEngine.swift",
+      "symbol": "public static func estimate(days: [AdaptiveExpenditureDay]) -> AdaptiveExpenditureEstimate?",
+      "producer": "swift.AdaptiveExpenditureEngine.estimate",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepDebt.swift",
+      "symbol": "public static func creditedSleepMin(mainSleepMin: Double?, napSleepMin: Double = 0) -> Double?",
+      "producer": "swift.SleepDebt.creditedSleepMin",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepDebt.swift",
+      "symbol": "public static func debtSeries( series: [(day: String, totalSleepMin: Double?)], needHours: Double = AnalyticsEngine.Rest.defaultNeedHours, importedDebtMin: [String: Double] = [:], window: Int = defaultWindowNights ) -> [(day: String, value: Double)]",
+      "producer": "swift.SleepDebt.debtSeries",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepDebt.swift",
+      "symbol": "public static func ledger(series: [(day: String, totalSleepMin: Double?)], needHours: Double = AnalyticsEngine.Rest.defaultNeedHours, window: Int = defaultWindowNights) -> SleepDebtLedger",
+      "producer": "swift.SleepDebt.ledger",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "static func banisterDailyCeiling(b: Double) -> Double",
+      "producer": "swift.StrainScorer.banisterDailyCeiling",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "static func banisterBaselineRatePerMinute(b: Double) -> Double",
+      "producer": "swift.StrainScorer.banisterBaselineRatePerMinute",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "static func banisterBaseline(minutes: Double, b: Double) -> Double",
+      "producer": "swift.StrainScorer.banisterBaseline",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "public static func logMapDenominator(method: Method, sex: String) -> Double",
+      "producer": "swift.StrainScorer.logMapDenominator",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "public static func tanakaHRmax(age: Double) -> Double",
+      "producer": "swift.StrainScorer.tanakaHRmax",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "public static func defaultMaxHR(age: Int = defaultAge) -> Int",
+      "producer": "swift.StrainScorer.defaultMaxHR",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "static func percentile(_ sortedValues: [Double], _ pct: Double) -> Double",
+      "producer": "swift.StrainScorer.percentile",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "public static func estimateHRmax(_ hrHistory: [Double], age: Double?) -> (Double, String)",
+      "producer": "swift.StrainScorer.estimateHRmax",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "static func pctHRR(_ bpm: Double, restingHR: Double, hrReserve: Double) -> Double",
+      "producer": "swift.StrainScorer.pctHRR",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "static func zoneWeight(_ bpm: Double, restingHR: Double, hrReserve: Double) -> Int",
+      "producer": "swift.StrainScorer.zoneWeight",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "static func sampleDurationMinutes(_ hr: [HRSample]) -> Double",
+      "producer": "swift.StrainScorer.sampleDurationMinutes",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "static func sampleDurationsMinutes(_ hr: [HRSample]) -> [Double]",
+      "producer": "swift.StrainScorer.sampleDurationsMinutes",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "static func edwardsTRIMP(_ hr: [HRSample], restingHR: Double, hrReserve: Double, durations: [Double]) -> Double",
+      "producer": "swift.StrainScorer.edwardsTRIMP",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "static func banisterTRIMP(_ hr: [HRSample], restingHR: Double, hrReserve: Double, durations: [Double], b: Double, floorRatePerMinute: Double = 0.0) -> Double",
+      "producer": "swift.StrainScorer.banisterTRIMP",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "public static func trimpToStrain(_ trimp: Double, denominator: Double = strainDenominator) -> Double",
+      "producer": "swift.StrainScorer.trimpToStrain",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "public static func fitStrainDenominator(_ pairs: [(trimp: Double, strain: Double)]) throws -> Double",
+      "producer": "swift.StrainScorer.fitStrainDenominator",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StrainScorer.swift",
+      "symbol": "public static func strain(_ hr: [HRSample], maxHR: Double? = nil, restingHR: Double = defaultRestingHR, method: Method = .edwards, sex: String = \"male\", denominator: Double? = nil, diag: ((String) -> Void)? = nil, day: String = \"\") -> Double?",
+      "producer": "swift.StrainScorer.strain",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DoseResponseEngine.swift",
+      "symbol": "public func delta(fromDose: Int, toDose: Int) -> Double",
+      "producer": "swift.DoseResponseEngine.delta",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DoseResponseEngine.swift",
+      "symbol": "public static func estimate(behavior: DosedBehavior, doseByDay: [String: Int], outcomeByDay: [String: Double]) -> DoseResponse?",
+      "producer": "swift.DoseResponseEngine.estimate",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DoseResponseEngine.swift",
+      "symbol": "public static func estimate(behavior: DosedBehavior, outcome: String, doseByDay: [String: Int], outcomeByDay: [String: Double]) -> DoseResponse?",
+      "producer": "swift.DoseResponseEngine.estimate",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/DoseResponseEngine.swift",
+      "symbol": "static func confidenceFor(nUser: Int) -> ScoreConfidence",
+      "producer": "swift.DoseResponseEngine.confidenceFor",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/PrimarySessionRestingHR.swift",
+      "symbol": "public static func meanHR(sessions: [Session], validBpm: ClosedRange<Int> = defaultValidBpm, minValidSamples: Int = defaultMinValidSamples) -> Double?",
+      "producer": "swift.PrimarySessionRestingHR.meanHR",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/PrimarySessionRestingHR.swift",
+      "symbol": "public static func coverage(sessions: [Session], validBpm: ClosedRange<Int> = defaultValidBpm, minValidSamples: Int = defaultMinValidSamples) -> Coverage?",
+      "producer": "swift.PrimarySessionRestingHR.coverage",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "public static func refine(_ segments: [StageSegment], grav: [GravitySample], steps: [StepSample]) -> [StageSegment]",
+      "producer": "swift.WakeMotionRefinement.refine",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "public static func apply(_ segments: [StageSegment], grav: [GravitySample], steps: [StepSample], enabled: Bool) -> [StageSegment]",
+      "producer": "swift.WakeMotionRefinement.apply",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "public static func refine(_ session: SleepSession, grav: [GravitySample], steps: [StepSample]) -> SleepSession",
+      "producer": "swift.WakeMotionRefinement.refine",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "public static func apply(_ session: SleepSession, grav: [GravitySample], steps: [StepSample], enabled: Bool) -> SleepSession",
+      "producer": "swift.WakeMotionRefinement.apply",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "static func isMotionDense(start: Int, end: Int, grav: [GravitySample], steps: [StepSample]) -> Bool",
+      "producer": "swift.WakeMotionRefinement.isMotionDense",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "static func denseMinuteFraction<T>(_ samples: [T], from start: Int, to end: Int, minPerMinute: Int, ts: (T) -> Int) -> Double",
+      "producer": "swift.WakeMotionRefinement.denseMinuteFraction",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "static func refineSegment(_ seg: StageSegment, gravByMinute: [Int: [GravitySample]], ticksByMinute: [Int: Int]) -> [StageSegment]",
+      "producer": "swift.WakeMotionRefinement.refineSegment",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "static func hasLocomotion(_ mins: [Int], ticksByMinute: [Int: Int]) -> Bool",
+      "producer": "swift.WakeMotionRefinement.hasLocomotion",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "static func stableBurstMinutes(_ mins: [Int], gravByMinute: [Int: [GravitySample]]) -> Set<Int>?",
+      "producer": "swift.WakeMotionRefinement.stableBurstMinutes",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "static func postureVariance(_ samples: [GravitySample]) -> Double?",
+      "producer": "swift.WakeMotionRefinement.postureVariance",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WakeMotionRefinement.swift",
+      "symbol": "static func walkClassTicksPerMinute(_ steps: [StepSample]) -> [Int: Int]",
+      "producer": "swift.WakeMotionRefinement.walkClassTicksPerMinute",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ManualWorkoutRescore.swift",
+      "symbol": "public static func scored(windowSamples: [HRSample], profile: UserProfile, hrMax: Double, restingHR: Double? = nil, effortMethod: StrainScorer.Method = .edwards) -> Scored?",
+      "producer": "swift.ManualWorkoutRescore.scored",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CorrelationEngine.swift",
+      "symbol": "public static func pearson(_ xy: [(Double, Double)]) -> Correlation?",
+      "producer": "swift.CorrelationEngine.pearson",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CorrelationEngine.swift",
+      "symbol": "public static func lagged(x: [(day: String, value: Double)], y: [(day: String, value: Double)], lagDays: Int) -> Correlation?",
+      "producer": "swift.CorrelationEngine.lagged",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CorrelationEngine.swift",
+      "symbol": "static func pValue(r: Double, n: Int) -> Double",
+      "producer": "swift.CorrelationEngine.pValue",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CorrelationEngine.swift",
+      "symbol": "static func normalCDF(_ z: Double) -> Double",
+      "producer": "swift.CorrelationEngine.normalCDF",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/CorrelationEngine.swift",
+      "symbol": "static func erfApprox(_ x: Double) -> Double",
+      "producer": "swift.CorrelationEngine.erfApprox",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StepsEstimateEngine.swift",
+      "symbol": "public static func status(_ points: [CalibrationPoint], manualOverride: Double? = nil) -> CalibrationStatus",
+      "producer": "swift.StepsEstimateEngine.status",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StepsEstimateEngine.swift",
+      "symbol": "public static func dayMotionIntensity(_ grav: [GravitySample]) -> Double",
+      "producer": "swift.StepsEstimateEngine.dayMotionIntensity",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StepsEstimateEngine.swift",
+      "symbol": "public static func calibrate(_ points: [CalibrationPoint], manualOverride: Double? = nil) -> Calibration?",
+      "producer": "swift.StepsEstimateEngine.calibrate",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StepsEstimateEngine.swift",
+      "symbol": "public static func estimate(motion: Double, calibration: Calibration) -> Int?",
+      "producer": "swift.StepsEstimateEngine.estimate",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WatchRecovery.swift",
+      "symbol": "public static func compute(todaySDNN: Double?, todayRHR: Int?, sdnnHistory: [Double], rhrHistory: [Double]) -> Result",
+      "producer": "swift.WatchRecovery.compute",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StepsCounter.swift",
+      "symbol": "public static func stepsInWindow(_ samples: [StepSample]) -> Int?",
+      "producer": "swift.StepsCounter.stepsInWindow",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SpotHrvReading.swift",
+      "symbol": "public static func compute(_ rrMs: [Int], maxRejectedFraction: Double = HRVAnalyzer.defaultSpotMaxRejectedFraction) -> Outcome",
+      "producer": "swift.SpotHrvReading.compute",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SpotHrvReading.swift",
+      "symbol": "public static func meanHrFromNN(_ meanNN: Double?) -> Double?",
+      "producer": "swift.SpotHrvReading.meanHrFromNN",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/VitalityEngine.swift",
+      "symbol": "public static func rmssdNorm(forAge age: Double) -> Double",
+      "producer": "swift.VitalityEngine.rmssdNorm",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/VitalityEngine.swift",
+      "symbol": "public static func sleepConsistency(nightlyHours: [Double]) -> Double?",
+      "producer": "swift.VitalityEngine.sleepConsistency",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/VitalityEngine.swift",
+      "symbol": "public static func contributions(_ inputs: Inputs) -> [Contribution]",
+      "producer": "swift.VitalityEngine.contributions",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/VitalityEngine.swift",
+      "symbol": "public static func compute(_ inputs: Inputs) -> Result?",
+      "producer": "swift.VitalityEngine.compute",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ComparisonEngine.swift",
+      "symbol": "public static func stat(_ values: [Double]) -> SeriesStat",
+      "producer": "swift.ComparisonEngine.stat",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ComparisonEngine.swift",
+      "symbol": "public static func compare(current: [Double], previous: [Double]) -> PeriodComparison",
+      "producer": "swift.ComparisonEngine.compare",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ComparisonEngine.swift",
+      "symbol": "public static func monthOverMonth(byDay: [(day: String, value: Double)], referenceDay: String) -> PeriodComparison",
+      "producer": "swift.ComparisonEngine.monthOverMonth",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ComparisonEngine.swift",
+      "symbol": "static func median(_ values: [Double]) -> Double",
+      "producer": "swift.ComparisonEngine.median",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ComparisonEngine.swift",
+      "symbol": "static func leastSquaresSlope(_ values: [Double]) -> Double",
+      "producer": "swift.ComparisonEngine.leastSquaresSlope",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ScoreConfidence.swift",
+      "symbol": "public static func charge(recovery: Double?, hrvBaseline: BaselineState?) -> ScoreConfidence",
+      "producer": "swift.ScoreConfidence.charge",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ScoreConfidence.swift",
+      "symbol": "public static func readiness(hasRead: Bool, baselineNights: Int, fullWindow: Int) -> ScoreConfidence",
+      "producer": "swift.ScoreConfidence.readiness",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ScoreConfidence.swift",
+      "symbol": "public static func effort(strain: Double?, hrSampleCount: Int) -> ScoreConfidence",
+      "producer": "swift.ScoreConfidence.effort",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ScoreConfidence.swift",
+      "symbol": "public static func rest(hasSession: Bool, hasStagedSleep: Bool) -> ScoreConfidence",
+      "producer": "swift.ScoreConfidence.rest",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ScoreConfidence.swift",
+      "symbol": "public static func rest(hasSession: Bool, hasStagedSleep: Bool, asleepSeconds: Double, restorativeSeconds: Double, efficiency: Double, gravitySparse: Bool = false, stageCoverage: Double? = nil) -> ScoreConfidence",
+      "producer": "swift.ScoreConfidence.rest",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/EffectRanker.swift",
+      "symbol": "public static func rank(behaviors: [String: Set<String>], controls: [String: Set<String>], outcomeByDay: [String: Double], outcome: String) -> [RankedEffect]",
+      "producer": "swift.EffectRanker.rank",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/EffectRanker.swift",
+      "symbol": "public static func bestLag(behaviorDays: Set<String>, controlDays: Set<String>, outcomeByDay: [String: Double], behavior: String, outcome: String) -> RankedEffect?",
+      "producer": "swift.EffectRanker.bestLag",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ReadinessEngine.swift",
+      "symbol": "public static func evaluate(days: [DailyMetric], today: String? = nil) -> Readiness",
+      "producer": "swift.ReadinessEngine.evaluate",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ReadinessEngine.swift",
+      "symbol": "public static func evaluateCalendar(days: [DailyMetric], today: String) throws -> Readiness",
+      "producer": "swift.ReadinessEngine.evaluateCalendar",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ReadinessEngine.swift",
+      "symbol": "static func mean(_ xs: [Double]) -> Double?",
+      "producer": "swift.ReadinessEngine.mean",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ReadinessEngine.swift",
+      "symbol": "static func sampleSD(_ xs: [Double]) -> Double?",
+      "producer": "swift.ReadinessEngine.sampleSD",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ReadinessTrainingLoad.swift",
+      "symbol": "static func evaluateWithTrainingLoad( days: [DailyMetric], today: String? = nil, trainingLoadConfiguration: TrainingLoadEngine.Configuration = .standard ) -> TrainingLoadAnalysis",
+      "producer": "swift.ReadinessTrainingLoad.evaluateWithTrainingLoad",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/FusionResolver.swift",
+      "symbol": "public static func resolve(metricKey: String, inputs: [FusionInput]) -> FusedMetricPoint?",
+      "producer": "swift.FusionResolver.resolve",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/FusionResolver.swift",
+      "symbol": "public static func classify(metric: MetricArbitrationPolicy.MetricKind, winningValue: Double, contributors: [ContributingSource]) -> AgreementState",
+      "producer": "swift.FusionResolver.classify",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepAwareStepCounter.swift",
+      "symbol": "public func adding(_ other: Count) -> Count",
+      "producer": "swift.SleepAwareStepCounter.adding",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepAwareStepCounter.swift",
+      "symbol": "@discardableResult public func acceptPage(_ samples: [StepSample]) -> Accumulator",
+      "producer": "swift.SleepAwareStepCounter.acceptPage",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepAwareStepCounter.swift",
+      "symbol": "public func finish() -> Count",
+      "producer": "swift.SleepAwareStepCounter.finish",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepAwareStepCounter.swift",
+      "symbol": "public static func stepsInWindow(_ samples: [StepSample], sleepSessions: [SleepSession]) -> Int?",
+      "producer": "swift.SleepAwareStepCounter.stepsInWindow",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepAwareStepCounter.swift",
+      "symbol": "public static func count(_ samples: [StepSample], sleepSessions: [SleepSession]) -> Count",
+      "producer": "swift.SleepAwareStepCounter.count",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepOpportunityDetector.swift",
+      "symbol": "static func movement(_ samples: [GravitySample]) -> Double?",
+      "producer": "swift.SleepOpportunityDetector.movement",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepOpportunityDetector.swift",
+      "symbol": "public static func mainSleepGroupIndices(_ sessions: [SleepSession], offsetSeconds: Int, habitualMidsleepSec: Int? = nil) -> [Int]",
+      "producer": "swift.SleepOpportunityDetector.mainSleepGroupIndices",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepOpportunityDetector.swift",
+      "symbol": "public static func acceptedSleepSeconds(_ session: SleepSession) -> Int",
+      "producer": "swift.SleepOpportunityDetector.acceptedSleepSeconds",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepOpportunityDetector.swift",
+      "symbol": "public static func episodeType(_ session: SleepSession, isMain: Bool) -> String",
+      "producer": "swift.SleepOpportunityDetector.episodeType",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepOpportunityDetector.swift",
+      "symbol": "public static func stagesPreservingBinarySleep(_ stages: [StageSegment], start: Int, end: Int) -> [StageSegment]",
+      "producer": "swift.SleepOpportunityDetector.stagesPreservingBinarySleep",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepOpportunityDetector.swift",
+      "symbol": "public static func detect(start: Int, end: Int, hr: [HRSample], gravity: [GravitySample], steps: [StepSample] = [], context: [SleepContextSpan] = [], policy: Policy = Policy()) -> Result",
+      "producer": "swift.SleepOpportunityDetector.detect",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ImuFeatureExtractor.swift",
+      "symbol": "public static func extract(_ samples: [RawImuSample], sampleRateHz: Int) -> ImuActivityFeatures",
+      "producer": "swift.ImuFeatureExtractor.extract",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ImuFeatureExtractor.swift",
+      "symbol": "public static func extract(frames: [Whoop5ImuFrame]) -> ImuActivityFeatures",
+      "producer": "swift.ImuFeatureExtractor.extract",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StepsEstimateEngine+Trace.swift",
+      "symbol": "public static func calibrationTrace(points: [CalibrationPoint], manualOverride: Double? = nil) -> [String]",
+      "producer": "swift.StepsEstimateEngine+Trace.calibrationTrace",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StepsEstimateEngine+Trace.swift",
+      "symbol": "public static func rawCounterTrace(daySteps: [StepSample], dayKey: String, tzOffsetSeconds: Int, ticksPerStep: Double) -> [String]",
+      "producer": "swift.StepsEstimateEngine+Trace.rawCounterTrace",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StressIndex.swift",
+      "symbol": "public static func stressIndex(rr: [RRInterval]) -> Double?",
+      "producer": "swift.StressIndex.stressIndex",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StressIndex.swift",
+      "symbol": "public static func stressIndex(rawRR: [Double]) -> Double?",
+      "producer": "swift.StressIndex.stressIndex",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StressIndex.swift",
+      "symbol": "public static func components(rr: [RRInterval]) -> Components?",
+      "producer": "swift.StressIndex.components",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/StressIndex.swift",
+      "symbol": "public static func components(rawRR: [Double]) -> Components?",
+      "producer": "swift.StressIndex.components",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RespirationEstimator.swift",
+      "symbol": "public static func estimate(_ input: Input, policy: Policy = Policy()) -> Result",
+      "producer": "swift.RespirationEstimator.estimate",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RespirationEstimator.swift",
+      "symbol": "public static func fromIntervals(start: Double, duration: Int, observations: [PhysiologyQuality.IntervalObservation], inputRevision: String = \"local\", contamination: Contamination = Contamination()) -> Input",
+      "producer": "swift.RespirationEstimator.fromIntervals",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RespirationEstimator.swift",
+      "symbol": "public static func fuse(_ results: [Result], maximumDisagreement: Double = 1.5) -> Fusion",
+      "producer": "swift.RespirationEstimator.fuse",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/RespirationEstimator.swift",
+      "symbol": "public static func summarize(_ results: [Result], start: Double, end: Double, context: String, policy: SummaryPolicy = SummaryPolicy()) -> Summary",
+      "producer": "swift.RespirationEstimator.summarize",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HeartRateWindows.swift",
+      "symbol": "public static func windows(start: Int, end: Int, hr: [HRSample], gravity: [GravitySample], excluded: [PhysiologyQuality.Span] = []) -> [Measurement]",
+      "producer": "swift.HeartRateWindows.windows",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/PreSleepHeartRateFeedback.swift",
+      "symbol": "public static func evaluate(enabled: Bool, sessions: [SleepSession], hr: [HRSample], history: [HistoricalReading], journalEntries: [JournalEntry], day: String, minimumValidSamples: Int = defaultMinimumValidSamples, preSleepWindowSeconds: Int = defaultPreSleepWindowSeconds) -> Feedback",
+      "producer": "swift.PreSleepHeartRateFeedback.evaluate",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/BehaviorInsights.swift",
+      "symbol": "public static func effect(behaviorDays: Set<String>, controlDays: Set<String>, outcomeByDay: [String: Double], behavior: String, outcome: String) -> BehaviorEffect?",
+      "producer": "swift.BehaviorInsights.effect",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/BehaviorInsights.swift",
+      "symbol": "public static func rank(behaviors: [String: Set<String>], controls: [String: Set<String>], outcomeByDay: [String: Double], outcome: String) -> [BehaviorEffect]",
+      "producer": "swift.BehaviorInsights.rank",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/BehaviorInsights.swift",
+      "symbol": "static func sampleVariance(_ values: [Double], mean: Double) -> Double",
+      "producer": "swift.BehaviorInsights.sampleVariance",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/BehaviorInsights.swift",
+      "symbol": "static func cohensD(m1: Double, m2: Double, n1: Int, v1: Double, n2: Int, v2: Double) -> Double",
+      "producer": "swift.BehaviorInsights.cohensD",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/BehaviorInsights.swift",
+      "symbol": "static func welchP(m1: Double, v1: Double, n1: Int, m2: Double, v2: Double, n2: Int) -> Double",
+      "producer": "swift.BehaviorInsights.welchP",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SedentaryDetector.swift",
+      "symbol": "public static func detectSedentaryBouts(_ gravity: [GravitySample], moveThresholdG: Double = defaultMoveThresholdG, minMinutes: Int = defaultMinMinutes, smoothWindowSeconds: Double = defaultSmoothWindowS) -> [InactivityPeriod]",
+      "producer": "swift.SedentaryDetector.detectSedentaryBouts",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/SedentaryDetector.swift",
+      "symbol": "public static func evaluate(_ gravity: [GravitySample], state: SedentaryState, config: SedentaryConfig, worn: Bool, nowSec: Int, tzOffsetSec: Int) -> SedentaryDecision",
+      "producer": "swift.SedentaryDetector.evaluate",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/LiveSessionEngine.swift",
+      "symbol": "public static func band(config: Config) -> Band",
+      "producer": "swift.LiveSessionEngine.band",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/LiveSessionEngine.swift",
+      "symbol": "public mutating func update(now: Int, bpm: Int?) -> Output",
+      "producer": "swift.LiveSessionEngine.update",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AutoWorkoutDetector.swift",
+      "symbol": "public static func motionPoints(_ gravity: [GravitySample]) -> [MotionPoint]",
+      "producer": "swift.AutoWorkoutDetector.motionPoints",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AutoWorkoutDetector.swift",
+      "symbol": "public static func detect(hr: [(ts: Int, bpm: Int)], restingBpm: Int?, motion: [MotionPoint]? = nil, savedSpans: [SavedWorkoutSpan] = []) -> [DetectedWorkout]",
+      "producer": "swift.AutoWorkoutDetector.detect",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AutoWorkoutDetector+Trace.swift",
+      "symbol": "public static func detectTrace(hr: [(ts: Int, bpm: Int)], restingBpm: Int?, motion: [MotionPoint]? = nil, savedSpans: [SavedWorkoutSpan] = [], path: String = \"autoDetect\") -> (results: [DetectedWorkout], trace: [String])",
+      "producer": "swift.AutoWorkoutDetector+Trace.detectTrace",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer+Trace.swift",
+      "symbol": "public static func analyzeTrace(rawRR: [Double], maxRejectedFraction: Double? = nil, path: String = \"spot\") -> (result: HRVResult, trace: [String])",
+      "producer": "swift.HRVAnalyzer+Trace.analyzeTrace",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HrvSeries.swift",
+      "symbol": "public static func windows(start: Int, end: Int, observations: [PhysiologyQuality.IntervalObservation], context: [PhysiologyQuality.ContextEpoch] = [], policy: HrvWindow.Policy = .init(), inputRevision: String = \"unversioned\", computationMode: String = \"retrospective\") -> [HrvWindow.Result]",
+      "producer": "swift.HrvSeries.windows",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HrvSeries.swift",
+      "symbol": "public static func selectedWindow(start: Int, observations: [PhysiologyQuality.IntervalObservation], context: [PhysiologyQuality.ContextEpoch] = [], policy: HrvWindow.Policy = .init(), inputRevision: String = \"unversioned\", computationMode: String = \"retrospective\") -> HrvWindow.Result",
+      "producer": "swift.HrvSeries.selectedWindow",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HrvSeries.swift",
+      "symbol": "public static func baseline(current: HrvWindow.Result, history: [HrvWindow.Result], windowDays: Int = 28, minimumSamples: Int = 20) -> Baseline",
+      "producer": "swift.HrvSeries.baseline",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HrvSeries.swift",
+      "symbol": "public static func summarize(_ windows: [HrvWindow.Result], start: Int, end: Int, context: String = \"sleep\", policy: SummaryPolicy = .init()) -> Summary",
+      "producer": "swift.HrvSeries.summarize",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HeartRateRecovery.swift",
+      "symbol": "public static func calculate(samples: [HRSample], workoutStart: Int, workoutEnd: Int, maxHR: Double) -> Result?",
+      "producer": "swift.HeartRateRecovery.calculate",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func measureFiveMinute(start: Int, observations: [PhysiologyQuality.IntervalObservation], context: [PhysiologyQuality.ContextEpoch] = [], policy: HrvWindow.Policy = .init(), inputRevision: String = \"unversioned\") -> HrvWindow.Result",
+      "producer": "swift.HRVAnalyzer.measureFiveMinute",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func rmssdRaw(_ nn: [Double]) -> Double?",
+      "producer": "swift.HRVAnalyzer.rmssdRaw",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func sdnnRaw(_ nn: [Double]) -> Double?",
+      "producer": "swift.HRVAnalyzer.sdnnRaw",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func rangeFilter(_ rr: [Double]) -> [Double]",
+      "producer": "swift.HRVAnalyzer.rangeFilter",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func rejectEctopic(_ nn: [Double]) -> [Double]",
+      "producer": "swift.HRVAnalyzer.rejectEctopic",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func cleanRR(_ rr: [Double]) -> [Double]",
+      "producer": "swift.HRVAnalyzer.cleanRR",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func cleanRRGapAware(_ rr: [Double]) -> CleanSeries",
+      "producer": "swift.HRVAnalyzer.cleanRRGapAware",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func rmssdGapAware(_ nn: [Double], _ contiguous: [Bool]) -> Double?",
+      "producer": "swift.HRVAnalyzer.rmssdGapAware",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func pnn50GapAware(_ nn: [Double], _ contiguous: [Bool]) -> Double?",
+      "producer": "swift.HRVAnalyzer.pnn50GapAware",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func analyze(_ rr: [RRInterval], windowStart: Int? = nil, windowEnd: Int? = nil) -> HRVResult",
+      "producer": "swift.HRVAnalyzer.analyze",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func analyze(rawRR: [Double], maxRejectedFraction: Double? = nil) -> HRVResult",
+      "producer": "swift.HRVAnalyzer.analyze",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func sdnnIndex(_ rr: [RRInterval], segmentSec: Int = 300) -> Double?",
+      "producer": "swift.HRVAnalyzer.sdnnIndex",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "public static func rollingRmssd(rr: [RRInterval], windowSec: Int, stepSec: Int = 0, minBeatsPerWindow: Int = 8) -> [RollingRmssdPoint]",
+      "producer": "swift.HRVAnalyzer.rollingRmssd",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+      "symbol": "static func median(_ values: [Double]) -> Double",
+      "producer": "swift.HRVAnalyzer.median",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ActivityCostEngine.swift",
+      "symbol": "public static func evaluate(activityDaysBySport: [String: Set<String>], recoveryByDay: [String: Double]) -> [ActivityCost]",
+      "producer": "swift.ActivityCostEngine.evaluate",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ActivityCostEngine.swift",
+      "symbol": "static func forwardDaysToBaseline(taggedDays: Set<String>, recoveryByDay: [String: Double], baselineMean: Double) -> Int?",
+      "producer": "swift.ActivityCostEngine.forwardDaysToBaseline",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ActivityCostEngine.swift",
+      "symbol": "static func rank(_ items: [ActivityCost]) -> [ActivityCost]",
+      "producer": "swift.ActivityCostEngine.rank",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/ActivityCostEngine.swift",
+      "symbol": "static func mean(_ values: [Double]) -> Double",
+      "producer": "swift.ActivityCostEngine.mean",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "public func classify(_ features: WorkoutClassFeatures) -> WorkoutClassPrediction",
+      "producer": "swift.WorkoutTypeClassifier.classify",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "public static func classify(_ features: WorkoutClassFeatures) -> WorkoutClassPrediction",
+      "producer": "swift.WorkoutTypeClassifier.classify",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "public static func allScores(_ f: WorkoutClassFeatures) -> [CoarseWorkoutClass: Double]",
+      "producer": "swift.WorkoutTypeClassifier.allScores",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func rampUp(_ x: Double, _ lo: Double, _ hi: Double) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.rampUp",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func rampDown(_ x: Double, _ lo: Double, _ hi: Double) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.rampDown",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func plateau(_ x: Double, _ a: Double, _ b: Double, _ c: Double, _ d: Double) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.plateau",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func tickReliability(_ f: WorkoutClassFeatures) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.tickReliability",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func gaitAbsenceScore(_ f: WorkoutClassFeatures) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.gaitAbsenceScore",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func runScore(_ f: WorkoutClassFeatures) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.runScore",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func walkScore(_ f: WorkoutClassFeatures) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.walkScore",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func strengthScore(_ f: WorkoutClassFeatures) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.strengthScore",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func cycleScore(_ f: WorkoutClassFeatures) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.cycleScore",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func skiScore(_ f: WorkoutClassFeatures) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.skiScore",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "public static func extract(hr: [HRSample], gravity: [GravitySample], steps: [StepSample], start: Int, end: Int, restingHR: Double? = nil, maxHR: Double? = nil, caloriesKcal: Double? = nil) -> WorkoutClassFeatures?",
+      "producer": "swift.WorkoutTypeClassifier.extract",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func mean(_ xs: [Double]) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.mean",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func variance(_ xs: [Double]) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.variance",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/WorkoutTypeClassifier.swift",
+      "symbol": "static func stddev(_ xs: [Double]) -> Double",
+      "producer": "swift.WorkoutTypeClassifier.stddev",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/LabBookProjection.swift",
+      "symbol": "public static func project(_ readings: [LabReading], fold: DailyFold = .latest) -> [ProjectedPoint]",
+      "producer": "swift.LabBookProjection.project",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/LabBookProjection.swift",
+      "symbol": "public static func pairMarkerToWearable( marker: [(day: String, value: Double)], wearable: [(day: String, value: Double)], windowDays: Int = defaultWindowDays ) -> [WindowedPair]",
+      "producer": "swift.LabBookProjection.pairMarkerToWearable",
+      "bodyguard": "permitsLocal:empty+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/VitalBands.swift",
+      "symbol": "public static func band(value: Double?, history: [Double?], populationRange: ClosedRange<Double>, cfg: MetricCfg?) -> Result",
+      "producer": "swift.VitalBands.band",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    }
+  ]
+}

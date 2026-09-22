@@ -109,6 +109,8 @@ public enum WorkoutDetector {
     /// the previous record. First row → 0. Empty input → []. (GravitySample always
     /// carries finite x/y/z, so no dropout sentinel is required here.)
     public static func activitySeries(_ gravity: [GravitySample]) -> [ActivityPoint] {
+        guard PhoneComputeRuntime.permitsLocal("swift.WorkoutDetector.activitySeries") else { return [] }
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.activitySeries")
         if gravity.isEmpty { return [] }
         let rows = gravity.sorted { $0.ts < $1.ts }
         var series: [ActivityPoint] = []
@@ -131,11 +133,13 @@ public enum WorkoutDetector {
 
     /// Sorted (ts, bpm) pairs.
     static func cleanHR(_ hr: [HRSample]) -> [(ts: Int, bpm: Double)] {
-        hr.map { (ts: $0.ts, bpm: Double($0.bpm)) }.sorted { $0.ts < $1.ts }
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.cleanHR")
+        return hr.map { (ts: $0.ts, bpm: Double($0.bpm)) }.sorted { $0.ts < $1.ts }
     }
 
     /// Day resting-HR baseline = nearest-rank RESTING_PERCENTILE of bpm values.
     static func deriveRestingHR(_ hrSeg: [(ts: Int, bpm: Double)]) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.deriveRestingHR")
         let bpms = hrSeg.map { $0.bpm }.sorted()
         precondition(!bpms.isEmpty, "deriveRestingHR called with empty segment")
         let rank = max(1, Int(ceil(restingPercentile / 100.0 * Double(bpms.count))))
@@ -299,6 +303,8 @@ public enum WorkoutDetector {
 
     /// Trailing rolling mean (over window_s) of intensities (all finite here).
     static func smoothedIntensity(_ motion: [ActivityPoint], windowS: Double) -> [Double] {
+        guard PhoneComputeRuntime.permitsLocal("swift.WorkoutDetector.smoothedIntensity") else { return [] }
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.smoothedIntensity")
         let ts = motion.map { $0.ts }
         let raw = motion.map { $0.intensity.isFinite ? $0.intensity : 0.0 }
         var out: [Double] = []
@@ -316,6 +322,7 @@ public enum WorkoutDetector {
     /// Per-bout Edwards zone breakdown (%) + mean %HRR. APPROXIMATE.
     static func boutIntensity(_ hrSeries: [(ts: Int, bpm: Double)],
                               restingHR: Double, maxHR: Double) -> ([Int: Double], Double?) {
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.boutIntensity")
         if hrSeries.isEmpty || maxHR <= restingHR { return ([:], nil) }
         let hrReserve = maxHR - restingHR
         var zoneCounts = [Int: Int]()
@@ -347,6 +354,8 @@ public enum WorkoutDetector {
     static func bridgeRuns(_ runs: [(Int, Int)],
                            hrSeg: [(ts: Int, bpm: Double)],
                            hrFloor: Double) -> [(Int, Int)] {
+        guard PhoneComputeRuntime.permitsLocal("swift.WorkoutDetector.bridgeRuns") else { return [] }
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.bridgeRuns")
         guard runs.count > 1 else { return runs }
         var merged: [(Int, Int)] = []
         var curStart = runs[0].0
@@ -384,6 +393,7 @@ public enum WorkoutDetector {
     /// detection — recovers the warm-up without inventing activity, and can't bridge a genuine rest.
     /// `coreStart` is an active-sample ts (so it exists in `motionTs`); `smooth` is index-aligned.
     static func backdatedStart(_ coreStart: Int, _ motionTs: [Int], _ smooth: [Double]) -> Int {
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.backdatedStart")
         var i = motionTs.firstIndex(where: { $0 >= coreStart }) ?? motionTs.count
         guard i < motionTs.count else { return coreStart }
         var start = coreStart
@@ -425,6 +435,8 @@ public enum WorkoutDetector {
                               // keeps every existing caller and test byte-identical — nothing is computed
                               // that the detector was not already computing, the counters just record it.
                               funnel: ((DetectionFunnel) -> Void)? = nil) -> [ExerciseSession] {
+        guard PhoneComputeRuntime.permitsLocal("swift.WorkoutDetector.detect") else { return [] }
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.detect")
         // `defer` so the funnel is reported on EVERY exit, including the early returns below. A day that
         // bails at "no motion rows at all" is precisely the day whose report matters most, and it is the
         // one a happy-path-only emit would stay silent about.
@@ -647,6 +659,7 @@ public enum Calories {
     static let workoutDivisor = 251.04  // 60 s/min × 4.184 kJ/kcal
 
     static func resolveCoeffs(_ sex: String) -> Coeffs {
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.resolveCoeffs")
         switch sex.lowercased() {
         case "male": return male
         case "female": return female
@@ -656,6 +669,7 @@ public enum Calories {
     }
 
     static func restingKcalPerS(_ c: Coeffs, weightKg: Double, heightCm: Double, age: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.restingKcalPerS")
         let heightM = heightCm / 100.0
         let bmr = c.restingAlpha + c.restingWeight * weightKg + c.restingHeight * heightM - c.restingAge * age
         return max(0.0, bmr) / 86_400.0
@@ -669,6 +683,8 @@ public enum Calories {
     // `public`: the app-target IntelligenceEngine reads this shared Uth 2004 estimate for the waist-free
     // VO₂max fallback (#1391), across the StrandAnalytics module boundary. The Kotlin twin is already public.
     public static func vo2maxFor(hrmax: Double, restingHR: Double?) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.WorkoutDetector.vo2maxFor") else { return nil }
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.vo2maxFor")
         guard let rhr = restingHR, rhr > 0, hrmax > 0 else { return nil }
         return 15.3 * hrmax / rhr
     }
@@ -678,6 +694,7 @@ public enum Calories {
     /// byte-identical to before. HR is capped at HRmax in both, as the base model always did.
     static func activeKcalPerS(_ c: Coeffs, hr: Double, hrmax: Double, weightKg: Double, age: Double,
                                vo2max: Double? = nil) -> Double {
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.activeKcalPerS")
         let eeKjMin: Double
         if let vo2 = vo2max {
             eeKjMin = c.fitHR * min(hr, hrmax) + c.fitVO2 * vo2 + c.fitWeight * weightKg
@@ -702,6 +719,7 @@ public enum Calories {
                                             profile: UserProfile,
                                             hrmax: Double?,
                                             restingHR: Double?) -> (Double, Double) {
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.estimateBoutCalories")
         let weightKg = profile.weightKg > 0 ? profile.weightKg : 70.0
         let heightCm = profile.heightCm > 0 ? profile.heightCm : 170.0
         let age = profile.age > 0 ? profile.age : 30.0
@@ -768,6 +786,7 @@ public enum Calories {
                                          profile: UserProfile,
                                          hrmax: Double?,
                                          restingHR: Double?) -> DayEnergyEstimate {
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.estimateDayEnergy")
         if hrSamples.isEmpty {
             return DayEnergyEstimate(restingKcal: 0, activeKcal: 0, observedSeconds: 0)
         }
@@ -842,7 +861,8 @@ public enum Calories {
                                            profile: UserProfile,
                                            hrmax: Double?,
                                            restingHR: Double?) -> Double {
-        estimateDayEnergy(hrSamples, profile: profile, hrmax: hrmax,
+        PhoneComputeRuntime.entered("swift.WorkoutDetector.estimateDayCalories")
+        return estimateDayEnergy(hrSamples, profile: profile, hrmax: hrmax,
                           restingHR: restingHR).totalKcal
     }
 }

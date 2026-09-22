@@ -222,6 +222,7 @@ public enum RhythmScreener {
     /// Screen one resting window: apply the gates, then compute the descriptive stats and
     /// a neutral regularity label. Pure — takes plain inputs, returns a plain result.
     public static func screenWindow(_ input: WindowInput) -> WindowResult {
+        PhoneComputeRuntime.entered("swift.RhythmScreener.screenWindow")
         // Gate 1: motion. A regularity read is only attempted on a firmly-still window;
         // movement masquerades as irregularity and is the single biggest false signal.
         guard input.motionStill else {
@@ -295,6 +296,7 @@ public enum RhythmScreener {
     /// Aggregate a night's window results into a descriptive summary for the night view.
     /// Counting only — produces no verdict and triggers nothing.
     public static func summarizeNight(_ windows: [WindowResult]) -> NightRhythmSummary {
+        PhoneComputeRuntime.entered("swift.RhythmScreener.summarizeNight")
         let readable = windows.filter { $0.label != .unreadable }
         let steady = readable.filter { $0.label == .steady }.count
         let occasional = readable.filter { $0.label == .occasionalEctopy }.count

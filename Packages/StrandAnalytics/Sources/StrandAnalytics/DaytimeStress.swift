@@ -240,12 +240,15 @@ public enum DaytimeStress {
     // MARK: - Shared stress math (identical formula to the daily StressModel)
 
     static func mean(_ xs: [Double]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.DaytimeStress.mean") else { return nil }
+        PhoneComputeRuntime.entered("swift.DaytimeStress.mean")
         guard !xs.isEmpty else { return nil }
         return xs.reduce(0, +) / Double(xs.count)
     }
 
     /// Population standard deviation; 0 when there's no spread. (Matches StressMath.std.)
     static func std(_ xs: [Double], mean m: Double?) -> Double {
+        PhoneComputeRuntime.entered("swift.DaytimeStress.std")
         guard let m, xs.count > 1 else { return 0 }
         let v = xs.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(xs.count)
         return v.squareRoot()
@@ -255,6 +258,7 @@ public enum DaytimeStress {
     /// directionality as the daily score (RHR up = stress, HRV down = stress).
     static func rawScore(hr: Double?, meanHR: Double?, sdHR: Double,
                          rmssd: Double?, meanRMSSD: Double?, sdRMSSD: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.DaytimeStress.rawScore")
         var sum = 0.0
         if let h = hr, let m = meanHR, sdHR > 0.0001 {
             sum += (h - m) / sdHR              // HR up = stress
@@ -268,6 +272,7 @@ public enum DaytimeStress {
     /// Logistic squash of the raw z-sum onto 0–3 (baseline 0 → 1.5). Identical to
     /// StressMath.squash, so an hourly point shares the daily score's scale and bands.
     static func squash(_ raw: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.DaytimeStress.squash")
         let s = 3.0 / (1.0 + exp(-raw))
         return min(max(s, 0), 3)
     }
@@ -280,6 +285,7 @@ public enum DaytimeStress {
     /// threshold check. Defensive fallback (never divides by zero/negative-log) if `band` is
     /// ever configured at or outside the curve's open range (0, 3).
     static func marginToSigma(marginBPM: Double, atBand band: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.DaytimeStress.marginToSigma")
         let ratio = 3.0 / band - 1.0
         guard ratio > 0, marginBPM > 0 else { return max(marginBPM, 1e-9) }
         return marginBPM / (-log(ratio))
@@ -307,6 +313,7 @@ public enum DaytimeStress {
                                tzOffsetSeconds: Int = 0,
                                mode: ScoringMode = .dayRelative,
                                timezone: TimeZone? = nil) -> Result {
+        PhoneComputeRuntime.entered("swift.DaytimeStress.analyze")
         // v7.0.2 perf (#707): buckets the day's full HR + R-R streams into per-hour aggregates and runs an
         // RMSSD per hour — invoked from the Stress view, so a `body` re-evaluation re-buckets the whole day.
         // Memoize on the streams' fingerprint + tz offset + scoring mode; result is a small `Result`, raw
@@ -574,6 +581,8 @@ public enum DaytimeStress {
     /// quartile when calm is LOW, e.g. HR; upper quartile when calm is HIGH, e.g. RMSSD).
     /// Falls back to the plain mean below 4 values, and to nil when empty.
     static func calmReference(_ xs: [Double], calmIsLow: Bool) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.DaytimeStress.calmReference") else { return nil }
+        PhoneComputeRuntime.entered("swift.DaytimeStress.calmReference")
         guard !xs.isEmpty else { return nil }
         guard xs.count >= 4 else { return mean(xs) }
         let s = xs.sorted()
@@ -582,6 +591,7 @@ public enum DaytimeStress {
 
     /// Linear-interpolated quantile of an already-sorted, non-empty array.
     static func quantile(_ sorted: [Double], _ q: Double) -> Double {
+        PhoneComputeRuntime.entered("swift.DaytimeStress.quantile")
         let n = sorted.count
         guard n > 0 else { return 0 }   // defensive: callers guard emptiness; never trap on []
         if n == 1 { return sorted[0] }

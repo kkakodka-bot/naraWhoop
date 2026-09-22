@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 /// Personal-baseline banding for the Health Monitor's vital tiles.
@@ -51,6 +52,7 @@ public enum VitalBands {
                             history: [Double?],
                             populationRange: ClosedRange<Double>,
                             cfg: MetricCfg?) -> Result {
+        PhoneComputeRuntime.entered("swift.VitalBands.band")
         guard let value else { return Result(band: .noData, basis: .population, nights: 0) }
         guard let cfg else {
             return Result(band: populationRange.contains(value) ? .inRange : .outOfRange,

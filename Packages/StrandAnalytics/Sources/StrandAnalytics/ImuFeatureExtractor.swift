@@ -47,6 +47,7 @@ public enum ImuFeatureExtractor {
 
     /// Extract features from `samples` (from one or more `Whoop5ImuFrame`s, in order) at `sampleRateHz`.
     public static func extract(_ samples: [RawImuSample], sampleRateHz: Int) -> ImuActivityFeatures {
+        PhoneComputeRuntime.entered("swift.ImuFeatureExtractor.extract")
         let n = samples.count
         guard n >= 8, sampleRateHz > 0 else {
             return ImuActivityFeatures(accelEnergyG: 0, gyroEnergyDps: 0, jerkRms: 0,
@@ -89,6 +90,7 @@ public enum ImuFeatureExtractor {
 
     /// Convenience: extract over the concatenated samples of decoded IMU frames.
     public static func extract(frames: [Whoop5ImuFrame]) -> ImuActivityFeatures {
+        PhoneComputeRuntime.entered("swift.ImuFeatureExtractor.extract")
         let rate = frames.first?.sampleRateHz ?? 100
         return extract(frames.flatMap { $0.samples }, sampleRateHz: rate)
     }

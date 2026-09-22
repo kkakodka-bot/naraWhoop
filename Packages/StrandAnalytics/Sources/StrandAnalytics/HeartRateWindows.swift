@@ -17,6 +17,8 @@ public enum HeartRateWindows {
     /// missing seconds, off-body evidence and incomplete windows never become observed coverage.
     public static func windows(start: Int, end: Int, hr: [HRSample], gravity: [GravitySample],
                                excluded: [PhysiologyQuality.Span] = []) -> [Measurement] {
+        guard PhoneComputeRuntime.permitsLocal("swift.HeartRateWindows.windows") else { return [] }
+        PhoneComputeRuntime.entered("swift.HeartRateWindows.windows")
         guard end >= start, end - start <= 172800 else { return [] }
         let first = Int(ceil(Double(start) / 300)) * 300
         let h = Dictionary(grouping: hr.filter { $0.ts >= first && $0.ts < end }, by: \.ts)

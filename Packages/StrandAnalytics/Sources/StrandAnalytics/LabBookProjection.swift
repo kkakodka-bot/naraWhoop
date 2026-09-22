@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // MARK: - Lab Book projection (pure)
@@ -121,6 +122,8 @@ public enum LabBookProjection {
     /// (`.latest` = most recent `takenAt` wins; `.mean` = arithmetic mean). Output is
     /// sorted by markerKey then day ascending so it is deterministic across platforms.
     public static func project(_ readings: [LabReading], fold: DailyFold = .latest) -> [ProjectedPoint] {
+        guard PhoneComputeRuntime.permitsLocal("swift.LabBookProjection.project") else { return [] }
+        PhoneComputeRuntime.entered("swift.LabBookProjection.project")
         // Group by (markerKey, day) → list of readings in that cell.
         var cells: [String: [LabReading]] = [:]
         var order: [String] = []
@@ -179,6 +182,8 @@ public enum LabBookProjection {
         wearable: [(day: String, value: Double)],
         windowDays: Int = defaultWindowDays
     ) -> [WindowedPair] {
+        guard PhoneComputeRuntime.permitsLocal("swift.LabBookProjection.pairMarkerToWearable") else { return [] }
+        PhoneComputeRuntime.entered("swift.LabBookProjection.pairMarkerToWearable")
         let width = max(1, windowDays)
 
         // Last-write-wins per day for both series (matches CorrelationEngine.alignByDay).

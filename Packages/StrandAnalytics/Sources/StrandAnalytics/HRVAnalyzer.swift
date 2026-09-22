@@ -24,7 +24,8 @@ public enum HRVAnalyzer {
     public static func measureFiveMinute(start: Int, observations: [PhysiologyQuality.IntervalObservation],
                                         context: [PhysiologyQuality.ContextEpoch] = [],
                                         policy: HrvWindow.Policy = .init(), inputRevision: String = "unversioned") -> HrvWindow.Result {
-        HrvWindow.measure(start: start, observations: observations, context: context, policy: policy, inputRevision: inputRevision)
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.measureFiveMinute")
+        return HrvWindow.measure(start: start, observations: observations, context: context, policy: policy, inputRevision: inputRevision)
     }
 
     /// Minimum plausible RR interval (ms) — 300 ms ≈ 200 bpm.
@@ -92,6 +93,8 @@ public enum HRVAnalyzer {
     /// Task Force (1996) RMSSD over already-clean NN intervals (ms). Returns nil
     /// when fewer than 2 values (no successive differences). No filtering applied.
     public static func rmssdRaw(_ nn: [Double]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVAnalyzer.rmssdRaw") else { return nil }
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.rmssdRaw")
         guard nn.count >= 2 else { return nil }
         var sumSq = 0.0
         for i in 1..<nn.count {
@@ -104,6 +107,8 @@ public enum HRVAnalyzer {
     /// Sample standard deviation (ddof = 1) of NN intervals (ms). Returns nil for
     /// fewer than 2 values. Matches neurokit2 HRV_SDNN. No filtering applied.
     public static func sdnnRaw(_ nn: [Double]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVAnalyzer.sdnnRaw") else { return nil }
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.sdnnRaw")
         guard nn.count >= 2 else { return nil }
         let mean = nn.reduce(0, +) / Double(nn.count)
         var ss = 0.0
@@ -115,7 +120,9 @@ public enum HRVAnalyzer {
 
     /// Range filter: keep only intervals in [rrMinMs, rrMaxMs], preserving order.
     public static func rangeFilter(_ rr: [Double]) -> [Double] {
-        rr.filter { $0 >= rrMinMs && $0 <= rrMaxMs }
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVAnalyzer.rangeFilter") else { return [] }
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.rangeFilter")
+        return rr.filter { $0 >= rrMinMs && $0 <= rrMaxMs }
     }
 
     /// Malik-style ectopic rejection: drop any beat that deviates from its local
@@ -125,6 +132,8 @@ public enum HRVAnalyzer {
     ///
     /// NOTE: this replaces neurokit2's Kubios classifier (see file header).
     public static func rejectEctopic(_ nn: [Double]) -> [Double] {
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVAnalyzer.rejectEctopic") else { return [] }
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.rejectEctopic")
         guard nn.count > ectopicWindowRadius else { return nn }
         var kept: [Double] = []
         kept.reserveCapacity(nn.count)
@@ -148,7 +157,9 @@ public enum HRVAnalyzer {
 
     /// Full clean: range filter → ectopic rejection. Returns the clean NN series.
     public static func cleanRR(_ rr: [Double]) -> [Double] {
-        rejectEctopic(rangeFilter(rr))
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVAnalyzer.cleanRR") else { return [] }
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.cleanRR")
+        return rejectEctopic(rangeFilter(rr))
     }
 
     // MARK: - Gap-aware cleaning (successive-difference safety) — #204/#195
@@ -167,6 +178,7 @@ public enum HRVAnalyzer {
     /// the difference across a removed beat. `CleanSeries.nn` equals `cleanRR` value for value. Kotlin twin
     /// of `HrvAnalyzer.cleanRRGapAware`.
     public static func cleanRRGapAware(_ rr: [Double]) -> CleanSeries {
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.cleanRRGapAware")
         // Pass 1: range filter, keeping each survivor's index in the ORIGINAL series.
         var rangedIdx: [Int] = []; rangedIdx.reserveCapacity(rr.count)
         var rangedVal: [Double] = []; rangedVal.reserveCapacity(rr.count)
@@ -209,6 +221,8 @@ public enum HRVAnalyzer {
     /// out-of-range/ectopic beat cannot splice its neighbours into a spurious delta. Identical to
     /// `rmssdRaw` when there are no gaps. nil when no valid successive difference exists. Kotlin twin.
     public static func rmssdGapAware(_ nn: [Double], _ contiguous: [Bool]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVAnalyzer.rmssdGapAware") else { return nil }
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.rmssdGapAware")
         precondition(nn.count == contiguous.count, "nn and contiguous must be the same length")
         var sumSq = 0.0
         var count = 0
@@ -228,6 +242,8 @@ public enum HRVAnalyzer {
     /// any pair straddling a dropped beat. Identical to the plain pNN50 when there are no gaps. nil when
     /// no valid successive pair exists. Kotlin twin of `HrvAnalyzer.pnn50GapAware`.
     public static func pnn50GapAware(_ nn: [Double], _ contiguous: [Bool]) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVAnalyzer.pnn50GapAware") else { return nil }
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.pnn50GapAware")
         precondition(nn.count == contiguous.count, "nn and contiguous must be the same length")
         var nn50 = 0
         var pairs = 0
@@ -252,6 +268,7 @@ public enum HRVAnalyzer {
     public static func analyze(_ rr: [RRInterval],
                                windowStart: Int? = nil,
                                windowEnd: Int? = nil) -> HRVResult {
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.analyze")
         let inWindow = rr.filter { sample in
             if let s = windowStart, sample.ts < s { return false }
             if let e = windowEnd, sample.ts > e { return false }
@@ -270,6 +287,7 @@ public enum HRVAnalyzer {
     ///   of its beats is too noisy to trust. nil (the default, and what the NIGHTLY windowed path passes)
     ///   skips the gate entirely, so the nightly RMSSD is byte-identical to before this parameter existed.
     public static func analyze(rawRR: [Double], maxRejectedFraction: Double? = nil) -> HRVResult {
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.analyze")
         let nInput = rawRR.count
         let cleaned = cleanRRGapAware(rawRR)
         let clean = cleaned.nn
@@ -305,6 +323,8 @@ public enum HRVAnalyzer {
     /// Segments with fewer than `minBeats` clean intervals are skipped; nil when no segment qualifies.
     /// Pure, deterministic. Kotlin twin: `HrvAnalyzer.sdnnIndex`.
     public static func sdnnIndex(_ rr: [RRInterval], segmentSec: Int = 300) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVAnalyzer.sdnnIndex") else { return nil }
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.sdnnIndex")
         guard segmentSec > 0, let first = rr.map(\.ts).min(), let last = rr.map(\.ts).max(),
               last >= first else { return nil }
         var segStart = first
@@ -351,6 +371,8 @@ public enum HRVAnalyzer {
                                     windowSec: Int,
                                     stepSec: Int = 0,
                                     minBeatsPerWindow: Int = 8) -> [RollingRmssdPoint] {
+        guard PhoneComputeRuntime.permitsLocal("swift.HRVAnalyzer.rollingRmssd") else { return [] }
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.rollingRmssd")
         guard windowSec > 0, rr.count >= minBeatsPerWindow else { return [] }
         // Stable: preserves the store's #823 emission order for same-second beats, which RMSSD needs.
         let sorted = rr.sortedByTsStable()
@@ -963,6 +985,7 @@ public enum HRVAnalyzer {
 
     /// Median of a non-empty array. (Caller guarantees non-empty.)
     static func median(_ values: [Double]) -> Double {
+        PhoneComputeRuntime.entered("swift.HRVAnalyzer.median")
         let s = values.sorted()
         let n = s.count
         if n == 0 { return 0 }

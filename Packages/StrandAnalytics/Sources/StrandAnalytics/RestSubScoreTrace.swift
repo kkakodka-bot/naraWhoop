@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 import WhoopProtocol   // DeviceFamily (sleepMotionLine)
 
@@ -78,6 +79,8 @@ extension AnalyticsEngine {
     /// count) so Swift and Kotlin agree byte-for-byte. nil on an empty list. Used to build the #271 onset
     /// trace's baseline + at-onset HR from the SAME rule on both platforms.
     public static func medianBpm(_ bpms: [Int]) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("swift.RestSubScoreTrace.medianBpm") else { return nil }
+        PhoneComputeRuntime.entered("swift.RestSubScoreTrace.medianBpm")
         if bpms.isEmpty { return nil }
         let s = bpms.sorted()
         return s[s.count / 2]
@@ -107,6 +110,7 @@ extension AnalyticsEngine.Rest {
                                     restorativeSeconds: Double, needHours: Double,
                                     consistency: Double?, deepSeconds: Double?,
                                     groupFragments: Int, groupInBedSeconds: Double) -> String {
+        PhoneComputeRuntime.entered("swift.RestSubScoreTrace.subScoreLine")
         func clamp01(_ x: Double) -> Double { max(0.0, min(1.0, x)) }
         func r2(_ x: Double) -> Double { (x * 100.0).rounded() / 100.0 }
 

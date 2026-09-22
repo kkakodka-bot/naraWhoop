@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // SleepDebt.swift — a recency-weighted sleep-debt estimate over the last N nights.
@@ -85,6 +86,8 @@ public enum SleepDebt {
     /// classify the day's main-night group and pass only asleep minutes from blocks
     /// outside that group. Mirrored value-for-value in Kotlin `SleepDebt`.
     public static func creditedSleepMin(mainSleepMin: Double?, napSleepMin: Double = 0) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("swift.SleepDebt.creditedSleepMin") else { return nil }
+        PhoneComputeRuntime.entered("swift.SleepDebt.creditedSleepMin")
         guard let mainSleepMin, mainSleepMin > 0 else { return nil }
         return mainSleepMin + max(napSleepMin, 0)
     }
@@ -101,6 +104,7 @@ public enum SleepDebt {
         importedDebtMin: [String: Double] = [:],
         window: Int = defaultWindowNights
     ) -> [(day: String, value: Double)] {
+        PhoneComputeRuntime.entered("swift.SleepDebt.debtSeries")
         let cap = max(window, 1)
         var usableHistory: [(day: String, totalSleepMin: Double?)] = []
         usableHistory.reserveCapacity(cap)
@@ -143,6 +147,7 @@ public enum SleepDebt {
     public static func ledger(series: [(day: String, totalSleepMin: Double?)],
                               needHours: Double = AnalyticsEngine.Rest.defaultNeedHours,
                               window: Int = defaultWindowNights) -> SleepDebtLedger {
+        PhoneComputeRuntime.entered("swift.SleepDebt.ledger")
         let needMin = max(needHours, 0.0) * 60.0
         let cap = max(window, 1)
 

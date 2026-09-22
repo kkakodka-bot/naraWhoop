@@ -1,3 +1,4 @@
+import WhoopProtocol
 import Foundation
 
 // DoseResponseEngine.swift — a personal dose→outcome slope that SHRINKS toward a
@@ -85,7 +86,8 @@ public struct DoseResponse: Equatable, Sendable {
     /// The signed Δ on the outcome for going from `fromDose` to `toDose` units. Used by the
     /// evening Damage Forecast: each incremental unit contributes `perUnit`.
     public func delta(fromDose: Int, toDose: Int) -> Double {
-        Double(toDose - fromDose) * perUnit
+        PhoneComputeRuntime.entered("swift.DoseResponseEngine.delta")
+        return Double(toDose - fromDose) * perUnit
     }
 
     /// Plain-English read. Honest about whether it's still the prior or now the user's own.
@@ -145,6 +147,8 @@ public enum DoseResponseEngine {
     public static func estimate(behavior: DosedBehavior,
                                 doseByDay: [String: Int],
                                 outcomeByDay: [String: Double]) -> DoseResponse? {
+        guard PhoneComputeRuntime.permitsLocal("swift.DoseResponseEngine.estimate") else { return nil }
+        PhoneComputeRuntime.entered("swift.DoseResponseEngine.estimate")
         let outcome = DoseResponsePriors.defaultOutcome(for: behavior)
         return estimate(behavior: behavior, outcome: outcome,
                         doseByDay: doseByDay, outcomeByDay: outcomeByDay)
@@ -156,6 +160,8 @@ public enum DoseResponseEngine {
                                 outcome: String,
                                 doseByDay: [String: Int],
                                 outcomeByDay: [String: Double]) -> DoseResponse? {
+        guard PhoneComputeRuntime.permitsLocal("swift.DoseResponseEngine.estimate") else { return nil }
+        PhoneComputeRuntime.entered("swift.DoseResponseEngine.estimate")
         guard let prior = DoseResponsePriors.prior(for: behavior, outcome: outcome) else { return nil }
 
         // Pair each logged dose day D with the NEXT-day outcome (D+1) — the L=1 alignment.
@@ -215,6 +221,7 @@ public enum DoseResponseEngine {
     /// Calibrating while mostly prior (n_user < minDoseDays); building while blended; solid
     /// once the personal fit dominates (n_user ≥ solidDoseDays).
     static func confidenceFor(nUser: Int) -> ScoreConfidence {
+        PhoneComputeRuntime.entered("swift.DoseResponseEngine.confidenceFor")
         if nUser < minDoseDays { return .calibrating }
         return nUser >= solidDoseDays ? .solid : .building
     }
