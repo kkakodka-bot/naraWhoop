@@ -114,6 +114,39 @@ final class PushObjectLaneTests: XCTestCase {
         XCTAssertEqual(rawBatch.objectId, "6b570a51-ff86-5ad1-82fc-2da881536723")
     }
 
+    func testFreshFileRepresentationDoesNotReuseLegacyUploadedContentOnlyCheckpoint() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("synthetic-representation-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let row = PushRawImuRecord(rowId: 100, ts: 100, columns: imuColumns(seed: 1))
+        let legacy = try PushProtocol.binaryObjectBatch(table: .rawImuSession, sourceId: sourceA, deviceId: "dev",
+            startCursor: nil, rows: [.rawImuSession(row)], protocolVersion: PushProtocol.objectVersion)
+        let fresh = try PushProtocol.binaryObjectBatch(table: .rawImuSession, sourceId: sourceA, deviceId: "dev",
+            startCursor: nil, rows: [.rawImuSession(row)], protocolVersion: PushProtocol.objectVersion, payloadDirectory: root)
+        let progress = MemoryObjectProgress()
+        try await progress.saveInFlightObject(table: .rawImuSession, deviceId: "dev",
+            object: .init(objectId: legacy.objectId, objectKey: "k/old-wire", contentSha256: legacy.contentSha256, uploaded: true))
+        var intents = 0, uploads = 0
+        let transport = FakeObjectTransport(onIntent: { manifest in
+            intents += 1; XCTAssertEqual(manifest.objectId, fresh.objectId); XCTAssertNotEqual(manifest.objectId, legacy.objectId)
+            return .init(objectId: manifest.objectId, objectKey: "k/new-wire", uploadUrl: "https://synthetic.example/body",
+                requiredHeaders: [:], expiresAt: nil, duplicate: false)
+        }, onUpload: { intent, bytes in
+            uploads += 1; XCTAssertEqual(intent.objectId, fresh.objectId)
+            XCTAssertEqual(PushDurabilityReceipt.sha256(bytes), fresh.wireSHA256)
+        }, onComplete: { object in
+            XCTAssertEqual(object, fresh.objectId)
+            return .init(objectId: object, status: "ready", objectKey: "k/verified", duplicate: false,
+                durabilityReceipt: try objectReceiptFixture(fresh))
+        }, preparationDirectory: root)
+        let result = await PushCoordinator(source: FakeImuSource(rows: [row]), transport: transport, progress: progress,
+            sourceId: sourceA, receiptOwner: objectReceiptOwner, associateReceipt: { _, _, _ in }, wakeBudget: PushWakeBudget())
+            .pushObjects(.rawImuSession, deviceId: "dev", lane: .init(endpoint: "/objects", maxObjectBytes: 8_000_000,
+                urlTtlSec: 60, streams: [.rawImuSession]))
+        guard case .accepted = result else { return XCTFail("fresh representation was not delivered: \(result)") }
+        XCTAssertEqual(intents, 1); XCTAssertEqual(uploads, 1)
+    }
+
     func testResumeAfterKillSkipsPutWhenUploaded() async throws {
         let row = PushRawImuRecord(rowId: 100, ts: 100, columns: imuColumns(seed: 1))
         let batch = try PushProtocol.binaryObjectBatch(
@@ -380,6 +413,10 @@ private struct FakeObjectTransport: PushTransport {
     var onUpload: (PushObjectIntent, Data) async throws -> Void = { _, _ in }
     var onComplete: (String) async throws -> PushObjectAck = { _ in
         throw PushTransportException(PushFailure(code: .localData))
+    }
+    var preparationDirectory: URL?
+    func beginBinaryPreparation(maximumWireBytes: Int) async throws -> PushBinaryPreparation? {
+        preparationDirectory.map { .init(id: UUID(), directory: $0) }
     }
     func post(_ batch: PushBatch) async throws -> PushTransportResponse {
         throw PushTransportException(PushFailure(code: .localData))

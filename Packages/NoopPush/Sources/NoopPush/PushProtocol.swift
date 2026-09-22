@@ -150,12 +150,15 @@ public enum PushProtocol {
     }
 
     /// Builds every bounded part of one authoritative replacement. Empty snapshots produce one part.
+    /// Fresh durable mutations supply a generation so A -> B -> A cannot reuse A's cached receipt
+    /// without applying its replacement again. Saved selections replay their original bytes/IDs.
     public static func mutableBatches(
         table: PushMutableTable,
         sourceId: String,
         deviceId: String,
         window: PushWindow,
-        records: [PushMutableRecord]
+        records: [PushMutableRecord],
+        replacementGeneration: String? = nil
     ) throws -> [PushBatch] {
         try validateUUID(sourceId, name: "sourceId")
         for record in records { try validateRecord(table: table, key: record.key, data: record.data) }
@@ -165,7 +168,7 @@ public enum PushProtocol {
             throw PushProtocolException("replace_window contains a duplicate key")
         }
         let lines = try records.map { try encodeMutableRecordLine(table: table, record: $0) }
-        let replacementIdentity: [String: PushJSONValue] = [
+        var replacementIdentity: [String: PushJSONValue] = [
             "deviceId": .string(deviceId),
             "delivery": .string("replace_window"),
             "protocolVersion": .string(version),
@@ -173,6 +176,15 @@ public enum PushProtocol {
             "stream": .string(table.wireName),
             "window": .map(try selectorBounds(table: table, window: window)),
         ]
+        if let replacementGeneration {
+            guard !replacementGeneration.isEmpty, replacementGeneration.utf8.count <= 4096 else {
+                throw PushProtocolException("invalid mutable replacement generation")
+            }
+            // This local identity domain changes only UUID values accepted by the existing wire
+            // schema. Source rows, selectors, receipt fields and legacy nil-generation IDs stay exact.
+            replacementIdentity["identityVersion"] = .string("mutable-generation-v1")
+            replacementIdentity["replacementGeneration"] = .string(replacementGeneration)
+        }
         let replacementId = stableUuid(header: replacementIdentity, lines: lines)
 
         var chunks: [[Data]] = []
@@ -382,7 +394,13 @@ public enum PushProtocol {
             return uuidFromDigest(Array(hasher.finalize()))
         }
         let batchId = try identityID(identity)
-        let objectId = try identityID(identity.merging(["batchId": .string(batchId)]) { $1 })
+        // Fresh immutable files have a representation identity as well as a decoded batch
+        // identity. Codec upgrades can emit different valid bytes of the same length; a
+        // legacy object's receipt must never authorize those new bytes.
+        let objectId = try payloadFile.map {
+            try immutableObjectID(batchId: batchId, contentEncoding: contentEncoding,
+                wireSHA256: $0.sha256, wireBytes: $0.byteCount)
+        } ?? identityID(identity.merging(["batchId": .string(batchId)]) { $1 })
         var manifest = identity
         manifest["batchId"] = .string(batchId)
         manifest["objectId"] = .string(objectId)
@@ -407,6 +425,19 @@ public enum PushProtocol {
             payload: payload,
             payloadFile: payloadFile
         )
+    }
+
+    /// Local v3 selection identity; the receiver still receives the existing versioned UUID
+    /// manifest. Saved v1/v2 object IDs and compressed bodies are replayed unchanged.
+    static func immutableObjectID(batchId: String, contentEncoding: String, wireSHA256: String, wireBytes: Int) throws -> String {
+        guard UUID(uuidString: batchId)?.uuidString.lowercased() == batchId,
+              ["gzip", "zstd"].contains(contentEncoding), PushPreparedSelection.digest(wireSHA256),
+              wireBytes > 0, wireBytes <= PushProtocolLimits.maxObjectWireBytes else {
+            throw PushProtocolException("invalid immutable representation identity")
+        }
+        return stableUuid(header: ["type": .string("immutable-wire-v1"), "batchId": .string(batchId),
+            "contentEncoding": .string(contentEncoding), "wireSha256": .string(wireSHA256),
+            "compressedBytes": .int(Int64(wireBytes))], lines: [])
     }
 
     /// Fresh random object id for the `object_id_conflict` escape: the burned id can never be
