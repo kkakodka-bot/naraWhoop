@@ -151,15 +151,8 @@ final class WatchSessionBridge: NSObject, ObservableObject {
     /// to follow and the calibrating logic sits in one place.
     static func buildSnapshot(from model: AppModel) async -> WatchScoreSnapshot {
         if PhoneComputeRuntime.isFinalHosted {
-            let state = model.repo.serverPresentation
-            let day = CanonicalConsumerPublication.day(in: state)
-            let result = state.canonicalDays[day]
-            return WatchScoreSnapshot(charge: CanonicalConsumerPublication.value("recovery", in: result, state: state),
-                chargeCalibrating: false, effort: CanonicalConsumerPublication.value("strain", in: result, state: state),
-                effortCalibrating: false, rest: CanonicalConsumerPublication.value("sleep_performance", in: result, state: state),
-                restCalibrating: false, hr: model.live.heartRate, sleepSummary: "", asOf: Date(),
-                scoreDay: day, accountNamespace: model.accountStorage?.scope?.namespace,
-                finalHosted: true, canonicalLedger: CanonicalConsumerPublication.ledger(result, state: state))
+            return CanonicalConsumerPublication.watchSnapshot(state: model.repo.serverPresentation,
+                accountNamespace: model.accountStorage?.scope?.namespace, heartRate: model.live.heartRate)
         }
         // #911: anchor the way Today does, through the SHARED `Repository.widgetAnchor` the Home/Lock
         // widget and the iOS Live Activity now also use, so the wrist, the widget, the Live Activity and

@@ -96,6 +96,7 @@ targets:
           # The liquid Today is now cross-platform: its iOS-only chrome (topBarTrailing / navigationBarTitleDisplayMode
           # / presentationCompactAdaptation / two-param onChange / sensoryFeedback) is guarded, so the mac split-view
           # shell hosts LiquidTodayView too. All Liquid/* now compile into the mac target.
+      - StrandiOSShared/WidgetSnapshot.swift
     # Oura BYO-app OAuth credentials. OuraConfig.xcconfig is a tracked wrapper that optionally
     # includes the untracked, gitignored Strand/Oura/OuraSecrets.xcconfig (template at
     # OuraSecrets.example.xcconfig) — absent secrets leave the $(OURA_*) references in the
@@ -185,7 +186,7 @@ targets:
       - path: Tests/Fixtures/W4-POPULATED-CONTEXT-SNAPSHOT-V2-NATIVE-FIXTURE.json
         buildPhase: resources
       # Compile the exact cross-target snapshot source into the test bundle so the AltStore App Group
-      # resolver is covered without adding this iOS/widget-only type to the macOS application module.
+      # resolver also executes in an independently compiled reader, as in the widget extension.
       - StrandiOSShared/WidgetSnapshot.swift
       # Test the exact live adapters' platform-neutral admission sequences. Their HealthKit and
       # WidgetKit operations remain iOS-only and require a separate iOS integration gate.
@@ -206,6 +207,7 @@ targets:
       - package: WhoopStore
       - package: GRDB
       - package: OuraProtocol
+      - package: ZIPFoundation
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
