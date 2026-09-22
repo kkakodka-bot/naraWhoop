@@ -102,7 +102,8 @@ begin
  select s.result||jsonb_build_object('result_revision','session:'||s.revision,'computed_at',s.computed_at)
  into result from compute_session_results s where s.request_id=p_request;
  if result is not null and r.expires_at<=now() then
-   result:=result||jsonb_build_object('status','unavailable','reason','decision_expired','values','{}'::jsonb,'freshness','expired'); end if;
+   result:=result||jsonb_build_object('status','unavailable','reason','decision_expired',
+     'values',(select jsonb_object_agg(m,null) from jsonb_array_elements_text(result->'metrics') m),'freshness','expired'); end if;
  return jsonb_build_object('request_id',p_request,'state',coalesce(result->>'status','processing'),'result',result);
 end $$;
 revoke all on function public.read_compute_session_result(uuid,uuid,uuid,uuid) from public,anon,authenticated;

@@ -125,10 +125,16 @@ fun main(args: Array<String>) {
     val archiveOutbox = derivedWriter?.let { DerivedArchiveOutbox(db, it) }
     val computePublisher = com.frwhoop.scoring.db.ComputeContractPublisher(db)
     val poller = ScoringPoller(config, reader, queue, scorer, writer, heartbeat, archiveOutbox,
-        publishComputeDispositions = { computePublisher.publishDay(it) })
+        publishComputeDispositions = {
+            try { computePublisher.publishDay(it) }
+            catch (error: Exception) { log.warn("Compute disposition deferred: {}", error.javaClass.simpleName) }
+        })
     val sessionWorker = com.frwhoop.scoring.derived.ArchiveRetryWorker(config.pollInterval,
         work = computePublisher::processSession,
         onError = { log.warn("Compute session request unavailable: {}", it.javaClass.simpleName) })
+    val dispositionRetry = com.frwhoop.scoring.derived.ArchiveRetryWorker(config.pollInterval,
+        work = computePublisher::retryDay,
+        onError = { log.warn("Compute disposition retry unavailable: {}", it.javaClass.simpleName) })
 
     try {
         ScoringWorkerProcess.run {
@@ -140,7 +146,7 @@ fun main(args: Array<String>) {
                 poller.scoreDay(userId, deviceId, day)
             } else poller.runForever()
         }
-    } finally { sessionWorker.close(); db.close() }
+    } finally { sessionWorker.close(); dispositionRetry.close(); db.close() }
 }
 
 private fun resolveReplayDeviceId(

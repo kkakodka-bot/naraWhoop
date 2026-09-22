@@ -48,10 +48,12 @@ create table public.server_compute_dispositions (
   day date not null,
   family text not null references public.compute_family_policy,
   input_revision bigint not null check(input_revision>=0),
+  source_result_hash text not null,
   policy_version text not null,
   status text not null,
   reason text not null,
   timezone_id text,
+  calendar_ownership jsonb,
   computed_at timestamptz not null default now(),
   unique(user_id,device_id,day,family,input_revision,policy_version)
 );
@@ -65,22 +67,42 @@ grant usage,select on sequence public.server_compute_dispositions_revision_seq t
 -- inference or qualification occurs here; this records the worker's explicit abstentions.
 create function public.publish_compute_dispositions(p_user uuid,p_device uuid,p_day date,p_revision bigint)
 returns integer language plpgsql security invoker set search_path=pg_catalog,public as $$
-declare n integer; zone text;
+declare n integer; zone text; calendar jsonb; source_hash text;
 begin
  if auth.role() is distinct from 'service_role' and current_user not in ('postgres','supabase_admin') then
    raise exception 'worker required' using errcode='42501'; end if;
  if not exists(select 1 from server_physiology_results where user_id=p_user and device_id=p_device
-   and period_day=p_day and input_revision=p_revision) then
+   and period_day=p_day and input_revision=p_revision and algorithm_version='frwhoop-physiology-2') then
    raise exception 'published input revision required' using errcode='23514'; end if;
- select timezone into zone from profiles where id=p_user;
- insert into server_compute_dispositions(user_id,device_id,day,family,input_revision,policy_version,status,reason,timezone_id)
- select p_user,p_device,p_day,family,p_revision,policy_version,unavailable_status,unavailable_reason,zone
+ select payload->'calendar_ownership',payload_hash into calendar,source_hash from server_physiology_results where user_id=p_user and device_id=p_device
+   and period_day=p_day and input_revision=p_revision and algorithm_version='frwhoop-physiology-2';
+ zone:=case when jsonb_array_length(calendar->'timezone_ids')=1 then calendar->'timezone_ids'->>0 end;
+ insert into server_compute_dispositions(user_id,device_id,day,family,input_revision,source_result_hash,policy_version,status,reason,timezone_id,calendar_ownership)
+ select p_user,p_device,p_day,family,p_revision,source_hash,policy_version,unavailable_status,unavailable_reason,zone,calendar
  from compute_family_policy on conflict do nothing;
  get diagnostics n=row_count;
  return n;
 end $$;
 revoke all on function public.publish_compute_dispositions(uuid,uuid,date,bigint) from public,anon,authenticated;
 grant execute on function public.publish_compute_dispositions(uuid,uuid,date,bigint) to service_role;
+
+create function public.process_compute_disposition()
+returns boolean language plpgsql security invoker set search_path=pg_catalog,public as $$
+declare r server_physiology_results;
+begin
+ if auth.role() is distinct from 'service_role' and current_user not in ('postgres','supabase_admin') then
+   raise exception 'worker required' using errcode='42501'; end if;
+ select s.* into r from server_physiology_results s where s.algorithm_version='frwhoop-physiology-2'
+   and exists(select 1 from compute_family_policy p where not exists(select 1 from server_compute_dispositions d
+     where d.user_id=s.user_id and d.device_id=s.device_id and d.day=s.period_day and d.family=p.family
+       and d.input_revision=s.input_revision and d.policy_version=p.policy_version))
+   order by s.computed_at,s.user_id,s.device_id limit 1;
+ if r.user_id is null then return false; end if;
+ perform publish_compute_dispositions(r.user_id,r.device_id,r.period_day,r.input_revision);
+ return true;
+end $$;
+revoke all on function public.process_compute_disposition() from public,anon,authenticated;
+grant execute on function public.process_compute_disposition() to service_role;
 
 alter function public.server_scoring_read_contract(uuid,date,uuid) rename to server_scoring_read_contract_v1;
 create function public.server_scoring_read_contract(p_user uuid,p_day date,p_device uuid default null)
@@ -89,7 +111,7 @@ declare
  base jsonb; families jsonb:='{}'; policy compute_family_policy; feature jsonb;
  disposition server_compute_dispositions; stored server_physiology_results;
  result jsonb; vals jsonb; metric text; status text; reason text; revision text;
- input_revision bigint; computed timestamptz; zone text; device uuid; details jsonb; hrv_window jsonb;
+ input_revision bigint; computed timestamptz; zone text; device uuid; details jsonb; hrv_window jsonb; expires timestamptz;
 begin
  base:=server_scoring_read_contract_v1(p_user,p_day,p_device);
  select timezone into zone from profiles where id=p_user;
@@ -99,7 +121,7 @@ begin
    disposition:=null; stored:=null;
    select * into disposition from server_compute_dispositions d where d.user_id=p_user and d.device_id=device
      and d.day=p_day and d.family=policy.family order by input_revision desc,revision desc limit 1;
-   vals:='{}'; details:='{}';
+   vals:='{}'; details:='{}'; expires:=null;
    foreach metric in array policy.metrics loop vals:=vals||jsonb_build_object(metric,null); end loop;
    status:=coalesce(disposition.status,policy.unavailable_status);
    reason:=coalesce(disposition.reason,policy.unavailable_reason);
@@ -117,6 +139,8 @@ begin
          foreach metric in array policy.metrics loop
            vals:=vals||jsonb_build_object(metric,case
              when metric='sleep_sessions' then base->'nights'
+             when metric='sleep_efficiency' and jsonb_typeof(base->'daily'->metric)='number'
+               then to_jsonb((base->'daily'->>metric)::numeric*100)
              else base->'daily'->metric end);
          end loop;
          if policy.family='current_hrv' then
@@ -133,6 +157,7 @@ begin
              and (m->>'end')::bigint<=extract(epoch from now())
              order by (m->>'end')::bigint desc limit 1;
            if hrv_window is not null then
+             expires:=to_timestamp((hrv_window->>'end')::double precision)+interval '10 minutes';
              details:=details||jsonb_build_object('selected_window',hrv_window);
              if hrv_window->>'measurement_valid'='true' and hrv_window->>'reason' is null
                and nullif(hrv_window->>'source','') is not null and nullif(hrv_window->>'modality','') is not null
@@ -140,6 +165,7 @@ begin
                and (hrv_window->>'observed_rmssd_ms')::numeric>=0 then
                vals:=jsonb_build_object('current_hrv',hrv_window->'observed_rmssd_ms');
                status:=feature->>'status'; reason:=feature->>'reason';
+               if expires<=now() then status:='stale'; reason:='window_expired'; end if;
              else reason:=coalesce(hrv_window->>'reason',reason); end if;
            end if;
          elsif policy.family='sleep' then details:=jsonb_build_object('nights',base->'nights','sleep_overrides',base->'sleep_overrides');
@@ -158,14 +184,28 @@ begin
    end if;
    result:=jsonb_build_object('owner','server','metrics',policy.metrics,'status',status,'reason',reason,
      'result_revision',revision,'input_revision',input_revision,
-     'algorithm_version',coalesce(feature->>'algorithm_version','vps-only-1'),
-     'configuration_version',policy.policy_version,'model_version',null,'preprocessing_version',null,'quality_version',null,
+     'algorithm_version',case when stored.payload_hash is not null then feature->>'algorithm_version' else 'vps-only-1' end,
+     'selected_algorithm_version',feature->>'algorithm_version',
+     'configuration_version',case when stored.payload_hash is null then policy.policy_version else stored.payload->>'configuration_version' end,
+     'model_version',stored.payload->'feature_manifests'->policy.feature->>'model_version',
+     'preprocessing_version',stored.payload->'feature_manifests'->policy.feature->>'preprocessing_version',
+     'quality_version',stored.payload->'feature_manifests'->policy.feature->>'quality_policy_version',
      'manifest_hash',feature->'manifest_hash','feature_manifest_hash',feature->'feature_manifest_hash',
      'canonical_qualification',case when stored.payload_hash is not null then feature->'canonical_qualification' end,
-     'owner_id',p_user,'device_id',device,'window',p_day,'timezone_id',coalesce(feature->>'timezone_id',disposition.timezone_id,zone),
+     'owner_id',p_user,'device_id',device,'window',p_day,'timezone_id',case when stored.payload_hash is not null then
+       case when jsonb_array_length(stored.payload->'calendar_ownership'->'timezone_ids')=1
+         then stored.payload->'calendar_ownership'->'timezone_ids'->>0 end
+       else coalesce(disposition.timezone_id,case when disposition.revision is null then feature->>'timezone_id' end) end,
      'computed_at',computed,'observed_through',stored.observed_through,
-     'freshness',case when coalesce((base->>'stale')::boolean,true) then 'stale' else 'current' end,
-     'expires_at',null,'decision_id',null,'values',vals,'details',details);
+     'freshness',case when expires<=now() then 'expired'
+       when feature->>'status'='stale' then 'stale'
+       when disposition.input_revision<(select max(w.input_revision) from physiology_work_items w
+         where w.user_id=p_user and w.device_id=device and w.day=p_day) then 'stale'
+       when revision is null then 'unavailable' else 'current' end,
+     'expires_at',expires,'decision_id',null,'values',vals,'details',details||jsonb_build_object('calendar_ownership',
+       coalesce(stored.payload->'calendar_ownership',disposition.calendar_ownership),
+       'source_result_hash',coalesce(stored.payload_hash,disposition.source_result_hash),
+       'configuration_metadata_status',case when stored.payload_hash is not null and stored.payload->>'configuration_version' is null then 'unavailable_in_source_contract' else 'available' end));
    families:=families||jsonb_build_object(policy.family,result);
  end loop;
  return base||jsonb_build_object('contract_revision',2,'compute',jsonb_build_object('mode','final_hosted',
@@ -174,6 +214,30 @@ begin
 end $$;
 revoke all on function public.server_scoring_read_contract(uuid,date,uuid) from public,anon;
 grant execute on function public.server_scoring_read_contract(uuid,date,uuid) to authenticated,service_role;
+
+create function public.server_scoring_pending_contract(p_user uuid,p_day date)
+returns jsonb language plpgsql stable security invoker set search_path=pg_catalog,public as $$
+declare families jsonb;
+begin
+ if auth.uid() is distinct from p_user and auth.role() is distinct from 'service_role' then
+   raise exception 'owner required' using errcode='42501'; end if;
+ select jsonb_object_agg(p.family,jsonb_build_object('owner','server','metrics',p.metrics,
+   'status','unavailable','reason','device_registration_pending','result_revision',null,'input_revision',null,
+   'algorithm_version','vps-only-1','configuration_version',p.policy_version,'model_version',null,
+   'preprocessing_version',null,'quality_version',null,'manifest_hash',null,'feature_manifest_hash',null,
+   'canonical_qualification',null,'owner_id',p_user,'device_id',null,'window',p_day,'timezone_id',null,
+   'computed_at',null,'observed_through',null,'freshness','unavailable','expires_at',null,'decision_id',null,
+   'values',(select jsonb_object_agg(m,null) from unnest(p.metrics) m),'details','{}'::jsonb)) into families
+   from compute_family_policy p;
+ return jsonb_build_object('schema_version',2,'contract_revision',2,'user_id',p_user,'day',p_day,
+   'algorithm_version','per_feature','daily',null,'nights','[]'::jsonb,'measurements','[]'::jsonb,'sleep_overrides','[]'::jsonb,
+   'computed_at',null,'stale',true,'features',(select jsonb_object_agg(f,jsonb_build_object('status','unavailable',
+     'reason','device_registration_pending')) from unnest(array['sleep','hrv','respiration']) f),
+   'compute',jsonb_build_object('mode','final_hosted','policy_version','vps-only-1','owner_id',p_user,
+     'device_id',null,'day',p_day,'families',families));
+end $$;
+revoke all on function public.server_scoring_pending_contract(uuid,date) from public,anon,authenticated;
+grant execute on function public.server_scoring_pending_contract(uuid,date) to service_role;
 -- Rebind SQL wrappers after rename, retaining their authentication surfaces.
 create or replace function public.server_scoring_for_day(p_user uuid,p_day date)
 returns jsonb language sql stable security invoker set search_path='' as $$

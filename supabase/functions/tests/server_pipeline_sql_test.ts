@@ -109,6 +109,19 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
       assert.ok(family.result_revision===null || /^(sha256:[a-f0-9]{64}|compute:\d+)$/.test(family.result_revision));
       if (!family.canonical_qualification) assert.ok(Object.values(family.values).every(value=>value===null));
     }
+    if (name==='approved-v2') {
+      assert.equal(score.compute.families.sleep.values.sleep_efficiency,87.5,'canonical metric contract uses percent');
+      assert.equal(score.compute.families.night_hrv.values.hrv_rmssd_ms,0,'owned valid zero is preserved');
+    }
+    if (name==='sleep-only') {
+      assert.equal(score.compute.families.night_hrv.values.hrv_rmssd_ms,null);
+      assert.equal(score.compute.families.temperature.values.skin_temp_c,null);
+      for (const night of score.compute.families.sleep.details.nights) {
+        assert.equal(night.hrv_rmssd_ms,undefined);
+        assert.equal(night.resp_rate_bpm,undefined);
+        assert.equal(night.skin_temp_c,undefined);
+      }
+    }
     for (const key of allFeatures) {
       assert.equal(['available','stale'].includes(score.features[key].status),available.includes(key),`${name}: ${key}`);
       if (score.features[key].device_id) assert.equal(score.features[key].device_id,body.identity.deviceId);
@@ -360,7 +373,10 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
   assert.equal(mismatched.features.sleep.reason,'manifest_mismatch');
   await capture('other-device-missing',[],false,false,'whoop-TESTA002');
   const cross = await request('whoop-TESTA001','b');
-  assert.equal((await cross.json()).identity.deviceId,null);
+  const crossBody=await cross.json();
+  assert.equal(crossBody.identity.deviceId,null);
+  assert.equal(Object.keys(crossBody.server_scoring.compute.families).length,27);
+  assert.ok(Object.values(crossBody.server_scoring.compute.families).every((f:any)=>f.result_revision===null && f.device_id===null));
   if (!(baselineBinary && physiologyBinary)) await sql('select process_compute_session_request();');
   const readSession=()=>handleScoresRequest(new Request(`http://localhost/functions/v1/scores/compute-requests?deviceId=whoop-TESTA001&requestId=${sessionRequest.id}`,{
     headers:{authorization:'Bearer noop_pipeline_a','x-noop-fleet-token':'noop_pipeline_fleet'},

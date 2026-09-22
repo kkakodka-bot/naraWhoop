@@ -22,12 +22,7 @@ export async function readOwnerDayScores({ rest, userId, day, deviceId }: {
     throw fail('invalid_day', 400);
   }
   if (!deviceId) {
-    return { server_scoring: {
-      schema_version: 2, user_id: userId, day, algorithm_version: 'frwhoop-physiology-2',
-      daily: null, nights: [], measurements: [], sleep_overrides: [], computed_at: null, stale: true,
-      features: Object.fromEntries(['sleep', 'hrv', 'respiration'].map((feature) => [feature,
-        { status: 'unavailable', reason: 'device_registration_pending' }])),
-    } };
+    return { server_scoring: await rest.rpc('server_scoring_pending_contract',{p_user:userId,p_day:day}) };
   }
   const overlay = await rest.rpc('server_scoring_for_device_day', {
     p_user: userId, p_day: day, p_device: deviceId,

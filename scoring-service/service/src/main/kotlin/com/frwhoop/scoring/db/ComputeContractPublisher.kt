@@ -19,4 +19,11 @@ class ComputeContractPublisher(private val db: PostgresClient) {
             statement.executeQuery().use { it.next(); it.getBoolean(1) }
         }
     }
+
+    fun retryDay(): Boolean = db.withConnection { connection ->
+        connection.prepareStatement("select public.process_compute_disposition()").use { statement ->
+            statement.queryTimeout = 15
+            statement.executeQuery().use { it.next(); it.getBoolean(1) }
+        }
+    }
 }

@@ -26,7 +26,8 @@ async function fixture() {
     if (name === 'register_noop_device') return args.p_device;
     if (name === 'enrolled_physiology_sleep_override') return 2;
     return { schema_version: 2, user_id: args.p_user, day: args.p_day, features: {
-      hrv: { device_id: args.p_device, status: 'unavailable', reason: 'awaiting_result' },
+      hrv: { device_id: args.p_device, status: 'unavailable', reason:
+        name==='server_scoring_pending_contract'?'device_registration_pending':'awaiting_result' },
     } };
   };
   return { rest, calls };
@@ -72,7 +73,7 @@ Deno.test('enrolled scores: requested user cannot override token owner; missing 
   const unavailable = await other.json();
   assertEquals(unavailable.identity.deviceId, null);
   assertEquals(unavailable.server_scoring.features.hrv.reason, 'device_registration_pending');
-  assertEquals(calls.length, 0);
+  assertEquals(calls, [{name:'server_scoring_pending_contract',args:{p_user:USER,p_day:'2026-09-19'}}]);
   assertEquals((await handleScoresRequest(request('?day=2026-09-19'), { rest, cfg })).status, 400);
 });
 
