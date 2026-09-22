@@ -387,7 +387,7 @@ private func exportBoundaryFixtureBaseDirectory() throws -> URL {
 
 @MainActor
 final class ExportBoundaryStoreFixture {
-    enum Failure: Error { case hermeticHostRequired }
+    enum Failure: Error, Equatable { case hermeticHostRequired, resourceAdmissionTimedOut }
     let root: URL
     let context: AccountSessionContext
     let layout: AccountStorageLayout
@@ -397,7 +397,19 @@ final class ExportBoundaryStoreFixture {
     private var model: AppModel?
     private var legacyToken: String?
 
+    static func awaitResourceAdmission(budget: ResourceBudget = .shared,
+                                       timeout: TimeInterval = 30) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        // BLE lifecycle tests leave the real cooldown active. Do not mistake that admission hold
+        // for a projection or export failure, and do not bypass the production resource policy.
+        while !budget.permits(.bulk) {
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw Failure.resourceAdmissionTimedOut }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
     init() async throws {
+        try await Self.awaitResourceAdmission()
         let base = try exportBoundaryFixtureBaseDirectory()
         root = base.appendingPathComponent("export-boundary-" + UUID().uuidString)
         context = .init(scope: try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid",
@@ -464,6 +476,33 @@ final class ExportBoundaryStoreFixture {
         try store.registryWriter.close()
         defaults.removePersistentDomain(forName: layout.preferencesSuite)
         try FileManager.default.removeItem(at: root)
+    }
+}
+
+@MainActor
+final class ExportBoundaryFixtureAdmissionTests: XCTestCase {
+    func testFixtureWaitsForCooldownWithoutOverridingAdmission() async throws {
+        let budget = ResourceBudget(cooldown: 0.02, thermal: { 0 }, lowPower: { false })
+        let owner = UUID()
+        budget.history(owner: owner, active: true)
+        budget.history(owner: owner, active: false)
+        XCTAssertFalse(budget.permits(.bulk))
+        try await ExportBoundaryStoreFixture.awaitResourceAdmission(budget: budget, timeout: 2)
+        XCTAssertTrue(budget.permits(.bulk))
+    }
+
+    func testFixtureFailsBoundedlyWhenAdmissionNeverOpens() async throws {
+        let budget = ResourceBudget(thermal: { 0 }, lowPower: { false })
+        let owner = UUID()
+        budget.history(owner: owner, active: true)
+        defer { budget.history(owner: owner, active: false) }
+        do {
+            try await ExportBoundaryStoreFixture.awaitResourceAdmission(budget: budget, timeout: 0)
+            XCTFail("A held resource budget must not admit the fixture")
+        } catch {
+            XCTAssertEqual(error as? ExportBoundaryStoreFixture.Failure, .resourceAdmissionTimedOut)
+        }
+        XCTAssertFalse(budget.permits(.bulk))
     }
 }
 
