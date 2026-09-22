@@ -50,16 +50,19 @@ export function validateCommand(gate, command) {
   const script = (name) => has(command, name) && ['bash', '/bin/bash'].includes(command[0]);
   const swift = (name) => /(^|\/)swift$/.test(command[0]) && command.includes('test') &&
     command.some((value) => value.endsWith(`Packages/${name}`)) && !command.includes('--skip-build');
+  const swiftSubset = command.some((value) => /^(?:--filter|--skip)(?:=|$)/.test(value));
   if (gate === 'swift-zero-inference') assert(swift('StrandAnalytics') && command.includes('PhoneInferenceRetirementTests'));
-  if (gate === 'swift-protocol') assert(swift('WhoopProtocol') && !command.includes('--filter'));
-  if (gate === 'swift-store') assert(swift('WhoopStore') && !command.includes('--filter'));
-  if (gate === 'swift-analytics') assert(swift('StrandAnalytics') && !command.includes('--filter'));
+  if (gate === 'swift-protocol') assert(swift('WhoopProtocol') && !swiftSubset);
+  if (gate === 'swift-store') assert(swift('WhoopStore') && !swiftSubset);
+  if (gate === 'swift-analytics') assert(swift('StrandAnalytics') && !swiftSubset);
   if (gate === 'swift-support') assert(script('Tools/compute/run-support-package-checks.sh'));
   if (gate === 'server-jvm') assert(script('scoring-service/scripts/test-server-jvm.sh'));
   if (gate === 'server-pipeline') assert(script('scoring-service/scripts/test-server-pipeline.sh'));
   if (gate === 'ios-final-runtime') assert(script('Tools/compute/run-final-hosted-checks.sh'));
   if (gate === 'android-app') {
     assert(has(command, 'gradlew') || command[0].endsWith('/gradle'));
+    assert(!command.some((value) => /^(?:--tests|--exclude-task|--dry-run|-Dtest\.single)(?:=|$)/.test(value) || ['-x', '-m'].includes(value)),
+      'The complete Android application suite must execute without test filters or task exclusions');
     const assemble = command.map((v) => v.match(/^(?::?app:)?assemble([A-Za-z0-9]*)Debug$/)).find(Boolean);
     assert(assemble && command.some((v) => v === `:app:test${assemble[1]}DebugUnitTest` ||
       v === `app:test${assemble[1]}DebugUnitTest` || v === `test${assemble[1]}DebugUnitTest`),
@@ -88,6 +91,7 @@ export function validateOutput(gate, output) {
   if (gate === 'server-jvm') assert(output.includes('Clean JVM tests and installDist passed with a newly exported actual-Swift corpus'));
   if (gate === 'server-pipeline') {
     assert(output.includes('SQL -> actual Edge -> Swift/Kotlin decoder tests passed'));
+    assert(output.includes('Canonical runner mutation checks passed: 8 rejections'));
     for (const platform of ['swift', 'kotlin']) {
       assert(new RegExp(`${platform}: [2-9][0-9] real Edge envelopes passed`).test(output));
       assert(new RegExp(`${platform}: [2-9][0-9] canonical persisted selections passed`).test(output),

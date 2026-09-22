@@ -32,12 +32,18 @@ test('native sources, baseline builders and build identities invalidate source-b
 test('commands cannot replace executed gates with echoed success or filtered full suites', () => {
   assert.throws(() => validateCommand('swift-store', ['echo', 'swift', 'test', '--package-path', 'Packages/WhoopStore']));
   assert.throws(() => validateCommand('swift-store', ['swift', 'test', '--package-path', 'Packages/WhoopStore', '--filter', 'OneTest']));
+  for (const filter of ['--filter=OneTest', '--skip=SlowTest', '--skip']) {
+    assert.throws(() => validateCommand('swift-store', ['swift', 'test', '--package-path', 'Packages/WhoopStore', filter]));
+  }
   assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:compileDebugKotlin']));
   assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-only-testing:A/B']));
   assert.throws(() => validateCommand('ios-final-runtime', ['bash', '-c', 'echo passed']));
   assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testFullDebugUnitTest']), /--rerun-tasks|execute the unit suite/);
   validateCommand('android-app', ['./gradlew', ':app:assembleDebug', ':app:testDebugUnitTest', '--rerun-tasks']);
   validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testFullDebugUnitTest', '--rerun-tasks']);
+  for (const filter of ['--tests', '--tests=OneTest', '-x', '--exclude-task=test', '--dry-run', '-m', '-Dtest.single=One']) {
+    assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testFullDebugUnitTest', '--rerun-tasks', filter]), /without test filters/);
+  }
   assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testSlimDebugUnitTest']));
   assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-scheme', 'ComputeChecks', '-destination', 'platform=macOS']));
   assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-scheme', 'Strand', '-destination', 'platform=iOS Simulator']));
@@ -47,7 +53,7 @@ test('commands cannot replace executed gates with echoed success or filtered ful
 test('zero-test runs and route-only tests cannot satisfy executed proof', () => {
   assert.throws(() => validateOutput('swift-analytics', 'Executed 0 tests, with 0 failures'));
   assert.throws(() => validateOutput('server-pipeline', 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed'));
-  const legacyOnly = 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed\n' + ['swift', 'kotlin'].map((platform) =>
+  const legacyOnly = 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed\nCanonical runner mutation checks passed: 8 rejections\n' + ['swift', 'kotlin'].map((platform) =>
     `${platform}: 22 real Edge envelopes passed\n${platform} worker-0.json: decoded and display selection verified\n` +
     `${platform} account-sleep-only.json: decoded and display selection verified`).join('\n');
   assert.throws(() => validateOutput('server-pipeline', legacyOnly), /canonical family selection/);
