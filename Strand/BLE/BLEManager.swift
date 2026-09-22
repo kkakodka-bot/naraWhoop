@@ -1945,6 +1945,8 @@ public final class BLEManager: NSObject, ObservableObject {
             if let accountScope {
                 try await CloudCaptureScope.bindRuntimeOwner(store, scope: accountScope)
             }
+            // Ownership is required before capture. IMU archive/index preparation belongs to
+            // resumeCaptureMaintenance so its failure cannot stop durable scalar/raw receipt.
         } catch {
             guard !accountShutdown else { return }
             let ns = error as NSError
@@ -4179,8 +4181,10 @@ public final class BLEManager: NSObject, ObservableObject {
 
     var test_pendingBackfillStart: UUID? { backfillStartingSessionID }
     var test_confirmedHistoryChunks: Int { ackedChunksThisSession }
+    #if DEBUG
     var test_captureCollectorReady: Bool { collector != nil }
     func test_receiveStandardHR(_ data: [UInt8]) { parseStandardHR(data) }
+    #endif
 
     func test_completeNextHistoryWrite(error: Error? = nil) {
         guard !confirmedCommandWriteQueue.isEmpty else { return }
