@@ -15,7 +15,8 @@ import com.frwhoop.scoring.signals.PhysiologyShadowRunner
  * Charge and Effort are published on the physiology-2 daily payload so phones can read them
  * from the hosted overlay rather than rescoring locally.
  */
-class DayScorer(private val physiology: PhysiologyShadowRunner = PhysiologyShadowRunner()) {
+class DayScorer(private val physiology: PhysiologyShadowRunner = PhysiologyShadowRunner(),
+                private val rawFeatures: com.frwhoop.scoring.signals.BoundedRawFeatureLane? = null) {
     fun score(inputs: SignalSampleReader.DayInputs, algorithmVersion: String, inputRevision: String = "unversioned",
               computedAt: java.time.Instant = java.time.Instant.now(),
               shadowBudget: (() -> java.time.Duration)? = null): ServerScoreBundle {
@@ -205,6 +206,8 @@ class DayScorer(private val physiology: PhysiologyShadowRunner = PhysiologyShado
             localDayEndExclusive = inputs.dayHi+1,
             calendarOwnership = ownership,
             heartRateWindows = heartRateWindows,
+            signalWindows = com.frwhoop.scoring.signals.SensorWindows.build(inputs,inputRevision,computedAt,
+                result.hrvMeasurements,rawFeatures?.evaluate(inputs).orEmpty()),
         )
         // Publication normalizes conflicting/missing epochs and grouped gaps. Charge must consume
         // that same final Rest, HRV, resting HR and respiration, never the pre-edit analysis.
@@ -239,4 +242,5 @@ data class ServerScoreBundle(
     val calendarOwnership: com.frwhoop.scoring.db.CalendarOwnershipReader.Ownership? = null,
     val inputUnavailableReason: String? = null,
     val heartRateWindows: List<com.noop.analytics.HeartRateWindows.Measurement> = emptyList(),
+    val signalWindows: List<org.json.JSONObject> = emptyList(),
 )

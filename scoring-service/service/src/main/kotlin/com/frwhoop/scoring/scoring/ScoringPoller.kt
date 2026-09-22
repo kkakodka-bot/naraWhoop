@@ -63,6 +63,7 @@ class ScoringPoller(
 
     fun pollOnce() {
         heartbeat.recordPoll()
+        queue.enqueueClosedSensorWindows()
         val busyDevices = mutableSetOf<ScoringWorkQueue.DeviceKey>()
         repeat(8) {
             var candidate = queue.peekOne(excludedDevices=busyDevices,after=scanAfter)

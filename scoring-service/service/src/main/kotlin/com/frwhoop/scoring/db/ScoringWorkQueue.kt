@@ -15,6 +15,12 @@ class ScoringWorkQueue(
 ) {
     private val inputGate = ScoringInputGate(db)
 
+    fun enqueueClosedSensorWindows(): Int = db.withConnection { connection ->
+        connection.prepareStatement("select public.sensor_enqueue_closed_windows()").use { query ->
+            query.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+        }
+    }
+
     data class Cursor(val nextAttemptAt: Instant, val dirtyAt: Instant,
                       val userId: UUID, val deviceId: UUID, val day: String)
     data class Candidate(val userId: UUID, val deviceId: UUID, val day: String, val cursor: Cursor? = null)

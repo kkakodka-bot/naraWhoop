@@ -23,6 +23,7 @@ class VerifiedRawObjectReader(private val objects: B2ObjectStore.GetClient) {
         val id: UUID, val userId: UUID, val deviceId: UUID, val key: String, val sha256: String,
         val compression: String, val format: String, val compressedBytes: Int, val uncompressedBytes: Int,
         val records: Int?, val start: Long, val end: Long,
+        val sourceId: UUID? = null,
     )
     data class Record(
         val rowId: Long, val timestamp: Long, val recordIndex: Long?, val burstIndex: Int?,
@@ -110,19 +111,25 @@ class VerifiedRawObjectReader(private val objects: B2ObjectStore.GetClient) {
 
 /** Owner-scoped discovery and conditional proof recording; a decode failure cannot bless an object. */
 class RawSignalCatalogue(private val dataSource: DataSource, private val reader: VerifiedRawObjectReader) {
-    fun discover(userId: UUID, deviceId: UUID, start: Long, end: Long): List<VerifiedRawObjectReader.Manifest> {
+    fun discover(userId: UUID, deviceId: UUID, start: Long, end: Long, objectIds: Set<UUID>? = null): List<VerifiedRawObjectReader.Manifest> {
         require(end > start && end - start <= 76 * 3600) // Two local dates across DST or date-line travel.
+        require(objectIds == null || objectIds.size <= 2048) { "raw_catalogue_budget_exceeded" }
+        if(objectIds?.isEmpty() == true) return emptyList()
         return dataSource.connection.use { connection -> connection.prepareStatement("""
             select distinct m.id, m.user_id, m.device_id, m.object_key, m.sha256, m.compression, m.format,
-                m.compressed_bytes, m.uncompressed_bytes, m.sample_count, w.start_ts, w.end_ts
+                m.compressed_bytes, m.uncompressed_bytes, m.sample_count, w.start_ts, w.end_ts, m.source_id
             from public.noop_signal_windows w join public.object_manifests m on m.id=w.object_id
             where w.user_id=? and w.device_id=? and m.user_id=w.user_id and m.device_id=w.device_id
               and m.object_key=w.object_key and w.start_ts<? and w.end_ts>? and w.interpolated_records=0
               and m.object_class in ('raw','waveform') and m.status in ('ready','verified')
-            order by w.start_ts, m.id limit 256
+              and (?::uuid[] is null or m.id=any(?::uuid[]))
+            order by w.start_ts desc, m.id limit ?
         """.trimIndent()).use { query ->
             query.setObject(1, userId); query.setObject(2, deviceId); query.setLong(3, end); query.setLong(4, start)
-            query.executeQuery().use { rows -> buildList {
+            val ids=objectIds?.let { connection.createArrayOf("uuid",it.toTypedArray()) }
+            query.setArray(5,ids); query.setArray(6,ids)
+            query.setInt(7, if(objectIds == null) 256 else 2048)
+            try { query.executeQuery().use { rows -> buildList {
                 while (rows.next()) {
                     val compressed = rows.getLong("compressed_bytes"); val decoded = rows.getLong("uncompressed_bytes")
                     if (compressed !in 1..VerifiedRawObjectReader.MAX_BYTES || decoded !in 1..VerifiedRawObjectReader.MAX_BYTES) continue
@@ -131,9 +138,9 @@ class RawSignalCatalogue(private val dataSource: DataSource, private val reader:
                     add(VerifiedRawObjectReader.Manifest(rows.getObject("id", UUID::class.java), userId, deviceId,
                         rows.getString("object_key"), rows.getString("sha256") ?: "", rows.getString("compression") ?: "",
                         rows.getString("format") ?: "", compressed.toInt(), decoded.toInt(), sampleCount,
-                        rows.getLong("start_ts"), rows.getLong("end_ts")))
+                        rows.getLong("start_ts"), rows.getLong("end_ts"), rows.getObject("source_id",UUID::class.java)))
                 }
-            } }
+            } } } finally { ids?.free() }
         } }
     }
 

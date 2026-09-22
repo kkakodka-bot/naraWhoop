@@ -7,6 +7,12 @@ struct Expectation: Decodable {
     let nestedHrvAvailable: Bool, nestedRespirationAvailable: Bool
     let expectedDeviceId: String?
     let expectedValues: [String: Double]?
+    let signalWindows: [SignalExpectation]?
+}
+
+struct SignalExpectation: Decodable {
+    let id: String, kind: String, reason: String, status: String
+    let revision: Int64
 }
 
 struct ContractFailure: Error, CustomStringConvertible {
@@ -25,6 +31,16 @@ try require(!expectations.isEmpty, "No real Edge envelopes were supplied")
 for expectation in expectations {
     let bytes = try Data(contentsOf: directory.appendingPathComponent(expectation.file))
     let cache = try ServerScoreCacheCodec.parseSnapshot(bytes, day: expectation.day, ownerId: expectation.ownerId)
+    if let expected = expectation.signalWindows {
+        try require(cache.signalWindows.count == expected.count, "\(expectation.file): signal diagnostics were dropped")
+        for (actual, wanted) in zip(cache.signalWindows, expected) {
+            try require(actual.windowId == wanted.id && actual.kind == wanted.kind && actual.reason == wanted.reason &&
+                        actual.measurementStatus == wanted.status && actual.inputRevision == wanted.revision,
+                        "\(expectation.file): signal identity, revision or missingness differs")
+        }
+        let restored = try JSONDecoder().decode(ServerScoreDayCache.self, from: JSONEncoder().encode(cache))
+        try require(restored.signalWindows == cache.signalWindows, "\(expectation.file): diagnostic cache round trip differs")
+    }
     for key in expectation.availableFeatures {
         try require(cache.features[key]?.isCanonicalAvailable == true, "\(expectation.file): \(key) did not activate")
         if let device = expectation.expectedDeviceId {

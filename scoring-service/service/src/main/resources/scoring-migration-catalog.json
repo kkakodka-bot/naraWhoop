@@ -466,5 +466,9 @@
   {
     "basename": "20260921104000_server_unrepresentable_clock.sql",
     "sha256": "0f723d9e2789d45b26e37aad9f6b95bc8f372d85f2441d8b4be3252abab8a014"
+  },
+  {
+    "basename": "20260921120000_sensor_acquisition_windows.sql",
+    "sha256": "aeb8a076e4d04a88ba0f16fb3744627259a4fbe82fd0113be77f6eb6341fde93"
   }
 ]
