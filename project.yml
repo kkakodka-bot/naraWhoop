@@ -412,6 +412,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Mirrors the app target: exposes APP_GROUP_ID to the extension at runtime (WidgetSnapshot.suiteName).
         AppGroupIdentifier: "$(APP_GROUP_ID)"
+        NOOPFinalHostedCompute: true
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
@@ -458,6 +459,7 @@ targets:
         # Surfaces APP_GROUP_ID to runtime (WatchScoreStore.suiteName) so the App Group id isn't
         # hard-coded in Swift; stays in sync with the application-groups entitlement (both $(APP_GROUP_ID)).
         AppGroupIdentifier: "$(APP_GROUP_ID)"
+        NOOPFinalHostedCompute: true
         # Modern single-target watchOS app — no separate WatchKit extension.
         WKApplication: true
         # Pairs this watch app to the iPhone companion (must match NOOPiOS PRODUCT_BUNDLE_IDENTIFIER).
@@ -517,6 +519,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Mirrors the watch app: exposes APP_GROUP_ID to the extension at runtime (WatchScoreStore.suiteName).
         AppGroupIdentifier: "$(APP_GROUP_ID)"
+        NOOPFinalHostedCompute: true
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:

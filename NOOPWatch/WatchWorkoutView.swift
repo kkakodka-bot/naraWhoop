@@ -192,12 +192,17 @@ struct WatchWorkoutView: View {
 
     /// Active energy from the watch's own builder, the watch-native stand-in for the phone's building
     /// Effort. Whole kcal, SF-Rounded, never a fabricated number (a dash until the builder reports any).
-    private var statsRow: some View {
+    @ViewBuilder private var statsRow: some View {
+        if Bundle.main.object(forInfoDictionaryKey: "NOOPFinalHostedCompute") as? Bool == true {
+            Text("Effort and workout analysis are server-owned. Result unavailable.")
+                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+        } else {
         HStack(spacing: 6) {
             stat("ENERGY", workout.activeKcal.map { "\($0)" } ?? "–", unit: "kcal",
                  tint: StrandPalette.effortColor)
             stat("AVG HR", workout.avgBpm.map(String.init) ?? "–", unit: "bpm",
                  tint: StrandPalette.metricRose)
+        }
         }
     }
 
@@ -556,12 +561,14 @@ extension WatchWorkoutSession: HKLiveWorkoutBuilderDelegate {
             if let recent = stats.mostRecentQuantity()?.doubleValue(for: hrUnit) {
                 newBpm = Int(recent.rounded())
             }
-            if let avg = stats.averageQuantity()?.doubleValue(for: hrUnit) {
+            if Bundle.main.object(forInfoDictionaryKey: "NOOPFinalHostedCompute") as? Bool != true,
+               let avg = stats.averageQuantity()?.doubleValue(for: hrUnit) {
                 newAvg = Int(avg.rounded())
             }
         }
 
-        if let eType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned),
+        if Bundle.main.object(forInfoDictionaryKey: "NOOPFinalHostedCompute") as? Bool != true,
+           let eType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned),
            collectedTypes.contains(eType),
            let stats = workoutBuilder.statistics(for: eType),
            let total = stats.sumQuantity()?.doubleValue(for: kcalUnit) {

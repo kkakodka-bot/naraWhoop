@@ -64,6 +64,20 @@ enum ShortcutHealthExport {
     @MainActor
     @discardableResult
     static func writeNow(repo: Repository) async -> Outcome {
+        if PhoneComputeRuntime.isFinalHosted {
+            guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                return .failure("No Documents directory.")
+            }
+            do {
+                let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let results = repo.serverPresentation.canonicalDays.values.sorted { $0.day < $1.day }
+                try encoder.encode(results).write(to: docs.appendingPathComponent("noop_server_results.json"), options: .atomic)
+                // The historical Shortcut format cannot carry a result revision or an unavailable
+                // state. Leave it empty so an old automation cannot replay locally reconstructed HRV.
+                try Data().write(to: docs.appendingPathComponent(fileName), options: .atomic)
+                return .written(lines: 0)
+            } catch { return .failure("Canonical export failed: \(error.localizedDescription)") }
+        }
         guard let store = await repo.storeHandle() else {
             return .failure("Couldn't open the local store.")
         }
@@ -79,6 +93,9 @@ enum ShortcutHealthExport {
     @discardableResult
     static func export(source: ShortcutExportReads, deviceId: String, now: Date,
                        defaults: UserDefaults, directory: URL, timeZone: TimeZone) async -> Outcome {
+        guard PhoneComputeRuntime.permitsLocal("ShortcutHealthExport.legacyWindows") else {
+            return .failure("Server-owned: legacy fifteen-minute windows are unsupported.")
+        }
         let nowTs = Int(now.timeIntervalSince1970)
         let span = coverageSpan(nowTs: nowTs, watermark: defaults.integer(forKey: watermarkKey))
         guard span.from < span.end else {
@@ -128,6 +145,7 @@ enum ShortcutHealthExport {
     /// Fold the three streams into windowSeconds-aligned windows below `end`, ascending. Only
     /// windows holding ≥1 value are returned. Callers bound the lower edge at the store query.
     static func aggregate(hr: [HRBucket], rr: [RRInterval], steps: [StepSample], end: Int) -> [Window] {
+        PhoneComputeRuntime.entered("ShortcutHealthExport.aggregate")
         var byStart: [Int: Window] = [:]
         func update(_ start: Int, _ mutate: (inout Window) -> Void) {
             var w = byStart[start] ?? Window(start: start)

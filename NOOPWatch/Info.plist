@@ -22,6 +22,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NOOPFinalHostedCompute</key>
+	<true/>
 	<key>NSHealthShareUsageDescription</key>
 	<string>NARA reads your heart rate from the Watch sensor to show a live readout on your wrist. It stays on your device.</string>
 	<key>NSHealthUpdateUsageDescription</key>

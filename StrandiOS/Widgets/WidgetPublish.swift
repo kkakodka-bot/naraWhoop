@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 /// The live adapter and synthetic tests share the final read/validate/publish sequence.
 /// A successful callback is not a WidgetKit delivery or filesystem durability receipt.
@@ -79,6 +80,24 @@ extension WidgetSnapshot {
     @MainActor
     private static func preparedSnapshot(from model: AppModel, namespace: String,
                                          requiresSuccessfulRead: Bool) async throws -> WidgetSnapshot {
+        if PhoneComputeRuntime.isFinalHosted {
+            let state = model.repo.serverPresentation
+            let result = state.canonicalDays[CanonicalConsumerPublication.day(in: state)]
+            func rounded(_ metric: String) -> Int? {
+                CanonicalConsumerPublication.value(metric, in: result).map { Int($0.rounded()) }
+            }
+            let insight = result?.result(for: "insights")
+            let insightText: String?
+            if let insight, insight.hasCanonicalAuthorization, insight.status == "available",
+               case .string(let text) = insight.values["insights"] { insightText = text }
+            else { insightText = nil }
+            return WidgetSnapshot(recovery: rounded("recovery"), bpm: model.live.heartRate,
+                batteryPct: model.live.batteryPct.map { Int($0.rounded()) }, bonded: model.live.bonded,
+                updated: Date(), effort: rounded("strain"), rest: rounded("sleep_performance"),
+                hrv: rounded("hrv_rmssd_ms"), restingHr: rounded("resting_hr_bpm"),
+                accountNamespace: namespace, finalHosted: true,
+                canonicalLedger: CanonicalConsumerPublication.ledger(result), insights: insightText)
+        }
         let now = Date()
         // The recovery-derived anchor: today's row when it's scored, else the freshest STRICTLY-PRIOR
         // scored day carried over. Resolved through the SHARED `Repository.widgetAnchor`, the ONE selector
@@ -147,6 +166,11 @@ extension WidgetSnapshot {
     @MainActor
     static func publishLive(from model: AppModel) async {
         guard model.isAccountRuntimeActive, model.accountStorage?.scope != nil else { return }
+        if PhoneComputeRuntime.isFinalHosted {
+            // A device/account/readback change must clear or replace every old physiological field.
+            await publish(from: model)
+            return
+        }
         let now = Date()
         guard var snap = load(), !liveUpdateRequiresFullBuild(previous: snap, now: now) else {
             await publish(from: model)

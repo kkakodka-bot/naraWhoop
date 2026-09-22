@@ -45,6 +45,10 @@ struct CoachBriefProvider: TimelineProvider {
     }
 
     private func loadEntry() -> CoachBriefEntry {
+        if Bundle.main.object(forInfoDictionaryKey: "NOOPFinalHostedCompute") as? Bool == true {
+            let snapshot = WidgetSnapshot.load()
+            return CoachBriefEntry(date: Date(), briefText: snapshot?.insights, briefDate: snapshot?.updated)
+        }
         let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName)
         let text = defaults?.string(forKey: CoachBriefProvider.briefKey)
         let date = defaults?.object(forKey: CoachBriefProvider.briefDateKey) as? Date

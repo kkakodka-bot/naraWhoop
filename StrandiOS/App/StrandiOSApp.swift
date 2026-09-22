@@ -189,26 +189,14 @@ struct StrandiOSApp: App {
                     // which kept pointing at yesterday's scored row after Today had moved on).
                     // Memoized: this closure fires on EVERY live-HR tick, so re-deriving the anchor here
                     // scanned the whole history + hit the DateFormatter lock ~1-3x/sec (#1051-shaped).
-                    let day = model.repo.cachedWidgetAnchor()
-                    liveActivity.update(
-                        bpm: model.live.connected ? (model.bpm ?? model.live.heartRate) : nil,
-                        recovery: day?.recovery.map { Int($0.rounded()) },
-                        connected: model.live.connected,
-                        effort: day?.strain.map { Int($0.rounded()) }
-                    )
+                    liveActivity.update(from: model)
                 }
                 // End the Live Activity the moment the link drops, even if no further HR tick arrives.
                 .onReceive(model.live.$connected) { isConnected in
                     // #911: same shared anchor as the heartRate site above, so the Live Activity, the
                     // widget, the watch and Today never disagree about which day they describe. Memoized
                     // (shares the heartRate site's cache; recomputes only on a data refresh or day-roll).
-                    let day = model.repo.cachedWidgetAnchor()
-                    liveActivity.update(
-                        bpm: isConnected ? (model.bpm ?? model.live.heartRate) : nil,
-                        recovery: day?.recovery.map { Int($0.rounded()) },
-                        connected: isConnected,
-                        effort: day?.strain.map { Int($0.rounded()) }
-                    )
+                    liveActivity.update(from: model)
                 }
                 // #911/#759: republish the Home/Lock-Screen widget whenever the dashboard caches actually
                 // change mid-session. The only other publish site is the scenePhase .active handler, so

@@ -50,12 +50,15 @@ public struct WatchScoreSnapshot: Codable, Equatable, Sendable {
     /// is recent. Optional + decodes as nil when absent so older payloads on the wire stay compatible.
     public var scoreDay: String?
     public var accountNamespace: String?
+    public var finalHosted: Bool?
+    public var canonicalLedger: CanonicalConsumerLedger?
 
     public init(charge: Double?, chargeCalibrating: Bool,
                 effort: Double?, effortCalibrating: Bool,
                 rest: Double?, restCalibrating: Bool,
                 hr: Int?, sleepSummary: String, asOf: Date,
-                scoreDay: String? = nil, accountNamespace: String? = nil) {
+                scoreDay: String? = nil, accountNamespace: String? = nil,
+                finalHosted: Bool? = nil, canonicalLedger: CanonicalConsumerLedger? = nil) {
         self.charge = charge
         self.chargeCalibrating = chargeCalibrating
         self.effort = effort
@@ -67,6 +70,8 @@ public struct WatchScoreSnapshot: Codable, Equatable, Sendable {
         self.asOf = asOf
         self.scoreDay = scoreDay
         self.accountNamespace = accountNamespace
+        self.finalHosted = finalHosted
+        self.canonicalLedger = canonicalLedger
     }
 
     // MARK: - Shared app group transport
@@ -205,7 +210,23 @@ public struct WatchScoreSnapshot: Codable, Equatable, Sendable {
         guard let defaults,
               let data = defaults.data(forKey: storageKey),
               let snap = try? JSONDecoder().decode(WatchScoreSnapshot.self, from: data) else { return nil }
+        guard snap.isAdmittedForHostedMode else { return nil }
         return snap
+    }
+
+    public var isAdmittedForHostedMode: Bool {
+        guard Bundle.main.object(forInfoDictionaryKey: "NOOPFinalHostedCompute") as? Bool == true else { return true }
+        return hasCanonicalAdmission
+    }
+    public var hasCanonicalAdmission: Bool {
+        guard finalHosted == true else { return false }
+        guard let ledger = canonicalLedger else {
+            return charge == nil && effort == nil && rest == nil && sleepSummary.isEmpty
+        }
+        return ledger.isValid && (charge == nil || ledger.families["recovery"]?.permitsValue == true)
+            && (effort == nil || ledger.families["strain_energy"]?.permitsValue == true)
+            && (rest == nil || ledger.families["sleep_history"]?.permitsValue == true)
+            && (sleepSummary.isEmpty || ledger.families["sleep"]?.permitsValue == true)
     }
 
     /// Persist this snapshot into the shared app group so the watch app + complication can read it.

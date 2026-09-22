@@ -1,5 +1,6 @@
 #if os(iOS)
 import SwiftUI
+import WhoopProtocol
 import StrandDesign
 
 /// #155 — the opt-in surface for the Apple-Health-free export. Sideloaded installs (free 7-day
@@ -34,7 +35,9 @@ struct ShortcutExportSettingsView: View {
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.accent)
-                Text("When this is on, NARA rewrites a plain-text file (On My iPhone › NARA › noop_sync.txt) each time you leave the app: one line per 15 minutes of heart rate, HRV and steps, read straight from your strap. Pair it with the Siri Shortcut that reads the file and logs everything into Apple Health (no HealthKit entitlement needed), so it works on sideloaded installs. The setup guide and the pre-built Shortcut live in the project wiki on GitHub.")
+                Text(PhoneComputeRuntime.isFinalHosted
+                     ? "Hosted mode exports noop_server_results.json with canonical server values, missing states and immutable result revisions. The legacy noop_sync.txt is kept empty: its fifteen-minute HRV/steps reconstruction is unsupported. Existing Shortcuts must be updated to consume the revision-bearing JSON contract."
+                     : "When this is on, NARA rewrites a plain-text file (On My iPhone › NARA › noop_sync.txt) each time you leave the app: one line per 15 minutes of heart rate, HRV and steps, read straight from your strap. Pair it with the Siri Shortcut that reads the file and logs everything into Apple Health (no HealthKit entitlement needed), so it works on sideloaded installs. The setup guide and the pre-built Shortcut live in the project wiki on GitHub.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

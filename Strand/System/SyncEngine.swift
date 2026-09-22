@@ -1,6 +1,8 @@
 import Foundation
 import WhoopStore
 import NoopPush
+import WhoopProtocol
+import Combine
 #if os(iOS)
 import BackgroundTasks
 import UIKit
@@ -14,6 +16,16 @@ import UIKit
 /// recorded in `syncJournalEntry`.
 @MainActor
 final class SyncEngine {
+    private final class CanonicalFence: @unchecked Sendable {
+        private let lock = NSLock()
+        private var valid = true
+        var observation: AnyCancellable?
+        func revoke() { lock.lock(); valid = false; lock.unlock() }
+        func check() throws {
+            lock.lock(); let current = valid; lock.unlock()
+            guard current, !Task.isCancelled else { throw AccountAuthError.staleOperation }
+        }
+    }
 
     private weak var host: AppModel?
     /// Async actor methods are reentrant. Coalesce overlapping foreground/BG/offload wakes into one
@@ -102,6 +114,7 @@ final class SyncEngine {
             let rows = try await store.owedJobs()
             guard !rows.isEmpty else { return false }
             if rows.contains(where: { $0.kind == SyncJobKind.cloudPush.rawValue }) { return true }
+            if PhoneComputeRuntime.isFinalHosted { return true }
             let state = await host.intelligence.preparePreferenceProjection()
             guard host.isAccountRuntimeActive else { return false }
             return state == .complete || state.hasRunnableWork(at: Int64(Date().timeIntervalSince1970))
@@ -161,6 +174,15 @@ final class SyncEngine {
             var admission: DependentStageAdmission?
             if stage == .cloudPush {
                 guard let captured = await captureRawAdmission(token: token, store: store, host: host) else {
+                    stagesHeld.append(stage); continue
+                }
+                do { try await store.recordJobAttempt(kind: stage.rawValue, token: token) }
+                catch { stagesFailed.append(stage); continue }
+                await dependentStageDriver?.afterAttempt?(stage)
+                guard await captured.validate() else { stagesHeld.append(stage); continue }
+                admission = captured
+            } else if stage != .rescore && PhoneComputeRuntime.isFinalHosted {
+                guard let captured = await captureCanonicalAdmission(stage: stage, token: token, store: store, host: host) else {
                     stagesHeld.append(stage); continue
                 }
                 do { try await store.recordJobAttempt(kind: stage.rawValue, token: token) }
@@ -279,6 +301,36 @@ final class SyncEngine {
         return await admission.validate() ? admission : nil
     }
 
+    /// Final hosted exports are fenced by canonical result identity, not a retired phone projection.
+    private func captureCanonicalAdmission(stage: SyncJobKind, token: String, store: WhoopStore,
+                                           host: AppModel) async -> DependentStageAdmission? {
+        let identity = CloudRuntimeIdentity.snapshot().context
+        let selected = host.repo.serverPresentation
+        let device = host.repo.deviceId
+        let fence = CanonicalFence()
+        fence.observation = host.serverScores.$state.dropFirst().sink { [weak fence] state in
+            if state != selected { fence?.revoke() }
+        }
+        let boundary: @Sendable () throws -> Void = {
+            try fence.check()
+            guard CloudRuntimeIdentity.snapshot().context == identity else { throw AccountAuthError.staleOperation }
+        }
+        let admission = DependentStageAdmission(current: { [weak host] in
+            guard let host else { return false }
+            return host.isAccountRuntimeActive && host.repo.deviceId == device
+                && host.repo.serverPresentation == selected && (try? boundary()) != nil
+        }, revalidate: { [weak host] in
+            guard let host, host.isAccountRuntimeActive, host.repo.deviceId == device,
+                  host.repo.serverPresentation == selected, let rows = try? await store.owedJobs() else { return false }
+            return rows.contains { $0.kind == stage.rawValue && $0.token == token }
+        }, boundaryCheck: boundary, settleCaptured: { [weak host] in
+            guard let host, host.isAccountRuntimeActive, host.repo.deviceId == device,
+                  host.repo.serverPresentation == selected, (try? boundary()) != nil else { return false }
+            return (try? await store.settleJob(kind: stage.rawValue, token: token)) ?? false
+        })
+        return await admission.validate() ? admission : nil
+    }
+
     private func runStage(_ stage: SyncJobKind, token: String,
                           reason: SyncDrainPolicy.WakeReason,
                           host: AppModel,
@@ -307,7 +359,7 @@ final class SyncEngine {
 
     private func runRescore(token: String, reason: SyncDrainPolicy.WakeReason,
                             host: AppModel) async -> StageOutcome {
-        if ServerScoringSettings.skipsSyncCoupledRescore {
+        if PhoneComputeRuntime.isFinalHosted || ServerScoringSettings.skipsSyncCoupledRescore {
             ServerScoringSettings.settleSkippedLocalRescoreDebt()
             return await settle(.rescore, token: token) ? .completed : .held
         }
@@ -335,6 +387,7 @@ final class SyncEngine {
     /// and a queued forced handoff must retain the SQLite job even while that legacy mark is absent.
     static func settleRescoreWhenReady(intelligence: IntelligenceEngine,
                                       settle: @MainActor () async -> Bool) async -> Bool {
+        if PhoneComputeRuntime.isFinalHosted { return await settle() }
         guard !intelligence.rescoreInProgress,
               await intelligence.preparePreferenceProjection() == .complete else { return false }
         return await settle()

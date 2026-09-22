@@ -37,10 +37,7 @@ enum WatchSnapshotAccess {
 
     /// The last snapshot the phone pushed, or nil if nothing has synced yet.
     static func load() -> WatchScoreSnapshot? {
-        guard let defaults = UserDefaults(suiteName: suiteName),
-              let data = defaults.data(forKey: storageKey),
-              let snap = try? JSONDecoder().decode(WatchScoreSnapshot.self, from: data) else { return nil }
-        return snap
+        WatchScoreSnapshot.load()
     }
 }
 
