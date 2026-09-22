@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const evidenceDefault = 'docs/compute/evidence';
 export const requiredGates = ['swift-zero-inference', 'swift-protocol', 'swift-store', 'swift-analytics',
+  'swift-support',
   'server-jvm', 'server-pipeline', 'ios-final-runtime', 'android-app', 'ios-build', 'watch-build', 'macos-tests'];
 export const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const git = (...args) => {
@@ -47,6 +48,7 @@ export function validateCommand(gate, command) {
   if (gate === 'swift-protocol') assert(swift('WhoopProtocol') && !command.includes('--filter'));
   if (gate === 'swift-store') assert(swift('WhoopStore') && !command.includes('--filter'));
   if (gate === 'swift-analytics') assert(swift('StrandAnalytics') && !command.includes('--filter'));
+  if (gate === 'swift-support') assert(script('Tools/compute/run-support-package-checks.sh'));
   if (gate === 'server-jvm') assert(script('scoring-service/scripts/test-server-jvm.sh'));
   if (gate === 'server-pipeline') assert(script('scoring-service/scripts/test-server-pipeline.sh'));
   if (gate === 'ios-final-runtime') assert(script('Tools/compute/run-final-hosted-checks.sh'));
@@ -67,6 +69,10 @@ export function validateCommand(gate, command) {
 export function validateOutput(gate, output) {
   if (gate.startsWith('swift-')) assert(/Executed [1-9][0-9]* tests?, with 0 failures/.test(output), 'No successful executed Swift tests');
   if (gate === 'swift-zero-inference') assert(output.includes('PhoneInferenceRetirementTests') && output.includes('testNonoptionalEntrypointsFailLoudlyInFinalHostedMode'));
+  if (gate === 'swift-support') {
+    for (const name of ['NoopLocalAccess', 'NoopPush', 'OuraProtocol', 'PolarProtocol', 'StrandDesign', 'StrandImport'])
+      assert(output.includes(`SUPPORT_PACKAGE_PASS: ${name}`), `Missing complete ${name} package run`);
+  }
   if (gate === 'server-jvm') assert(output.includes('Clean JVM tests and installDist passed with a newly exported actual-Swift corpus'));
   if (gate === 'server-pipeline') {
     assert(output.includes('SQL -> actual Edge -> Swift/Kotlin decoder tests passed'));

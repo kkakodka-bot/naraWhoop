@@ -383,6 +383,7 @@ final class Repository: ObservableObject {
         guard accountRuntimeActive, state != serverPresentation else { return false }
         let contentChanged = state.revision != serverPresentation.revision
             || state.canonicalDays != serverPresentation.canonicalDays
+            || state.pendingCanonicalDays != serverPresentation.pendingCanonicalDays
             || state.generation != serverPresentation.generation
             || state.currentDay != serverPresentation.currentDay
             || state.timezone != serverPresentation.timezone
