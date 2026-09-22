@@ -5,7 +5,8 @@ This package builds the numerical baseline at exactly
 It remains `frwhoop-server-1`. It does not relabel the v2 kernel as v1 or promote shadow algorithms.
 
 `transport.patch` changes only the baseline application wiring, work queue, lease renewal,
-publication transport, retirement of the old mutable archive writer, and transport tests.
+publication transport, verified hosted-database TLS setup, retirement of the old mutable archive
+writer, and transport tests.
 `runtime-identity.patch` adds per-process, per-version heartbeat identity and explicit replay
 argument validation. It changes no scoring, input, qualification, or result-mapping formula.
 The entire Android tree, analytics-kernel source/configuration, DayScorer, input reader,
@@ -74,6 +75,11 @@ Production startup requires `SCORING_WORKER_INSTANCE_ID` (a fresh UUID per deplo
 In the image, the configured source must match `/app/release.sha`; standalone local integration
 binaries have no `/app` requirement. Replay requires explicit `--replay-day` plus `REPLAY_USER_ID`,
 `REPLAY_DEVICE_ID` and `REPLAY_DAY`. A daemon rejects inherited replay selectors.
+
+Hosted Supabase database URLs must use `sslmode=verify-full&sslrootcert=system`. The patched JVM
+selects pgJDBC's Java-system-trust SSL factory as a separate connection property, so the shared URL
+remains valid for the pinned libpq client while pgJDBC verifies the certificate and hostname.
+Driver, credential, and hostname-verifier query overrides are rejected before a connection opens.
 
 Original mutable-key B2 publication is retired. The repaired service's archive worker drains the
 shared durable outbox for either version. During a baseline-only rollback, run its `--archive-only`

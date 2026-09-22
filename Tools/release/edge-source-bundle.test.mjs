@@ -103,6 +103,28 @@ test('prepares deterministic exact committed Edge bytes without tests or documen
   }
 });
 
+test('preparation ignores Git blob replacement refs and retains the reviewed tree bytes', () => {
+  const f = fixture();
+  try {
+    const originalBlob = git(f.repository, ['rev-parse', `${f.commitSha}:supabase/config.toml`]);
+    const replacement = spawnSync('git', ['-C', f.repository, 'hash-object', '-w', '--stdin'], {
+      input: 'project_id = "substituted"\n', encoding: 'utf8',
+    });
+    assert.equal(replacement.status, 0, replacement.stderr);
+    git(f.repository, ['replace', originalBlob, replacement.stdout.trim()]);
+    assert.equal(git(f.repository, ['rev-parse', `${f.commitSha}^{tree}`]), f.treeSha);
+    assert.equal(spawnSync('git', ['-C', f.repository, 'cat-file', 'blob', originalBlob],
+      { encoding: 'utf8' }).stdout, 'project_id = "substituted"\n');
+
+    const output = path.join(f.directory, 'replace-proof');
+    prepareEdgeSourceBundle({ repoRoot: f.repository, commitSha: f.commitSha, outputDirectory: output });
+    assert.equal(fs.readFileSync(path.join(output, 'payload/supabase/config.toml'), 'utf8'),
+      'project_id = "committed"\n');
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('offline verification rejects payload mutation, missing, extra, symlink, and role-set drift', async (t) => {
   const f = fixture();
   try {

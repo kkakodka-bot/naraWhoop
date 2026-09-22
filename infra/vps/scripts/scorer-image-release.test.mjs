@@ -11,6 +11,19 @@ import { verifyEvidence } from './verify-sync-evidence.mjs';
 
 const scripts = path.dirname(fileURLToPath(import.meta.url));
 const bytes = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
+const postgresClient = {
+  reference: 'docker.io/library/postgres@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3',
+  configDigest: 'sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537',
+  platform: 'linux/amd64', version: '17.11-alpine3.24',
+};
+const deploymentFingerprint = '5'.repeat(64);
+const targetHostKeyLine = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH';
+const targetFingerprint = `SHA256:${'A'.repeat(43)}`;
+const deploymentTarget = {
+  ip: '192.0.2.10', sshPort: 22,
+  sshHostPublicKey: { type: 'ssh-ed25519', line: targetHostKeyLine, fingerprint: targetFingerprint },
+  deployPublicKeyFingerprint: targetFingerprint,
+};
 function local(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scorer-image-offline-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -295,33 +308,56 @@ test('pinned deployment uses the exact digest, preserves pin, never rebuilds or 
   assert.throws(() => deployPinned({ manifest: f.filename, host: 'fixture.invalid', key, knownHosts }, () => { throw new Error('NOT_READY: pull failed'); }), /NOT_READY/);
 });
 
-test('actual deployment rejects incompatible single-worker manifests and archives exact source for all three lanes', t => {
+test('actual deployment verifies the aggregate plan before config or SSH and archives its exact source for all lanes', t => {
   const root = local(t), repo = path.join(root, 'repo'), dir = path.join(repo, 'infra/vps/scripts');
   fs.mkdirSync(dir, { recursive: true });
   for (const name of ['deploy-scoring-service.sh', 'scorer-image-release.mjs', 'sync-evidence-contract.mjs', 'scoring-migration-catalog.mjs']) fs.copyFileSync(path.join(scripts, name), path.join(dir, name));
   copyMigrationCatalog(repo);
   const f = releaseFixture(path.join(root, 'release'));
   fs.writeFileSync(path.join(repo, 'infra/vps/droplet.env'), 'DROPLET_IP=fixture.invalid\n');
-  fs.mkdirSync(path.join(repo, 'infra/vps/keys')); fs.writeFileSync(path.join(repo, 'infra/vps/keys/frwhoop_deploy'), 'SYNTHETIC KEY');
+  fs.mkdirSync(path.join(repo, 'infra/vps/keys'));
+  fs.writeFileSync(path.join(repo, 'infra/vps/keys/frwhoop_deploy'), 'SYNTHETIC KEY', { mode: 0o600 });
   const hosts = path.join(root, 'known-hosts'); fs.writeFileSync(hosts, 'SYNTHETIC HOSTS');
-  const bin = path.join(root, 'bin'); fs.mkdirSync(bin); fs.symlinkSync(process.execPath, path.join(bin, 'node')); fs.symlinkSync('/usr/bin/dirname', path.join(bin, 'dirname'));
+  const bin = path.join(root, 'bin'); fs.mkdirSync(bin); fs.symlinkSync('/usr/bin/dirname', path.join(bin, 'dirname'));
   const record = path.join(root, 'calls.jsonl');
-  for (const name of ['ssh', 'scp', 'rsync', 'python3', 'git']) fs.writeFileSync(path.join(bin, name), `#!${process.execPath}\n
+  const v1 = `registry.invalid/frwhoop-v1@sha256:${'1'.repeat(64)}`;
+  const v2 = `registry.invalid/frwhoop-v2@sha256:${'2'.repeat(64)}`;
+  const v1Config = `sha256:${'3'.repeat(64)}`, v2Config = `sha256:${'4'.repeat(64)}`;
+  fs.writeFileSync(path.join(bin, 'node'), `#!${process.execPath}\n
+    const fs=require('node:fs'), cp=require('node:child_process'); const args=process.argv.slice(2);
+    if(args[0]?.endsWith('/Tools/release/release-artifact-manifest.mjs') && args[1]==='verify-deployment') {
+      fs.appendFileSync(${JSON.stringify(record)},JSON.stringify({program:'release-verifier',args,stdin:''})+'\\n');
+      if(process.env.PLAN_REJECT==='1') { process.stderr.write('NOT_READY: synthetic deployment binding differs\\n'); process.exit(1); }
+      process.stdout.write(JSON.stringify({status:'WORKER_DEPLOYMENT_VERIFIED',sourceSha:'${'a'.repeat(40)}',sourceTree:'${'b'.repeat(40)}',fingerprint:${JSON.stringify(deploymentFingerprint)},
+        selectedV1:{reference:process.env.MALICIOUS_REF||${JSON.stringify(v1)},configDigest:${JSON.stringify(v1Config)}},
+        shadowV2:{reference:${JSON.stringify(v2)},configDigest:${JSON.stringify(v2Config)}},
+        postgresqlClient:${JSON.stringify(postgresClient)},target:${JSON.stringify(deploymentTarget)}})+'\\n');
+    } else {
+      const child=cp.spawnSync(${JSON.stringify(process.execPath)},args,{stdio:'inherit'}); process.exit(child.status ?? 1);
+    }
+  `, { mode: 0o700 });
+  for (const name of ['ssh', 'scp', 'rsync', 'python3', 'git', 'ssh-keygen']) fs.writeFileSync(path.join(bin, name), `#!${process.execPath}\n
     const fs=require('node:fs'); const args=process.argv.slice(2); const command=args.at(-1);
     const stdin=fs.readFileSync(0,'utf8');
     fs.appendFileSync(${JSON.stringify(record)},JSON.stringify({program:${JSON.stringify(name)},args,stdin})+'\\n');
-    if(${JSON.stringify(name)}==='python3') process.stdout.write('fixture.invalid|22\\n');
-    else if(${JSON.stringify(name)}==='git'&&args.includes('rev-parse')) process.stdout.write('${'a'.repeat(40)}\\n');
+    if(${JSON.stringify(name)}==='python3'&&args.includes('-c')) process.stdout.write('11111111-1111-4111-8111-111111111111\\n');
+    else if(${JSON.stringify(name)}==='python3') process.stdout.write('fixture.invalid|22\\n');
+    else if(${JSON.stringify(name)}==='ssh-keygen') process.stdout.write('256 ${targetFingerprint} synthetic (ED25519)\\n');
+    else if(${JSON.stringify(name)}==='git'&&args.includes('rev-parse'))
+      process.stdout.write((args.some(value=>value.endsWith('^{tree}'))?'${'b'.repeat(40)}':'${'a'.repeat(40)}')+'\\n');
     else if(${JSON.stringify(name)}==='git'&&args.includes('archive')) process.stdout.write('EXACT_COMMITTED_ARCHIVE');
+    else if(${JSON.stringify(name)}==='ssh'&&command.includes('FRWHOOP_TARGET_IDENTITY_OBSERVED_'))
+      process.stdout.write(command.match(/FRWHOOP_TARGET_IDENTITY_OBSERVED_[0-9a-f]{64}/)[0]+'\\n');
     else if(command.includes('mktemp -d')) process.stdout.write('/opt/frwhoop/build/frwhoop-scoring/${'a'.repeat(40)}.aaaaaa\\n');
     else if(command.includes('ps -q')) process.stdout.write('${'c'.repeat(64)}\\n');
     else if(command.startsWith('docker image inspect')) process.stdout.write(${JSON.stringify(JSON.stringify(f.inspection))});
     else if(command.startsWith('docker inspect --type container')) process.stdout.write(${JSON.stringify(JSON.stringify({ id: 'c'.repeat(64), running: true, imageId: f.release.image.configId, imageReference: f.release.image.reference }))});
   `, { mode: 0o700 });
-  const env = { PATH: bin, TMPDIR: root, SCORER_KNOWN_HOSTS: hosts };
-  const invoke = (args, expectedStatus = 0) => {
+  const env = { PATH: `${bin}:/usr/bin:/bin`, TMPDIR: root, SCORER_KNOWN_HOSTS: hosts };
+  const invoke = (args, expectedStatus = 0, extraEnv = {}) => {
     fs.writeFileSync(record, '');
-    const r = spawnSync('/bin/bash', [path.join(dir, 'deploy-scoring-service.sh'), ...args], { env, encoding: 'utf8', timeout: 10_000 });
+    const r = spawnSync('/bin/bash', [path.join(dir, 'deploy-scoring-service.sh'), ...args],
+      { env: { ...env, ...extraEnv }, encoding: 'utf8', timeout: 10_000 });
     assert.equal(r.status, expectedStatus, r.stderr); assert.equal(r.signal, null);
     const lines = fs.readFileSync(record, 'utf8').trim();
     return { ...r, calls: lines ? lines.split('\n').map(JSON.parse) : [] };
@@ -329,27 +365,207 @@ test('actual deployment rejects incompatible single-worker manifests and archive
   const pinned = invoke(['--image-manifest', f.filename], 3);
   assert.match(pinned.stdout, /IMAGE_PROVENANCE_VALIDATED/); assert.match(pinned.stderr, /single-worker self-hosted/);
   assert.deepEqual(pinned.calls, []); // No configs, dependency starts, or SSH before rejection.
-  const v1 = `registry.invalid/frwhoop-v1@sha256:${'1'.repeat(64)}`;
-  const v2 = `registry.invalid/frwhoop-v2@sha256:${'2'.repeat(64)}`;
-  for (const args of [[], ['--selected-v1-image', 'registry.invalid/frwhoop-v1:latest', '--shadow-v2-image', v2]]) {
+  for (const args of [[], ['--release-manifest', 'aggregate.json', '--artifact-root', 'artifacts']]) {
     const rejected = invoke(args, 3);
     assert.match(rejected.stderr, /NOT_READY/); assert.deepEqual(rejected.calls, []);
   }
-  const exact = invoke(['--selected-v1-image', v1, '--shadow-v2-image', v2]);
+  const deploymentArgs = ['--release-manifest', path.join(root, 'aggregate.json'), '--artifact-root', root,
+    '--worker-deployment', path.join(root, 'workers.json')];
+  const rejected = invoke(deploymentArgs, 1, { PLAN_REJECT: '1' });
+  assert.match(rejected.stderr, /deployment binding differs/);
+  assert.deepEqual(rejected.calls.map(call => call.program), ['release-verifier']);
+  const injected = invoke(deploymentArgs, 3,
+    { MALICIOUS_REF: `registry.invalid/image;touch-pwned@sha256:${'1'.repeat(64)}` });
+  assert.match(injected.stderr, /reference is invalid/);
+  assert.deepEqual(injected.calls.map(call => call.program), ['release-verifier']);
+  const exact = invoke(deploymentArgs);
   assert.match(exact.stdout, /Deploy complete: a{40}/);
+  assert.equal(exact.calls[0].program, 'release-verifier');
   assert.ok(exact.calls.every(c => !['rsync','scp'].includes(c.program)));
   const archive = exact.calls.find(c => c.program === 'git' && c.args.includes('archive'));
   assert.equal(archive.args[archive.args.indexOf('archive')+1], 'a'.repeat(40));
+  for (const call of exact.calls.filter(c => c.program === 'git')) {
+    assert.ok(call.args.includes('--no-replace-objects'));
+    assert.ok(call.args.includes('core.hooksPath=/dev/null'));
+    assert.ok(call.args.includes('protocol.allow=never'));
+  }
   assert.ok(exact.calls.some(c => c.program === 'ssh' && c.stdin === 'EXACT_COMMITTED_ARCHIVE'));
+  const remoteShells = exact.calls.filter(c => c.program === 'ssh' && c.args.includes('bash') && c.args.includes('-s'));
+  const acquire = remoteShells.find(c => c.stdin.includes('mkdir "$lock"'));
+  const release = remoteShells.find(c => c.stdin.includes('rm -rf -- "$lock"'));
+  assert.ok(acquire);
+  assert.ok(release);
+  assert.ok(exact.calls.indexOf(acquire) < exact.calls.findIndex(c => c.program === 'git' && c.args.includes('archive')));
+  assert.equal(exact.calls.at(-1), release);
   const lanes = exact.calls.filter(c => c.program === 'ssh' && c.args.includes('bash') && c.args.includes('-s') && c.args.length && c.stdin.includes('scoring_wait_for_progress'));
   assert.deepEqual(lanes.map(c => c.args[c.args.indexOf('--') + 3]),
     ['scoring-baseline-v1','scoring-physiology-v2','scoring-history']);
   for (const lane of lanes) {
     assert.doesNotMatch(lane.stdin, /docker build|scoring-service:latest|rsync/);
-    assert.equal(lane.args.at(-2), v1); assert.equal(lane.args.at(-1), v2);
+    assert.deepEqual(lane.args.slice(-8), [v1, v2, v1Config, v2Config,
+      postgresClient.reference, postgresClient.configDigest, postgresClient.platform, postgresClient.version]);
     assert.match(lane.stdin, /SCORING_EXPECTED_IMAGE_ID/);
+    assert.match(lane.stdin, /\.RepoDigests/);
+    assert.doesNotMatch(lane.stdin, /docker start/);
+    assert.match(lane.stdin, /ROLLBACK_BLOCKED/);
     assert.match(lane.stdin, /--check-config/);
+    assert.ok(lane.stdin.indexOf('scoring_wait_for_progress') < lane.stdin.indexOf('docker update --restart unless-stopped'));
+    assert.match(lane.stdin, /SCORING_REQUIRE_PUBLICATION=true/);
   }
+  const fleet = remoteShells.find(c => c.stdin.includes('missing_planned='));
+  assert.ok(fleet);
+  assert.match(fleet.stdin, /last_score_at is not null/);
+  assert.match(fleet.stdin, /RestartPolicy\.Name/);
+  assert.match(fleet.stdin, /\["--history"\]/);
+});
+
+test('deployment session lock is retained on every incomplete path and released only after final verification', t => {
+  const root = local(t), repo = path.join(root, 'repo'), dir = path.join(repo, 'infra/vps/scripts');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(path.join(scripts, 'deploy-scoring-service.sh'), path.join(dir, 'deploy-scoring-service.sh'));
+  fs.mkdirSync(path.join(repo, 'infra/vps/keys'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'infra/vps/droplet.env'), 'DROPLET_IP=192.0.2.10\nSSH_PORT=22\n');
+  fs.writeFileSync(path.join(repo, 'infra/vps/keys/frwhoop_deploy'), 'SYNTHETIC KEY\n', { mode: 0o600 });
+
+  const bin = path.join(root, 'bin'); fs.mkdirSync(bin);
+  fs.symlinkSync('/usr/bin/dirname', path.join(bin, 'dirname'));
+  const release = 'a'.repeat(40), tree = 'b'.repeat(40);
+  const v1 = `registry.invalid/frwhoop-v1@sha256:${'1'.repeat(64)}`;
+  const v2 = `registry.invalid/frwhoop-v2@sha256:${'2'.repeat(64)}`;
+  const v1Config = `sha256:${'3'.repeat(64)}`, v2Config = `sha256:${'4'.repeat(64)}`;
+  const uuid = '11111111-1111-4111-8111-111111111111';
+  const stateFile = path.join(root, 'remote-state.json');
+
+  fs.writeFileSync(path.join(bin, 'node'), `#!${process.execPath}\n
+const cp=require('node:child_process');
+const args=process.argv.slice(2);
+if(args[0]?.endsWith('/Tools/release/release-artifact-manifest.mjs') && args[1]==='verify-deployment') {
+  process.stdout.write(JSON.stringify({status:'WORKER_DEPLOYMENT_VERIFIED',sourceSha:'${release}',sourceTree:'${tree}',fingerprint:${JSON.stringify(deploymentFingerprint)},
+    selectedV1:{reference:${JSON.stringify(v1)},configDigest:${JSON.stringify(v1Config)}},
+    shadowV2:{reference:${JSON.stringify(v2)},configDigest:${JSON.stringify(v2Config)}},
+    postgresqlClient:${JSON.stringify(postgresClient)},target:${JSON.stringify(deploymentTarget)}})+'\\n');
+} else {
+  const child=cp.spawnSync(${JSON.stringify(process.execPath)},args,{stdio:'inherit'});
+  process.exit(child.status ?? 1);
+}
+`, { mode: 0o700 });
+
+  fs.writeFileSync(path.join(bin, 'ssh-keygen'), `#!${process.execPath}\n
+process.stdout.write('256 ${targetFingerprint} synthetic (ED25519)\\n');
+`, { mode: 0o700 });
+
+  fs.writeFileSync(path.join(bin, 'python3'), `#!${process.execPath}\n
+const args=process.argv.slice(2);
+process.stdout.write(args.includes('-c') ? '${uuid}\\n' : '192.0.2.10|22\\n');
+`, { mode: 0o700 });
+
+  fs.writeFileSync(path.join(bin, 'git'), `#!${process.execPath}\n
+const args=process.argv.slice(2);
+if(args.includes('rev-parse')) process.stdout.write((args.some(value=>value.endsWith('^{tree}'))?'${tree}':'${release}')+'\\n');
+else if(args.includes('archive')) process.stdout.write('EXACT_COMMITTED_ARCHIVE');
+else if(!args.includes('status')) process.exit(91);
+`, { mode: 0o700 });
+
+  fs.writeFileSync(path.join(bin, 'ssh'), `#!${process.execPath}\n
+const fs=require('node:fs');
+const args=process.argv.slice(2), input=fs.readFileSync(0,'utf8'), scenario=process.env.LOCK_SCENARIO;
+const filename=process.env.REMOTE_STATE;
+const state=JSON.parse(fs.readFileSync(filename,'utf8'));
+const separator=args.indexOf('--'), remote=separator<0?[]:args.slice(separator+1), token=remote[0]??null;
+const command=args.at(-1);
+const save=()=>fs.writeFileSync(filename,JSON.stringify(state)+'\\n');
+const event=(kind,extra={})=>state.events.push({kind,owner:state.owner,...extra});
+if(typeof command==='string' && command.includes('FRWHOOP_TARGET_IDENTITY_OBSERVED_')) {
+  event('target-probe'); save();
+  process.stdout.write(command.match(/FRWHOOP_TARGET_IDENTITY_OBSERVED_[0-9a-f]{64}/)[0]+'\\n'); process.exit(0);
+} else if(input.includes('mkdir "$lock"')) {
+  event('acquire',{token});
+  if(state.owner!==null) { save(); process.exit(61); }
+  state.owner=token; save(); process.exit(0);
+}
+if(typeof command==='string' && command.includes('mktemp -d')) {
+  event('build-directory'); save();
+  if(scenario==='sigterm') process.kill(process.ppid,'SIGTERM');
+  setTimeout(()=>{ process.stdout.write('/opt/frwhoop/build/frwhoop-scoring/${release}.aaaaaa\\n'); process.exit(0); },25);
+} else if(input.includes('scoring_wait_for_progress')) {
+  const lane=remote[2]; event('lane',{lane}); save();
+  if((scenario==='lane1'&&lane==='scoring-baseline-v1') ||
+     (scenario==='lane2'&&lane==='scoring-physiology-v2')) process.exit(62);
+  if(state.owner===null) process.exit(63);
+  process.exit(0);
+} else if(input.includes('selection_violations=')) {
+  event('final-verify');
+  if(scenario==='wrong-owner') state.owner='different-owner-token';
+  save();
+  if(scenario==='final') process.exit(64);
+  if(state.owner===null) process.exit(65);
+  process.exit(0);
+} else if(input.includes('rm -rf -- "$lock"')) {
+  event('unlock',{token}); save();
+  if(scenario==='unlock-failure') process.exit(66);
+  if(state.owner!==token) process.exit(67);
+  state.owner=null; save(); process.exit(0);
+} else if(typeof command==='string' && command.includes('tar -xf -')) {
+  event('archive'); save();
+  if(state.owner===null || input!=='EXACT_COMMITTED_ARCHIVE') process.exit(68);
+  process.exit(0);
+} else {
+  event('unexpected',{command,input}); save(); process.exit(69);
+}
+`, { mode: 0o700 });
+
+  const deploymentArgs = ['--release-manifest', path.join(root, 'aggregate.json'), '--artifact-root', root,
+    '--worker-deployment', path.join(root, 'workers.json')];
+  const invoke = (scenario) => {
+    fs.writeFileSync(stateFile, JSON.stringify({ owner: null, events: [] }) + '\n');
+    const result = spawnSync('/bin/bash', [path.join(dir, 'deploy-scoring-service.sh'), ...deploymentArgs], {
+      env: { PATH: `${bin}:/usr/bin:/bin`, TMPDIR: root, LOCK_SCENARIO: scenario, REMOTE_STATE: stateFile },
+      encoding: 'utf8', timeout: 10_000,
+    });
+    return { result, state: JSON.parse(fs.readFileSync(stateFile, 'utf8')) };
+  };
+
+  for (const [scenario, expectedLanes] of [['lane1', ['scoring-baseline-v1']],
+    ['lane2', ['scoring-baseline-v1', 'scoring-physiology-v2']],
+    ['final', ['scoring-baseline-v1', 'scoring-physiology-v2', 'scoring-history']]]) {
+    const attempt = invoke(scenario);
+    assert.notEqual(attempt.result.status, 0, scenario);
+    assert.match(attempt.result.stderr, /DEPLOYMENT_LOCK_RETAINED/, scenario);
+    assert.notEqual(attempt.state.owner, null, scenario);
+    assert.deepEqual(attempt.state.events.filter(item => item.kind === 'lane').map(item => item.lane), expectedLanes);
+    assert.equal(attempt.state.events.some(item => item.kind === 'unlock'), false, scenario);
+  }
+
+  const interrupted = invoke('sigterm');
+  assert.equal(interrupted.result.status, 143, interrupted.result.stderr);
+  assert.match(interrupted.result.stderr, /DEPLOYMENT_LOCK_RETAINED/);
+  assert.notEqual(interrupted.state.owner, null);
+    assert.deepEqual(interrupted.state.events.map(item => item.kind), ['target-probe', 'acquire', 'build-directory']);
+
+  const wrongOwner = invoke('wrong-owner');
+  assert.equal(wrongOwner.result.status, 1, wrongOwner.result.stderr);
+  assert.match(wrongOwner.result.stderr, /lock could not be released/);
+  assert.equal(wrongOwner.state.owner, 'different-owner-token');
+  assert.equal(wrongOwner.state.events.at(-1).kind, 'unlock');
+  assert.notEqual(wrongOwner.state.events.at(-1).token, wrongOwner.state.owner);
+
+  const unlockFailure = invoke('unlock-failure');
+  assert.equal(unlockFailure.result.status, 1, unlockFailure.result.stderr);
+  assert.match(unlockFailure.result.stderr, /lock could not be released/);
+  assert.notEqual(unlockFailure.state.owner, null);
+  assert.equal(unlockFailure.state.events.at(-1).kind, 'unlock');
+  assert.equal(unlockFailure.state.events.at(-1).token, unlockFailure.state.owner);
+
+  const success = invoke('success');
+  assert.equal(success.result.status, 0, success.result.stderr);
+  assert.equal(success.state.owner, null);
+  assert.deepEqual(success.state.events.filter(item => item.kind === 'lane').map(item => item.lane),
+    ['scoring-baseline-v1', 'scoring-physiology-v2', 'scoring-history']);
+  const kinds = success.state.events.map(item => item.kind);
+  assert.ok(kinds.indexOf('final-verify') > kinds.lastIndexOf('lane'));
+  assert.equal(kinds.at(-1), 'unlock');
+  const acquireIndex = kinds.indexOf('acquire');
+  for (const item of success.state.events.slice(acquireIndex + 1, -1)) assert.notEqual(item.owner, null, item.kind);
 });
 
 test('actual Dockerfile binds either release-tool revision and rejects contradictory source labels', () => {

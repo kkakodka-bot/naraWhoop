@@ -11,6 +11,7 @@ const BUNDLE_NAME = 'deployment-source-bundle.tar';
 const MANIFEST_NAME = 'deployment-source-bundle-manifest.json';
 const METADATA_NAME = 'deployment-source-bundle-metadata.json';
 const PAYLOAD_NAME = 'payload';
+const GIT_EXECUTABLE = '/usr/bin/git';
 const RELEASE_TOOL_EXTENSIONS = new Set(['.java', '.mjs', '.py', '.sql']);
 const MODES = new Map([['100644', 0o644], ['100755', 0o755]]);
 
@@ -22,16 +23,32 @@ export const INCLUDED_ROOTS = Object.freeze([
 
 export const REQUIRED_CAPABILITIES = Object.freeze({
   aggregateVerification: Object.freeze(['Tools/release/release-artifact-manifest.mjs']),
-  applyMigrations: Object.freeze([
+  applySelfHostedMigrations: Object.freeze([
     'infra/vps/scripts/apply-migrations.sh',
     'infra/vps/scripts/scoring-migration-catalog.mjs',
     'infra/vps/scripts/scoring-migration-plan.mjs',
     'Tools/release/verify-integrated-schema.sql',
   ]),
-  deployEdge: Object.freeze(['infra/vps/scripts/deploy-edge-functions.sh']),
+  applyHostedMigrations: Object.freeze([
+    'Tools/release/hosted-migration-release.mjs',
+    'Tools/release/generate-migration-manifest.mjs',
+    'Tools/release/verify-integrated-schema.sql',
+  ]),
+  deploySelfHostedEdge: Object.freeze(['infra/vps/scripts/deploy-edge-functions.sh']),
+  deployHostedEdge: Object.freeze([
+    'infra/vps/scripts/deploy-hosted-edge-functions.mjs',
+    'infra/vps/scripts/verify-hosted-score-route-parity.mjs',
+  ]),
   deployWorkers: Object.freeze([
     'infra/vps/scripts/deploy-scoring-service.sh',
     'infra/vps/scripts/scorer-image-release.mjs',
+  ]),
+  workerDeploymentBinding: Object.freeze([
+    'Tools/release/release-artifact-manifest.mjs',
+    'infra/vps/scripts/deploy-scoring-service.sh',
+    'infra/vps/scripts/scoring-hosted-query.py',
+    'infra/vps/scripts/remote/read-scoring-query.sh',
+    'infra/vps/scripts/verify-pinned-postgres-client.py',
   ]),
   deploymentBundle: Object.freeze(['Tools/release/deployment-source-bundle.mjs']),
   deploymentRunbook: Object.freeze(['infra/vps/SERVER_PIPELINE_DEPLOYMENT.md']),
@@ -86,7 +103,7 @@ function selected(relative) {
 }
 
 function git(repo, args, binary = false) {
-  const result = spawnSync('git', [
+  const result = spawnSync(GIT_EXECUTABLE, [
     '--no-replace-objects', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
     '-c', 'protocol.allow=never', '-C', repo, ...args,
   ], {

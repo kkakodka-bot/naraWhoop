@@ -15,6 +15,8 @@ HELPER = SCRIPT.parent.parent / 'scoring-progress.sh'
 SHA = "a" * 40
 WORKER = '11111111-1111-4111-8111-111111111111'
 PROCESS = '33333333-3333-4333-8333-333333333333'
+POSTGRES_CLIENT_IMAGE = 'docker.io/library/postgres@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3'
+POSTGRES_CLIENT_CONFIG = 'sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537'
 
 
 def snapshot(poll="p0", score="s0", healthy="t", eligible=0, lease=0, exhausted=0, delayed=0, publication=10, projection_pending=0, projection_age=0):
@@ -25,7 +27,7 @@ def snapshot(poll="p0", score="s0", healthy="t", eligible=0, lease=0, exhausted=
 class ScoringRuntimeTest(unittest.TestCase):
     def run_check(self, rows, query_fails=False, duplicate=False, other_project=False, database_url=None,
                   real_psql=None, expected_password="fixture-secret", query_seconds=0, expected_ssl=None, peer_url=None,
-                  algorithm_version='frwhoop-physiology-2'):
+                  algorithm_version='frwhoop-physiology-2', client_identity=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "snapshots.json").write_text(json.dumps(rows))
@@ -34,42 +36,46 @@ class ScoringRuntimeTest(unittest.TestCase):
             docker.write_text("""#!/usr/bin/env python3
 import json, os, pathlib, subprocess, sys
 args = sys.argv[1:]
-root = pathlib.Path(os.environ['MOCK_ROOT'])
+root = pathlib.Path(os.environ['DOCKER_CONFIG'])
+settings = json.loads((root / 'mock-settings.json').read_text())
 with (root / 'commands.jsonl').open('a') as log: log.write(json.dumps(args) + '\\n')
 if args[0] == 'inspect':
     if 'org.opencontainers.image.revision' in args[2]: print('a' * 40)
     elif '.State.Running' in args[2]: print('true')
     elif '.RestartCount' in args[2]: print('0')
-    elif '.Config.Cmd' in args[2]: print('["--history"]' if os.environ['MOCK_VERSION']=='frwhoop-server-2-history' else '[]')
+    elif '.Config.Cmd' in args[2]: print('["--history"]' if settings['MOCK_VERSION']=='frwhoop-server-2-history' else '[]')
     elif '.Id' in args[2]: print('current-id')
     elif '.Image' in args[2]: print('sha256:' + 'a'*64)
     elif '.Config.Env' in args[2]:
-        print('SCORING_ALGORITHM_VERSION=' + os.environ['MOCK_VERSION'])
-        print('DATABASE_URL=' + os.environ['MOCK_DATABASE_URL'])
+        print('SCORING_ALGORITHM_VERSION=' + settings['MOCK_VERSION'])
+        print('DATABASE_URL=' + settings['MOCK_DATABASE_URL'])
         print('SCORING_WORKER_INSTANCE_ID=11111111-1111-4111-8111-111111111111')
         print('SCORING_WORKER_SOURCE_REVISION=' + 'a'*40)
-        project = 'b' if args[-1] == 'second-id' and os.environ['OTHER_PROJECT'] == '1' else 'a'
-        endpoint = os.environ.get('PEER_URL') if args[-1] == 'second-id' else None
+        project = 'b' if args[-1] == 'second-id' and settings['OTHER_PROJECT'] == '1' else 'a'
+        endpoint = settings.get('PEER_URL') if args[-1] == 'second-id' else None
         print('SUPABASE_URL=' + (endpoint or 'https://' + project * 20 + '.supabase.co/rest/v1'))
-elif args[0] == 'ps': print('current-id' + ('\\nsecond-id' if os.environ['DUPLICATE'] == '1' else ''))
+elif args[0] == 'ps': print('current-id' + ('\\nsecond-id' if settings['DUPLICATE'] == '1' else ''))
 elif args[0] == 'port': pass
 elif args[0] == 'run':
-    assert 'postgres:17-alpine' in args and 'psql' in args
+    assert settings['POSTGRES_CLIENT_IMAGE'] in args and 'psql' in args
+    assert settings['POSTGRES_CLIENT_IMAGE'].startswith('docker.io/library/postgres@sha256:')
     assert 'PGDATABASE' in args and 'default_transaction_read_only=on' in os.environ['PGOPTIONS']
     assert not any('fixture-secret' in arg for arg in args)
     assert os.environ['PGDATABASE'] == 'postgres'
-    assert os.environ['PGPASSWORD'] == os.environ['EXPECTED_PASSWORD']
-    if os.environ.get('EXPECTED_SSL'): assert os.environ['PGSSLMODE'] == os.environ['EXPECTED_SSL']
-    (root / 'clock').write_text(str(int((root / 'clock').read_text()) + int(os.environ['QUERY_SECONDS'])))
+    assert os.environ['PGPASSWORD'] == settings['EXPECTED_PASSWORD']
+    if settings.get('EXPECTED_SSL'): assert os.environ['PGSSLMODE'] == settings['EXPECTED_SSL']
+    (root / 'clock').write_text(str(int((root / 'clock').read_text()) + int(settings['QUERY_SECONDS'])))
     query = sys.stdin.read()
-    assert ('scoring_snapshots_v2' if os.environ['MOCK_VERSION']=='frwhoop-server-2-history' else 'physiology_archive_outbox') in query
-    if os.environ.get('REAL_PSQL'):
-        result = subprocess.run([os.environ['REAL_PSQL']] + args[args.index('psql') + 1:],
-                                input=query, text=True, capture_output=True)
+    assert ('scoring_snapshots_v2' if settings['MOCK_VERSION']=='frwhoop-server-2-history' else 'physiology_archive_outbox') in query
+    if settings.get('REAL_PSQL'):
+        local_env = os.environ.copy()
+        local_env.pop('PGSSLMODE', None); local_env.pop('PGSSLROOTCERT', None)
+        result = subprocess.run([settings['REAL_PSQL']] + args[args.index('psql') + 1:],
+                                input=query, text=True, capture_output=True, env=local_env)
         (root / 'local-psql-error').write_text(result.stderr)
         print(result.stdout, end='')
         sys.exit(result.returncode)
-    if os.environ['QUERY_FAILS'] == '1':
+    if settings['QUERY_FAILS'] == '1':
         print(os.environ['PGPASSWORD'], file=sys.stderr)
         sys.exit(1)
     count = int((root / 'count').read_text()) if (root / 'count').exists() else 0
@@ -89,17 +95,40 @@ else: raise AssertionError(args)
                        EXPECTED_PASSWORD=expected_password, QUERY_SECONDS=str(query_seconds), EXPECTED_SSL=expected_ssl or "",
                        PEER_URL=peer_url or "",
                        MOCK_VERSION=algorithm_version,
-                       MOCK_DATABASE_URL=database_url or 'postgresql://postgres:fixture-secret@db.example/postgres?sslmode=require')
+                       MOCK_DATABASE_URL=database_url or 'postgresql://postgres:fixture-secret@db.example/postgres?sslmode=verify-full&sslrootcert=system')
             if real_psql:
                 env['REAL_PSQL'] = real_psql
+            env['DOCKER_CONFIG'] = str(root)
+            client = {
+                'SCORING_POSTGRES_CLIENT_IMAGE': POSTGRES_CLIENT_IMAGE,
+                'SCORING_POSTGRES_CLIENT_CONFIG_DIGEST': POSTGRES_CLIENT_CONFIG,
+                'SCORING_POSTGRES_CLIENT_PLATFORM': 'linux/amd64',
+                'SCORING_POSTGRES_CLIENT_VERSION': '17.11-alpine3.24',
+            }
+            if client_identity:
+                client.update(client_identity)
+            (root / 'mock-settings.json').write_text(json.dumps({
+                'QUERY_FAILS': env['QUERY_FAILS'], 'DUPLICATE': env['DUPLICATE'],
+                'OTHER_PROJECT': env['OTHER_PROJECT'], 'EXPECTED_PASSWORD': env['EXPECTED_PASSWORD'],
+                'QUERY_SECONDS': env['QUERY_SECONDS'], 'EXPECTED_SSL': env['EXPECTED_SSL'],
+                'PEER_URL': env['PEER_URL'], 'MOCK_VERSION': env['MOCK_VERSION'],
+                'MOCK_DATABASE_URL': env['MOCK_DATABASE_URL'],
+                'POSTGRES_CLIENT_IMAGE': client['SCORING_POSTGRES_CLIENT_IMAGE'],
+                'REAL_PSQL': env.get('REAL_PSQL', ''),
+            }))
             shutil.copy(HELPER, root / 'scoring-progress.sh')
             secrets = root / 'secrets.env'
             secrets.write_text("SCORING_DATABASE_URL='" + env['MOCK_DATABASE_URL'] + "'\n"
                                "SCORING_SUPABASE_URL='https://" + 'a'*20 + ".supabase.co/rest/v1'\n")
+            client_env = root / 'scoring-client.env'
+            client_env.write_text(''.join(name + '=' + value + '\n' for name, value in client.items()))
             wrapper = root / 'verify.sh'
-            wrapper.write_text(SCRIPT.read_text().replace('source /opt/frwhoop/secrets.env', 'source "' + str(secrets) + '"'))
+            wrapper.write_text(SCRIPT.read_text()
+                               .replace('source /opt/frwhoop/secrets.env', 'source "' + str(secrets) + '"')
+                               .replace('source /opt/frwhoop/scoring-client.env', 'source "' + str(client_env) + '"'))
             result = subprocess.run(["bash", str(wrapper), SHA, 'sha256:' + 'a'*64, algorithm_version], text=True, capture_output=True, env=env, timeout=20)
-            commands = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
+            command_log = root / 'commands.jsonl'
+            commands = [json.loads(line) for line in command_log.read_text().splitlines()] if command_log.exists() else []
             result.local_psql_error = (root / "local-psql-error").read_text() if (root / "local-psql-error").exists() else "client was not reached"
             result.mock_commands = commands
             result.elapsed_mock_seconds = int((root / "clock").read_text())
@@ -111,6 +140,13 @@ else: raise AssertionError(args)
         result = self.run_check([snapshot(), snapshot(poll="p1"), snapshot(poll="p2")])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Publication was not exercised", result.stdout)
+
+    def test_installed_verifier_sources_plan_bound_client_without_inherited_client_variables(self):
+        result = self.run_check([snapshot(), snapshot(poll="p1"), snapshot(poll="p2")])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        runs = [command for command in result.mock_commands if command[0] == 'run']
+        self.assertTrue(runs)
+        self.assertTrue(all(POSTGRES_CLIENT_IMAGE in command for command in runs))
 
     def test_stalled_poll_fails_even_when_queue_is_empty(self):
         result = self.run_check([snapshot()])
@@ -201,24 +237,31 @@ else: raise AssertionError(args)
 
     def test_encoded_credentials_decode_once_and_keep_literal_plus(self):
         result = self.run_check([snapshot(), snapshot(poll="p1"), snapshot(poll="p2")],
-            database_url='postgresql://postgres:fixture-secret+%2B%40%252F@db.example/postgres',
+            database_url='postgresql://postgres:fixture-secret+%2B%40%252F@db.example/postgres?sslmode=verify-full&sslrootcert=system',
             expected_password='fixture-secret++@%2F')
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_jdbc_options_and_explicit_sslmode_precedence_are_supported(self):
-        result = self.run_check([snapshot(), snapshot(poll="p1"), snapshot(poll="p2")], expected_ssl='require',
-            database_url='postgresql://postgres:fixture-secret@db.example/postgres?ssl=true&sslmode=require&connectTimeout=10&socketTimeout=20&prepareThreshold=0&ApplicationName=test%2Bname&channelBinding=prefer&targetServerType=primary')
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_duplicate_sslmode_uses_last_value_like_the_worker(self):
+    def test_jdbc_options_with_verified_tls_are_supported(self):
         result = self.run_check([snapshot(), snapshot(poll="p1"), snapshot(poll="p2")], expected_ssl='verify-full',
-            database_url='postgresql://postgres:fixture-secret@db.example/postgres?sslmode=require&sslmode=verify-full')
+            database_url='postgresql://postgres:fixture-secret@db.example/postgres?sslmode=verify-full&sslrootcert=system&connectTimeout=10&socketTimeout=20&prepareThreshold=0&ApplicationName=test%2Bname&channelBinding=prefer&targetServerType=primary')
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_bare_jdbc_ssl_flag_preserves_full_certificate_verification(self):
+    def test_duplicate_sslmode_is_rejected(self):
+        result = self.run_check([snapshot(), snapshot(poll="p1"), snapshot(poll="p2")], expected_ssl='verify-full',
+            database_url='postgresql://postgres:fixture-secret@db.example/postgres?sslmode=require&sslmode=verify-full&sslrootcert=system')
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_bare_jdbc_ssl_flag_is_rejected(self):
         result = self.run_check([snapshot(), snapshot(poll="p1"), snapshot(poll="p2")], expected_ssl='verify-full',
             database_url='postgresql://postgres:fixture-secret@db.example/postgres?ssl&')
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_wrong_postgres_client_reference_fails_before_secret_bearing_docker_run(self):
+        result = self.run_check([snapshot()], client_identity={
+            'SCORING_POSTGRES_CLIENT_IMAGE': 'docker.io/library/postgres:17-alpine',
+        })
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(command[0] == 'run' for command in result.mock_commands))
 
 
 @unittest.skipUnless(shutil.which("initdb") and shutil.which("pg_ctl") and shutil.which("psql"),
@@ -281,7 +324,7 @@ class RuntimeQueryTest(unittest.TestCase):
           insert into physiology_archive_outbox values(10,'frwhoop-physiology-2'),(20,'frwhoop-server-1');""")
         values = self.sql(self.query, readonly=True).split("|")
         self.assertEqual(values[5:10], ["3", "0", "1", "2", "10"])
-        result = ScoringRuntimeTest().run_check([], database_url=f"postgresql://postgres:fixture-secret@127.0.0.1:{self.port}/postgres",
+        result = ScoringRuntimeTest().run_check([], database_url=f"postgresql://postgres:fixture-secret@127.0.0.1:{self.port}/postgres?sslmode=verify-full&sslrootcert=system",
                                                real_psql=shutil.which("psql"))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("retry-exhausted scoring debt remains (1 items)", result.stderr.lower(),
@@ -293,7 +336,7 @@ class RuntimeQueryTest(unittest.TestCase):
           insert into scoring_jobs_v2 values('frwhoop-server-2-history',true,null,1,0,8,now());""")
         for version in ('frwhoop-server-1','frwhoop-server-2-history'):
             self.sql(f"insert into physiology_worker_heartbeats values('{WORKER}','{PROCESS}','{SHA}','{version}',now(),null,null);")
-            result = ScoringRuntimeTest().run_check([], database_url=f"postgresql://postgres:fixture-secret@127.0.0.1:{self.port}/postgres",
+            result = ScoringRuntimeTest().run_check([], database_url=f"postgresql://postgres:fixture-secret@127.0.0.1:{self.port}/postgres?sslmode=verify-full&sslrootcert=system",
                                                    real_psql=shutil.which('psql'),algorithm_version=version)
             self.assertIn('retry-exhausted scoring debt remains (1 items)', result.stderr.lower(),result.local_psql_error)
 

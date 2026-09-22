@@ -111,6 +111,22 @@ class BaselineBuilderTests(unittest.TestCase):
         self.assertIn("FROM --platform=${RELEASE_PLATFORM} ${RUNTIME_IMAGE}", source)
         self.assertIn("io.frwhoop.image.platform=$RELEASE_PLATFORM", source)
 
+    def test_selected_v1_transport_patch_requires_verified_hosted_tls(self):
+        source = MODULE_PATH.with_name("transport.patch").read_text()
+        for relative in (
+            builder.PREFIX + "main/kotlin/com/frwhoop/scoring/db/PostgresClient.kt",
+            builder.PREFIX + "test/kotlin/com/frwhoop/scoring/PostgresClientTest.kt",
+        ):
+            self.assertIn(relative, builder.ALLOWED)
+            self.assertIn(relative, source)
+        for token in (
+            "sslmode=verify-full",
+            "sslrootcert=system",
+            "org.postgresql.ssl.DefaultJavaSSLFactory",
+            "org.postgresql.ssl.NonValidatingFactory",
+        ):
+            self.assertIn(token, source)
+
 
 if __name__ == "__main__":
     unittest.main()

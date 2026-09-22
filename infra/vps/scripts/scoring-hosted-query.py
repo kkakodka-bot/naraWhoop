@@ -6,6 +6,20 @@ import sys
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 
+POSTGRES_CLIENT = {
+    'SCORING_POSTGRES_CLIENT_IMAGE': 'docker.io/library/postgres@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3',
+    'SCORING_POSTGRES_CLIENT_CONFIG_DIGEST': 'sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537',
+    'SCORING_POSTGRES_CLIENT_PLATFORM': 'linux/amd64',
+    'SCORING_POSTGRES_CLIENT_VERSION': '17.11-alpine3.24',
+}
+
+
+def postgres_client(environment):
+    if any(environment.get(name) != expected for name, expected in POSTGRES_CLIENT.items()):
+        raise ValueError('reviewed PostgreSQL client identity required')
+    return environment['SCORING_POSTGRES_CLIENT_IMAGE']
+
+
 def connection_environment(database, endpoint):
     url = urlsplit(database.removeprefix('jdbc:'))
     rest = urlsplit(endpoint)
@@ -21,24 +35,28 @@ def connection_environment(database, endpoint):
     pooler = url.hostname.endswith('.pooler.supabase.com') or url.hostname == 'pooler.supabase.com'
     if not (direct or (pooler and username.endswith('.' + project))):
         raise ValueError('database and REST project differ')
-    options = dict(parse_qsl(url.query, keep_blank_values=True))
-    sslmode = options.get('sslmode', 'verify-full')
-    if sslmode not in ('require', 'verify-ca', 'verify-full'):
-        raise ValueError('encrypted hosted database connection required')
+    pairs = parse_qsl(url.query, keep_blank_values=True) if url.query else []
+    if len({name for name, _ in pairs}) != len(pairs):
+        raise ValueError('duplicate database URI option')
+    options = dict(pairs)
+    if options.get('sslmode') != 'verify-full' or options.get('sslrootcert') != 'system' or 'ssl' in options:
+        raise ValueError('verified hosted database connection required')
     return dict(PGHOST=url.hostname, PGPORT=str(url.port or 5432), PGUSER=username,
                 PGPASSWORD=unquote(url.password or ''), PGDATABASE=unquote(url.path.removeprefix('/')) or 'postgres',
-                PGSSLMODE=sslmode, PGCONNECT_TIMEOUT='10', PGAPPNAME='scoring-readonly-diagnostics',
+                PGSSLMODE='verify-full', PGSSLROOTCERT='system', PGCONNECT_TIMEOUT='10', PGAPPNAME='scoring-readonly-diagnostics',
                 PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=10000 -c lock_timeout=3000')
 
 
 def main():
+    client_image = postgres_client(os.environ)
     fields = connection_environment(os.environ['SCORING_DATABASE_URL'], os.environ['SCORING_SUPABASE_URL'])
-    env = os.environ.copy()
+    env = {name: os.environ[name] for name in ('PATH', 'HOME', 'DOCKER_CONFIG', 'DOCKER_HOST', 'XDG_RUNTIME_DIR')
+           if name in os.environ}
     env.update(fields)
     command = ['docker', 'run', '--rm', '-i']
     for name in fields:
         command.extend(['--env', name])
-    command.extend(['postgres:17-alpine', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-At', '-f', '-'])
+    command.extend([client_image, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-At', '-f', '-'])
     query = sys.stdin.buffer.read(256 * 1024 + 1)
     if not query or len(query) > 256 * 1024:
         raise ValueError('bounded SQL input required')

@@ -2,6 +2,8 @@
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -12,14 +14,23 @@ SCRIPT = VPS / "scripts/deploy-scoring-service.sh"
 SHA = "a" * 40
 V1_IMAGE = "fixture.invalid/reviewed-v1@sha256:" + "1" * 64
 V2_IMAGE = "fixture.invalid/reviewed-v2@sha256:" + "2" * 64
+V1_CONFIG = "sha256:" + "3" * 64
+V2_CONFIG = "sha256:" + "a" * 64
+POSTGRES_IMAGE = "docker.io/library/postgres@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3"
+POSTGRES_CONFIG = "sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537"
+POSTGRES_PLATFORM = "linux/amd64"
+POSTGRES_VERSION = "17.11-alpine3.24"
 
 DOCKER = r'''#!/usr/bin/env python3
 import json, os, pathlib, sys
 args = sys.argv[1:]
-base = pathlib.Path(os.environ['FIXTURE_ROOT'])
+base = pathlib.Path('__FIXTURE_ROOT__')
 state_file = base / 'docker-state.json'
 state = json.loads(state_file.read_text())
-scenario = os.environ['SCENARIO']
+scenario = '__SCENARIO__'
+v1_image = '__V1_IMAGE__'
+v2_image = '__V2_IMAGE__'
+postgres_image = '__POSTGRES_IMAGE__'
 with (base / 'docker.jsonl').open('a') as log: log.write(json.dumps(args) + '\n')
 def save(): state_file.write_text(json.dumps(state))
 def lookup(name):
@@ -105,6 +116,13 @@ elif args[0] == 'run' and 'psql' in args:
     body = sys.stdin.read()
     assert os.environ['PGPASSWORD'] == 'password' and os.environ['PGHOST'] == 'pooler.supabase.com'
     assert 'default_transaction_read_only=on' in os.environ['PGOPTIONS']
+    if 'release_role_violations' in body:
+        assert "algorithm_version <> 'frwhoop-server-1'" in body
+        assert "physiology_feature_is_canonical('frwhoop-physiology-2',feature)" in body
+        assert "physiology_feature_is_canonical('frwhoop-server-2-history',feature)" in body
+        state['role_checks'] += 1; save()
+        print(1 if scenario == 'bad-release-roles' else 0)
+        sys.exit(0)
     assert 'public.physiology_worker_heartbeats' in body and 'public.physiology_work_items' in body
     assert 'public.physiology_service_heartbeats' not in body
     assert 'worker_instance_id=' + state['candidate_env']['SCORING_WORKER_INSTANCE_ID'] in args
@@ -122,6 +140,7 @@ elif args[0] == 'run' and 'psql' in args:
     if scenario == 'late-debt' and n == 1: debt = False
     if scenario == 'debt' and n > 2: score = 20
     if scenario == 'live-lease' and n > 3: score = 30
+    if scenario in ('idle', 'restart-policy') and n > 2: score = 10
     if scenario == 'stale-poll': poll = 10
     if scenario == 'score-only': poll = 0; score = n*10
     if scenario == 'future-poll': poll = 2000
@@ -135,13 +154,21 @@ elif args[0] == 'run' and 'psql' in args:
 elif args[0] == 'pull': pass
 elif args[0] == 'image' and args[1] == 'inspect':
     field = args[args.index('-f')+1]
-    if 'org.opencontainers.image.revision' in field: print('a'*40)
+    image = args[-1]
+    if field == '{{.Id}}':
+        expected = 'sha256:' + ('3'*64 if image == v1_image else 'a'*64)
+        print('sha256:' + 'b'*64 if scenario == 'wrong-config' and image == v2_image else expected)
+    elif '.RepoDigests' in field:
+        if not (scenario == 'wrong-repo-digest' and image == os.environ['V2_IMAGE']): print(image)
+    elif 'org.opencontainers.image.revision' in field: print('b'*40 if scenario == 'wrong-image' else 'a'*40)
     elif 'io.frwhoop.heartbeat.contract' in field: print('physiology_worker_heartbeats-v1')
     elif 'io.frwhoop.image.platform' in field: print('linux/amd64')
     elif '.Os' in field and '.Architecture' in field: print('linux/amd64')
     elif 'io.frwhoop.algorithm.roles' in field: print('frwhoop-physiology-2,frwhoop-server-2-history')
-    elif '.Id' in field: print('sha256:' + 'a'*64)
     else: raise AssertionError(field)
+elif args[0] == 'image' and args[1] == 'save':
+    assert args[2] == '-o' and args[-1] == postgres_image
+    pathlib.Path(args[3]).write_bytes(b'reviewed-postgres-client-fixture')
 elif args[0] == 'update':
     key,row = lookup(args[-1]); assert key == 'new-v2' and args[-1] == key
     if scenario == 'restart-policy': sys.exit(1)
@@ -164,11 +191,22 @@ class ScoringDeployTest(unittest.TestCase):
             shutil.copy(VPS / "scripts/scoring-hosted-query.py", build / "infra/vps/scripts")
             shutil.copy(VPS / "scripts/remote/read-scoring-query.sh", build / "infra/vps/scripts/remote")
             shutil.copy(VPS / "templates/docker-compose.scoring-override.yml", build / "infra/vps/templates")
+            verifier = build / "infra/vps/scripts/verify-pinned-postgres-client.py"
+            verifier.write_text("""#!/usr/bin/env python3
+import os, pathlib, sys
+args = dict(zip(sys.argv[1::2], sys.argv[2::2]))
+assert pathlib.Path(args['--archive']).read_bytes() == b'reviewed-postgres-client-fixture'
+assert args['--reference'] == os.environ['POSTGRES_IMAGE']
+assert args['--config-digest'] == os.environ['POSTGRES_CONFIG']
+assert args['--platform'] == os.environ['POSTGRES_PLATFORM']
+assert args['--version'] == os.environ['POSTGRES_VERSION']
+""")
+            verifier.chmod(0o755)
             compose = base / "scoring/docker-compose.yml"
             compose.parent.mkdir(parents=True)
             compose.write_text("previous-compose\n")
             secrets = (
-                "SCORING_DATABASE_URL='postgresql://postgres.project:password@pooler.supabase.com/postgres'\n"
+                "SCORING_DATABASE_URL='postgresql://postgres.project:password@pooler.supabase.com/postgres?sslmode=verify-full&sslrootcert=system'\n"
                 "SCORING_SUPABASE_URL='https://project.supabase.co/rest/v1'\n"
                 "SCORING_INGEST_SECRET='hosted-ingest'\n"
                 "INGEST_SECRET='wrong-local-ingest'\nSERVICE_ROLE_KEY='wrong-local-key'\n"
@@ -183,7 +221,7 @@ class ScoringDeployTest(unittest.TestCase):
             (base / "scoring.env").write_text("existing-worker-config\n")
             if not missing_b2:
                 (base / "b2.env").write_text("B2_BUCKET_NAME=fixture-bucket\n")
-            state = dict(snapshots=0, containers={
+            state = dict(snapshots=0, role_checks=0, containers={
                 "old-v2": dict(name="scoring-physiology-v2", running=previous_running, version="frwhoop-physiology-2", mode="[]"),
                 "old-v1": dict(name="scoring-legacy", running=True, version="frwhoop-server-1", mode="[]"),
                 "model": dict(name="scoring-model", running=True, version="frwhoop-physiology-2", mode='["--models-only"]'),
@@ -196,7 +234,9 @@ class ScoringDeployTest(unittest.TestCase):
             binary_dir = root / "bin"
             binary_dir.mkdir()
             for name, body in {
-                "docker": DOCKER,
+                "docker": DOCKER.replace('__FIXTURE_ROOT__', str(root)).replace('__SCENARIO__', scenario)
+                    .replace('__V1_IMAGE__', V1_IMAGE).replace('__V2_IMAGE__', V2_IMAGE)
+                    .replace('__POSTGRES_IMAGE__', POSTGRES_IMAGE),
                 "flock": "#!/bin/sh\nexit 0\n",
                 "sleep": "#!/bin/sh\nexit 0\n",
                 "timeout": '#!/bin/sh\nshift\nexec "$@"\n',
@@ -207,10 +247,14 @@ class ScoringDeployTest(unittest.TestCase):
             remote = SCRIPT.read_text().split("<<'REMOTE'\n", 1)[1].split("\nREMOTE\n", 1)[0]
             remote = remote.replace('BASE="/opt/frwhoop"', 'BASE="' + str(base) + '"')
             env = os.environ.copy()
-            env.update(PATH=str(binary_dir) + os.pathsep + env["PATH"], FIXTURE_ROOT=str(root), SCENARIO=scenario)
+            env.update(PATH=str(binary_dir) + os.pathsep + env["PATH"], FIXTURE_ROOT=str(root), SCENARIO=scenario,
+                       V1_IMAGE=V1_IMAGE, V2_IMAGE=V2_IMAGE, POSTGRES_IMAGE=POSTGRES_IMAGE,
+                       POSTGRES_CONFIG=POSTGRES_CONFIG, POSTGRES_PLATFORM=POSTGRES_PLATFORM,
+                       POSTGRES_VERSION=POSTGRES_VERSION)
             bash = "/opt/homebrew/bin/bash" if Path("/opt/homebrew/bin/bash").exists() else "bash"
             result = subprocess.run([bash, "-s", "--", SHA, str(build), "scoring-physiology-v2",
-                                     V1_IMAGE, V2_IMAGE], input=remote, text=True,
+                                     V1_IMAGE, V2_IMAGE, V1_CONFIG, V2_CONFIG, POSTGRES_IMAGE,
+                                     POSTGRES_CONFIG, POSTGRES_PLATFORM, POSTGRES_VERSION], input=remote, text=True,
                                     capture_output=True, env=env, timeout=20)
             log = root / "docker.jsonl"
             commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
@@ -218,7 +262,75 @@ class ScoringDeployTest(unittest.TestCase):
                     json.loads((root / "docker-state.json").read_text()),
                     [p.name for p in base.glob("scoring-rollback.*/candidate.env")])
 
-    def assert_preserved(self, result, commands, config, compose, state, pending, running=True):
+    def run_final_verifier(self, *, defaults=None, source_selections=None,
+                           v2_canonical=None, history_canonical=None):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary_dir = root / "bin"
+            binary_dir.mkdir()
+            state = {
+                "defaults": defaults or {"hrv": "frwhoop-server-1", "sleep": "frwhoop-server-1",
+                                          "respiration": "frwhoop-server-1"},
+                "sourceSelections": source_selections or [],
+                "v2Canonical": v2_canonical or [],
+                "historyCanonical": history_canonical or [],
+            }
+            state_file = root / "release-state.json"
+            state_file.write_text(json.dumps(state))
+            docker = binary_dir / "docker"
+            docker.write_text(r'''#!/usr/bin/env python3
+import os, sys
+args=sys.argv[1:]
+assert args[0]=='inspect' and '-f' in args
+field=args[args.index('-f')+1]; name=args[-1]
+lanes={
+ 'scoring-baseline-v1':('frwhoop-server-1','sha256:'+('3'*64),'11111111-1111-4111-8111-111111111111','null'),
+ 'scoring-physiology-v2':('frwhoop-physiology-2','sha256:'+('a'*64),'22222222-2222-4222-8222-222222222222','[]'),
+ 'scoring-history':('frwhoop-server-2-history','sha256:'+('a'*64),'33333333-3333-4333-8333-333333333333','["--history"]')}
+algorithm,config,worker,command=lanes[name]
+if '.Config.Env' in field:
+ print('SCORING_ALGORITHM_VERSION='+algorithm)
+ print('SCORING_WORKER_SOURCE_REVISION='+('a'*40))
+ print('SCORING_WORKER_INSTANCE_ID='+worker)
+elif '.Config.Cmd' in field: print(command)
+elif '.State.Running' in field: print('true')
+elif '.RestartCount' in field: print('0')
+elif '.HostConfig.RestartPolicy.Name' in field: print('unless-stopped')
+elif field=='{{.Image}}': print(config)
+elif 'org.opencontainers.image.revision' in field: print('a'*40)
+else: raise AssertionError(field)
+''')
+            docker.chmod(0o755)
+            query = root / "read-scoring-query.sh"
+            query.write_text(r'''#!/usr/bin/env python3
+import json, os, sys
+body=sys.stdin.read(); state=json.load(open(os.environ['RELEASE_STATE']))
+if 'release_role_violations' in body:
+ required={"hrv","sleep","respiration"}
+ assert "algorithm_version <> 'frwhoop-server-1'" in body
+ assert "physiology_feature_is_canonical('frwhoop-physiology-2',feature)" in body
+ assert "physiology_feature_is_canonical('frwhoop-server-2-history',feature)" in body
+ violations=(set(state['defaults'])!=required or any(v!='frwhoop-server-1' for v in state['defaults'].values())
+   or any(v!='frwhoop-server-1' for v in state['sourceSelections'])
+   or bool(state['v2Canonical']) or bool(state['historyCanonical']))
+ print(1 if violations else 0)
+elif 'with required(algorithm_version,worker_instance_id)' in body:
+ assert body.count('last_score_at') >= 2; print(0)
+elif 'physiology_feature_defaults' in body and 'physiology_source_selection' in body:
+ print(0)
+else: raise AssertionError(body)
+''')
+            query.chmod(0o755)
+            remote = SCRIPT.read_text().split("<<'VERIFY'\n", 1)[1].split("\nVERIFY\n", 1)[0]
+            remote = remote.replace('/opt/frwhoop/scoring/read-scoring-query.sh', str(query))
+            env = os.environ.copy()
+            env.update(PATH=str(binary_dir) + os.pathsep + env["PATH"], RELEASE_STATE=str(state_file))
+            bash = "/opt/homebrew/bin/bash" if Path("/opt/homebrew/bin/bash").exists() else "bash"
+            return subprocess.run([bash, "-s", "--", SHA, V1_CONFIG, V2_CONFIG], input=remote,
+                                  text=True, capture_output=True, env=env, timeout=10)
+
+    def assert_preserved(self, result, commands, config, compose, state, pending, running=False,
+                         rollback_blocked=True):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(config, "existing-worker-config\n")
         self.assertEqual(compose, "previous-compose\n")
@@ -229,6 +341,8 @@ class ScoringDeployTest(unittest.TestCase):
         self.assertTrue(state["containers"]["foreign"]["running"])
         self.assertNotIn("new-v2", state["containers"])
         self.assertFalse(pending)
+        self.assertEqual('ROLLBACK_BLOCKED:' in result.stderr, rollback_blocked)
+        self.assertFalse(any(args[0] == "start" for args in commands))
         for args in commands:
             if args[0] in ("stop", "start", "rename", "rm"):
                 self.assertNotIn("old-v1", args)
@@ -239,13 +353,33 @@ class ScoringDeployTest(unittest.TestCase):
 
     def test_preflight_failures_do_not_touch_workers_or_configuration(self):
         for kwargs in ({"scenario": "preflight"}, {"missing_hosted_key": True}, {"missing_database": True},
-                       {"missing_b2": True}, {"scenario": "compose-config"}):
+                       {"missing_b2": True}, {"scenario": "compose-config"}, {"scenario": "wrong-image"},
+                       {"scenario": "wrong-config"}, {"scenario": "wrong-repo-digest"},
+                       {"scenario": "bad-release-roles"}):
             with self.subTest(kwargs=kwargs):
                 outcome = self.run_remote(**kwargs)
-                self.assert_preserved(*outcome)
+                self.assert_preserved(*outcome, running=True, rollback_blocked=False)
                 self.assertFalse(any(c[0] in ("stop", "start", "rename", "rm") for c in outcome[1]))
 
-    def test_success_requires_two_actual_polls_and_retains_prior_worker(self):
+    def test_bad_hosted_role_state_is_checked_with_pinned_client_before_any_worker_mutation(self):
+        result, commands, config, compose, state, pending = self.run_remote("bad-release-roles")
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        self.assertIn("release roles differ before cutover", result.stderr)
+        self.assertEqual(state["role_checks"], 1)
+        self.assertEqual(state["snapshots"], 0)
+        self.assertEqual(config, "existing-worker-config\n")
+        self.assertEqual(compose, "previous-compose\n")
+        self.assertFalse(pending)
+        self.assertTrue(state["containers"]["old-v2"]["running"])
+        self.assertEqual(state["containers"]["old-v2"]["name"], "scoring-physiology-v2")
+        self.assertFalse(any(command[0] in ("stop", "start", "rename", "rm", "update") for command in commands))
+
+    def test_preflight_and_final_verifier_use_the_same_release_role_sql(self):
+        queries = re.findall(r"select count\(\*\) from \(\n.*?\n\) release_role_violations;", SCRIPT.read_text(), re.S)
+        self.assertEqual(len(queries), 2)
+        self.assertEqual(queries[0], queries[1])
+
+    def test_success_requires_two_actual_polls_and_a_publication_then_retains_prior_worker(self):
         for scenario in ("idle", "debt", "live-lease"):
             with self.subTest(scenario=scenario):
                 result, commands, config, compose, state, pending = self.run_remote(scenario)
@@ -258,15 +392,29 @@ class ScoringDeployTest(unittest.TestCase):
                 self.assertTrue(state["containers"]["model"]["running"])
                 self.assertFalse(any(c[0] == "rm" for c in commands))
                 self.assertFalse(any(c[0] == "build" for c in commands))
-                self.assertEqual([c[-1] for c in commands if c[0] == "pull"], [V1_IMAGE, V2_IMAGE])
+                self.assertEqual([c[-1] for c in commands if c[0] == "pull"],
+                                 [POSTGRES_IMAGE, V1_IMAGE, V2_IMAGE])
+                inspected_ids = [c[-1] for c in commands if c[:4] == ['image', 'inspect', '-f', '{{.Id}}']]
+                inspected_refs = [c[-1] for c in commands if c[:4] == ['image', 'inspect', '-f',
+                                  '{{range .RepoDigests}}{{println .}}{{end}}']]
+                self.assertEqual(inspected_ids, [V1_IMAGE, V2_IMAGE])
+                self.assertEqual(inspected_refs, [POSTGRES_IMAGE, V1_IMAGE, V2_IMAGE])
                 self.assertIn("SUPABASE_SERVICE_ROLE_KEY=hosted-key\n", config)
                 self.assertNotIn("wrong-local", config)
                 self.assertIn("scoring-physiology-v2:", compose)
                 self.assertFalse(pending)
+                self.assertEqual(state["role_checks"], 1)
                 kinds = [c[0] for c in commands]
                 self.assertLess(kinds.index("run"), kinds.index("stop"))
-                snapshot_index = next(i for i, args in enumerate(commands) if args[0] == 'run' and 'psql' in args)
+                snapshot_index = next(i for i, args in enumerate(commands)
+                    if args[0] == 'run' and 'psql' in args and
+                    any(value.startswith('worker_instance_id=') for value in args))
                 self.assertLess(kinds.index("stop"), snapshot_index)
+                update_index = next(i for i, args in enumerate(commands) if args[0] == 'update')
+                last_snapshot = max(i for i, args in enumerate(commands)
+                    if args[0] == 'run' and 'psql' in args and
+                    any(value.startswith('worker_instance_id=') for value in args))
+                self.assertLess(last_snapshot, update_index)
 
     def test_foreign_fixed_name_is_rejected_without_touching_any_worker(self):
         result, commands, config, compose, state, pending = self.run_remote('foreign-fixed-name')
@@ -282,6 +430,7 @@ class ScoringDeployTest(unittest.TestCase):
         result, commands, config, compose, state, pending = self.run_remote(scenario)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Rollback incomplete', result.stderr)
+        self.assertIn('ROLLBACK_BLOCKED:', result.stderr)
         self.assertEqual(config, 'existing-worker-config\n')
         self.assertEqual(compose, 'previous-compose\n')
         self.assertFalse(pending)
@@ -292,6 +441,7 @@ class ScoringDeployTest(unittest.TestCase):
         self.assertTrue(state['containers']['old-v1']['running'])
         self.assertTrue(state['containers']['model']['running'])
         self.assertFalse(any(command[0] == 'update' for command in commands))
+        self.assertFalse(any(command[0] == 'start' for command in commands))
         for command in commands:
             if command[0] in ('rm','stop','start','rename'):
                 self.assertNotIn('racing-foreign', command)
@@ -302,8 +452,8 @@ class ScoringDeployTest(unittest.TestCase):
     def test_foreign_container_after_successful_create_is_not_given_restart_policy(self):
         self.assert_foreign_cutover_preserved('foreign-create-success-race')
 
-    def test_startup_and_progress_failures_restore_exact_prior_worker_and_config(self):
-        for scenario in ("compose-start", "crash", "restarts", "ports", "wrong-image",
+    def test_startup_and_progress_failures_restore_config_but_leave_prior_worker_stopped(self):
+        for scenario in ("compose-start", "crash", "restarts", "ports",
                          "stale-poll", "score-only", "no-publication", "late-debt",
                          "bad-snapshot", "database", "future-poll", "rename-failed", "stop-failed",
                          "rename-applied-then-failed", "restart-policy"):
@@ -317,7 +467,120 @@ class ScoringDeployTest(unittest.TestCase):
                 self.assert_preserved(*self.run_remote(scenario))
 
     def test_rollback_does_not_start_a_previously_stopped_worker(self):
-        self.assert_preserved(*self.run_remote("compose-start", previous_running=False), running=False)
+        self.assert_preserved(*self.run_remote("compose-start", previous_running=False), running=False,
+                              rollback_blocked=True)
+
+    def test_final_verifier_enforces_selected_v1_and_shadow_v2_history_roles(self):
+        accepted = self.run_final_verifier()
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+        rejected_states = [
+            {"defaults": {"hrv": "frwhoop-physiology-2", "sleep": "frwhoop-server-1",
+                          "respiration": "frwhoop-server-1"}},
+            {"defaults": {"hrv": "frwhoop-server-1", "sleep": "frwhoop-server-1"}},
+            {"source_selections": ["frwhoop-server-1", "frwhoop-physiology-2"]},
+            {"v2_canonical": ["hrv"]},
+            {"history_canonical": ["sleep"]},
+        ]
+        for state in rejected_states:
+            with self.subTest(state=state):
+                result = self.run_final_verifier(**state)
+                self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+                self.assertIn('release roles differ from the deployment plan', result.stderr)
+
+    def test_final_verifier_executes_role_query_against_postgres_state(self):
+        pg_bin = Path(os.environ.get("PG_BIN", "/opt/homebrew/opt/postgresql@18/bin"))
+        if not all((pg_bin / name).is_file() for name in ("initdb", "pg_ctl", "psql")):
+            self.skipTest("PostgreSQL integration binaries are unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data, socket = root / "data", root / "socket"
+            socket.mkdir()
+            subprocess.run([str(pg_bin / "initdb"), "-D", str(data), "-A", "trust", "--no-locale", "-E", "UTF8"],
+                           check=True, capture_output=True, text=True)
+            port = "55491"
+            subprocess.run([str(pg_bin / "pg_ctl"), "-D", str(data), "-l", str(root / "postgres.log"), "-o",
+                            f"-k {socket} -h '' -p {port}", "-w", "start"], check=True,
+                           capture_output=True, text=True)
+            def sql(statement):
+                return subprocess.run([str(pg_bin / "psql"), "-X", "-qAt", "-v", "ON_ERROR_STOP=1",
+                                       "-h", str(socket), "-p", port, "-d", "postgres"], input=statement,
+                                      text=True, capture_output=True, check=True).stdout.strip()
+            try:
+                sql(f'''
+                  create table public.physiology_feature_defaults(feature text primary key,algorithm_version text not null);
+                  create table public.physiology_source_selection(algorithm_version text not null);
+                  create table public.release_test_canonical(algorithm_version text not null,feature text not null,
+                    primary key(algorithm_version,feature));
+                  create function public.physiology_feature_is_canonical(p_version text,p_feature text)
+                    returns boolean language sql stable as $$select exists(select 1 from public.release_test_canonical
+                      where algorithm_version=p_version and feature=p_feature)$$;
+                  create table public.physiology_worker_heartbeats(
+                    algorithm_version text not null,worker_instance_id uuid not null,source_revision text not null,
+                    started_at timestamptz not null,last_poll_at timestamptz,last_score_at timestamptz,last_error text);
+                  insert into public.physiology_worker_heartbeats values
+                    ('frwhoop-server-1','11111111-1111-4111-8111-111111111111','{SHA}',now()-interval '1 minute',now(),now(),null),
+                    ('frwhoop-physiology-2','22222222-2222-4222-8222-222222222222','{SHA}',now()-interval '1 minute',now(),now(),null),
+                    ('frwhoop-server-2-history','33333333-3333-4333-8333-333333333333','{SHA}',now()-interval '1 minute',now(),now(),null);
+                ''')
+                binary_dir = root / "bin"
+                binary_dir.mkdir()
+                docker = binary_dir / "docker"
+                docker.write_text(r'''#!/usr/bin/env python3
+import sys
+args=sys.argv[1:]; field=args[args.index('-f')+1]; name=args[-1]
+lanes={
+ 'scoring-baseline-v1':('frwhoop-server-1','sha256:'+('3'*64),'11111111-1111-4111-8111-111111111111','null'),
+ 'scoring-physiology-v2':('frwhoop-physiology-2','sha256:'+('a'*64),'22222222-2222-4222-8222-222222222222','[]'),
+ 'scoring-history':('frwhoop-server-2-history','sha256:'+('a'*64),'33333333-3333-4333-8333-333333333333','["--history"]')}
+algorithm,config,worker,command=lanes[name]
+if '.Config.Env' in field:
+ print('SCORING_ALGORITHM_VERSION='+algorithm); print('SCORING_WORKER_SOURCE_REVISION='+('a'*40)); print('SCORING_WORKER_INSTANCE_ID='+worker)
+elif '.Config.Cmd' in field: print(command)
+elif '.State.Running' in field: print('true')
+elif '.RestartCount' in field: print('0')
+elif '.HostConfig.RestartPolicy.Name' in field: print('unless-stopped')
+elif field=='{{.Image}}': print(config)
+elif 'org.opencontainers.image.revision' in field: print('a'*40)
+else: raise AssertionError(field)
+''')
+                docker.chmod(0o755)
+                query = root / "read-scoring-query.sh"
+                query.write_text("#!/bin/sh\nexec " + shlex.quote(str(pg_bin / "psql")) +
+                                 " -X -qAt -v ON_ERROR_STOP=1 -h " + shlex.quote(str(socket)) +
+                                 " -p " + port + " -d postgres\n")
+                query.chmod(0o755)
+                remote = SCRIPT.read_text().split("<<'VERIFY'\n", 1)[1].split("\nVERIFY\n", 1)[0]
+                remote = remote.replace('/opt/frwhoop/scoring/read-scoring-query.sh', str(query))
+                env = os.environ.copy()
+                env["PATH"] = str(binary_dir) + os.pathsep + env["PATH"]
+                bash = "/opt/homebrew/bin/bash" if Path("/opt/homebrew/bin/bash").exists() else "bash"
+                def verify():
+                    return subprocess.run([bash, "-s", "--", SHA, V1_CONFIG, V2_CONFIG], input=remote,
+                                          text=True, capture_output=True, env=env, timeout=10)
+                def reset(extra=""):
+                    sql("truncate public.physiology_feature_defaults,public.physiology_source_selection,"
+                        "public.release_test_canonical; insert into public.physiology_feature_defaults values "
+                        "('hrv','frwhoop-server-1'),('sleep','frwhoop-server-1'),"
+                        "('respiration','frwhoop-server-1');" + extra)
+                reset()
+                accepted = verify()
+                self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+                mutations = [
+                    "update public.physiology_feature_defaults set algorithm_version='frwhoop-physiology-2' where feature='hrv';",
+                    "delete from public.physiology_feature_defaults where feature='respiration';",
+                    "insert into public.physiology_source_selection values ('frwhoop-physiology-2');",
+                    "insert into public.release_test_canonical values ('frwhoop-physiology-2','hrv');",
+                    "insert into public.release_test_canonical values ('frwhoop-server-2-history','sleep');",
+                ]
+                for mutation in mutations:
+                    with self.subTest(mutation=mutation):
+                        reset(mutation)
+                        rejected = verify()
+                        self.assertEqual(rejected.returncode, 3, rejected.stdout + rejected.stderr)
+                        self.assertIn('release roles differ from the deployment plan', rejected.stderr)
+            finally:
+                subprocess.run([str(pg_bin / "pg_ctl"), "-D", str(data), "-m", "immediate", "-w", "stop"],
+                               check=True, capture_output=True, text=True)
 
 
 if __name__ == "__main__":

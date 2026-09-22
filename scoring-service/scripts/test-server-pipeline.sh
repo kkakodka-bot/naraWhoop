@@ -1,7 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
+source_sha="$(git --no-replace-objects -C "$repo_dir" rev-parse --verify HEAD)"
+source_tree="$(git --no-replace-objects -C "$repo_dir" rev-parse --verify 'HEAD^{tree}')"
+source_status="$(git -C "$repo_dir" status --porcelain=v1 --untracked-files=all)"
 evidence="$(mktemp -d "${TMPDIR:-/tmp}/server-pipeline.XXXXXX")"
+if [[ -n "$source_status" ]]; then
+  printf '%s\n' "$source_status" > "$evidence/source-status.txt"
+else
+  : > "$evidence/source-status.txt"
+fi
+source_status_sha256="$(node -e 'const fs=require("fs"),c=require("crypto"); process.stdout.write(c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$evidence/source-status.txt")"
+source_status_line_count="$(awk 'END { print NR + 0 }' "$evidence/source-status.txt")"
+source_clean=false
+[[ -s "$evidence/source-status.txt" ]] || source_clean=true
+export PIPELINE_TEST_SOURCE_SHA="$source_sha"
+export PIPELINE_TEST_SOURCE_TREE="$source_tree"
+export PIPELINE_TEST_SOURCE_CLEAN="$source_clean"
+export PIPELINE_TEST_SOURCE_STATUS_SHA256="$source_status_sha256"
+export PIPELINE_TEST_SOURCE_STATUS_LINE_COUNT="$source_status_line_count"
+node - "$source_sha" "$source_tree" "$source_clean" "$source_status_sha256" "$source_status_line_count" > "$evidence/source-receipt.json" <<'NODE'
+const [commitSha, treeSha, clean, statusSha256, statusLineCount] = process.argv.slice(2);
+process.stdout.write(JSON.stringify({
+  schemaVersion: 1,
+  commitSha,
+  treeSha,
+  worktreeClean: clean === "true",
+  statusSha256,
+  statusLineCount: Number(statusLineCount),
+}, null, 2) + "\n");
+NODE
 suffix="$(basename "$evidence" | tr '[:upper:]' '[:lower:]')"
 database="nara-db-$suffix"
 rest="nara-rest-$suffix"
@@ -73,8 +101,11 @@ export PIPELINE_TEST_OUTPUT="$evidence/decoders"
 cd "$repo_dir/supabase/functions"
 if [[ "${PIPELINE_TEST_MULTIUSER:-0}" == 1 ]]; then
   npx --yes deno test --allow-all --filter "${PIPELINE_TEST_FILTER:-}" tests/multiuser_sql_test.ts tests/multiuser_worker_sql_test.ts 2>&1 | tee "$evidence/multiuser.log"
-  git rev-parse HEAD > "$evidence/source-sha.txt"
-  git diff --binary > "$evidence/source-diff.patch"
+  git --no-replace-objects -C "$repo_dir" rev-parse --verify HEAD > "$evidence/source-sha.txt"
+  git --no-replace-objects -C "$repo_dir" rev-parse --verify 'HEAD^{tree}' > "$evidence/source-tree.txt"
+  git -C "$repo_dir" status --porcelain=v1 --untracked-files=all > "$evidence/source-status-final.txt"
+  git -C "$repo_dir" diff --binary HEAD > "$evidence/source-diff.patch"
+  git -C "$repo_dir" ls-files --others --exclude-standard > "$evidence/source-untracked.txt"
   printf 'Fully migrated local multi-user evidence: %s\n' "$evidence"
   exit 0
 fi
@@ -85,5 +116,7 @@ swift_decoder="$(swift build --package-path Tools/server-score-contract/swift --
 node Tools/server-score-contract/test-canonical-runners.mjs "$PIPELINE_TEST_OUTPUT" "$swift_decoder" \
   "$repo_dir/Tools/server-score-contract/android/build/install/server-score-decoder-contract/bin/server-score-decoder-contract" \
   2>&1 | tee "$evidence/canonical-mutations.log"
-git rev-parse HEAD > "$evidence/source-sha.txt"
+git --no-replace-objects -C "$repo_dir" rev-parse --verify HEAD > "$evidence/source-sha.txt"
+git --no-replace-objects -C "$repo_dir" rev-parse --verify 'HEAD^{tree}' > "$evidence/source-tree.txt"
+git -C "$repo_dir" status --porcelain=v1 --untracked-files=all > "$evidence/source-status-final.txt"
 printf 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed. Evidence: %s\n' "$evidence"

@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import {
+  CAPACITY_LIVE_P95_SLO_SECONDS,
+  capacitySourceIdentity,
+  outcomeCounts,
+  ownerFairness,
+  quantiles,
+  sampleProcesses,
+  specialOwnerProgress,
+  summarizeResourceSamples,
+} from "./capacity_evidence.ts";
 
 const container = Deno.env.get("PIPELINE_TEST_DATABASE_CONTAINER");
 const binary = Deno.env.get("PIPELINE_TEST_V2_BINARY");
@@ -30,6 +40,42 @@ async function sql(statement: string) {
   const result = await child.output();
   assert.equal(result.code, 0, new TextDecoder().decode(result.stderr));
   return new TextDecoder().decode(result.stdout).trim();
+}
+async function databaseStats() {
+  try {
+    const result = await new Deno.Command("docker", {
+      args: [
+        "stats",
+        "--no-stream",
+        "--format",
+        "{{json .}}",
+        container!,
+      ],
+      stdout: "piped",
+      stderr: "piped",
+    }).output();
+    if (result.code !== 0) throw new Error("docker_stats_failed");
+    return {
+      status: "MEASURED",
+      value: JSON.parse(new TextDecoder().decode(result.stdout).trim()),
+    };
+  } catch {
+    return {
+      status: "NOT_MEASURED",
+      reason: "docker_stats_failed",
+      value: null,
+    };
+  }
+}
+async function backlog(owners: string) {
+  return JSON.parse(
+    await sql(`select jsonb_build_object(
+    'pendingTotal',count(*),
+    'pendingLive',count(*) filter(where public.scoring_work_class(day,timezone_id)='live'),
+    'pendingBackfill',count(*) filter(where public.scoring_work_class(day,timezone_id)='backfill'),
+    'oldestSeconds',coalesce(max(extract(epoch from clock_timestamp()-dirty_at)),0)
+  ) from physiology_work_items where user_id in(${owners}) and done_at is null;`),
+  );
 }
 function token() {
   const h = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" })).replaceAll(
@@ -63,10 +109,8 @@ Deno.test({
       /^http:\/\/127\.0\.0\.1:\d+$/,
     );
     await Deno.mkdir(output!, { recursive: true });
-    const revision = new TextDecoder().decode(
-      (await new Deno.Command("git", { args: ["rev-parse", "HEAD"] }).output())
-        .stdout,
-    ).trim();
+    const sourceIdentity = capacitySourceIdentity();
+    const revision = sourceIdentity.commitSha!;
     const fixtures = JSON.parse(
       await sql(`
     create temporary table worker_users as select gen_random_uuid() u,n from generate_series(1,10) n;
@@ -92,9 +136,13 @@ Deno.test({
     update physiology_work_items set next_attempt_at=clock_timestamp() where user_id in(${owners});`,
     );
     const committedAt = Date.now();
+    const initialBacklog = await backlog(owners);
     const logs: Array<Promise<void>> = [], children: Deno.ChildProcess[] = [];
     let injected = false;
     const samples: any[] = [];
+    const databaseResourceSamples: any[] = [];
+    let databaseSampling = false;
+    let databaseSampler: Promise<void> | null = null;
     try {
       for (let i = 0; i < 4; i++) {
         const child = new Deno.Command(binary!, {
@@ -130,6 +178,23 @@ Deno.test({
           }),
         );
       }
+      databaseSampling = true;
+      databaseSampler = (async () => {
+        while (databaseSampling) {
+          const database = await databaseStats();
+          databaseResourceSamples.push({
+            at: new Date().toISOString(),
+            database: database.value,
+            databaseStatus: database.status,
+            databaseMissingReason: "reason" in database
+              ? database.reason
+              : null,
+          });
+          if (databaseSampling) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
+        }
+      })();
       const deadline = Date.now() + 180000;
       let finished = false;
       while (Date.now() < deadline) {
@@ -139,13 +204,23 @@ Deno.test({
         'maxPerUser',(select coalesce(max(n),0) from(select count(*) n from scoring_fleet_reservations
           where expires_at>clock_timestamp() group by user_id) q),
         'connections',(select count(*) from pg_stat_activity where backend_type='client backend'),
+        'activeConnections',(select count(*) from pg_stat_activity where backend_type='client backend' and state='active'),
         'liveOwners',(select count(distinct user_id) from physiology_work_items where user_id in(${owners})
           and day=current_date-1 and done_at is not null),
         'targetDaysDone',(select count(*) from physiology_work_items where user_id in(${owners})
           and day in(current_date-1,current_date-8) and done_at is not null),
-        'pending',(select count(*) from physiology_work_items where user_id in(${owners}) and done_at is null));`),
+        'pending',(select count(*) from physiology_work_items where user_id in(${owners}) and done_at is null),
+        'pendingLive',(select count(*) from physiology_work_items where user_id in(${owners}) and done_at is null
+          and public.scoring_work_class(day,timezone_id)='live'),
+        'pendingBackfill',(select count(*) from physiology_work_items where user_id in(${owners}) and done_at is null
+          and public.scoring_work_class(day,timezone_id)='backfill'),
+        'oldestSeconds',(select coalesce(max(extract(epoch from clock_timestamp()-dirty_at)),0)
+          from physiology_work_items where user_id in(${owners}) and done_at is null));`),
         );
-        samples.push({ at: new Date().toISOString(), ...state });
+        const workers = await sampleProcesses(
+          children.map((child) => child.pid),
+        );
+        samples.push({ at: new Date().toISOString(), ...state, workers });
         assert.ok(state.running <= 4 && state.maxPerUser <= 2);
         assert.ok(
           state.connections <= 24,
@@ -169,6 +244,8 @@ Deno.test({
         }
         await new Promise((r) => setTimeout(r, 100));
       }
+      databaseSampling = false;
+      await databaseSampler;
       assert.ok(
         finished,
         "actual workers must settle live, noisy backfill and late committed input within the bounded run",
@@ -184,33 +261,102 @@ Deno.test({
       );
       const completions = JSON.parse(
         await sql(
-          `select json_agg(json_build_object('class',work_class,'outcome',outcome,
+          `select coalesce(json_agg(json_build_object(
+      'userId',user_id,'workClass',work_class,'outcome',outcome,
+      'completedAtEpoch',extract(epoch from completed_at),
       'seconds',extract(epoch from completed_at)-${
             committedAt / 1000
-          })) from scoring_fleet_completions
+          }) order by completed_at,run_id),'[]'::json) from scoring_fleet_completions
       where user_id in(${owners})`,
         ),
       );
       const latency = (kind: string) => {
         const v = completions.filter((r: any) =>
-          r.class === kind && r.outcome === "done"
-        ).map((r: any) => r.seconds).sort((a: number, b: number) => a - b);
-        const q = (p: number) =>
-          v[Math.min(v.length - 1, Math.ceil(v.length * p) - 1)];
-        return { count: v.length, p50: q(.5), p95: q(.95), p99: q(.99) };
+          r.workClass === kind && r.outcome === "done"
+        ).map((r: any) => r.seconds);
+        return quantiles(v);
       };
+      const finalBacklog = await backlog(owners);
+      const seconds = (Date.now() - committedAt) / 1000;
+      const liveLatency = latency("live");
+      const fairness = {
+        ...ownerFairness(completions, 10, committedAt),
+        configuredLiveToBackfillWeight: "3:1",
+        maxConcurrentReservations: Math.max(
+          ...samples.map((sample) => sample.running),
+        ),
+        maxReservationsPerOwner: Math.max(
+          ...samples.map((sample) => sample.maxPerUser),
+        ),
+        noisyOwner: specialOwnerProgress(completions, noisy.u),
+      };
+      const normalizedStateSamples = samples.map((sample) => ({
+        ...sample,
+        connections: {
+          total: sample.connections,
+          active: sample.activeConnections,
+        },
+      }));
+      const resourceSamples = [
+        ...normalizedStateSamples,
+        ...databaseResourceSamples,
+      ];
+      const outcomes = outcomeCounts(completions);
       const report = {
+        schemaVersion: 2,
+        sourceIdentity,
         sourceRevision: revision,
+        runtime: {
+          deno: Deno.version.deno,
+          v8: Deno.version.v8,
+          typescript: Deno.version.typescript,
+          os: Deno.build.os,
+          arch: Deno.build.arch,
+          workerJavaMaxHeapBytes: 384 * 1024 * 1024,
+        },
         owners: 10,
         devices: 20,
         workers: 4,
         inputHrRows: 27001,
-        seconds: (Date.now() - committedAt) / 1000,
-        liveSeconds: latency("live"),
+        seconds,
+        liveSeconds: liveLatency,
         backfillSeconds: latency("backfill"),
+        backlogRecovery: {
+          initial: initialBacklog,
+          final: finalBacklog,
+          drainSeconds: seconds,
+          drained: finalBacklog.pendingTotal === 0,
+          samples: samples.map((sample) => ({
+            at: sample.at,
+            pendingTotal: sample.pending,
+            pendingLive: sample.pendingLive,
+            pendingBackfill: sample.pendingBackfill,
+            oldestSeconds: sample.oldestSeconds,
+          })),
+        },
+        retries: {
+          outcomeCounts: outcomes,
+          durableAttempts: completions.length,
+          attemptsPerCompleted: completions.length /
+            (outcomes.done ?? 1),
+          lateInputRevisionInjected: injected,
+          workerRestart: {
+            status: "NOT_MEASURED",
+            reason: "not_exercised_by_actual_worker_capacity_fixture",
+          },
+          leaseExpiry: {
+            status: "NOT_MEASURED",
+            reason: "covered_by_scheduler_capacity_fixture",
+          },
+        },
+        fairness,
         samples,
+        databaseResourceSamples,
+        resourceSummary: summarizeResourceSamples(resourceSamples, "workers"),
         liveArrivalDuringWork: injected,
-        localScalarLiveP95Under60Seconds: latency("live").p95 <= 60,
+        publicationP95SloSeconds: CAPACITY_LIVE_P95_SLO_SECONDS,
+        localScalarLiveP95Under60Seconds:
+          liveLatency.p95 <= CAPACITY_LIVE_P95_SLO_SECONDS,
         scope:
           "actual JVM load, scoring, publication and completion; synthetic scalar-only data; no B2/model or target-VPS capacity claim",
       };
@@ -220,6 +366,8 @@ Deno.test({
       );
       console.log(JSON.stringify({ ...report, samples: undefined }));
     } finally {
+      databaseSampling = false;
+      if (databaseSampler) await databaseSampler;
       for (const child of children) {
         try {
           child.kill("SIGTERM");

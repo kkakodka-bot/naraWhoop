@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "decision": "CONDITIONAL_CANARY_ONLY",
+  "evidenceScope": "LOCAL_SCALAR_FIXTURE",
+  "targetVpsCapacity": "NOT_MEASURED",
+  "fleetCapacityReadiness": "FAIL",
+  "conditionalCanaryAdmission": {
+    "activeOwners": 10,
+    "devices": 20,
+    "physiologyWorkerProcesses": 4
+  },
+  "publicationSlo": {
+    "percentile": 95,
+    "seconds": 60,
+    "origin": "after all required input is durably accepted"
+  },
+  "databaseConnections": {
+    "budget": 40,
+    "reserve": 16,
+    "workerPoolSize": 4,
+    "declaredProcessesIncludingReservedOptionalModel": 6
+  },
+  "unsupportedClaims": [
+    {
+      "activeOwners": 1000,
+      "status": "UNSUPPORTED",
+      "reason": "The integrated local scheduler fixture exceeded the publication p95 SLO, and target-VPS capacity is not measured."
+    }
+  ]
+}

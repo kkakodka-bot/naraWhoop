@@ -12,6 +12,7 @@ const PAYLOAD_ROOT = 'payload';
 const MANIFEST_NAME = 'edge-source-bundle-manifest.json';
 const BUNDLE_NAME = 'edge-source-bundle.tar';
 const INTERNAL_METADATA_NAME = 'edge-source-bundle-metadata.json';
+const GIT_EXECUTABLE = '/usr/bin/git';
 
 export const DEPLOYABLE_ROLES = Object.freeze([
   'account-deletion',
@@ -110,9 +111,20 @@ function validateRelativePath(relativePath, label) {
 }
 
 function runGit(repoRoot, args, options = {}) {
-  const result = spawnSync('git', ['-C', repoRoot, ...args], {
+  const result = spawnSync(GIT_EXECUTABLE, [
+    '--no-replace-objects', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
+    '-c', 'protocol.allow=never', '-C', repoRoot, ...args,
+  ], {
     encoding: options.binary ? undefined : 'utf8',
     maxBuffer: 64 * 1024 * 1024,
+    env: {
+      PATH: process.env.PATH,
+      TMPDIR: process.env.TMPDIR,
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_NO_LAZY_FETCH: '1',
+      GIT_NO_REPLACE_OBJECTS: '1',
+    },
   });
   if (result.error) prepareFail(`git ${args[0]} could not run: ${result.error.message}`);
   if (result.status !== 0) {

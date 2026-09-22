@@ -73,9 +73,10 @@ confirm that all selected defaults remain v1. These tests do not establish the p
 
 ## Authorized deployment sequence
 
-1. Pin and review the final clean commit, local build/test reports, immutable image config IDs,
-   baseline digest and patch provenance. Build main/history and baseline images from those exact
-   bytes. Record both image IDs; a source label alone is insufficient.
+1. Pin and review the final clean commit, local build/test reports, the verified aggregate release
+   manifest, immutable image config IDs, baseline digest and patch provenance. Build main/history
+   and baseline images from those exact bytes. Record both image IDs; a source label alone is
+   insufficient.
 2. Review the hosted ledger and apply only the separately authorized forward plan. Preserve raw
    inputs, immutable results, queue revisions, leases and prior image/configuration identities.
    If any unpatched v1 producer is running, stop it and prevent restart before installing the
@@ -83,24 +84,69 @@ confirm that all selected defaults remain v1. These tests do not establish the p
 3. Configure only dedicated `SCORING_DATABASE_URL`, `SCORING_SUPABASE_URL`,
    `SCORING_SUPABASE_SERVICE_ROLE_KEY` and `SCORING_INGEST_SECRET` for the same hosted project.
    VPS-local Supabase credentials are not substitutes. Never put credentials into evidence.
-4. Run the reviewed exact-source deployment script only with deployment authority. It requires a
-   clean checkout and both immutable registry digest references, streams `git archive` rather than
-   local caches, pulls and verifies those exact images, performs read-only preflight, then cuts over
-   selected v1 before v2 shadow and history. It never rebuilds on the target, accepts inherited replay
-   selectors, relabels v2 as v1, changes qualification, or exposes scorer ports:
+4. After separately authorized registry publication, bind the two registry manifest digest
+   references to the verified aggregate release. The binder re-verifies every aggregate artifact
+   and requires each registry digest to equal the reviewed OCI manifest digest. It records the
+   distinct OCI config digest used for runtime inspection. The same plan must bind the reviewed
+   literal VPS IPv4 address and port, its complete Ed25519 host public-key line and SHA-256
+   fingerprint, and the public-key fingerprint corresponding to the local deploy private key.
+   Supply these values from the reviewed target record. The binder does not read `droplet.env` or
+   another ignored mutable target file:
+
+   ```sh
+   node Tools/release/release-artifact-manifest.mjs bind-deployment \
+     --repo-root . \
+     --artifact-root /reviewed/frwhoop-release \
+     --manifest /reviewed/frwhoop-release/release-manifest.json \
+     --selected-v1-image REGISTRY/frwhoop-v1@sha256:REVIEWED_MANIFEST_DIGEST \
+     --shadow-v2-image REGISTRY/frwhoop-v2@sha256:REVIEWED_MANIFEST_DIGEST \
+     --target-ip REVIEWED_LITERAL_IPV4 \
+     --target-ssh-port REVIEWED_PORT \
+     --target-ssh-host-key-line 'ssh-ed25519 REVIEWED_BASE64_HOST_PUBLIC_KEY' \
+     --target-ssh-host-key-fingerprint 'SHA256:REVIEWED_HOST_KEY_FINGERPRINT' \
+     --deploy-public-key-fingerprint 'SHA256:REVIEWED_DEPLOY_KEY_FINGERPRINT' \
+     --output /reviewed/frwhoop-release/worker-deployment.json
+   ```
+
+5. Run the reviewed exact-source deployment script only with deployment authority. It requires a
+   clean checkout at the aggregate manifest's exact source commit. Before opening SSH, it re-verifies
+   the aggregate artifacts and worker deployment binding, derives the local deploy public key and
+   requires its fingerprint to match the plan. It creates a private mode-0600 `known_hosts` file from
+   the plan-bound key. A read-only authenticated probe records the observed IP, port, host-key and
+   deploy-key identities under the artifact root before the remote deployment lock or any application
+   mutation. It then acquires one deployment-session lock spanning selected v1, v2 shadow, history and
+   final fleet verification. While holding that lock, it streams `git archive` rather than local
+   caches, pulls each exact reference, requires `RepoDigests` to contain it, requires the image ID to
+   equal the bound OCI config digest, and performs read-only preflight. Prepare one bounded,
+   owner-isolated canary work item for
+   each lane before this step: every candidate must advance both its poll heartbeat and an immutable
+   publication before its persistent restart policy is enabled. The script never rebuilds on the
+   target, accepts inherited replay selectors, relabels v2 as v1, changes qualification, or exposes
+   scorer ports:
 
    ```sh
    infra/vps/scripts/deploy-scoring-service.sh \
-     --selected-v1-image REGISTRY/frwhoop-v1@sha256:REVIEWED_DIGEST \
-     --shadow-v2-image REGISTRY/frwhoop-v2@sha256:REVIEWED_DIGEST
+     --release-manifest /reviewed/frwhoop-release/release-manifest.json \
+     --artifact-root /reviewed/frwhoop-release \
+     --worker-deployment /reviewed/frwhoop-release/worker-deployment.json
    ```
-5. Review all three version-specific runtime observations and the enrolled-phone canary. Deployment
-   success is not qualification, a decoded phone result, or physical displayed-state evidence.
+6. Review all three exact container identities, commands, algorithms, source revisions, restart
+   state, polls and publications, then review the enrolled-phone canary. Deployment success is not
+   qualification, a decoded phone result, or physical displayed-state evidence.
 
 The old single-worker `--image-manifest` entrypoint now validates the artifact then explicitly
 returns `NOT_READY`: its self-hosted topology cannot substitute for this hosted three-lane path.
 The retained image provenance tooling still checks exact context/native bytes, config IDs,
 platform/registry digests and labels; no fallback to mutable `:latest` is supported here.
+
+The aggregate release and worker plan also bind the diagnostic PostgreSQL client to
+`docker.io/library/postgres@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3`,
+config `sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537`,
+platform `linux/amd64`, version `17.11-alpine3.24`. Before hosted credentials are sourced, deployment
+pulls that exact reference, checks `RepoDigests`, saves the local image, and verifies the saved Docker
+or OCI descriptors, config digest and platform offline. Both diagnostic query paths reject a tag or
+any identity that differs from the plan. Libpq keeps `sslmode=verify-full&sslrootcert=system`; JVM
+workers use the JVM system trust factory while preserving that shared hosted URL contract.
 
 ## Read-only runtime evidence
 
@@ -122,7 +168,8 @@ debt and exhausted revisions are not healthy work. Projection debt older than th
 120-second default threshold fails even when the worker heartbeat advances.
 
 `read-scoring-query.sh` uses dedicated hosted configuration and a bounded, read-only PostgreSQL
-client. It validates database/REST project binding, requires encrypted connection settings, never
+   client. It validates database/REST project binding, requires full certificate and hostname
+   verification, never
 prints connection credentials, and returns only the requested diagnostic state. The older
 `check-sync-live.mjs` artifact inspector now queries this hosted client, but its legacy snapshot
 canary is a narrow check; it does not replace the exact-version runtime checks or enrolled read.
@@ -135,18 +182,33 @@ explicit capability/unavailable states, not evidence of a worker crash.
 
 ## Rollback
 
+The deployment-session lock is `/opt/frwhoop/scoring-deployment.lock`. It is removed only after all
+three exact lanes pass the final fleet check. Any interrupted or rejected partial deployment retains
+the lock and prints `DEPLOYMENT_LOCK_RETAINED`; another invocation must not remove it automatically.
+An operator must first record the three container/config identities and rollback directories,
+resolve each lane with a reviewed compatible artifact, and only then remove the lock using the owner
+token recorded in its mode-0700 directory. This prevents two invocations from interleaving across
+the lane-by-lane cutover.
+
 Cutover keeps prior containers by ID and retains prior environment/Compose files in a protected
 `scoring-rollback.*` directory. Failed candidate acceptance stops only a container with the expected
-deployment ownership and restores the prior lane's config/name/running state. A name race or
-failed recovery is `Rollback incomplete`, with evidence retained for operator review. Never start
-competing producers if candidate ownership cannot be established.
+deployment ownership and restores the prior lane's config and name when ownership permits. It does
+not start the prior worker because an arbitrary prior image has no compatibility attestation against
+the current fenced schema. Every post-cutover rejection emits `ROLLBACK_BLOCKED`, retains the prior
+container stopped, and requires a separately reviewed compatible rollback artifact plus explicit
+operator action. A name race or failed recovery also reports `Rollback incomplete` and preserves
+evidence for operator review. Never start competing producers if candidate ownership cannot be
+established.
 
 Rollback is lane-wise, not a distributed transaction: if a later lane fails, earlier accepted
 lanes may still run the new release. Record the actual per-lane state and restore reviewed prior
 identities deliberately. Do not infer overall success from any one lane's healthy heartbeat.
 
 Do not roll back by replaying old migrations, mutating immutable results or starting an unfenced
-old v1 binary. The compatible fallback is the reviewed patched baseline; keep an independent
-archive-only process if v2 is stopped so durable archive debt can drain. Qualification/selection
-changes require their own authority. Preserve additive schema and investigate with diagnostic
-states before considering a separately reviewed forward schema repair.
+old v1 binary. The worker deployment plan explicitly records that a separate reviewed compatible
+rollback artifact is required; the candidate images are not evidence that any previously running
+image is safe. A compatible fallback must be bound to the same source/schema contracts and reviewed
+before activation. Keep an independent archive-only process if v2 is stopped so durable archive
+debt can drain. Qualification/selection changes require their own authority. Preserve additive
+schema and investigate with diagnostic states before considering a separately reviewed forward
+schema repair.

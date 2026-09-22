@@ -82,8 +82,13 @@ set -euo pipefail
 release_sha="$1"
 # shellcheck disable=SC1091
 source /opt/frwhoop/secrets.env
+# shellcheck disable=SC1091
+source /opt/frwhoop/scoring-client.env
 : "${SCORING_DATABASE_URL:?}"
 : "${SCORING_SUPABASE_URL:?}"
+export SCORING_POSTGRES_CLIENT_IMAGE SCORING_POSTGRES_CLIENT_CONFIG_DIGEST \
+  SCORING_POSTGRES_CLIENT_PLATFORM SCORING_POSTGRES_CLIENT_VERSION
+scoring_client_identity_valid || { echo 'FAIL: reviewed PostgreSQL client identity differs' >&2; exit 1; }
 for version in frwhoop-server-1 frwhoop-physiology-2 frwhoop-server-2-history; do
   SCORING_ALGORITHM_VERSION="$version"
   scoring_lane

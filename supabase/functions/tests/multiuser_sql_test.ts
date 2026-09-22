@@ -10,22 +10,21 @@ import { resolveUploadIdentity } from "../_shared/tokens.ts";
 import { createPushObjects } from "../_shared/objects.ts";
 import { createDeletionService } from "../_shared/workers.ts";
 import { pushConfig } from "../_shared/config.ts";
+import {
+  CAPACITY_LIVE_P95_SLO_SECONDS,
+  capacitySourceIdentity,
+  outcomeCounts,
+  ownerFairness,
+  parseCapacityCohorts,
+  quantiles,
+  sampleProcesses,
+  specialOwnerProgress,
+  summarizeResourceSamples,
+} from "./capacity_evidence.ts";
 
 const container = Deno.env.get("PIPELINE_TEST_DATABASE_CONTAINER");
 const restUrl = Deno.env.get("PIPELINE_TEST_REST_URL");
 const output = Deno.env.get("PIPELINE_TEST_OUTPUT");
-function capacityCohorts(): number[] {
-  const configured = Deno.env.get("PIPELINE_TEST_CAPACITY_COHORTS");
-  if (!configured) return [10, 100, 1000];
-  const values = configured.split(",").map((value) => {
-    assert.match(value, /^[1-9][0-9]*$/);
-    const cohort = Number(value);
-    assert.ok(Number.isSafeInteger(cohort) && cohort <= 1000);
-    return cohort;
-  });
-  assert.equal(new Set(values).size, values.length);
-  return values;
-}
 function jwt(role: string, sub?: string) {
   const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" })).replaceAll(
     "=",
@@ -81,6 +80,38 @@ function sql(text: string, database = "postgres") {
     "-v",
     "ON_ERROR_STOP=1",
   ], text);
+}
+async function backlog(owners: string) {
+  return JSON.parse(
+    await sql(`select jsonb_build_object(
+    'pendingTotal',count(*),
+    'pendingLive',count(*) filter(where public.scoring_work_class(day,timezone_id)='live'),
+    'pendingBackfill',count(*) filter(where public.scoring_work_class(day,timezone_id)='backfill'),
+    'oldestSeconds',coalesce(max(extract(epoch from clock_timestamp()-dirty_at)),0)
+  ) from physiology_work_items where user_id in(${owners}) and done_at is null;`),
+  );
+}
+async function databaseStats() {
+  try {
+    return {
+      status: "MEASURED",
+      value: JSON.parse(
+        await command([
+          "stats",
+          "--no-stream",
+          "--format",
+          "{{json .}}",
+          container!,
+        ]),
+      ),
+    };
+  } catch {
+    return {
+      status: "NOT_MEASURED",
+      reason: "docker_stats_failed",
+      value: null,
+    };
+  }
 }
 const uuid = () => crypto.randomUUID();
 const rest = restFor();
@@ -987,6 +1018,10 @@ Deno.test({
   fn: async () => {
     assert.match(container!, /^nara-db-server-pipeline\.[a-z0-9]+$/);
     const report: any[] = [];
+    const selectedCohorts = parseCapacityCohorts(
+      Deno.env.get("PIPELINE_TEST_CAPACITY_COHORTS"),
+    );
+    const sourceIdentity = capacitySourceIdentity();
     const finish = (w: any, outcome = "done") =>
       rest.rpc("scoring_finish_work", {
         p_user: w.user_id,
@@ -1004,7 +1039,7 @@ Deno.test({
         p_lease_seconds: seconds,
         p_max_failures: 8,
       });
-    for (const cohort of capacityCohorts()) {
+    for (const cohort of selectedCohorts) {
       const seeded = JSON.parse(
         await sql(`
       create temporary table fleet_fixture as select gen_random_uuid() as u,gen_random_uuid() as d,
@@ -1031,12 +1066,14 @@ Deno.test({
       update physiology_work_items set next_attempt_at=clock_timestamp() where user_id in(${owners});`,
       );
       const committedAt = Date.now();
+      const initialBacklog = await backlog(owners);
       const [abandoned] = await claim(1);
       assert.ok(abandoned);
       await new Promise((r) => setTimeout(r, 1100));
+      const expiredLeaseCompletionRejected = await finish(abandoned) === false;
       assert.equal(
-        await finish(abandoned),
-        false,
+        expiredLeaseCompletionRejected,
+        true,
         "expired worker must fail original publication fence",
       );
       let completed = 0,
@@ -1061,22 +1098,24 @@ Deno.test({
       const resourceSamples: any[] = [];
       const sampler = (async () => {
         while (sampling) {
-          const stats = await command([
-            "stats",
-            "--no-stream",
-            "--format",
-            "{{json .}}",
-            container!,
-          ]);
-          const connections = JSON.parse(
-            await sql(
+          const [database, connections, queue, runner] = await Promise.all([
+            databaseStats(),
+            sql(
               "select jsonb_build_object('total',count(*),'active',count(*) filter(where state='active')) from pg_stat_activity where backend_type='client backend'",
-            ),
-          );
+            ).then(JSON.parse),
+            backlog(owners),
+            sampleProcesses([Deno.pid]),
+          ]);
           resourceSamples.push({
             at: new Date().toISOString(),
-            database: JSON.parse(stats),
+            database: database.value,
+            databaseStatus: database.status,
+            databaseMissingReason: "reason" in database
+              ? database.reason
+              : null,
             connections,
+            backlog: queue,
+            runner,
           });
           if (sampling) await new Promise((r) => setTimeout(r, 500));
         }
@@ -1169,13 +1208,42 @@ Deno.test({
       assert.equal(failed, 8);
       assert.equal(superseded, 1);
       const metrics = await rest.select("scoring_fleet_metrics", "select=*");
-      const quantiles = (values: number[]) => {
-        const sorted = values.sort((a, b) => a - b);
-        const p = (q: number) =>
-          sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)];
-        return { count: sorted.length, p50: p(.5), p95: p(.95), p99: p(.99) };
+      const completions = JSON.parse(
+        await sql(`select coalesce(json_agg(
+        json_build_object(
+          'userId',user_id,
+          'workClass',work_class,
+          'outcome',outcome,
+          'completedAtEpoch',extract(epoch from completed_at)
+        ) order by completed_at,run_id
+      ),'[]'::json) from scoring_fleet_completions where user_id in(${owners});`),
+      );
+      const finalBacklog = await backlog(owners);
+      const fairness = {
+        ...ownerFairness(completions, cohort, committedAt),
+        configuredLiveToBackfillWeight: "3:1",
+        maxConcurrentReservations: maxActive,
+        maxReservationsPerOwner: maxPerUser,
+        noisyOwner: specialOwnerProgress(completions, noisy.u),
+        retryOwner: specialOwnerProgress(completions, broken.u),
       };
+      const outcomes = outcomeCounts(completions);
+      const seconds = (performance.now() - started) / 1000;
+      const liveLatency = quantiles(latency.live);
       const row = {
+        schemaVersion: 2,
+        sourceIdentity,
+        runtime: {
+          deno: Deno.version.deno,
+          v8: Deno.version.v8,
+          typescript: Deno.version.typescript,
+          os: Deno.build.os,
+          arch: Deno.build.arch,
+        },
+        selector: {
+          requestedCohorts: selectedCohorts,
+          cohortIndex: selectedCohorts.indexOf(cohort),
+        },
         cohort,
         workers: 4,
         completed,
@@ -1184,16 +1252,40 @@ Deno.test({
         failed,
         superseded,
         ownerProgress: ownerProgress.size,
-        seconds: (performance.now() - started) / 1000,
+        seconds,
         maxActive,
         maxPerUser,
-        liveSeconds: quantiles(latency.live),
+        liveSeconds: liveLatency,
         backfillSeconds: quantiles(latency.backfill),
         originalDirtyLiveSeconds: quantiles(dirtyLatency.live),
         originalDirtyBackfillSeconds: quantiles(dirtyLatency.backfill),
         metrics,
+        backlogRecovery: {
+          initial: initialBacklog,
+          final: finalBacklog,
+          drainSeconds: seconds,
+          drained: finalBacklog.pendingTotal === 0,
+          samples: resourceSamples.map((sample) => ({
+            at: sample.at,
+            ...sample.backlog,
+          })),
+        },
+        retries: {
+          outcomeCounts: outcomes,
+          durableAttempts: completions.length,
+          attemptsPerCompleted: completions.length / completed,
+          syntheticFailureAttempts: failed,
+          expiredLeaseCompletionsRejected: expiredLeaseCompletionRejected
+            ? 1
+            : 0,
+          lateRevisionCompletionsRejected: superseded,
+        },
+        fairness,
         resourceSamples,
-        localQueueLiveP95Under60Seconds: quantiles(latency.live).p95 <= 60,
+        resourceSummary: summarizeResourceSamples(resourceSamples, "runner"),
+        publicationP95SloSeconds: CAPACITY_LIVE_P95_SLO_SECONDS,
+        localQueueLiveP95Under60Seconds:
+          liveLatency.p95 <= CAPACITY_LIVE_P95_SLO_SECONDS,
         latencyOrigin:
           "after fixture enqueue transaction committed or a later invalidation; dirty-time metrics also retained",
         measurementScope:

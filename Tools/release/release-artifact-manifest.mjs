@@ -2,20 +2,59 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { verifyDeploymentSourceBundle } from './deployment-source-bundle.mjs';
-import { verifyEdgeSourceBundle } from './edge-source-bundle.mjs';
+import { prepareDeploymentSourceBundle, verifyDeploymentSourceBundle } from './deployment-source-bundle.mjs';
+import { prepareEdgeSourceBundle, verifyEdgeSourceBundle } from './edge-source-bundle.mjs';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const REVISION = /^[0-9a-f]{40}$/;
+// OpenSSH joins remote command arguments into shell text. Limit image references to the
+// lowercase Docker registry/path alphabet so a reviewed reference remains one inert token
+// when deployment passes it to the remote shell.
+const REGISTRY_DIGEST_REFERENCE = /^[a-z0-9][a-z0-9._:-]*(?:\/[a-z0-9][a-z0-9._-]*)+@sha256:[0-9a-f]{64}$/;
 const BASELINE_COMMIT = '5caa31689da0023e111beb36850d3f81d67e1be2';
 const PLATFORM = 'linux/amd64';
 const BUILD_IMAGE = 'docker.io/library/eclipse-temurin@sha256:e573c097106f35634857604fdfbe70a2a2bbcaa52574bca3d2025703d0df994d';
 const RUNTIME_IMAGE = 'docker.io/library/eclipse-temurin@sha256:24cd8eed18b5976441d27b45823490eb5e8efff4b3ecdc632e442717ea66f160';
+export const POSTGRES_CLIENT = Object.freeze({
+  reference: 'docker.io/library/postgres@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3',
+  manifestDigest: 'sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3',
+  configDigest: 'sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537',
+  platform: PLATFORM,
+  version: '17.11-alpine3.24',
+});
+export const ANDROID_INSPECTION_TOOLS = Object.freeze({
+  aapt2: Object.freeze({
+    sha256: '22d092d529b050c71016f3f4402f53fadcd358a65fe16df408c400f0fe9ffe62',
+    version: 'Android Asset Packaging Tool (aapt) 2.19-10229193',
+  }),
+  apksigJar: Object.freeze({
+    sha256: 'eefdd6aed9db9fb849e4c98a50d8741e19d1b674ba6547220bcb9c3ed152123a',
+  }),
+});
+const MIGRATION_TOTAL = 124;
+const MIGRATION_BASELINE = 117;
+const MIGRATION_SCHEMA_FINGERPRINT = '910a1c74a760b496028d7c2c58c009f45e29f9643fd2c279c278156f9a23d4c5';
+const MIGRATION_CATALOG_PATH = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
+const MIGRATION_DIRECTORY = 'supabase/migrations';
+const MIGRATION_WORKSTREAMS = Object.freeze([
+  Object.freeze({ workstream: 'server-pipeline', branch: 'fix/server-pipeline',
+    tip: 'cfb94434b1b4ed4dba587e5c4e7af405e782e560', migrationCount: 117 }),
+  Object.freeze({ workstream: 'multiuser-scale', branch: 'feat/multiuser-scale',
+    tip: '0eac19cce495e761dc3d832dd1cfd8a07221c61d', migrationCount: 4 }),
+  Object.freeze({ workstream: 'sensor-algorithms', branch: 'feat/sensor-algorithms',
+    tip: '198b99924a79148ff01833115fe2f47f2025bfa4', migrationCount: 1 }),
+  Object.freeze({ workstream: 'ble-sync', branch: 'fix/ble-sync',
+    tip: 'af9468f7a48cc3fddeb33d7a3b983204af620ca6', migrationCount: 0 }),
+  Object.freeze({ workstream: 'vps-only-compute', branch: 'feat/vps-only-compute',
+    tip: '63ac35d0cab0644d197e8225d9fc97e1bd9446cf', migrationCount: 2 }),
+]);
 const EDGE_FUNCTIONS = ['account-deletion', 'ingest-verify', 'push', 'reconcile', 'retention-sweep', 'scores'];
 const CONTRACT_FILES = [
   'Tools/release/VerifyApk.java',
@@ -27,6 +66,7 @@ const CONTRACT_FILES = [
   'android/app/build.gradle.kts',
   'android/app/src/main/AndroidManifest.xml',
   'android/fork-debug.keystore',
+  'infra/vps/launch-capacity.json',
   'infra/vps/templates/Dockerfile.baseline',
   'infra/vps/templates/docker-compose.scoring-override.yml',
   'project.yml',
@@ -34,7 +74,9 @@ const CONTRACT_FILES = [
   'scoring-service/legacy-baseline/build.py',
   'scoring-service/legacy-baseline/runtime-identity.patch',
   'scoring-service/legacy-baseline/transport.patch',
+  'scoring-service/service/src/main/kotlin/com/frwhoop/scoring/RuntimePreflightCommand.kt',
   'scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringConfig.kt',
+  'scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/PostgresClient.kt',
   'scoring-service/service/src/main/kotlin/com/frwhoop/scoring/health/HeartbeatReporter.kt',
   'supabase/migrations/20260919020000_physiology_worker_heartbeats.sql',
 ];
@@ -109,11 +151,6 @@ function fileIdentity(root, name) {
   const filename = artifactFile(root, name), stat = fs.statSync(filename);
   return { path: name, sizeBytes: stat.size, sha256: hashFile(filename) };
 }
-function sameIdentity(actual, expected, label) {
-  invariant(actual.path === expected.path && actual.sizeBytes === expected.sizeBytes && actual.sha256 === expected.sha256,
-    `${label} artifact identity changed`);
-}
-
 function tarString(buffer, start, length) {
   const end = buffer.indexOf(0, start);
   return buffer.subarray(start, end >= start && end < start + length ? end : start + length).toString('utf8');
@@ -251,6 +288,33 @@ export function parseAndroidReleaseMetadata(text, sourceRevision) {
 function sourceBytes(repo, commit, filename) {
   return git(repo, 'show', `${commit}:${filename}`);
 }
+export function validateLaunchCapacity(value) {
+  exactKeys(value, ['schemaVersion', 'decision', 'evidenceScope', 'targetVpsCapacity',
+    'fleetCapacityReadiness', 'conditionalCanaryAdmission', 'publicationSlo', 'databaseConnections',
+    'unsupportedClaims'], 'launch capacity');
+  exactKeys(value.conditionalCanaryAdmission, ['activeOwners', 'devices', 'physiologyWorkerProcesses'],
+    'launch capacity admission');
+  exactKeys(value.publicationSlo, ['percentile', 'seconds', 'origin'], 'launch capacity SLO');
+  exactKeys(value.databaseConnections, ['budget', 'reserve', 'workerPoolSize',
+    'declaredProcessesIncludingReservedOptionalModel'], 'launch capacity database budget');
+  invariant(value.schemaVersion === 1 && value.decision === 'CONDITIONAL_CANARY_ONLY' &&
+    value.evidenceScope === 'LOCAL_SCALAR_FIXTURE' && value.targetVpsCapacity === 'NOT_MEASURED' &&
+    value.fleetCapacityReadiness === 'FAIL' &&
+    canonicalJSON(value.conditionalCanaryAdmission) === canonicalJSON({
+      activeOwners: 10, devices: 20, physiologyWorkerProcesses: 4,
+    }) && canonicalJSON(value.publicationSlo) === canonicalJSON({
+      percentile: 95, seconds: 60, origin: 'after all required input is durably accepted',
+    }) && canonicalJSON(value.databaseConnections) === canonicalJSON({
+      budget: 40, reserve: 16, workerPoolSize: 4, declaredProcessesIncludingReservedOptionalModel: 6,
+    }), 'launch capacity declaration differs from measured conditional canary limits');
+  invariant(Array.isArray(value.unsupportedClaims) && value.unsupportedClaims.length === 1,
+    'launch capacity unsupported-claim declaration differs');
+  exactKeys(value.unsupportedClaims[0], ['activeOwners', 'status', 'reason'], 'launch capacity unsupported claim');
+  invariant(value.unsupportedClaims[0].activeOwners === 1000 && value.unsupportedClaims[0].status === 'UNSUPPORTED' &&
+    typeof value.unsupportedClaims[0].reason === 'string' && value.unsupportedClaims[0].reason.length > 0,
+  '1,000-owner capacity must remain explicitly unsupported');
+  return value;
+}
 function sourceContract(repo, commit) {
   const files = CONTRACT_FILES.map(filename => {
     const bytes = sourceBytes(repo, commit, filename);
@@ -271,6 +335,8 @@ function sourceContract(repo, commit) {
       ['physiology_worker_heartbeats', 'source_revision', 'algorithm_version'],
   })) for (const token of tokens) invariant(text(filename).includes(token), `${filename} lacks release contract ${token}`);
   const gradle = text('android/app/build.gradle.kts'), project = text('project.yml');
+  validateLaunchCapacity(parseJSONBytes(sourceBytes(repo, commit, 'infra/vps/launch-capacity.json'),
+    'launch capacity declaration'));
   const androidVersion = gradle.match(/versionName\s*=\s*"([^"]+)"/)?.[1];
   const androidBuild = Number(gradle.match(/versionCode\s*=\s*([0-9]+)/)?.[1]);
   const appleVersion = project.match(/MARKETING_VERSION:\s*"([^"]+)"/)?.[1];
@@ -282,10 +348,7 @@ function sourceContract(repo, commit) {
 function validateInput(input) {
   exactKeys(input, ['schemaVersion', 'sourceSha', 'expected', 'artifacts'], 'release input');
   invariant(input.schemaVersion === 1 && REVISION.test(input.sourceSha), 'release input source SHA differs');
-  exactKeys(input.expected, ['iosAppGroup', 'iosBundleIdentifiers'], 'release expected identities');
-  invariant(typeof input.expected.iosAppGroup === 'string' && input.expected.iosAppGroup.startsWith('group.'), 'iOS App Group required');
-  invariant(Array.isArray(input.expected.iosBundleIdentifiers) && input.expected.iosBundleIdentifiers.length === 4 &&
-    new Set(input.expected.iosBundleIdentifiers).size === 4, 'four iOS bundle identities required');
+  validateIOSExpectedIdentities(input.expected);
   exactKeys(input.artifacts, ['selectedV1', 'shadowV2', 'android', 'ios', 'edge', 'migrations', 'deployment'], 'release artifacts');
   exactKeys(input.artifacts.selectedV1, ['oci', 'buildMetadata', 'provenance'], 'selected v1 input');
   exactKeys(input.artifacts.shadowV2, ['oci', 'buildMetadata'], 'shadow v2 input');
@@ -294,14 +357,28 @@ function validateInput(input) {
   exactKeys(input.artifacts.edge, ['bundle', 'manifest'], 'Edge input');
   exactKeys(input.artifacts.migrations, ['manifest'], 'migration input');
   exactKeys(input.artifacts.deployment, ['bundle', 'manifest'], 'deployment input');
-  for (const group of Object.values(input.artifacts)) for (const [key, value] of Object.entries(group)) {
-    if (!['aapt2', 'apksigJar'].includes(key)) relative(value);
-  }
-  for (const key of ['aapt2', 'apksigJar']) {
-    const value = input.artifacts.android[key];
-    invariant(path.isAbsolute(value) && fs.statSync(value).isFile(), `Android ${key} must be an absolute regular file`);
-  }
+  for (const group of Object.values(input.artifacts)) for (const value of Object.values(group)) relative(value);
   return input;
+}
+export function validateIOSExpectedIdentities(value) {
+  exactKeys(value, ['iosAppGroup', 'iosBundleIdentifiers'], 'release expected identities');
+  invariant(Array.isArray(value.iosBundleIdentifiers) && value.iosBundleIdentifiers.length === 4 &&
+    new Set(value.iosBundleIdentifiers).size === 4, 'four iOS bundle identities required');
+  const phone = value.iosBundleIdentifiers.filter(identifier =>
+    typeof identifier === 'string' && identifier.endsWith('.noop'));
+  invariant(phone.length === 1, 'iOS phone bundle identity does not match the committed project topology');
+  const prefix = phone[0].slice(0, -'.noop'.length);
+  invariant(/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(prefix), 'iOS bundle prefix is invalid');
+  const expectedBundles = [
+    `${prefix}.noop`,
+    `${prefix}.noop.widgets`,
+    `${prefix}.noop.watch`,
+    `${prefix}.noop.watch.complications`,
+  ].sort();
+  invariant(canonicalJSON([...value.iosBundleIdentifiers].sort()) === canonicalJSON(expectedBundles) &&
+    value.iosAppGroup === `group.${prefix}.noop.staging`,
+  'iOS bundle/App Group identities do not match the committed project topology');
+  return value;
 }
 function validateV1Provenance(value, repo, sourceRevision) {
   invariant(value?.baseline_commit === BASELINE_COMMIT && value.algorithm_version === 'frwhoop-server-1' &&
@@ -319,18 +396,145 @@ function validateV1Provenance(value, repo, sourceRevision) {
       'scoring-service/legacy-baseline/runtime-identity.patch')), 'v1 committed patch hashes differ');
   return value;
 }
-function validateMigrationManifest(value, commit, tree) {
-  invariant(value?.schemaVersion === 1 && value.kind === 'frwhoop-immutable-migration-manifest' &&
-    value.candidate?.sha === commit && value.candidate.tree === tree, 'migration manifest source differs');
+export function validateMigrationManifest(value, repo, commit, tree) {
+  exactKeys(value, ['schemaVersion', 'kind', 'candidate', 'sourceWorkstreams', 'hostedBaseline', 'catalog',
+    'counts', 'schemaFingerprintSha256', 'entries', 'manifestFingerprintSha256'], 'migration manifest');
+  exactKeys(value.candidate, ['branch', 'sha', 'tree'], 'migration candidate');
+  exactKeys(value.hostedBaseline, ['environment', 'projectRef', 'capturedAt', 'nativeLedgerRows',
+    'fullIdentityRows', 'highestKnownIdentity', 'evidenceArtifacts'], 'migration hosted baseline');
+  exactKeys(value.catalog, ['path', 'migrationDirectory', 'entryCount', 'baselineEntryCount',
+    'pendingEntryCount'], 'migration catalog');
+  exactKeys(value.counts, ['total', 'applied', 'pending'], 'migration counts');
+  invariant(value.schemaVersion === 1 && value.kind === 'frwhoop-immutable-migration-manifest' &&
+    value.candidate.branch === 'release/integration' && value.candidate.sha === commit &&
+    value.candidate.tree === tree, 'migration manifest source differs');
+  invariant(canonicalJSON(value.sourceWorkstreams) === canonicalJSON(MIGRATION_WORKSTREAMS),
+    'migration source workstreams differ');
+  invariant(value.hostedBaseline.environment === 'hosted-production' &&
+    value.hostedBaseline.projectRef === 'sgoyxzcagqyxexmsidtk' &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value.hostedBaseline.capturedAt) &&
+    !Number.isNaN(Date.parse(value.hostedBaseline.capturedAt)) &&
+    value.hostedBaseline.nativeLedgerRows === 110 && value.hostedBaseline.fullIdentityRows === MIGRATION_BASELINE &&
+    value.hostedBaseline.highestKnownIdentity === '20260921104000_server_unrepresentable_clock.sql',
+  'migration hosted baseline differs');
+  invariant(Array.isArray(value.hostedBaseline.evidenceArtifacts) &&
+    value.hostedBaseline.evidenceArtifacts.length > 0, 'migration hosted evidence is missing');
+  const evidenceLabels = new Set();
+  for (const [index, artifact] of value.hostedBaseline.evidenceArtifacts.entries()) {
+    exactKeys(artifact, ['label', 'path', 'sha256'], `migration hosted evidence ${index + 1}`);
+    invariant(typeof artifact.label === 'string' && artifact.label.length > 0 &&
+      typeof artifact.path === 'string' && artifact.path.length > 0 && SHA256.test(artifact.sha256) &&
+      !evidenceLabels.has(artifact.label), `migration hosted evidence ${index + 1} differs`);
+    evidenceLabels.add(artifact.label);
+  }
+  invariant(value.catalog.path === MIGRATION_CATALOG_PATH && value.catalog.migrationDirectory === MIGRATION_DIRECTORY &&
+    value.catalog.entryCount === MIGRATION_TOTAL && value.catalog.baselineEntryCount === MIGRATION_BASELINE &&
+    value.catalog.pendingEntryCount === MIGRATION_TOTAL - MIGRATION_BASELINE &&
+    value.counts.total === MIGRATION_TOTAL && value.counts.applied === MIGRATION_BASELINE &&
+    value.counts.pending === MIGRATION_TOTAL - MIGRATION_BASELINE, 'migration counts differ');
   invariant(SHA256.test(value.schemaFingerprintSha256) && SHA256.test(value.manifestFingerprintSha256),
     'migration fingerprints are invalid');
+
+  const catalog = parseJSONBytes(sourceBytes(repo, commit, MIGRATION_CATALOG_PATH), 'committed migration catalog');
+  invariant(Array.isArray(catalog) && catalog.length === MIGRATION_TOTAL && Array.isArray(value.entries) &&
+    value.entries.length === MIGRATION_TOTAL, `migration manifest must contain exactly ${MIGRATION_TOTAL} entries`);
+  const migrationPaths = git(repo, 'ls-tree', '-r', '--name-only', '-z', commit, '--', MIGRATION_DIRECTORY)
+    .toString('utf8').split('\0').filter(Boolean).filter(filename => filename.endsWith('.sql'));
+  const expectedPaths = catalog.map(row => `${MIGRATION_DIRECTORY}/${row.basename}`).sort();
+  invariant(canonicalJSON([...migrationPaths].sort()) === canonicalJSON(expectedPaths),
+    'committed migration source set differs from the catalog');
+  const timestampGroups = new Map();
+  for (const row of catalog) {
+    exactKeys(row, ['basename', 'sha256'], `committed migration catalog entry ${row.basename ?? 'unknown'}`);
+    invariant(/^[0-9]{14}_[a-z0-9_]+\.sql$/.test(row.basename) && SHA256.test(row.sha256),
+      'committed migration catalog entry is invalid');
+    const timestamp = row.basename.slice(0, 14);
+    timestampGroups.set(timestamp, [...(timestampGroups.get(timestamp) ?? []), row.basename]);
+  }
+  const workstreamAt = index => index < MIGRATION_BASELINE ? MIGRATION_WORKSTREAMS[0]
+    : index < 121 ? MIGRATION_WORKSTREAMS[1]
+      : index === 121 ? MIGRATION_WORKSTREAMS[2] : MIGRATION_WORKSTREAMS[4];
+  const renamed = new Map([
+    ['20260921121000_final_hosted_compute_contract.sql',
+      ['20260921110000_final_hosted_compute_contract.sql', '20260921110000_installation_retirement.sql']],
+    ['20260921122000_compute_session_requests.sql',
+      ['20260921111000_compute_session_requests.sql', '20260921111000_wearable_lifecycle.sql']],
+  ]);
+  for (const [index, entry] of value.entries.entries()) {
+    const row = catalog[index], ordinal = index + 1, filename = row.basename;
+    exactKeys(entry, ['ordinal', 'filename', 'stableIdentity', 'timestamp', 'sha256', 'sizeBytes',
+      'sourceWorkstream', 'sourceBranch', 'sourceTip', 'dependencies', 'collisionRenameState', 'hostedStatus',
+      'hostedIdentityState', 'freshInstallBehavior', 'upgradeBehavior'], `migration entry ${ordinal}`);
+    const bytes = sourceBytes(repo, commit, `${MIGRATION_DIRECTORY}/${filename}`);
+    invariant(entry.ordinal === ordinal && entry.filename === filename && entry.stableIdentity === filename &&
+      entry.timestamp === filename.slice(0, 14) && entry.sha256 === row.sha256 && entry.sha256 === sha256(bytes) &&
+      entry.sizeBytes === bytes.length, `migration entry ${ordinal} source identity differs`);
+    const source = workstreamAt(index);
+    invariant(entry.sourceWorkstream === source.workstream && entry.sourceBranch === source.branch &&
+      entry.sourceTip === source.tip, `migration entry ${ordinal} workstream differs`);
+    invariant(canonicalJSON(entry.dependencies) === canonicalJSON(index === 0 ? [] : [catalog[index - 1].basename]),
+      `migration entry ${ordinal} apply order differs`);
+
+    const rename = renamed.get(filename), peers = timestampGroups.get(entry.timestamp);
+    if (rename) {
+      exactKeys(entry.collisionRenameState, ['state', 'proposedStableIdentity', 'proposedTimestamp',
+        'collidedWithStableIdentity', 'reason'], `migration entry ${ordinal} collision state`);
+      invariant(entry.collisionRenameState.state === 'renamed_before_application' &&
+        entry.collisionRenameState.proposedStableIdentity === rename[0] &&
+        entry.collisionRenameState.proposedTimestamp === rename[0].slice(0, 14) &&
+        entry.collisionRenameState.collidedWithStableIdentity === rename[1],
+      `migration entry ${ordinal} rename state differs`);
+    } else if (peers.length > 1) {
+      exactKeys(entry.collisionRenameState, ['state', 'peerStableIdentities', 'reason'],
+        `migration entry ${ordinal} collision state`);
+      invariant(entry.collisionRenameState.state === 'historical_timestamp_collision' &&
+        canonicalJSON(entry.collisionRenameState.peerStableIdentities) ===
+          canonicalJSON(peers.filter(identity => identity !== filename)),
+      `migration entry ${ordinal} collision state differs`);
+    } else {
+      exactKeys(entry.collisionRenameState, ['state'], `migration entry ${ordinal} collision state`);
+      invariant(entry.collisionRenameState.state === 'unique', `migration entry ${ordinal} collision state differs`);
+    }
+    if ('reason' in entry.collisionRenameState)
+      invariant(typeof entry.collisionRenameState.reason === 'string' && entry.collisionRenameState.reason.length > 0,
+        `migration entry ${ordinal} collision reason is missing`);
+
+    const applied = index < MIGRATION_BASELINE;
+    const identityStateKeys = entry.hostedIdentityState?.supersededBy === undefined ? ['state', 'reason'] :
+      ['state', 'reason', 'supersededBy'];
+    exactKeys(entry.hostedIdentityState, identityStateKeys, `migration entry ${ordinal} hosted identity state`);
+    const expectedIdentityState = !applied ? 'not_applied'
+      : filename === '20260918234000_motion_evidence_provenance.sql' ? 'superseded_in_hosted_schema' : 'active';
+    invariant(entry.hostedStatus === (applied ? 'applied' : 'pending') &&
+      entry.hostedIdentityState.state === expectedIdentityState &&
+      typeof entry.hostedIdentityState.reason === 'string' && entry.hostedIdentityState.reason.length > 0,
+    `migration entry ${ordinal} hosted state differs`);
+    if (entry.hostedIdentityState.supersededBy !== undefined) invariant(
+      expectedIdentityState === 'superseded_in_hosted_schema' &&
+      catalog.slice(0, MIGRATION_BASELINE).some(candidate => candidate.basename === entry.hostedIdentityState.supersededBy),
+    `migration entry ${ordinal} superseding identity differs`);
+    exactKeys(entry.freshInstallBehavior, ['action', 'applyOrdinal', 'verifySha256'],
+      `migration entry ${ordinal} fresh-install behavior`);
+    invariant(entry.freshInstallBehavior.action === 'apply_exact_source_once' &&
+      entry.freshInstallBehavior.applyOrdinal === ordinal && entry.freshInstallBehavior.verifySha256 === true,
+    `migration entry ${ordinal} fresh-install behavior differs`);
+    exactKeys(entry.upgradeBehavior, applied ? ['action', 'execute', 'reason'] :
+      ['action', 'execute', 'upgradeOrdinal', 'reason'], `migration entry ${ordinal} upgrade behavior`);
+    invariant(entry.upgradeBehavior.action === (applied ? 'preserve_applied_identity' : 'apply_exact_source_once') &&
+      entry.upgradeBehavior.execute === !applied &&
+      (applied || entry.upgradeBehavior.upgradeOrdinal === ordinal - MIGRATION_BASELINE) &&
+      typeof entry.upgradeBehavior.reason === 'string' && entry.upgradeBehavior.reason.length > 0,
+    `migration entry ${ordinal} upgrade behavior differs`);
+  }
+  const schemaPayload = 'frwhoop-migration-schema-v1\n' + catalog.map((row, index) =>
+    `${index + 1}\0${row.basename}\0${row.sha256}\n`).join('');
+  invariant(value.schemaFingerprintSha256 === MIGRATION_SCHEMA_FINGERPRINT &&
+    value.schemaFingerprintSha256 === sha256(schemaPayload), 'migration schema fingerprint differs');
   const { manifestFingerprintSha256, ...unsigned } = value;
   invariant(sha256(canonicalJSON(unsigned)) === manifestFingerprintSha256, 'migration manifest fingerprint differs');
-  invariant(value.catalog?.entryCount === 124 && value.catalog.baselineEntryCount === 117 &&
-    value.catalog.pendingEntryCount === 7 && value.counts?.total === 124 &&
-    value.counts.applied === 117 && value.counts.pending === 7, 'migration counts differ');
   return { schemaFingerprintSha256: value.schemaFingerprintSha256,
-    manifestFingerprintSha256, total: 124, applied: 117, pending: 7 };
+    manifestFingerprintSha256, total: MIGRATION_TOTAL, applied: MIGRATION_BASELINE,
+    pending: MIGRATION_TOTAL - MIGRATION_BASELINE };
 }
 function validateEdgeManifest(value, commit, tree, bundleIdentity) {
   exactKeys(value, ['schemaVersion', 'kind', 'source', 'bundle', 'includedRoots', 'exclusionPolicy',
@@ -356,14 +560,54 @@ function validateDeploymentManifest(value, commit, tree, bundleIdentity) {
   invariant(Array.isArray(value.files) && value.files.length > 0 &&
     value.files.some(file => file.path === 'infra/vps/scripts/deploy-scoring-service.sh') &&
     value.files.some(file => file.path === 'infra/vps/scripts/apply-migrations.sh') &&
+    value.files.some(file => file.path === 'Tools/release/hosted-migration-release.mjs') &&
+    value.files.some(file => file.path === 'infra/vps/scripts/deploy-hosted-edge-functions.mjs') &&
+    value.files.some(file => file.path === 'infra/vps/scripts/verify-hosted-score-route-parity.mjs') &&
     value.files.some(file => file.path === 'infra/vps/scripts/remote/verify-scoring-runtime.sh') &&
     value.files.some(file => file.path === 'Tools/release/release-artifact-manifest.mjs'),
   'deployment bundle lacks required release/rollback sources');
   return { requiredCapabilities: value.requiredCapabilities, fileCount: value.files.length };
 }
+export function verifyBundleMatchesCommittedSource(repo, commit, provided, kind) {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), `frwhoop-${kind}-source-`));
+  const output = path.join(temporary, 'bundle');
+  try {
+    const generated = kind === 'edge'
+      ? prepareEdgeSourceBundle({ repoRoot: repo, commitSha: commit, outputDirectory: output })
+      : prepareDeploymentSourceBundle({ repoRoot: repo, commit, outputDirectory: output });
+    invariant(canonicalJSON(generated) === canonicalJSON(provided),
+      `${kind} bundle differs from deterministic committed source`);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+}
+export function verifyAndroidInspectionTools(value) {
+  exactKeys(value, ['aapt2', 'apksigJar'], 'Android inspection tools');
+  exactKeys(value.aapt2, ['file', 'version'], 'aapt2 identity');
+  exactKeys(value.apksigJar, ['file'], 'apksig identity');
+  for (const [name, identity] of Object.entries(value)) {
+    exactKeys(identity.file, ['path', 'sizeBytes', 'sha256'], `${name} file identity`);
+    relative(identity.file.path, `${name} artifact path`);
+    invariant(Number.isSafeInteger(identity.file.sizeBytes) && identity.file.sizeBytes > 0 &&
+      identity.file.sha256 === ANDROID_INSPECTION_TOOLS[name].sha256,
+    `${name} bytes differ from reviewed Android SDK build-tools 34.0.0`);
+  }
+  invariant(value.aapt2.version === ANDROID_INSPECTION_TOOLS.aapt2.version,
+    'aapt2 version differs from reviewed Android SDK build-tools 34.0.0');
+  return value;
+}
 function inspectAndroid(repo, commit, root, value, versions) {
   const apk = fileIdentity(root, value.apk), metadataFile = fileIdentity(root, value.outputMetadata);
-  const apkPath = artifactFile(root, value.apk), aapt2 = fs.realpathSync(value.aapt2);
+  const apkPath = artifactFile(root, value.apk), aapt2 = artifactFile(root, value.aapt2);
+  const apksig = artifactFile(root, value.apksigJar);
+  const aapt2File = fileIdentity(root, value.aapt2), apksigFile = fileIdentity(root, value.apksigJar);
+  invariant(aapt2File.sha256 === ANDROID_INSPECTION_TOOLS.aapt2.sha256 &&
+    apksigFile.sha256 === ANDROID_INSPECTION_TOOLS.apksigJar.sha256,
+  'Android inspection tool bytes differ from reviewed SDK build-tools 34.0.0');
+  const tools = verifyAndroidInspectionTools({
+    aapt2: { file: aapt2File, version: run(aapt2, ['version']).toString('utf8').trim() },
+    apksigJar: { file: apksigFile },
+  });
   const badging = run(aapt2, ['dump', 'badging', apkPath]).toString('utf8');
   const xml = run(aapt2, ['dump', 'xmltree', apkPath, '--file', 'AndroidManifest.xml']).toString('utf8');
   const identity = parseAndroidBadging(badging), release = parseAndroidReleaseMetadata(xml, commit);
@@ -375,7 +619,7 @@ function inspectAndroid(repo, commit, root, value, versions) {
     output.elements?.length === 1 && output.elements[0].outputFile === path.basename(value.apk) &&
     output.elements[0].versionCode === identity.versionCode && output.elements[0].versionName === identity.versionName,
     'Android Gradle output metadata differs');
-  const helper = path.join(repo, 'Tools/release/VerifyApk.java'), apksig = fs.realpathSync(value.apksigJar);
+  const helper = path.join(repo, 'Tools/release/VerifyApk.java');
   const signature = parseJSONBytes(run('java', ['-cp', apksig, helper, apkPath]), 'APK signature inspection');
   invariant(signature.verified === true && signature.certificateSha256?.length === 1, 'APK signature differs');
   const keyOutput = run('keytool', ['-list', '-v', '-keystore', path.join(repo, 'android/fork-debug.keystore'),
@@ -384,8 +628,7 @@ function inspectAndroid(repo, commit, root, value, versions) {
   invariant(SHA256.test(expectedCertificate) && signature.certificateSha256[0] === expectedCertificate,
     'APK signer is not the committed staging key');
   return { kind: 'android-staging-apk', file: apk, outputMetadata: metadataFile, package: identity, release, signature,
-    tools: { aapt2: { sha256: hashFile(aapt2), version: run(aapt2, ['version']).toString('utf8').trim() },
-      apksigJar: { sha256: hashFile(apksig) } } };
+    tools };
 }
 function inspectIOS(repo, commit, root, value, expected, versions) {
   const file = fileIdentity(root, value.ipa), filename = artifactFile(root, value.ipa);
@@ -429,6 +672,134 @@ function roleContract(commit) {
   };
 }
 
+const workerLaneOrder = [
+  { service: 'scoring-baseline-v1', algorithmVersion: 'frwhoop-server-1',
+    publicationRole: 'selected', imageRole: 'selectedV1' },
+  { service: 'scoring-physiology-v2', algorithmVersion: 'frwhoop-physiology-2',
+    publicationRole: 'shadow', imageRole: 'shadowV2' },
+  { service: 'scoring-history', algorithmVersion: 'frwhoop-server-2-history',
+    publicationRole: 'shadow-history', imageRole: 'shadowV2', command: ['--history'] },
+];
+
+function registryImage(reference, image, label) {
+  invariant(REGISTRY_DIGEST_REFERENCE.test(reference), `${label} registry reference must be digest-pinned`);
+  invariant(DIGEST.test(image?.manifestDigest) && DIGEST.test(image?.configDigest) && image.platform === PLATFORM,
+    `${label} OCI identity is incomplete`);
+  invariant(reference.endsWith(`@${image.manifestDigest}`), `${label} registry reference differs from OCI manifest digest`);
+  return { reference, manifestDigest: image.manifestDigest, configDigest: image.configDigest };
+}
+
+function sshFingerprint(bytes) {
+  return `SHA256:${crypto.createHash('sha256').update(bytes).digest('base64').replace(/=+$/, '')}`;
+}
+
+function reviewedSshPublicKey(line, fingerprint) {
+  invariant(typeof line === 'string' && line.length <= 16 * 1024 && !/[\r\n\0]/.test(line),
+    'target SSH host public-key line is invalid');
+  const fields = line.split(' ');
+  invariant(fields.length === 2 && fields[0] === 'ssh-ed25519' &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(fields[1]), 'target SSH host public-key line must contain exactly type and key');
+  let blob;
+  try { blob = Buffer.from(fields[1], 'base64'); } catch { invariant(false, 'target SSH host public key is not base64'); }
+  invariant(blob.length >= 8 && blob.toString('base64') === fields[1], 'target SSH host public key is not canonical base64');
+  const typeLength = blob.readUInt32BE(0);
+  invariant(typeLength > 0 && typeLength <= blob.length - 4 &&
+    blob.subarray(4, 4 + typeLength).toString('ascii') === fields[0], 'target SSH host public-key type differs from its blob');
+  const keyLengthOffset = 4 + typeLength;
+  invariant(blob.length === keyLengthOffset + 4 + 32 && blob.readUInt32BE(keyLengthOffset) === 32,
+    'target SSH host public key must be a complete Ed25519 key');
+  invariant(/^SHA256:[A-Za-z0-9+/]{43}$/.test(fingerprint) && sshFingerprint(blob) === fingerprint,
+    'target SSH host public-key fingerprint differs');
+  return { type: fields[0], line, fingerprint };
+}
+
+function reviewedTarget(value) {
+  invariant(isObject(value), 'reviewed target identity is required');
+  const ip = value.ip;
+  const port = typeof value.sshPort === 'string' && /^[0-9]+$/.test(value.sshPort)
+    ? Number(value.sshPort) : value.sshPort;
+  invariant(typeof ip === 'string' && ip.length <= 15 && net.isIP(ip) === 4,
+    'target must be a canonical literal IPv4 address');
+  invariant(Number.isSafeInteger(port) && port >= 1 && port <= 65535, 'target SSH port is invalid');
+  invariant(/^SHA256:[A-Za-z0-9+/]{43}$/.test(value.deployPublicKeyFingerprint),
+    'deploy public-key fingerprint is invalid');
+  return {
+    ip,
+    sshPort: port,
+    sshHostPublicKey: reviewedSshPublicKey(value.sshHostPublicKeyLine, value.sshHostPublicKeyFingerprint),
+    deployPublicKeyFingerprint: value.deployPublicKeyFingerprint,
+  };
+}
+
+function postgresClientContract(value) {
+  invariant(canonicalJSON(value) === canonicalJSON(POSTGRES_CLIENT), 'PostgreSQL client OCI identity differs');
+  return structuredClone(POSTGRES_CLIENT);
+}
+
+export function createWorkerDeployment(release, selectedV1Reference, shadowV2Reference, targetIdentity) {
+  invariant(release?.schemaVersion === 1 && release.kind === 'frwhoop-phone-test-artifact-manifest' &&
+    REVISION.test(release.source?.commit) && REVISION.test(release.source?.tree) &&
+    SHA256.test(release.manifestFingerprintSha256), 'verified release manifest is required');
+  invariant(canonicalJSON(release.roles) === canonicalJSON(roleContract(release.source.commit)),
+    'release worker roles differ');
+  const postgresClient = postgresClientContract(release.runtimeClients?.postgresql);
+  const unsigned = {
+    schemaVersion: 1,
+    kind: 'frwhoop-worker-deployment',
+    source: { commit: release.source.commit, tree: release.source.tree },
+    releaseManifestFingerprintSha256: release.manifestFingerprintSha256,
+    platform: PLATFORM,
+    heartbeatContract: 'physiology_worker_heartbeats-v1',
+    laneOrder: structuredClone(workerLaneOrder),
+    images: {
+      selectedV1: registryImage(selectedV1Reference, release.artifacts?.selectedV1?.image, 'selected v1'),
+      shadowV2: registryImage(shadowV2Reference, release.artifacts?.shadowV2?.image, 'shadow v2'),
+    },
+    runtimeClients: { postgresql: postgresClient },
+    target: reviewedTarget(targetIdentity),
+    rollbackState: 'REQUIRES_SEPARATE_REVIEWED_COMPATIBLE_ARTIFACT',
+  };
+  return { ...unsigned, deploymentFingerprintSha256: sha256(canonicalJSON(unsigned)) };
+}
+
+export function verifyWorkerDeploymentContract(release, deployment) {
+  exactKeys(deployment, ['schemaVersion', 'kind', 'source', 'releaseManifestFingerprintSha256', 'platform',
+    'heartbeatContract', 'laneOrder', 'images', 'runtimeClients', 'target', 'rollbackState',
+    'deploymentFingerprintSha256'],
+  'worker deployment');
+  exactKeys(deployment.source, ['commit', 'tree'], 'worker deployment source');
+  exactKeys(deployment.images, ['selectedV1', 'shadowV2'], 'worker deployment images');
+  for (const [role, image] of Object.entries(deployment.images))
+    exactKeys(image, ['reference', 'manifestDigest', 'configDigest'], `worker deployment ${role}`);
+  exactKeys(deployment.runtimeClients, ['postgresql'], 'worker deployment runtime clients');
+  exactKeys(deployment.runtimeClients.postgresql,
+    ['reference', 'manifestDigest', 'configDigest', 'platform', 'version'], 'worker deployment PostgreSQL client');
+  exactKeys(deployment.target,
+    ['ip', 'sshPort', 'sshHostPublicKey', 'deployPublicKeyFingerprint'], 'worker deployment target');
+  exactKeys(deployment.target.sshHostPublicKey, ['type', 'line', 'fingerprint'], 'worker deployment SSH host public key');
+  const expected = createWorkerDeployment(release, deployment.images.selectedV1.reference,
+    deployment.images.shadowV2.reference, {
+      ip: deployment.target.ip,
+      sshPort: deployment.target.sshPort,
+      sshHostPublicKeyLine: deployment.target.sshHostPublicKey.line,
+      sshHostPublicKeyFingerprint: deployment.target.sshHostPublicKey.fingerprint,
+      deployPublicKeyFingerprint: deployment.target.deployPublicKeyFingerprint,
+    });
+  invariant(canonicalJSON(deployment) === canonicalJSON(expected), 'worker deployment binding differs');
+  return deployment;
+}
+
+export function bindWorkerDeployment({ repoRoot, artifactRoot, manifest, selectedV1Reference, shadowV2Reference,
+  targetIdentity }) {
+  const release = verifyReleaseManifest({ repoRoot, artifactRoot, manifest });
+  return createWorkerDeployment(release, selectedV1Reference, shadowV2Reference, targetIdentity);
+}
+
+export function verifyWorkerDeployment({ repoRoot, artifactRoot, manifest, deployment }) {
+  const release = verifyReleaseManifest({ repoRoot, artifactRoot, manifest });
+  return verifyWorkerDeploymentContract(release, deployment);
+}
+
 export function prepareReleaseManifest({ repoRoot, artifactRoot, input }) {
   const repo = fs.realpathSync(repoRoot), root = fs.realpathSync(artifactRoot), value = validateInput(input);
   const commit = value.sourceSha;
@@ -453,9 +824,10 @@ export function prepareReleaseManifest({ repoRoot, artifactRoot, input }) {
   const edgeManifest = boundedJSON(artifactFile(root, edgeInput.manifest));
   const verifiedEdge = verifyEdgeSourceBundle(path.dirname(edgeBundlePath), { expectedBundleSha256: edgeBundle.sha256 });
   invariant(canonicalJSON(verifiedEdge) === canonicalJSON(edgeManifest), 'Edge verified manifest differs');
+  verifyBundleMatchesCommittedSource(repo, commit, edgeManifest, 'edge');
   const edge = validateEdgeManifest(edgeManifest, commit, tree, edgeBundle);
   const migrationInput = value.artifacts.migrations, migrationFile = fileIdentity(root, migrationInput.manifest);
-  const migrations = validateMigrationManifest(boundedJSON(artifactFile(root, migrationInput.manifest)), commit, tree);
+  const migrations = validateMigrationManifest(boundedJSON(artifactFile(root, migrationInput.manifest)), repo, commit, tree);
   const deploymentInput = value.artifacts.deployment;
   const deploymentBundlePath = artifactFile(root, deploymentInput.bundle);
   const deploymentFile = fileIdentity(root, deploymentInput.bundle);
@@ -465,6 +837,7 @@ export function prepareReleaseManifest({ repoRoot, artifactRoot, input }) {
     { expectedBundleSha256: deploymentFile.sha256 });
   invariant(canonicalJSON(verifiedDeployment) === canonicalJSON(deploymentManifest),
     'deployment verified manifest differs');
+  verifyBundleMatchesCommittedSource(repo, commit, deploymentManifest, 'deployment');
   const deployment = validateDeploymentManifest(deploymentManifest, commit, tree, deploymentFile);
 
   const unsigned = {
@@ -472,6 +845,7 @@ export function prepareReleaseManifest({ repoRoot, artifactRoot, input }) {
     kind: 'frwhoop-phone-test-artifact-manifest',
     source: { commit, tree, contractFiles: contract.files },
     roles: roleContract(commit),
+    runtimeClients: { postgresql: structuredClone(POSTGRES_CLIENT) },
     artifacts: {
       selectedV1: { kind: 'oci-image', file: v1File, buildMetadata: v1MetadataFile,
         provenance: v1ProvenanceFile, image: v1OCI, algorithmVersion: 'frwhoop-server-1' },
@@ -495,23 +869,31 @@ export function prepareReleaseManifest({ repoRoot, artifactRoot, input }) {
   return { ...unsigned, manifestFingerprintSha256: sha256(canonicalJSON(unsigned)) };
 }
 
-function identities(value) {
-  const result = [];
-  const visit = current => {
-    if (isObject(current) && typeof current.path === 'string' && Number.isSafeInteger(current.sizeBytes) && SHA256.test(current.sha256)) {
-      result.push(current); return;
-    }
-    if (Array.isArray(current)) current.forEach(visit);
-    else if (isObject(current)) Object.values(current).forEach(visit);
+export function releaseInputFromManifest(manifest) {
+  const artifacts = manifest?.artifacts;
+  return {
+    schemaVersion: 1,
+    sourceSha: manifest?.source?.commit,
+    expected: {
+      iosAppGroup: artifacts?.ios?.appGroup,
+      iosBundleIdentifiers: artifacts?.ios?.bundles?.map(bundle => bundle.bundleIdentifier),
+    },
+    artifacts: {
+      selectedV1: { oci: artifacts?.selectedV1?.file?.path,
+        buildMetadata: artifacts?.selectedV1?.buildMetadata?.path,
+        provenance: artifacts?.selectedV1?.provenance?.path },
+      shadowV2: { oci: artifacts?.shadowV2?.file?.path,
+        buildMetadata: artifacts?.shadowV2?.buildMetadata?.path },
+      android: { apk: artifacts?.android?.file?.path,
+        outputMetadata: artifacts?.android?.outputMetadata?.path,
+        aapt2: artifacts?.android?.tools?.aapt2?.file?.path,
+        apksigJar: artifacts?.android?.tools?.apksigJar?.file?.path },
+      ios: { ipa: artifacts?.ios?.file?.path },
+      edge: { bundle: artifacts?.edge?.file?.path, manifest: artifacts?.edge?.manifest?.path },
+      migrations: { manifest: artifacts?.migrations?.file?.path },
+      deployment: { bundle: artifacts?.deployment?.file?.path, manifest: artifacts?.deployment?.manifest?.path },
+    },
   };
-  visit(value.artifacts);
-  const unique = new Map();
-  for (const item of result) {
-    const prior = unique.get(item.path);
-    if (prior) invariant(canonicalJSON(prior) === canonicalJSON(item), `artifact identity is inconsistent: ${item.path}`);
-    unique.set(item.path, item);
-  }
-  return [...unique.values()];
 }
 export function verifyReleaseManifest({ repoRoot, artifactRoot, manifest }) {
   invariant(manifest?.schemaVersion === 1 && manifest.kind === 'frwhoop-phone-test-artifact-manifest' &&
@@ -522,38 +904,18 @@ export function verifyReleaseManifest({ repoRoot, artifactRoot, manifest }) {
   const repo = fs.realpathSync(repoRoot), root = fs.realpathSync(artifactRoot);
   invariant(git(repo, 'rev-parse', `${manifest.source.commit}^{tree}`).toString().trim() === manifest.source.tree,
     'release source tree differs');
-  invariant(canonicalJSON(sourceContract(repo, manifest.source.commit).files) === canonicalJSON(manifest.source.contractFiles),
-    'release source contracts differ');
-  for (const item of identities(manifest)) sameIdentity(fileIdentity(root, item.path), item, item.path);
-  const v1 = manifest.artifacts.selectedV1, v2 = manifest.artifacts.shadowV2;
-  const v1Provenance = validateV1Provenance(boundedJSON(artifactFile(root, v1.provenance.path)),
-    repo, manifest.source.commit);
-  invariant(canonicalJSON(inspectOCI(artifactFile(root, v1.file.path), 'selected-v1', manifest.source.commit,
-    boundedJSON(artifactFile(root, v1.buildMetadata.path)), v1Provenance)) === canonicalJSON(v1.image), 'v1 OCI inspection differs');
-  invariant(canonicalJSON(inspectOCI(artifactFile(root, v2.file.path), 'shadow-v2', manifest.source.commit,
-    boundedJSON(artifactFile(root, v2.buildMetadata.path)))) === canonicalJSON(v2.image), 'v2 OCI inspection differs');
-  validateMigrationManifest(boundedJSON(artifactFile(root, manifest.artifacts.migrations.file.path)),
-    manifest.source.commit, manifest.source.tree);
-  validateEdgeManifest(boundedJSON(artifactFile(root, manifest.artifacts.edge.manifest.path)),
-    manifest.source.commit, manifest.source.tree, manifest.artifacts.edge.file);
-  const edgeManifest = boundedJSON(artifactFile(root, manifest.artifacts.edge.manifest.path));
-  const verifiedEdge = verifyEdgeSourceBundle(path.dirname(artifactFile(root, manifest.artifacts.edge.file.path)),
-    { expectedBundleSha256: manifest.artifacts.edge.file.sha256 });
-  invariant(canonicalJSON(verifiedEdge) === canonicalJSON(edgeManifest), 'Edge verified manifest differs');
-  const deploymentManifest = boundedJSON(artifactFile(root, manifest.artifacts.deployment.manifest.path));
-  validateDeploymentManifest(deploymentManifest, manifest.source.commit, manifest.source.tree,
-    manifest.artifacts.deployment.file);
-  const verifiedDeployment = verifyDeploymentSourceBundle(
-    path.dirname(artifactFile(root, manifest.artifacts.deployment.file.path)),
-    { expectedBundleSha256: manifest.artifacts.deployment.file.sha256 });
-  invariant(canonicalJSON(verifiedDeployment) === canonicalJSON(deploymentManifest),
-    'deployment verified manifest differs');
-  invariant(canonicalJSON(manifest.roles) === canonicalJSON(roleContract(manifest.source.commit)), 'worker role/heartbeat contract differs');
+  // Recreate every semantic field from the bound artifact bytes and exact committed source. This
+  // rejects a coherently reauthored manifest whose own fingerprint and file hashes are internally
+  // consistent but whose package, signature, migration, role, or operational claims were changed.
+  const regenerated = prepareReleaseManifest({ repoRoot: repo, artifactRoot: root,
+    input: releaseInputFromManifest(manifest) });
+  invariant(canonicalJSON(regenerated) === canonicalJSON(manifest),
+    'release artifact manifest differs from deterministic semantic regeneration');
   return manifest;
 }
 
 function usage() {
-  return 'usage: release-artifact-manifest.mjs prepare --repo-root PATH --artifact-root PATH --inputs JSON --output JSON | verify --repo-root PATH --artifact-root PATH --manifest JSON';
+  return 'usage: release-artifact-manifest.mjs prepare --repo-root PATH --artifact-root PATH --inputs JSON --output JSON | verify --repo-root PATH --artifact-root PATH --manifest JSON | bind-deployment --repo-root PATH --artifact-root PATH --manifest JSON --selected-v1-image REF --shadow-v2-image REF --target-ip IP --target-ssh-port PORT --target-ssh-host-key-line KEY --target-ssh-host-key-fingerprint SHA256:BASE64 --deploy-public-key-fingerprint SHA256:BASE64 --output JSON | verify-deployment --repo-root PATH --artifact-root PATH --manifest JSON --deployment JSON';
 }
 function argumentsFor(argv, keys) {
   invariant(argv.length === keys.length * 2, usage());
@@ -590,6 +952,37 @@ export function runCLI(argv) {
     process.stdout.write(JSON.stringify({ status: 'ARTIFACT_MANIFEST_VERIFIED',
       fingerprint: manifest.manifestFingerprintSha256 }) + '\n');
     return manifest;
+  }
+  if (mode === 'bind-deployment') {
+    const args = argumentsFor(rest, ['--repo-root', '--artifact-root', '--manifest', '--selected-v1-image',
+      '--shadow-v2-image', '--target-ip', '--target-ssh-port', '--target-ssh-host-key-line',
+      '--target-ssh-host-key-fingerprint', '--deploy-public-key-fingerprint', '--output']);
+    const manifest = boundedJSON(path.resolve(args['--manifest']));
+    const deployment = bindWorkerDeployment({ repoRoot: args['--repo-root'], artifactRoot: args['--artifact-root'],
+      manifest, selectedV1Reference: args['--selected-v1-image'], shadowV2Reference: args['--shadow-v2-image'],
+      targetIdentity: {
+        ip: args['--target-ip'], sshPort: args['--target-ssh-port'],
+        sshHostPublicKeyLine: args['--target-ssh-host-key-line'],
+        sshHostPublicKeyFingerprint: args['--target-ssh-host-key-fingerprint'],
+        deployPublicKeyFingerprint: args['--deploy-public-key-fingerprint'],
+      } });
+    atomicWrite(args['--output'], deployment);
+    process.stdout.write(JSON.stringify({ status: 'WORKER_DEPLOYMENT_BOUND', output: path.resolve(args['--output']),
+      fingerprint: deployment.deploymentFingerprintSha256 }) + '\n');
+    return deployment;
+  }
+  if (mode === 'verify-deployment') {
+    const args = argumentsFor(rest, ['--repo-root', '--artifact-root', '--manifest', '--deployment']);
+    const manifest = boundedJSON(path.resolve(args['--manifest']));
+    const deployment = boundedJSON(path.resolve(args['--deployment']));
+    verifyWorkerDeployment({ repoRoot: args['--repo-root'], artifactRoot: args['--artifact-root'],
+      manifest, deployment });
+    process.stdout.write(JSON.stringify({ status: 'WORKER_DEPLOYMENT_VERIFIED',
+      sourceSha: deployment.source.commit, sourceTree: deployment.source.tree,
+      fingerprint: deployment.deploymentFingerprintSha256,
+      selectedV1: deployment.images.selectedV1, shadowV2: deployment.images.shadowV2,
+      postgresqlClient: deployment.runtimeClients.postgresql, target: deployment.target }) + '\n');
+    return deployment;
   }
   invariant(false, usage());
 }

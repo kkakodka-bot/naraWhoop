@@ -9,25 +9,28 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class RuntimePreflightCommandTest {
     private val project = "abcdefghijklmnopqrst"
-    private val config = ScoringConfig("postgresql://postgres.$project:private-password@aws-0-us-west-1.pooler.supabase.com:6543/postgres",
+    private val config = ScoringConfig("postgresql://postgres.$project:private-password@aws-0-us-west-1.pooler.supabase.com:6543/postgres?sslmode=verify-full&sslrootcert=system",
         "private-ingest", "https://$project.supabase.co/rest/v1", "private-service")
 
     @Test fun directAndPoolerConnectionsRequireTheSameCanonicalHostedProject() {
-        for (database in listOf(config.databaseUrl, "postgresql://postgres:secret@db.$project.supabase.co:5432/postgres")) {
+        for (database in listOf(config.databaseUrl,
+            "postgresql://postgres:secret@db.$project.supabase.co:5432/postgres?sslmode=verify-full&sslrootcert=system")) {
             val endpoint = RuntimePreflightCommand.heartbeatUrl(config.copy(databaseUrl = database))
             assertEquals("https://$project.supabase.co/rest/v1/physiology_service_heartbeats?select=version&id=eq.1&limit=1", endpoint.toString())
         }
     }
 
     @Test fun urlOptionsCannotDisableThePreflightDriverDeadlines() {
-        val candidate = config.copy(databaseUrl = config.databaseUrl + "?connectTimeout=0&socketTimeout=0&sslmode=require")
+        val candidate = config.copy(databaseUrl = config.databaseUrl + "&connectTimeout=0&socketTimeout=0")
         RuntimePreflightCommand.heartbeatUrl(candidate)
         val (url, properties) = RuntimePreflightCommand.databaseConnectionParameters(candidate)
         val actual = org.postgresql.Driver.parseURL(url, properties)!!
         assertEquals("10", actual.getProperty("connectTimeout"))
         assertEquals("15", actual.getProperty("socketTimeout"))
         assertEquals("5", actual.getProperty("cancelSignalTimeout"))
-        assertEquals("require", actual.getProperty("sslmode"))
+        assertEquals("verify-full", actual.getProperty("sslmode"))
+        assertEquals("system", actual.getProperty("sslrootcert"))
+        assertEquals("org.postgresql.ssl.DefaultJavaSSLFactory", actual.getProperty("sslfactory"))
         assertFalse(url.contains("private-password"))
     }
 
@@ -35,8 +38,14 @@ class RuntimePreflightCommandTest {
         val invalid = listOf(
             config.copy(databaseUrl = config.databaseUrl.replace("postgres.$project", "postgres.zyxwvutsrqponmlkjihg")),
             config.copy(databaseUrl = "postgresql://postgres.$project:secret@untrusted.example/postgres"),
-            config.copy(databaseUrl = config.databaseUrl + "?user=postgres.zyxwvutsrqponmlkjihg"),
-            config.copy(databaseUrl = config.databaseUrl + "?%75ser=postgres.zyxwvutsrqponmlkjihg"),
+            config.copy(databaseUrl = config.databaseUrl + "&user=postgres.zyxwvutsrqponmlkjihg"),
+            config.copy(databaseUrl = config.databaseUrl + "&%75ser=postgres.zyxwvutsrqponmlkjihg"),
+            config.copy(databaseUrl = config.databaseUrl.substringBefore('?')),
+            config.copy(databaseUrl = config.databaseUrl.replace("sslmode=verify-full", "sslmode=require")),
+            config.copy(databaseUrl = config.databaseUrl.replace("sslrootcert=system", "sslrootcert=/tmp/unreviewed.pem")),
+            config.copy(databaseUrl = config.databaseUrl + "&sslmode=verify-full"),
+            config.copy(databaseUrl = config.databaseUrl + "&sslrootcert=system"),
+            config.copy(databaseUrl = config.databaseUrl + "&ssl=true"),
             config.copy(supabaseUrl = "http://$project.supabase.co/rest/v1"),
             config.copy(supabaseUrl = "https://custom.example/rest/v1"),
             config.copy(supabaseUrl = "https://$project.supabase.co/functions/v1"),

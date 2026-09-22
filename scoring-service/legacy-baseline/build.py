@@ -27,6 +27,7 @@ IMAGE_REFERENCE = re.compile(
 ALLOWED = {
     PREFIX + "main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
     PREFIX + "main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt",
+    PREFIX + "main/kotlin/com/frwhoop/scoring/db/PostgresClient.kt",
     PREFIX + "main/kotlin/com/frwhoop/scoring/db/ScoringWorkQueue.kt",
     PREFIX + "main/kotlin/com/frwhoop/scoring/derived/DerivedArtifactWriter.kt",
     PREFIX + "main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt",
@@ -34,6 +35,7 @@ ALLOWED = {
     PREFIX + "test/kotlin/com/frwhoop/scoring/DerivedArtifactWriterTest.kt",
     PREFIX + "test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt",
     PREFIX + "test/kotlin/com/frwhoop/scoring/LegacyTransportTest.kt",
+    PREFIX + "test/kotlin/com/frwhoop/scoring/PostgresClientTest.kt",
     PREFIX + "test/kotlin/com/frwhoop/scoring/ScoringWorkQueueSqlTest.kt",
     PREFIX + "test/kotlin/com/frwhoop/scoring/WorkItemCompletionTest.kt",
 }

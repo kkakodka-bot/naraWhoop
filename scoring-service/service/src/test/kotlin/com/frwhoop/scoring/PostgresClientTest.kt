@@ -19,6 +19,28 @@ class PostgresClientTest {
             PostgresClient.normalizeJdbcUrl("postgres://db/postgres?socketTimeout=0"))
     }
 
+    @Test fun hostedTlsUsesTheJvmSystemTrustFactoryWithoutChangingTheLibpqCompatibleUrl() {
+        val url = "postgresql://postgres.project:secret@aws-0-us-west-1.pooler.supabase.com:6543/postgres?" +
+            "sslmode=verify-full&sslrootcert=system"
+        assertEquals(mapOf("sslfactory" to "org.postgresql.ssl.DefaultJavaSSLFactory"),
+            PostgresClient.verifiedHostedJdbcProperties(url))
+        assertEquals("jdbc:postgresql://aws-0-us-west-1.pooler.supabase.com:6543/postgres?" +
+            "sslmode=verify-full&sslrootcert=system", PostgresClient.normalizeJdbcUrl(url))
+        val parsed = org.postgresql.Driver.parseURL(PostgresClient.normalizeJdbcUrl(url),
+            java.util.Properties().apply { putAll(PostgresClient.verifiedHostedJdbcProperties(url)) })!!
+        assertEquals("org.postgresql.ssl.DefaultJavaSSLFactory",
+            org.postgresql.core.SocketFactoryFactory.getSslSocketFactory(parsed).javaClass.name)
+        for (override in listOf(
+            "sslfactory=org.postgresql.ssl.NonValidatingFactory",
+            "sslhostnameverifier=example.UnreviewedVerifier",
+            "user=postgres.other-project",
+        )) assertThrows(IllegalArgumentException::class.java) {
+            PostgresClient.verifiedHostedJdbcProperties("$url&$override")
+        }
+        assertEquals(emptyMap<String, String>(),
+            PostgresClient.verifiedHostedJdbcProperties("postgresql://postgres:secret@localhost:5432/postgres"))
+    }
+
     @Test
     fun normalizesPostgresqlUrlToJdbc() {
         // Userinfo is stripped for the JDBC URL; credentials travel via Hikari data-source properties.

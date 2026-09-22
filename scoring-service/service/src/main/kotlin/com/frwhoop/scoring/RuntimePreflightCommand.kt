@@ -45,6 +45,7 @@ object RuntimePreflightCommand {
             url.port == 443 && url.encodedPath.trimEnd('/') == "/rest/v1" && url.query == null && url.fragment == null)
         val project = Regex("^([a-z0-9]{20})\\.supabase\\.co$").matchEntire(url.host)?.groupValues?.get(1)
         requireNotNull(project) // Custom domains require independent binding evidence; token claims alone are not proof.
+        PostgresClient.requireVerifiedHostedTls(config.databaseUrl)
         val db = URI(PostgresClient.normalizeJdbcUrl(config.databaseUrl).removePrefix("jdbc:"))
         require(db.scheme == "postgresql" && db.host != null && db.fragment == null)
         // JDBC query options can override properties passed to DriverManager. In particular, a
@@ -80,8 +81,10 @@ object RuntimePreflightCommand {
     }
 
     internal fun databaseConnectionParameters(config: ScoringConfig): Pair<String, Properties> {
+        val hostedTls = PostgresClient.verifiedHostedJdbcProperties(config.databaseUrl)
         val credentials = PostgresClient.parseUserInfo(config.databaseUrl)
         val properties = Properties().apply {
+            putAll(hostedTls)
             credentials.user?.let { setProperty("user", it) }
             credentials.password?.let { setProperty("password", it) }
             setProperty("connectTimeout", "10")

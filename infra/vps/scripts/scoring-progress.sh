@@ -61,6 +61,13 @@ scoring_identity_valid() {
      "${SCORING_WORKER_SOURCE_REVISION:-}" =~ ^[0-9a-f]{40}$ ]]
 }
 
+scoring_client_identity_valid() {
+  [[ "${SCORING_POSTGRES_CLIENT_IMAGE:-}" == docker.io/library/postgres@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3 &&
+     "${SCORING_POSTGRES_CLIENT_CONFIG_DIGEST:-}" == sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537 &&
+     "${SCORING_POSTGRES_CLIENT_PLATFORM:-}" == linux/amd64 &&
+     "${SCORING_POSTGRES_CLIENT_VERSION:-}" == 17.11-alpine3.24 ]]
+}
+
 scoring_assert_candidate() {
   scoring_lane || return 1
   local release_sha="$1" container="$SCORING_CONTAINER_NAME" ports running candidate_id mode environment
@@ -95,8 +102,10 @@ scoring_assert_candidate() {
 scoring_progress_snapshot() {
   scoring_lane || return 1
   scoring_identity_valid || return 1
+  scoring_client_identity_valid || return 1
   local database_url="${SCORING_DATABASE_URL#jdbc:}"
-  export SCORING_WORKER_INSTANCE_ID SCORING_WORKER_SOURCE_REVISION
+  export SCORING_WORKER_INSTANCE_ID SCORING_WORKER_SOURCE_REVISION SCORING_POSTGRES_CLIENT_IMAGE \
+    SCORING_POSTGRES_CLIENT_CONFIG_DIGEST SCORING_POSTGRES_CLIENT_PLATFORM SCORING_POSTGRES_CLIENT_VERSION
   # A disposable client needs no local Supabase stack. The URI is inherited through the
   # environment, never placed in process arguments, logs, or a temporary file. PGDATABASE
   # alone does not expand a URI, so decode its fields once before passing libpq variables.
@@ -107,28 +116,39 @@ scoring_progress_snapshot() {
 import os, subprocess, sys
 from urllib.parse import urlsplit, unquote, parse_qsl
 try:
+    expected_client = {
+        "SCORING_POSTGRES_CLIENT_IMAGE": "docker.io/library/postgres@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3",
+        "SCORING_POSTGRES_CLIENT_CONFIG_DIGEST": "sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537",
+        "SCORING_POSTGRES_CLIENT_PLATFORM": "linux/amd64",
+        "SCORING_POSTGRES_CLIENT_VERSION": "17.11-alpine3.24",
+    }
+    if any(os.environ.get(name) != value for name, value in expected_client.items()):
+        raise ValueError("reviewed PostgreSQL client identity required")
+    client_image = os.environ["SCORING_POSTGRES_CLIENT_IMAGE"]
     url = urlsplit(os.environ["SCORING_VERIFY_DATABASE_URL"])
     if url.scheme not in ("postgres", "postgresql") or not url.hostname or not url.username or url.fragment:
         raise ValueError("unsupported database URI")
     names = {"sslmode": "PGSSLMODE", "sslrootcert": "PGSSLROOTCERT", "channelBinding": "PGCHANNELBINDING",
              "channel_binding": "PGCHANNELBINDING", "application_name": "PGAPPNAME", "connect_timeout": "PGCONNECT_TIMEOUT"}
     ignored = {"connectTimeout", "socketTimeout", "ApplicationName", "applicationName", "prepareThreshold"}
-    options = parse_qsl(url.query, keep_blank_values=True) if url.query else []
-    if any(name not in names and name not in ignored and name not in ("ssl", "targetServerType") for name, _ in options):
+    pairs = parse_qsl(url.query, keep_blank_values=True) if url.query else []
+    if len({name for name, _ in pairs}) != len(pairs):
+        raise ValueError("duplicate database URI option")
+    if any(name not in names and name not in ignored and name not in ("ssl", "targetServerType") for name, _ in pairs):
         raise ValueError("unsupported database URI option")
     # pgJDBC uses the last occurrence and form-style query decoding. Credential userinfo
     # above instead preserves literal plus. The acceptance connection has its own time budget.
-    options = dict(options)
+    options = dict(pairs)
+    if options.get("sslmode") != "verify-full" or options.get("sslrootcert") != "system" or "ssl" in options:
+        raise ValueError("verified hosted database connection required")
     budget = min(40, int(os.environ["SCORING_VERIFY_QUERY_TIMEOUT"]))
     if budget <= 0: raise ValueError("runtime deadline exhausted")
-    env = os.environ.copy()
-    env.pop("SCORING_VERIFY_DATABASE_URL", None)
+    env = {name: os.environ[name] for name in ("PATH", "HOME", "DOCKER_CONFIG", "DOCKER_HOST", "XDG_RUNTIME_DIR")
+           if name in os.environ}
     fields = {"PGHOST": url.hostname, "PGPORT": str(url.port or 5432),
               "PGUSER": unquote(url.username), "PGPASSWORD": unquote(url.password or ""),
               "PGDATABASE": unquote(url.path.removeprefix("/")) or "postgres"}
     fields.update({names[name]: value for name, value in options.items() if name in names})
-    if "sslmode" not in options:
-        fields["PGSSLMODE"] = "verify-full" if options.get("ssl", "false").lower() in ("", "true") else "prefer"
     if "targetServerType" in options:
         fields["PGTARGETSESSIONATTRS"] = {"any": "any", "primary": "primary", "secondary": "standby",
             "preferSecondary": "prefer-standby", "preferPrimary": "any"}[options["targetServerType"]]
@@ -137,7 +157,7 @@ try:
     env.update(fields)
     command = ["docker", "run", "--rm", "-i"]
     for name in fields: command.extend(["--env", name])
-    command.extend(["postgres:17-alpine", "psql", "-X", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|", "-f", "-"])
+    command.extend([client_image, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|", "-f", "-"])
     version = os.environ["SCORING_ALGORITHM_VERSION"]
     command.extend(["-v", "worker_instance_id=" + os.environ["SCORING_WORKER_INSTANCE_ID"],
                     "-v", "source_revision=" + os.environ["SCORING_WORKER_SOURCE_REVISION"],
@@ -227,6 +247,11 @@ scoring_wait_for_progress() {
   previous_poll="$progress_poll"; initial_score="$progress_score"
   initial_publication="$progress_publication"
   [[ "$progress_processes" == 0 ]] || process_id="$progress_process"
+  case "${SCORING_REQUIRE_PUBLICATION:-false}" in
+    true) require_score=true ;;
+    false) ;;
+    *) return 1 ;;
+  esac
   ((progress_eligible + progress_delayed == 0)) || require_score=true
   ((progress_exhausted == 0)) || { echo "Retry-exhausted scoring debt remains ($progress_exhausted items)" >&2; return 1; }
   lease_wait="$progress_lease"; ((lease_wait <= 300)) || lease_wait=300

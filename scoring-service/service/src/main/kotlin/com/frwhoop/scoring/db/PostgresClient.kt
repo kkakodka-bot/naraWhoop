@@ -2,6 +2,7 @@ package com.frwhoop.scoring.db
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.sql.Connection
@@ -26,6 +27,9 @@ class PostgresClient private constructor(
                 connectionBudget: ConnectionBudget = ConnectionBudget.fromEnvironment()) : this(
         HikariDataSource(
             HikariConfig().apply {
+                for ((name, value) in verifiedHostedJdbcProperties(databaseUrl)) {
+                    addDataSourceProperty(name, value)
+                }
                 driverClassName = "org.postgresql.Driver"
                 jdbcUrl = if (queryTimeoutSeconds == null) normalizeJdbcUrl(databaseUrl) else boundedJdbcUrl(databaseUrl)
                 maximumPoolSize = connectionBudget.poolSize
@@ -59,6 +63,46 @@ class PostgresClient private constructor(
 
     companion object {
         data class UserInfo(val user: String?, val password: String?)
+
+        private const val JAVA_SYSTEM_TRUST_FACTORY = "org.postgresql.ssl.DefaultJavaSSLFactory"
+        private val HOSTED_DATABASE_OPTIONS = setOf("sslmode", "sslrootcert", "connectTimeout", "socketTimeout",
+            "cancelSignalTimeout", "ApplicationName", "applicationName", "targetServerType", "channelBinding",
+            "prepareThreshold")
+
+        /** Hosted credentials may leave the process only with hostname and CA verification enabled.
+         * Local disposable/self-hosted databases retain their existing test/development behavior. */
+        fun requireVerifiedHostedTls(databaseUrl: String): Boolean {
+            val uri = try { URI(normalizeJdbcUrl(databaseUrl).removePrefix("jdbc:")) }
+            catch (_: Exception) { throw IllegalArgumentException("DATABASE_URL is invalid") }
+            val host = uri.host?.lowercase() ?: return false
+            if (!(host.endsWith(".supabase.co") || host.endsWith(".pooler.supabase.com"))) return false
+            val options = linkedMapOf<String, String>()
+            for (raw in uri.rawQuery.orEmpty().split('&').filter(String::isNotEmpty)) {
+                val name = decodeOption(raw.substringBefore('='))
+                val value = decodeOption(raw.substringAfter('=', ""))
+                require(name !in options) { "DATABASE_URL contains duplicate options" }
+                options[name] = value
+            }
+            require(options.keys.all(HOSTED_DATABASE_OPTIONS::contains)) {
+                "Hosted DATABASE_URL contains unsupported options"
+            }
+            require(options["sslmode"] == "verify-full") { "Hosted DATABASE_URL requires sslmode=verify-full" }
+            require(options["sslrootcert"] == "system") { "Hosted DATABASE_URL requires sslrootcert=system" }
+            require("ssl" !in options) { "Hosted DATABASE_URL must use one explicit TLS mode" }
+            return true
+        }
+
+        /** libpq accepts sslrootcert=system directly. pgJDBC 42.7.4 treats that value as a file
+         * name unless its Java-system-trust factory is selected separately. Keep the shared URL
+         * libpq-compatible and add the JVM-only factory as a connection property. */
+        internal fun verifiedHostedJdbcProperties(databaseUrl: String): Map<String, String> =
+            if (requireVerifiedHostedTls(databaseUrl)) mapOf("sslfactory" to JAVA_SYSTEM_TRUST_FACTORY) else emptyMap()
+
+        private fun decodeOption(value: String): String = try {
+            URLDecoder.decode(value, StandardCharsets.UTF_8)
+        } catch (_: IllegalArgumentException) {
+            throw IllegalArgumentException("DATABASE_URL has malformed option encoding")
+        }
 
         /** Map a receiver-style database URL to a userinfo-free JDBC URL. Pure: no I/O, no pool. */
         fun normalizeJdbcUrl(databaseUrl: String): String {

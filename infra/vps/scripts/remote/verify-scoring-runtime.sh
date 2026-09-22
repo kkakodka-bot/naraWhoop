@@ -18,8 +18,13 @@ fi
 # Dedicated intended configuration is authoritative, not the candidate's own destination.
 # shellcheck disable=SC1091
 source /opt/frwhoop/secrets.env
+# shellcheck disable=SC1091
+source /opt/frwhoop/scoring-client.env
 : "${SCORING_DATABASE_URL:?Dedicated scoring database is required}"
 : "${SCORING_SUPABASE_URL:?Dedicated scoring REST endpoint is required}"
+export SCORING_POSTGRES_CLIENT_IMAGE SCORING_POSTGRES_CLIENT_CONFIG_DIGEST \
+  SCORING_POSTGRES_CLIENT_PLATFORM SCORING_POSTGRES_CLIENT_VERSION
+scoring_client_identity_valid || { echo 'FAIL: reviewed PostgreSQL client identity differs' >&2; exit 1; }
 scoring_lane || { echo 'FAIL: unsupported worker version' >&2; exit 1; }
 candidate_environment="$(timeout 12 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$SCORING_CONTAINER_NAME")"
 SCORING_WORKER_INSTANCE_ID="$(scoring_environment_value "$candidate_environment" SCORING_WORKER_INSTANCE_ID)"
