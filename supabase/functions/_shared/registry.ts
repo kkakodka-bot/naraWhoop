@@ -42,7 +42,7 @@ export const ALL_STREAMS = new Set([...APPEND_STREAMS, ...REPLACE_STREAMS, ...BI
  * a capability the negotiated version cannot exercise. A stream absent from the capability set is
  * simply not attempted, which is the correct outcome for a sender that predates the lane.
  */
-const PROTOCOL_1_2_ONLY = new Set(OBJECT_LANE_STREAMS);
+const PROTOCOL_1_2_ONLY = new Set([...OBJECT_LANE_STREAMS, 'eventLabel']);
 
 /** Streams added in protocol 1.1 — excluded from the 1.0 capability set. */
 const PROTOCOL_1_1_ONLY_APPEND = new Set([
