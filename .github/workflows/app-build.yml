@@ -117,6 +117,9 @@ jobs:
       # scheduled-report / strain-target policy, etc.) that swift-packages can't reach.
       - name: Test ${{ matrix.scheme }}
         if: matrix.scheme == 'Strand'
+        env:
+          NOOP_HERMETIC_TESTING: '1'
+          NOOP_TEST_DISABLE_BLUETOOTH: '1'
         run: >-
           xcodebuild -scheme Strand -configuration Debug
           -destination 'platform=macOS'
