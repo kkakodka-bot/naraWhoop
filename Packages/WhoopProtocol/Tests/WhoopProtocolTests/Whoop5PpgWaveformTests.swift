@@ -117,6 +117,59 @@ final class Whoop5PpgWaveformTests: XCTestCase {
         XCTAssertEqual(streams.ppgWaveform.map(\.recordIndex), parsed.map { $0.parsed["record_index"]?.intValue })
     }
 
+    /// Synthetic samples in the captured v26 framing, with CRCs recomputed after the edits.
+    /// This exercises estimator gating, not hardware timing or physiological accuracy.
+    private func syntheticPulseFrames() -> [ParsedFrame] {
+        (0..<12).map { second in
+            var frame = bytes(v26Hex)
+            for (offset, value) in [(11, 25_444_781 + second), (15, 1_780_917_232 + second)] {
+                for byte in 0..<4 { frame[offset + byte] = UInt8(truncatingIfNeeded: value >> (byte * 8)) }
+            }
+            for sample in 0..<24 {
+                let phase = Double(second * 24 + sample) / 24.0
+                let value = Int(1000 * sin(2 * Double.pi * (70.0 / 60.0) * phase))
+                frame[27 + sample * 2] = UInt8(truncatingIfNeeded: value)
+                frame[28 + sample * 2] = UInt8(truncatingIfNeeded: value >> 8)
+            }
+            let end = frame.count - 4
+            let checksum = crc32(frame, 8, end)
+            for byte in 0..<4 { frame[end + byte] = UInt8(truncatingIfNeeded: checksum >> (byte * 8)) }
+            let parsed = parseFrame(frame, family: .whoop5)
+            XCTAssertEqual(parsed.crcOK, true)
+            return parsed
+        }
+    }
+
+    func testDisablingPhoneEstimatorPreservesRawRecordsAndDeviceHeartRate() {
+        let v18 = "aa01740001003fb12f1280733d8401b69f266a66460066025a0265020000000000007b0a8d656463ff0012163cf6a439bf2924fd3ed763fe3e3200aa000000000000000000f7000901f10b0007010c020c00000000000000000000000000000000000000000000000100656f1e1e0000009d61a7c00000003e862817"
+        var frames = syntheticPulseFrames()
+        frames.append(frames[5]) // Replay must not alter the retained raw sample/record identities.
+        frames.append(parseFrame(bytes(v18), family: .whoop5))
+        let offline = extractHistoricalStreams(frames, deviceClockRef: 0, wallClockRef: 0)
+        XCTAssertFalse(offline.ppgHr.isEmpty, "the legacy offline estimator must actually run in this fixture")
+        XCTAssertEqual(offline.ppgWaveform.count, 13)
+        XCTAssertEqual(offline.hr, [HRSample(ts: 1_780_916_150, bpm: 102)])
+        for interpolation in [false, true] {
+            let hosted = extractHistoricalStreams(frames, deviceClockRef: 0, wallClockRef: 0,
+                                                   subLagInterp: interpolation, derivePpgHeartRate: false)
+            XCTAssertTrue(hosted.ppgHr.isEmpty)
+            XCTAssertEqual(hosted.ppgWaveform, offline.ppgWaveform)
+            XCTAssertEqual(hosted.hr, offline.hr)
+            XCTAssertEqual(hosted.rr, offline.rr)
+            XCTAssertFalse(hosted.isEmpty)
+        }
+    }
+
+    func testWaveformOnlyHostedBatchRemainsDurableInput() {
+        let frames = syntheticPulseFrames()
+        let hosted = extractHistoricalStreams(frames, deviceClockRef: 0, wallClockRef: 0,
+                                               derivePpgHeartRate: false)
+        XCTAssertTrue(hosted.ppgHr.isEmpty)
+        XCTAssertTrue(hosted.hr.isEmpty, "waveform-only input must not fabricate device HR")
+        XCTAssertEqual(hosted.ppgWaveform.count, frames.count)
+        XCTAssertFalse(hosted.isEmpty)
+    }
+
     /// `Streams.isEmpty` must count a waveform-only decode as non-empty even when `ppgHr` (derived FROM
     /// it) is empty — otherwise the Backfiller's #77 "this chunk carried no sensor records" diagnostic
     /// would misfire on a chunk that in fact persisted a raw waveform.

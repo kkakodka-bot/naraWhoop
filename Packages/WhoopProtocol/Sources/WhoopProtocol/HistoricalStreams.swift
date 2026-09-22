@@ -168,12 +168,12 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
                                      // paths — the gate then falls back to the absolute-only floor (unchanged).
                                      sessionOldestUnix: Int? = nil,
                                      sessionNewestUnix: Int? = nil,
-                                     // Opt-in "HR-from-PPG sub-lag interpolation" (Test Centre → Experimental
-                                     // algorithms, default false): threaded into the v26 PPG-HR estimator below.
-                                     // The pure package can't read prefs, so the app-layer caller (Backfiller /
-                                     // archive replay) reads PuffinExperiment.ppgHrSubLagInterpEnabled and passes
-                                     // it. Default false = byte-identical to today. Mirrors the Android arg.
+                                     // Offline estimator variant. Ignored when waveform estimation is disabled.
                                      subLagInterp: Bool = false,
+                                     // Hosted app callers disable phone waveform estimation; raw PPG and
+                                     // device-reported HR remain available for durable upload. Pure offline
+                                     // tools keep the historical estimator by default.
+                                     derivePpgHeartRate: Bool = true,
                                      // TEST SEAM (#547 gate's "now"): overrides the live-clock upper bound
                                      // resolved just below. nil everywhere in production — every caller keeps
                                      // the live clock and today's behaviour is byte-identical. It exists so a
@@ -253,11 +253,6 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     var droppedOldest: Int? = nil
     var droppedNewest: Int? = nil
     var out = Streams()
-    // v26 optical-PPG records (issue #156): no measured HR/motion, just the 24 Hz waveform. Collect
-    // (corrected-wall ts, samples) here and derive a per-second HR after the loop (PpgHr.derivePpgHr),
-    // so the timeline stays continuous through the v26-heavy stretches that have no v18 HR summary.
-    // The SAME (ts, samples) are also appended to `out.ppgWaveform` below (issue #156 follow-up) so the
-    // raw waveform is durable too, not just the derived estimate this local buffer exists to produce.
     // #891: packet types that reach `default:` and are dropped. See `Streams.unhandledPacketTypes`.
     var unhandledTypes: [String: Int] = [:]
     for r in parsed {
@@ -271,10 +266,8 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             // v26 waveform rides this same `unix`) — skip the whole record so no garbage-ts row is banked.
             guard let rawTs = p["unix"]?.intValue, let ts = correctedWall(rawTs) else { continue }
             if let packet = r.rrPacketProvenance?.mapped(to: ts) { out.rrPackets.append(packet) }
-            // v26 PPG buffer: stash the waveform for the post-loop HR estimator AND persist the raw
-            // samples themselves (issue #156 follow-up — previously ONLY the derived estimate survived,
-            // the waveform that produced it was discarded here). A v26 record carries no
-            // heart_rate/spo2/gravity, so it adds nothing to the branches below — handled here only.
+            // Raw v26 samples and record identities survive independently of waveform HR estimation.
+            // A v26 record carries no heart_rate/spo2/gravity, so it adds nothing below.
             if let samples = p["ppg_waveform"]?.intArrayValue, !samples.isEmpty {
                 out.ppgWaveform.append(PpgWaveformSample(ts: ts, samples: samples,
                                                          burstIndex: p["burst_index"]?.intValue,
@@ -446,9 +439,9 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             continue
         }
     }
-    // Derive per-second HR from the collected v26 PPG bursts (issue #156). Empty when there were no v26
-    // records (the WHOOP 4 / v18-only common case), so this is a no-op cost there.
-    out.ppgHr = PpgHr.derivePpgHr(waveforms: out.ppgWaveform, subLagInterp: subLagInterp)
+    if derivePpgHeartRate {
+        out.ppgHr = PpgHr.derivePpgHr(waveforms: out.ppgWaveform, subLagInterp: subLagInterp)
+    }
     out.unhandledPacketTypes = unhandledTypes     // #891 diag census (not persisted, not encoded)
     out.droppedImplausible = droppedImplausible   // #547 diag count (not persisted, not encoded)
     out.droppedImplausibleOldestTs = droppedOldest   // #324 poisoned-range epoch span (diag only)

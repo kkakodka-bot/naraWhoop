@@ -176,7 +176,7 @@ class RawHistoryArchive internal constructor(
         for (family in archived.map { it.second }.toSet()) {
             val frames = archived.filter { it.second == family }.map { it.first }
             val decoded = extractHistoricalStreams(frames, 0, 0, family,
-                ppgHrSubLagInterp = subLagInterpolation())
+                ppgHrSubLagInterp = subLagInterpolation(), derivePpgHeartRate = false)
             if (scopeProvider() != scope) return rows
             rows += try { insert(decoded, scope.device) } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
