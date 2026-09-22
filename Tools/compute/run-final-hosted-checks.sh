@@ -16,5 +16,6 @@ xcodebuild -project .derived/compute-checks/ComputeChecks.xcodeproj \
   -only-testing:ComputeChecksTests/FinalHostedRuntimeTests \
   -only-testing:ComputeChecksTests/CanonicalPhysiologySurfaceTests \
   -only-testing:ComputeChecksTests/CanonicalConsumerPublicationTests \
+  -only-testing:ComputeChecksTests/CanonicalWorkoutInputTests \
   -only-testing:ComputeChecksTests/ScoringPreferenceContainmentTests/testFinalHostedExportsUseCanonicalAdmissionWithoutPreferenceProjection \
   -only-testing:ComputeChecksTests/ScoringPreferenceContainmentTests/testFinalHostedResultChangeAtAttemptRetainsExactExportToken test

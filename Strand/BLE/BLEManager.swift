@@ -1717,6 +1717,10 @@ public final class BLEManager: NSObject, ObservableObject {
         do {
             if let existing = ingestStore { store = existing }
             else { store = try await WhoopStore(path: path) }
+            if let accountScope, CloudRuntimeIdentity.currentEnrollmentSnapshot()?.scope != accountScope {
+                // A fresh JWT account must bind before additive capture metadata makes it nonempty.
+                try await store.bindAccountOwner(projectURL: accountScope.projectURL, userID: accountScope.userID)
+            }
             try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
             if let accountScope {
                 try await CloudCaptureScope.bindRuntimeOwner(store, scope: accountScope)
@@ -7818,6 +7822,9 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 let store: WhoopStore
                 if let existing = self.ingestStore { store = existing }
                 else { store = try await WhoopStore(path: path) }
+                if let scope = self.accountScope, CloudRuntimeIdentity.currentEnrollmentSnapshot()?.scope != scope {
+                    try await store.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+                }
                 try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
                 if let scope = self.accountScope {
                     try await CloudCaptureScope.bindRuntimeOwner(store, scope: scope)

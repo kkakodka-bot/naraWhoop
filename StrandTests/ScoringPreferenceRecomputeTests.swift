@@ -64,6 +64,7 @@ final class ScoringPreferenceRecomputeTests: XCTestCase {
             store = try await WhoopStore(path: layout.databaseURL.path)
             try await store.bindAccountOwner(projectURL: context.scope.projectURL,
                                              userID: context.scope.userID)
+            try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: nil)
         }
 
         func makeModel(automatic: Bool = true, journalFailure: FailOnce? = nil) -> AppModel {

@@ -48,6 +48,7 @@ final class ScoringPreferenceAppTests: XCTestCase {
             let context = context, identity = Identity(context), policy = Policy(coupled)
             self.identity = identity; self.policy = policy
             model = AppModel(storageLayout: layout, context: context, captureAllowed: true,
+                capturePreparationHooks: .init(journal: .init(availableBytes: { _ in Int64.max })),
                 scoringInputDependencies: ScoringPreferenceAppTestSupport.dependencies(context: context,
                     isCurrent: { identity.matches($0) }),
                 nativePreferenceCurrent: { identity.matches($0) }, preferenceScoringEnabled: { policy.enabled },

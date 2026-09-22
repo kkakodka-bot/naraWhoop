@@ -254,6 +254,7 @@ final class AccountPreferenceIsolationTests: XCTestCase {
             }, head: { _, _ in XCTFail("fixture must not contact a server"); throw ScoringInputRPC.Failure.unavailable },
             send: { _, _ in XCTFail("fixture must not contact a server"); throw ScoringInputRPC.Failure.unavailable })
         let model = AppModel(storageLayout: layout, context: context, captureAllowed: true,
+            capturePreparationHooks: .init(journal: .init(availableBytes: { _ in Int64.max })),
             scoringInputDependencies: dependencies, nativePreferenceCurrent: { $0 == context && nativeCurrent.get() },
             preferenceScoringEnabled: { true }, isCurrent: { $0 == current })
         addTeardownBlock {

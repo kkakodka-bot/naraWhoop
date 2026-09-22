@@ -34,6 +34,8 @@ final class RepositoryPreferenceRecoveryTests: XCTestCase {
                             opener: (@Sendable () async throws -> WhoopStore)? = nil) async throws -> Repository {
         let context = try owner()
         try await store.bindAccountOwner(projectURL: context.scope.projectURL, userID: context.scope.userID)
+        // Bind capture before adding synthetic history, just as account bootstrap does.
+        try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: nil)
         let snapshot = ScoringPreferenceSnapshot.seed(context: context, domain: ["noopExperimentalSleepV2": false])
         let scratch = ProcessInfo.processInfo.environment["SCORING_PREFERENCE_SCRATCH"]
             ?? ProcessInfo.processInfo.environment["TMPDIR"]

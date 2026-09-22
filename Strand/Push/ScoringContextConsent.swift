@@ -123,7 +123,11 @@ actor ScoringContextConsentStore {
         self.fence = fence
         try layout.prepare()
         let path = layout.directory.appendingPathComponent("scoring-context-consent.sqlite")
-        database = try DatabaseQueue(path: path.path)
+        // A successor may open while the retired connection finishes its WAL checkpoint.
+        // Keep the owner/commit fences; wait for that bounded SQLite lock instead of losing readback.
+        var configuration = Configuration()
+        configuration.busyMode = .timeout(5)
+        database = try DatabaseQueue(path: path.path, configuration: configuration)
         database.add(transactionObserver: ScoringConsentCommitFence(fence), extent: .databaseLifetime)
         try database.writeWithoutTransaction { db in
             try db.execute(sql: "PRAGMA journal_mode=WAL")

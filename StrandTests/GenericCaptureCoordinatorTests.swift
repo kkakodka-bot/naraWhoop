@@ -30,6 +30,7 @@ final class GenericCaptureCoordinatorTests: XCTestCase {
             startWhoop: {}, stopWhoop: {},
             setWhoopPreferredPeripheral: { _ in }, setWhoopActiveDeviceId: { _ in },
             connectedPeripheralUUID: Empty<String?, Never>().eraseToAnyPublisher(),
+            collectionAllowed: { true },
             genericCapture: journal,
             standardSourceFactory: { id in
                 let result = StandardHRSource(live: live, deviceId: id, persist: { _ in XCTFail() },
@@ -68,6 +69,7 @@ final class GenericCaptureCoordinatorTests: XCTestCase {
             startWhoop: { starts += 1 }, stopWhoop: {},
             setWhoopPreferredPeripheral: { _ in }, setWhoopActiveDeviceId: { _ in },
             connectedPeripheralUUID: Empty<String?, Never>().eraseToAnyPublisher(),
+            collectionAllowed: { true },
             genericCapture: journal,
             standardSourceFactory: { id in
                 let result = StandardHRSource(live: live, deviceId: id, persist: { _ in XCTFail() },
@@ -98,6 +100,7 @@ final class GenericCaptureCoordinatorTests: XCTestCase {
             startWhoop: {}, stopWhoop: {},
             setWhoopPreferredPeripheral: { _ in }, setWhoopActiveDeviceId: { _ in },
             connectedPeripheralUUID: Empty<String?, Never>().eraseToAnyPublisher(),
+            collectionAllowed: { true },
             standardSourceFactory: { id in
                 constructed += 1
                 return StandardHRSource(live: LiveState(), deviceId: id, persist: { _ in }, startCentral: false)
@@ -126,6 +129,7 @@ final class GenericCaptureCoordinatorTests: XCTestCase {
             startWhoop: { starts += 1 }, stopWhoop: { stops += 1 },
             setWhoopPreferredPeripheral: { _ in }, setWhoopActiveDeviceId: { _ in },
             connectedPeripheralUUID: Empty<String?, Never>().eraseToAnyPublisher(),
+            collectionAllowed: { true },
             genericCapture: journal,
             standardSourceFactory: { id in
                 let result = StandardHRSource(live: live, deviceId: id, persist: { _ in XCTFail() },

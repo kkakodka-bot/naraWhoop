@@ -926,22 +926,19 @@ final class Repository: ObservableObject {
             // Don't swallow the open failure with `try?` (#222): an import-time open failure (e.g. the iOS
             // data-protected store while the device is locked) was previously invisible, surfacing only as
             // a generic "Couldn't open the local store." Log the real error so the cause is diagnosable.
-            let path: String
-            do {
-                if let storageLayout {
-                    try storageLayout.prepare()
-                    path = storageLayout.databaseURL.path
-                } else {
-                    path = try StorePaths.defaultDatabasePath()
-                }
-            } catch {
-                NSLog("WhoopStore: ensureStore FAILED resolving DB path: \(error)")
-                return nil
-            }
             let s: WhoopStore
             do {
                 if let openStore { s = try await openStore() }
-                else { s = try await WhoopStore(path: path) }
+                else {
+                    let path: String
+                    if let storageLayout {
+                        try storageLayout.prepare()
+                        path = storageLayout.databaseURL.path
+                    } else {
+                        path = try StorePaths.defaultDatabasePath()
+                    }
+                    s = try await WhoopStore(path: path)
+                }
                 try await s.fenceWrites(untilRevoked: writeFence)
                 if let scope = storageLayout?.scope {
                     // Bind an empty JWT account store before writing enrollment capture metadata.

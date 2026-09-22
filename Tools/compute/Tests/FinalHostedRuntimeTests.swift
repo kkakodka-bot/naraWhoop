@@ -131,6 +131,9 @@ final class FinalHostedRuntimeTests: XCTestCase {
         let scheduled = await CoachBriefScheduler.generateNow { legacyBriefCalled = true; return "obsolete" }
         XCTAssertNil(scheduled); XCTAssertFalse(legacyBriefCalled)
         XCTAssertNil(CoachBriefScheduler.consumeStoredBrief())
+        let historicalWorkout = WorkoutRow(startTs: 1_790_000_000, endTs: 1_790_003_600,
+            sport: "Running", source: "manual", durationS: 3600, energyKcal: 500,
+            avgHr: 150, maxHr: 180, strain: 12, distanceM: nil, zonesJSON: nil, notes: nil, steps: nil)
         let content = VStack {
             CanonicalPhysiologySection(families: Array(ServerCanonicalResults.familyMetrics.keys).sorted())
             LiveWorkoutView(onClose: {})
@@ -139,6 +142,8 @@ final class FinalHostedRuntimeTests: XCTestCase {
             AppleHealthView()
             XiaomiBandView()
             MedicationsView()
+            WorkoutsView(previewRows: [historicalWorkout])
+            WorkoutDetailView(row: historicalWorkout)
         }.environmentObject(model).environmentObject(model.repo).environmentObject(model.live)
             .environmentObject(model.profile).frame(width: 600, height: 1200)
         // Native text inputs are AppKit views and cannot be flattened by SwiftUI ImageRenderer.

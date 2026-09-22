@@ -183,6 +183,7 @@ final class ScoringPreferenceReaderTests: XCTestCase {
 
     func testActualRestageKeepsCapturedNativeRecipeAcrossOpen() async throws {
         let store = try await WhoopStore.inMemory(), owner = try context()
+        try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: nil)
         let start = 1_700_000_000, duration = 6 * 3_600
         let hr = (0..<duration).map { HRSample(ts: start + $0, bpm: 52 + ($0 / 60) % 3) }
         let gravity = (0..<duration).map { GravitySample(ts: start + $0, x: 0, y: 0, z: 1) }
@@ -211,6 +212,7 @@ final class ScoringPreferenceReaderTests: XCTestCase {
 
     func testActualWorkoutFillUsesCapturedEffortRecipeAcrossOpen() async throws {
         let store = try await WhoopStore.inMemory(), owner = try context()
+        try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: nil)
         let start = Int(Date().timeIntervalSince1970) - 7200, duration = 3600
         let hr = (0..<duration).map { HRSample(ts: start + $0, bpm: 125) }
         _ = try await store.insert(Streams(hr: hr), deviceId: "reader")

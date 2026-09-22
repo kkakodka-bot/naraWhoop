@@ -132,7 +132,7 @@ enum ExploreRange: Int, CaseIterable, Identifiable, Hashable {
     /// This range plus every LARGER range, ascending — the auto-expand search order
     /// when the selected window holds zero points. ALW always terminates the chain.
     var widening: [ExploreRange] {
-        let order: [ExploreRange] = [.week, .month, .quarter, .half, .year, .all]
+        let order: [ExploreRange] = [.week, .twoWeeks, .threeWeeks, .month, .quarter, .half, .year, .all]
         guard let i = order.firstIndex(of: self) else { return [.all] }
         return Array(order[i...])
     }

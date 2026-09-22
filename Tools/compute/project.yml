@@ -15,6 +15,7 @@ targets:
       - Tests/FinalHostedRuntimeTests.swift
       - ../../StrandTests/CanonicalPhysiologySurfaceTests.swift
       - ../../StrandTests/CanonicalConsumerPublicationTests.swift
+      - ../../StrandTests/CanonicalWorkoutInputTests.swift
       - ../../StrandiOSShared/WidgetSnapshot.swift
       - path: ../../Tests/Fixtures/compute-account-sleep-only.json
         buildPhase: resources
