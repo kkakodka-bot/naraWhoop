@@ -1,0 +1,1780 @@
+Building for debugging...
+[0/8] Write swift-version-30D7331401001902.txt
+Build complete! (0.13s)
+Test Suite 'All tests' started at 2026-09-21 23:13:26.865.
+Test Suite 'WhoopProtocolPackageTests.xctest' started at 2026-09-21 23:13:26.865.
+Test Suite 'BadClockDiagnosticsTests' started at 2026-09-21 23:13:26.865.
+Test Case '-[WhoopProtocolTests.BadClockDiagnosticsTests testDroppedSpanClause]' started.
+Test Case '-[WhoopProtocolTests.BadClockDiagnosticsTests testDroppedSpanClause]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.BadClockDiagnosticsTests testHoursOffsetWording]' started.
+Test Case '-[WhoopProtocolTests.BadClockDiagnosticsTests testHoursOffsetWording]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BadClockDiagnosticsTests testIsoDayIsUTC]' started.
+Test Case '-[WhoopProtocolTests.BadClockDiagnosticsTests testIsoDayIsUTC]' passed (0.000 seconds).
+Test Suite 'BadClockDiagnosticsTests' passed at 2026-09-21 23:13:26.867.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'BatteryPackInfoTests' started at 2026-09-21 23:13:26.867.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testAbsentPackIsNeverDisplayable]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testAbsentPackIsNeverDisplayable]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testAttachedPackNamesItsChargeAndSerial]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testAttachedPackNamesItsChargeAndSerial]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testCommand151ResolvesToTheNameTheRouterMatchesOn]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testCommand151ResolvesToTheNameTheRouterMatchesOn]' passed (0.003 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testCommandAndEventPathsShareOneRecordDecoder]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testCommandAndEventPathsShareOneRecordDecoder]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testEdgeVectorsDecodeIdenticallyToKotlin]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testEdgeVectorsDecodeIdenticallyToKotlin]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testFourPointOhVoltagePathIsNeverDisplayable]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testFourPointOhVoltagePathIsNeverDisplayable]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testInRangeChargeOnAnAttachedPackIsDisplayable]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testInRangeChargeOnAnAttachedPackIsDisplayable]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testNonPackOrShortFrameIsNil]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testNonPackOrShortFrameIsNil]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testOutOfRangeChargeIsNotDisplayable]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testOutOfRangeChargeIsNotDisplayable]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testPackSocFallsAsThePackDrainsIntoTheStrap]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testPackSocFallsAsThePackDrainsIntoTheStrap]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testPushedPackEventCarriesTheSameRecordAsTheCommandReply]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testPushedPackEventCarriesTheSameRecordAsTheCommandReply]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testRemovedPackReportsAbsenceNotAStaleReading]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testRemovedPackReportsAbsenceNotAStaleReading]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testWhoop4PackReportsVoltageNotPercent]' started.
+Test Case '-[WhoopProtocolTests.BatteryPackInfoTests testWhoop4PackReportsVoltageNotPercent]' passed (0.000 seconds).
+Test Suite 'BatteryPackInfoTests' passed at 2026-09-21 23:13:26.873.
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.005 (0.006) seconds
+Test Suite 'BiometricStreamsParityTests' started at 2026-09-21 23:13:26.873.
+Test Case '-[WhoopProtocolTests.BiometricStreamsParityTests testSwiftBiometricStreamsMatchPythonGolden]' started.
+Test Case '-[WhoopProtocolTests.BiometricStreamsParityTests testSwiftBiometricStreamsMatchPythonGolden]' passed (0.006 seconds).
+Test Suite 'BiometricStreamsParityTests' passed at 2026-09-21 23:13:26.879.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.006 (0.006) seconds
+Test Suite 'BodyLocationProbeTests' started at 2026-09-21 23:13:26.879.
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testBareStub_isCalledOut]' started.
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testBareStub_isCalledOut]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testDiff_flagsTheChangedLocationByte]' started.
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testDiff_flagsTheChangedLocationByte]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testFullOutput_goldenParityLock]' started.
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testFullOutput_goldenParityLock]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testKnownEnumValues_mapToTheirLabels]' started.
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testKnownEnumValues_mapToTheirLabels]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testUnknownLocation_isPreservedAsRawNotCrashedOrCoerced]' started.
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testUnknownLocation_isPreservedAsRawNotCrashedOrCoerced]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testWhoop4_acceptedDecodesTheFourFields]' started.
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testWhoop4_acceptedDecodesTheFourFields]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testWhoop5Success_doesNotMisdecodeTheResultCodeAsAField]' started.
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testWhoop5Success_doesNotMisdecodeTheResultCodeAsAField]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testWhoop5Unsupported_isDecisiveVerdict]' started.
+Test Case '-[WhoopProtocolTests.BodyLocationProbeTests testWhoop5Unsupported_isDecisiveVerdict]' passed (0.000 seconds).
+Test Suite 'BodyLocationProbeTests' passed at 2026-09-21 23:13:26.881.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'CharacteristicReassemblerTests' started at 2026-09-21 23:13:26.881.
+Test Case '-[WhoopProtocolTests.CharacteristicReassemblerTests testCompletePuffinNotificationIsNotSplicedIntoOlderPartialFrame]' started.
+Test Case '-[WhoopProtocolTests.CharacteristicReassemblerTests testCompletePuffinNotificationIsNotSplicedIntoOlderPartialFrame]' passed (0.003 seconds).
+Test Case '-[WhoopProtocolTests.CharacteristicReassemblerTests testFreshPuffinHeaderReplacesTruncatedV21PrefixOnSameCharacteristic]' started.
+Test Case '-[WhoopProtocolTests.CharacteristicReassemblerTests testFreshPuffinHeaderReplacesTruncatedV21PrefixOnSameCharacteristic]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.CharacteristicReassemblerTests testInterleavedCharacteristicFragmentsCannotSpliceFrames]' started.
+Test Case '-[WhoopProtocolTests.CharacteristicReassemblerTests testInterleavedCharacteristicFragmentsCannotSpliceFrames]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.CharacteristicReassemblerTests testResetDropsEveryPartialLane]' started.
+Test Case '-[WhoopProtocolTests.CharacteristicReassemblerTests testResetDropsEveryPartialLane]' passed (0.000 seconds).
+Test Suite 'CharacteristicReassemblerTests' passed at 2026-09-21 23:13:26.885.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'ChunkClockDiagTests' started at 2026-09-21 23:13:26.885.
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testDuplicatedDeliveryMovesPackAndDensityTogether]' started.
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testDuplicatedDeliveryMovesPackAndDensityTogether]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testExactTieRoundsHalfUpNotHalfEven]' started.
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testExactTieRoundsHalfUpNotHalfEven]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testHonestStreamPacksAndDensifiesAtOne]' started.
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testHonestStreamPacksAndDensifiesAtOne]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testNegativeOffsetKeepsItsSign]' started.
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testNegativeOffsetKeepsItsSign]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testNoRrYieldsNoLine]' started.
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testNoRrYieldsNoLine]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testPackedRecordShowsHighPackButHonestDensity]' started.
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testPackedRecordShowsHighPackButHonestDensity]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testSpanUsesMinAndMaxNotFirstAndLast]' started.
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testSpanUsesMinAndMaxNotFirstAndLast]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testStaleGateClosedBelowThresholdAndOpenAboveIt]' started.
+Test Case '-[WhoopProtocolTests.ChunkClockDiagTests testStaleGateClosedBelowThresholdAndOpenAboveIt]' passed (0.000 seconds).
+Test Suite 'ChunkClockDiagTests' passed at 2026-09-21 23:13:26.885.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'DataRangeTests' started at 2026-09-21 23:13:26.885.
+Test Case '-[WhoopProtocolTests.DataRangeTests testAllFutureFrameStillReturnsFutureSoTheGuardFires]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testAllFutureFrameStillReturnsFutureSoTheGuardFires]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testIsPendingResponse_falseForNegativeCmdOff]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testIsPendingResponse_falseForNegativeCmdOff]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testIsPendingResponse_falseForSuccessAnswer]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testIsPendingResponse_falseForSuccessAnswer]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testIsPendingResponse_falseWhenTooShortForResultByte]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testIsPendingResponse_falseWhenTooShortForResultByte]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testIsPendingResponse_trueForPendingAck]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testIsPendingResponse_trueForPendingAck]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testLoneFutureStraddleNeverBecomesFrontier]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testLoneFutureStraddleNeverBecomesFrontier]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testOldestAlignedScanSkipsTheSpuriousOffset6Straddle]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testOldestAlignedScanSkipsTheSpuriousOffset6Straddle]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testOldestKeepsTheMinimumAcrossGridWords]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testOldestKeepsTheMinimumAcrossGridWords]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testOldestReadsAGridAlignedWord]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testOldestReadsAGridAlignedWord]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testPagesBehind_implausibleIsNil]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testPagesBehind_implausibleIsNil]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testPagesBehind_normalNoWrap]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testPagesBehind_normalNoWrap]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testPagesBehind_realCaptures]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testPagesBehind_realCaptures]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testPagesBehind_tooShortIsNil]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testPagesBehind_tooShortIsNil]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testPagesBehind_wraparound]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testPagesBehind_wraparound]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testPendingAckIsExactlyTheFramePagesBehindCannotDecode]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testPendingAckIsExactlyTheFramePagesBehindCannotDecode]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testReadsRealWhoop4NewestAtByteOffset8]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testReadsRealWhoop4NewestAtByteOffset8]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DataRangeTests testValueJustInsideTheSkewIsPresentNotFuture]' started.
+Test Case '-[WhoopProtocolTests.DataRangeTests testValueJustInsideTheSkewIsPresentNotFuture]' passed (0.000 seconds).
+Test Suite 'DataRangeTests' passed at 2026-09-21 23:13:26.887.
+	 Executed 17 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'DecoderOracleTests' started at 2026-09-21 23:13:26.887.
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testDeclaredStreamsMatchOracleManifest]' started.
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testDeclaredStreamsMatchOracleManifest]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testEmptinessVerdictCoversEveryStream]' started.
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testEmptinessVerdictCoversEveryStream]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testOracleCopiesAreIdentical]' started.
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testOracleCopiesAreIdentical]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testOracleCoverageManifestMatchesFixtures]' started.
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testOracleCoverageManifestMatchesFixtures]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testOracleFramesDecodeToExpectedOutput]' started.
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testOracleFramesDecodeToExpectedOutput]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testOracleStreamBatchesAssembleToExpectedShape]' started.
+Test Case '-[WhoopProtocolTests.DecoderOracleTests testOracleStreamBatchesAssembleToExpectedShape]' passed (0.003 seconds).
+Test Suite 'DecoderOracleTests' passed at 2026-09-21 23:13:26.897.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.009 (0.010) seconds
+Test Suite 'DeepCaptureChannelsTests' started at 2026-09-21 23:13:26.897.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testAuxCollectionIsGatedOnLayoutV18]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testAuxCollectionIsGatedOnLayoutV18]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testAuxThermalChannelsRideTheSkinTempRow]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testAuxThermalChannelsRideTheSkinTempRow]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testByte36AndByte37AreTwoIndependentSlots]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testByte36AndByte37AreTwoIndependentSlots]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testDecodedDomainHoldsAFullU32]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testDecodedDomainHoldsAFullU32]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testDynAccelDiagnosticStillFoldsAlongsideTheNewColumn]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testDynAccelDiagnosticStillFoldsAlongsideTheNewColumn]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testDynamicAccelerationRidesTheGravityRow]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testDynamicAccelerationRidesTheGravityRow]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testEveryRemainingV18SlotIsCollected]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testEveryRemainingV18SlotIsCollected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testEverySlotDecoderKeyExistsInARealV18Decode]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testEverySlotDecoderKeyExistsInARealV18Decode]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testEverySlotIsPopulatedFromARealV18Frame]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testEverySlotIsPopulatedFromARealV18Frame]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testNoSlotDuplicatesAFieldAlreadyReachable]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testNoSlotDuplicatesAFieldAlreadyReachable]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testOpticalBaselineIsTwoIndependentSlots]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testOpticalBaselineIsTwoIndependentSlots]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testRetiredU16ReadingsAreNotResurrected]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testRetiredU16ReadingsAreNotResurrected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testShortSlotArrayLeavesTheTailAbsent]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testShortSlotArrayLeavesTheTailAbsent]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testSleepStateCarriesTheWholeFlagByteAndStateIsUnchanged]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testSleepStateCarriesTheWholeFlagByteAndStateIsUnchanged]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testSlotValuesOrderMatchesTheSlotEnum]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testSlotValuesOrderMatchesTheSlotEnum]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testWhoop4V24RecordAddsNothing]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testWhoop4V24RecordAddsNothing]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testZeroFlagByteIsCarriedNotTreatedAsAbsent]' started.
+Test Case '-[WhoopProtocolTests.DeepCaptureChannelsTests testZeroFlagByteIsCarriedNotTreatedAsAbsent]' passed (0.000 seconds).
+Test Suite 'DeepCaptureChannelsTests' passed at 2026-09-21 23:13:26.902.
+	 Executed 17 tests, with 0 failures (0 unexpected) in 0.004 (0.005) seconds
+Test Suite 'DeviceConfigReadProbeTests' started at 2026-09-21 23:13:26.902.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAllowlistAdmitsOnlyTheTwoReadVerbs]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAllowlistAdmitsOnlyTheTwoReadVerbs]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAllowlistRejectsBothConfigWriteVerbs]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAllowlistRejectsBothConfigWriteVerbs]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAllowlistRejectsEveryOtherOpcode]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAllowlistRejectsEveryOtherOpcode]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAnAnsweringFeatureFlagVerbWalksTheFifteenRemainingKnownFlags]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAnAnsweringFeatureFlagVerbWalksTheFifteenRemainingKnownFlags]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAnUndecodableReplyIsNotReportedAsUnserved]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAnUndecodableReplyIsNotReportedAsUnserved]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAnUndecodableReplyRetiresTheVerb]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAnUndecodableReplyRetiresTheVerb]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAProbeThatAskedNothingClaimsNothing]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAProbeThatAskedNothingClaimsNothing]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAVerdictAlreadyReachedIsNotRewrittenByALaterReply]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testAVerdictAlreadyReachedIsNotRewrittenByALaterReply]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testBadCRCIsRejected]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testBadCRCIsRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testBothVerbsUnsupportedEndsTheProbeAfterTwoRoundTrips]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testBothVerbsUnsupportedEndsTheProbeAfterTwoRoundTrips]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testCandidateKeysAreLabelledAsGuesses]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testCandidateKeysAreLabelledAsGuesses]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testCandidatesPreferTheDeviceConfigVerbWhenBothAnswer]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testCandidatesPreferTheDeviceConfigVerbWhenBothAnswer]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testDiscoveryTriesEachVerbOnceBeforeAnythingElse]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testDiscoveryTriesEachVerbOnceBeforeAnythingElse]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testGoldenReportIsByteIdenticalAcrossPlatforms]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testGoldenReportIsByteIdenticalAcrossPlatforms]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testKeyMustSitInARealNulPaddedFieldNotJustAppearInTheBytes]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testKeyMustSitInARealNulPaddedFieldNotJustAppearInTheBytes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testNoValueIsClaimedWhenTheReplyDoesNotEchoTheKey]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testNoValueIsClaimedWhenTheReplyDoesNotEchoTheKey]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testOneRefusalIsNotGeneralisedToTheVerbThatWasNeverHeardFrom]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testOneRefusalIsNotGeneralisedToTheVerbThatWasNeverHeardFrom]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testOxygenCandidateListIsShortAndOxygenNamed]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testOxygenCandidateListIsShortAndOxygenNamed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testParseDecodesTheRecordAndResultCodeOnWhoop5]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testParseDecodesTheRecordAndResultCodeOnWhoop5]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testParseOnWhoop4LeavesTheResultCodeUnlabelled]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testParseOnWhoop4LeavesTheResultCodeUnlabelled]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testRequestBodyIsTheB3ByteThenA32ByteNulPaddedName]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testRequestBodyIsTheB3ByteThenA32ByteNulPaddedName]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testRequestBodyTruncatesAnOverlongNameLikeTheSetSide]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testRequestBodyTruncatesAnOverlongNameLikeTheSetSide]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testSilentVerbsEndTheProbeAndAreSaidPlainly]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testSilentVerbsEndTheProbeAndAreSaidPlainly]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testThePlanIsCappedEvenWithAnAbsurdKeyList]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testThePlanIsCappedEvenWithAnAbsurdKeyList]' passed (0.004 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testTruncatedRecordIsRejected]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testTruncatedRecordIsRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testUnsupportedResultIsRecognised]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testUnsupportedResultIsRecognised]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testValueIsNotClaimedWhenTheRecordStopsAtTheNameField]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testValueIsNotClaimedWhenTheRecordStopsAtTheNameField]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testWrongCommandAndWrongTypeAreRejected]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigReadProbeTests testWrongCommandAndWrongTypeAreRejected]' passed (0.000 seconds).
+Test Suite 'DeviceConfigReadProbeTests' passed at 2026-09-21 23:13:26.912.
+	 Executed 28 tests, with 0 failures (0 unexpected) in 0.008 (0.010) seconds
+Test Suite 'DeviceConfigWriteGateTests' started at 2026-09-21 23:13:26.912.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testAdmitsBroadcastHrDisableWriteRegardlessOfOptIn]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testAdmitsBroadcastHrDisableWriteRegardlessOfOptIn]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testAdmitsBroadcastHrKeyOnlyUnderItsOwnOptIn]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testAdmitsBroadcastHrKeyOnlyUnderItsOwnOptIn]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testAdmitsEcgKeyOnlyWhenOptedInOnAnAttestedMG]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testAdmitsEcgKeyOnlyWhenOptedInOnAnAttestedMG]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testBroadcastHrReadBackVerdictTable]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testBroadcastHrReadBackVerdictTable]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testConfirmedOnlyWhenTheReadBackReturnsWhatWasAsked]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testConfirmedOnlyWhenTheReadBackReturnsWhatWasAsked]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testKeyNameParsingRejectsNonNulPaddingAndNonAscii]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testKeyNameParsingRejectsNonNulPaddingAndNonAscii]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testReadBackIsCrcGatedLikeEveryOtherDecode]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testReadBackIsCrcGatedLikeEveryOtherDecode]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testReadBackOpcodeIsOnly121]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testReadBackOpcodeIsOnly121]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testReadBackPayloadMatchesTheReadProbesRequestShape]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testReadBackPayloadMatchesTheReadProbesRequestShape]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRefusedSilentNotClaimedAndUndecodableAreNeverSuccess]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRefusedSilentNotClaimedAndUndecodableAreNeverSuccess]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRefusesEveryOtherEnumeratedKeyEvenWithBothOptInsOn]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRefusesEveryOtherEnumeratedKeyEvenWithBothOptInsOn]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRefusesEveryOtherOpcodeInTheWholeByteRange]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRefusesEveryOtherOpcodeInTheWholeByteRange]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRefusesSetFeatureFlagValue120ForEveryKeyAndEveryOptIn]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRefusesSetFeatureFlagValue120ForEveryKeyAndEveryOptIn]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRefusesUnknownAndMalformedKeys]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRefusesUnknownAndMalformedKeys]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRenderNamesTheKeyTheVerbsAndTheOpenQuestion]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testRenderNamesTheKeyTheVerbsAndTheOpenQuestion]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testSuccessAckWithAnUnmovedValueIsUnchangedNotSuccess]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testSuccessAckWithAnUnmovedValueIsUnchangedNotSuccess]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testTurningTheGateBackOffConfirmsOnZero]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testTurningTheGateBackOffConfirmsOnZero]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testValueReadsTheSingleDigitGateValue]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testValueReadsTheSingleDigitGateValue]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testWritePayloadIsTheHardwareValidatedBroadcastHrShape]' started.
+Test Case '-[WhoopProtocolTests.DeviceConfigWriteGateTests testWritePayloadIsTheHardwareValidatedBroadcastHrShape]' passed (0.000 seconds).
+Test Suite 'DeviceConfigWriteGateTests' passed at 2026-09-21 23:13:26.915.
+	 Executed 19 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'DeviceFamilyFramingTests' started at 2026-09-21 23:13:26.915.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testCrc16ModbusKnownVectors]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testCrc16ModbusKnownVectors]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testDiagnosticGattFamiliesAreMetadataOnly]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testDiagnosticGattFamiliesAreMetadataOnly]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testEmptyAdvertisementServiceListPreservesLegacyConnectPath]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testEmptyAdvertisementServiceListPreservesLegacyConnectPath]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testFamilyMetadata]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testFamilyMetadata]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testMaverickAlarmPayloadBytes]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testMaverickAlarmPayloadBytes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testParseWhoop4FamilyOverloadMatchesLegacy]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testParseWhoop4FamilyOverloadMatchesLegacy]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testParseWhoop5CommandResponseFrame]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testParseWhoop5CommandResponseFrame]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testParseWhoop5FrameAliasesPuffinAndParsesEnvelope]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testParseWhoop5FrameAliasesPuffinAndParsesEnvelope]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testPuffinAlarmFramesMatchKotlinParityGoldens]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testPuffinAlarmFramesMatchKotlinParityGoldens]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testPuffinCommandFrameVerifies]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testPuffinCommandFrameVerifies]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testPuffinHapticsFrameMatchesMaverickGolden]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testPuffinHapticsFrameMatchesMaverickGolden]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testPuffinOneShotBuzzSequenceGoldens]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testPuffinOneShotBuzzSequenceGoldens]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testPuffinTypeNamesAliased]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testPuffinTypeNamesAliased]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testReassemblerWhoop4DefaultUnchanged]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testReassemblerWhoop4DefaultUnchanged]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testReassemblerWhoop5BackToBackFrames]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testReassemblerWhoop5BackToBackFrames]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testReassemblerWhoop5DiscardsLeadingGarbage]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testReassemblerWhoop5DiscardsLeadingGarbage]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testReassemblerWhoop5SingleFrame]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testReassemblerWhoop5SingleFrame]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testReassemblerWhoop5SplitAcrossFragments]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testReassemblerWhoop5SplitAcrossFragments]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testSelectedServiceAdvertisementsStillConnect]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testSelectedServiceAdvertisementsStillConnect]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testSupportedGattFamiliesRemainTheOnlyConnectableFamilies]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testSupportedGattFamiliesRemainTheOnlyConnectableFamilies]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testUnsupportedAdvertisementsDoNotConnect]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testUnsupportedAdvertisementsDoNotConnect]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testVerifyValidWhoop5Frame]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testVerifyValidWhoop5Frame]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop4FamilyOverloadMatchesLegacy]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop4FamilyOverloadMatchesLegacy]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop4OnWhoop5FrameFailsHeaderCRC]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop4OnWhoop5FrameFailsHeaderCRC]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop5ClientHelloBytesAndVerify]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop5ClientHelloBytesAndVerify]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop5HeaderCorruptionDetected]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop5HeaderCorruptionDetected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop5NonSOFRejected]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop5NonSOFRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop5PayloadCorruptionDetected]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop5PayloadCorruptionDetected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop5ShortFrameRejected]' started.
+Test Case '-[WhoopProtocolTests.DeviceFamilyFramingTests testWhoop5ShortFrameRejected]' passed (0.000 seconds).
+Test Suite 'DeviceFamilyFramingTests' passed at 2026-09-21 23:13:26.919.
+	 Executed 29 tests, with 0 failures (0 unexpected) in 0.002 (0.004) seconds
+Test Suite 'DynAccelDiagTests' started at 2026-09-21 23:13:26.919.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testEmptyDiagIsSilent]' started.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testEmptyDiagIsSilent]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testExtractionPopulatesDiagFromARealFrame]' started.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testExtractionPopulatesDiagFromARealFrame]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testFoldsRealOracleValues]' started.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testFoldsRealOracleValues]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testLogLineFormat]' started.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testLogLineFormat]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testMergeCombinesChunks]' started.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testMergeCombinesChunks]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testMergeIntoEmptyAdoptsBounds]' started.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testMergeIntoEmptyAdoptsBounds]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testMergingEmptyIsNoOp]' started.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testMergingEmptyIsNoOp]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testNonFiniteValuesAreIgnored]' started.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testNonFiniteValuesAreIgnored]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testThresholdIsExclusive]' started.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testThresholdIsExclusive]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testTiesRoundAwayFromZeroNotPrintfStyle]' started.
+Test Case '-[WhoopProtocolTests.DynAccelDiagTests testTiesRoundAwayFromZeroNotPrintfStyle]' passed (0.000 seconds).
+Test Suite 'DynAccelDiagTests' passed at 2026-09-21 23:13:26.921.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'EmptyHistoryVerificationTests' started at 2026-09-21 23:13:26.921.
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testCorruptFrameCannotBecomeAnEmptySession]' started.
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testCorruptFrameCannotBecomeAnEmptySession]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testEmptyChunkCanBeAcknowledgedButIsNotCompletion]' started.
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testEmptyChunkCanBeAcknowledgedButIsNotCompletion]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testEmptySessionRequiresStartThenCompleteForBothFamilies]' started.
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testEmptySessionRequiresStartThenCompleteForBothFamilies]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testFragmentedMetadataIsAcceptedWithoutDroppingBytes]' started.
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testFragmentedMetadataIsAcceptedWithoutDroppingBytes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testGarbageAndDataAfterCompleteInSameNotificationFailClosed]' started.
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testGarbageAndDataAfterCompleteInSameNotificationFailClosed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testIncompleteHistoryOnAnotherCharacteristicPreventsSuccess]' started.
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testIncompleteHistoryOnAnotherCharacteristicPreventsSuccess]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testOldRecordsAndEventsFailWithoutAcknowledgement]' started.
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testOldRecordsAndEventsFailWithoutAcknowledgement]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testShortEndAndRepeatedStartFailClosed]' started.
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testShortEndAndRepeatedStartFailClosed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testUnsolicitedCompleteCannotFinishSetup]' started.
+Test Case '-[WhoopProtocolTests.EmptyHistoryVerificationTests testUnsolicitedCompleteCannotFinishSetup]' passed (0.000 seconds).
+Test Suite 'EmptyHistoryVerificationTests' passed at 2026-09-21 23:13:26.922.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'ExtendedBatteryProbeTests' started at 2026-09-21 23:13:26.922.
+Test Case '-[WhoopProtocolTests.ExtendedBatteryProbeTests testBareStub_isCalledOut]' started.
+Test Case '-[WhoopProtocolTests.ExtendedBatteryProbeTests testBareStub_isCalledOut]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ExtendedBatteryProbeTests testDiff_flagsTheChangedBytes]' started.
+Test Case '-[WhoopProtocolTests.ExtendedBatteryProbeTests testDiff_flagsTheChangedBytes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ExtendedBatteryProbeTests testWhoop4RealCapture_acceptedWithVoltageAndGrid]' started.
+Test Case '-[WhoopProtocolTests.ExtendedBatteryProbeTests testWhoop4RealCapture_acceptedWithVoltageAndGrid]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ExtendedBatteryProbeTests testWhoop5Payload_doesNotPrintAGuessedVoltage]' started.
+Test Case '-[WhoopProtocolTests.ExtendedBatteryProbeTests testWhoop5Payload_doesNotPrintAGuessedVoltage]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ExtendedBatteryProbeTests testWhoop5Unsupported_isDecisiveVerdict]' started.
+Test Case '-[WhoopProtocolTests.ExtendedBatteryProbeTests testWhoop5Unsupported_isDecisiveVerdict]' passed (0.000 seconds).
+Test Suite 'ExtendedBatteryProbeTests' passed at 2026-09-21 23:13:26.923.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'FTMSDecodeTests' started at 2026-09-21 23:13:26.923.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testBatteryClampsAbove100AndRejectsEmpty]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testBatteryClampsAbove100AndRejectsEmpty]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testBatteryPercentParse]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testBatteryPercentParse]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testCrossTrainerStepRateDistancePowerHR]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testCrossTrainerStepRateDistancePowerHR]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testDecodeByUUIDDispatch]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testDecodeByUUIDDispatch]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testEmptyAndShortBuffersNeverCrash]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testEmptyAndShortBuffersNeverCrash]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testHugeBufferIsBounded]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testHugeBufferIsBounded]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testIndoorBikeNegativePowerIsSigned]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testIndoorBikeNegativePowerIsSigned]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testIndoorBikeSpeedCadencePowerEnergyHR]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testIndoorBikeSpeedCadencePowerEnergyHR]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testRowerMoreDataBitOmitsStroke]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testRowerMoreDataBitOmitsStroke]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testRowerStrokeRateDistancePowerEnergyHR]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testRowerStrokeRateDistancePowerEnergyHR]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testTreadmillInclinationAndElevationAreSkippedNotMisread]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testTreadmillInclinationAndElevationAreSkippedNotMisread]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testTreadmillMoreDataBitOmitsSpeed]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testTreadmillMoreDataBitOmitsSpeed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testTreadmillSpeedDistanceEnergyHRElapsed]' started.
+Test Case '-[WhoopProtocolTests.FTMSDecodeTests testTreadmillSpeedDistanceEnergyHRElapsed]' passed (0.000 seconds).
+Test Suite 'FTMSDecodeTests' passed at 2026-09-21 23:13:26.925.
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'FastPathParityTests' started at 2026-09-21 23:13:26.925.
+Test Case '-[WhoopProtocolTests.FastPathParityTests testDefaultIsTheDecodeOnlyFastPath]' started.
+Test Case '-[WhoopProtocolTests.FastPathParityTests testDefaultIsTheDecodeOnlyFastPath]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFastPathMatchesFullPathOnWhoop4HistoricalCorpus]' started.
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFastPathMatchesFullPathOnWhoop4HistoricalCorpus]' passed (0.010 seconds).
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFastPathMatchesFullPathOnWhoop4ParityCorpus]' started.
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFastPathMatchesFullPathOnWhoop4ParityCorpus]' passed (0.026 seconds).
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFastPathMatchesFullPathOnWhoop5HardwareVectors]' started.
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFastPathMatchesFullPathOnWhoop5HardwareVectors]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFrameTypeNamePreFilterMatchesFullParse]' started.
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFrameTypeNamePreFilterMatchesFullParse]' passed (0.004 seconds).
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFullPathFieldGoldensOnKnownWhoop4Frame]' started.
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFullPathFieldGoldensOnKnownWhoop4Frame]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFullPathFieldRawHexMatchesFrameBytesAcrossCorpus]' started.
+Test Case '-[WhoopProtocolTests.FastPathParityTests testFullPathFieldRawHexMatchesFrameBytesAcrossCorpus]' passed (0.036 seconds).
+Test Suite 'FastPathParityTests' passed at 2026-09-21 23:13:27.003.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.078 (0.078) seconds
+Test Suite 'FeatureFlagProbeTests' started at 2026-09-21 23:13:27.003.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnnouncedCountVersusKeysYieldedMismatchIsReported]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnnouncedCountVersusKeysYieldedMismatchIsReported]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnnouncedCountWithARealEmptyWalkIsSaidPlainly]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnnouncedCountWithARealEmptyWalkIsSaidPlainly]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnnouncedCountWithNo118ReplyIsInconclusiveNotBlamedOnTheStrap]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnnouncedCountWithNo118ReplyIsInconclusiveNotBlamedOnTheStrap]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnUndecodableEntryAfterAnEmptySlotIsStillDecisive]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnUndecodableEntryAfterAnEmptySlotIsStillDecisive]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnUndecodableEntryDoesNotHideTheKeysAfterIt]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnUndecodableEntryDoesNotHideTheKeysAfterIt]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnUnendingRunOfEmptySlotsStopsAtTheConsecutiveCap]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAnUnendingRunOfEmptySlotsStopsAtTheConsecutiveCap]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAValidEntryResetsTheConsecutiveEmptySlotRun]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testAValidEntryResetsTheConsecutiveEmptySlotRun]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testBadCRCIsRejected]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testBadCRCIsRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testCorruptPayloadBytesFailCRCBeforeAnyFieldIsRead]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testCorruptPayloadBytesFailCRCBeforeAnyFieldIsRead]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testCountCarriesBothReadingsAndSaysWhenTheyAgree]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testCountCarriesBothReadingsAndSaysWhenTheyAgree]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testDeviceConfigNamespaceWalksThroughTheSameCorrectedRules]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testDeviceConfigNamespaceWalksThroughTheSameCorrectedRules]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testEndMarkerCarryingValidKeyZeroIsReportedAsAmbiguous]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testEndMarkerCarryingValidKeyZeroIsReportedAsAmbiguous]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testEndMarkerWithValidKeyTrueSaysValidKeyZeroIsUntested]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testEndMarkerWithValidKeyTrueSaysValidKeyZeroIsUntested]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testEveryReplyLogsItsRawRecordBytes]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testEveryReplyLogsItsRawRecordBytes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testEveryReplyUndecodableStillStopsAtTheSafetyCap]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testEveryReplyUndecodableStillStopsAtTheSafetyCap]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testExhaustedCursorIsTheEndMarker]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testExhaustedCursorIsTheEndMarker]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testFullWalkRendersEveryKeyAndStopsOnTheEndMarker]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testFullWalkRendersEveryKeyAndStopsOnTheEndMarker]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testFullyAccountedCountIsNotFlaggedAsAMismatch]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testFullyAccountedCountIsNotFlaggedAsAMismatch]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testGoldenReportIsByteIdenticalAcrossPlatforms]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testGoldenReportIsByteIdenticalAcrossPlatforms]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testImplausibleAnnouncedCountIsNotRestatedAsFactInTheVerdict]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testImplausibleAnnouncedCountIsNotRestatedAsFactInTheVerdict]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testImplausibleCountIsFlaggedNotTrusted]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testImplausibleCountIsFlaggedNotTrusted]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testKeyLongerThanTheSetSideFieldIsRejected]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testKeyLongerThanTheSetSideFieldIsRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testNextDecodesOnWhoop5Too]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testNextDecodesOnWhoop5Too]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testNextDecodesTheKeyName]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testNextDecodesTheKeyName]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testNonCommandResponseTypeIsRejected]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testNonCommandResponseTypeIsRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testNonPrintableNameIsNotReportedAsAKey]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testNonPrintableNameIsNotReportedAsAKey]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testNonZeroHighByteIsReportedAsADisagreement]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testNonZeroHighByteIsReportedAsADisagreement]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testOpcodesAreTheEnumeratePairOnly]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testOpcodesAreTheEnumeratePairOnly]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testOverLongRawRecordIsElidedButItsLengthIsKept]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testOverLongRawRecordIsElidedButItsLengthIsKept]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testRepeatedEmptySlotAtTheSameIndexIsReportedAsATerminator]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testRepeatedEmptySlotAtTheSameIndexIsReportedAsATerminator]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testRepeatedKeysCannotDriveAnUnboundedWalk]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testRepeatedKeysCannotDriveAnUnboundedWalk]' passed (0.003 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testStartDecodesOnWhoop5AndSurfacesTheResultCode]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testStartDecodesOnWhoop5AndSurfacesTheResultCode]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testStartDecodesRevisionAndCountOnWhoop4]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testStartDecodesRevisionAndCountOnWhoop4]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testStartWithUnsupportedResultIsStillDecodedAndVerdictSaysRejected]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testStartWithUnsupportedResultIsStillDecodedAndVerdictSaysRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testTheTwoNamespacesDoNotDecodeEachOthersFrames]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testTheTwoNamespacesDoNotDecodeEachOthersFrames]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testTimeoutAndFailureAreReportedNotSwallowed]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testTimeoutAndFailureAreReportedNotSwallowed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testTruncatedRecordsAreRejected]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testTruncatedRecordsAreRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testUndecodedReplyLogsTheWholeRawFrame]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testUndecodedReplyLogsTheWholeRawFrame]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testUnsupportedRefusalEndsTheWalkWithItsOwnStopCode]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testUnsupportedRefusalEndsTheWalkWithItsOwnStopCode]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testValidKeyFalseIsAnEmptySlotNotTheEndMarker]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testValidKeyFalseIsAnEmptySlotNotTheEndMarker]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testVerdictBlamesOurParserNotTheStrapWhenEveryNameFails]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testVerdictBlamesOurParserNotTheStrapWhenEveryNameFails]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testVerdictReportsSkippedAlongsideTheKeysItDidGet]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testVerdictReportsSkippedAlongsideTheKeysItDidGet]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testWalkBoundsMatchTheKotlinTwin]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testWalkBoundsMatchTheKotlinTwin]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testWalkContinuesPastValidKeyZeroAndCollectsTheKeysAfterIt]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testWalkContinuesPastValidKeyZeroAndCollectsTheKeysAfterIt]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testWalkOvershootsTheAnnouncedCountSoTheStrapCanEndItsOwnList]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testWalkOvershootsTheAnnouncedCountSoTheStrapCanEndItsOwnList]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testWrongCommandIsRejected]' started.
+Test Case '-[WhoopProtocolTests.FeatureFlagProbeTests testWrongCommandIsRejected]' passed (0.000 seconds).
+Test Suite 'FeatureFlagProbeTests' passed at 2026-09-21 23:13:27.013.
+	 Executed 46 tests, with 0 failures (0 unexpected) in 0.008 (0.010) seconds
+Test Suite 'FirmwareGateDiagnosticTests' started at 2026-09-21 23:13:27.013.
+Test Case '-[WhoopProtocolTests.FirmwareGateDiagnosticTests testAPayloadEndingExactlyAtTheWindowStartYieldsAnEmptyWindow]' started.
+Test Case '-[WhoopProtocolTests.FirmwareGateDiagnosticTests testAPayloadEndingExactlyAtTheWindowStartYieldsAnEmptyWindow]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FirmwareGateDiagnosticTests testAShortPayloadCannotTrapAndSaysSo]' started.
+Test Case '-[WhoopProtocolTests.FirmwareGateDiagnosticTests testAShortPayloadCannotTrapAndSaysSo]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FirmwareGateDiagnosticTests testCarriesTheNameEndBecauseThatIsWhatMovesTheOffset]' started.
+Test Case '-[WhoopProtocolTests.FirmwareGateDiagnosticTests testCarriesTheNameEndBecauseThatIsWhatMovesTheOffset]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FirmwareGateDiagnosticTests testReportsTheByteItActuallySawAndTheExpectedOne]' started.
+Test Case '-[WhoopProtocolTests.FirmwareGateDiagnosticTests testReportsTheByteItActuallySawAndTheExpectedOne]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FirmwareGateDiagnosticTests testTheHexWindowSpansTheRegionTheVersionShouldOccupy]' started.
+Test Case '-[WhoopProtocolTests.FirmwareGateDiagnosticTests testTheHexWindowSpansTheRegionTheVersionShouldOccupy]' passed (0.000 seconds).
+Test Suite 'FirmwareGateDiagnosticTests' passed at 2026-09-21 23:13:27.014.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'FitnessSensorDecodeTests' started at 2026-09-21 23:13:27.014.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCPSCrankDataAfterSkippedOptionalsDecodesCleanly]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCPSCrankDataAfterSkippedOptionalsDecodesCleanly]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCPSInstantaneousPowerAlwaysPresent]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCPSInstantaneousPowerAlwaysPresent]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCPSNegativePowerIsSigned]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCPSNegativePowerIsSigned]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCPSWheelDataDerivesSpeed]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCPSWheelDataDerivesSpeed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCSCCrankOnlyOmitsWheel]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCSCCrankOnlyOmitsWheel]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCSCWheelAndCrankRawFields]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testCSCWheelAndCrankRawFields]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testDecodeByUUIDDispatch]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testDecodeByUUIDDispatch]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testEmptyAndShortBuffersNeverCrash]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testEmptyAndShortBuffersNeverCrash]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testHugeBufferIsBounded]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testHugeBufferIsBounded]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerCPSCrankStaysAt1024]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerCPSCrankStaysAt1024]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerCPSWheelDerivesDoubleTheCSCSpeedForIdenticalBytes]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerCPSWheelDerivesDoubleTheCSCSpeedForIdenticalBytes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerCPSWheelEventTimeTicksAt2048]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerCPSWheelEventTimeTicksAt2048]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerDerivesSpeedAndCadenceFromTwoPackets]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerDerivesSpeedAndCadenceFromTwoPackets]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerFirstPacketYieldsNil]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerFirstPacketYieldsNil]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerHandlesCrankCounterWrap]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerHandlesCrankCounterWrap]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerHandlesEventTimeWrap]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerHandlesEventTimeWrap]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerNoNewRevolutionYieldsNil]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerNoNewRevolutionYieldsNil]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerResetClearsBaseline]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerResetClearsBaseline]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerWheelKindFlipYieldsNilThenReseeds]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRateComputerWheelKindFlipYieldsNilThenReseeds]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRSCRunningFlagAndTotalDistanceWithStrideSkipped]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRSCRunningFlagAndTotalDistanceWithStrideSkipped]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRSCSpeedAndCadenceAlwaysPresent]' started.
+Test Case '-[WhoopProtocolTests.FitnessSensorDecodeTests testRSCSpeedAndCadenceAlwaysPresent]' passed (0.000 seconds).
+Test Suite 'FitnessSensorDecodeTests' passed at 2026-09-21 23:13:27.016.
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'FramingTests' started at 2026-09-21 23:13:27.016.
+Test Case '-[WhoopProtocolTests.FramingTests testCrc32EmptyIsZero]' started.
+Test Case '-[WhoopProtocolTests.FramingTests testCrc32EmptyIsZero]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FramingTests testCrc8KnownVector]' started.
+Test Case '-[WhoopProtocolTests.FramingTests testCrc8KnownVector]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FramingTests testFlippingByteBreaksCRC]' started.
+Test Case '-[WhoopProtocolTests.FramingTests testFlippingByteBreaksCRC]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FramingTests testFlippingCrc8ByteBreaksCRC]' started.
+Test Case '-[WhoopProtocolTests.FramingTests testFlippingCrc8ByteBreaksCRC]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FramingTests testFrameFromPayloadDefaults]' started.
+Test Case '-[WhoopProtocolTests.FramingTests testFrameFromPayloadDefaults]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FramingTests testFrameFromPayloadRoundTrip]' started.
+Test Case '-[WhoopProtocolTests.FramingTests testFrameFromPayloadRoundTrip]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FramingTests testNonSOFRejected]' started.
+Test Case '-[WhoopProtocolTests.FramingTests testNonSOFRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FramingTests testShortFrameRejected]' started.
+Test Case '-[WhoopProtocolTests.FramingTests testShortFrameRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FramingTests testVerifyFrameCommandResponse]' started.
+Test Case '-[WhoopProtocolTests.FramingTests testVerifyFrameCommandResponse]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.FramingTests testVerifyFrameRealtimeData]' started.
+Test Case '-[WhoopProtocolTests.FramingTests testVerifyFrameRealtimeData]' passed (0.000 seconds).
+Test Suite 'FramingTests' passed at 2026-09-21 23:13:27.017.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'HapticClockTests' started at 2026-09-21 23:13:27.017.
+Test Case '-[WhoopProtocolTests.HapticClockTests test0325_24h_exactPulseList]' started.
+Test Case '-[WhoopProtocolTests.HapticClockTests test0325_24h_exactPulseList]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HapticClockTests test1005_24h_handlesZeroDigits]' started.
+Test Case '-[WhoopProtocolTests.HapticClockTests test1005_24h_handlesZeroDigits]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HapticClockTests test1525_12h_mapsTo0325]' started.
+Test Case '-[WhoopProtocolTests.HapticClockTests test1525_12h_mapsTo0325]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HapticClockTests testClampsOutOfRange]' started.
+Test Case '-[WhoopProtocolTests.HapticClockTests testClampsOutOfRange]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HapticClockTests testMidnight_12h_readsTwelve]' started.
+Test Case '-[WhoopProtocolTests.HapticClockTests testMidnight_12h_readsTwelve]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HapticClockTests testMidnight_24h_isEmpty]' started.
+Test Case '-[WhoopProtocolTests.HapticClockTests testMidnight_24h_isEmpty]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HapticClockTests testNoon_12h_isTwelve]' started.
+Test Case '-[WhoopProtocolTests.HapticClockTests testNoon_12h_isTwelve]' passed (0.000 seconds).
+Test Suite 'HapticClockTests' passed at 2026-09-21 23:13:27.018.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'HelloIdentityProbeTests' started at 2026-09-21 23:13:27.018.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testAMixedRunIsDescribedButWithheld]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testAMixedRunIsDescribedButWithheld]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testAnAllBinaryBlockReportsNoneWithItsLength]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testAnAllBinaryBlockReportsNoneWithItsLength]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testAnEmptyPayloadIsSafe]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testAnEmptyPayloadIsSafe]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testAnOverlongAlnumRunIsWithheld]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testAnOverlongAlnumRunIsWithheld]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testARunFlushWithTheEndIsReported]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testARunFlushWithTheEndIsReported]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testASerialShapedRunAtTheNameOffsetIsStillPrinted]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testASerialShapedRunAtTheNameOffsetIsStillPrinted]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testASerialShapedRunIsPrinted]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testASerialShapedRunIsPrinted]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testBlockLabelReachesThePrefix]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testBlockLabelReachesThePrefix]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testReportThreadsItsTuningThrough]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testReportThreadsItsTuningThrough]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testRunsAreReportedInOffsetOrder]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testRunsAreReportedInOffsetOrder]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testShortRunsAreIgnored]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testShortRunsAreIgnored]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testTheKnownNameRunIsLabelledNotQuoted]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testTheKnownNameRunIsLabelledNotQuoted]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testWhoop4HelloHarvardShapeShowsSerialAndWithholdsDeviceKey]' started.
+Test Case '-[WhoopProtocolTests.HelloIdentityProbeTests testWhoop4HelloHarvardShapeShowsSerialAndWithholdsDeviceKey]' passed (0.000 seconds).
+Test Suite 'HelloIdentityProbeTests' passed at 2026-09-21 23:13:27.019.
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'HistoricalMetaTests' started at 2026-09-21 23:13:27.019.
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryComplete]' started.
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryComplete]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryCompleteParsedDict]' started.
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryCompleteParsedDict]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryEnd]' started.
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryEnd]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryEndParsedDict]' started.
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryEndParsedDict]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryEndShortPayload]' started.
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryEndShortPayload]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryStart]' started.
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryStart]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryStartParsedDict]' started.
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testHistoryStartParsedDict]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testNonMetadataFrame]' started.
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testNonMetadataFrame]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testUnknownMetaType]' started.
+Test Case '-[WhoopProtocolTests.HistoricalMetaTests testUnknownMetaType]' passed (0.000 seconds).
+Test Suite 'HistoricalMetaTests' passed at 2026-09-21 23:13:27.020.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'HistoricalStreamsParityTests' started at 2026-09-21 23:13:27.020.
+Test Case '-[WhoopProtocolTests.HistoricalStreamsParityTests testSwiftHistoricalMatchesPythonGolden]' started.
+Test Case '-[WhoopProtocolTests.HistoricalStreamsParityTests testSwiftHistoricalMatchesPythonGolden]' passed (0.002 seconds).
+Test Suite 'HistoricalStreamsParityTests' passed at 2026-09-21 23:13:27.022.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'HistoricalTimestampGateTests' started at 2026-09-21 23:13:27.022.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testBoundsMatchAndroid]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testBoundsMatchAndroid]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testCapturesDroppedEpochSpan]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testCapturesDroppedEpochSpan]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testCapturesDroppedRtcStateEvent]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testCapturesDroppedRtcStateEvent]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testIdentityRefTrustsRealRawTimestamp]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testIdentityRefTrustsRealRawTimestamp]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testIsPlausiblePredicate]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testIsPlausiblePredicate]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testKeepsNormalRecord]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testKeepsNormalRecord]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testMixedChunkKeepsOnlyPlausible]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testMixedChunkKeepsOnlyPlausible]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testNoDropLeavesSpanNil]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testNoDropLeavesSpanNil]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testNonRtcDroppedEventNotCaptured]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testNonRtcDroppedEventNotCaptured]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testPlausibleRtcEventKeptNotCaptured]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testPlausibleRtcEventKeptNotCaptured]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testRejectsFarPastRecord]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testRejectsFarPastRecord]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testRejectsFutureDatedRecord]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testRejectsFutureDatedRecord]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testRtcStateKindMatch]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testRtcStateKindMatch]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testSessionRelativeBoundsParity]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testSessionRelativeBoundsParity]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testSessionRelativeDropsInWindowFloorClearingGarbage]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testSessionRelativeDropsInWindowFloorClearingGarbage]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testSessionRelativeFallsBackToAbsoluteWithoutMarkers]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testSessionRelativeFallsBackToAbsoluteWithoutMarkers]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testSessionRelativeIgnoresMalformedMarkers]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testSessionRelativeIgnoresMalformedMarkers]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testSessionRelativeKeepsLegitimatelyOldInWindowBackfill]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testSessionRelativeKeepsLegitimatelyOldInWindowBackfill]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testStaleClockOvershootFallsBackToRawThenGetsGated]' started.
+Test Case '-[WhoopProtocolTests.HistoricalTimestampGateTests testStaleClockOvershootFallsBackToRawThenGetsGated]' passed (0.000 seconds).
+Test Suite 'HistoricalTimestampGateTests' passed at 2026-09-21 23:13:27.028.
+	 Executed 19 tests, with 0 failures (0 unexpected) in 0.005 (0.006) seconds
+Test Suite 'HistoricalV24Tests' started at 2026-09-21 23:13:27.028.
+Test Case '-[WhoopProtocolTests.HistoricalV24Tests testUnmappedVersionFallsBackGracefully]' started.
+Test Case '-[WhoopProtocolTests.HistoricalV24Tests testUnmappedVersionFallsBackGracefully]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalV24Tests testV24BiometricFields]' started.
+Test Case '-[WhoopProtocolTests.HistoricalV24Tests testV24BiometricFields]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalV24Tests testV24DecodesAsHistoricalData]' started.
+Test Case '-[WhoopProtocolTests.HistoricalV24Tests testV24DecodesAsHistoricalData]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalV24Tests testV24ExtractHistoricalStreams]' started.
+Test Case '-[WhoopProtocolTests.HistoricalV24Tests testV24ExtractHistoricalStreams]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.HistoricalV24Tests testV24GravityIsF32UnitVector]' started.
+Test Case '-[WhoopProtocolTests.HistoricalV24Tests testV24GravityIsF32UnitVector]' passed (0.000 seconds).
+Test Suite 'HistoricalV24Tests' passed at 2026-09-21 23:13:27.029.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'InterpreterEnvelopeTests' started at 2026-09-21 23:13:27.029.
+Test Case '-[WhoopProtocolTests.InterpreterEnvelopeTests testCommandResponseCmdName]' started.
+Test Case '-[WhoopProtocolTests.InterpreterEnvelopeTests testCommandResponseCmdName]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.InterpreterEnvelopeTests testInvalidFrame]' started.
+Test Case '-[WhoopProtocolTests.InterpreterEnvelopeTests testInvalidFrame]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.InterpreterEnvelopeTests testRealtimeDataEnvelopeAndStaticFields]' started.
+Test Case '-[WhoopProtocolTests.InterpreterEnvelopeTests testRealtimeDataEnvelopeAndStaticFields]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.InterpreterEnvelopeTests testUnknownPacketTypeFallsBack]' started.
+Test Case '-[WhoopProtocolTests.InterpreterEnvelopeTests testUnknownPacketTypeFallsBack]' passed (0.000 seconds).
+Test Suite 'InterpreterEnvelopeTests' passed at 2026-09-21 23:13:27.030.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'LiveSessionHapticsTests' started at 2026-09-21 23:13:27.030.
+Test Case '-[WhoopProtocolTests.LiveSessionHapticsTests test_easeOff_is_three_heavy_taps]' started.
+Test Case '-[WhoopProtocolTests.LiveSessionHapticsTests test_easeOff_is_three_heavy_taps]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.LiveSessionHapticsTests test_push_is_two_light_taps]' started.
+Test Case '-[WhoopProtocolTests.LiveSessionHapticsTests test_push_is_two_light_taps]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.LiveSessionHapticsTests test_signals_are_distinguishable_by_count_and_weight]' started.
+Test Case '-[WhoopProtocolTests.LiveSessionHapticsTests test_signals_are_distinguishable_by_count_and_weight]' passed (0.000 seconds).
+Test Suite 'LiveSessionHapticsTests' passed at 2026-09-21 23:13:27.030.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'OpticalExperimentAnalysisTests' started at 2026-09-21 23:13:27.030.
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testAssignsDelayedOffloadByStrapTimestampAndComparesBlocks]' started.
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testAssignsDelayedOffloadByStrapTimestampAndComparesBlocks]' passed (0.005 seconds).
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testComparisonIgnoresDifferentPhaseDurationsWithSameSampleCount]' started.
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testComparisonIgnoresDifferentPhaseDurationsWithSameSampleCount]' passed (0.010 seconds).
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testEndMarkerSeparatesRunsAndSettlingUsesTheLaterRunStart]' started.
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testEndMarkerSeparatesRunsAndSettlingUsesTheLaterRunStart]' passed (0.009 seconds).
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testModalHeaderIsComputedPerByteWhenEveryWholeHeaderIsUnique]' started.
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testModalHeaderIsComputedPerByteWhenEveryWholeHeaderIsUnique]' passed (0.007 seconds).
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testRejectsEnvelopeTimestampMismatchAndCountsNoiseSeparately]' started.
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testRejectsEnvelopeTimestampMismatchAndCountsNoiseSeparately]' passed (0.003 seconds).
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testSettlingWindowDropsTransitionFrames]' started.
+Test Case '-[WhoopProtocolTests.OpticalExperimentAnalysisTests testSettlingWindowDropsTransitionFrames]' passed (0.004 seconds).
+Test Suite 'OpticalExperimentAnalysisTests' passed at 2026-09-21 23:13:27.070.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.039 (0.039) seconds
+Test Suite 'ParityTests' started at 2026-09-21 23:13:27.070.
+Test Case '-[WhoopProtocolTests.ParityTests testEveryCorePacketTypeCovered]' started.
+Test Case '-[WhoopProtocolTests.ParityTests testEveryCorePacketTypeCovered]' passed (0.012 seconds).
+Test Case '-[WhoopProtocolTests.ParityTests testSwiftMatchesPythonGolden]' started.
+Test Case '-[WhoopProtocolTests.ParityTests testSwiftMatchesPythonGolden]' passed (0.009 seconds).
+Test Suite 'ParityTests' passed at 2026-09-21 23:13:27.090.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.020 (0.021) seconds
+Test Suite 'PostHooksTests' started at 2026-09-21 23:13:27.090.
+Test Case '-[WhoopProtocolTests.PostHooksTests testCommandResponseBattery]' started.
+Test Case '-[WhoopProtocolTests.PostHooksTests testCommandResponseBattery]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PostHooksTests testCommandResponseGetClock]' started.
+Test Case '-[WhoopProtocolTests.PostHooksTests testCommandResponseGetClock]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PostHooksTests testCommandResponseGetDataRange]' started.
+Test Case '-[WhoopProtocolTests.PostHooksTests testCommandResponseGetDataRange]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PostHooksTests testCommandResponseReportVersionInfo]' started.
+Test Case '-[WhoopProtocolTests.PostHooksTests testCommandResponseReportVersionInfo]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PostHooksTests testConsoleLogs]' started.
+Test Case '-[WhoopProtocolTests.PostHooksTests testConsoleLogs]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PostHooksTests testEventDoesNotSetBatteryForNonBatteryEvent]' started.
+Test Case '-[WhoopProtocolTests.PostHooksTests testEventDoesNotSetBatteryForNonBatteryEvent]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PostHooksTests testMetadataHistoryStart]' started.
+Test Case '-[WhoopProtocolTests.PostHooksTests testMetadataHistoryStart]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PostHooksTests testRealtimeDataRRIntervalsEmpty]' started.
+Test Case '-[WhoopProtocolTests.PostHooksTests testRealtimeDataRRIntervalsEmpty]' passed (0.000 seconds).
+Test Suite 'PostHooksTests' passed at 2026-09-21 23:13:27.092.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'PpgHrTests' started at 2026-09-21 23:13:27.092.
+Test Case '-[WhoopProtocolTests.PpgHrTests testDeriveSineSeriesIsAround70]' started.
+Test Case '-[WhoopProtocolTests.PpgHrTests testDeriveSineSeriesIsAround70]' passed (0.053 seconds).
+Test Case '-[WhoopProtocolTests.PpgHrTests testEstimateRecoversKnownHr]' started.
+Test Case '-[WhoopProtocolTests.PpgHrTests testEstimateRecoversKnownHr]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.PpgHrTests testEstimateRejectsTooShortWindow]' started.
+Test Case '-[WhoopProtocolTests.PpgHrTests testEstimateRejectsTooShortWindow]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PpgHrTests testGapBreaksRunsButBothSidesEstimate]' started.
+Test Case '-[WhoopProtocolTests.PpgHrTests testGapBreaksRunsButBothSidesEstimate]' passed (0.011 seconds).
+Test Case '-[WhoopProtocolTests.PpgHrTests testLowHrWithRecordRateArtifactDoesNotSnapTo60]' started.
+Test Case '-[WhoopProtocolTests.PpgHrTests testLowHrWithRecordRateArtifactDoesNotSnapTo60]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.PpgHrTests testStreamsDecodeToleratesMissingAndPresentPpgHr]' started.
+Test Case '-[WhoopProtocolTests.PpgHrTests testStreamsDecodeToleratesMissingAndPresentPpgHr]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PpgHrTests testSubLagInterpolationRecoversHrsThatIntegerLagQuantizes]' started.
+Test Case '-[WhoopProtocolTests.PpgHrTests testSubLagInterpolationRecoversHrsThatIntegerLagQuantizes]' passed (0.026 seconds).
+Test Case '-[WhoopProtocolTests.PpgHrTests testTrue60BpmIsPreservedNotNotchedAway]' started.
+Test Case '-[WhoopProtocolTests.PpgHrTests testTrue60BpmIsPreservedNotNotchedAway]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.PpgHrTests testWhiteNoiseProducesNoEstimates]' started.
+Test Case '-[WhoopProtocolTests.PpgHrTests testWhiteNoiseProducesNoEstimates]' passed (0.051 seconds).
+Test Suite 'PpgHrTests' passed at 2026-09-21 23:13:27.240.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.147 (0.148) seconds
+Test Suite 'PuffinCaptureTests' started at 2026-09-21 23:13:27.240.
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testEncodedJSONUsesSnakeCaseKeys]' started.
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testEncodedJSONUsesSnakeCaseKeys]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testFramesFixtureJSONIsParityCompatible]' started.
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testFramesFixtureJSONIsParityCompatible]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testMalformedFrameIsCapturedButFlaggedNotOK]' started.
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testMalformedFrameIsCapturedButFlaggedNotOK]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testNilHeartRateIsAllowed]' started.
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testNilHeartRateIsAllowed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testRecordsCanonicalHexAndProvenance]' started.
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testRecordsCanonicalHexAndProvenance]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testReset]' started.
+Test Case '-[WhoopProtocolTests.PuffinCaptureTests testReset]' passed (0.000 seconds).
+Test Suite 'PuffinCaptureTests' passed at 2026-09-21 23:13:27.241.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'R22DisableTests' started at 2026-09-21 23:13:27.241.
+Test Case '-[WhoopProtocolTests.R22DisableTests testAbandonMarksRemainingKeysSkipped]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testAbandonMarksRemainingKeysSkipped]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testAKeyListWithoutTheProbeKeyRefusesToWriteAnything]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testAKeyListWithoutTheProbeKeyRefusesToWriteAnything]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testAnEmptyKeyListRefusesToWriteAnything]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testAnEmptyKeyListRefusesToWriteAnything]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisableDirectionAdmitsEveryR22KeyAtTheOffValue]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisableDirectionAdmitsEveryR22KeyAtTheOffValue]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisableDirectionRefusesEverythingWithoutARunInFlight]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisableDirectionRefusesEverythingWithoutARunInFlight]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisableFrameDiffersFromEnableInOnlyTheValueByte]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisableFrameDiffersFromEnableInOnlyTheValueByte]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisableFramesVerifyAndCarryDistinctSeqs]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisableFramesVerifyAndCarryDistinctSeqs]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisablePipR26GetsTheSameOffByteAsTheEnableKeys]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisablePipR26GetsTheSameOffByteAsTheEnableKeys]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisableSequenceMirrorsEnableExactly]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testDisableSequenceMirrorsEnableExactly]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testEnableDirectionAdmitsEveryR22KeyAtItsOwnEnableValue]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testEnableDirectionAdmitsEveryR22KeyAtItsOwnEnableValue]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testEnableDirectionRefusesEverythingWithoutTheOptIn]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testEnableDirectionRefusesEverythingWithoutTheOptIn]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testFailureReadBackIsReportedAsUnsetNotCleared]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testFailureReadBackIsReportedAsUnsetNotCleared]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testFullRunClearsAllSixteen]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testFullRunClearsAllSixteen]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testGateAdmitsOnlyOpcode120]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testGateAdmitsOnlyOpcode120]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testGateRefusesDeviceConfigWriteVerb]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testGateRefusesDeviceConfigWriteVerb]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testGateRefusesMalformedBodies]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testGateRefusesMalformedBodies]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testGateRefusesUnknownKeysAndUnknownValues]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testGateRefusesUnknownKeysAndUnknownValues]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testKeyAndValueRoundTripsEveryR22Key]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testKeyAndValueRoundTripsEveryR22Key]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testOffValueIsAsciiZero]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testOffValueIsAsciiZero]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testOffValueWritesAreAdmittedWithTheOptInOffWhileARunIsInFlight]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testOffValueWritesAreAdmittedWithTheOptInOffWhileARunIsInFlight]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testPartialRunIsReportedAsPartialNotSuccess]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testPartialRunIsReportedAsPartialNotSuccess]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testPlanStartsWithTheProbeWriteThenItsReadBack]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testPlanStartsWithTheProbeWriteThenItsReadBack]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testProbeKeyIsTheOneWithAHardwareWriteDemonstration]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testProbeKeyIsTheOneWithAHardwareWriteDemonstration]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testProbeRejectionStopsTheRunAndLeavesFifteenKeysUntouched]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testProbeRejectionStopsTheRunAndLeavesFifteenKeysUntouched]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testReadBackOpcodeIsOnly128]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testReadBackOpcodeIsOnly128]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testRenderCarriesTheCaveats]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testRenderCarriesTheCaveats]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testSilentProbeStopsTheRun]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testSilentProbeStopsTheRun]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testSuccessAckWithUnmovedValueIsNeverReportedAsSuccess]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testSuccessAckWithUnmovedValueIsNeverReportedAsSuccess]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testTheDefaultKeyListStillPlansTheProbe]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testTheDefaultKeyListStillPlansTheProbe]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testTheTwoDirectionsAreDisjointOnValue]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testTheTwoDirectionsAreDisjointOnValue]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.R22DisableTests testUndecodableReadBackIsNotTreatedAsCleared]' started.
+Test Case '-[WhoopProtocolTests.R22DisableTests testUndecodableReadBackIsNotTreatedAsCleared]' passed (0.000 seconds).
+Test Suite 'R22DisableTests' passed at 2026-09-21 23:13:27.250.
+	 Executed 31 tests, with 0 failures (0 unexpected) in 0.008 (0.009) seconds
+Test Suite 'RRPacketProvenanceTests' started at 2026-09-21 23:13:27.250.
+Test Case '-[WhoopProtocolTests.RRPacketProvenanceTests testSharedPacketIdentityAndZeroWordPositionsSurviveHotDecoderAndStreams]' started.
+Test Case '-[WhoopProtocolTests.RRPacketProvenanceTests testSharedPacketIdentityAndZeroWordPositionsSurviveHotDecoderAndStreams]' passed (0.002 seconds).
+Test Suite 'RRPacketProvenanceTests' passed at 2026-09-21 23:13:27.252.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'RRStableSortTests' started at 2026-09-21 23:13:27.252.
+Test Case '-[WhoopProtocolTests.RRStableSortTests testEmptyAndSingleAreHandled]' started.
+Test Case '-[WhoopProtocolTests.RRStableSortTests testEmptyAndSingleAreHandled]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RRStableSortTests testEqualBeatsAllSurvive]' started.
+Test Case '-[WhoopProtocolTests.RRStableSortTests testEqualBeatsAllSurvive]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RRStableSortTests testInterleavedSecondsSortWithoutDisturbingWithinSecondOrder]' started.
+Test Case '-[WhoopProtocolTests.RRStableSortTests testInterleavedSecondsSortWithoutDisturbingWithinSecondOrder]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RRStableSortTests testSameSecondBeatsKeepEmissionOrder]' started.
+Test Case '-[WhoopProtocolTests.RRStableSortTests testSameSecondBeatsKeepEmissionOrder]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RRStableSortTests testStabilityPreservesRmssd]' started.
+Test Case '-[WhoopProtocolTests.RRStableSortTests testStabilityPreservesRmssd]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RRStableSortTests testStillOrdersBySecond]' started.
+Test Case '-[WhoopProtocolTests.RRStableSortTests testStillOrdersBySecond]' passed (0.000 seconds).
+Test Suite 'RRStableSortTests' passed at 2026-09-21 23:13:27.253.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'ReToolsTests' started at 2026-09-21 23:13:27.253.
+Test Case '-[WhoopProtocolTests.ReToolsTests testCoverageEntropyFlagsRandomButNotStructured]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testCoverageEntropyFlagsRandomButNotStructured]' passed (0.009 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testCoverageEntropyIsPerOffsetNotPooled]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testCoverageEntropyIsPerOffsetNotPooled]' passed (0.005 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testCoverageNamesConstantAndVaryingUnknowns]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testCoverageNamesConstantAndVaryingUnknowns]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testCoverageUsesModalLengthAndUnionsConditionalFields]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testCoverageUsesModalLengthAndUnionsConditionalFields]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testDiffPresenceAndDisjointOffsets]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testDiffPresenceAndDisjointOffsets]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testDiffSurfacesLengthMismatch]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testDiffSurfacesLengthMismatch]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testGravityPairDetectsIdenticalVsDistinct]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testGravityPairDetectsIdenticalVsDistinct]' passed (0.004 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testGravityPairExcludesOffWristSamples]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testGravityPairExcludesOffWristSamples]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testGravityPairSkipsRecordsMissingEitherTriplet]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testGravityPairSkipsRecordsMissingEitherTriplet]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testGroundTruthMatchesFieldBearingRecordNotNearestFrame]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testGroundTruthMatchesFieldBearingRecordNotNearestFrame]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testGroundTruthNilStatsWhenNothingMatches]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testGroundTruthNilStatsWhenNothingMatches]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testGroundTruthScoresAndReportsUnmatched]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testGroundTruthScoresAndReportsUnmatched]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testGroupKeyVersionsHistoricalOnly]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testGroupKeyVersionsHistoricalOnly]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReToolsTests testInventoryCensus]' started.
+Test Case '-[WhoopProtocolTests.ReToolsTests testInventoryCensus]' passed (0.000 seconds).
+Test Suite 'ReToolsTests' passed at 2026-09-21 23:13:27.274.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.021 (0.021) seconds
+Test Suite 'ReassemblerTests' started at 2026-09-21 23:13:27.274.
+Test Case '-[WhoopProtocolTests.ReassemblerTests testLeadingGarbageIsSkipped]' started.
+Test Case '-[WhoopProtocolTests.ReassemblerTests testLeadingGarbageIsSkipped]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReassemblerTests testOversizedDeclaredLengthResyncsInsteadOfWedging]' started.
+Test Case '-[WhoopProtocolTests.ReassemblerTests testOversizedDeclaredLengthResyncsInsteadOfWedging]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReassemblerTests testPartialFrameWaitsForRest]' started.
+Test Case '-[WhoopProtocolTests.ReassemblerTests testPartialFrameWaitsForRest]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReassemblerTests testReassembleFromFragments]' started.
+Test Case '-[WhoopProtocolTests.ReassemblerTests testReassembleFromFragments]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReassemblerTests testReassembleFromOneBytePerFragment]' started.
+Test Case '-[WhoopProtocolTests.ReassemblerTests testReassembleFromOneBytePerFragment]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ReassemblerTests testTwoFramesInOneFeed]' started.
+Test Case '-[WhoopProtocolTests.ReassemblerTests testTwoFramesInOneFeed]' passed (0.000 seconds).
+Test Suite 'ReassemblerTests' passed at 2026-09-21 23:13:27.275.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'RegistryModelFamilyTests' started at 2026-09-21 23:13:27.275.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testFullPicker40LabelResolvesToWhoop4]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testFullPicker40LabelResolvesToWhoop4]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testIsWhoop5RegistryIsFalseForNonWhoopBrands]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testIsWhoop5RegistryIsFalseForNonWhoopBrands]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testIsWhoop5RegistryIsFalseForWhoop4]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testIsWhoop5RegistryIsFalseForWhoop4]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testIsWhoop5RegistryIsTrueForWhoop5]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testIsWhoop5RegistryIsTrueForWhoop5]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testLegacySeededWhoopLabelKeepsWhoop5Fallback]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testLegacySeededWhoopLabelKeepsWhoop5Fallback]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testMissingBrandDefersToModel]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testMissingBrandDefersToModel]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testNilEmptyAndGarbageFallBackToWhoop5]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testNilEmptyAndGarbageFallBackToWhoop5]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testNonWhoopBrandResolvesToNil]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testNonWhoopBrandResolvesToNil]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testNonWhoopCoalescesToPriorLabel]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testNonWhoopCoalescesToPriorLabel]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testWhoopBrandResolvesByModel]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testWhoopBrandResolvesByModel]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testWizard5MgLabelResolvesToWhoop5]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testWizard5MgLabelResolvesToWhoop5]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testWizardBare40LabelResolvesToWhoop4]' started.
+Test Case '-[WhoopProtocolTests.RegistryModelFamilyTests testWizardBare40LabelResolvesToWhoop4]' passed (0.000 seconds).
+Test Suite 'RegistryModelFamilyTests' passed at 2026-09-21 23:13:27.276.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'RejectedHistoryTests' started at 2026-09-21 23:13:27.276.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testConsoleFrameExcluded]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testConsoleFrameExcluded]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testCRCCorruptWhoop4RecordIsRejected]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testCRCCorruptWhoop4RecordIsRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testCRCCorruptWhoop5RecordIsRejected]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testCRCCorruptWhoop5RecordIsRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testDecodableWhoop4RecordNotRejected]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testDecodableWhoop4RecordNotRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testDecodableWhoop5RecordNotRejected]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testDecodableWhoop5RecordNotRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testIncompleteParsedCacheCannotLoseARejectedRecord]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testIncompleteParsedCacheCannotLoseARejectedRecord]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testIsEmptyRecordFrameFlagsAllZeroPayloadOnly]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testIsEmptyRecordFrameFlagsAllZeroPayloadOnly]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testMixedBatchReturnsOnlyRejects]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testMixedBatchReturnsOnlyRejects]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testNonHistoricalFrameExcluded]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testNonHistoricalFrameExcluded]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testParsedFrameReuseBenchmark]' started.
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/WhoopProtocol/Tests/WhoopProtocolTests/RejectedHistoryTests.swift:174: -[WhoopProtocolTests.RejectedHistoryTests testParsedFrameReuseBenchmark] : Test skipped - Opt-in local throughput benchmark; no timing threshold in correctness tests
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testParsedFrameReuseBenchmark]' skipped (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testParsedFrameReusePreservesV26ArchiveExceptionEvenWithBadCRC]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testParsedFrameReusePreservesV26ArchiveExceptionEvenWithBadCRC]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testParsedFrameReusePreservesWhoop4RejectBytesAndOrder]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testParsedFrameReusePreservesWhoop4RejectBytesAndOrder]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testParsedFrameReusePreservesWhoop5CRCAndUnmappedLayoutDecisions]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testParsedFrameReusePreservesWhoop5CRCAndUnmappedLayoutDecisions]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testRecoveryExcludesOnlyValidatedConsoleAndIgnoresIncompleteParseCache]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testRecoveryExcludesOnlyValidatedConsoleAndIgnoresIncompleteParseCache]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testRecoveryIncludesMappedDeepAndUnknownNon47WithoutResearchToggle]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testRecoveryIncludesMappedDeepAndUnknownNon47WithoutResearchToggle]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testTooShortFrameExcluded]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testTooShortFrameExcluded]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testWhoop5V26PpgExcluded]' started.
+Test Case '-[WhoopProtocolTests.RejectedHistoryTests testWhoop5V26PpgExcluded]' passed (0.000 seconds).
+Test Suite 'RejectedHistoryTests' passed at 2026-09-21 23:13:27.280.
+	 Executed 17 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'RepeatedSerialGateTests' started at 2026-09-21 23:13:27.280.
+Test Case '-[WhoopProtocolTests.RepeatedSerialGateTests testAlternatingValuesDoNotConfirm]' started.
+Test Case '-[WhoopProtocolTests.RepeatedSerialGateTests testAlternatingValuesDoNotConfirm]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RepeatedSerialGateTests testAValueThatKeepsChangingNeverConfirms]' started.
+Test Case '-[WhoopProtocolTests.RepeatedSerialGateTests testAValueThatKeepsChangingNeverConfirms]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RepeatedSerialGateTests testConfirmsExactlyOnce]' started.
+Test Case '-[WhoopProtocolTests.RepeatedSerialGateTests testConfirmsExactlyOnce]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.RepeatedSerialGateTests testWithholdsUntilTheSameValueRepeats]' started.
+Test Case '-[WhoopProtocolTests.RepeatedSerialGateTests testWithholdsUntilTheSameValueRepeats]' passed (0.000 seconds).
+Test Suite 'RepeatedSerialGateTests' passed at 2026-09-21 23:13:27.280.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'ScalarProvenanceTests' started at 2026-09-21 23:13:27.280.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testDuplicateFramingRetainsRecordBoundariesAndEncounterOrder]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testDuplicateFramingRetainsRecordBoundariesAndEncounterOrder]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testExplicitNullForEveryKnownMemberIsRejectedButAbsentOptionalsRemainValid]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testExplicitNullForEveryKnownMemberIsRejectedButAbsentOptionalsRemainValid]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testJSONSafeIntegerBoundariesRoundTripWithoutChangingValues]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testJSONSafeIntegerBoundariesRoundTripWithoutChangingValues]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testLegacyModelsDecodeWithoutInventedProvenance]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testLegacyModelsDecodeWithoutInventedProvenance]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testPpgDerivationRecordsActualDuplicateSelectionEdgesAndAlgorithm]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testPpgDerivationRecordsActualDuplicateSelectionEdgesAndAlgorithm]' passed (0.039 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testPpgInputBytesAndHashCrossPlatformGolden]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testPpgInputBytesAndHashCrossPlatformGolden]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testSelectionIsOptionalForLegacyAndStrictlyDerivedOnly]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testSelectionIsOptionalForLegacyAndStrictlyDerivedOnly]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testUnknownVersionFieldsInvalidTypesAndOversizeFailClosed]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testUnknownVersionFieldsInvalidTypesAndOversizeFailClosed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testUnsafeIntegersNonpositiveSettingsAndUnorderedBoundsAreRejected]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testUnsafeIntegersNonpositiveSettingsAndUnorderedBoundsAreRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testV18ExtractionCarriesOriginalFrameDigestAndIndexGolden]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceTests testV18ExtractionCarriesOriginalFrameDigestAndIndexGolden]' passed (0.000 seconds).
+Test Suite 'ScalarProvenanceTests' passed at 2026-09-21 23:13:27.324.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.043 (0.044) seconds
+Test Suite 'ScalarProvenanceWordSizeTests' started at 2026-09-21 23:13:27.324.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testDerivedEndGuardStillRefusesIntMaxAndPreservesSafeUpperBoundary]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testDerivedEndGuardStillRefusesIntMaxAndPreservesSafeUpperBoundary]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testFramingSignExtendsTimestampAndPreservesAbsentIndexAndEmptySamples]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testFramingSignExtendsTimestampAndPreservesAbsentIndexAndEmptySamples]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testJSONSafeBoundsRetainAllRepresentableSignedValuesWithoutNarrowing]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testJSONSafeBoundsRetainAllRepresentableSignedValuesWithoutNarrowing]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testLegacyHexLengthRejectsOverflowingAndMalformedCountsWithoutAllocating]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testLegacyHexLengthRejectsOverflowingAndMalformedCountsWithoutAllocating]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testObservedIndexKeepsExactUInt32DomainWithinPlatformInt]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testObservedIndexKeepsExactUInt32DomainWithinPlatformInt]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testRecordAndSampleCountsAndIndexKeepExactWireWidths]' started.
+Test Case '-[WhoopProtocolTests.ScalarProvenanceWordSizeTests testRecordAndSampleCountsAndIndexKeepExactWireWidths]' passed (0.000 seconds).
+Test Suite 'ScalarProvenanceWordSizeTests' passed at 2026-09-21 23:13:27.325.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ScanAdvertisementSummaryTests' started at 2026-09-21 23:13:27.325.
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testAbsentFieldsAreNamedNotOmitted]' started.
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testAbsentFieldsAreNamedNotOmitted]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testCanonicalisationCoversThirtyTwoBitAndLeavesFullUuidsAlone]' started.
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testCanonicalisationCoversThirtyTwoBitAndLeavesFullUuidsAlone]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testConnectabilityIsReported]' started.
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testConnectabilityIsReported]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testDifferentAdvertisingModeReadsDifferently]' started.
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testDifferentAdvertisingModeReadsDifferently]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testLocalNameLengthIsUtf8BytesNotCharacters]' started.
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testLocalNameLengthIsUtf8BytesNotCharacters]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testOutputIsStableRegardlessOfInputOrder]' started.
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testOutputIsStableRegardlessOfInputOrder]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testShortAndLongUuidSpellingsProduceTheSameLine]' started.
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testShortAndLongUuidSpellingsProduceTheSameLine]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testSummaryCarriesNoPayloadBytesAndNoName]' started.
+Test Case '-[WhoopProtocolTests.ScanAdvertisementSummaryTests testSummaryCarriesNoPayloadBytesAndNoName]' passed (0.000 seconds).
+Test Suite 'ScanAdvertisementSummaryTests' passed at 2026-09-21 23:13:27.326.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'SchemaTests' started at 2026-09-21 23:13:27.326.
+Test Case '-[WhoopProtocolTests.SchemaTests testEnumNameSuffixed]' started.
+Test Case '-[WhoopProtocolTests.SchemaTests testEnumNameSuffixed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SchemaTests testLoadSchemaIsCached]' started.
+Test Case '-[WhoopProtocolTests.SchemaTests testLoadSchemaIsCached]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SchemaTests testPacketForTypeAndAlias]' started.
+Test Case '-[WhoopProtocolTests.SchemaTests testPacketForTypeAndAlias]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SchemaTests testTypeName]' started.
+Test Case '-[WhoopProtocolTests.SchemaTests testTypeName]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SchemaTests testVariantsLoaded]' started.
+Test Case '-[WhoopProtocolTests.SchemaTests testVariantsLoaded]' passed (0.000 seconds).
+Test Suite 'SchemaTests' passed at 2026-09-21 23:13:27.327.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'SensorAcquisitionControllerTests' started at 2026-09-21 23:13:27.327.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testAutomaticRecoveryLinksHaveAnIndependentHardCap]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testAutomaticRecoveryLinksHaveAnIndependentHardCap]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testCompletedProfileIsDiagnosticNotAnActiveEvidenceGate]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testCompletedProfileIsDiagnosticNotAnActiveEvidenceGate]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testContinuedDataAfterStopForcesAnotherStopBeforeDebtClears]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testContinuedDataAfterStopForcesAnotherStopBeforeDebtClears]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testContinuedProducerRetriesAreCapped]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testContinuedProducerRetriesAreCapped]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testDelayedStart106RejectionDoesNotMasqueradeAsStop106Rejection]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testDelayedStart106RejectionDoesNotMasqueradeAsStop106Rejection]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testDisconnectRequiresStopFirstRecoveryAndNeverRearms]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testDisconnectRequiresStopFirstRecoveryAndNeverRearms]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testEvidenceFailureAtStopRetryCapLeavesProducerUnknownForReconnect]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testEvidenceFailureAtStopRetryCapLeavesProducerUnknownForReconnect]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testEvidenceFailureFailsClosedAndStopsProducer]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testEvidenceFailureFailsClosedAndStopsProducer]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testExplicitUserActionAndEncryptedBondAreMandatory]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testExplicitUserActionAndEncryptedBondAreMandatory]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testFirmwareRejectionIsNotConfusedWithAttCompletion]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testFirmwareRejectionIsNotConfusedWithAttCompletion]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testHistoryBarrierCannotBeBypassed]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testHistoryBarrierCannotBeBypassed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testNonFiniteAndOverlongDurationsAreRejected]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testNonFiniteAndOverlongDurationsAreRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testOpticalControlIsRejectedUntilAContractIsVerified]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testOpticalControlIsRejectedUntilAContractIsVerified]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testOutstandingConfirmedCommandBlocksAcquisition]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testOutstandingConfirmedCommandBlocksAcquisition]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testProcessRelaunchRestoresOnlyStopFirstDebt]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testProcessRelaunchRestoresOnlyStopFirstDebt]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testRepeatedStopWriteFailuresReachCapAndRemainProducerUnknown]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testRepeatedStopWriteFailuresReachCapAndRemainProducerUnknown]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testStartIsSerialized81Then106AndAckIsNotDataSuccess]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testStartIsSerialized81Then106AndAckIsNotDataSuccess]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testStopFailureRetriesImmediatelyOnSameAuthenticatedLink]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testStopFailureRetriesImmediatelyOnSameAuthenticatedLink]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testStopFirmwareRejectionRetriesAndSuccessResponseIsDiagnosticOnly]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testStopFirmwareRejectionRetriesAndSuccessResponseIsDiagnosticOnly]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testStopIsSerialized82Then106OffAndIdempotent]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testStopIsSerialized82Then106OffAndIdempotent]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testTimeoutAlwaysStopsAndAcceptedWritesWithNoDataFail]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testTimeoutAlwaysStopsAndAcceptedWritesWithNoDataFail]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testValidatedDataMakesBoundedRunSuccessfulOnlyAfterStop]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testValidatedDataMakesBoundedRunSuccessfulOnlyAfterStop]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testWhoop4IsRejectedBecauseThisContractIsFiveMgOnly]' started.
+Test Case '-[WhoopProtocolTests.SensorAcquisitionControllerTests testWhoop4IsRejectedBecauseThisContractIsFiveMgOnly]' passed (0.000 seconds).
+Test Suite 'SensorAcquisitionControllerTests' passed at 2026-09-21 23:13:27.330.
+	 Executed 23 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'SkinTempConversionTests' started at 2026-09-21 23:13:27.330.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testDeviceAnchorRawEvenCountAveragesMiddleTwo]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testDeviceAnchorRawEvenCountAveragesMiddleTwo]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testDeviceAnchorRawExcludesFloorAndSaturation]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testDeviceAnchorRawExcludesFloorAndSaturation]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testDeviceAnchorRawIsMedianOfInBandRaws]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testDeviceAnchorRawIsMedianOfInBandRaws]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testDeviceAnchorRawNilBelowMinSamples]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testDeviceAnchorRawNilBelowMinSamples]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4AndWhoop5DifferForTheSameRaw]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4AndWhoop5DifferForTheSameRaw]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4DefaultAnchorIsGlobal826]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4DefaultAnchorIsGlobal826]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4NoContactFloorIsBelowWornGate]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4NoContactFloorIsBelowWornGate]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4PerDeviceAnchorMapsToAnchorCelsius]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4PerDeviceAnchorMapsToAnchorCelsius]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4SyntheticFixtureRawIsPlausible]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4SyntheticFixtureRawIsPlausible]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4WornBaselineLandsInPlausibleBand]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop4WornBaselineLandsInPlausibleBand]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop5IsUnchangedCentidegrees]' started.
+Test Case '-[WhoopProtocolTests.SkinTempConversionTests testWhoop5IsUnchangedCentidegrees]' passed (0.000 seconds).
+Test Suite 'SkinTempConversionTests' passed at 2026-09-21 23:13:27.331.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'SmokeTests' started at 2026-09-21 23:13:27.331.
+Test Case '-[WhoopProtocolTests.SmokeTests testSchemaResourceBundled]' started.
+Test Case '-[WhoopProtocolTests.SmokeTests testSchemaResourceBundled]' passed (0.000 seconds).
+Test Suite 'SmokeTests' passed at 2026-09-21 23:13:27.331.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'StandardHRContactTests' started at 2026-09-21 23:13:27.331.
+Test Case '-[WhoopProtocolTests.StandardHRContactTests testFromMeasurementFlagsCoversAllCombinations]' started.
+Test Case '-[WhoopProtocolTests.StandardHRContactTests testFromMeasurementFlagsCoversAllCombinations]' passed (0.000 seconds).
+Test Suite 'StandardHRContactTests' passed at 2026-09-21 23:13:27.332.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'StandardHRReceiptTests' started at 2026-09-21 23:13:27.332.
+Test Case '-[WhoopProtocolTests.StandardHRReceiptTests testEqualSameSecondNotificationsHaveDistinctIdentityButReplayIsStable]' started.
+Test Case '-[WhoopProtocolTests.StandardHRReceiptTests testEqualSameSecondNotificationsHaveDistinctIdentityButReplayIsStable]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.StandardHRReceiptTests testIncompleteFieldsRetainBytesButCannotInventPartialRrTrain]' started.
+Test Case '-[WhoopProtocolTests.StandardHRReceiptTests testIncompleteFieldsRetainBytesButCannotInventPartialRrTrain]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.StandardHRReceiptTests testOriginalTicksAndSlotsSurviveSerializationWithoutInventedBeatTime]' started.
+Test Case '-[WhoopProtocolTests.StandardHRReceiptTests testOriginalTicksAndSlotsSurviveSerializationWithoutInventedBeatTime]' passed (0.000 seconds).
+Test Suite 'StandardHRReceiptTests' passed at 2026-09-21 23:13:27.332.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'StreamsParityTests' started at 2026-09-21 23:13:27.332.
+Test Case '-[WhoopProtocolTests.StreamsParityTests testSwiftStreamsMatchPythonGolden]' started.
+Test Case '-[WhoopProtocolTests.StreamsParityTests testSwiftStreamsMatchPythonGolden]' passed (0.003 seconds).
+Test Suite 'StreamsParityTests' passed at 2026-09-21 23:13:27.336.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'StreamsTests' started at 2026-09-21 23:13:27.336.
+Test Case '-[WhoopProtocolTests.StreamsTests testBatteryStampedAtWallClockRef]' started.
+Test Case '-[WhoopProtocolTests.StreamsTests testBatteryStampedAtWallClockRef]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.StreamsTests testCrcFailedAndNotOkFramesSkipped]' started.
+Test Case '-[WhoopProtocolTests.StreamsTests testCrcFailedAndNotOkFramesSkipped]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.StreamsTests testEventTimestampIsNotOffset]' started.
+Test Case '-[WhoopProtocolTests.StreamsTests testEventTimestampIsNotOffset]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.StreamsTests testHRNotTakenFromType43RawData]' started.
+Test Case '-[WhoopProtocolTests.StreamsTests testHRNotTakenFromType43RawData]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.StreamsTests testRealtimeHRMapsDeviceToWallClock]' started.
+Test Case '-[WhoopProtocolTests.StreamsTests testRealtimeHRMapsDeviceToWallClock]' passed (0.000 seconds).
+Test Suite 'StreamsTests' passed at 2026-09-21 23:13:27.336.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'UnhandledPacketTypeTests' started at 2026-09-21 23:13:27.336.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testCensusIsNotEncoded]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testCensusIsNotEncoded]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testCrcFailedFrameIsNotCountedAsUnhandled]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testCrcFailedFrameIsNotCountedAsUnhandled]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testDistinctTypesAreTalliedSeparately]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testDistinctTypesAreTalliedSeparately]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testExclusionSetIsExactlyMetadataAndConsole]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testExclusionSetIsExactlyMetadataAndConsole]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testExpectedUnhandledTypesAreNotCounted]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testExpectedUnhandledTypesAreNotCounted]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testNamedButUnhandledTypeIsCounted]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testNamedButUnhandledTypeIsCounted]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testOrdinaryRecordsProduceNoCensus]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testOrdinaryRecordsProduceNoCensus]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testPuffinCommandResponseOnWhoop4KeepsItsOwnName]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testPuffinCommandResponseOnWhoop4KeepsItsOwnName]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testPuffinMetadataOnWhoop4IsCountedNotAliasedIntoTheExclusion]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testPuffinMetadataOnWhoop4IsCountedNotAliasedIntoTheExclusion]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testRealFrameOfAnUnmappedTypeReachesTheCensus]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testRealFrameOfAnUnmappedTypeReachesTheCensus]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testUnmappedByteIsCountedUnderItsRenderedName]' started.
+Test Case '-[WhoopProtocolTests.UnhandledPacketTypeTests testUnmappedByteIsCountedUnderItsRenderedName]' passed (0.000 seconds).
+Test Suite 'UnhandledPacketTypeTests' passed at 2026-09-21 23:13:27.338.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'UnmappedHistoricalLayoutTests' started at 2026-09-21 23:13:27.338.
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testEveryUnmappedVersionIsArchived]' started.
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testEveryUnmappedVersionIsArchived]' passed (0.005 seconds).
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testMappedV18RecordStillNotArchived]' started.
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testMappedV18RecordStillNotArchived]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testMappedVersionsAreNotTreatedAsUnmapped]' started.
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testMappedVersionsAreNotTreatedAsUnmapped]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testUnmappedLayoutIsArchivedEvenThoughItsBytesDecodeCleanlyAsV18]' started.
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testUnmappedLayoutIsArchivedEvenThoughItsBytesDecodeCleanlyAsV18]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testUnmappedLayoutsDecodeNothingButTheVersionByte]' started.
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testUnmappedLayoutsDecodeNothingButTheVersionByte]' passed (0.007 seconds).
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testWhoop4FramesAreUnaffectedByTheWhoop5LayoutRule]' started.
+Test Case '-[WhoopProtocolTests.UnmappedHistoricalLayoutTests testWhoop4FramesAreUnaffectedByTheWhoop5LayoutRule]' passed (0.000 seconds).
+Test Suite 'UnmappedHistoricalLayoutTests' passed at 2026-09-21 23:13:27.352.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.013 (0.013) seconds
+Test Suite 'ValuesTests' started at 2026-09-21 23:13:27.352.
+Test Case '-[WhoopProtocolTests.ValuesTests testAccessors]' started.
+Test Case '-[WhoopProtocolTests.ValuesTests testAccessors]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ValuesTests testDecodeBareScalarsFromJSON]' started.
+Test Case '-[WhoopProtocolTests.ValuesTests testDecodeBareScalarsFromJSON]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ValuesTests testEmptyArrayDecodesAsIntArray]' started.
+Test Case '-[WhoopProtocolTests.ValuesTests testEmptyArrayDecodesAsIntArray]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.ValuesTests testEncodeProducesBareScalars]' started.
+Test Case '-[WhoopProtocolTests.ValuesTests testEncodeProducesBareScalars]' passed (0.000 seconds).
+Test Suite 'ValuesTests' passed at 2026-09-21 23:13:27.352.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'VersionCheckTests' started at 2026-09-21 23:13:27.352.
+Test Case '-[WhoopProtocolTests.VersionCheckTests testNewer]' started.
+Test Case '-[WhoopProtocolTests.VersionCheckTests testNewer]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.VersionCheckTests testNotNewer]' started.
+Test Case '-[WhoopProtocolTests.VersionCheckTests testNotNewer]' passed (0.000 seconds).
+Test Suite 'VersionCheckTests' passed at 2026-09-21 23:13:27.353.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Whoop4HelloSerialTests' started at 2026-09-21 23:13:27.353.
+Test Case '-[WhoopProtocolTests.Whoop4HelloSerialTests testAcceptsTheMinimumLength]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HelloSerialTests testAcceptsTheMinimumLength]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HelloSerialTests testNeverReturnsTheDeviceKey]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HelloSerialTests testNeverReturnsTheDeviceKey]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HelloSerialTests testReadsTheSerialFromTheCapturedShape]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HelloSerialTests testReadsTheSerialFromTheCapturedShape]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HelloSerialTests testRefusesANonAlphanumericWindow]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HelloSerialTests testRefusesANonAlphanumericWindow]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HelloSerialTests testRefusesAShortPayload]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HelloSerialTests testRefusesAShortPayload]' passed (0.000 seconds).
+Test Suite 'Whoop4HelloSerialTests' passed at 2026-09-21 23:13:27.353.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'Whoop4HistoricalV24HardwareTests' started at 2026-09-21 23:13:27.353.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testNormalClockLeavesHistoricalTimestampUnchanged]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testNormalClockLeavesHistoricalTimestampUnchanged]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testRealWhoop4BiometricsCrossCheck]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testRealWhoop4BiometricsCrossCheck]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testRealWhoop4FeedsHistoricalStreams]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testRealWhoop4FeedsHistoricalStreams]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testRealWhoop4GravityIsUnitVector]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testRealWhoop4GravityIsUnitVector]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testRealWhoop4RecordIsV24]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testRealWhoop4RecordIsV24]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testStaleClockCorrectionIsDedupStableAcrossResync]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testStaleClockCorrectionIsDedupStableAcrossResync]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testStaleClockShiftsHistoricalTimestampForwardAndSnaps]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testStaleClockShiftsHistoricalTimestampForwardAndSnaps]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testUnmappedVersionFallsBackToV24WhenPhysicallyValid]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testUnmappedVersionFallsBackToV24WhenPhysicallyValid]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testUnmappedVersionRejectedWhenV24LayoutDoesNotFit]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testUnmappedVersionRejectedWhenV24LayoutDoesNotFit]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testZeroedStrapRtcKeepsRealUnixInsteadOfFutureDating]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV24HardwareTests testZeroedStrapRtcKeepsRealUnixInsteadOfFutureDating]' passed (0.000 seconds).
+Test Suite 'Whoop4HistoricalV24HardwareTests' passed at 2026-09-21 23:13:27.355.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'Whoop4HistoricalV25PpgTests' started at 2026-09-21 23:13:27.355.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25PpgTests testConcatenationArtifactTracksRecordPeriodNotHr]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25PpgTests testConcatenationArtifactTracksRecordPeriodNotHr]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25PpgTests testFixtureIsV25Consecutive]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25PpgTests testFixtureIsV25Consecutive]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25PpgTests testNotchDoesNotFullyProtectV25SoStartByteIsLoadBearing]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25PpgTests testNotchDoesNotFullyProtectV25SoStartByteIsLoadBearing]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25PpgTests testProposedSpanEmitsNoHrThroughShippedLane]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25PpgTests testProposedSpanEmitsNoHrThroughShippedLane]' passed (0.002 seconds).
+Test Suite 'Whoop4HistoricalV25PpgTests' passed at 2026-09-21 23:13:27.361.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.005 (0.006) seconds
+Test Suite 'Whoop4HistoricalV25Tests' started at 2026-09-21 23:13:27.361.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25Tests testV25DecodesUnixAndGravity]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25Tests testV25DecodesUnixAndGravity]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25Tests testV25NotRejected]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25Tests testV25NotRejected]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25Tests testV25ProducesGravityStream]' started.
+Test Case '-[WhoopProtocolTests.Whoop4HistoricalV25Tests testV25ProducesGravityStream]' passed (0.000 seconds).
+Test Suite 'Whoop4HistoricalV25Tests' passed at 2026-09-21 23:13:27.361.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'Whoop4ResponseResultTests' started at 2026-09-21 23:13:27.361.
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testAnsweredDataRangeReportsSuccessAndItsOriginSeq]' started.
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testAnsweredDataRangeReportsSuccessAndItsOriginSeq]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testDuplicateResponsesShareOneOriginSeqAcrossAdvancingStrapSeq]' started.
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testDuplicateResponsesShareOneOriginSeqAcrossAdvancingStrapSeq]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testEmptyExtendedBatteryReplyReportsFailureNotEmptySuccess]' started.
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testEmptyExtendedBatteryReplyReportsFailureNotEmptySuccess]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testShortResponseDecodesNoResultRatherThanReadingTheCrc]' started.
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testShortResponseDecodesNoResultRatherThanReadingTheCrc]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testSuccessfulBatteryReadStillReportsResultZero]' started.
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testSuccessfulBatteryReadStillReportsResultZero]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testUnknownResultCodeRendersAsHexNotAName]' started.
+Test Case '-[WhoopProtocolTests.Whoop4ResponseResultTests testUnknownResultCodeRendersAsHexNotAName]' passed (0.000 seconds).
+Test Suite 'Whoop4ResponseResultTests' passed at 2026-09-21 23:13:27.362.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'Whoop5CommandResponseTests' started at 2026-09-21 23:13:27.362.
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testBatteryIsDirectPercent]' started.
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testBatteryIsDirectPercent]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testBatteryReplyAlsoReportsSeqAndResult]' started.
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testBatteryReplyAlsoReportsSeqAndResult]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testDataRangeHistoryWindow]' started.
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testDataRangeHistoryWindow]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testHelloDeviceNameAndFirmware]' started.
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testHelloDeviceNameAndFirmware]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testHelloGuardsFailClosed]' started.
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testHelloGuardsFailClosed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testMgToggleRepliesDecode]' started.
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testMgToggleRepliesDecode]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testNoValueIsInventedFromAToggleReply]' started.
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testNoValueIsInventedFromAToggleReply]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testRealMgSelectWristAcceptedAndRefused]' started.
+Test Case '-[WhoopProtocolTests.Whoop5CommandResponseTests testRealMgSelectWristAcceptedAndRefused]' passed (0.000 seconds).
+Test Suite 'Whoop5CommandResponseTests' passed at 2026-09-21 23:13:27.363.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'Whoop5ConfigTests' started at 2026-09-21 23:13:27.363.
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testDeviceConfigBodyIsNameNullPaddedThenAsciiValue]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testDeviceConfigBodyIsNameNullPaddedThenAsciiValue]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testEnableR22PacketsFrameVerifies]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testEnableR22PacketsFrameVerifies]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testEnableR22PacketsGoldenFrame]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testEnableR22PacketsGoldenFrame]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testEnableSequenceEndsWithSig12FromRealCapture]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testEnableSequenceEndsWithSig12FromRealCapture]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testEnableSequenceIsSixteenFlagsWithDistinctSeqs]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testEnableSequenceIsSixteenFlagsWithDistinctSeqs]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testPayloadBodyIsAsciiNameNulPaddedWithValueAt32]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConfigTests testPayloadBodyIsAsciiNameNulPaddedWithValueAt32]' passed (0.000 seconds).
+Test Suite 'Whoop5ConfigTests' passed at 2026-09-21 23:13:27.364.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'Whoop5ConsoleLogsTests' started at 2026-09-21 23:13:27.364.
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testAllNulTextRegionYieldsNoLog]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testAllNulTextRegionYieldsNoLog]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testConsecutiveChunksCarryContiguousIndices]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testConsecutiveChunksCarryContiguousIndices]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testConsoleChunkDecodesHeaderAndText]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testConsoleChunkDecodesHeaderAndText]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testHeaderOnlyFrameYieldsNoLog]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testHeaderOnlyFrameYieldsNoLog]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testOversizedTextIsCappedAt2048]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testOversizedTextIsCappedAt2048]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testTrailingNulsAreTrimmed]' started.
+Test Case '-[WhoopProtocolTests.Whoop5ConsoleLogsTests testTrailingNulsAreTrimmed]' passed (0.000 seconds).
+Test Suite 'Whoop5ConsoleLogsTests' passed at 2026-09-21 23:13:27.365.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'Whoop5EcgRawRecordTests' started at 2026-09-21 23:13:27.365.
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testOnlyA240ByteType43FrameIsARawRecord]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testOnlyA240ByteType43FrameIsARawRecord]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testSamplesAreSignedLittleEndian]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testSamplesAreSignedLittleEndian]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testSignalPresentIsOneRuleSharedByEveryConsumer]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testSignalPresentIsOneRuleSharedByEveryConsumer]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testTheRecordCarriesExactly101Samples]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testTheRecordCarriesExactly101Samples]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testTheSubHeaderIsCountedForFillButNeverDecodedAsWaveform]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testTheSubHeaderIsCountedForFillButNeverDecodedAsWaveform]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testZeroSamplesAreKeptNotTrimmed]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgRawRecordTests testZeroSamplesAreKeptNotTrimmed]' passed (0.000 seconds).
+Test Suite 'Whoop5EcgRawRecordTests' passed at 2026-09-21 23:13:27.366.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'Whoop5EcgTests' started at 2026-09-21 23:13:27.366.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testAcceptedButSilentNamesTheAlternativesInsteadOfACause]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testAcceptedButSilentNamesTheAlternativesInsteadOfACause]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testAnUnacknowledgedDataRequestIsNotAcceptedButSilent]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testAnUnacknowledgedDataRequestIsNotAcceptedButSilent]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testAttestedResultCodesOutrankTheShapeHeuristic]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testAttestedResultCodesOutrankTheShapeHeuristic]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testAZeroPacketRunThatAskedForDataQuestionsTheElectrodeCircuit]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testAZeroPacketRunThatAskedForDataQuestionsTheElectrodeCircuit]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testCandidateVerdictIsHedgedNotAssertedAsProof]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testCandidateVerdictIsHedgedNotAssertedAsProof]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testCommandFramesAreExactlyWhatTheSendPathBuilds]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testCommandFramesAreExactlyWhatTheSendPathBuilds]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testCommandFramesRoundTripThroughTheWhoop5Validator]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testCommandFramesRoundTripThroughTheWhoop5Validator]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testCommandOpcodesMatchTheRepoProtocolTable]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testCommandOpcodesMatchTheRepoProtocolTable]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testCommandPayloadIsRevisionThenArg]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testCommandPayloadIsRevisionThenArg]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testEveryArrhythmiaCheckResultCaseDecodes]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testEveryArrhythmiaCheckResultCaseDecodes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testEveryArrhythmiaCheckStatusCaseDecodes]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testEveryArrhythmiaCheckStatusCaseDecodes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testEverySignalQualityCaseDecodes]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testEverySignalQualityCaseDecodes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredCarriesTrailingPadding]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredCarriesTrailingPadding]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredDecodesEveryFieldInWireOrder]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredDecodesEveryFieldInWireOrder]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredExtraSamplesBeyondTheCountBecomePadding]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredExtraSamplesBeyondTheCountBecomePadding]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredFrameDecodesThroughAValidPuffinEnvelope]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredFrameDecodesThroughAValidPuffinEnvelope]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredFrameRejectsBadCRC32]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredFrameRejectsBadCRC32]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredFrameRejectsBadHeaderCRC16]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredFrameRejectsBadHeaderCRC16]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredFrameRejectsCorruptedBodyThatBreaksCRC]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredFrameRejectsCorruptedBodyThatBreaksCRC]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredRejectsSampleCountLongerThanBuffer]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredRejectsSampleCountLongerThanBuffer]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredRejectsSampleCountOffByOneByte]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredRejectsSampleCountOffByOneByte]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredRejectsShortHeader]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredRejectsShortHeader]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredZeroSamplesIsValid]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFilteredZeroSamplesIsValid]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFrameRejectsGarbageAndShortInput]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testFrameRejectsGarbageAndShortInput]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testNoVerdictClaimsAFlagBlockWithoutADataRequest]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testNoVerdictClaimsAFlagBlockWithoutADataRequest]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testNoVerdictMentionsDeviceFlagsAtAll]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testNoVerdictMentionsDeviceFlagsAtAll]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testOffPathIsTheExactInverseOfTheOnPath]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testOffPathIsTheExactInverseOfTheOnPath]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testOffSequenceAsksForSilenceSoItsSilenceIsNotEvidence]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testOffSequenceAsksForSilenceSoItsSilenceIsNotEvidence]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testOnlyTheStreamAndGenerationVerbsCanProduceRealtimeData]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testOnlyTheStreamAndGenerationVerbsCanProduceRealtimeData]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testOutcomeReadsTheResultCodeAtFrame12]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testOutcomeReadsTheResultCodeAtFrame12]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testPlausibleFilteredPayloadAcceptsAWellFormedPacket]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testPlausibleFilteredPayloadAcceptsAWellFormedPacket]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testPlausibleFilteredPayloadRejectsEmptyAndZeroSampleBuffers]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testPlausibleFilteredPayloadRejectsEmptyAndZeroSampleBuffers]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testPlausibleFilteredPayloadRejectsLengthDisagreement]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testPlausibleFilteredPayloadRejectsLengthDisagreement]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testPlausibleFilteredPayloadRejectsNonBooleanFlagBytes]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testPlausibleFilteredPayloadRejectsNonBooleanFlagBytes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testPlausibleFilteredPayloadRejectsOutOfRangeEnums]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testPlausibleFilteredPayloadRejectsOutOfRangeEnums]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testProgressPercentInRangeAndRawOutside]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testProgressPercentInRangeAndRawOutside]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawAmbiguousBufferRefusesToDecode]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawAmbiguousBufferRefusesToDecode]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawDecodesWithExplicitSampleWidth]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawDecodesWithExplicitSampleWidth]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawFrameDecodesThroughAValidPuffinEnvelope]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawFrameDecodesThroughAValidPuffinEnvelope]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawFrameRejectsBadCRC]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawFrameRejectsBadCRC]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawRejectsAWidthThatWouldOverflowTheOffsetMath]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawRejectsAWidthThatWouldOverflowTheOffsetMath]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawRejectsMissingLeadsOffCountByte]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawRejectsMissingLeadsOffCountByte]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawRejectsShortHeaderAndZeroWidth]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawRejectsShortHeaderAndZeroWidth]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawRejectsTruncatedLeadsOffArrays]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawRejectsTruncatedLeadsOffArrays]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawSampleWidthCandidatesAreEnumeratedNotGuessed]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawSampleWidthCandidatesAreEnumeratedNotGuessed]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawSaveAloneCannotUnlockTheSilentVerdict]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawSaveAloneCannotUnlockTheSilentVerdict]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawWithNoLeadsOffSamples]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testRawWithNoLeadsOffSamples]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testReportCarriesTheVerdictTheOutcomesAndTheNonMedicalFraming]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testReportCarriesTheVerdictTheOutcomesAndTheNonMedicalFraming]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testReportNeverPresentsAnArrhythmiaResultAsAFinding]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testReportNeverPresentsAnArrhythmiaResultAsAFinding]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testTheElectrodeQuestionIsAbsentWhenPacketsArrivedOrNoDataWasAsked]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testTheElectrodeQuestionIsAbsentWhenPacketsArrivedOrNoDataWasAsked]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testTogglesSentAndPacketsArrivedIsTheCandidateVerdictNotABlock]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testTogglesSentAndPacketsArrivedIsTheCandidateVerdictNotABlock]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testUnknownArrhythmiaResultIsCarriedRawNotCoerced]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testUnknownArrhythmiaResultIsCarriedRawNotCoerced]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testVerdictAllSuccessButSilentIsTheSilentNoOpCase]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testVerdictAllSuccessButSilentIsTheSilentNoOpCase]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testVerdictFailureOnADataRequestIsReportedAsARefusal]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testVerdictFailureOnADataRequestIsReportedAsARefusal]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testVerdictMixedCodesAreInconclusive]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testVerdictMixedCodesAreInconclusive]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testVerdictSilenceIsNeverCalledABlock]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testVerdictSilenceIsNeverCalledABlock]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testVerdictUnsupportedIsReportedAsItselfNotAsABlock]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testVerdictUnsupportedIsReportedAsItselfNotAsABlock]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testWristOnlyRunIsNotReportedAsADeviceFlagBlock]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testWristOnlyRunIsNotReportedAsADeviceFlagBlock]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testWristOnlyRunThatFailsIsARefusalNotADeviceFlagBlock]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EcgTests testWristOnlyRunThatFailsIsARefusalNotADeviceFlagBlock]' passed (0.000 seconds).
+Test Suite 'Whoop5EcgTests' passed at 2026-09-21 23:13:27.375.
+	 Executed 59 tests, with 0 failures (0 unexpected) in 0.006 (0.009) seconds
+Test Suite 'Whoop5EventTests' started at 2026-09-21 23:13:27.375.
+Test Case '-[WhoopProtocolTests.Whoop5EventTests testBatteryLevelEventDecodesPayload]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EventTests testBatteryLevelEventDecodesPayload]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EventTests testSimpleEventDecodesNameAndTimestamp]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EventTests testSimpleEventDecodesNameAndTimestamp]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5EventTests testUnknownEventNumberStaysRaw]' started.
+Test Case '-[WhoopProtocolTests.Whoop5EventTests testUnknownEventNumberStaysRaw]' passed (0.000 seconds).
+Test Suite 'Whoop5EventTests' passed at 2026-09-21 23:13:27.375.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Whoop5HistoricalTests' started at 2026-09-21 23:13:27.375.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHeartRateOffsetIsNotTheNaivePlusFour]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHeartRateOffsetIsNotTheNaivePlusFour]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalFeedsStreamExtraction]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalFeedsStreamExtraction]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalOffWristEmitsNoHeartRate]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalOffWristEmitsNoHeartRate]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalSingleRR]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalSingleRR]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalUnknownVersionFallsBackSafely]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalUnknownVersionFallsBackSafely]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18ActivityClassEnum]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18ActivityClassEnum]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18AuxByte82]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18AuxByte82]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18BiometricFields]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18BiometricFields]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18Byte36IsAFlagByteNotAFixedPointHR]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18Byte36IsAFlagByteNotAFixedPointHR]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18GeneralisesToSecondDevice]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18GeneralisesToSecondDevice]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18HeartRateRRAndGravity]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18HeartRateRRAndGravity]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18ObservedFields]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18ObservedFields]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18OnWristAndWakeQualityBits]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18OnWristAndWakeQualityBits]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18OpticalAmpSentinelIsRecordLevel]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18OpticalAmpSentinelIsRecordLevel]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18OpticalBaselineIsTwoBytesNotAU16]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18OpticalBaselineIsTwoBytesNotAU16]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18OpticalFieldsAreNotNamedPhysiologically]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18OpticalFieldsAreNotNamedPhysiologically]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18OpticalRegionFields]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18OpticalRegionFields]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18SkinTempTracksWristContact]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18SkinTempTracksWristContact]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18SleepStateMapping]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18SleepStateMapping]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18SleepStateReachesStream]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18SleepStateReachesStream]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18SleepStateStreamCarriesEachNibble]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18SleepStateStreamCarriesEachNibble]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18Spo2Candidate82TriMode]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18Spo2Candidate82TriMode]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18StatusWordSiblings]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18StatusWordSiblings]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18StepCounterIsFullU16NotLowByte]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testHistoricalV18StepCounterIsFullU16NotLowByte]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testWhoop5HistoricalAckFrameMatchesHardwareProvenBytes]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testWhoop5HistoricalAckFrameMatchesHardwareProvenBytes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testWhoop5MetadataClassifiesHistoryEnd]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testWhoop5MetadataClassifiesHistoryEnd]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testWhoop5MetadataClassifiesHistoryStart]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalTests testWhoop5MetadataClassifiesHistoryStart]' passed (0.000 seconds).
+Test Suite 'Whoop5HistoricalTests' passed at 2026-09-21 23:13:27.384.
+	 Executed 27 tests, with 0 failures (0 unexpected) in 0.007 (0.009) seconds
+Test Suite 'Whoop5HistoricalV2021Tests' started at 2026-09-21 23:13:27.384.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalV2021Tests testV20HeaderActiveAndEmptyBlocks]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalV2021Tests testV20HeaderActiveAndEmptyBlocks]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalV2021Tests testV20RealFrame25SamplesAndZeroPaddedTail]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalV2021Tests testV20RealFrame25SamplesAndZeroPaddedTail]' passed (0.008 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalV2021Tests testV21HeaderAndSixImuChannels]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalV2021Tests testV21HeaderAndSixImuChannels]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalV2021Tests testV21RealFrameAccelIsGravityShell]' started.
+Test Case '-[WhoopProtocolTests.Whoop5HistoricalV2021Tests testV21RealFrameAccelIsGravityShell]' passed (0.000 seconds).
+Test Suite 'Whoop5HistoricalV2021Tests' passed at 2026-09-21 23:13:27.393.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.009 (0.010) seconds
+Test Suite 'Whoop5PpgWaveformTests' started at 2026-09-21 23:13:27.393.
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testExtractHistoricalStreamsCarriesEachBurstIndexWithItsWaveform]' started.
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testExtractHistoricalStreamsCarriesEachBurstIndexWithItsWaveform]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testExtractHistoricalStreamsPersistsRawPpgWaveform]' started.
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testExtractHistoricalStreamsPersistsRawPpgWaveform]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testStreamsDecodeToleratesMissingAndPresentPpgWaveform]' started.
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testStreamsDecodeToleratesMissingAndPresentPpgWaveform]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testStreamsIsEmptyConsidersPpgWaveform]' started.
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testStreamsIsEmptyConsidersPpgWaveform]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testV26DecodesAsHistoricalData]' started.
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testV26DecodesAsHistoricalData]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testV26PpgWaveformAndUnix]' started.
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testV26PpgWaveformAndUnix]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testV26SecondBurstDecodes]' started.
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testV26SecondBurstDecodes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testV26WaveformIsSmoothNotNoise]' started.
+Test Case '-[WhoopProtocolTests.Whoop5PpgWaveformTests testV26WaveformIsSmoothNotNoise]' passed (0.000 seconds).
+Test Suite 'Whoop5PpgWaveformTests' passed at 2026-09-21 23:13:27.395.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'Whoop5RRTests' started at 2026-09-21 23:13:27.395.
+Test Case '-[WhoopProtocolTests.Whoop5RRTests testAllUnsignedWordsMatchExecutedSwiftOracle]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RRTests testAllUnsignedWordsMatchExecutedSwiftOracle]' passed (0.026 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RRTests testTransportCodes]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RRTests testTransportCodes]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RRTests testWireBoundsRawUnitsAndExtractedProvenance]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RRTests testWireBoundsRawUnitsAndExtractedProvenance]' passed (0.002 seconds).
+Test Suite 'Whoop5RRTests' passed at 2026-09-21 23:13:27.423.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.027 (0.028) seconds
+Test Suite 'Whoop5RawImuTests' started at 2026-09-21 23:13:27.423.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testDecodeColumnsMatchesSeparateBaseTsAndRawColumns]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testDecodeColumnsMatchesSeparateBaseTsAndRawColumns]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testDecodesKnownSampleWithCorrectScales]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testDecodesKnownSampleWithCorrectScales]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testDecodesRealBufferAsGravityShell]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testDecodesRealBufferAsGravityShell]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testEvidencedLiveType43UsesShapeNotSequenceByteAsVersion]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testEvidencedLiveType43UsesShapeNotSequenceByteAsVersion]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testHistoricalAndRealtimeCandidateClassificationIsHostStateIndependent]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testHistoricalAndRealtimeCandidateClassificationIsHostStateIndependent]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testMappedDeepIMURemainsRecoveryEvidenceDespitePlausibilityFiltering]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testMappedDeepIMURemainsRecoveryEvidenceDespitePlausibilityFiltering]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testRejectsCrcInvalidPlausibleFrameFromTrustedDecodeAndColumns]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testRejectsCrcInvalidPlausibleFrameFromTrustedDecodeAndColumns]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testRejectsCrcValidUnknownPacketTypeOrLayoutVersion]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testRejectsCrcValidUnknownPacketTypeOrLayoutVersion]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testRejectsWrongLengthOrCounts]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testRejectsWrongLengthOrCounts]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testRepeatedHeaderFragmentsDisprovePostStopSilenceBeforeReassemblyDropsThem]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawImuTests testRepeatedHeaderFragmentsDisprovePostStopSilenceBeforeReassemblyDropsThem]' passed (0.000 seconds).
+Test Suite 'Whoop5RawImuTests' passed at 2026-09-21 23:13:27.427.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.004 (0.004) seconds
+Test Suite 'Whoop5RawOpticalTests' started at 2026-09-21 23:13:27.427.
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testBlockPatternIsThreeActiveTwoDark]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testBlockPatternIsThreeActiveTwoDark]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testChecksumCoversByte8ThroughPayloadEnd]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testChecksumCoversByte8ThroughPayloadEnd]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testFullCorpusDecodesWithPublishedInvariants]' started.
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5RawOpticalTests.swift:291: -[WhoopProtocolTests.Whoop5RawOpticalTests testFullCorpusDecodesWithPublishedInvariants] : Test skipped - set WHOOP_R20_CORPUS to a deep-buffer JSONL to run the full-corpus check
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testFullCorpusDecodesWithPublishedInvariants]' skipped (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testInterpreterExposesHeadersWithoutWavelengthLabels]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testInterpreterExposesHeadersWithoutWavelengthLabels]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testNegativeReadingsSignExtend]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testNegativeReadingsSignExtend]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testOracleCopiesAreIdentical]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testOracleCopiesAreIdentical]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testOracleRecordsDecodeToPublishedLayout]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testOracleRecordsDecodeToPublishedLayout]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testSaturationRailIsExactly2Pow19Minus1]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testSaturationRailIsExactly2Pow19Minus1]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testSingleBitCorruptionIsRejected]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testSingleBitCorruptionIsRejected]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testStrictShapeAndCountGates]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RawOpticalTests testStrictShapeAndCountGates]' passed (0.001 seconds).
+Test Suite 'Whoop5RawOpticalTests' passed at 2026-09-21 23:13:27.436.
+	 Executed 10 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.008 (0.009) seconds
+Test Suite 'Whoop5RealtimeTests' started at 2026-09-21 23:13:27.436.
+Test Case '-[WhoopProtocolTests.Whoop5RealtimeTests testHeartRateFieldIsAtOffset16]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RealtimeTests testHeartRateFieldIsAtOffset16]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RealtimeTests testRealtimeHeartRateAndRR]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RealtimeTests testRealtimeHeartRateAndRR]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5RealtimeTests testWhoop4RealtimeIsUnaffected]' started.
+Test Case '-[WhoopProtocolTests.Whoop5RealtimeTests testWhoop4RealtimeIsUnaffected]' passed (0.000 seconds).
+Test Suite 'Whoop5RealtimeTests' passed at 2026-09-21 23:13:27.436.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'Whoop5VariantTests' started at 2026-09-21 23:13:27.436.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testAdvertisedNamePrefixTolerated]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testAdvertisedNamePrefixTolerated]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testAgreeingSignalsResolve]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testAgreeingSignalsResolve]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testAnUnknownModelNumberDoesNotOverrideTheHeuristics]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testAnUnknownModelNumberDoesNotOverrideTheHeuristics]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testContradictionYieldsUnknownRatherThanAGuess]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testContradictionYieldsUnknownRatherThanAGuess]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testHardwareRevisionIsDeviceAttestedFiveZero]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testHardwareRevisionIsDeviceAttestedFiveZero]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testLabels]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testLabels]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testModelNumberBeatsTheContradictionGuard]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testModelNumberBeatsTheContradictionGuard]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testModelNumberIsTrimmedAndCaseInsensitive]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testModelNumberIsTrimmedAndCaseInsensitive]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testRealMGResolvesFromItsModelNumberWhenPrefixesDoNot]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testRealMGResolvesFromItsModelNumberWhenPrefixesDoNot]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testSerialPrefixIdentifiesFiveZero]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testSerialPrefixIdentifiesFiveZero]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testSerialPrefixIdentifiesMG]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testSerialPrefixIdentifiesMG]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testUnattestedInputsAreUnknownNeverInferred]' started.
+Test Case '-[WhoopProtocolTests.Whoop5VariantTests testUnattestedInputsAreUnknownNeverInferred]' passed (0.000 seconds).
+Test Suite 'Whoop5VariantTests' passed at 2026-09-21 23:13:27.437.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'WireEvidenceJournalTests' started at 2026-09-21 23:13:27.437.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testCapacityReservationAtHardCapFailsBeforeAppendAndPreservesEvidence]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testCapacityReservationAtHardCapFailsBeforeAppendAndPreservesEvidence]' passed (0.004 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testCapacityReservationCreatesDurableSegmentWithoutConsumingSequence]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testCapacityReservationCreatesDurableSegmentWithoutConsumingSequence]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testCloseIsIdempotentAndLeavesNoOpenFiles]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testCloseIsIdempotentAndLeavesNoOpenFiles]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testCrashLeftOpenFilesCountAgainstHardRetentionCapacity]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testCrashLeftOpenFilesCountAgainstHardRetentionCapacity]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testCrashRecoveryRetainsPartialOpenSegmentByteForByte]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testCrashRecoveryRetainsPartialOpenSegmentByteForByte]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testExactNotificationRoundTripsWithAllProvenanceAndHashes]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testExactNotificationRoundTripsWithAllProvenanceAndHashes]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testInitializerRecoversCompleteCrashLeftOpenSegmentWithoutChangingRecords]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testInitializerRecoversCompleteCrashLeftOpenSegmentWithoutChangingRecords]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testNilFirmwareRoundTripsWithoutInventingAValue]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testNilFirmwareRoundTripsWithoutInventingAValue]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testOversizedRecordIsRejectedWithoutConsumingSequenceOrCreatingAFile]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testOversizedRecordIsRejectedWithoutConsumingSequenceOrCreatingAFile]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testReplayRejectsPayloadCorruptionTruncationAndTrailingBytes]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testReplayRejectsPayloadCorruptionTruncationAndTrailingBytes]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testRotationBoundsEveryFileAndRefusesCapacityWithoutDeletingEvidence]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testRotationBoundsEveryFileAndRefusesCapacityWithoutDeletingEvidence]' passed (0.002 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testSealedSegmentIsNotModifiedByLaterAppends]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testSealedSegmentIsNotModifiedByLaterAppends]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testSegmentIdentityCollisionFailsWithoutReplacingSealedEvidence]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testSegmentIdentityCollisionFailsWithoutReplacingSealedEvidence]' passed (0.001 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testUnknownOrEndedConnectionCannotAppend]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testUnknownOrEndedConnectionCannotAppend]' passed (0.000 seconds).
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testUnsealedSegmentIsRejectedEvenWhenAllRecordsAreComplete]' started.
+Test Case '-[WhoopProtocolTests.WireEvidenceJournalTests testUnsealedSegmentIsRejectedEvenWhenAllRecordsAreComplete]' passed (0.001 seconds).
+Test Suite 'WireEvidenceJournalTests' passed at 2026-09-21 23:13:27.456.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.018 (0.019) seconds
+Test Suite 'WhoopProtocolPackageTests.xctest' passed at 2026-09-21 23:13:27.456.
+	 Executed 767 tests, with 2 tests skipped and 0 failures (0 unexpected) in 0.549 (0.591) seconds
+Test Suite 'All tests' passed at 2026-09-21 23:13:27.456.
+	 Executed 767 tests, with 2 tests skipped and 0 failures (0 unexpected) in 0.549 (0.592) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

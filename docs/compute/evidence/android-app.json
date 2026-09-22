@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "gate": "android-app",
+  "status": "PASS",
+  "command": [
+    "./android/gradlew",
+    "--project-dir",
+    "android",
+    "-Pksp.incremental=false",
+    ":app:assembleFullDebug",
+    ":app:testFullDebugUnitTest",
+    "--rerun-tasks",
+    "--console=plain"
+  ],
+  "cwd": ".",
+  "started_at": "2026-09-22T06:12:01.391Z",
+  "finished_at": "2026-09-22T06:16:23.920Z",
+  "source_before": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "source_after": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "exit_code": 0,
+  "failure": null,
+  "log_path": "android-app.log",
+  "log_sha256": "6c356f5e3e128f74926984856e396441f03e2db28e73ddf17d89dd833ffd018e",
+  "runtime_reports": [
+    {
+      "name": "com.noop.analytics.FinalHostedPhonePathsNativeTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "path": "TEST-com.noop.analytics.FinalHostedPhonePathsNativeTest.xml",
+      "sha256": "b0b9f0c6b0ce0770fd45324ad1cf02aa2b8aed3ea3a40da2bbe422fdfcbd7c3a",
+      "source_path": "android/app/build/test-results/testFullDebugUnitTest/TEST-com.noop.analytics.FinalHostedPhonePathsNativeTest.xml",
+      "source_modified_at": "2026-09-22T06:16:23.386Z"
+    },
+    {
+      "name": "com.noop.analytics.FinalHostedComputeRuntimeTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "path": "TEST-com.noop.analytics.FinalHostedComputeRuntimeTest.xml",
+      "sha256": "f35b50ac5d9a32a5c9d744f26d50ce5c0b63d4bd5e865664a2b8aea125769db0",
+      "source_path": "android/app/build/test-results/testFullDebugUnitTest/TEST-com.noop.analytics.FinalHostedComputeRuntimeTest.xml",
+      "source_modified_at": "2026-09-22T06:16:23.370Z"
+    },
+    {
+      "name": "com.noop.push.FinalHostedRawUploadNativeTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "path": "TEST-com.noop.push.FinalHostedRawUploadNativeTest.xml",
+      "sha256": "437668ca49f7cd37d285e74d940a43f5b7117781954290a95938470420687541",
+      "source_path": "android/app/build/test-results/testFullDebugUnitTest/TEST-com.noop.push.FinalHostedRawUploadNativeTest.xml",
+      "source_modified_at": "2026-09-22T06:16:23.384Z"
+    },
+    {
+      "name": "com.noop.push.ServerComputeContractTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "path": "TEST-com.noop.push.ServerComputeContractTest.xml",
+      "sha256": "3c4e18252359c74a73a34cf8be488d8f7ca01668372483c48e2efefe047a7d8b",
+      "source_path": "android/app/build/test-results/testFullDebugUnitTest/TEST-com.noop.push.ServerComputeContractTest.xml",
+      "source_modified_at": "2026-09-22T06:16:23.394Z"
+    },
+    {
+      "name": "com.noop.push.CanonicalConsumersNativeTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "path": "TEST-com.noop.push.CanonicalConsumersNativeTest.xml",
+      "sha256": "be2260ab973945f92d3bfe1eb983fddcb1b370be5bb74ebff516dfffb5cf85da",
+      "source_path": "android/app/build/test-results/testFullDebugUnitTest/TEST-com.noop.push.CanonicalConsumersNativeTest.xml",
+      "source_modified_at": "2026-09-22T06:16:23.381Z"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.TrainingLoadEngineTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.002">
+  <properties/>
+  <testcase name="stepDownProducesPositiveBalanceAsAcuteLoadFallsFaster" classname="com.noop.analytics.TrainingLoadEngineTest" time="0.001"/>
+  <testcase name="explicitTargetIgnoresFutureRowsAndMissingTargetFailsClosed" classname="com.noop.analytics.TrainingLoadEngineTest" time="0.0"/>
+  <testcase name="leapDayAndMonthBoundaryStayContiguous" classname="com.noop.analytics.TrainingLoadEngineTest" time="0.0"/>
+  <testcase name="zeroIsARealRestDayButMissingLoadBreaksHistory" classname="com.noop.analytics.TrainingLoadEngineTest" time="0.0"/>
+  <testcase name="stepUpRaisesAcuteLoadFasterThanChronicLoad" classname="com.noop.analytics.TrainingLoadEngineTest" time="0.0"/>
+  <testcase name="minimumAndEstablishedBoundariesAreExplicit" classname="com.noop.analytics.TrainingLoadEngineTest" time="0.0"/>
+  <testcase name="inputOrderDoesNotChangeResult" classname="com.noop.analytics.TrainingLoadEngineTest" time="0.001"/>
+  <testcase name="missingCalendarDayBreaksSuffix" classname="com.noop.analytics.TrainingLoadEngineTest" time="0.0"/>
+  <testcase name="invalidInputsFailClosed" classname="com.noop.analytics.TrainingLoadEngineTest" time="0.0"/>
+  <testcase name="constantLoadConvergesExactlyToLoadAndZeroBalance" classname="com.noop.analytics.TrainingLoadEngineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

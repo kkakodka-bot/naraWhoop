@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.SleepBoundaryOverridesTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:16:50" hostname="mac-studio.lan" time="0.0">
+  <properties/>
+  <testcase name="movingAwayRemovesBothOriginalAndConflictingGeneratedDestination" classname="com.frwhoop.scoring.SleepBoundaryOverridesTest" time="0.0"/>
+  <testcase name="movingThenDeletingSuppressesLateDataAtBothOriginalAndEditedBounds" classname="com.frwhoop.scoring.SleepBoundaryOverridesTest" time="0.0"/>
+  <testcase name="movedBoundsClipTruthAndAddUnknownInsteadOfSleep" classname="com.frwhoop.scoring.SleepBoundaryOverridesTest" time="0.0"/>
+  <testcase name="boundaryWithoutSignalIsUnknownAndReplayDoesNotAccumulate" classname="com.frwhoop.scoring.SleepBoundaryOverridesTest" time="0.0"/>
+  <testcase name="tombstoneSurvivesLateDataAndDoesNotRemoveSeparateNap" classname="com.frwhoop.scoring.SleepBoundaryOverridesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

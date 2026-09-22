@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.AuxiliaryObjectReaderTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:29" hostname="mac-studio.lan" time="0.184">
+  <properties/>
+  <testcase name="privateGetRefusesForeignBucketRedirectAndOversizedBodies" classname="com.frwhoop.scoring.AuxiliaryObjectReaderTest" time="0.064"/>
+  <testcase name="actualAuxStorageAndBinaryLayoutsRoundTripThroughBoundedGzipAndZstd" classname="com.frwhoop.scoring.AuxiliaryObjectReaderTest" time="0.119"/>
+  <testcase name="malformedCountsLengthsVersionsAndTruncatedSlotsCannotBecomeCandidateData" classname="com.frwhoop.scoring.AuxiliaryObjectReaderTest" time="0.0"/>
+  <testcase name="formatTwoPreservesUnknownZeroMaximumAndSameSecondSiblingsWithoutUsingRowIdAsIdentity" classname="com.frwhoop.scoring.AuxiliaryObjectReaderTest" time="0.001"/>
+  <testcase name="formatTwoRefusesUnknownPresenceOutOfRangeAndEnvelopeBlobMismatch" classname="com.frwhoop.scoring.AuxiliaryObjectReaderTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "gate": "macos-tests",
+  "status": "PASS",
+  "command": [
+    "xcodebuild",
+    "-project",
+    ".derived/compute-checks/ComputeChecks.xcodeproj",
+    "-scheme",
+    "Strand",
+    "-destination",
+    "platform=macOS",
+    "-derivedDataPath",
+    ".derived/compute-final-macos",
+    "SYMROOT=/private/tmp/nara-compute-final-products.fxyjBA",
+    "COMPUTE_TEST_SCRATCH=/private/tmp/nara-compute-scratch.fOxEWR",
+    "CODE_SIGNING_ALLOWED=YES",
+    "CODE_SIGN_IDENTITY=-",
+    "CODE_SIGN_ENTITLEMENTS=",
+    "DEVELOPMENT_TEAM=",
+    "ENABLE_DEBUG_DYLIB=NO",
+    "DEBUG_INFORMATION_FORMAT=dwarf-with-dsym",
+    "-collect-test-diagnostics",
+    "never",
+    "test"
+  ],
+  "cwd": ".",
+  "started_at": "2026-09-22T06:13:29.848Z",
+  "finished_at": "2026-09-22T06:17:27.037Z",
+  "source_before": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "source_after": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "exit_code": 0,
+  "failure": null,
+  "log_path": "macos-tests.log",
+  "log_sha256": "2113dd65199da84f3956b09319588e27b690c25b20d7123b02536fc52da1fd3e"
+}

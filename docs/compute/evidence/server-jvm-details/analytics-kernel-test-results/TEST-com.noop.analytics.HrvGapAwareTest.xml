@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.HrvGapAwareTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.0">
+  <properties/>
+  <testcase name="endDropsKeepAllContiguous" classname="com.noop.analytics.HrvGapAwareTest" time="0.0"/>
+  <testcase name="rmssdGapAwarePrimitiveSkipsSplice" classname="com.noop.analytics.HrvGapAwareTest" time="0.0"/>
+  <testcase name="cleanSeriesIsUnchanged" classname="com.noop.analytics.HrvGapAwareTest" time="0.0"/>
+  <testcase name="mismatchedLengthThrows" classname="com.noop.analytics.HrvGapAwareTest" time="0.0"/>
+  <testcase name="contiguityFlagMarksTheSplice" classname="com.noop.analytics.HrvGapAwareTest" time="0.0"/>
+  <testcase name="midSeriesDropDoesNotSplice" classname="com.noop.analytics.HrvGapAwareTest" time="0.0"/>
+  <testcase name="boundaryCases" classname="com.noop.analytics.HrvGapAwareTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

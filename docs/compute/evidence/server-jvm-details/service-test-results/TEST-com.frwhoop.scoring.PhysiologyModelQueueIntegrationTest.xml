@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:19" hostname="mac-studio.lan" time="1.733">
+  <properties/>
+  <testcase name="activationConcurrentWithUncommittedInputIsReconciledBeforeClaim" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.094"/>
+  <testcase name="failureBackoffDoesNotBlockAnotherUserAndNewRevisionRestartsBudget" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.089"/>
+  <testcase name="inputRevisionCancellationAndLeaseTheftFenceStaleOutputs" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.059"/>
+  <testcase name="activationIsImmutableAndUnprivilegedReadersCannotConsumeResearchOutput" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.04"/>
+  <testcase name="shadowReadbackIsOwnerScopedCurrentRevisionAndExplicitlyNonCanonical" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.059"/>
+  <testcase name="checkpointActivationAndHistoricalBackfillAreRevisionIsolated" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.047"/>
+  <testcase name="ownerDeviceRevisionCheckpointAndCanonicalTamperingCannotPublish" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.042"/>
+  <testcase name="blockedDatabaseAssemblyHasWholeAttemptDeadlineAndAnotherUserCanRun" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="1.087"/>
+  <testcase name="modelLeaseNeverConsumesDeterministicOrOtherModelLease" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.045"/>
+  <testcase name="operatorCancellationRevokesInFlightAndQueuedWork" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.065"/>
+  <testcase name="absentAcquisitionProofWaitsWithoutConsumingRetriesAndReceiptArrivalWakesIt" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.048"/>
+  <testcase name="noCheckpointReceiptResolvesUsingQueueDigestAndOvernightSizedMasksAreSupported" classname="com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest" time="0.058"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-50 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-50 - Added connection org.postgresql.jdbc.PgConnection@c7f4457
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-50 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-50 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-50 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-51 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-51 - Added connection org.postgresql.jdbc.PgConnection@32120956
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-51 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-51 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-51 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-52 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-52 - Added connection org.postgresql.jdbc.PgConnection@716185fe
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-52 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-52 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-52 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-53 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-53 - Added connection org.postgresql.jdbc.PgConnection@40ef0af8
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-53 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-53 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-53 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-54 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-54 - Added connection org.postgresql.jdbc.PgConnection@3a36cd5
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-54 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-54 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-54 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-55 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-55 - Added connection org.postgresql.jdbc.PgConnection@5974b7e8
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-55 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-55 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-55 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-56 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-56 - Added connection org.postgresql.jdbc.PgConnection@7e15f4d4
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-56 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-56 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-56 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-57 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-57 - Added connection org.postgresql.jdbc.PgConnection@4751e8b9
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-57 - Start completed.
+[Test worker] WARN com.zaxxer.hikari.pool.ProxyConnection - HikariPool-57 - Connection org.postgresql.jdbc.PgConnection@4751e8b9 marked as broken because of SQLSTATE(08006), ErrorCode(0)
+org.postgresql.util.PSQLException: An I/O error occurred while sending to the backend.
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:399)
+	at org.postgresql.jdbc.PgStatement.executeInternal(PgStatement.java:517)
+	at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:434)
+	at org.postgresql.jdbc.PgStatement.executeWithFlags(PgStatement.java:356)
+	at org.postgresql.jdbc.PgStatement.executeCachedSql(PgStatement.java:341)
+	at org.postgresql.jdbc.PgStatement.executeWithFlags(PgStatement.java:317)
+	at org.postgresql.jdbc.PgStatement.execute(PgStatement.java:312)
+	at com.zaxxer.hikari.pool.ProxyStatement.execute(ProxyStatement.java:94)
+	at com.zaxxer.hikari.pool.HikariProxyStatement.execute(HikariProxyStatement.java)
+	at com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest$blockedDatabaseAssemblyHasWholeAttemptDeadlineAndAnotherUserCanRun$provider$1.loadDay$lambda$1(PhysiologyModelQueueIntegrationTest.kt:202)
+	at com.frwhoop.scoring.db.PostgresClient.withConnection(PostgresClient.kt:149)
+	at com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest$blockedDatabaseAssemblyHasWholeAttemptDeadlineAndAnotherUserCanRun$provider$1.loadDay(PhysiologyModelQueueIntegrationTest.kt:202)
+	at com.frwhoop.scoring.db.ScoreInputProvider$DefaultImpls.loadDay(ScoreInputProvider.kt:14)
+	at com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest$blockedDatabaseAssemblyHasWholeAttemptDeadlineAndAnotherUserCanRun$provider$1.loadDay(PhysiologyModelQueueIntegrationTest.kt:200)
+	at com.frwhoop.scoring.signals.ModelQueueWorker.processOne(ModelQueueWorker.kt:49)
+	at com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest.blockedDatabaseAssemblyHasWholeAttemptDeadlineAndAnotherUserCanRun(PhysiologyModelQueueIntegrationTest.kt:210)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
+	at org.junit.internal.runners.statements.RunAfters.evaluate(RunAfters.java:27)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)
+	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)
+	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)
+	at org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)
+	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)
+	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)
+	at org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)
+	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.junit.runners.ParentRunner.run(ParentRunner.java:413)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.runTestClass(JUnitTestClassExecutor.java:112)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.execute(JUnitTestClassExecutor.java:58)
+	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.execute(JUnitTestClassExecutor.java:40)
+	at org.gradle.api.internal.tasks.testing.junit.AbstractJUnitTestClassProcessor.processTestClass(AbstractJUnitTestClassProcessor.java:60)
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.processTestClass(SuiteTestClassProcessor.java:52)
+	at jdk.internal.reflect.GeneratedMethodAccessor5.invoke(Unknown Source)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:94)
+	at jdk.proxy1/jdk.proxy1.$Proxy2.processTestClass(Unknown Source)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$2.run(TestWorker.java:176)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:129)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:100)
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:60)
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:113)
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:65)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+Caused by: java.net.SocketException: Socket closed
+	at java.base/sun.nio.ch.NioSocketImpl.endRead(NioSocketImpl.java:253)
+	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:332)
+	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
+	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
+	at org.postgresql.core.VisibleBufferedInputStream.readMore(VisibleBufferedInputStream.java:192)
+	at org.postgresql.core.VisibleBufferedInputStream.ensureBytes(VisibleBufferedInputStream.java:159)
+	at org.postgresql.core.VisibleBufferedInputStream.ensureBytes(VisibleBufferedInputStream.java:144)
+	at org.postgresql.core.VisibleBufferedInputStream.read(VisibleBufferedInputStream.java:76)
+	at org.postgresql.core.PGStream.receiveChar(PGStream.java:476)
+	at org.postgresql.core.v3.QueryExecutorImpl.processResults(QueryExecutorImpl.java:2174)
+	at org.postgresql.core.v3.QueryExecutorImpl.execute(QueryExecutorImpl.java:372)
+	... 59 more
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-57 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-57 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-58 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-58 - Added connection org.postgresql.jdbc.PgConnection@76ff68c5
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-58 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-58 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-58 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-59 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-59 - Added connection org.postgresql.jdbc.PgConnection@4b862408
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-59 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-59 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-59 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-60 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-60 - Added connection org.postgresql.jdbc.PgConnection@16a5c7e4
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-60 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-60 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-60 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-61 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-61 - Added connection org.postgresql.jdbc.PgConnection@6a32191e
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-61 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-61 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-61 - Shutdown completed.
+]]></system-err>
+</testsuite>

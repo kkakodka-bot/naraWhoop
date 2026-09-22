@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerV2Test" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.164">
+  <properties/>
+  <testcase name="detectSleepThreadsV2FlagIntoNormalNight" classname="com.noop.analytics.SleepStagerV2Test" time="0.068"/>
+  <testcase name="guardRegionDoesNotDependOnHowLongTheWearerStayedInBed" classname="com.noop.analytics.SleepStagerV2Test" time="0.035"/>
+  <testcase name="shuffledTimestampGroupsPreserveOrderSensitiveDuplicateOutcomes" classname="com.noop.analytics.SleepStagerV2Test" time="0.022"/>
+  <testcase name="tunedDeepBoundaryConstantsArePinned" classname="com.noop.analytics.SleepStagerV2Test" time="0.0"/>
+  <testcase name="wakeRowForbidsDirectDescentIntoDeepOrRem" classname="com.noop.analytics.SleepStagerV2Test" time="0.0"/>
+  <testcase name="stagesTileTheWholeSpanContiguously" classname="com.noop.analytics.SleepStagerV2Test" time="0.002"/>
+  <testcase name="onlyCanonicalStageLabels" classname="com.noop.analytics.SleepStagerV2Test" time="0.006"/>
+  <testcase name="remLatencyGuardIsIdenticalAcrossSessionLengths" classname="com.noop.analytics.SleepStagerV2Test" time="0.0"/>
+  <testcase name="sustainedSleepOnsetRule" classname="com.noop.analytics.SleepStagerV2Test" time="0.0"/>
+  <testcase name="frozenGoldenHypnogramPinsTheRecipeShapeAndParity" classname="com.noop.analytics.SleepStagerV2Test" time="0.022"/>
+  <testcase name="degenerateInputAbstains" classname="com.noop.analytics.SleepStagerV2Test" time="0.0"/>
+  <testcase name="remLatencyGuardShapeAndClamp" classname="com.noop.analytics.SleepStagerV2Test" time="0.0"/>
+  <testcase name="shuffledInputsMatchSortedInputs" classname="com.noop.analytics.SleepStagerV2Test" time="0.009"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

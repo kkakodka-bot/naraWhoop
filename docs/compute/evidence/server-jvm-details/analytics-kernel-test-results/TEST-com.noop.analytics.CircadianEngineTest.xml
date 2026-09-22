@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.CircadianEngineTest" tests="26" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.006">
+  <properties/>
+  <testcase name="arrhythmicProfileIsUnreadable" classname="com.noop.analytics.CircadianEngineTest" time="0.001"/>
+  <testcase name="aFlatRhythmIsStillArrhythmicOnBothMeasures" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="theMeasuredWearerIsNoLongerSilenced" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="cosinorRecoversInjectedParameters" classname="com.noop.analytics.CircadianEngineTest" time="0.001"/>
+  <testcase name="theAbsoluteFloorIsWhereItSays" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="cosinorRejectsTooFewPoints" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="steppedAtOneHourPerDay" classname="com.noop.analytics.CircadianEngineTest" time="0.001"/>
+  <testcase name="idealSleepWindowMatchesTheSwiftOracleExactly" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="sleepWindowOffsetMatchesTheSwiftOracleExactly" classname="com.noop.analytics.CircadianEngineTest" time="0.001"/>
+  <testcase name="chronotypeMatchesTheSwiftOracleExactly" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="westwardDelayPlanUsesEveningLight" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="anAbsoluteOnlyRhythmIsReadableButNotSolid" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="idealWindowSharesTheWakeAnchorAcrossDurations" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="aConsistentLateSleeperIsEveningTypeDespiteAZeroScheduleOffset" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="thinDataIsUnreadable" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="eastwardAdvancePlanUsesMorningLight" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="clockFormatting" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="noShiftNeededReturnsNonePlan" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="observedTempMinOverridesDerived" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="cosinorAcrophaseWrapsIntoDay" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="chronotypeIsNamedOnlyForASolidFit" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="aProportionalSwingStillPasses" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="strongRhythmEnoughDaysIsSolid" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="windowOffsetAndScheduleOffsetAreDifferentQuantities" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="theSameSwingNoLongerDependsOnTheBaseline" classname="com.noop.analytics.CircadianEngineTest" time="0.0"/>
+  <testcase name="planNeverMentionsSupplements" classname="com.noop.analytics.CircadianEngineTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

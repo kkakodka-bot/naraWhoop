@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.Spo2CandidateNightlyTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.0">
+  <properties/>
+  <testcase name="daytimeSamplesOutsideTheSessionAreExcluded" classname="com.noop.analytics.Spo2CandidateNightlyTest" time="0.0"/>
+  <testcase name="nullWhenNothingInBandFallsInsideASession" classname="com.noop.analytics.Spo2CandidateNightlyTest" time="0.0"/>
+  <testcase name="missingBytesAreSkippedNotCountedAsZero" classname="com.noop.analytics.Spo2CandidateNightlyTest" time="0.0"/>
+  <testcase name="bandBoundariesMatchTheDecoderGate" classname="com.noop.analytics.Spo2CandidateNightlyTest" time="0.0"/>
+  <testcase name="meanRoundsRatherThanFloors" classname="com.noop.analytics.Spo2CandidateNightlyTest" time="0.0"/>
+  <testcase name="meanAndSampleCountOverTheSession" classname="com.noop.analytics.Spo2CandidateNightlyTest" time="0.0"/>
+  <testcase name="sampleCountTravelsWithTheMean" classname="com.noop.analytics.Spo2CandidateNightlyTest" time="0.0"/>
+  <testcase name="subSeventyAndSentinelValuesAreExcluded" classname="com.noop.analytics.Spo2CandidateNightlyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

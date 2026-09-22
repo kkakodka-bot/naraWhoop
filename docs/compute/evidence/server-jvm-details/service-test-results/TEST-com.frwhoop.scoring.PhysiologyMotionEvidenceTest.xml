@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.PhysiologyMotionEvidenceTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:21" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="offBodyMarksRejectedContactButAbsenceDoesNotVerifyContact" classname="com.frwhoop.scoring.PhysiologyMotionEvidenceTest" time="0.001"/>
+  <testcase name="conflictingDuplicatesAndImpossibleValuesDoNotCreateMotionCoverage" classname="com.frwhoop.scoring.PhysiologyMotionEvidenceTest" time="0.0"/>
+  <testcase name="sourceCandidatesAreNotSelectedNightGloballyOrDiscardedWithinWindow" classname="com.frwhoop.scoring.PhysiologyMotionEvidenceTest" time="0.0"/>
+  <testcase name="priorOffBodyContextIsClippedWithoutInventingMotionCoverage" classname="com.frwhoop.scoring.PhysiologyMotionEvidenceTest" time="0.0"/>
+  <testcase name="missingMotionIsNotCleanAndKnownMotionRejectsEvenWithGap" classname="com.frwhoop.scoring.PhysiologyMotionEvidenceTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

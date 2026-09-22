@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.DetectionFunnelTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.029">
+  <properties/>
+  <testcase name="aMissingHrStreamIsNotConfusedWithALowHeartRate" classname="com.noop.analytics.DetectionFunnelTest" time="0.006"/>
+  <testcase name="theLongestRunSizesWhatSurvivedTheDurationGate" classname="com.noop.analytics.DetectionFunnelTest" time="0.005"/>
+  <testcase name="everyRejectedCandidateIsAccountedFor" classname="com.noop.analytics.DetectionFunnelTest" time="0.01"/>
+  <testcase name="aRealWorkoutIsCountedAsKept" classname="com.noop.analytics.DetectionFunnelTest" time="0.002"/>
+  <testcase name="aStillDayNamesMotionAsTheGateThatAteIt" classname="com.noop.analytics.DetectionFunnelTest" time="0.001"/>
+  <testcase name="aShortEffortIsNamedAsShort" classname="com.noop.analytics.DetectionFunnelTest" time="0.002"/>
+  <testcase name="itReportsTheBarTheDayHadToClear" classname="com.noop.analytics.DetectionFunnelTest" time="0.001"/>
+  <testcase name="aMovingButUnexertedDayNamesHRAsTheGateThatAteIt" classname="com.noop.analytics.DetectionFunnelTest" time="0.002"/>
+  <testcase name="theLineIsExactlyThis" classname="com.noop.analytics.DetectionFunnelTest" time="0.0"/>
+  <testcase name="aDayWithNoDataStillReports" classname="com.noop.analytics.DetectionFunnelTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

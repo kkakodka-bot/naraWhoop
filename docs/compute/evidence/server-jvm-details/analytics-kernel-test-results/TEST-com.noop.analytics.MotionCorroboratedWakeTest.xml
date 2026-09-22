@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.MotionCorroboratedWakeTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.102">
+  <properties/>
+  <testcase name="adaptiveOvernightHRBaseline" classname="com.noop.analytics.MotionCorroboratedWakeTest" time="0.0"/>
+  <testcase name="genuinelyHighHRStillRunStillRejected" classname="com.noop.analytics.MotionCorroboratedWakeTest" time="0.002"/>
+  <testcase name="motionQuiescentPredicate" classname="com.noop.analytics.MotionCorroboratedWakeTest" time="0.0"/>
+  <testcase name="motionlessElevatedRunConfirmedWithGravity" classname="com.noop.analytics.MotionCorroboratedWakeTest" time="0.003"/>
+  <testcase name="warmFlatHRStillNightScoresAsleepNotWakeV2" classname="com.noop.analytics.MotionCorroboratedWakeTest" time="0.063"/>
+  <testcase name="walkingGapWithinStillNightScoresWakeV2" classname="com.noop.analytics.MotionCorroboratedWakeTest" time="0.018"/>
+  <testcase name="runIsDeeplyQuiescent" classname="com.noop.analytics.MotionCorroboratedWakeTest" time="0.002"/>
+  <testcase name="stillLowHRNightUnchangedByCorrectionV2" classname="com.noop.analytics.MotionCorroboratedWakeTest" time="0.013"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

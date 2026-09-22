@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.ScoringReviewRegressionTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:16:19" hostname="mac-studio.lan" time="1.055">
+  <properties/>
+  <testcase name="legacyWaitsForUncommittedV2ThenCannotRestoreRemovedSleep" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.075"/>
+  <testcase name="legacyCannotMoveAV2SleepToAnUnownedDayThroughStartKeyConflict" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.05"/>
+  <testcase name="legacyOnlyKeysAndResponseShapeRemainCompatible" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.033"/>
+  <testcase name="legacyCannotMutatePendingV2KeysOrCallThePrivateImplementation" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.053"/>
+  <testcase name="upgradeSchedulesUnknownFamilyHistoryEvenAfterLastEvidenceWasDeleted" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.162"/>
+  <testcase name="registrationSeesNeitherUncommittedInputNorLegacyWorkButMaintenanceRepairsIt" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.104"/>
+  <testcase name="delayedLegacyResultCannotOverwriteCorrectionOrResurrectSleep" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.063"/>
+  <testcase name="v2WaitsForUncommittedLegacyThenReplacesItsCompleteProjection" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.077"/>
+  <testcase name="versionRepairIsBoundedIdempotentAndDoesNotInvalidateExistingLeases" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.049"/>
+  <testcase name="concurrentVersionRepairIsIdempotentAndDisabledVersionsStayUnscheduled" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.061"/>
+  <testcase name="windowLocalModernEvidenceChangesExactBeatsCoverageAndInputRevisionBothWays" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.118"/>
+  <testcase name="futureModernRrInsertionAndDeletionDoNotChangeHistoricalInputsOrCoverage" classname="com.frwhoop.scoring.ScoringReviewRegressionTest" time="0.21"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

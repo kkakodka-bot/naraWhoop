@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:31" hostname="mac-studio.lan" time="3.063">
+  <properties/>
+  <testcase name="sameSecondOrdNullAndNumericTiesKeepEverySeqInNativeOrder" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.161"/>
+  <testcase name="channelSevenFallbackAndSixOnlyDoNotManufactureCanonicalBeats" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.328"/>
+  <testcase name="missingDeviceAndExactTextPredicatePreserveExistingPassThrough" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.09"/>
+  <testcase name="ownerDeviceAndBothInclusiveBoundsAlsoScopeFamilyEvidence" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.209"/>
+  <testcase name="onlyNullFamilyInfersModernAndExplicitLegacyUnknownOrWhitespaceNeverDo" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.163"/>
+  <testcase name="suspectExactlyOneIsRejectedWithoutAddingPhysiologicalFilters" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.144"/>
+  <testcase name="nullSourcesStoredIbiSuspectOnlyAndEmptyWindowsHaveExplicitPolicyDelta" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.319"/>
+  <testcase name="denseNewQueryUsesOneWindowScanAndOnePolicyAggregateUnderTimeout" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.63"/>
+  <testcase name="wireTag110IsNotSilentlyAliasedToStoredSpo2Code" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.118"/>
+  <testcase name="storedSpo2CodeIsExcludedWithoutDeletingRawOrReorderingOtherLegacyChannels" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.184"/>
+  <testcase name="allModernAliasesRetainCanonicalPriorityAndCompleteRows" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.223"/>
+  <testcase name="canonicalFiveAndSevenStillExcludeStoredIbiAndUnmappedWireTag" classname="com.frwhoop.scoring.CanonicalRrPolicyIntegrationTest" time="0.494"/>
+  <system-out><![CDATA[RR_DENSE_NEW rows=28800 jdbcMs=30.229791 executionMs=17.657 plan=/Volumes/Untitled/compute-final-tmp.TV9zWX/server-jvm.OOAjIS/context-artifacts/w3-pg-2948676271931566160/canonical-rr-dense-new-plan.json
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

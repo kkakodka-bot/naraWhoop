@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "gate": "swift-support",
+  "status": "PASS",
+  "command": [
+    "bash",
+    "Tools/compute/run-support-package-checks.sh"
+  ],
+  "cwd": ".",
+  "started_at": "2026-09-22T06:13:28.681Z",
+  "finished_at": "2026-09-22T06:13:39.245Z",
+  "source_before": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "source_after": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "exit_code": 0,
+  "failure": null,
+  "log_path": "swift-support.log",
+  "log_sha256": "a284076006e3cd3331b7b2db35b3f4827d4185d090da3c00fd8616c8d471b9a3"
+}

@@ -1,0 +1,10 @@
+Local JVM/Swift/PostgreSQL evidence: /Volumes/Untitled/compute-final-tmp.TV9zWX/server-jvm.OOAjIS
+> Task :service:testClasses
+
+> Task :service:test
+Picked up JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=/Volumes/Untitled/compute-final-tmp.TV9zWX
+
+BUILD SUCCESSFUL in 4m 9s
+21 actionable tasks: 21 executed
+Disposable PostgreSQL queue evidence: /Volumes/Untitled/compute-final-tmp.TV9zWX/physiology-queue.y41hS0
+Clean JVM tests and installDist passed with a newly exported actual-Swift corpus: /Volumes/Untitled/compute-final-tmp.TV9zWX/server-jvm.OOAjIS

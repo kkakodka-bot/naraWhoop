@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:00" hostname="mac-studio.lan" time="1.555">
+  <properties/>
+  <testcase name="asOfSelectionNeverUsesFutureProfileAndPastCorrectionKeepsLaterVersion" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.097"/>
+  <testcase name="timezoneUnknownFieldsAndNullSleepBoundsFailValidation" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.068"/>
+  <testcase name="earlierWakeDayCorrectionReplacesOlderEditOnLaterDaysWithoutFutureLeakage" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.318"/>
+  <testcase name="freshInstallationMustReadHeadAndExplicitlyRebaseWithNewMutation" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.077"/>
+  <testcase name="authenticatedSleepStageNullMembersAndWrongTypesNeverCreateInputOrInvalidation" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.031"/>
+  <testcase name="optimisticAndClientRevisionsCannotSilentlyOverwrite" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.092"/>
+  <testcase name="sleepTombstoneIsVersionedAndCannotReassignOriginalIdentityOnRevival" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.331"/>
+  <testcase name="wrongOwnerAndDirectTableWritesAreRejected" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.031"/>
+  <testcase name="twoClientsWithSameExpectedRevisionSerializeAndOnlyOneCommits" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.076"/>
+  <testcase name="revisionsAreOpaqueAndPerEntityExpectedHeadsMaySkipSequenceValues" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.095"/>
+  <testcase name="authenticatedCanonicalSleepStagesAndZeroConfigurationRemainValid" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.214"/>
+  <testcase name="exactRetryIsDurableAndAddsNeitherRevisionNorInvalidation" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.078"/>
+  <testcase name="headRpcReturnsOnlyOwnedMetadataEvenForFuturePayloadAndAbsentEntity" classname="com.frwhoop.scoring.HistoryInputRpcIntegrationTest" time="0.046"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

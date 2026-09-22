@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.RuntimePreflightCommandTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:15:01" hostname="mac-studio.lan" time="0.011">
+  <properties/>
+  <testcase name="urlOptionsCannotDisableThePreflightDriverDeadlines" classname="com.frwhoop.scoring.RuntimePreflightCommandTest" time="0.001"/>
+  <testcase name="restProbeOnlyReadsTheHeartbeatWithBothAuthenticationHeaders" classname="com.frwhoop.scoring.RuntimePreflightCommandTest" time="0.002"/>
+  <testcase name="redirectsNeverForwardTheServiceCredential" classname="com.frwhoop.scoring.RuntimePreflightCommandTest" time="0.002"/>
+  <testcase name="directAndPoolerConnectionsRequireTheSameCanonicalHostedProject" classname="com.frwhoop.scoring.RuntimePreflightCommandTest" time="0.0"/>
+  <testcase name="rejectedMalformedEmptyAndOversizedResponsesAreSanitized" classname="com.frwhoop.scoring.RuntimePreflightCommandTest" time="0.006"/>
+  <testcase name="mismatchedUnknownOrInsecureEndpointsFailBeforeCredentialsCanLeave" classname="com.frwhoop.scoring.RuntimePreflightCommandTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

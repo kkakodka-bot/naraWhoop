@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.HrvRrCoverageTest" tests="26" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.003">
+  <properties/>
+  <testcase name="aPerfectlyCoveredBankedNightStillRefusesBeatValues" classname="com.noop.analytics.HrvRrCoverageTest" time="0.001"/>
+  <testcase name="collapsedCoverage_respectsRrToleranceForGenuineTwoBeatsInOneSecond" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="densestSample_showsDistinctTrains" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="duplicateBeats_countsExactRepeats" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="densestSample_halfValueBeatsPerSecRounding" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="densestSample_truncatesRunawaySecond" classname="com.noop.analytics.HrvRrCoverageTest" time="0.001"/>
+  <testcase name="beatAccurateFraction_collapsesOnABankedStream" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="duplicateBeats_zeroWhenAllDistinct" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="densestSample_shortSrcCodesAreIndexGuarded" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="beatSpreadIsTrustworthy_refusesOverCountedWindows" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="beatAccurateFraction_tooShortOrMismatchedStaysTrusted" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="beatValuesAreTrustworthy_boundaryIsInclusive" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="coverage_cleanStreamIsNearOne" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="densestSample_surfacesSrcChannelTags" classname="com.noop.analytics.HrvRrCoverageTest" time="0.001"/>
+  <testcase name="densestSample_tieResolvesToEarliestSecond" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="collapsedCoverage_keepsCrossSecondDuplicates" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="densestSample_showsNearEqualCopies" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="collapsedCoverage_collapsesSameSecondNearDuplicates" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="beatAccurateFraction_isFullOnABeatAccurateStream" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="coverage_doubleCountedBeatsExceedsOne" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="beatSpreadIsTrustworthy_bankedBurstsRefused_honestlySpacedKept" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="collapsedCoverage_noOpOnCleanStream" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="densestSample_emptyForTooFewBeats" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="beatValuesAreTrustworthy_nanStaysTrusted" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="beatSpreadIsTrustworthy_keepsGapsAndUnmeasurable" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <testcase name="coverage_zeroForTooFewBeatsOrZeroSpan" classname="com.noop.analytics.HrvRrCoverageTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

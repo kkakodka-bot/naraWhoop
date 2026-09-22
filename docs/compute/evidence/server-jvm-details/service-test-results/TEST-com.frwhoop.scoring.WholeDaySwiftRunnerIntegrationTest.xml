@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.WholeDaySwiftRunnerIntegrationTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:17:09" hostname="mac-studio.lan" time="0.653">
+  <properties/>
+  <testcase name="calendarReaderExcludesHistoricalCounterPredecessorWhileServerDayRetainsIt" classname="com.frwhoop.scoring.WholeDaySwiftRunnerIntegrationTest" time="0.172"/>
+  <testcase name="inputIdentitiesOwnerAndTimeAreActuallySelectedNotCopiedFromExpected" classname="com.frwhoop.scoring.WholeDaySwiftRunnerIntegrationTest" time="0.083"/>
+  <testcase name="emptyCalendarUsesRealReaderAndLeavesPhysiologyMissing" classname="com.frwhoop.scoring.WholeDaySwiftRunnerIntegrationTest" time="0.071"/>
+  <testcase name="nullableWaistOnlyMatchesResolvedUnsetAndNeverDiscardsMeasuredWaist" classname="com.frwhoop.scoring.WholeDaySwiftRunnerIntegrationTest" time="0.196"/>
+  <testcase name="serverBranchRunsHistoricalOrchestrationAndKeepsTrueDstBounds" classname="com.frwhoop.scoring.WholeDaySwiftRunnerIntegrationTest" time="0.131"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

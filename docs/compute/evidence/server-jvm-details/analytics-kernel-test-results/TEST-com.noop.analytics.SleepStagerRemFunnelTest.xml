@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerRemFunnelTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.01">
+  <properties/>
+  <testcase name="nullWhenNoGravity" classname="com.noop.analytics.SleepStagerRemFunnelTest" time="0.0"/>
+  <testcase name="stillPpgNightNoLongerScoresMostlyWake_705" classname="com.noop.analytics.SleepStagerRemFunnelTest" time="0.0"/>
+  <testcase name="cardiacSparseFlagFiresOnMostlyMissingRmssd_705" classname="com.noop.analytics.SleepStagerRemFunnelTest" time="0.0"/>
+  <testcase name="remRejectReasonAttributesEachGate" classname="com.noop.analytics.SleepStagerRemFunnelTest" time="0.0"/>
+  <testcase name="diagnosticIsReadOnly" classname="com.noop.analytics.SleepStagerRemFunnelTest" time="0.005"/>
+  <testcase name="remRejectReasonNoRespFallbackIsRemEligible" classname="com.noop.analytics.SleepStagerRemFunnelTest" time="0.0"/>
+  <testcase name="sparseCardiacDoesNotPromoteStillSleepToWakeOnHrVarAlone_705" classname="com.noop.analytics.SleepStagerRemFunnelTest" time="0.0"/>
+  <testcase name="zeroRemNightSurfacesRespAbsent" classname="com.noop.analytics.SleepStagerRemFunnelTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

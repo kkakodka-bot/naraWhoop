@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.BanisterBaselineTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.024">
+  <properties/>
+  <testcase name="Banister still pays for work Edwards zeroes - the reason it exists" classname="com.noop.analytics.BanisterBaselineTest" time="0.011"/>
+  <testcase name="a sedentary day scores zero under BOTH methods" classname="com.noop.analytics.BanisterBaselineTest" time="0.007"/>
+  <testcase name="the baseline is subtracted from the ceiling too, so the top still reaches 100" classname="com.noop.analytics.BanisterBaselineTest" time="0.003"/>
+  <testcase name="a harder day always outscores an easier one" classname="com.noop.analytics.BanisterBaselineTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

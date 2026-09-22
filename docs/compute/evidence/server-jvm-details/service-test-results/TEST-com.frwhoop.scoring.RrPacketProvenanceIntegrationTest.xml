@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.RrPacketProvenanceIntegrationTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:15:01" hostname="mac-studio.lan" time="0.263">
+  <properties/>
+  <testcase name="packetOnlyArrivalRetainsZeroSlotIsOwnerScopedAndDirtiesTransactionally" classname="com.frwhoop.scoring.RrPacketProvenanceIntegrationTest" time="0.221"/>
+  <testcase name="missingProfilePreservesOwnedWhoop4FirmwareAndDefaultContext" classname="com.frwhoop.scoring.RrPacketProvenanceIntegrationTest" time="0.042"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-96 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-96 - Added connection org.postgresql.jdbc.PgConnection@7d2c9361
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-96 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-96 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-96 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-97 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-97 - Added connection org.postgresql.jdbc.PgConnection@18e4674d
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-97 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-97 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-97 - Shutdown completed.
+]]></system-err>
+</testsuite>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.EffortMethodThreadingTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.039">
+  <properties/>
+  <testcase name="banisterReachesTheDayScore" classname="com.noop.analytics.EffortMethodThreadingTest" time="0.008"/>
+  <testcase name="onlyEffortMoves" classname="com.noop.analytics.EffortMethodThreadingTest" time="0.015"/>
+  <testcase name="banisterReachesTheWorkoutsDetectedInsideTheDay" classname="com.noop.analytics.EffortMethodThreadingTest" time="0.001"/>
+  <testcase name="theDefaultIsStillEdwardsAndStillScoresTheFlooredHourAtZero" classname="com.noop.analytics.EffortMethodThreadingTest" time="0.015"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

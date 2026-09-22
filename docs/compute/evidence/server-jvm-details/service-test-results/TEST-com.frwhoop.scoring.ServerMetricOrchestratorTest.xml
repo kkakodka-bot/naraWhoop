@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.ServerMetricOrchestratorTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:16:42" hostname="mac-studio.lan" time="0.021">
+  <properties/>
+  <testcase name="importedSleepDisplayPrecedenceDoesNotChangeComputedRestOrDebtState" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.001"/>
+  <testcase name="manualWorkoutWithoutRawHasIdentityAndBoundsButNoInventedPhysiology" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.001"/>
+  <testcase name="orderedHistoryUsesEachDaysOwnMetricsAndBoundedSnapshotBelowClientByteLimit" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.016"/>
+  <testcase name="chartsOnlyContainObservedBucketsWithCountsAndBounds" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.0"/>
+  <testcase name="importedEnergyHasDeterministicProvenanceAndNeverReplacesStrapHrv" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.0"/>
+  <testcase name="customDisplayZonesAndManualStepCalibrationCallExistingEnginesWithoutChangingMeasuredSteps" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.001"/>
+  <testcase name="candidateIsExplicitlyOptedInAndNeverPromotedToMeasuredOxygen" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.001"/>
+  <testcase name="completeDailyAndModelOutputsUseExistingNamesUnitsAndExplicitCapabilities" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.0"/>
+  <testcase name="contextFactoryRetainsPerDayBaselineAndExplicitPersonalMode" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.0"/>
+  <testcase name="sessionChartsUseStableIdentityAndMovementNotConstantGravityMagnitude" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.001"/>
+  <testcase name="everyAcceptedImportedScalarHasAnExplicitOutputWithoutEnteringStrapBeforeStates" classname="com.frwhoop.scoring.ServerMetricOrchestratorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

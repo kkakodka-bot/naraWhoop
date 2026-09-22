@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "gate": "ios-build",
+  "status": "PASS",
+  "command": [
+    "xcodebuild",
+    "-project",
+    ".derived/compute-checks/ComputeChecks.xcodeproj",
+    "-scheme",
+    "NOOPiOS",
+    "-destination",
+    "generic/platform=iOS",
+    "-derivedDataPath",
+    ".derived/compute-ios",
+    "CODE_SIGNING_ALLOWED=NO",
+    "build"
+  ],
+  "cwd": ".",
+  "started_at": "2026-09-22T06:13:31.080Z",
+  "finished_at": "2026-09-22T06:13:34.466Z",
+  "source_before": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "source_after": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "exit_code": 0,
+  "failure": null,
+  "log_path": "ios-build.log",
+  "log_sha256": "703066b768e9a9bdf24caf44165554baeaa61abd61567313b761723697a3bfe3"
+}

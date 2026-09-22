@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerTraceTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.008">
+  <properties/>
+  <testcase name="realNightKept" classname="com.noop.analytics.SleepStagerTraceTest" time="0.002"/>
+  <testcase name="tracedAndUntracedReturnIdentical" classname="com.noop.analytics.SleepStagerTraceTest" time="0.002"/>
+  <testcase name="shortRunDropped" classname="com.noop.analytics.SleepStagerTraceTest" time="0.001"/>
+  <testcase name="runLineFormat" classname="com.noop.analytics.SleepStagerTraceTest" time="0.0"/>
+  <testcase name="denseNightHasNoSparseBridgeLine" classname="com.noop.analytics.SleepStagerTraceTest" time="0.001"/>
+  <testcase name="flipLineFormat" classname="com.noop.analytics.SleepStagerTraceTest" time="0.001"/>
+  <testcase name="restSubScoreLine" classname="com.noop.analytics.SleepStagerTraceTest" time="0.0"/>
+  <testcase name="detectionSummaryLineEmitted" classname="com.noop.analytics.SleepStagerTraceTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

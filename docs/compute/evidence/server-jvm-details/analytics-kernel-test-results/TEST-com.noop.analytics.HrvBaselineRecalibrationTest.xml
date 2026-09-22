@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.HrvBaselineRecalibrationTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.0">
+  <properties/>
+  <testcase name="earlyPath_noOpOnConstantSeries" classname="com.noop.analytics.HrvBaselineRecalibrationTest" time="0.0"/>
+  <testcase name="recalibrateRecoveryBaselines_reAnchorsNextComputation" classname="com.noop.analytics.HrvBaselineRecalibrationTest" time="0.0"/>
+  <testcase name="recalibrateRecoveryBaselines_writesBothEpochs" classname="com.noop.analytics.HrvBaselineRecalibrationTest" time="0.0"/>
+  <testcase name="recalibrateEpoch_reseedsFromEpoch" classname="com.noop.analytics.HrvBaselineRecalibrationTest" time="0.0"/>
+  <testcase name="earlyHighSeed_convergesQuickly" classname="com.noop.analytics.HrvBaselineRecalibrationTest" time="0.0"/>
+  <testcase name="hardOutlier_stillRejectedOnceSettled" classname="com.noop.analytics.HrvBaselineRecalibrationTest" time="0.0"/>
+  <testcase name="recalibrateEpoch_afterAllNights_resetsToColdStart" classname="com.noop.analytics.HrvBaselineRecalibrationTest" time="0.0"/>
+  <testcase name="windowSwitchRefold_staysUsableWithoutEpochReset" classname="com.noop.analytics.HrvBaselineRecalibrationTest" time="0.0"/>
+  <testcase name="genuineLowerNights_notRejectedDuringSeed" classname="com.noop.analytics.HrvBaselineRecalibrationTest" time="0.0"/>
+  <testcase name="recalibrateEpoch_zeroIsNoOp" classname="com.noop.analytics.HrvBaselineRecalibrationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

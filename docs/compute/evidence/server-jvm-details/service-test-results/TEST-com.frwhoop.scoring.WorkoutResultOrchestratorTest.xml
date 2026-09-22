@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.WorkoutResultOrchestratorTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:17:10" hostname="mac-studio.lan" time="0.007">
+  <properties/>
+  <testcase name="inclusiveWorkoutCounterWrapActivityAndScaleMatchExistingSwiftDetailPolicy" classname="com.frwhoop.scoring.WorkoutResultOrchestratorTest" time="0.0"/>
+  <testcase name="missingStationaryAndNonFootCountersNeverFabricateZeroStepsOrCadence" classname="com.frwhoop.scoring.WorkoutResultOrchestratorTest" time="0.0"/>
+  <testcase name="strengthDurationUsesTheExistingImportedActivityNamePredicate" classname="com.frwhoop.scoring.WorkoutResultOrchestratorTest" time="0.0"/>
+  <testcase name="futureManualWorkoutCompletionCannotEnterHistoricalCountsOrStrengthMinutes" classname="com.frwhoop.scoring.WorkoutResultOrchestratorTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

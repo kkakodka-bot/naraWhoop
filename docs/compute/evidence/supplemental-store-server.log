@@ -1,0 +1,256 @@
+[0/1] Planning build
+Building for debugging...
+[0/2] Write swift-version-30D7331401001902.txt
+Build complete! (0.24s)
+Test Suite 'Selected tests' started at 2026-09-21 23:19:41.475.
+Test Suite 'WhoopStorePackageTests.xctest' started at 2026-09-21 23:19:41.476.
+Test Suite 'CanonicalRrSourceOracleTests' started at 2026-09-21 23:19:41.476.
+Test Case '-[WhoopStoreTests.CanonicalRrSourceOracleTests testCanonicalNativeReadMatchesSharedServerFixture]' started.
+Test Case '-[WhoopStoreTests.CanonicalRrSourceOracleTests testCanonicalNativeReadMatchesSharedServerFixture]' passed (0.124 seconds).
+Test Suite 'CanonicalRrSourceOracleTests' passed at 2026-09-21 23:19:41.600.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.124 (0.124) seconds
+Test Suite 'ServerCanonicalResultTests' started at 2026-09-21 23:19:41.600.
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testAllFamiliesHaveExplicitServerOwnedMissingness]' started.
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testAllFamiliesHaveExplicitServerOwnedMissingness]' passed (0.005 seconds).
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testFinalHostedHasNoLegacyValueBeforeFirstRead]' started.
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testFinalHostedHasNoLegacyValueBeforeFirstRead]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testIncompleteRegistryAndNumericShadowAreRejected]' started.
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testIncompleteRegistryAndNumericShadowAreRejected]' passed (0.004 seconds).
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testOwnershipPersistsUnavailableContractWithoutFabricatedPublication]' started.
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testOwnershipPersistsUnavailableContractWithoutFabricatedPublication]' passed (0.005 seconds).
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testProjectSourceDeviceAndHistoricalDayFences]' started.
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testProjectSourceDeviceAndHistoricalDayFences]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testValidZeroAndOwnedNullNeverInvokeFallback]' started.
+Test Case '-[WhoopStoreTests.ServerCanonicalResultTests testValidZeroAndOwnedNullNeverInvokeFallback]' passed (0.006 seconds).
+Test Suite 'ServerCanonicalResultTests' passed at 2026-09-21 23:19:41.623.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.022 (0.022) seconds
+Test Suite 'ServerComputeOutboxTests' started at 2026-09-21 23:19:41.623.
+Test Case '-[WhoopStoreTests.ServerComputeOutboxTests testDelayedAndDuplicatedDecisionsCannotReplay]' started.
+Test Case '-[WhoopStoreTests.ServerComputeOutboxTests testDelayedAndDuplicatedDecisionsCannotReplay]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeOutboxTests testMissingDispositionPersistsWithoutNumericFallback]' started.
+Test Case '-[WhoopStoreTests.ServerComputeOutboxTests testMissingDispositionPersistsWithoutNumericFallback]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeOutboxTests testOfflineDraftSurvivesReopenAndBindsOnlyItsOwnerSourceDevice]' started.
+Test Case '-[WhoopStoreTests.ServerComputeOutboxTests testOfflineDraftSurvivesReopenAndBindsOnlyItsOwnerSourceDevice]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeOutboxTests testRetriesAreImmutableAndInputEditsCreateDistinctRequests]' started.
+Test Case '-[WhoopStoreTests.ServerComputeOutboxTests testRetriesAreImmutableAndInputEditsCreateDistinctRequests]' passed (0.001 seconds).
+Test Suite 'ServerComputeOutboxTests' passed at 2026-09-21 23:19:41.629.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.006 (0.006) seconds
+Test Suite 'ServerComputeRevisionFenceTests' started at 2026-09-21 23:19:41.629.
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testAccountSourceProjectDeviceAndDayCannotShareRevisionCache]' started.
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testAccountSourceProjectDeviceAndDayCannotShareRevisionCache]' passed (0.022 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testAlgorithmNameCannotAuthorizeLegacyOrShadowAndImmutableIdentityMustBeReal]' started.
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testAlgorithmNameCannotAuthorizeLegacyOrShadowAndImmutableIdentityMustBeReal]' passed (0.005 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testExpiryWithholdsTimeSensitiveValueWithoutErasingItsImmutableHistory]' started.
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testExpiryWithholdsTimeSensitiveValueWithoutErasingItsImmutableHistory]' passed (0.008 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testOlderInputCannotReplaceNewerEvenWithDifferentResultRevision]' started.
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testOlderInputCannotReplaceNewerEvenWithDifferentResultRevision]' passed (0.010 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testPendingDeviceCannotCarryNumericValuePublicationOrEmbeddedPhysiology]' started.
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testPendingDeviceCannotCarryNumericValuePublicationOrEmbeddedPhysiology]' passed (0.021 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testPendingDeviceClearsOldValuesOnlyWithinSameOwnerSourceProjectDay]' started.
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testPendingDeviceClearsOldValuesOnlyWithinSameOwnerSourceProjectDay]' passed (0.020 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testPendingDevicePersistsExplicitOwnershipWithoutInventingCanonicalDevice]' started.
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testPendingDevicePersistsExplicitOwnershipWithoutInventingCanonicalDevice]' passed (0.007 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testReadTimeStalenessDoesNotRewriteImmutableValueButRevocationClearsIt]' started.
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testReadTimeStalenessDoesNotRewriteImmutableValueButRevocationClearsIt]' passed (0.010 seconds).
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testSameAvailableRevisionCannotMutateValueOrImmutableMetadata]' started.
+Test Case '-[WhoopStoreTests.ServerComputeRevisionFenceTests testSameAvailableRevisionCannotMutateValueOrImmutableMetadata]' passed (0.023 seconds).
+Test Suite 'ServerComputeRevisionFenceTests' passed at 2026-09-21 23:19:41.756.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.126 (0.127) seconds
+Test Suite 'ServerHrvSeriesTests' started at 2026-09-21 23:19:41.756.
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testContextBaselineCountAndHighValuesSurviveWithoutClipping]' started.
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testContextBaselineCountAndHighValuesSurviveWithoutClipping]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testDailyAvailabilityNeverReplacesWindowValidityOrInventsWindows]' started.
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testDailyAvailabilityNeverReplacesWindowValidityOrInventsWindows]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testDuplicatesCollapseAndConflictingValuesFailClosed]' started.
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testDuplicatesCollapseAndConflictingValuesFailClosed]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testMalformedNumericAndValidityFieldsDoNotBecomeMeasurements]' started.
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testMalformedNumericAndValidityFieldsDoNotBecomeMeasurements]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testOwnerDeviceRevisionSchemaAndMetricFences]' started.
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testOwnerDeviceRevisionSchemaAndMetricFences]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testZeroUnavailableAndMissingBucketsRemainDistinct]' started.
+Test Case '-[WhoopStoreTests.ServerHrvSeriesTests testZeroUnavailableAndMissingBucketsRemainDistinct]' passed (0.000 seconds).
+Test Suite 'ServerHrvSeriesTests' passed at 2026-09-21 23:19:41.760.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.004 (0.004) seconds
+Test Suite 'ServerMetricOwnershipTests' started at 2026-09-21 23:19:41.760.
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testNullFailureRevocationAndHistoricalNavigationCannotRestartLocalFallback]' started.
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testNullFailureRevocationAndHistoricalNavigationCannotRestartLocalFallback]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testOlderPublicationCannotRollBackClaim]' started.
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testOlderPublicationCannotRollBackClaim]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testPartialQualifiedResultOwnsOnlyItsSerializedOutputs]' started.
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testPartialQualifiedResultOwnsOnlyItsSerializedOutputs]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testReadFailureRetainsStaleRevisionButNeverLocalMissingValue]' started.
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testReadFailureRetainsStaleRevisionButNeverLocalMissingValue]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testRestartRestoresOnlyTheSameProjectOwnerAndDevice]' started.
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testRestartRestoresOnlyTheSameProjectOwnerAndDevice]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testScopeAndPublicationEvidenceAreRequiredBeforeClaim]' started.
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testScopeAndPublicationEvidenceAreRequiredBeforeClaim]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testZeroAndUnownedLegacyMetricRemainDistinct]' started.
+Test Case '-[WhoopStoreTests.ServerMetricOwnershipTests testZeroAndUnownedLegacyMetricRemainDistinct]' passed (0.000 seconds).
+Test Suite 'ServerMetricOwnershipTests' passed at 2026-09-21 23:19:41.764.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'ServerRespirationSummaryTests' started at 2026-09-21 23:19:41.764.
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testActualScorerSnapshotSurvivesNativeReadbackAndSQLite]' started.
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testActualScorerSnapshotSurvivesNativeReadbackAndSQLite]' passed (0.092 seconds).
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testAwakeRestAndInconsistentSummaryCannotBecomeNightlyRate]' started.
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testAwakeRestAndInconsistentSummaryCannotBecomeNightlyRate]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testLegacyRateNeverClaimsV2QualityEvenWithUnexpectedSummaryFields]' started.
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testLegacyRateNeverClaimsV2QualityEvenWithUnexpectedSummaryFields]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testPendingRevisionDoesNotHideWhyTheCompletedMeasurementWasUnavailable]' started.
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testPendingRevisionDoesNotHideWhyTheCompletedMeasurementWasUnavailable]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testSelectedSummaryRetainsMethodCoverageAndSortedDistribution]' started.
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testSelectedSummaryRetainsMethodCoverageAndSortedDistribution]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testStaleSummaryIsRetainedWithoutLocalFallback]' started.
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testStaleSummaryIsRetainedWithoutLocalFallback]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testUnavailableOrUnsupportedRateIsNotZero]' started.
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testUnavailableOrUnsupportedRateIsNotZero]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testWrongDayOwnerOrSelectedSourceCannotReadSummary]' started.
+Test Case '-[WhoopStoreTests.ServerRespirationSummaryTests testWrongDayOwnerOrSelectedSourceCannotReadSummary]' passed (0.000 seconds).
+Test Suite 'ServerRespirationSummaryTests' passed at 2026-09-21 23:19:41.858.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.094 (0.095) seconds
+Test Suite 'ServerScoreAuthorizationTests' started at 2026-09-21 23:19:41.858.
+Test Case '-[WhoopStoreTests.ServerScoreAuthorizationTests testApprovedFeaturesPreserveZeroAndMatchingNestedPhysiology]' started.
+Test Case '-[WhoopStoreTests.ServerScoreAuthorizationTests testApprovedFeaturesPreserveZeroAndMatchingNestedPhysiology]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreAuthorizationTests testMissingRevokedShadowAndMalformedAuthorizationNeverActivate]' started.
+Test Case '-[WhoopStoreTests.ServerScoreAuthorizationTests testMissingRevokedShadowAndMalformedAuthorizationNeverActivate]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreAuthorizationTests testRetainedV1DoesNotRequireV2ApprovalAndWrongEpisodeScopeFails]' started.
+Test Case '-[WhoopStoreTests.ServerScoreAuthorizationTests testRetainedV1DoesNotRequireV2ApprovalAndWrongEpisodeScopeFails]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreAuthorizationTests testSleepApprovalCannotAuthorizeDifferentFeatureOrSnapshot]' started.
+Test Case '-[WhoopStoreTests.ServerScoreAuthorizationTests testSleepApprovalCannotAuthorizeDifferentFeatureOrSnapshot]' passed (0.001 seconds).
+Test Suite 'ServerScoreAuthorizationTests' passed at 2026-09-21 23:19:41.862.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'ServerScoreCacheEfficiencyTests' started at 2026-09-21 23:19:41.862.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testChangedRevisionStillReplacesWholePayloadAndEnforcesBoundsAtomically]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testChangedRevisionStillReplacesWholePayloadAndEnforcesBoundsAtomically]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testCoalescedTouchFailureRollsBackEveryAccessUpdate]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testCoalescedTouchFailureRollsBackEveryAccessUpdate]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testCorruptSelectedRowFailsBeforeAnyHydrationTouch]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testCorruptSelectedRowFailsBeforeAnyHydrationTouch]' passed (0.008 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testExactFetchedContentRefreshesMetadataWithoutPayloadRewriteOrEviction]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testExactFetchedContentRefreshesMetadataWithoutPayloadRewriteOrEviction]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testExactRefreshUpdatesOfflineSourceSelectionAndInvalidTimeFailsBeforeSQL]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testExactRefreshUpdatesOfflineSourceSelectionAndInvalidTimeFailsBeforeSQL]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testFourteenDayHydrationCommitsOneLRUTransactionWithoutPayloadWrites]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testFourteenDayHydrationCommitsOneLRUTransactionWithoutPayloadWrites]' passed (0.009 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testHydrationTouchesOnlySelectedOwnerTimezoneAndSource]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testHydrationTouchesOnlySelectedOwnerTimezoneAndSource]' passed (0.003 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testMissesAndRepeatedIdenticalAccessTimeDoNotStartWriteTransactions]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testMissesAndRepeatedIdenticalAccessTimeDoNotStartWriteTransactions]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testRefreshPreservesRevisionConflictsAndOlderResponseFences]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testRefreshPreservesRevisionConflictsAndOlderResponseFences]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testRejectedCommitCannotEstablishAnEvictionProof]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testRejectedCommitCannotEstablishAnEvictionProof]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testSameWriterAndExternalConnectionChangesInvalidateEvictionProof]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testSameWriterAndExternalConnectionChangesInvalidateEvictionProof]' passed (0.008 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testTighterReopenedLimitsAreEnforcedForEachNamespace]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheEfficiencyTests testTighterReopenedLimitsAreEnforcedForEachNamespace]' passed (0.003 seconds).
+Test Suite 'ServerScoreCacheEfficiencyTests' passed at 2026-09-21 23:19:41.907.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.045 (0.046) seconds
+Test Suite 'ServerScoreCacheTests' started at 2026-09-21 23:19:41.907.
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testAllUnknownRemainsUnavailable]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testAllUnknownRemainsUnavailable]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testDelayedResponseCannotCrossSignOutOrAccountSwitch]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testDelayedResponseCannotCrossSignOutOrAccountSwitch]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testLaterRequestAndHigherRevisionWin]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testLaterRequestAndHigherRevisionWin]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testLegacySelectedRowsKeepTotalsWithoutClaimingV2Quality]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testLegacySelectedRowsKeepTotalsWithoutClaimingV2Quality]' passed (0.015 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testOwnerDeviceVersionScopesAndLegacyRowsAreIsolated]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testOwnerDeviceVersionScopesAndLegacyRowsAreIsolated]' passed (0.016 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testRoundTripPreservesEpochMetadataAndHistoricalAvailability]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testRoundTripPreservesEpochMetadataAndHistoricalAvailability]' passed (0.015 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testSelectedDeviceLoadsItsOlderSnapshotWithoutCrossingOwner]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testSelectedDeviceLoadsItsOlderSnapshotWithoutCrossingOwner]' passed (0.016 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testStrictOwnerDayAndSchemaReadback]' started.
+Test Case '-[WhoopStoreTests.ServerScoreCacheTests testStrictOwnerDayAndSchemaReadback]' passed (0.000 seconds).
+Test Suite 'ServerScoreCacheTests' passed at 2026-09-21 23:19:41.972.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.064 (0.064) seconds
+Test Suite 'ServerScoreSnapshotCacheTests' started at 2026-09-21 23:19:41.972.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testDelayedResponsesFrom128SessionGenerationsCannotReplaceLatest]' started.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testDelayedResponsesFrom128SessionGenerationsCannotReplaceLatest]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testEveryKeyDimensionIsIsolated]' started.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testEveryKeyDimensionIsIsolated]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testFileReopenPreservesScopedSnapshotWithoutAdoptingLegacyRows]' started.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testFileReopenPreservesScopedSnapshotWithoutAdoptingLegacyRows]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testGlobalRowLimitAppliesAcrossAccountNamespaces]' started.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testGlobalRowLimitAppliesAcrossAccountNamespaces]' passed (0.003 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testInvalidDayAndTimezoneAreRejected]' started.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testInvalidDayAndTimezoneAreRejected]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testLogoutAndSameAccountReloginRejectOldReadsAndWrites]' started.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testLogoutAndSameAccountReloginRejectOldReadsAndWrites]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testOversizedAndCorruptPayloadsAreNotAdmitted]' started.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testOversizedAndCorruptPayloadsAreNotAdmitted]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testRecentLoadsLastObservedSourceAndVersionWithoutCrossingOwnerOrTimezone]' started.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testRecentLoadsLastObservedSourceAndVersionWithoutCrossingOwnerOrTimezone]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testRowsAndBytesAreBoundedAndReadsTouchLRU]' started.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testRowsAndBytesAreBoundedAndReadsTouchLRU]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testTombstoneReplacesCompletePayloadAndRejectsOlderResponses]' started.
+Test Case '-[WhoopStoreTests.ServerScoreSnapshotCacheTests testTombstoneReplacesCompletePayloadAndRejectsOlderResponses]' passed (0.002 seconds).
+Test Suite 'ServerScoreSnapshotCacheTests' passed at 2026-09-21 23:19:41.988.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.016 (0.017) seconds
+Test Suite 'ServerSleepOverrideTests' started at 2026-09-21 23:19:41.988.
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testAuthoritativeProvenanceCannotSelectAnotherRowWithTheSameBounds]' started.
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testAuthoritativeProvenanceCannotSelectAnotherRowWithTheSameBounds]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testCorrectionPreservesOriginalIdentityBoundsAndOptimisticRevision]' started.
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testCorrectionPreservesOriginalIdentityBoundsAndOptimisticRevision]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testFirstOverrideUsesStableDraftIdAndTombstoneRestoreKeepsRevision]' started.
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testFirstOverrideUsesStableDraftIdAndTombstoneRestoreKeepsRevision]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testLegacyContinuationCarriesSourceTokenAndExactOriginalBounds]' started.
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testLegacyContinuationCarriesSourceTokenAndExactOriginalBounds]' passed (0.016 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testLegacyWithoutValidSourceTokenCannotBecomeANewUnfencedOverride]' started.
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testLegacyWithoutValidSourceTokenCannotBecomeANewUnfencedOverride]' passed (0.003 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testOwnerScopedCacheRoundTripRetainsImmediateOverrideRevision]' started.
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testOwnerScopedCacheRoundTripRetainsImmediateOverrideRevision]' passed (0.015 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testUnsupportedSelectedModelAndInvalidBoundsAreRejected]' started.
+Test Case '-[WhoopStoreTests.ServerSleepOverrideTests testUnsupportedSelectedModelAndInvalidBoundsAreRejected]' passed (0.002 seconds).
+Test Suite 'ServerSleepOverrideTests' passed at 2026-09-21 23:19:42.029.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.041 (0.041) seconds
+Test Suite 'ServerSleepViewModelTests' started at 2026-09-21 23:19:42.029.
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testCanonicalStatesDoNotBecomeLightSleep]' started.
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testCanonicalStatesDoNotBecomeLightSleep]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testEpochTimesAndMissingGapRemainUnmodified]' started.
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testEpochTimesAndMissingGapRemainUnmodified]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testEventTimeZonesSurviveCodecAndDoNotUseTheCurrentPhoneZone]' started.
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testEventTimeZonesSurviveCodecAndDoNotUseTheCurrentPhoneZone]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testLegacyDatabaseRowThroughCodecPreservesBaselineStagesAndTotals]' started.
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testLegacyDatabaseRowThroughCodecPreservesBaselineStagesAndTotals]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testMissingEpochsNeverCreateTimelineAndCanonicalNapSurvives]' started.
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testMissingEpochsNeverCreateTimelineAndCanonicalNapSurvives]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testOpportunityLabelsNeverClaimUnconfirmedBedOccupancy]' started.
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testOpportunityLabelsNeverClaimUnconfirmedBedOccupancy]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testUnavailableIsNotZeroAndAfternoonMainRemainsMain]' started.
+Test Case '-[WhoopStoreTests.ServerSleepViewModelTests testUnavailableIsNotZeroAndAfternoonMainRemainsMain]' passed (0.001 seconds).
+Test Suite 'ServerSleepViewModelTests' passed at 2026-09-21 23:19:42.036.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.006 (0.006) seconds
+Test Suite 'ServerVitalSelectionTests' started at 2026-09-21 23:19:42.036.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testLocalModeIsUnchangedAndIgnoresServer]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testLocalModeIsUnchangedAndIgnoresServer]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testMissingOrUnavailableSelectedFeatureRejectsEvenPresentDailyValues]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testMissingOrUnavailableSelectedFeatureRejectsEvenPresentDailyValues]' passed (0.002 seconds).
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testMissingOverlayDoesNotSubstituteUnqualifiedLocalPhysiology]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testMissingOverlayDoesNotSubstituteUnqualifiedLocalPhysiology]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testMissingServerPhysiologyRemainsUnavailable]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testMissingServerPhysiologyRemainsUnavailable]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testPreQualificationCacheCannotBecomeCanonicalOrFallBackToLocalPhysiology]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testPreQualificationCacheCannotBecomeCanonicalOrFallBackToLocalPhysiology]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testRestingHRUsesActualHrvFeatureScopeAndMetadata]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testRestingHRUsesActualHrvFeatureScopeAndMetadata]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testRestUsesQualifiedSleepFeature]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testRestUsesQualifiedSleepFeature]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testRetainedServerValueCarriesStaleness]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testRetainedServerValueCarriesStaleness]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testSelectedServerValuesAndRealZeroWin]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testSelectedServerValuesAndRealZeroWin]' passed (0.000 seconds).
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testSleepUsesSelectedDaySourceAndPreservesZeroWithoutLocalFallback]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testSleepUsesSelectedDaySourceAndPreservesZeroWithoutLocalFallback]' passed (0.001 seconds).
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testWrongDayCannotMasqueradeAsSelectedDay]' started.
+Test Case '-[WhoopStoreTests.ServerVitalSelectionTests testWrongDayCannotMasqueradeAsSelectedDay]' passed (0.001 seconds).
+Test Suite 'ServerVitalSelectionTests' passed at 2026-09-21 23:19:42.043.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.007 (0.007) seconds
+Test Suite 'WhoopStorePackageTests.xctest' passed at 2026-09-21 23:19:42.043.
+	 Executed 100 tests, with 0 failures (0 unexpected) in 0.560 (0.567) seconds
+Test Suite 'Selected tests' passed at 2026-09-21 23:19:42.043.
+	 Executed 100 tests, with 0 failures (0 unexpected) in 0.560 (0.568) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

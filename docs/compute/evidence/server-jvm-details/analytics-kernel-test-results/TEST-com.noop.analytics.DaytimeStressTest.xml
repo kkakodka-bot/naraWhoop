@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.DaytimeStressTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.009">
+  <properties/>
+  <testcase name="baselineRelativeCalmDayAtPersonalBaselineReadsLowNotHigh" classname="com.noop.analytics.DaytimeStressTest" time="0.0"/>
+  <testcase name="maskedHoursAreExcludedFromTheCalmReference" classname="com.noop.analytics.DaytimeStressTest" time="0.001"/>
+  <testcase name="lightMovementBelowFractionDoesNotMask" classname="com.noop.analytics.DaytimeStressTest" time="0.0"/>
+  <testcase name="marginToSigmaLandsExactlyOnBand" classname="com.noop.analytics.DaytimeStressTest" time="0.0"/>
+  <testcase name="postActivityShadowMasksOnlyWhileHrStaysElevated" classname="com.noop.analytics.DaytimeStressTest" time="0.002"/>
+  <testcase name="emptyGravityIsByteIdenticalToNoGravity" classname="com.noop.analytics.DaytimeStressTest" time="0.0"/>
+  <testcase name="baselineRelativeElevatedDayProducesHighStressMinutes" classname="com.noop.analytics.DaytimeStressTest" time="0.001"/>
+  <testcase name="dayRelativeDefaultIsByteIdenticalToExplicitMode" classname="com.noop.analytics.DaytimeStressTest" time="0.0"/>
+  <testcase name="baselineRelativeModeRecoversMultipleInjectedElevations" classname="com.noop.analytics.DaytimeStressTest" time="0.001"/>
+  <testcase name="baselineRelativeUsesRMSSDBaselineWhenAvailable" classname="com.noop.analytics.DaytimeStressTest" time="0.001"/>
+  <testcase name="sleepHoursInTheWindow_doNotShiftTheWakingTimeline" classname="com.noop.analytics.DaytimeStressTest" time="0.001"/>
+  <testcase name="stillHourIsStillScoredWhenGravityPresent" classname="com.noop.analytics.DaytimeStressTest" time="0.001"/>
+  <testcase name="highStressMinutesCountsAllHighBandHoursNotJustTheTrailingRun" classname="com.noop.analytics.DaytimeStressTest" time="0.0"/>
+  <testcase name="baselineRelativeNilRMSSDFallsBackToHROnlyAndFlagsDegraded" classname="com.noop.analytics.DaytimeStressTest" time="0.0"/>
+  <testcase name="ambulatoryHourIsMaskedNotScored" classname="com.noop.analytics.DaytimeStressTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

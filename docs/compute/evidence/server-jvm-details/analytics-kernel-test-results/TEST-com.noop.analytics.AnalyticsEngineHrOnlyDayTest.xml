@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.AnalyticsEngineHrOnlyDayTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:19" hostname="mac-studio.lan" time="0.267">
+  <properties/>
+  <testcase name="an all HR-only day reports its measured vitals and still marks itself HR-only" classname="com.noop.analytics.AnalyticsEngineHrOnlyDayTest" time="0.267"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

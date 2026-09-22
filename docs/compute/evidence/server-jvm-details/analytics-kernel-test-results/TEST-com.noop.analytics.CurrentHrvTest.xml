@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.CurrentHrvTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.022">
+  <properties/>
+  <testcase name="cleanHighVariabilitySurvives" classname="com.noop.analytics.CurrentHrvTest" time="0.007"/>
+  <testcase name="legacyRowsDoNotProveConsecutiveOriginalBeats" classname="com.noop.analytics.CurrentHrvTest" time="0.003"/>
+  <testcase name="sparseWindowReturnsNull" classname="com.noop.analytics.CurrentHrvTest" time="0.0"/>
+  <testcase name="midWindowEctopicIsGapAware" classname="com.noop.analytics.CurrentHrvTest" time="0.005"/>
+  <testcase name="latestCompletedWindowCannotBorrowOldOrFutureData" classname="com.noop.analytics.CurrentHrvTest" time="0.0"/>
+  <testcase name="freshWindowProducesValue" classname="com.noop.analytics.CurrentHrvTest" time="0.002"/>
+  <testcase name="rowsOutsideWindowIgnored" classname="com.noop.analytics.CurrentHrvTest" time="0.002"/>
+  <testcase name="overCountedWindowReturnsNull" classname="com.noop.analytics.CurrentHrvTest" time="0.001"/>
+  <testcase name="rawCoverageHonestyGateStillRejectsEvenWhenInvalidBeatsWouldBeCleaned" classname="com.noop.analytics.CurrentHrvTest" time="0.0"/>
+  <testcase name="queryWindowMatchesCompletedUtcMeasurement" classname="com.noop.analytics.CurrentHrvTest" time="0.0"/>
+  <testcase name="provenFullWindowPreservesTrueZero" classname="com.noop.analytics.CurrentHrvTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

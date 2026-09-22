@@ -1,0 +1,146 @@
+Picked up JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=/Volumes/Untitled/compute-final-tmp.TV9zWX
+Configuration on demand is an incubating feature.
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preFullDebugBuild UP-TO-DATE
+> Task :app:mergeFullDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:generateFullDebugBuildConfig
+> Task :app:generateFullDebugResValues
+> Task :app:checkFullDebugAarMetadata
+> Task :app:mapFullDebugSourceSetPaths
+> Task :app:generateFullDebugResources
+> Task :app:packageFullDebugResources
+> Task :app:createFullDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksFullDebug
+> Task :app:parseFullDebugLocalResources
+> Task :app:processFullDebugMainManifest
+> Task :app:processFullDebugManifest
+> Task :app:mergeFullDebugShaders
+> Task :app:compileFullDebugShaders NO-SOURCE
+> Task :app:generateFullDebugAssets UP-TO-DATE
+> Task :app:javaPreCompileFullDebug
+> Task :app:mergeFullDebugAssets
+> Task :app:compressFullDebugAssets
+> Task :app:desugarFullDebugFileDependencies
+> Task :app:mergeFullDebugStartupProfile
+> Task :app:mergeFullDebugJniLibFolders
+> Task :app:mergeFullDebugNativeLibs NO-SOURCE
+> Task :app:stripFullDebugDebugSymbols NO-SOURCE
+> Task :app:validateSigningFullDebug
+> Task :app:writeFullDebugAppMetadata
+> Task :app:writeFullDebugSigningConfigVersions
+> Task :app:preFullDebugUnitTestBuild UP-TO-DATE
+> Task :app:javaPreCompileFullDebugUnitTest
+> Task :app:processFullDebugManifestForPackage
+> Task :app:checkFullDebugDuplicateClasses
+> Task :app:mergeLibDexFullDebug
+> Task :app:mergeFullDebugResources
+> Task :app:processFullDebugResources
+> Task :app:packageFullDebugUnitTestForUnitTest
+> Task :app:generateFullDebugUnitTestConfig
+> Task :app:mergeExtDexFullDebug
+> Task :app:kspFullDebugKotlin
+> Task :app:compileFullDebugKotlin
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/account/AccountStorageMutationLease.kt:57:30 Unsafe use of a nullable receiver of type Int?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/account/AccountStorageMutationLease.kt:61:43 Unsafe use of a nullable receiver of type Int?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/account/AccountStorageMutationLease.kt:63:25 Unsafe use of a nullable receiver of type Int?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/analytics/AnalyticsEngine.kt:427:9 Parameter 'deepHrvWindow' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/analytics/SleepOpportunityDetector.kt:76:62 Parameter 'offsetSeconds' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/analytics/SleepOpportunityDetector.kt:77:31 Parameter 'habitualMidsleepSec' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/analytics/SleepStager.kt:3148:52 Unnecessary non-null assertion (!!) on a non-null receiver of type Double
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/analytics/SleepStager.kt:3150:55 Unnecessary non-null assertion (!!) on a non-null receiver of type Double
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/analytics/SleepStagerV2.kt:285:80 Parameter 'rr' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/data/V18AuxIdentityMigration.kt:23:79 Unnecessary non-null assertion (!!) on a non-null receiver of type Long
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/data/WhoopRepository.kt:603:9 Parameter 'v18AuxRetentionRows' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/data/WhoopRepository.kt:604:9 Parameter 'v18AuxPruneEveryRows' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/data/WhoopRepository.kt:605:9 Parameter 'ppgWaveformRetentionRows' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/data/WhoopRepository.kt:606:9 Parameter 'ppgWaveformPruneEveryRows' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/PushCoordinator.kt:228:59 Unnecessary non-null assertion (!!) on a non-null receiver of type PushPreparedBoundary
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/PushCoordinator.kt:242:51 Unnecessary non-null assertion (!!) on a non-null receiver of type PushPreparedBoundary
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/PushCoordinator.kt:261:54 Unnecessary non-null assertion (!!) on a non-null receiver of type PushPreparedBoundary
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/PushDao.kt:162:22 The expression is unused
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/PushProtocol.kt:222:9 Parameter 'startCursor' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/SelfHostedPushWorker.kt:225:9 Parameter 'enrollmentStore' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/ServerScoreDisplay.kt:8:23 Unnecessary safe call on a non-null receiver of type ServerScoreDayCache?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/ServerScoreDisplay.kt:13:23 Unnecessary safe call on a non-null receiver of type ServerScoreDayCache?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/ServerScoreDisplay.kt:18:23 Unnecessary safe call on a non-null receiver of type ServerScoreDayCache?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/ServerScoreDisplay.kt:23:23 Unnecessary safe call on a non-null receiver of type ServerScoreDayCache?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/ServerScoreDisplay.kt:28:23 Unnecessary safe call on a non-null receiver of type ServerScoreDayCache?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/push/ServerScoreDisplay.kt:33:23 Unnecessary safe call on a non-null receiver of type ServerScoreDayCache?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/ui/AppRoot.kt:497:9 Variable 'barHeight' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/ui/CoachScreen.kt:273:77 'VIBRATOR_SERVICE: String' is deprecated. Deprecated in Java
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/ui/CoachViewModel.kt:130:13 Variable 'app' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/ui/CoachViewModel.kt:484:13 Variable 'app' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/ui/HealthScreen.kt:1852:5 Parameter 'candidateDisplayOn' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/ui/MainActivity.kt:659:77 Parameter 'changed' is never used, could be renamed to _
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/ui/SettingsScreen.kt:630:9 Variable 'showStepsCalibration' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/ui/TodayScreen.kt:3845:5 Parameter 'vitalsDay' is never used
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/main/java/com/noop/ui/TodayScreen.kt:4997:72 Unnecessary safe call on a non-null receiver of type DailyMetric?
+
+> Task :app:compileFullDebugJavaWithJavac
+> Task :app:dexBuilderFullDebug
+> Task :app:mergeFullDebugGlobalSynthetics
+> Task :app:processFullDebugJavaRes
+> Task :app:mergeFullDebugJavaResource
+> Task :app:bundleFullDebugClassesToRuntimeJar
+> Task :app:bundleFullDebugClassesToCompileJar
+> Task :app:mergeProjectDexFullDebug
+> Task :app:packageFullDebug
+> Task :app:createFullDebugApkListingFileRedirect
+> Task :app:assembleFullDebug
+> Task :app:kspFullDebugUnitTestKotlin
+> Task :app:syncRoomSchemaSnapshot
+
+> Task :app:compileFullDebugUnitTestKotlin
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/account/W2CaptureColdRecoveryNativeTest.kt:225:24 Unsafe use of a nullable receiver of type File?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/account/W2CaptureColdRecoveryNativeTest.kt:226:38 Unsafe use of a nullable receiver of type File?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/analytics/BaselinesTraceTest.kt:28:60 Unnecessary non-null assertion (!!) on a non-null receiver of type BaselineState
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/analytics/BaselinesTraceTest.kt:28:79 Unnecessary non-null assertion (!!) on a non-null receiver of type BaselineState
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/analytics/FinalHostedComputeRuntimeTest.kt:13:20 Unsafe use of a nullable receiver of type String?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/push/AccountRestoreLeaseTest.kt:254:26 'beginTransaction(): Unit' is deprecated. beginTransaction() is deprecated
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/push/AccountRestoreLeaseTest.kt:257:30 'setTransactionSuccessful(): Unit' is deprecated. setTransactionSuccessful() is deprecated
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/push/AccountRestoreLeaseTest.kt:260:36 'endTransaction(): Unit' is deprecated. endTransaction() is deprecated
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/push/CloudIngestionRegistryTest.kt:97:24 Unsafe use of a nullable receiver of type File?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/push/CloudIngestionRegistryTest.kt:97:24 Unsafe use of a nullable receiver of type File?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/push/CloudIngestionRegistryTest.kt:97:24 Unsafe use of a nullable receiver of type File?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/push/CloudIngestionRegistryTest.kt:97:24 Unsafe use of a nullable receiver of type File?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/push/CloudIngestionRegistryTest.kt:97:24 Unsafe use of a nullable receiver of type File?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/push/CloudIngestionRegistryTest.kt:97:29 Unsafe use of a nullable receiver of type ProtectionDomain?
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/ui/HrvCaptureWindowTest.kt:55:32 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/ui/HrvCaptureWindowTest.kt:73:32 This declaration needs opt-in. Its usage should be marked with '@kotlinx.coroutines.ExperimentalCoroutinesApi' or '@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)'
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/ui/SleepMetricDetailDebtTest.kt:26:43 Unnecessary non-null assertion (!!) on a non-null receiver of type Double
+w: file:///Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/src/test/java/com/noop/ui/StressRawReadScopeTest.kt:10:31 Type mismatch: inferred type is String? but String was expected
+
+> Task :app:compileFullDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processFullDebugUnitTestJavaRes
+
+> Task :app:testFullDebugUnitTest
+Picked up JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=/Volumes/Untitled/compute-final-tmp.TV9zWX
+
+WARNING: A terminally deprecated method in java.lang.System has been called
+WARNING: System::setSecurityManager has been called by com.noop.account.W2CaptureColdRecoveryNativeTest$strictMatchedFilename$1 (file:/Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/build/tmp/kotlin-classes/fullDebugUnitTest/)
+WARNING: Please consider reporting this to the maintainers of com.noop.account.W2CaptureColdRecoveryNativeTest$strictMatchedFilename$1
+WARNING: System::setSecurityManager will be removed in a future release
+WARNING: A terminally deprecated method in java.lang.System has been called
+WARNING: System::setSecurityManager has been called by com.noop.account.W2CaptureColdRecoveryNativeTest$strictFilenameMismatch$1 (file:/Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/build/tmp/kotlin-classes/fullDebugUnitTest/)
+WARNING: Please consider reporting this to the maintainers of com.noop.account.W2CaptureColdRecoveryNativeTest$strictFilenameMismatch$1
+WARNING: System::setSecurityManager will be removed in a future release
+WARNING: A terminally deprecated method in java.lang.System has been called
+WARNING: System::setSecurityManager has been called by com.noop.account.W2CaptureColdRecoveryNativeTest$failedPostRenameBarrierStaysHeldAcrossPoolReopenUntilExactSuccessfulRetry$1 (file:/Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/build/tmp/kotlin-classes/fullDebugUnitTest/)
+WARNING: Please consider reporting this to the maintainers of com.noop.account.W2CaptureColdRecoveryNativeTest$failedPostRenameBarrierStaysHeldAcrossPoolReopenUntilExactSuccessfulRetry$1
+WARNING: System::setSecurityManager will be removed in a future release
+WARNING: A terminally deprecated method in java.lang.System has been called
+WARNING: System::setSecurityManager has been called by com.noop.account.W2CaptureColdRecoveryNativeTest$strictRecoveryFacadeAlsoRequiresNcapDurabilityBarrierOnEveryRetry$1 (file:/Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/build/tmp/kotlin-classes/fullDebugUnitTest/)
+WARNING: Please consider reporting this to the maintainers of com.noop.account.W2CaptureColdRecoveryNativeTest$strictRecoveryFacadeAlsoRequiresNcapDurabilityBarrierOnEveryRetry$1
+WARNING: System::setSecurityManager will be removed in a future release
+WARNING: A terminally deprecated method in java.lang.System has been called
+WARNING: System::setSecurityManager has been called by com.noop.account.W2CaptureColdRecoveryNativeTest$separateProducerHaltAfterRenameNeedsBothBarriersBeforeEligibility$1 (file:/Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/build/tmp/kotlin-classes/fullDebugUnitTest/)
+WARNING: Please consider reporting this to the maintainers of com.noop.account.W2CaptureColdRecoveryNativeTest$separateProducerHaltAfterRenameNeedsBothBarriersBeforeEligibility$1
+WARNING: System::setSecurityManager will be removed in a future release
+WARNING: A terminally deprecated method in java.lang.System has been called
+WARNING: System::setSecurityManager has been called by com.noop.account.W2CaptureColdRecoveryNativeTest$ncapFileBarrierFailureRetainsBytesAndHealthySiblingsContinue$1 (file:/Volumes/Untitled/WHOOP%20NARA-vps-only-compute/android/app/build/tmp/kotlin-classes/fullDebugUnitTest/)
+WARNING: Please consider reporting this to the maintainers of com.noop.account.W2CaptureColdRecoveryNativeTest$ncapFileBarrierFailureRetainsBytesAndHealthySiblingsContinue$1
+WARNING: System::setSecurityManager will be removed in a future release
+
+BUILD SUCCESSFUL in 4m 22s
+48 actionable tasks: 48 executed

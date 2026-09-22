@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepEditDurabilityTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.0">
+  <properties/>
+  <testcase name="overlappingDetectedSessionIsDropped" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="editedToNullStagesFallsBackToDetected" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="editAndDeleteWindowsBothSuppress" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="noEditsKeepsEverything" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="guardUsesEffectiveStartForOverlap" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="minutesParsesSegmentSecondsArray" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="nonOverlappingDetectedSessionIsKept" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="deleteTombstoneDoesNotSuppressOtherNights" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="deletedNightStaysGoneAfterRecompute" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="emptyDetectedDecodesToNull" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="minutesParsesImportedMinuteArray" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="dailyAggregateUnchangedWhenNoEditMatches" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="minutesReturnsNullForGarbage" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="deletedNightStaysGoneWhenReDetectedOnsetDrifts" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <testcase name="dailyAggregateSubstitutesEditedStagesForDetectedTwin" classname="com.noop.analytics.SleepEditDurabilityTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

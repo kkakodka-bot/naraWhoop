@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.ProjectionInvalidationIntegrationTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:55" hostname="mac-studio.lan" time="1.692">
+  <properties/>
+  <testcase name="semanticChangesDirtyBothOriginalAndReplacementOwnerDeviceAndTime" classname="com.frwhoop.scoring.ProjectionInvalidationIntegrationTest" time="0.361"/>
+  <testcase name="deviceLessBoundaryEditStillInvalidatesAllOwnedDevicesAndBothSpans" classname="com.frwhoop.scoring.ProjectionInvalidationIntegrationTest" time="0.697"/>
+  <testcase name="bulkPacketsAndMetadataOnlyReplayRemainBoundedWithManyDevices" classname="com.frwhoop.scoring.ProjectionInvalidationIntegrationTest" time="0.634"/>
+  <system-out><![CDATA[Projection invalidation: insert 5000 packet rows with 286 registered devices: 209 ms
+Projection invalidation: replay 5000 packet rows with only arrival metadata changed: 386 ms
+]]></system-out>
+  <system-err><![CDATA[[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-89 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-89 - Added connection org.postgresql.jdbc.PgConnection@7889b4b9
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-89 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-89 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-89 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-90 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-90 - Added connection org.postgresql.jdbc.PgConnection@781aff8b
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-90 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-90 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-90 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-91 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-91 - Added connection org.postgresql.jdbc.PgConnection@632b305d
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-91 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-91 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-91 - Shutdown completed.
+]]></system-err>
+</testsuite>

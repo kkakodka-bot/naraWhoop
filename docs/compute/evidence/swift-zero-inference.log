@@ -1,0 +1,26 @@
+Building for debugging...
+[0/2] Write swift-version-30D7331401001902.txt
+Build complete! (0.14s)
+Test Suite 'Selected tests' started at 2026-09-21 23:33:51.271.
+Test Suite 'StrandAnalyticsPackageTests.xctest' started at 2026-09-21 23:33:51.271.
+Test Suite 'PhoneInferenceRetirementTests' started at 2026-09-21 23:33:51.271.
+Test Case '-[StrandAnalyticsTests.PhoneInferenceRetirementTests testFailLoudChild]' started.
+Test Case '-[StrandAnalyticsTests.PhoneInferenceRetirementTests testFailLoudChild]' passed (0.000 seconds).
+Test Case '-[StrandAnalyticsTests.PhoneInferenceRetirementTests testFinalHostedLeavesUserTimersFormattingAndRawProvenanceOperational]' started.
+Test Case '-[StrandAnalyticsTests.PhoneInferenceRetirementTests testFinalHostedLeavesUserTimersFormattingAndRawProvenanceOperational]' passed (0.000 seconds).
+Test Case '-[StrandAnalyticsTests.PhoneInferenceRetirementTests testFinalHostedOptionalProducersRefuseBeforeNumericalWork]' started.
+Test Case '-[StrandAnalyticsTests.PhoneInferenceRetirementTests testFinalHostedOptionalProducersRefuseBeforeNumericalWork]' passed (0.000 seconds).
+Test Case '-[StrandAnalyticsTests.PhoneInferenceRetirementTests testNonoptionalEntrypointsFailLoudlyInFinalHostedMode]' started.
+Test Case '-[StrandAnalyticsTests.PhoneInferenceRetirementTests testNonoptionalEntrypointsFailLoudlyInFinalHostedMode]' passed (2.931 seconds).
+Test Case '-[StrandAnalyticsTests.PhoneInferenceRetirementTests testReferenceModeStillExecutesRealNumericalProducer]' started.
+Test Case '-[StrandAnalyticsTests.PhoneInferenceRetirementTests testReferenceModeStillExecutesRealNumericalProducer]' passed (0.000 seconds).
+Test Suite 'PhoneInferenceRetirementTests' passed at 2026-09-21 23:33:54.204.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 2.932 (2.932) seconds
+Test Suite 'StrandAnalyticsPackageTests.xctest' passed at 2026-09-21 23:33:54.204.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 2.932 (2.932) seconds
+Test Suite 'Selected tests' passed at 2026-09-21 23:33:54.204.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 2.932 (2.933) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

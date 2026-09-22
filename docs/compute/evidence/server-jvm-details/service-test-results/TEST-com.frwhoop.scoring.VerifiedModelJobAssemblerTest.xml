@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.VerifiedModelJobAssemblerTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:16:57" hostname="mac-studio.lan" time="0.012">
+  <properties/>
+  <testcase name="registryResolvesPerJobWithoutChangingModelActivationAndCaptureIdentityMustMatch" classname="com.frwhoop.scoring.VerifiedModelJobAssemblerTest" time="0.004"/>
+  <testcase name="verifiedBytesAndQualifiedMappingCreateOwnedCheckpointBoundInput" classname="com.frwhoop.scoring.VerifiedModelJobAssemblerTest" time="0.002"/>
+  <testcase name="typedHashMatchesPythonGolden" classname="com.frwhoop.scoring.VerifiedModelJobAssemblerTest" time="0.0"/>
+  <testcase name="missingProofDoesNotConvertNpb1IntoVerifiedWaveform" classname="com.frwhoop.scoring.VerifiedModelJobAssemblerTest" time="0.0"/>
+  <testcase name="replayedPhysicalRecordInDifferentArchiveAndDuplicateRowsReject" classname="com.frwhoop.scoring.VerifiedModelJobAssemblerTest" time="0.002"/>
+  <testcase name="digestChangedBytesMissingRecordsGapAndMaskRejectOrRemainUnknown" classname="com.frwhoop.scoring.VerifiedModelJobAssemblerTest" time="0.002"/>
+  <testcase name="ownerDeviceRevisionCheckpointAndPipelineCannotBeReused" classname="com.frwhoop.scoring.VerifiedModelJobAssemblerTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

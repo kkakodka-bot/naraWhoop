@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerFragmentMergeTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="mergeFragmentsLeadingAndTrailingFlecks" classname="com.noop.analytics.SleepStagerFragmentMergeTest" time="0.0"/>
+  <testcase name="mergeFragmentsFoldsIntoLongerNeighbour" classname="com.noop.analytics.SleepStagerFragmentMergeTest" time="0.0"/>
+  <testcase name="mergeFragmentsThresholdConstant" classname="com.noop.analytics.SleepStagerFragmentMergeTest" time="0.0"/>
+  <testcase name="mergeFragmentsBiasesLighterOnTie" classname="com.noop.analytics.SleepStagerFragmentMergeTest" time="0.0"/>
+  <testcase name="mergeFragmentsAbsorbsSameStageBridge" classname="com.noop.analytics.SleepStagerFragmentMergeTest" time="0.0"/>
+  <testcase name="mergeFragmentsPreservesGenuineTransition" classname="com.noop.analytics.SleepStagerFragmentMergeTest" time="0.0"/>
+  <testcase name="mergeFragmentsDegenerateInputs" classname="com.noop.analytics.SleepStagerFragmentMergeTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

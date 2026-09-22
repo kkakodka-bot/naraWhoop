@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.push.ServerComputeContractTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:00" hostname="mac-studio.lan" time="0.023">
+  <properties/>
+  <testcase name="allFamiliesAndMissingRevisionsRoundTripThroughLedger" classname="com.noop.push.ServerComputeContractTest" time="0.009"/>
+  <testcase name="registrationPendingPersistsOwnershipAndEvictsAvailableDeviceResult" classname="com.noop.push.ServerComputeContractTest" time="0.002"/>
+  <testcase name="wrongDeviceOwnerSourceDayOrFabricatedRevisionRejectWholeEnvelope" classname="com.noop.push.ServerComputeContractTest" time="0.002"/>
+  <testcase name="expiryIsASeparateAdmissionNotAReplayableMeasurement" classname="com.noop.push.ServerComputeContractTest" time="0.0"/>
+  <testcase name="immutableRevisionRejectsChangedNumbersButNeverBlocksRevocation" classname="com.noop.push.ServerComputeContractTest" time="0.003"/>
+  <testcase name="authorizationCannotBeRecoveredFromAnUnqualifiedNumber" classname="com.noop.push.ServerComputeContractTest" time="0.001"/>
+  <testcase name="zeroNullAndEveryMissingStateNeverUseLocalFallback" classname="com.noop.push.ServerComputeContractTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

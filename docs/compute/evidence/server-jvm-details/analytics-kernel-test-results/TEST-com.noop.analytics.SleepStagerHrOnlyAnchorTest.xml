@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerHrOnlyAnchorTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.092">
+  <properties/>
+  <testcase name="a long multi-night window is under-read rather than over-read" classname="com.noop.analytics.SleepStagerHrOnlyAnchorTest" time="0.026"/>
+  <testcase name="the median anchor over-detects and the percentile anchor does not" classname="com.noop.analytics.SleepStagerHrOnlyAnchorTest" time="0.045"/>
+  <testcase name="a flat sleeper is under-read never inflated" classname="com.noop.analytics.SleepStagerHrOnlyAnchorTest" time="0.021"/>
+  <testcase name="the shared percentile helper agrees with the anchor" classname="com.noop.analytics.SleepStagerHrOnlyAnchorTest" time="0.0"/>
+  <testcase name="the detector band is a separate constant from the confirmation gate" classname="com.noop.analytics.SleepStagerHrOnlyAnchorTest" time="0.0"/>
+  <testcase name="the percentile index matches the Swift twin" classname="com.noop.analytics.SleepStagerHrOnlyAnchorTest" time="0.0"/>
+  <testcase name="the anchor is the tenth percentile by nearest rank" classname="com.noop.analytics.SleepStagerHrOnlyAnchorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

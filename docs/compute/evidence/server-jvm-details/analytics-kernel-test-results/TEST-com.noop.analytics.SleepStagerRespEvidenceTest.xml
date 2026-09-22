@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerRespEvidenceTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.022">
+  <properties/>
+  <testcase name="remRejectReasonAgreesWithTheClassifier" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.001"/>
+  <testcase name="midBandAndUnmeasuredAreDistinctAndBehaveDifferently" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.0"/>
+  <testcase name="everyCaseIsOneCellOfThePreFixBooleanPair" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.0"/>
+  <testcase name="theDeepPassRateDoublesWhenTheRespirationChannelIsAbsent" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.0"/>
+  <testcase name="coincidentBarsAreReachableAndPreserveThePreFixLabels" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.0"/>
+  <testcase name="rrvIsNaNWhenThereAreNoRespirationSamples" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.0"/>
+  <testcase name="missingRrvIsUnmeasuredNotRegular" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.0"/>
+  <testcase name="midBandDoesNotEarnTheMissingRespirationRemFallback" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.0"/>
+  <testcase name="measuredValuesMapToTheirBands" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.0"/>
+  <testcase name="unmeasuredRespirationIsWaivedForDeepAndTheWaiverIsExplicit" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.0"/>
+  <testcase name="classificationIsIdenticalToThePreFixPredicates" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.016"/>
+  <testcase name="noRespChannelSessionIsAlsoUnchanged" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.0"/>
+  <testcase name="v2OutputIsIdenticalWithAndWithoutARespirationStream" classname="com.noop.analytics.SleepStagerRespEvidenceTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

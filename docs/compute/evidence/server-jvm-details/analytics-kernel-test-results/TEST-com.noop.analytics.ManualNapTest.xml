@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.ManualNapTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.0">
+  <properties/>
+  <testcase name="reDetectedSessionOverlappingAManualNapIsDropped" classname="com.noop.analytics.ManualNapTest" time="0.0"/>
+  <testcase name="editedNapUsesEffectiveWindowAndIsProtected" classname="com.noop.analytics.ManualNapTest" time="0.0"/>
+  <testcase name="manualNapIsAFlaggedSeparateSession" classname="com.noop.analytics.ManualNapTest" time="0.0"/>
+  <testcase name="napEfficiencyIsAsleepFraction" classname="com.noop.analytics.ManualNapTest" time="0.0"/>
+  <testcase name="manualNapNeverFoldedIntoMainSleep" classname="com.noop.analytics.ManualNapTest" time="0.0"/>
+  <testcase name="wakeOnlyFallbackHasNullEfficiency" classname="com.noop.analytics.ManualNapTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

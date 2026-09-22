@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStageVocabularyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:22" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="casingAndWhitespaceAreFolded" classname="com.noop.analytics.SleepStageVocabularyTest" time="0.001"/>
+  <testcase name="sleepStagesAreNotWake" classname="com.noop.analytics.SleepStageVocabularyTest" time="0.0"/>
+  <testcase name="bothSpellingsAreWake" classname="com.noop.analytics.SleepStageVocabularyTest" time="0.0"/>
+  <testcase name="wasoAndDisturbancesCountAnAwakeSegment" classname="com.noop.analytics.SleepStageVocabularyTest" time="0.0"/>
+  <testcase name="awakeSegmentIsNotCountedAsAsleep" classname="com.noop.analytics.SleepStageVocabularyTest" time="0.0"/>
+  <testcase name="unknownAndEmptyAreNotWake" classname="com.noop.analytics.SleepStageVocabularyTest" time="0.0"/>
+  <testcase name="wakeTotalIncludesBothSpellings" classname="com.noop.analytics.SleepStageVocabularyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

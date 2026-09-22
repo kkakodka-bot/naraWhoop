@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerHrOnlyTraceTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.005">
+  <properties/>
+  <testcase name="every call traces exactly once and names the anchor it used" classname="com.noop.analytics.SleepStagerHrOnlyTraceTest" time="0.003"/>
+  <testcase name="a flat window is entirely in band because the anchor comes from it" classname="com.noop.analytics.SleepStagerHrOnlyTraceTest" time="0.001"/>
+  <testcase name="the line names the derived threshold and the longest candidate" classname="com.noop.analytics.SleepStagerHrOnlyTraceTest" time="0.0"/>
+  <testcase name="distinctEpochs counts buckets in one pass over sorted input" classname="com.noop.analytics.SleepStagerHrOnlyTraceTest" time="0.0"/>
+  <testcase name="epochs counts epochs not samples" classname="com.noop.analytics.SleepStagerHrOnlyTraceTest" time="0.001"/>
+  <testcase name="an absent anchor prints nil rather than zero" classname="com.noop.analytics.SleepStagerHrOnlyTraceTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.CalendarOwnershipIntegrationTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:30" hostname="mac-studio.lan" time="1.625">
+  <properties/>
+  <testcase name="hrvDependenciesUseOwnedMidnightInsteadOfThePrecreatedQueueZone" classname="com.frwhoop.scoring.CalendarOwnershipIntegrationTest" time="0.049"/>
+  <testcase name="precreatedUtcQueueIncludesTheNewZonesLateEvening" classname="com.frwhoop.scoring.CalendarOwnershipIntegrationTest" time="0.243"/>
+  <testcase name="travelMetadataAndMovedOverrideUseTheFullOwnedCalendar" classname="com.frwhoop.scoring.CalendarOwnershipIntegrationTest" time="0.222"/>
+  <testcase name="dstUsesActualTwentyThreeAndTwentyFiveHourDays" classname="com.frwhoop.scoring.CalendarOwnershipIntegrationTest" time="0.026"/>
+  <testcase name="skippedDateAbstainsAndRepeatedDateRetainsSeventyFourHourContext" classname="com.frwhoop.scoring.CalendarOwnershipIntegrationTest" time="0.026"/>
+  <testcase name="timezoneChangeCommitsWithAffectedRevisionsAndDoesNotRewriteOldDates" classname="com.frwhoop.scoring.CalendarOwnershipIntegrationTest" time="0.35"/>
+  <testcase name="disjointOwnershipExcludesSamplesInAnInterveningDifferentDate" classname="com.frwhoop.scoring.CalendarOwnershipIntegrationTest" time="0.379"/>
+  <testcase name="projectionWaitingForCalendarMutexReadsHistoryAfterTheChangeCommits" classname="com.frwhoop.scoring.CalendarOwnershipIntegrationTest" time="0.182"/>
+  <testcase name="historicEndpointZonesSurviveLaterProfileChangesAndTravelBoundaries" classname="com.frwhoop.scoring.CalendarOwnershipIntegrationTest" time="0.148"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-2 - Added connection org.postgresql.jdbc.PgConnection@2320fa6f
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-3 - Added connection org.postgresql.jdbc.PgConnection@1b2c4efb
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-4 - Added connection org.postgresql.jdbc.PgConnection@5a411614
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-5 - Added connection org.postgresql.jdbc.PgConnection@6c25e6c4
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-6 - Added connection org.postgresql.jdbc.PgConnection@435fb7b5
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-7 - Added connection org.postgresql.jdbc.PgConnection@5a85c92
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-8 - Added connection org.postgresql.jdbc.PgConnection@7c098bb3
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-9 - Added connection org.postgresql.jdbc.PgConnection@2a7686a7
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Shutdown completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Starting...
+[Test worker] INFO com.zaxxer.hikari.pool.HikariPool - HikariPool-10 - Added connection org.postgresql.jdbc.PgConnection@55342f40
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Start completed.
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Shutdown initiated...
+[Test worker] INFO com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Shutdown completed.
+]]></system-err>
+</testsuite>

@@ -1,0 +1,688 @@
+Compute test products: /private/tmp/nara-compute-final-products.fxyjBA
+⚙️  Generating plists...
+⚙️  Generating project...
+⚙️  Writing project...
+Created project at /Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-checks/ComputeChecks.xcodeproj
+Command line invocation:
+    "/Volumes/External SSD/Xcode.app/Contents/Developer/usr/bin/xcodebuild" -project .derived/compute-checks/ComputeChecks.xcodeproj -scheme FinalHostedChecks -destination platform=macOS -derivedDataPath .derived/compute-final-macos SYMROOT=/private/tmp/nara-compute-final-products.fxyjBA CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_ENTITLEMENTS= DEVELOPMENT_TEAM= ENABLE_DEBUG_DYLIB=NO DEBUG_INFORMATION_FORMAT=dwarf-with-dsym "-only-testing:ComputeChecksTests/FinalHostedRuntimeTests" "-only-testing:ComputeChecksTests/CanonicalPhysiologySurfaceTests" "-only-testing:ComputeChecksTests/CanonicalConsumerPublicationTests" "-only-testing:ComputeChecksTests/CanonicalWorkoutInputTests" "-only-testing:ComputeChecksTests/ImportTraceEmitTests/testHostedImportPreservesReportedHistoryWithoutPhysiologicalReconstruction" "-only-testing:ComputeChecksTests/WorkoutZonesTests/testHostedModeReadsReportedPercentagesWithoutReconstructingZoneMinutes" "-only-testing:ComputeChecksTests/ScoringPreferenceContainmentTests/testFinalHostedExportsUseCanonicalAdmissionWithoutPreferenceProjection" "-only-testing:ComputeChecksTests/ScoringPreferenceContainmentTests/testFinalHostedResultChangeAtAttemptRetainsExactExportToken" test
+
+Build settings from command line:
+    CODE_SIGN_ENTITLEMENTS = 
+    CODE_SIGN_IDENTITY = -
+    CODE_SIGNING_ALLOWED = YES
+    DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+    DEVELOPMENT_TEAM = 
+    ENABLE_DEBUG_DYLIB = NO
+    SYMROOT = /private/tmp/nara-compute-final-products.fxyjBA
+
+Resolve Package Graph
+
+
+Resolved source packages:
+  WhoopStore: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/WhoopStore
+  OuraProtocol: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/OuraProtocol
+  NoopPush: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/NoopPush
+  cmark-gfm: https://github.com/swiftlang/swift-cmark @ 0.8.0
+  swift-markdown-ui: https://github.com/gonzalezreal/swift-markdown-ui @ 2.4.1
+  StrandImport: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/StrandImport
+  PolarProtocol: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/PolarProtocol
+  StrandAnalytics: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/StrandAnalytics
+  GRDB: https://github.com/groue/GRDB.swift.git @ 6.29.3
+  NetworkImage: https://github.com/gonzalezreal/NetworkImage @ 6.0.1
+  ZIPFoundation: https://github.com/weichsel/ZIPFoundation.git @ 0.9.20
+  WhoopProtocol: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/WhoopProtocol
+  StrandDesign: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/StrandDesign
+
+--- xcodebuild: WARNING: Using the first of multiple matching destinations:
+{ platform:macOS, arch:arm64, id:00006041-000430320A81401C, name:My Mac }
+{ platform:macOS, arch:x86_64, id:00006041-000430320A81401C, name:My Mac }
+note: Using codesigning identity override: -
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (36 targets)
+    Target 'ComputeChecksTests' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'Strand' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'NoopPush' in project 'NoopPush'
+        ➜ Explicit dependency on target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+    Target 'Strand' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'PolarProtocol' in project 'PolarProtocol'
+        ➜ Explicit dependency on target 'NoopPush' in project 'NoopPush'
+    Target 'NoopPush' in project 'NoopPush'
+        ➜ Explicit dependency on target 'NoopPush' in project 'NoopPush'
+        ➜ Explicit dependency on target 'CNoopZstd' in project 'NoopPush'
+    Target 'NoopPush' in project 'NoopPush'
+        ➜ Explicit dependency on target 'CNoopZstd' in project 'NoopPush'
+    Target 'CNoopZstd' in project 'NoopPush' (no dependencies)
+    Target 'PolarProtocol' in project 'PolarProtocol'
+        ➜ Explicit dependency on target 'PolarProtocol' in project 'PolarProtocol'
+    Target 'PolarProtocol' in project 'PolarProtocol' (no dependencies)
+    Target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'NetworkImage' in project 'NetworkImage'
+    Target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'NetworkImage' in project 'NetworkImage'
+    Target 'NetworkImage' in project 'NetworkImage'
+        ➜ Explicit dependency on target 'NetworkImage' in project 'NetworkImage'
+    Target 'NetworkImage' in project 'NetworkImage' (no dependencies)
+    Target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm' in project 'cmark-gfm' (no dependencies)
+    Target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign_StrandDesign' in project 'StrandDesign'
+    Target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign_StrandDesign' in project 'StrandDesign'
+    Target 'StrandDesign_StrandDesign' in project 'StrandDesign' (no dependencies)
+    Target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'ZIPFoundation_ZIPFoundation' in project 'ZIPFoundation'
+    Target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'ZIPFoundation_ZIPFoundation' in project 'ZIPFoundation'
+    Target 'ZIPFoundation_ZIPFoundation' in project 'ZIPFoundation' (no dependencies)
+    Target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+    Target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+    Target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB_GRDB' in project 'GRDB'
+    Target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB_GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'CSQLite' in project 'GRDB'
+    Target 'CSQLite' in project 'GRDB' (no dependencies)
+    Target 'GRDB_GRDB' in project 'GRDB' (no dependencies)
+    Target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+    Target 'OuraProtocol' in project 'OuraProtocol' (no dependencies)
+    Target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol'
+    Target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol'
+    Target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ClangStatCache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/SDKStatCaches.noindex/macosx26.2-25C58-d5e1beac502ab4b3ce476007f4a3006b.sdkstatcache
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks/ComputeChecks.xcodeproj
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -o /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/SDKStatCaches.noindex/macosx26.2-25C58-d5e1beac502ab4b3ce476007f4a3006b.sdkstatcache
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/WhoopProtocol_WhoopProtocol.bundle/Contents/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/WhoopProtocol.build/Debug/WhoopProtocol_WhoopProtocol.build/empty-WhoopProtocol_WhoopProtocol.plist (in target 'WhoopProtocol_WhoopProtocol' from project 'WhoopProtocol')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/WhoopProtocol
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/WhoopProtocol.build/Debug/WhoopProtocol_WhoopProtocol.build/empty-WhoopProtocol_WhoopProtocol.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/WhoopProtocol_WhoopProtocol.bundle/Contents/Info.plist
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/ZIPFoundation_ZIPFoundation.bundle/Contents/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ZIPFoundation.build/Debug/ZIPFoundation_ZIPFoundation.build/empty-ZIPFoundation_ZIPFoundation.plist (in target 'ZIPFoundation_ZIPFoundation' from project 'ZIPFoundation')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/SourcePackages/checkouts/ZIPFoundation
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ZIPFoundation.build/Debug/ZIPFoundation_ZIPFoundation.build/empty-ZIPFoundation_ZIPFoundation.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/ZIPFoundation_ZIPFoundation.bundle/Contents/Info.plist
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/GRDB_GRDB.bundle/Contents/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/GRDB.build/Debug/GRDB_GRDB.build/empty-GRDB_GRDB.plist (in target 'GRDB_GRDB' from project 'GRDB')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/SourcePackages/checkouts/GRDB.swift
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/GRDB.build/Debug/GRDB_GRDB.build/empty-GRDB_GRDB.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/GRDB_GRDB.bundle/Contents/Info.plist
+
+WriteAuxiliaryFile /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.DependencyMetadataFileList (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    write-file /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.DependencyMetadataFileList
+
+WriteAuxiliaryFile /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/NOOP\ Staging.LinkFileList (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    write-file /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/NOOP\ Staging.LinkFileList
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/empty-StrandDesign_StrandDesign.plist (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/empty-StrandDesign_StrandDesign.plist -producttype com.apple.product-type.bundle -expandbuildsettings -platform macosx -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Info.plist
+
+CompileXCStrings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/ /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign/Sources/StrandDesign/Resources/Localizable.xcstrings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/usr/bin/xcstringstool compile --output-directory /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign/Sources/StrandDesign/Resources/Localizable.xcstrings
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/de.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/de.lproj/Localizable.strings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/de.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/de.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/de.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/fr.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/fr.lproj/Localizable.strings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/fr.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/fr.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/fr.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/pl.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/pl.lproj/Localizable.strings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/pl.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/pl.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/pl.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/ru.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/ru.lproj/Localizable.strings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/ru.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/ru.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/ru.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/zh-Hans.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/zh-Hans.lproj/Localizable.strings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/zh-Hans.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/zh-Hans.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/zh-Hans.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/es.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/es.lproj/Localizable.strings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/es.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/es.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/es.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/it.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/it.lproj/Localizable.strings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/it.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/it.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/it.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/pt-PT.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/pt-PT.lproj/Localizable.strings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/pt-PT.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/pt-PT.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/pt-PT.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/en.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/en.lproj/Localizable.strings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/en.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/en.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/en.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/zh-Hant.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/zh-Hant.lproj/Localizable.strings (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle/Contents/Resources/zh-Hant.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/zh-Hant.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandDesign.build/Debug/StrandDesign_StrandDesign.build/zh-Hant.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'StrandDesign_StrandDesign' from project 'StrandDesign')
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework/Versions/A/Resources/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ZIPFoundation.build/Debug/ZIPFoundation\ product.build/empty-ZIPFoundation_-14A6248D789D2CE9_PackageProduct.plist (in target 'ZIPFoundation' from project 'ZIPFoundation')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/SourcePackages/checkouts/ZIPFoundation
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ZIPFoundation.build/Debug/ZIPFoundation\ product.build/empty-ZIPFoundation_-14A6248D789D2CE9_PackageProduct.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework/Versions/A/Resources/Info.plist
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/OuraProtocol_-C8A38B4B7B3C10B_PackageProduct.framework/Versions/A/Resources/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/OuraProtocol.build/Debug/OuraProtocol\ product.build/empty-OuraProtocol_-C8A38B4B7B3C10B_PackageProduct.plist (in target 'OuraProtocol' from project 'OuraProtocol')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/OuraProtocol
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/OuraProtocol.build/Debug/OuraProtocol\ product.build/empty-OuraProtocol_-C8A38B4B7B3C10B_PackageProduct.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/OuraProtocol_-C8A38B4B7B3C10B_PackageProduct.framework/Versions/A/Resources/Info.plist
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework/Versions/A/Resources/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/WhoopProtocol.build/Debug/WhoopProtocol\ product.build/empty-WhoopProtocol_1411B0721344D06C_PackageProduct.plist (in target 'WhoopProtocol' from project 'WhoopProtocol')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/WhoopProtocol
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/WhoopProtocol.build/Debug/WhoopProtocol\ product.build/empty-WhoopProtocol_1411B0721344D06C_PackageProduct.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework/Versions/A/Resources/Info.plist
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/GRDB_5DC4DB053_PackageProduct.framework/Versions/A/Resources/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/GRDB.build/Debug/GRDB\ product.build/empty-GRDB_5DC4DB053_PackageProduct.plist (in target 'GRDB' from project 'GRDB')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/SourcePackages/checkouts/GRDB.swift
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/GRDB.build/Debug/GRDB\ product.build/empty-GRDB_5DC4DB053_PackageProduct.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/GRDB_5DC4DB053_PackageProduct.framework/Versions/A/Resources/Info.plist
+
+ProcessProductPackaging "" /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.app.xcent (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Entitlements:
+    
+    {
+    "com.apple.security.get-task-allow" = 1;
+}
+    
+    builtin-productPackagingUtility -entitlements -format xml -o /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.app.xcent
+
+ProcessProductPackagingDER /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.app.xcent /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.app.xcent.der (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    /usr/bin/derq query -f xml -i /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.app.xcent -o /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.app.xcent.der --raw
+
+CpResource /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework/Versions/A/Resources/StrandDesign_StrandDesign.bundle /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle (in target 'StrandDesign' from project 'StrandDesign')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/StrandDesign
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework/Versions/A/Resources
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework/Versions/A/Resources/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/WhoopStore.build/Debug/WhoopStore\ product.build/empty-WhoopStore_71292FE4CC321224_PackageProduct.plist (in target 'WhoopStore' from project 'WhoopStore')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Packages/WhoopStore
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/WhoopStore.build/Debug/WhoopStore\ product.build/empty-WhoopStore_71292FE4CC321224_PackageProduct.plist -producttype com.apple.product-type.framework -expandbuildsettings -platform macosx -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework/Versions/A/Resources/Info.plist
+
+Copy /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/StrandDesign_StrandDesign.bundle /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources
+
+Ld /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/MacOS/NOOP\ Staging normal (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-macos13.0 -isysroot /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -O0 -L/Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -L/private/tmp/nara-compute-final-products.fxyjBA/Debug -F/Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug -filelist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/NOOP\ Staging.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -Xlinker -rpath -Xlinker @executable_path/../Frameworks -Xlinker -object_path_lto -Xlinker /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/NOOP\ Staging_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -dependency_info -Xlinker /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/NOOP\ Staging_dependency_info.dat -fobjc-link-runtime -L/Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/Strand.swiftmodule @/Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/Strand-linker-args.resp -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -L/opt/homebrew/lib -L/usr/local/lib -lzstd /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework/Versions/A/WhoopProtocol_1411B0721344D06C_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework/Versions/A/WhoopStore_71292FE4CC321224_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework/Versions/A/StrandAnalytics_6C1A128B06010923_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework/Versions/A/WhoopProtocol_1411B0721344D06C_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework/Versions/A/WhoopStore_71292FE4CC321224_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework/Versions/A/ZIPFoundation_-14A6248D789D2CE9_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/GRDB_5DC4DB053_PackageProduct.framework/Versions/A/GRDB_5DC4DB053_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework/Versions/A/StrandDesign_797FB5B04A76ABD2_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework/Versions/A/ZIPFoundation_-14A6248D789D2CE9_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/OuraProtocol_-C8A38B4B7B3C10B_PackageProduct.framework/Versions/A/OuraProtocol_-C8A38B4B7B3C10B_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework/Versions/A/NoopPush_-3D72CE08409B84BC_PackageProduct -Xlinker -no_adhoc_codesign -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/MacOS/NOOP\ Staging -Xlinker -add_ast_path -Xlinker /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandImport.build/Debug/StrandImport.build/Objects-normal/arm64/StrandImport.swiftmodule @/Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/StrandImport.build/Debug/StrandImport.build/Objects-normal/arm64/StrandImport-linker-args.resp -Xlinker -add_ast_path -Xlinker /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/swift-markdown-ui.build/Debug/MarkdownUI.build/Objects-normal/arm64/MarkdownUI.swiftmodule @/Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/swift-markdown-ui.build/Debug/MarkdownUI.build/Objects-normal/arm64/MarkdownUI-linker-args.resp -Xlinker -add_ast_path -Xlinker /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/NetworkImage.build/Debug/NetworkImage.build/Objects-normal/arm64/NetworkImage.swiftmodule @/Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/NetworkImage.build/Debug/NetworkImage.build/Objects-normal/arm64/NetworkImage-linker-args.resp -Xlinker -add_ast_path -Xlinker /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/PolarProtocol.build/Debug/PolarProtocol.build/Objects-normal/arm64/PolarProtocol.swiftmodule @/Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/PolarProtocol.build/Debug/PolarProtocol.build/Objects-normal/arm64/PolarProtocol-linker-args.resp
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/zstd/lib/libzstd.1.dylib' which was built for newer version 26.0
+
+CompileXCStrings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/ /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Strand/Resources/Localizable.xcstrings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/usr/bin/xcstringstool compile --output-directory /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Strand/Resources/Localizable.xcstrings
+
+Copy /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -remove-static-executable /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks
+
+Copy /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -remove-static-executable /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks
+
+Copy /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -remove-static-executable /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework/Versions/A (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/Frameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework/Versions/A: replacing existing signature
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework/Versions/A (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/Frameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework/Versions/A: replacing existing signature
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Strand/Resources/Info.plist (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/Strand/Resources/Info.plist -producttype com.apple.product-type.application -genpkginfo /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PkgInfo -expandbuildsettings -platform macosx -additionalcontentfile /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/assetcatalog_generated_info.plist -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/GRDB_5DC4DB053_PackageProduct.framework -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/OuraProtocol_-C8A38B4B7B3C10B_PackageProduct.framework -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/GRDB_GRDB.bundle -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/StrandDesign_StrandDesign.bundle -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/WhoopProtocol_WhoopProtocol.bundle -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/ZIPFoundation_ZIPFoundation.bundle -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Info.plist
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework/Versions/A (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/Frameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework/Versions/A: replacing existing signature
+
+GenerateDSYMFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app.dSYM /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/MacOS/NOOP\ Staging (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/MacOS/NOOP\ Staging -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app.dSYM
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/zh-Hant.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hant.lproj/Localizable.strings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/zh-Hant.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hant.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hant.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/ru.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/ru.lproj/Localizable.strings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/ru.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/ru.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/ru.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/pl.lproj/Localizable.stringsdict /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pl.lproj/Localizable.stringsdict (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.stringsdict --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/pl.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pl.lproj/Localizable.stringsdict
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pl.lproj/Localizable.stringsdict:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/zh-Hant.lproj/Localizable.stringsdict /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hant.lproj/Localizable.stringsdict (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.stringsdict --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/zh-Hant.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hant.lproj/Localizable.stringsdict
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hant.lproj/Localizable.stringsdict:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/pl.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pl.lproj/Localizable.strings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/pl.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pl.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pl.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/zh-Hans.lproj/Localizable.stringsdict /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hans.lproj/Localizable.stringsdict (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.stringsdict --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/zh-Hans.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hans.lproj/Localizable.stringsdict
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hans.lproj/Localizable.stringsdict:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/ru.lproj/Localizable.stringsdict /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/ru.lproj/Localizable.stringsdict (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.stringsdict --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/ru.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/ru.lproj/Localizable.stringsdict
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/ru.lproj/Localizable.stringsdict:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/zh-Hans.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hans.lproj/Localizable.strings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/zh-Hans.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hans.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/zh-Hans.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/pt-PT.lproj/Localizable.stringsdict /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pt-PT.lproj/Localizable.stringsdict (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.stringsdict --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/pt-PT.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pt-PT.lproj/Localizable.stringsdict
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pt-PT.lproj/Localizable.stringsdict:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/pt-PT.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pt-PT.lproj/Localizable.strings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/pt-PT.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pt-PT.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/pt-PT.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/it.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/it.lproj/Localizable.strings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/it.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/it.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/it.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/fr.lproj/Localizable.stringsdict /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/fr.lproj/Localizable.stringsdict (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.stringsdict --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/fr.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/fr.lproj/Localizable.stringsdict
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/fr.lproj/Localizable.stringsdict:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/it.lproj/Localizable.stringsdict /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/it.lproj/Localizable.stringsdict (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.stringsdict --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/it.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/it.lproj/Localizable.stringsdict
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/it.lproj/Localizable.stringsdict:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/fr.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/fr.lproj/Localizable.strings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/fr.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/fr.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/fr.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/es.lproj/Localizable.stringsdict /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/es.lproj/Localizable.stringsdict (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.stringsdict --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/es.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/es.lproj/Localizable.stringsdict
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/es.lproj/Localizable.stringsdict:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/es.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/es.lproj/Localizable.strings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/es.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/es.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/es.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/en.lproj/Localizable.stringsdict /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/en.lproj/Localizable.stringsdict (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.stringsdict --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/en.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/en.lproj/Localizable.stringsdict
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/en.lproj/Localizable.stringsdict:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/en.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/en.lproj/Localizable.strings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/en.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/en.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/en.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/de.lproj/Localizable.stringsdict /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/de.lproj/Localizable.stringsdict (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.stringsdict --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/de.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/de.lproj/Localizable.stringsdict
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/de.lproj/Localizable.stringsdict:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopyStringsFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/de.lproj/Localizable.strings /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/de.lproj/Localizable.strings (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copyStrings --validate --outputencoding UTF-16 --outfilename Localizable.strings --outdir /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources/de.lproj -- /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/de.lproj/Localizable.strings
+/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/de.lproj/Localizable.strings:1:1: note: detected encoding of input file as Unicode (UTF-8) (in target 'Strand' from project 'ComputeChecks')
+
+CopySwiftLibs /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-swiftStdLibTool --copy --verbose --sign - --scan-executable /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/MacOS/NOOP\ Staging --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Library/SystemExtensions --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Extensions --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/OuraProtocol_-C8A38B4B7B3C10B_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework --platform macosx --toolchain /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Frameworks --strip-bitcode --strip-bitcode-tool /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+
+ExtractAppIntentsMetadata (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name Strand --sdk-root /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk --xcode-version 17C529 --platform-family macOS --deployment-target 13.0 --bundle-identifier com.noopapp.noop.staging --output /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/Resources --target-triple arm64-apple-macos13.0 --binary-file /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/MacOS/NOOP\ Staging --dependency-file /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/NOOP\ Staging_dependency_info.dat --stringsdata-file /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/NOOP\ Staging.SwiftFileList --metadata-file-list /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.DependencyMetadataFileList --static-metadata-file-list /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.DependencyStaticMetadataFileList --swift-const-vals-list /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/Objects-normal/arm64/NOOP\ Staging.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-09-21 23:19:44.978 appintentsmetadataprocessor[78539:139794956] Starting appintentsmetadataprocessor export
+2026-09-21 23:19:45.091 appintentsmetadataprocessor[78539:139794956] Writing Metadata.appintents
+2026-09-21 23:19:45.092 appintentsmetadataprocessor[78539:139794956] Metadata root: /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/Resources/Metadata.appintents
+
+Copy /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Resources/StrandDesign_StrandDesign.bundle /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /private/tmp/nara-compute-final-products.fxyjBA/Debug/StrandDesign_StrandDesign.bundle /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Resources
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework/Versions/A (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework/Versions/A: replacing existing signature
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework/Versions/A (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework/Versions/A: replacing existing signature
+
+Copy /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -remove-static-executable /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework/Versions/A (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework/Versions/A: replacing existing signature
+
+Ld /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/MacOS/ComputeChecksTests normal (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-macos13.0 -bundle -isysroot /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -O0 -L/Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -L/private/tmp/nara-compute-final-products.fxyjBA/Debug -L/Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib -F/Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -F/private/tmp/nara-compute-final-products.fxyjBA/Debug -iframework /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks -filelist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/Objects-normal/arm64/ComputeChecksTests.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks -Xlinker -rpath -Xlinker @loader_path/../Frameworks -Xlinker -rpath -Xlinker @executable_path/../Frameworks -bundle_loader /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/MacOS/NOOP\ Staging -Xlinker -object_path_lto -Xlinker /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/Objects-normal/arm64/ComputeChecksTests_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -dependency_info -Xlinker /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/Objects-normal/arm64/ComputeChecksTests_dependency_info.dat -fobjc-link-runtime -L/Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/Objects-normal/arm64/ComputeChecksTests.swiftmodule @/Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/Objects-normal/arm64/ComputeChecksTests-linker-args.resp -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -Wl,-no_warn_duplicate_libraries -L/opt/homebrew/lib -L/usr/local/lib -lzstd -L/opt/homebrew/lib -L/usr/local/lib -lzstd -Xlinker -needed_framework -Xlinker XCTest -framework XCTest -Xlinker -needed-lXCTestSwiftSupport -lXCTestSwiftSupport /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework/Versions/A/WhoopProtocol_1411B0721344D06C_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework/Versions/A/WhoopStore_71292FE4CC321224_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework/Versions/A/NoopPush_-3D72CE08409B84BC_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework/Versions/A/StrandAnalytics_6C1A128B06010923_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework/Versions/A/StrandDesign_797FB5B04A76ABD2_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/GRDB_5DC4DB053_PackageProduct.framework/Versions/A/GRDB_5DC4DB053_PackageProduct /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework/Versions/A/ZIPFoundation_-14A6248D789D2CE9_PackageProduct -Xlinker -no_adhoc_codesign -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/MacOS/ComputeChecksTests
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/zstd/lib/libzstd.1.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/XCTest.framework/Versions/A/XCTest' which was built for newer version 14.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libXCTestSwiftSupport.dylib' which was built for newer version 14.0
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework/Versions/A (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework/Versions/A: replacing existing signature
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/OuraProtocol_-C8A38B4B7B3C10B_PackageProduct.framework/Versions/A (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/OuraProtocol_-C8A38B4B7B3C10B_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/OuraProtocol_-C8A38B4B7B3C10B_PackageProduct.framework/Versions/A: replacing existing signature
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework/Versions/A (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework/Versions/A: replacing existing signature
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/GRDB_5DC4DB053_PackageProduct.framework/Versions/A (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/GRDB_5DC4DB053_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/GRDB_5DC4DB053_PackageProduct.framework/Versions/A: replacing existing signature
+
+ProcessInfoPlistFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Info.plist /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/empty-ComputeChecksTests.plist (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-infoPlistUtility /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/empty-ComputeChecksTests.plist -producttype com.apple.product-type.bundle.unit-test -expandbuildsettings -platform macosx -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Resources/GRDB_GRDB.bundle -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Resources/StrandDesign_StrandDesign.bundle -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Resources/WhoopProtocol_WhoopProtocol.bundle -scanforprivacyfile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Resources/ZIPFoundation_ZIPFoundation.bundle -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Info.plist
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework/Versions/A (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework/Versions/A
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework/Versions/A: replacing existing signature
+
+GenerateDSYMFile /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest.dSYM /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/MacOS/ComputeChecksTests (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/MacOS/ComputeChecksTests -o /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest.dSYM
+
+CopySwiftLibs /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-swiftStdLibTool --copy --verbose --sign - --scan-executable /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/MacOS/ComputeChecksTests --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/PlugIns --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Library/SystemExtensions --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Extensions --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopProtocol_1411B0721344D06C_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/WhoopStore_71292FE4CC321224_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/NoopPush_-3D72CE08409B84BC_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandAnalytics_6C1A128B06010923_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/StrandDesign_797FB5B04A76ABD2_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/GRDB_5DC4DB053_PackageProduct.framework --scan-folder /private/tmp/nara-compute-final-products.fxyjBA/Debug/PackageFrameworks/ZIPFoundation_-14A6248D789D2CE9_PackageProduct.framework --platform macosx --toolchain /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Frameworks --strip-bitcode --scan-executable /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+
+ExtractAppIntentsMetadata (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name ComputeChecksTests --sdk-root /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk --xcode-version 17C529 --platform-family macOS --deployment-target 13.0 --bundle-identifier com.noopapp.computechecks --output /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/Resources --target-triple arm64-apple-macos13.0 --binary-file /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest/Contents/MacOS/ComputeChecksTests --dependency-file /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/Objects-normal/arm64/ComputeChecksTests_dependency_info.dat --stringsdata-file /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/Objects-normal/arm64/ComputeChecksTests.SwiftFileList --metadata-file-list /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/ComputeChecksTests.DependencyMetadataFileList --static-metadata-file-list /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/ComputeChecksTests.DependencyStaticMetadataFileList --swift-const-vals-list /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/ComputeChecksTests.build/Objects-normal/arm64/ComputeChecksTests.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-09-21 23:19:46.522 appintentsmetadataprocessor[78594:139795076] Starting appintentsmetadataprocessor export
+2026-09-21 23:19:46.589 appintentsmetadataprocessor[78594:139795076] Extracted no relevant App Intents symbols, skipping writing output
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest (in target 'ComputeChecksTests' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --timestamp\=none --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app/Contents/PlugIns/ComputeChecksTests.xctest
+
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --entitlements /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.app.xcent --timestamp\=none --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app
+
+Validate /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-validationUtility /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app -no-validate-extension -infoplist-subpath Contents/Info.plist
+
+RegisterWithLaunchServices /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -f -R -trusted /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app
+
+note: Disabling hardened runtime with ad-hoc codesigning. (in target 'Strand' from project 'ComputeChecks')
+2026-09-21 23:19:48.140126-0700 NOOP Staging[78598:139795239] [Connection] Unable to get synchronousRemoteObjectProxy, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:19:48.140332-0700 NOOP Staging[78598:139795239] [Application] Error registering app with intents framework: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:19:48.140671-0700 NOOP Staging[78598:139795233] [Connection] Unable to get synchronousRemoteObjectProxy, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:19:48.140682-0700 NOOP Staging[78598:139795233] [Connection] Unable to re-register with Process Instance Registry, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:19:48.141149-0700 NOOP Staging[78598:139795239] [Connection] Unable to get synchronousRemoteObjectProxy, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:19:48.141159-0700 NOOP Staging[78598:139795239] [Connection] Unable to re-register with Process Instance Registry, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:19:48.141562-0700 NOOP Staging[78598:139795233] [Connection] Will NOT re-try to establish the connection
+2026-09-21 23:19:48.141585-0700 NOOP Staging[78598:139795205] [Connection] Unable to get synchronousRemoteObjectProxy, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:19:48.141600-0700 NOOP Staging[78598:139795205] [Connection] Unable to re-register with Process Instance Registry, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:19:48.173867-0700 NOOP Staging[78598:139795169] ApplePersistenceIgnoreState: Existing state will not be touched. New state will be written to /var/folders/rk/rw132g3n6zv9hbqb1tw_ctxm0000gn/T/com.noopapp.noop.staging.savedState
+Test Suite 'Selected tests' started at 2026-09-21 23:19:48.270.
+Test Suite 'ComputeChecksTests.xctest' started at 2026-09-21 23:19:48.270.
+Test Suite 'CanonicalConsumerPublicationTests' started at 2026-09-21 23:19:48.271.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testActualDatabaseAccountRouteSleepOnlyEnvelopePassesProductionHealthDecoder]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testActualDatabaseAccountRouteSleepOnlyEnvelopePassesProductionHealthDecoder]' passed (0.005 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testActualProductionAdaptersPersistOneIdentityAndZeroInference]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testActualProductionAdaptersPersistOneIdentityAndZeroInference]' passed (0.076 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testArchiveInstallCommitsExactAdmittedPreparedPayload]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testArchiveInstallCommitsExactAdmittedPreparedPayload]' passed (0.018 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testArchiveProviderOpenCannotBypassReadStateAccountOrDeviceFence]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testArchiveProviderOpenCannotBypassReadStateAccountOrDeviceFence]' passed (0.018 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testCanonicalSleepUnknownGapsRemainUnknownAndCannotBecomeExportStages]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testCanonicalSleepUnknownGapsRemainUnknownAndCannotBecomeExportStages]' passed (0.009 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testFailedReadAndCachedOnlyExportsRetainHistoryWithoutCurrentValues]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testFailedReadAndCachedOnlyExportsRetainHistoryWithoutCurrentValues]' passed (0.027 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testHealthRecordsUseExactUnitsBoundsAndNewRevisionEvenWhenValuesAreEqual]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testHealthRecordsUseExactUnitsBoundsAndNewRevisionEvenWhenValuesAreEqual]' passed (0.018 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testHealthRejectsMalformedSessionsInsteadOfEmptyDefaults]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testHealthRejectsMalformedSessionsInsteadOfEmptyDefaults]' passed (0.015 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testHealthRevocationDuringDeleteCannotSavePreparedCanonicalRecords]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testHealthRevocationDuringDeleteCannotSavePreparedCanonicalRecords]' passed (0.009 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testHealthUsesExactAuthorizedSleepAndNeverReconstructsOwnedNull]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testHealthUsesExactAuthorizedSleepAndNeverReconstructsOwnedNull]' passed (0.013 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testPublicationAndCSVRetainExactRevisionValidZeroAndOwnedNull]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testPublicationAndCSVRetainExactRevisionValidZeroAndOwnedNull]' passed (0.016 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testReadFailureDoesNotRewriteRevisionOrRepublishCachedValueAsCurrent]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testReadFailureDoesNotRewriteRevisionOrRepublishCachedValueAsCurrent]' passed (0.016 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testRevisionChangeWithEqualValuesReplacesPersistedConsumers]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testRevisionChangeWithEqualValuesReplacesPersistedConsumers]' passed (0.044 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testRevokedAndNullHealthResultsDeleteWithoutReplacementAndNeverRecompute]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testRevokedAndNullHealthResultsDeleteWithoutReplacementAndNeverRecompute]' passed (0.018 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testSameRevisionReadFailureAtShortcutCommitCannotPublishPreparedValues]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testSameRevisionReadFailureAtShortcutCommitCannotPublishPreparedValues]' passed (0.008 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testShortcutRetiresLegacyBeforeAtomicPublishAndRetainsPriorCompleteDocumentOnFailure]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testShortcutRetiresLegacyBeforeAtomicPublishAndRetainsPriorCompleteDocumentOnFailure]' passed (0.017 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testUnauthorizedHealthTargetDoesNotDeleteOrWrite]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testUnauthorizedHealthTargetDoesNotDeleteOrWrite]' passed (0.009 seconds).
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testWidgetChangesOnRevisionEvenWhenValuesAreEqualAndRejectsOldCache]' started.
+Test Case '-[ComputeChecksTests.CanonicalConsumerPublicationTests testWidgetChangesOnRevisionEvenWhenValuesAreEqualAndRejectsOldCache]' passed (0.031 seconds).
+Test Suite 'CanonicalConsumerPublicationTests' passed at 2026-09-21 23:19:48.641.
+	 Executed 18 tests, with 0 failures (0 unexpected) in 0.368 (0.371) seconds
+Test Suite 'CanonicalPhysiologySurfaceTests' started at 2026-09-21 23:19:48.641.
+Test Case '-[ComputeChecksTests.CanonicalPhysiologySurfaceTests testCanonicalFormatterPreservesValidZeroAndOwnedNull]' started.
+Test Case '-[ComputeChecksTests.CanonicalPhysiologySurfaceTests testCanonicalFormatterPreservesValidZeroAndOwnedNull]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.CanonicalPhysiologySurfaceTests testFinalHostedEmbeddedCardsRenderWithoutReconstructingPhysiology]' started.
+Test Case '-[ComputeChecksTests.CanonicalPhysiologySurfaceTests testFinalHostedEmbeddedCardsRenderWithoutReconstructingPhysiology]' passed (0.016 seconds).
+Test Case '-[ComputeChecksTests.CanonicalPhysiologySurfaceTests testFinalHostedEntrypointsDoNotOpenRawStoreOrRunPhysiology]' started.
+Test Case '-[ComputeChecksTests.CanonicalPhysiologySurfaceTests testFinalHostedEntrypointsDoNotOpenRawStoreOrRunPhysiology]' passed (0.002 seconds).
+Test Case '-[ComputeChecksTests.CanonicalPhysiologySurfaceTests testFinalHostedLegacySleepAdapterCannotReconstructOrReturnLocalModel]' started.
+Test Case '-[ComputeChecksTests.CanonicalPhysiologySurfaceTests testFinalHostedLegacySleepAdapterCannotReconstructOrReturnLocalModel]' passed (0.002 seconds).
+Test Case '-[ComputeChecksTests.CanonicalPhysiologySurfaceTests testMissingRevokedAndUnauthorizedValuesCannotRenderEvenIfPayloadContainsNumber]' started.
+Test Case '-[ComputeChecksTests.CanonicalPhysiologySurfaceTests testMissingRevokedAndUnauthorizedValuesCannotRenderEvenIfPayloadContainsNumber]' passed (0.002 seconds).
+Test Suite 'CanonicalPhysiologySurfaceTests' passed at 2026-09-21 23:19:48.665.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.023 (0.024) seconds
+Test Suite 'CanonicalWorkoutInputTests' started at 2026-09-21 23:19:48.665.
+Test Case '-[ComputeChecksTests.CanonicalWorkoutInputTests testFinalHostedMergePreservesUserWindowAndNotesWithoutCombiningPhysiology]' started.
+Test Case '-[ComputeChecksTests.CanonicalWorkoutInputTests testFinalHostedMergePreservesUserWindowAndNotesWithoutCombiningPhysiology]' passed (0.001 seconds).
+Test Suite 'CanonicalWorkoutInputTests' passed at 2026-09-21 23:19:48.666.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'FinalHostedRuntimeTests' started at 2026-09-21 23:19:48.666.
+Test Case '-[ComputeChecksTests.FinalHostedRuntimeTests testColdLaunchForegroundBackfillPreferencesAndDiagnosticsNeverScore]' started.
+FINAL_HOSTED_ZERO path=cold_launch_foreground_background_backfill_preferences_diagnostics executions=0 denied=["DebugDataDiagnostics.physiologyFunnels", "daily_analytics", "fitness_age_recompute", "habitual_midsleep", "illness_context", "strain_target_coaching", "workout_detection"]
+Test Case '-[ComputeChecksTests.FinalHostedRuntimeTests testColdLaunchForegroundBackfillPreferencesAndDiagnosticsNeverScore]' passed (0.070 seconds).
+Test Case '-[ComputeChecksTests.FinalHostedRuntimeTests testRawUploadRemainsRunnableWithAllLocalAnalyticsDisabled]' started.
+FINAL_HOSTED_ZERO path=durable_raw_upload_with_local_analytics_disabled executions=0 denied=[]
+Test Case '-[ComputeChecksTests.FinalHostedRuntimeTests testRawUploadRemainsRunnableWithAllLocalAnalyticsDisabled]' passed (0.037 seconds).
+Test Case '-[ComputeChecksTests.FinalHostedRuntimeTests testSleepEditsDeviceSwitchAndHistoricalMissingnessCannotReconstruct]' started.
+FINAL_HOSTED_ZERO path=sleep_edit_delete_device_switch_historical_empty_day executions=0 denied=[]
+Test Case '-[ComputeChecksTests.FinalHostedRuntimeTests testSleepEditsDeviceSwitchAndHistoricalMissingnessCannotReconstruct]' passed (0.062 seconds).
+Test Case '-[ComputeChecksTests.FinalHostedRuntimeTests testWorkoutLiveSessionBiofeedbackAndAdvancedScreensDoNotInfer]' started.
+FINAL_HOSTED_ZERO path=workout_start_end_live_session_biofeedback_spot_advanced_render executions=0 denied=["biofeedback_hr_down", "coach_contextual_suggestions", "coach_physiological_context", "coach_stress_context", "completed_workout", "legacy_coach_brief", "legacy_coach_model_request", "legacy_scheduled_coaching", "live_coaching", "spot_rr_to_hr"]
+2026-09-21 23:19:49.142252-0700 NOOP Staging[78598:139795386] WhoopStore: ensureStore FAILED opening store: WhoopStore.StoreWriteFence.Failure code=0: The operation couldn’t be completed. (WhoopStore.StoreWriteFence.Failure error 0.)
+Test Case '-[ComputeChecksTests.FinalHostedRuntimeTests testWorkoutLiveSessionBiofeedbackAndAdvancedScreensDoNotInfer]' passed (0.306 seconds).
+Test Suite 'FinalHostedRuntimeTests' passed at 2026-09-21 23:19:49.143.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.476 (0.476) seconds
+Test Suite 'ImportTraceEmitTests' started at 2026-09-21 23:19:49.143.
+Test Case '-[ComputeChecksTests.ImportTraceEmitTests testHostedImportPreservesReportedHistoryWithoutPhysiologicalReconstruction]' started.
+FINAL_HOSTED_IMPORT executions=0 source_observations_preserved=true
+Test Case '-[ComputeChecksTests.ImportTraceEmitTests testHostedImportPreservesReportedHistoryWithoutPhysiologicalReconstruction]' passed (0.017 seconds).
+Test Suite 'ImportTraceEmitTests' passed at 2026-09-21 23:19:49.160.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.017 (0.017) seconds
+Test Suite 'ScoringPreferenceContainmentTests' started at 2026-09-21 23:19:49.160.
+Test Case '-[ComputeChecksTests.ScoringPreferenceContainmentTests testFinalHostedExportsUseCanonicalAdmissionWithoutPreferenceProjection]' started.
+Test Case '-[ComputeChecksTests.ScoringPreferenceContainmentTests testFinalHostedExportsUseCanonicalAdmissionWithoutPreferenceProjection]' passed (0.032 seconds).
+Test Case '-[ComputeChecksTests.ScoringPreferenceContainmentTests testFinalHostedResultChangeAtAttemptRetainsExactExportToken]' started.
+Test Case '-[ComputeChecksTests.ScoringPreferenceContainmentTests testFinalHostedResultChangeAtAttemptRetainsExactExportToken]' passed (0.030 seconds).
+Test Suite 'ScoringPreferenceContainmentTests' passed at 2026-09-21 23:19:49.223.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.062 (0.063) seconds
+Test Suite 'WorkoutZonesTests' started at 2026-09-21 23:19:49.223.
+Test Case '-[ComputeChecksTests.WorkoutZonesTests testHostedModeReadsReportedPercentagesWithoutReconstructingZoneMinutes]' started.
+Test Case '-[ComputeChecksTests.WorkoutZonesTests testHostedModeReadsReportedPercentagesWithoutReconstructingZoneMinutes]' passed (0.000 seconds).
+Test Suite 'WorkoutZonesTests' passed at 2026-09-21 23:19:49.224.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'ComputeChecksTests.xctest' passed at 2026-09-21 23:19:49.224.
+	 Executed 32 tests, with 0 failures (0 unexpected) in 0.946 (0.953) seconds
+Test Suite 'Selected tests' passed at 2026-09-21 23:19:49.224.
+	 Executed 32 tests, with 0 failures (0 unexpected) in 0.946 (0.954) seconds
+2026-09-21 23:19:49.510 xcodebuild[78324:139794260] [MT] IDETestOperationsObserverDebug: 2.484 elapsed -- Testing started completed.
+2026-09-21 23:19:49.510 xcodebuild[78324:139794260] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-09-21 23:19:49.510 xcodebuild[78324:139794260] [MT] IDETestOperationsObserverDebug: 2.484 sec, +2.484 sec -- end
+
+Test session results, code coverage, and logs:
+	/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Logs/Test/Test-FinalHostedChecks-2026.09.21_23-19-41--0700.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started

@@ -1,0 +1,301 @@
+Compute test products: /private/tmp/nara-compute-final-products.fxyjBA
+⚙️  Generating plists...
+⚙️  Generating project...
+⚙️  Writing project...
+Created project at /Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-checks/ComputeChecks.xcodeproj
+Command line invocation:
+    "/Volumes/External SSD/Xcode.app/Contents/Developer/usr/bin/xcodebuild" -project .derived/compute-checks/ComputeChecks.xcodeproj -scheme ComputeChecks -destination platform=macOS -derivedDataPath .derived/compute-final-macos SYMROOT=/private/tmp/nara-compute-final-products.fxyjBA CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_ENTITLEMENTS= DEVELOPMENT_TEAM= ENABLE_DEBUG_DYLIB=NO DEBUG_INFORMATION_FORMAT=dwarf-with-dsym "-only-testing:ComputeChecksTests/SyncDrainPolicyTests" "-only-testing:ComputeChecksTests/ServerScoreRepositoryRaceTests" "-only-testing:ComputeChecksTests/ServerScoringRescoreSkipTests" "-only-testing:ComputeChecksTests/ScoringPreferenceContainmentTests/testRawUploadDrainsWhilePreferenceProjectionIsHeld" "-only-testing:ComputeChecksTests/ScoringPreferenceContainmentTests/testNewRawTokenDuringUploadCannotBeSettledByOldAttempt" "-only-testing:ComputeChecksTests/ScoringPreferenceContainmentTests/testHeldRepeatedWakesRetainExactJobsWhileRawRemainsRunnable" test
+
+Build settings from command line:
+    CODE_SIGN_ENTITLEMENTS = 
+    CODE_SIGN_IDENTITY = -
+    CODE_SIGNING_ALLOWED = YES
+    DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+    DEVELOPMENT_TEAM = 
+    ENABLE_DEBUG_DYLIB = NO
+    SYMROOT = /private/tmp/nara-compute-final-products.fxyjBA
+
+Resolve Package Graph
+
+
+Resolved source packages:
+  PolarProtocol: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/PolarProtocol
+  swift-markdown-ui: https://github.com/gonzalezreal/swift-markdown-ui @ 2.4.1
+  WhoopProtocol: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/WhoopProtocol
+  StrandImport: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/StrandImport
+  StrandDesign: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/StrandDesign
+  ZIPFoundation: https://github.com/weichsel/ZIPFoundation.git @ 0.9.20
+  NetworkImage: https://github.com/gonzalezreal/NetworkImage @ 6.0.1
+  WhoopStore: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/WhoopStore
+  StrandAnalytics: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/StrandAnalytics
+  OuraProtocol: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/OuraProtocol
+  cmark-gfm: https://github.com/swiftlang/swift-cmark @ 0.8.0
+  GRDB: https://github.com/groue/GRDB.swift.git @ 6.29.3
+  NoopPush: /Volumes/Untitled/WHOOP NARA-vps-only-compute/Packages/NoopPush
+
+--- xcodebuild: WARNING: Using the first of multiple matching destinations:
+{ platform:macOS, arch:arm64, id:00006041-000430320A81401C, name:My Mac }
+{ platform:macOS, arch:x86_64, id:00006041-000430320A81401C, name:My Mac }
+note: Using codesigning identity override: -
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (36 targets)
+    Target 'ComputeChecksTests' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'Strand' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'NoopPush' in project 'NoopPush'
+        ➜ Explicit dependency on target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+    Target 'Strand' in project 'ComputeChecks'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'PolarProtocol' in project 'PolarProtocol'
+        ➜ Explicit dependency on target 'NoopPush' in project 'NoopPush'
+    Target 'NoopPush' in project 'NoopPush'
+        ➜ Explicit dependency on target 'NoopPush' in project 'NoopPush'
+        ➜ Explicit dependency on target 'CNoopZstd' in project 'NoopPush'
+    Target 'NoopPush' in project 'NoopPush'
+        ➜ Explicit dependency on target 'CNoopZstd' in project 'NoopPush'
+    Target 'CNoopZstd' in project 'NoopPush' (no dependencies)
+    Target 'PolarProtocol' in project 'PolarProtocol'
+        ➜ Explicit dependency on target 'PolarProtocol' in project 'PolarProtocol'
+    Target 'PolarProtocol' in project 'PolarProtocol' (no dependencies)
+    Target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'NetworkImage' in project 'NetworkImage'
+    Target 'MarkdownUI' in project 'swift-markdown-ui'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'NetworkImage' in project 'NetworkImage'
+    Target 'NetworkImage' in project 'NetworkImage'
+        ➜ Explicit dependency on target 'NetworkImage' in project 'NetworkImage'
+    Target 'NetworkImage' in project 'NetworkImage' (no dependencies)
+    Target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm-extensions' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm' in project 'cmark-gfm'
+        ➜ Explicit dependency on target 'cmark-gfm' in project 'cmark-gfm'
+    Target 'cmark-gfm' in project 'cmark-gfm' (no dependencies)
+    Target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign_StrandDesign' in project 'StrandDesign'
+    Target 'StrandDesign' in project 'StrandDesign'
+        ➜ Explicit dependency on target 'StrandDesign_StrandDesign' in project 'StrandDesign'
+    Target 'StrandDesign_StrandDesign' in project 'StrandDesign' (no dependencies)
+    Target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'StrandImport' in project 'StrandImport'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'ZIPFoundation_ZIPFoundation' in project 'ZIPFoundation'
+    Target 'ZIPFoundation' in project 'ZIPFoundation'
+        ➜ Explicit dependency on target 'ZIPFoundation_ZIPFoundation' in project 'ZIPFoundation'
+    Target 'ZIPFoundation_ZIPFoundation' in project 'ZIPFoundation' (no dependencies)
+    Target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+    Target 'StrandAnalytics' in project 'StrandAnalytics'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+    Target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'WhoopStore' in project 'WhoopStore'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+    Target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB_GRDB' in project 'GRDB'
+    Target 'GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'GRDB_GRDB' in project 'GRDB'
+        ➜ Explicit dependency on target 'CSQLite' in project 'GRDB'
+    Target 'CSQLite' in project 'GRDB' (no dependencies)
+    Target 'GRDB_GRDB' in project 'GRDB' (no dependencies)
+    Target 'OuraProtocol' in project 'OuraProtocol'
+        ➜ Explicit dependency on target 'OuraProtocol' in project 'OuraProtocol'
+    Target 'OuraProtocol' in project 'OuraProtocol' (no dependencies)
+    Target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol'
+    Target 'WhoopProtocol' in project 'WhoopProtocol'
+        ➜ Explicit dependency on target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol'
+    Target 'WhoopProtocol_WhoopProtocol' in project 'WhoopProtocol' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ClangStatCache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/SDKStatCaches.noindex/macosx26.2-25C58-d5e1beac502ab4b3ce476007f4a3006b.sdkstatcache
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks/ComputeChecks.xcodeproj
+    /Volumes/External\ SSD/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Volumes/External\ SSD/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk -o /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/SDKStatCaches.noindex/macosx26.2-25C58-d5e1beac502ab4b3ce476007f4a3006b.sdkstatcache
+
+note: Disabling hardened runtime with ad-hoc codesigning. (in target 'Strand' from project 'ComputeChecks')
+CodeSign /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    
+    Signing Identity:     "Sign to Run Locally"
+    
+    /usr/bin/codesign --force --sign - --entitlements /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-final-macos/Build/Intermediates.noindex/ComputeChecks.build/Debug/Strand.build/NOOP\ Staging.app.xcent --timestamp\=none --generate-entitlement-der /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app
+/private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP Staging.app: replacing existing signature
+
+Validate /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    builtin-validationUtility /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app -no-validate-extension -infoplist-subpath Contents/Info.plist
+
+RegisterWithLaunchServices /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app (in target 'Strand' from project 'ComputeChecks')
+    cd /Volumes/Untitled/WHOOP\ NARA-vps-only-compute/.derived/compute-checks
+    /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -f -R -trusted /private/tmp/nara-compute-final-products.fxyjBA/Debug/NOOP\ Staging.app
+
+2026-09-21 23:20:28.910310-0700 NOOP Staging[79823:139798479] [Connection] Unable to get synchronousRemoteObjectProxy, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:20:28.910504-0700 NOOP Staging[79823:139798479] [Application] Error registering app with intents framework: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:20:28.910910-0700 NOOP Staging[79823:139798494] [Connection] Unable to get synchronousRemoteObjectProxy, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:20:28.910919-0700 NOOP Staging[79823:139798494] [Connection] Unable to re-register with Process Instance Registry, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:20:28.911501-0700 NOOP Staging[79823:139798427] [Connection] Unable to get synchronousRemoteObjectProxy, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:20:28.911518-0700 NOOP Staging[79823:139798427] [Connection] Unable to re-register with Process Instance Registry, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:20:28.912039-0700 NOOP Staging[79823:139798427] [Connection] Will NOT re-try to establish the connection
+2026-09-21 23:20:28.912076-0700 NOOP Staging[79823:139798479] [Connection] Unable to get synchronousRemoteObjectProxy, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:20:28.912087-0700 NOOP Staging[79823:139798479] [Connection] Unable to re-register with Process Instance Registry, error: Error Domain=NSCocoaErrorDomain Code=4097 "connection to service named com.apple.linkd.autoShortcut" UserInfo={NSDebugDescription=connection to service named com.apple.linkd.autoShortcut}
+2026-09-21 23:20:28.948411-0700 NOOP Staging[79823:139798266] ApplePersistenceIgnoreState: Existing state will not be touched. New state will be written to /var/folders/rk/rw132g3n6zv9hbqb1tw_ctxm0000gn/T/com.noopapp.noop.staging.savedState
+Test Suite 'Selected tests' started at 2026-09-21 23:20:29.038.
+Test Suite 'ComputeChecksTests.xctest' started at 2026-09-21 23:20:29.038.
+Test Suite 'ScoringPreferenceContainmentTests' started at 2026-09-21 23:20:29.038.
+Test Case '-[ComputeChecksTests.ScoringPreferenceContainmentTests testHeldRepeatedWakesRetainExactJobsWhileRawRemainsRunnable]' started.
+Test Case '-[ComputeChecksTests.ScoringPreferenceContainmentTests testHeldRepeatedWakesRetainExactJobsWhileRawRemainsRunnable]' passed (0.154 seconds).
+Test Case '-[ComputeChecksTests.ScoringPreferenceContainmentTests testNewRawTokenDuringUploadCannotBeSettledByOldAttempt]' started.
+Test Case '-[ComputeChecksTests.ScoringPreferenceContainmentTests testNewRawTokenDuringUploadCannotBeSettledByOldAttempt]' passed (0.033 seconds).
+Test Case '-[ComputeChecksTests.ScoringPreferenceContainmentTests testRawUploadDrainsWhilePreferenceProjectionIsHeld]' started.
+Test Case '-[ComputeChecksTests.ScoringPreferenceContainmentTests testRawUploadDrainsWhilePreferenceProjectionIsHeld]' passed (0.093 seconds).
+Test Suite 'ScoringPreferenceContainmentTests' passed at 2026-09-21 23:20:29.319.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.280 (0.280) seconds
+Test Suite 'ServerScoreRepositoryRaceTests' started at 2026-09-21 23:20:29.319.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testCachedDifferentDeviceIsNotShownAfterSelection]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testCachedDifferentDeviceIsNotShownAfterSelection]' passed (0.022 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testCompletedEmptyEnrollmentResultIsNotReportedAsStillComputing]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testCompletedEmptyEnrollmentResultIsNotReportedAsStillComputing]' passed (0.004 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testConfirmedDeviceLinkRequiresBothTheOwnerAndSelectedStrap]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testConfirmedDeviceLinkRequiresBothTheOwnerAndSelectedStrap]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testDelayedSuccessCannotReplaceNextAccountIngestIdentity]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testDelayedSuccessCannotReplaceNextAccountIngestIdentity]' passed (0.026 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testDelayedUnauthorizedCannotClearTheNextAccount]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testDelayedUnauthorizedCannotClearTheNextAccount]' passed (0.022 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testDeviceSwitchFencesDelayedResponseAndRequiresFreshDeviceResult]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testDeviceSwitchFencesDelayedResponseAndRequiresFreshDeviceResult]' passed (0.019 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testEnrollmentPendingAndFailedStatesAreNotFlattenedIntoSuccess]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testEnrollmentPendingAndFailedStatesAreNotFlattenedIntoSuccess]' passed (0.005 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testEnrollmentResultsPopulateDashboardAndSignOutClearsThem]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testEnrollmentResultsPopulateDashboardAndSignOutClearsThem]' passed (0.022 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testLateSuccessAfterSignOutCannotDisplayOrPersist]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testLateSuccessAfterSignOutCannotDisplayOrPersist]' passed (0.020 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testOfflineSignInRefreshDoesNotRestorePriorOwnerCache]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testOfflineSignInRefreshDoesNotRestorePriorOwnerCache]' passed (0.020 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testOfflineSwitchBackRestoresSelectedStrapDespiteNewerOtherStrapCache]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testOfflineSwitchBackRestoresSelectedStrapDespiteNewerOtherStrapCache]' passed (0.026 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testOlderOverlappingFetchCannotOverwriteNewerMemoryOrDisk]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testOlderOverlappingFetchCannotOverwriteNewerMemoryOrDisk]' passed (0.025 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testOwnedSleepSurvivesReadFailureRestartAndDisablingReads]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testOwnedSleepSurvivesReadFailureRestartAndDisablingReads]' passed (0.020 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testPersistedRegistrationReceiptKeepsSameStrapLinkedOfflineWithoutScores]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testPersistedRegistrationReceiptKeepsSameStrapLinkedOfflineWithoutScores]' passed (0.019 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testProjectChangeFencesLateSuccessAndOldDiskCache]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testProjectChangeFencesLateSuccessAndOldDiskCache]' passed (0.022 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testRegistrationAcknowledgedBeforeFailedScoreFetchStillLinksDevice]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testRegistrationAcknowledgedBeforeFailedScoreFetchStillLinksDevice]' passed (0.003 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testRetainedScopedCacheSeedsOwnershipWithoutNetwork]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testRetainedScopedCacheSeedsOwnershipWithoutNetwork]' passed (0.019 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testShadowServerKeepsLocalComputationEnabled]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testShadowServerKeepsLocalComputationEnabled]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testUnqualifiedV2ResultCannotBlankExistingDashboardFields]' started.
+Test Case '-[ComputeChecksTests.ServerScoreRepositoryRaceTests testUnqualifiedV2ResultCannotBlankExistingDashboardFields]' passed (0.004 seconds).
+Test Suite 'ServerScoreRepositoryRaceTests' passed at 2026-09-21 23:20:29.623.
+	 Executed 19 tests, with 0 failures (0 unexpected) in 0.300 (0.304) seconds
+Test Suite 'ServerScoringRescoreSkipTests' started at 2026-09-21 23:20:29.623.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testDefaultOnWhenUnset]' started.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testDefaultOnWhenUnset]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testHostedModeDoesNotResurrectLocalVitalWhenServerValueIsUnavailable]' started.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testHostedModeDoesNotResurrectLocalVitalWhenServerValueIsUnavailable]' passed (0.002 seconds).
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testLegacyGlobalOverlayCannotSuppressUnportedDailyOutputs]' started.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testLegacyGlobalOverlayCannotSuppressUnportedDailyOutputs]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testPartialOverlayCannotSettleUnportedLocalRescoreDebt]' started.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testPartialOverlayCannotSettleUnportedLocalRescoreDebt]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testPushIntervalTightensWhenServerScoringOn]' started.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testPushIntervalTightensWhenServerScoringOn]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testRunsSyncCoupledRescoreWhenFlagOff]' started.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testRunsSyncCoupledRescoreWhenFlagOff]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testSelectionRetainsStaleProvenanceForActualServerValue]' started.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testSelectionRetainsStaleProvenanceForActualServerValue]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testSettleSkippedLocalRescoreDebtNoOpWhenFlagOff]' started.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testSettleSkippedLocalRescoreDebtNoOpWhenFlagOff]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testShadowServerOverlayPreservesLocalRescoreDebt]' started.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testShadowServerOverlayPreservesLocalRescoreDebt]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testStaleServerSnapshotIsNotLive]' started.
+Test Case '-[ComputeChecksTests.ServerScoringRescoreSkipTests testStaleServerSnapshotIsNotLive]' passed (0.001 seconds).
+Test Suite 'ServerScoringRescoreSkipTests' passed at 2026-09-21 23:20:29.635.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.011 (0.013) seconds
+Test Suite 'SyncDrainPolicyTests' started at 2026-09-21 23:20:29.635.
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testDeepBurstRunsEachExpensiveStageExactlyOnceAfterTerminal]' started.
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testDeepBurstRunsEachExpensiveStageExactlyOnceAfterTerminal]' passed (0.001 seconds).
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testDeferredOrRemarkedRescoreBlocksExports]' started.
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testDeferredOrRemarkedRescoreBlocksExports]' passed (0.000 seconds).
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testExportFailureDoesNotBlockIndependentLaterExports]' started.
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testExportFailureDoesNotBlockIndependentLaterExports]' passed (0.000 seconds).
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testForegroundRunsOnlyOwedStages]' started.
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testForegroundRunsOnlyOwedStages]' passed (0.000 seconds).
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testIntermediateBacklogBurstDefersDrain]' started.
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testIntermediateBacklogBurstDefersDrain]' passed (0.000 seconds).
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testMatchingBurstVectorsCoalesceToOneTerminalDrain]' started.
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testMatchingBurstVectorsCoalesceToOneTerminalDrain]' passed (0.000 seconds).
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testOffloadCompleteRunsOnlyDurablyOwedStages]' started.
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testOffloadCompleteRunsOnlyDurablyOwedStages]' passed (0.000 seconds).
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testStageOrderIsStable]' started.
+Test Case '-[ComputeChecksTests.SyncDrainPolicyTests testStageOrderIsStable]' passed (0.000 seconds).
+Test Suite 'SyncDrainPolicyTests' passed at 2026-09-21 23:20:29.639.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'ComputeChecksTests.xctest' passed at 2026-09-21 23:20:29.640.
+	 Executed 40 tests, with 0 failures (0 unexpected) in 0.594 (0.601) seconds
+Test Suite 'Selected tests' passed at 2026-09-21 23:20:29.640.
+	 Executed 40 tests, with 0 failures (0 unexpected) in 0.594 (0.602) seconds
+2026-09-21 23:20:29.920 xcodebuild[79641:139797647] [MT] IDETestOperationsObserverDebug: 2.022 elapsed -- Testing started completed.
+2026-09-21 23:20:29.921 xcodebuild[79641:139797647] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-09-21 23:20:29.921 xcodebuild[79641:139797647] [MT] IDETestOperationsObserverDebug: 2.022 sec, +2.022 sec -- end
+
+Test session results, code coverage, and logs:
+	/Volumes/Untitled/WHOOP NARA-vps-only-compute/.derived/compute-final-macos/Logs/Test/Test-ComputeChecks-2026.09.21_23-20-26--0700.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started

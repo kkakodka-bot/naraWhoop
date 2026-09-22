@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.VerifiedRawObjectReaderTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:16:57" hostname="mac-studio.lan" time="0.005">
+  <properties/>
+  <testcase name="gzipDigestUsesUncompressedContractAndPreservesSameSecondIdentity" classname="com.frwhoop.scoring.VerifiedRawObjectReaderTest" time="0.0"/>
+  <testcase name="zstdAndLegacyDecodeWithoutInventedIndex" classname="com.frwhoop.scoring.VerifiedRawObjectReaderTest" time="0.0"/>
+  <testcase name="corruptionSizeOwnerAndTrailingBytesReject" classname="com.frwhoop.scoring.VerifiedRawObjectReaderTest" time="0.001"/>
+  <testcase name="signedColumnViewPreservesEveryI16ValueAndIndependentIndexedAccess" classname="com.frwhoop.scoring.VerifiedRawObjectReaderTest" time="0.004"/>
+  <testcase name="decompressLimitRejectsBeforeDecode" classname="com.frwhoop.scoring.VerifiedRawObjectReaderTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

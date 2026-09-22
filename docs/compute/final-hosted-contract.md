@@ -5,6 +5,13 @@ credential, or an account JWT plus `x-noop-source-id`. The latter source must be
 authenticated owner. Both require an explicit external `deviceId`; the server resolves the
 canonical device without choosing another wearable. `project` comes from Edge configuration.
 
+`POST /scores/devices` accepts `{deviceId}` and returns
+`{identity:{userId,sourceId,deviceId,externalDeviceId,project}}`. The authenticated JWT route
+requires `x-noop-source-id`; registration binds its first owner through
+`register_account_compute_source`/`compute_account_sources`. Subsequent reads require an existing,
+unrevoked account source or installation belonging to that owner. A supplied source identifier is
+not, by itself, authorization. Installation enrollment retains its source-bound credential surface.
+
 The existing `server_scoring` schema 2 fields are unchanged. Contract revision 2 adds:
 
 ```json
@@ -17,6 +24,10 @@ null result revision and computed time; clients must not manufacture one. Publis
 states have immutable database revisions. Existing physiology result identities use their
 stored payload hash, prefixed `sha256:`. Historical shadows never acquire canonical values.
 The request `source_id` fences the read/cache; original input sources remain in result evidence.
+Result metadata that was absent from a retained source contract remains null rather than being
+invented. In particular, numeric `configuration_version` can be null with
+`details.configuration_metadata_status=unavailable_in_source_contract`; that does not manufacture
+a new configuration identity. The required session-request versions below remain `vps-only-1`.
 
 `POST /scores/compute-requests` accepts `{deviceId,request}`. The request contains `id`, `family`,
 `session_id`, `event_start`, nullable `event_end`, `timezone_id`, `input_revision`,
@@ -33,3 +44,31 @@ Result revisions are prefixed `session:`. A persisted client decision ID is cons
 
 The additive migration and worker must be integrated before the phone release. A missing or
 older server contract remains unavailable on a final-hosted client; it never enables local scoring.
+
+## Consumer exports and Health admission
+
+Apple `canonical_results.json` and `noop_server_results.json` use export schema 1:
+`{schema_version:1,windows:[{ledger,current_result,historical_result}]}`. Each window carries its
+full ownership/read-state ledger. Only admitted current reads populate `current_result`; failed,
+pending or cached reads can retain the original immutable payload as `historical_result`, never
+as a current measurement. CSV includes `read_state` and `cached`, with numeric cells blank for
+those reads. ZIP exports include the same JSON, ledger and CSV. Original imported rows remain
+separately labelled historical provenance. The old unrevisioned shortcut file is emptied before
+publishing the replacement document, so an old automation cannot replay local derived data.
+
+Android ZIP exports instead contain `index.json` with format `noop-canonical-compute-1` and
+unchanged per-day server envelopes named `YYYY-MM-DD.json`. The index includes project/owner,
+family IDs and per-day `stale`, `read_failure`, and `result_revisions`. Its top-level state is
+`unavailable` or `immutable_cached_results`; an archived envelope is not a newly current reading.
+This is intentionally not Apple's schema 1 document shape. Both formats retain read-state and
+revision evidence without reconstructing physiology.
+
+Widget/watch builders, Health records and exports carry the same family receipt. Publication
+checks include the full read state as well as identity; even a read failure with an unchanged
+result revision invalidates an in-flight write. File-provider access and Health delete/save
+boundaries recheck account, device and admission. No physiological reconstruction occurs there.
+
+Health Connect does not accept an HRV value of zero. A canonical zero remains zero in the result,
+widget and export; the Health adapter records `health_export_unsupported` with an explicit
+unsupported/partial export state instead of clamping or fabricating a positive measurement.
+Health permissions/provider delivery still require device validation.

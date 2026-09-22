@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerDetectMemoTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.054">
+  <properties/>
+  <testcase name="identicalInputsTwiceReturnIdenticalSessions" classname="com.noop.analytics.SleepStagerDetectMemoTest" time="0.023"/>
+  <testcase name="interiorTimestampChangeReKeys" classname="com.noop.analytics.SleepStagerDetectMemoTest" time="0.0"/>
+  <testcase name="mutatingAReturnedResultCannotPoisonTheMemo" classname="com.noop.analytics.SleepStagerDetectMemoTest" time="0.01"/>
+  <testcase name="identicalStreamsFoldIdentically" classname="com.noop.analytics.SleepStagerDetectMemoTest" time="0.0"/>
+  <testcase name="emptyStreamIsStable" classname="com.noop.analytics.SleepStagerDetectMemoTest" time="0.0"/>
+  <testcase name="tracedAndUntracedCallsAreByteIdentical" classname="com.noop.analytics.SleepStagerDetectMemoTest" time="0.009"/>
+  <testcase name="countChangeReKeys" classname="com.noop.analytics.SleepStagerDetectMemoTest" time="0.0"/>
+  <testcase name="gravityAxesAreKeyedSeparatelyNotAsASum" classname="com.noop.analytics.SleepStagerDetectMemoTest" time="0.012"/>
+  <testcase name="interiorValueChangeReKeys" classname="com.noop.analytics.SleepStagerDetectMemoTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

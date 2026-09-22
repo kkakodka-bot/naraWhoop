@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.StepsEstimateEngineTest" tests="21" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.002">
+  <properties/>
+  <testcase name="calibrateNullBelowMinDays" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="estimateClampsAbsurd" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="weightedMedianFallsBackOnDegenerateWeights" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="statusManualOverrideWinsEvenWithNoDays" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.001"/>
+  <testcase name="manualOverrideWinsFullConfidence" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="calibrateMotionWeightedHighActivityDayDrivesFit" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="estimateNullBelowMinMotion" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="calibrateFitsMedianRatio" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="statusDetailCalibratedSurfacesKDaysAndConfidence" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="statusNeedsMoreDaysCountsUsableDays" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="motionIntensityEmptyAndSingle" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="motionIntensitySumsDeltas" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="weightedMedianReducesToPlainMedianAtEqualWeights" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="statusCalibratedOnceEnoughDays" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="statusHeadlineNoPhoneSourceIsActionableNotAFrozenCountdown" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="confidenceTierThresholds" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="tightFitMoreConfidentThanScattered" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="statusDetailManualAndNeedsMoreDays" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="estimateAppliesCoefficient" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="manualOverrideCountsOnlyUsableCalibrationDays" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <testcase name="calibrateSkipsNearStillAndZeroStepDays" classname="com.noop.analytics.StepsEstimateEngineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

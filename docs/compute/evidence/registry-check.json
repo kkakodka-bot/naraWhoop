@@ -1,0 +1,12 @@
+{
+  "registry": "PASS",
+  "families": 27,
+  "outputs": 80,
+  "ownershipParity": "PASS",
+  "assertions": {
+    "static": "registry and legacy ownership maps only",
+    "executed": "NOT_VERIFIED"
+  },
+  "finalHosted": "NOT_VERIFIED",
+  "blocked": []
+}

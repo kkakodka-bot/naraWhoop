@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.push.CanonicalConsumersNativeTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:59" hostname="mac-studio.lan" time="0.346">
+  <properties/>
+  <testcase name="accountChangeFencesEveryConsumerAndHealthAdmission" classname="com.noop.push.CanonicalConsumersNativeTest" time="0.053"/>
+  <testcase name="staleReadRetainsRevisionButDoesNotRepublishToHealth" classname="com.noop.push.CanonicalConsumersNativeTest" time="0.051"/>
+  <testcase name="providerOpenRechecksAccountDeviceReadFailureAndRevocationBeforeAnyBytes" classname="com.noop.push.CanonicalConsumersNativeTest" time="0.079"/>
+  <testcase name="deviceChangeFencesEveryConsumerAndHealthAdmission" classname="com.noop.push.CanonicalConsumersNativeTest" time="0.033"/>
+  <testcase name="ownedNullAndSameRevisionRevocationRetractWithoutFallback" classname="com.noop.push.CanonicalConsumersNativeTest" time="0.046"/>
+  <testcase name="validZeroRetainsOneRevisionThroughWidgetExportAndHealth" classname="com.noop.push.CanonicalConsumersNativeTest" time="0.029"/>
+  <testcase name="healthProviderCreationRechecksReadStateAndIdentityBeforeAnyWrites" classname="com.noop.push.CanonicalConsumersNativeTest" time="0.055"/>
+  <system-out><![CDATA[FINAL_HOSTED_CONSUMER_REVISIONS same_revision=true widget_save_load=true export_zip=true health_adapter=true valid_zero=true health_zero_unsupported_without_coercion=true admitted=0 forbidden=0
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.ContextMetricOrchestratorTest" tests="19" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:36" hostname="mac-studio.lan" time="0.064">
+  <properties/>
+  <testcase name="missingConsentAndObservationsStayUnavailableNotZeroOrQuiet" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.004"/>
+  <testcase name="allResetStatesRemainLearningUntilEligibleSeparatedBaselineExists" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.002"/>
+  <testcase name="illnessMatchesExistingFormulasAndUnknownConfounderIsNotFalse" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.003"/>
+  <testcase name="checkpointRestartAndReplayFeedIdenticalEligibleSignalsAcrossEachReset" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.015"/>
+  <testcase name="emptyOrAbsentTodayCannotPublishYesterdaysPhysiology" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.001"/>
+  <testcase name="missingPreparedStatesAndUnknownResetPolicyCannotResurrectHistory" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.0"/>
+  <testcase name="missingYesterdayIsNotReplacedWithAnOlderObservation" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.001"/>
+  <testcase name="daytimeUsesExistingMathAndPersonalBaselineRequiresConfigurationOptIn" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.02"/>
+  <testcase name="preResetValuesCannotContaminateRelearnedSeparatedBaseline" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.002"/>
+  <testcase name="oldHistoryCannotBecomeTrustedIllnessAcross180MissingDays" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.0"/>
+  <testcase name="resetUsesUtcDayStartAndFractionalBoundaryWithoutChangingDisplayTimezone" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.005"/>
+  <testcase name="recoveryOnlyResetPreservesEligibleHrvButNotOldRecoveryOrSkinDeviation" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.0"/>
+  <testcase name="circadianUsesObservedLocalHourProxyNotFabricatedTemperatureOrWake" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.004"/>
+  <testcase name="eachStaleMetricIsExcludedEvenWhenAnotherMetricRemainsTrusted" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.001"/>
+  <testcase name="cycleUsesEachNightsPreObservationStatesAndExcludesFuturePeriodAnchors" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.004"/>
+  <testcase name="sparseBaselineCannotBorrowTrustedNightsFromOutsideThe28DayWindow" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.001"/>
+  <testcase name="mixedOrDuplicatedHistoricalSourceFailsInsteadOfBlending" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.0"/>
+  <testcase name="futureDailyRawPeriodAndHourlyInputsCannotChangeHistoricalOutput" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.0"/>
+  <testcase name="hrvOnlyResetPreservesEligibleRecoverySignalsButNeverOldHrv" classname="com.frwhoop.scoring.ContextMetricOrchestratorTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

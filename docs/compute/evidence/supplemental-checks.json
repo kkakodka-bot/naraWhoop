@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "source": {
+    "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+    "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+    "source_file_count": 3709,
+    "source_clean": true,
+    "dirty_source_paths": []
+  },
+  "shared_environment": {
+    "TMPDIR": "/Volumes/Untitled/compute-final-tmp.TV9zWX"
+  },
+  "checks": [
+    {
+      "id": "store-server",
+      "command": [
+        "swift",
+        "test",
+        "--package-path",
+        "Packages/WhoopStore",
+        "--scratch-path",
+        ".derived/preflight-whoopstore",
+        "--jobs",
+        "4",
+        "--filter",
+        "Server"
+      ],
+      "reported": 100,
+      "skipped": 0,
+      "log": "supplemental-store-server.log",
+      "status": "PASS",
+      "failures": 0,
+      "executed": 100,
+      "log_sha256": "08cedbdb4672c4aaa03669306ff910bd6bfeba46ecb9eec204c7edfe842c3e61"
+    },
+    {
+      "id": "app-checks",
+      "command": [
+        "bash",
+        "Tools/compute/run-app-checks.sh"
+      ],
+      "environment": {
+        "COMPUTE_TEST_PRODUCTS_DIR": "/private/tmp/nara-compute-final-products.fxyjBA"
+      },
+      "reported": 40,
+      "skipped": 0,
+      "log": "supplemental-app-checks.log",
+      "status": "PASS",
+      "failures": 0,
+      "executed": 40,
+      "log_sha256": "ac31e05a659b8d28ae22f4616526caf7ca92c756564f05fee63c9a01a536deae"
+    },
+    {
+      "id": "sync-render",
+      "command": [
+        "xcodebuild",
+        "-project",
+        ".derived/compute-checks/ComputeChecks.xcodeproj",
+        "-scheme",
+        "SyncRenderChecks",
+        "-destination",
+        "platform=macOS",
+        "-derivedDataPath",
+        ".derived/compute-final-macos",
+        "SYMROOT=/private/tmp/nara-compute-final-products.fxyjBA",
+        "COMPUTE_TEST_SCRATCH=/private/tmp/nara-compute-scratch.fOxEWR",
+        "CODE_SIGNING_ALLOWED=YES",
+        "CODE_SIGN_IDENTITY=-",
+        "CODE_SIGN_ENTITLEMENTS=",
+        "DEVELOPMENT_TEAM=",
+        "ENABLE_DEBUG_DYLIB=NO",
+        "DEBUG_INFORMATION_FORMAT=dwarf-with-dsym",
+        "-collect-test-diagnostics",
+        "never",
+        "test"
+      ],
+      "reported": 9,
+      "skipped": 2,
+      "log": "supplemental-sync-render.log",
+      "status": "PASS",
+      "failures": 0,
+      "executed": 7,
+      "log_sha256": "1d38b3d55db602c1559c554d80a6b00cdbc627d3e67d6ad5ecd44470273682ae"
+    },
+    {
+      "id": "actual-worker-envelope",
+      "command": [
+        "xcodebuild",
+        "-project",
+        ".derived/compute-checks/ComputeChecks.xcodeproj",
+        "-scheme",
+        "Strand",
+        "-destination",
+        "platform=macOS",
+        "-derivedDataPath",
+        ".derived/compute-final-macos",
+        "SYMROOT=/private/tmp/nara-compute-final-products.fxyjBA",
+        "COMPUTE_TEST_SCRATCH=/private/tmp/nara-compute-scratch.fOxEWR",
+        "CODE_SIGNING_ALLOWED=YES",
+        "CODE_SIGN_IDENTITY=-",
+        "CODE_SIGN_ENTITLEMENTS=",
+        "DEVELOPMENT_TEAM=",
+        "ENABLE_DEBUG_DYLIB=NO",
+        "DEBUG_INFORMATION_FORMAT=dwarf-with-dsym",
+        "-collect-test-diagnostics",
+        "never",
+        "-only-testing:StrandTests/ServerScoreWorkoutDetailsTests/testActualServerFixtureWorkoutEnvelopeRoundTrips",
+        "test"
+      ],
+      "environment": {
+        "TEST_RUNNER_W4_SERVER_SCORE_FIXTURE": "/private/tmp/nara-compute-final-products.fxyjBA/Debug/fixtures/current-worker-snapshot.json"
+      },
+      "reported": 1,
+      "skipped": 0,
+      "log": "supplemental-actual-worker-envelope.log",
+      "status": "PASS",
+      "failures": 0,
+      "executed": 1,
+      "log_sha256": "25b83e1b9f9569db97bd58b8690a60f4e3d3b1ce066d164239bb178e29d04e89"
+    },
+    {
+      "id": "checker-tests",
+      "command": [
+        "node",
+        "--test",
+        "Tools/compute/android-producers.test.mjs",
+        "Tools/compute/evidence.test.mjs",
+        "Tools/compute/gate-artifacts.test.mjs"
+      ],
+      "reported": 12,
+      "skipped": 0,
+      "log": "checker-tests.log",
+      "status": "PASS",
+      "failures": 0,
+      "executed": 12,
+      "log_sha256": "fdcabb6c060e0a9ffbf79824cdc116c053fadfacfe8aeb5e84f812ddce30e474"
+    }
+  ],
+  "worker_fixture": {
+    "source": "/Volumes/Untitled/compute-final-tmp.TV9zWX/server-jvm.OOAjIS/context-artifacts/W4-SNAPSHOT-V2-NATIVE-FIXTURE.json",
+    "staged": "/private/tmp/nara-compute-final-products.fxyjBA/Debug/fixtures/current-worker-snapshot.json",
+    "sha256": "3c4998b98dca7a5590892d3c1c50814416815b2c00c590dc46dcbce3e3945ff2",
+    "scope": "Actual synthetic worker envelope round-trip; empty workout collection does not certify populated workout interoperability."
+  }
+}

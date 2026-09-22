@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.WorkoutDetectorTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:24" hostname="mac-studio.lan" time="0.043">
+  <properties/>
+  <testcase name="warmupBeforeHrRises_backdatesStartToMotionOnset" classname="com.noop.analytics.WorkoutDetectorTest" time="0.003"/>
+  <testcase name="backdateDoesNotCrossPreviousWorkout_continuousMotion" classname="com.noop.analytics.WorkoutDetectorTest" time="0.001"/>
+  <testcase name="longRideWithBriefDips_isOneWorkout" classname="com.noop.analytics.WorkoutDetectorTest" time="0.037"/>
+  <testcase name="genuinelySeparateWorkouts_staySeparate" classname="com.noop.analytics.WorkoutDetectorTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

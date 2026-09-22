@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.LegacyWorkoutIntegrationTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:17" hostname="mac-studio.lan" time="0.243">
+  <properties/>
+  <testcase name="pastUploadedWorkoutCorrectionFencesClaimedHistoryFromSecondConnection" classname="com.frwhoop.scoring.LegacyWorkoutIntegrationTest" time="0.08"/>
+  <testcase name="sourceLocalAsOfBoundsExcludeFutureOtherOwnerAndServerFeedback" classname="com.frwhoop.scoring.LegacyWorkoutIntegrationTest" time="0.104"/>
+  <testcase name="realRawPhysiologyReplacesUploadedScoresAndJournalDismissalReplacesNaturalKey" classname="com.frwhoop.scoring.LegacyWorkoutIntegrationTest" time="0.059"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

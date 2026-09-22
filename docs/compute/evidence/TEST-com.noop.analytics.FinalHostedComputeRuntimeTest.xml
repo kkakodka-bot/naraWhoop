@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.FinalHostedComputeRuntimeTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:45" hostname="mac-studio.lan" time="0.065">
+  <properties/>
+  <testcase name="hostedAcquisitionAndLiveTimerPathsExecuteZeroInference" classname="com.noop.analytics.FinalHostedComputeRuntimeTest" time="0.054"/>
+  <testcase name="accidentalDeepProducerExecutionFailsBeforeScoring" classname="com.noop.analytics.FinalHostedComputeRuntimeTest" time="0.011"/>
+  <system-out><![CDATA[FINAL_HOSTED_RUNTIME admitted=0 forbidden=0 raw_ble_decode_and_upload_encoding=true raw_waveform_preserved=true live_timer_and_requests=true
+FINAL_HOSTED_NEGATIVE_CONTROL deep producer blocked before body
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

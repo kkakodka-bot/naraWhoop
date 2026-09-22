@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.PythonShadowExecutorTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:57" hostname="mac-studio.lan" time="2.56">
+  <properties/>
+  <testcase name="pythonModelExceptionEnvelopeConsumesRetryInsteadOfTerminalAbstention" classname="com.frwhoop.scoring.PythonShadowExecutorTest" time="0.0"/>
+  <testcase name="crossAccountOutputCannotPassProcessBoundary" classname="com.frwhoop.scoring.PythonShadowExecutorTest" time="0.224"/>
+  <testcase name="timeoutKillsChildAndDoesNotPoisonNextSlot" classname="com.frwhoop.scoring.PythonShadowExecutorTest" time="2.039"/>
+  <testcase name="childCrashAndCorruptOutputStayUnavailableAndRetryable" classname="com.frwhoop.scoring.PythonShadowExecutorTest" time="0.297"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

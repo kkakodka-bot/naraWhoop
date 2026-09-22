@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SkinTempAnalyticsTest" tests="29" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.014">
+  <properties/>
+  <testcase name="atSeed_usable_elevationShowsPositiveDeviation" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="excludesOnChargerAmbientEvenInBed" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <testcase name="whoop5IgnoresAnchor" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="funnelAllNotWornExplainsAbsence" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.002"/>
+  <testcase name="funnelBelowMinSamplesKeepsButMeanAbsent" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="toleranceReproducesTheGroundTruthedOuraNightShape" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="whoop5NightUnchangedByFamilyParameter" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <testcase name="belowMinSamplesIsNull" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="whoop4WornNightProducesMeanUnderFamilyAwareScale" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="excludesDaytimeSamplesOutsideTheSleepSession" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <testcase name="funnelSurfacesRawBandAndResolvedAnchorWhoop4" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <testcase name="highRegisterDeviceKeptWithLearnedAnchor" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <testcase name="defaultToleranceIsExactMatchByteIdentical" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="nonZeroToleranceRescuesNearbyHr" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <testcase name="funnelOutOfWindowAndNoSession" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="toleranceStillExcludesHrBeyondTheWindow" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="excludesSamplesWithoutConcurrentWornHr" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="whoop4FloorAndSaturationCountAsOutOfRangeAndBucketsSum" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <testcase name="funnelToleranceMovesSamplesFromNotWornToKept" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="emptyInputsAreNull" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="funnelFamilyAwareAttribution" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <testcase name="funnelKeptPathMatchesMeanAndAccountsForEverySample" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="deviationPreservedAcrossNightsWithSameAnchor" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <testcase name="coldStart_belowSeed_baselineNotUsable" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="funnelOutOfRangeIsAttributedToRangeGate" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="whoop4NullAnchorByteIdenticalToGlobal" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <testcase name="toleranceIsSymmetric" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="funnelRawBandFieldsDoNotChangeMean" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.0"/>
+  <testcase name="meanOverWornInBedSamples" classname="com.noop.analytics.SkinTempAnalyticsTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

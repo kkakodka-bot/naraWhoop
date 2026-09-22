@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerSparseGravityTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.043">
+  <properties/>
+  <testcase name="buildRunsDenseGravityByteIdenticalToLegacy" classname="com.noop.analytics.SleepStagerSparseGravityTest" time="0.001"/>
+  <testcase name="sparseOffloadNightForcesRestBuildingEndToEnd" classname="com.noop.analytics.SleepStagerSparseGravityTest" time="0.002"/>
+  <testcase name="sparseGravityNightNotShredded" classname="com.noop.analytics.SleepStagerSparseGravityTest" time="0.021"/>
+  <testcase name="gravitySparseGateConditions" classname="com.noop.analytics.SleepStagerSparseGravityTest" time="0.005"/>
+  <testcase name="denseNightKeepsRestSolidEndToEnd" classname="com.noop.analytics.SleepStagerSparseGravityTest" time="0.001"/>
+  <testcase name="clumpedGravityWithLongDropoutBridged" classname="com.noop.analytics.SleepStagerSparseGravityTest" time="0.004"/>
+  <testcase name="denseGravityNightUnchangedBySparsePath" classname="com.noop.analytics.SleepStagerSparseGravityTest" time="0.009"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

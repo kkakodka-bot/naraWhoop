@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.DuplicatePairRatioTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.003">
+  <properties/>
+  <testcase name="secondsWithMoreThanTwoRowsAreSkipped" classname="com.noop.analytics.DuplicatePairRatioTest" time="0.0"/>
+  <testcase name="aPopulationOfTickPairsReportsATightSpread" classname="com.noop.analytics.DuplicatePairRatioTest" time="0.003"/>
+  <testcase name="anExactDuplicateIsCountedSeparately" classname="com.noop.analytics.DuplicatePairRatioTest" time="0.0"/>
+  <testcase name="outputStringIsPinnedForParity" classname="com.noop.analytics.DuplicatePairRatioTest" time="0.0"/>
+  <testcase name="anOrdinaryBeatToBeatDifferenceIsNotATickSignature" classname="com.noop.analytics.DuplicatePairRatioTest" time="0.0"/>
+  <testcase name="rowsWithoutAnOrdAreIgnored" classname="com.noop.analytics.DuplicatePairRatioTest" time="0.0"/>
+  <testcase name="theFieldPairIsCountedAsATickSignature" classname="com.noop.analytics.DuplicatePairRatioTest" time="0.0"/>
+  <testcase name="aPopulationOfRealBeatsDoesNotReadAsTicks" classname="com.noop.analytics.DuplicatePairRatioTest" time="0.0"/>
+  <testcase name="consecutiveBeatsFromOneDeliveryAreExcluded" classname="com.noop.analytics.DuplicatePairRatioTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

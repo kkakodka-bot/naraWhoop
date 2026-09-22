@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.BoutCalibrationDiagnosticTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.013">
+  <properties/>
+  <testcase name="aPartialTrailingBucketCountsAsAWholeBucket" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.0"/>
+  <testcase name="anAbsurdFiniteValueIsNilRatherThanACrash" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.001"/>
+  <testcase name="samplesOutsideTheWindowAreIgnored" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.001"/>
+  <testcase name="aRealDropoutReadsAsTheGap" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.0"/>
+  <testcase name="degenerateWindowsAreNull" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.0"/>
+  <testcase name="aThirtySecondCadenceIsFullCoverageNotThreePercent" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.0"/>
+  <testcase name="aHalfRoundsUpOnBothPlatforms" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.001"/>
+  <testcase name="detectedBoutsCarryCoverage" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.008"/>
+  <testcase name="aSmallNegativeDoesNotLoseItsSign" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.0"/>
+  <testcase name="negativesRoundSymmetricallyAndKeepTheirSign" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.0"/>
+  <testcase name="nonFiniteValuesAreNil" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.0"/>
+  <testcase name="missingValuesRenderAsNilNotZero" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.002"/>
+  <testcase name="theLineIsExactlyThis" classname="com.noop.analytics.BoutCalibrationDiagnosticTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

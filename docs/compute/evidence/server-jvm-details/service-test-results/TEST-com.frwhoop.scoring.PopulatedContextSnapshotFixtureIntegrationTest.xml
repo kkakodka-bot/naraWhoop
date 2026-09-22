@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.frwhoop.scoring.PopulatedContextSnapshotFixtureIntegrationTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:14:25" hostname="mac-studio.lan" time="29.376">
+  <properties/>
+  <testcase name="populatedContextTravelsFromRawHistoryThroughFencedSnapshotAndAuthenticatedRead" classname="com.frwhoop.scoring.PopulatedContextSnapshotFixtureIntegrationTest" time="29.376"/>
+  <system-out><![CDATA[W4 populated context fixture: /Volumes/Untitled/compute-final-tmp.TV9zWX/server-jvm.OOAjIS/context-artifacts/W4-POPULATED-CONTEXT-SNAPSHOT-V2-NATIVE-FIXTURE.json SHA256=0267f437e3d610e4c2a2bda83a16b2002176804c7902e4df4413551e8f415af8 bytes=417094 observedDays=64 claims=68
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

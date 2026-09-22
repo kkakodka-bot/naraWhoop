@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.IllnessDistanceTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:21" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="wellnessWardSignalDoesNotCountAsDeviating" classname="com.noop.analytics.IllnessDistanceTest" time="0.0"/>
+  <testcase name="singularCorrelationIsRegularizedToFinite" classname="com.noop.analytics.IllnessDistanceTest" time="0.0"/>
+  <testcase name="identityDistanceIsEuclideanNorm" classname="com.noop.analytics.IllnessDistanceTest" time="0.0"/>
+  <testcase name="diagonalFallbackOnDegenerateMatrix" classname="com.noop.analytics.IllnessDistanceTest" time="0.0"/>
+  <testcase name="correlationDiscountsSharedVariance" classname="com.noop.analytics.IllnessDistanceTest" time="0.0"/>
+  <testcase name="mahalanobisFireRateDoesNotBalloonOrSilence" classname="com.noop.analytics.IllnessDistanceTest" time="0.001"/>
+  <testcase name="emptyVectorDoesNotFire" classname="com.noop.analytics.IllnessDistanceTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

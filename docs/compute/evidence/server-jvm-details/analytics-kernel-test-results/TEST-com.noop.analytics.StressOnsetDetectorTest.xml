@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.StressOnsetDetectorTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.001">
+  <properties/>
+  <testcase name="insufficient_data" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <testcase name="exercise_gate_suppresses_when_moving" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <testcase name="sustain_boundary_is_inclusive" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.001"/>
+  <testcase name="fires_once_on_fresh_dip_then_not_again" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <testcase name="transient_dip_that_recovers_never_fires" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <testcase name="rate_limit_blocks_second_fire_within_window" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <testcase name="replay_safe_cannot_refire" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <testcase name="disabled_never_fires" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <testcase name="arm_is_consumed_even_when_a_gate_suppresses" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <testcase name="active_session_suppresses" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <testcase name="state_restored_mid_dip_does_not_fire" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <testcase name="exercise_gate_suppresses_when_hr_out_of_band" classname="com.noop.analytics.StressOnsetDetectorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

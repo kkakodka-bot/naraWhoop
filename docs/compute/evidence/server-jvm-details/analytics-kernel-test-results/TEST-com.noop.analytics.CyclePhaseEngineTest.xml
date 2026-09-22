@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.CyclePhaseEngineTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.006">
+  <properties/>
+  <testcase name="detectsPlausibleCycleLength" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.002"/>
+  <testcase name="unusableBaselineIsLearning" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.0"/>
+  <testcase name="follicularNightClassifiesFollicular" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.001"/>
+  <testcase name="lutealNightClassifiesLuteal" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.0"/>
+  <testcase name="insufficientDataIsLearning" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.001"/>
+  <testcase name="cycleDayEstimateIsARangeNotAPoint" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.0"/>
+  <testcase name="fusedIndexNegatesHrvAndRenormalises" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.0"/>
+  <testcase name="loggedPeriodMistimedIsFlagged" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.001"/>
+  <testcase name="flatSeriesYieldsUnknownNotAPhase" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.0"/>
+  <testcase name="noFertilityOrContraceptionLanguage" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.0"/>
+  <testcase name="nextPeriodIsAWindow" classname="com.noop.analytics.CyclePhaseEngineTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

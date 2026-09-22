@@ -1,0 +1,109 @@
+{
+  "registry": "PASS",
+  "families": 27,
+  "outputs": 80,
+  "ownershipParity": "PASS",
+  "assertions": {
+    "static": {
+      "families": 27,
+      "swiftProducerEntrypoints": 399,
+      "androidProducerGuards": {
+        "total": 225,
+        "numericalEntrypoints": 173,
+        "hostedAdmissions": 52,
+        "firstBodyStatements": 124
+      },
+      "sourceAssertions": [
+        "exact family/metric maps across registry, SQL, Swift and Android",
+        "production worker publication, independent retry and durable session entrypoints",
+        "first-instruction shared Swift producer guards",
+        "Android callable-scoped numerical and admission guard inventory (first statement only where declared)",
+        "per-family consumer and test source inventory"
+      ],
+      "runtimeAssertionsRequired": [
+        "production phone lifecycle zero-inference",
+        "raw upload with analytics disabled",
+        "database/account/enrollment/production decoder parity",
+        "consumer revision and cache fencing",
+        "Android application build and executed tests",
+        "late-input/edit/calendar/baseline replay"
+      ]
+    },
+    "executed": [
+      {
+        "gate": "swift-zero-inference",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "swift-protocol",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "swift-store",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "swift-analytics",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "swift-support",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "server-jvm",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "server-pipeline",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "ios-final-runtime",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "android-app",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "ios-build",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "watch-build",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      },
+      {
+        "gate": "macos-tests",
+        "status": "PASS",
+        "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+        "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f"
+      }
+    ]
+  },
+  "finalHosted": "READY",
+  "blocked": []
+}

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.DayCaloriesTest" tests="17" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.067">
+  <properties/>
+  <testcase name="wearGap_isCappedNotCreditedInFull" classname="com.noop.analytics.DayCaloriesTest" time="0.0"/>
+  <testcase name="dayEnergy_emptyComponentsAreZero" classname="com.noop.analytics.DayCaloriesTest" time="0.0"/>
+  <testcase name="dayEnergy_parityVectorOracle" classname="com.noop.analytics.DayCaloriesTest" time="0.014"/>
+  <testcase name="dayPath_capsRestingAndActiveGap" classname="com.noop.analytics.DayCaloriesTest" time="0.0"/>
+  <testcase name="analyzeDay_dayHrCoversFullCalendarDay" classname="com.noop.analytics.DayCaloriesTest" time="0.014"/>
+  <testcase name="dropoutInADenseDayCarriesRestingButNotActive" classname="com.noop.analytics.DayCaloriesTest" time="0.0"/>
+  <testcase name="dayCalories_lightActivityDayIsFarBelowOldInflatedTotal" classname="com.noop.analytics.DayCaloriesTest" time="0.004"/>
+  <testcase name="dayCalories_sedentaryFullDayApproximatesBMR" classname="com.noop.analytics.DayCaloriesTest" time="0.004"/>
+  <testcase name="dayCalories_matchesBoutAtOneHz" classname="com.noop.analytics.DayCaloriesTest" time="0.0"/>
+  <testcase name="sparseDayCalories_trackElapsedTimeNotSampleCount" classname="com.noop.analytics.DayCaloriesTest" time="0.001"/>
+  <testcase name="dayCalories_emptyIsZero" classname="com.noop.analytics.DayCaloriesTest" time="0.0"/>
+  <testcase name="analyzeDay_dayHrNullFallsBackToWindowHr" classname="com.noop.analytics.DayCaloriesTest" time="0.013"/>
+  <testcase name="tiedTimestampsAreOrderIndependentAndResolveToTheLowerReading" classname="com.noop.analytics.DayCaloriesTest" time="0.001"/>
+  <testcase name="sparseHr_tracksElapsedTimeNotSampleCount" classname="com.noop.analytics.DayCaloriesTest" time="0.0"/>
+  <testcase name="analyzeDay_caloriesIgnoreAdjacentDayHr" classname="com.noop.analytics.DayCaloriesTest" time="0.013"/>
+  <testcase name="dayCalories_restingDayIsLowerThanActiveDay" classname="com.noop.analytics.DayCaloriesTest" time="0.0"/>
+  <testcase name="gaplessOneHzDay_matchesLegacyTotal" classname="com.noop.analytics.DayCaloriesTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

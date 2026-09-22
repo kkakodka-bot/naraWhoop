@@ -7,8 +7,10 @@ output units/details/series, read contract, consumers, validation and removal st
 
 `node Tools/compute/check-cutover.mjs` verifies inventory completeness against the application enum,
 source paths, matching Swift/Kotlin ownership maps and the daily kernel's output dependencies.
-`--require-final` additionally fails while any family lacks complete cutover evidence. This is a
-source/registry check, not runtime instrumentation or proof that a phone performed no inference.
+`--require-final` additionally verifies the full producer/consumer inventories and twelve executed
+gate receipts. Receipts bind clean source content, the exact command, output and log hash. Static
+contracts and runtime evidence are labeled separately; a registry entry alone cannot prove zero
+phone inference. See [HANDOFF_compute.md](../../HANDOFF_compute.md) for the verified revision.
 
 Ownership and availability are separate. A qualified, revision-bearing publication accepted by the
 phone can establish a claim for only the metrics in its exact serialized contract. Claims persist
@@ -16,33 +18,36 @@ under project/account/canonical-device identity. Empty historical days, errors, 
 pausing reads do not restore a claimed local metric. Every displayed value must still pass current
 qualification checks; the claim does not grant permission to display revoked data.
 
-The narrow physiology contract cannot retire the daily kernel, because that kernel also produces
-workouts, history, baselines and other outputs. The old global overlay bit is no longer consulted
-for that decision. Removing a local producer requires a complete replacement of its output and
-detail dependencies, including exports and background consumers.
+Final hosted mode includes all 27 families and 80 outputs, not only the original narrow physiology
+overlay. Eight families admit qualified numeric results; nineteen currently retain explicit
+server-owned states. These are intentional missing results, not numeric-producer or scientific
+qualification claims. The global overlay bit is not hosted-mode authority. Daily/session producers,
+imports and indirect reconstruction entrypoints are guarded before physiological work begins.
 
 Raw upload has separate admission: captured runtime identity, raw database/source/endpoint checks,
-durable transport selections and the current upload job token. It runs before local rescore. Health
-and widget exports still retain their existing preference barrier until their canonical result
-contracts are fully migrated. They must not inherit the raw upload admission.
+durable transport selections and the current upload job token. It does not depend on local rescore
+or preference projection. Health, widget, watch and export admission instead requires canonical
+result identity, current authorization and freshness. It does not inherit raw-upload admission.
 
-## Current limitations
+## Repository and external verification
 
-Final hosted mode is **NOT_READY**. The historical worker invokes the broad producers, but its
-snapshot remains a distinct shadow contract. The apps' account snapshot reader still targets that
-contract; enrollment reads the qualified physiology endpoint. Full account/enrollment consumer
-parity, all-consumer revision identity, server PPG-HR, session requests/results and removal of all
-phone inference are unfinished. No readiness setting or local claim bypasses these prerequisites.
+Account and enrollment authentication surfaces share validated selection and serialization. Actual
+production worker publications pass through SQL and real Edge routes into production Swift and
+Kotlin decoders, persisted ledgers and consumer selection. Historical shadows do not become
+canonical. Durable session requests/results preserve event time, input identity and consent;
+unqualified optical input remains explicit, and expired coaching decisions cannot replay.
 
 The registry distinguishes code that runs in a worker from a result that is qualified, selected,
 delivered and consumed. Live deployment, real sensor/reference qualification and physical phone
 instrumentation remain separate evidence requirements. The retained baseline is not a new
 scientific validation, and an unavailable qualified window is not a license to fabricate a value.
 
-The additive focused Xcode project in `Tools/compute/project.yml` hosts the changed-path tests in
-the real Strand application. It does not replace the original test target or make its existing
-`ExploreRangeGatingTests` compilation failure pass.
+The additive Xcode project in `Tools/compute/project.yml` hosts changed-path tests in the real
+Strand application and includes the complete original `Strand` test scheme. Inherited Explorer
+compile blockers were repaired. The final gate requires the complete macOS suite, generic iOS
+and watch builds, full Android application compile/tests and all Swift packages.
 
-Run the changed app paths with `bash Tools/compute/run-app-checks.sh`. Running the entire additive
-test target also executes broader preference tests; the handoff records those separately and
-does not treat a successful filtered run as a successful full app suite.
+Run changed app paths with `bash Tools/compute/run-app-checks.sh` and shipped-policy runtime paths
+with `bash Tools/compute/run-final-hosted-checks.sh`. The latter exercises zero-inference counters;
+neither focused command substitutes for the complete application suites. Physical-device, deployed
+VPS, permission, battery/soak and independent-reference checks remain separate acceptance evidence.

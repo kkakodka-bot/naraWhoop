@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.HeartRateRecoveryTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.002">
+  <properties/>
+  <testcase name="aHeartRateRiseRemainsSignedInsteadOfBeingClamped" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.001"/>
+  <testcase name="doesNotCreditPreWorkoutHeartRateTowardEligibility" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.0"/>
+  <testcase name="rejectsThreeSeparatedFortySecondHighIntensityRuns" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.0"/>
+  <testcase name="belowThresholdIntervalResetsTheQualifyingRun" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.0"/>
+  <testcase name="calculatesOneTwoAndFiveMinuteDropsFromRobustReadings" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.0"/>
+  <testcase name="requiresSustainedHighIntensityRatherThanOnePeak" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.0"/>
+  <testcase name="noPostWorkoutCoverageReturnsNull" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.0"/>
+  <testcase name="returnsOnlyMeasurementsWithRealCoverage" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.001"/>
+  <testcase name="duplicateTimestampDoesNotBreakAnOtherwiseContinuousRun" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.0"/>
+  <testcase name="gapOverCapResetsTheQualifyingRun" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.0"/>
+  <testcase name="rejectsDisconnectedHighIntensityFragments" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.0"/>
+  <testcase name="gapExactlyAtCapUsesLeftSampleAndExactMinimumIsAccepted" classname="com.noop.analytics.HeartRateRecoveryTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

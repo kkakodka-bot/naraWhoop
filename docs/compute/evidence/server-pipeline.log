@@ -1,0 +1,88 @@
+Local pipeline evidence: /Volumes/Untitled/compute-final-tmp.TV9zWX/server-pipeline.O4D9qM
+running 1 test from ./tests/server_pipeline_sql_test.ts
+real SQL -> enrolled Edge contract, qualification, isolation, and diagnostic stages ... ok (6s)
+
+ok | 1 passed | 0 failed (6s)
+
+[0/1] Planning build
+Building for debugging...
+[0/3] Write swift-version-30D7331401001902.txt
+Build of product 'DecodeContract' complete! (0.20s)
+swift missing.json: decoded and display selection verified
+swift account-missing.json: decoded and display selection verified
+swift pending-device.json: decoded and display selection verified
+swift account-pending-device.json: decoded and display selection verified
+swift worker-0.json: decoded and display selection verified
+swift worker-1.json: decoded and display selection verified
+swift worker-2.json: decoded and display selection verified
+swift worker-3.json: decoded and display selection verified
+swift shadow.json: decoded and display selection verified
+swift account-shadow.json: decoded and display selection verified
+swift missing-approval.json: decoded and display selection verified
+swift account-missing-approval.json: decoded and display selection verified
+swift approved-v2.json: decoded and display selection verified
+swift account-approved-v2.json: decoded and display selection verified
+swift sleep-only.json: decoded and display selection verified
+swift account-sleep-only.json: decoded and display selection verified
+swift revoked.json: decoded and display selection verified
+swift account-revoked.json: decoded and display selection verified
+swift manifest-mismatch.json: decoded and display selection verified
+swift account-manifest-mismatch.json: decoded and display selection verified
+swift other-device-missing.json: decoded and display selection verified
+swift account-other-device-missing.json: decoded and display selection verified
+swift: 22 real Edge envelopes passed
+swift: 22 canonical persisted selections passed
+Picked up JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=/Volumes/Untitled/compute-final-tmp.TV9zWX
+> Task :checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :processResources NO-SOURCE
+> Task :processTestResources
+> Task :compileKotlin
+> Task :compileJava NO-SOURCE
+> Task :classes UP-TO-DATE
+> Task :jar
+> Task :startScripts
+> Task :installDist
+> Task :compileTestKotlin
+> Task :compileTestJava NO-SOURCE
+> Task :testClasses
+
+> Task :test
+Picked up JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=/Volumes/Untitled/compute-final-tmp.TV9zWX
+
+BUILD SUCCESSFUL in 5s
+7 actionable tasks: 7 executed
+Picked up JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=/Volumes/Untitled/compute-final-tmp.TV9zWX
+kotlin missing.json: decoded and display selection verified
+kotlin account-missing.json: decoded and display selection verified
+kotlin pending-device.json: decoded and display selection verified
+kotlin account-pending-device.json: decoded and display selection verified
+kotlin worker-0.json: decoded and display selection verified
+kotlin worker-1.json: decoded and display selection verified
+kotlin worker-2.json: decoded and display selection verified
+kotlin worker-3.json: decoded and display selection verified
+kotlin shadow.json: decoded and display selection verified
+kotlin account-shadow.json: decoded and display selection verified
+kotlin missing-approval.json: decoded and display selection verified
+kotlin account-missing-approval.json: decoded and display selection verified
+kotlin approved-v2.json: decoded and display selection verified
+kotlin account-approved-v2.json: decoded and display selection verified
+kotlin sleep-only.json: decoded and display selection verified
+kotlin account-sleep-only.json: decoded and display selection verified
+kotlin revoked.json: decoded and display selection verified
+kotlin account-revoked.json: decoded and display selection verified
+kotlin manifest-mismatch.json: decoded and display selection verified
+kotlin account-manifest-mismatch.json: decoded and display selection verified
+kotlin other-device-missing.json: decoded and display selection verified
+kotlin account-other-device-missing.json: decoded and display selection verified
+kotlin: 22 real Edge envelopes passed
+kotlin: 22 canonical persisted selections passed
+swift: rejected null-owned-value
+kotlin: rejected null-owned-value
+swift: rejected altered-owned-value
+kotlin: rejected altered-owned-value
+swift: rejected legacy-only-response
+kotlin: rejected legacy-only-response
+swift: rejected sleep-only-nested-leak
+kotlin: rejected sleep-only-nested-leak
+Canonical runner mutation checks passed: 8 rejections; artifacts /Volumes/Untitled/compute-final-tmp.TV9zWX/canonical-runner-mutations.y4ZhSG
+SQL -> actual Edge -> Swift/Kotlin decoder tests passed. Evidence: /Volumes/Untitled/compute-final-tmp.TV9zWX/server-pipeline.O4D9qM

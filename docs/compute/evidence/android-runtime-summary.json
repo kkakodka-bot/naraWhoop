@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "source_sha": "bf46ef7ff0d6d9d29776fc9388f4a3fcd9290680",
+  "source_content_sha256": "e0f31809ab16ec706f26985c3cee242df51ac0a4446d2e69595a8db3d0e3601f",
+  "gate_receipt": "android-app.json",
+  "suites": 760,
+  "reported_tests": 6223,
+  "executed_tests": 6217,
+  "failures": 0,
+  "errors": 0,
+  "skipped_reference_fixture_tests": 6,
+  "gradle_tasks_executed": 48,
+  "gradle_duration": "4m 22s",
+  "strict_native_contract_cases": 19,
+  "runtime_reports": [
+    {"path": "TEST-com.noop.analytics.FinalHostedPhonePathsNativeTest.xml", "sha256": "b0b9f0c6b0ce0770fd45324ad1cf02aa2b8aed3ea3a40da2bbe422fdfcbd7c3a", "tests": 2},
+    {"path": "TEST-com.noop.analytics.FinalHostedComputeRuntimeTest.xml", "sha256": "f35b50ac5d9a32a5c9d744f26d50ce5c0b63d4bd5e865664a2b8aea125769db0", "tests": 2},
+    {"path": "TEST-com.noop.push.FinalHostedRawUploadNativeTest.xml", "sha256": "437668ca49f7cd37d285e74d940a43f5b7117781954290a95938470420687541", "tests": 1},
+    {"path": "TEST-com.noop.push.ServerComputeContractTest.xml", "sha256": "3c4e18252359c74a73a34cf8be488d8f7ca01668372483c48e2efefe047a7d8b", "tests": 7},
+    {"path": "TEST-com.noop.push.CanonicalConsumersNativeTest.xml", "sha256": "be2260ab973945f92d3bfe1eb983fddcb1b370be5bb74ebff516dfffb5cf85da", "tests": 7}
+  ],
+  "positive_runtime_inference_admissions": 0,
+  "positive_runtime_forbidden_attempts": 0,
+  "provider_startup": {
+    "production_attach_and_provider_callback_before_on_create": true,
+    "policy_installed_before_on_create": true,
+    "positive_inference_admissions": 0,
+    "positive_forbidden_attempts": 0,
+    "intentional_negative_control": {"inference_admissions": 0, "forbidden_attempts": 1, "blocked_before_numerical_body": true}
+  },
+  "negative_control": "Deep physiological producer rejects before numerical body in final hosted mode.",
+  "runtime_scope": "Actual Android Application/ViewModel, Room persistence, production BLE decoder, upload encoding, session timers/requests, preferences/diagnostics, source archive and alarm paths under JVM/Robolectric with synthetic observations. Real production attachBaseContext installs immutable policy before onCreate; an actual provider callback exercises zero-admission positive paths and an intentional deep-producer negative control with one forbidden attempt and zero inference admissions. Production decoder, repository, durable ownership ledger, widget save/load, ZIP export and Health Connect canonical adapter share immutable result revisions. Native ContentProvider callbacks and fake Health client acquisition exercise account/device changes, same-revision revocation and read failures with zero unintended bytes/records. Stable stale historical exports retain their explicit stale/read-failure index. No physical-device, actual Health Connect provider delivery, battery, background-soak or independent-reference claim.",
+  "apk_path": "android/app/build/outputs/apk/full/debug/app-full-debug.apk",
+  "apk_sha256": "536dd2257c149b05c16abf0b2202aa15035deeb22ad9f8bcebc3ce2db67c317f",
+  "external_test_home": "/Volumes/Untitled/compute-final-tmp.TV9zWX/android-receipt-home.kBMkKq"
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.SleepStagerHrOnlySpineTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:23" hostname="mac-studio.lan" time="0.0">
+  <properties/>
+  <testcase name="run end is the last sample not the epoch start" classname="com.noop.analytics.SleepStagerHrOnlySpineTest" time="0.0"/>
+  <testcase name="all in band is one sleep run" classname="com.noop.analytics.SleepStagerHrOnlySpineTest" time="0.0"/>
+  <testcase name="one spike in an epoch does not flip it" classname="com.noop.analytics.SleepStagerHrOnlySpineTest" time="0.0"/>
+  <testcase name="no baseline or no hr yields nothing" classname="com.noop.analytics.SleepStagerHrOnlySpineTest" time="0.0"/>
+  <testcase name="all out of band is one active run" classname="com.noop.analytics.SleepStagerHrOnlySpineTest" time="0.0"/>
+  <testcase name="band boundary is inclusive" classname="com.noop.analytics.SleepStagerHrOnlySpineTest" time="0.0"/>
+  <testcase name="sleep active sleep segments into three" classname="com.noop.analytics.SleepStagerHrOnlySpineTest" time="0.0"/>
+  <testcase name="gap wider than maxGap breaks a same-class run" classname="com.noop.analytics.SleepStagerHrOnlySpineTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

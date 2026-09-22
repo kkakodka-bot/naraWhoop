@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.noop.analytics.DaytimeBaselinesTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-22T06:13:20" hostname="mac-studio.lan" time="0.054">
+  <properties/>
+  <testcase name="scoringModeHoldsRMSSDOutOfLiveScoreWhileGated" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.034"/>
+  <testcase name="dayHRAggregateExcludesNonWakingHours" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.001"/>
+  <testcase name="dayHRAggregateAppliesTheSameMinSamplesGateAsTheScorer" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.0"/>
+  <testcase name="scoringModeFallsBackToDayRelativeOnColdStartAndSparseHistory" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.0"/>
+  <testcase name="scoringModeUsesBaselineRelativeOnceHistoryIsUsable" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.001"/>
+  <testcase name="foldReturnsRMSSDBaselineOnlyWhenEnoughDaytimeRRDays" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.003"/>
+  <testcase name="dayHRAggregateIsTheTenthPercentileOfWakingHourMeanHRs" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.0"/>
+  <testcase name="medianRMSSDBaselineKeepsANormalHourNeutralNoStacking" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.008"/>
+  <testcase name="foldedBaselineCalmDayAtThePersonalFloorReadsNeutralNotHigh" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.002"/>
+  <testcase name="dayRMSSDAggregateIsPresentWithRRAndTracksVariability" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.001"/>
+  <testcase name="foldConvergesHRBaselineToThePersonalDaytimeFloor" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.001"/>
+  <testcase name="foldedBaselineScoresElevationAgainstThePersonalFloorNotTheDaysOwnHours" classname="com.noop.analytics.DaytimeBaselinesTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
