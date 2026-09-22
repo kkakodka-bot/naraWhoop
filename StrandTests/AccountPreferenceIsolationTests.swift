@@ -238,7 +238,9 @@ final class AccountPreferenceIsolationTests: XCTestCase {
     #if !ACCOUNT_PREFERENCES_NATIVE_ONLY
     func testActualModelForwardsPreferencesAndGuardsClearMoments() async throws {
         try XCTSkipUnless(AppRuntimeMode.isUnitTesting, "requires hermetic app construction")
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("account-preference-model-" + UUID().uuidString)
+        let temporary = ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.temporaryDirectory
+        let root = temporary.appendingPathComponent("account-preference-model-" + UUID().uuidString)
         let scope = try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid", userID: UUID().uuidString)
         let context = AccountSessionContext(scope: scope, generation: UUID())
         let layout = AccountStorageLayout(baseDirectory: root, scope: scope)

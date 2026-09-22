@@ -293,7 +293,9 @@ final class CaptureDurabilityTests: XCTestCase {
             let retry = try assemble()
             XCTAssertEqual(first.manifestJSON, retry.manifestJSON)
             XCTAssertEqual(first.payload, retry.payload)
-            XCTAssertEqual(first.endTs - first.startTs, 1)
+            XCTAssertEqual(first.startTs, record.startTs)
+            XCTAssertEqual(first.endTs, record.endTs + 1,
+                "Raw capture bounds are inclusive; object manifest bounds are exclusive")
         }
     }
 }

@@ -12,22 +12,28 @@ import GRDB
 enum W5ReceiptFixture {
     static let owner = "11111111-1111-4111-8111-111111111111"
     static let source = "44444444-4444-4444-8444-444444444444"
+    static func objectKey(owner: String, device: String, stream: String) -> String {
+        "v3/core/users/\(owner)/devices/\(PushDurabilityReceipt.canonicalDevice(owner: owner, device: device))/\(stream)/fixture/verified-object"
+    }
     static func receipt(owner: String, device: String, object: String, batch: String, source: String,
                         stream: String, decoded: String, wire: String, decodedBytes: Int, wireBytes: Int,
-                        key: String = "archive/verified-object", schema: Int = 1) -> [String: Any] {
+                        key: String? = nil, schema: Int = 1) -> [String: Any] {
         ["version": 1, "state": "verified_indexed", "receiptId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
          "ownerUserId": owner, "deviceId": PushDurabilityReceipt.canonicalDevice(owner: owner, device: device),
          "objectId": object, "batchId": batch, "sourceId": source, "stream": stream, "schemaVersion": schema,
-         "objectKey": key, "contentSha256": decoded, "wireSha256": wire, "compressedBytes": wireBytes,
+         "objectKey": key ?? objectKey(owner: owner, device: device, stream: stream),
+         "contentSha256": decoded, "wireSha256": wire, "compressedBytes": wireBytes,
          "uncompressedBytes": decodedBytes, "verifiedAt": "2026-09-18T00:00:00Z", "indexedAt": "2026-09-18T00:00:01Z"]
     }
-    static func object(_ batch: PushBinaryBatch, owner: String, key: String = "archive/verified-object") -> [String: Any] {
-        ["type": "objectAck", "protocolVersion": batch.protocolVersion, "objectId": batch.objectId,
+    static func object(_ batch: PushBinaryBatch, owner: String, key: String? = nil) -> [String: Any] {
+        let key = key ?? objectKey(owner: owner, device: batch.deviceId, stream: batch.wireName)
+        return ["type": "objectAck", "protocolVersion": batch.protocolVersion, "objectId": batch.objectId,
          "objectKey": key, "status": "ready", "duplicate": false,
          "durabilityReceipt": receipt(owner: owner, device: batch.deviceId, object: batch.objectId,
             batch: batch.batchId, source: batch.sourceId, stream: batch.wireName, decoded: batch.contentSha256,
             wire: PushDurabilityReceipt.sha256(batch.payload), decodedBytes: batch.uncompressedBytes,
-            wireBytes: batch.payload.count, key: key, schema: batch.protocolVersion == "1.3" && batch.table == .ppgWaveformSample ? 2 : 1)]
+            wireBytes: batch.payload.count, key: key,
+            schema: PushProtocol.schemaVersion(stream: batch.wireName, protocolVersion: batch.protocolVersion))]
     }
     static func inline(_ batch: PushBatch, owner: String) -> [String: Any] {
         var cursor: Any = NSNull()
@@ -37,7 +43,8 @@ enum W5ReceiptFixture {
                 "durabilityReceipt": receipt(owner: owner, device: batch.deviceId, object: batch.batchId,
                     batch: batch.batchId, source: batch.sourceId, stream: batch.table.wireName,
                     decoded: PushDurabilityReceipt.sha256(batch.body), wire: String(repeating: "a", count: 64),
-                    decodedBytes: batch.body.count, wireBytes: 100)]
+                    decodedBytes: batch.body.count, wireBytes: 100,
+                    schema: PushProtocol.schemaVersion(stream: batch.table.wireName, protocolVersion: batch.protocolVersion))]
     }
     static func bytes(_ object: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) }
 }
@@ -146,7 +153,9 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             }
             if request.url!.path.hasSuffix("/objects"), let batch {
                 return (200, try W5ReceiptFixture.bytes(["type": "objectIntent", "protocolVersion": batch.protocolVersion,
-                    "objectId": batch.objectId, "objectKey": duplicate ? "archive/verified-object" : "staging/write-only",
+                    "objectId": batch.objectId, "objectKey": duplicate
+                        ? W5ReceiptFixture.objectKey(owner: W5ReceiptFixture.owner, device: batch.deviceId, stream: batch.wireName)
+                        : "staging/write-only",
                     "duplicate": duplicate, "uploadUrl": duplicate ? NSNull() : "https://bucket.example/upload",
                     "requiredHeaders": ["Content-Type": "application/octet-stream"], "expiresAt": "2030-01-01T00:00:00Z"]))
             }
@@ -188,7 +197,8 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             let remaining = try CloudUploadJournal(directory: f.layout.uploadDirectory).load()
             XCTAssertTrue(remaining.isEmpty, "no manual sourceCommitted call in this test")
             let row = try await f.store.registryWriter.read { try Row.fetchOne($0, sql: "SELECT * FROM rawDurabilityReceipt") }
-            XCTAssertEqual(row?["objectKey"] as String?, "archive/verified-object")
+            XCTAssertEqual(row?["objectKey"] as String?, W5ReceiptFixture.objectKey(
+                owner: f.context.scope.userID, device: batch.deviceId, stream: batch.wireName))
             let synced = try await f.store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT syncedAt FROM rawBatch") }
             XCTAssertNotNil(synced)
             let debt = await f.progress.pendingCommits(); XCTAssertTrue(debt.isEmpty)
@@ -964,7 +974,9 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             f = try await reopen(f); try serve(batch: batch, duplicate: true)
             _ = try await f.transport.capabilities()
             let intent = try await f.transport.createObjectIntent(.init(batch: batch), lane: lane)
-            XCTAssertTrue(intent.duplicate); XCTAssertEqual(intent.objectKey, "archive/verified-object")
+            XCTAssertTrue(intent.duplicate)
+            XCTAssertEqual(intent.objectKey, W5ReceiptFixture.objectKey(
+                owner: f.context.scope.userID, device: batch.deviceId, stream: batch.wireName))
             let after = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory).load()[before.id])
             XCTAssertEqual(after.payloadSHA256, before.payloadSHA256); XCTAssertEqual(after.objectKey, before.objectKey)
             let accepted = await coordinator(f).pushObjects(.rawBatch, deviceId: device, lane: lane)
