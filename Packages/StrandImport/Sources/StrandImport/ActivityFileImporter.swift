@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 // MARK: - On-device activity-file import (GPX / TCX / FIT) — source "activity-file"
 //
@@ -306,8 +307,10 @@ public enum ActivityFileImporter {
 
         let distance = summaryDistanceM ?? (route.count >= 2 ? routeDistanceM(route) : nil)
         let ascent = summaryAscentM ?? ascentM(from: samples)
-        let avg = summaryAvgHr ?? (hrs.isEmpty ? nil : Int((Double(hrs.reduce(0, +)) / Double(hrs.count)).rounded()))
-        let mx = summaryMaxHr ?? hrs.max()
+        let localSummary = PhoneComputeRuntime.permitsLocal("import.activity_hr_summary")
+        if localSummary { PhoneComputeRuntime.entered("import.activity_hr_summary") }
+        let avg = summaryAvgHr ?? (!localSummary || hrs.isEmpty ? nil : Int((Double(hrs.reduce(0, +)) / Double(hrs.count)).rounded()))
+        let mx = summaryMaxHr ?? (localSummary ? hrs.max() : nil)
 
         let a = ActivityFile(
             kind: kind,

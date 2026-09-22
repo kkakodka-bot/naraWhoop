@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 // MARK: - Daily aggregate model
 
@@ -180,6 +181,8 @@ public enum AppleHealthAggregator {
     public static func sleepDaily(
         _ intervals: [SleepStageInterval]
     ) -> [String: (asleep: Double, deep: Double, rem: Double, core: Double, awake: Double, inBed: Double)] {
+        guard PhoneComputeRuntime.permitsLocal("import.sleep_composite") else { return [:] }
+        PhoneComputeRuntime.entered("import.sleep_composite")
         struct Night {
             var deep = 0.0, rem = 0.0, core = 0.0, unspecified = 0.0, awake = 0.0, inBed = 0.0
         }
@@ -362,6 +365,9 @@ public struct AppleDailySampleAccumulator {
     /// reduction rules as `AppleHealthAggregator.daily(samples:)`.
     public mutating func add(_ s: HealthSample) {
         let type = AppleHealthAggregator.normalizedType(s.type)
+        if [AppleHealthAggregator.restingHR, AppleHealthAggregator.hrvSDNN, AppleHealthAggregator.spo2,
+            AppleHealthAggregator.respRate, AppleHealthAggregator.walkingHR, AppleHealthAggregator.heartRate].contains(type),
+           !PhoneComputeRuntime.permitsLocal("import.health_physiology_aggregate") { return }
         let day = AppleHealthAggregator.localDay(s.start, tzOffsetMin: s.tzOffsetMin)
         if byDay[day] == nil {
             byDay[day] = DayAcc()
@@ -454,7 +460,11 @@ public struct AppleDailySampleAccumulator {
     /// in first-seen order then sorted ascending by day — identical to
     /// `daily(samples:)`.
     public func finish() -> [AppleDailyAggregate] {
-        func mean(_ sum: Double, _ n: Int) -> Double? { n == 0 ? nil : sum / Double(n) }
+        func mean(_ sum: Double, _ n: Int) -> Double? {
+            guard PhoneComputeRuntime.permitsLocal("import.health_mean") else { return nil }
+            PhoneComputeRuntime.entered("import.health_mean")
+            return n == 0 ? nil : sum / Double(n)
+        }
 
         let result: [AppleDailyAggregate] = order.map { day in
             let a = byDay[day]!
@@ -465,7 +475,7 @@ public struct AppleDailySampleAccumulator {
                 spo2Pct: mean(a.spo2Sum, a.spo2N),
                 respRate: mean(a.respSum, a.respN),
                 avgHr: mean(a.hrSum, a.hrN),
-                maxHr: a.hrMax,
+                maxHr: PhoneComputeRuntime.isFinalHosted ? nil : a.hrMax,
                 walkingHr: mean(a.walkingSum, a.walkingN),
                 steps: a.stepsBySource.isEmpty ? nil : a.stepsBySource.values.max(),   // #589 max source, not cross-source sum
                 activeKcal: a.hasActive ? a.active : nil,

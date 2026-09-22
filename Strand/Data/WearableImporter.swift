@@ -2,6 +2,7 @@ import Foundation
 import StrandAnalytics
 import WhoopStore
 import StrandImport
+import WhoopProtocol
 
 /// Maps a parsed Oura / Fitbit / Garmin own-data export into the on-device WhoopStore tables the UI
 /// reads — `dailyMetric`, `sleepSession`, and the generic `metricSeries` — under a per-brand Data
@@ -120,6 +121,8 @@ enum WearableImporter {
 
     /// Asleep fraction of in-bed time, from the daily stage minutes (when the export gave no efficiency).
     private static func sleepEfficiency(total: Double?, awake: Double?) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("import.wearable_sleep_efficiency") else { return nil }
+        PhoneComputeRuntime.entered("import.wearable_sleep_efficiency")
         guard let total, total > 0 else { return nil }
         let awake = awake ?? 0
         let inBed = total + awake
@@ -128,6 +131,8 @@ enum WearableImporter {
 
     /// Asleep fraction from the hypnogram segments (non-wake ÷ in-bed span).
     private static func efficiency(segs: [[String: Any]], start: Int, end: Int) -> Double? {
+        guard PhoneComputeRuntime.permitsLocal("import.wearable_stage_efficiency") else { return nil }
+        PhoneComputeRuntime.entered("import.wearable_stage_efficiency")
         guard end > start, !segs.isEmpty else { return nil }
         var asleep = 0
         for seg in segs {

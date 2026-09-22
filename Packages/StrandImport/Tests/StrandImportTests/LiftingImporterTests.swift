@@ -24,7 +24,7 @@ final class LiftingImporterTests: XCTestCase {
         XCTAssertEqual(r.sessionCount, 1)
         XCTAssertEqual(r.skipped, 0)
         let s = r.sessions[0]
-        XCTAssertEqual(s.volumeLoadKg, 1980, accuracy: 1e-6)   // warm-up 40×10 excluded
+        XCTAssertEqual(s.volumeLoadKg!, 1980, accuracy: 1e-6)   // warm-up 40×10 excluded
         XCTAssertEqual(s.setCount, 4)                          // 4 working sets, warm-up not counted
         XCTAssertEqual(s.exerciseCount, 2)
         XCTAssertEqual(s.totalReps, 23)
@@ -42,8 +42,8 @@ final class LiftingImporterTests: XCTestCase {
         """
         let r = LiftingImporter.parseHevy(text: csv)
         XCTAssertEqual(r.sessionCount, 2)
-        XCTAssertEqual(r.sessions[0].volumeLoadKg, 135 * 0.45359237 * 5, accuracy: 1e-4)
-        XCTAssertEqual(r.sessions[1].volumeLoadKg, 225 * 0.45359237 * 3, accuracy: 1e-4)
+        XCTAssertEqual(r.sessions[0].volumeLoadKg!, 135 * 0.45359237 * 5, accuracy: 1e-4)
+        XCTAssertEqual(r.sessions[1].volumeLoadKg!, 225 * 0.45359237 * 3, accuracy: 1e-4)
         // Oldest-first ordering.
         XCTAssertLessThan(r.sessions[0].start, r.sessions[1].start)
     }
@@ -136,7 +136,7 @@ final class LiftingImporterTests: XCTestCase {
         let r = LiftingImporter.parseLiftosaur(data: Data(json.utf8))
         XCTAssertEqual(r.sessionCount, 1)
         let s = r.sessions[0]
-        XCTAssertEqual(s.volumeLoadKg, 1100, accuracy: 1e-6)
+        XCTAssertEqual(s.volumeLoadKg!, 1100, accuracy: 1e-6)
         XCTAssertEqual(s.setCount, 3)
         XCTAssertEqual(s.exerciseCount, 2)
         XCTAssertEqual(s.totalReps, 13)
@@ -156,7 +156,7 @@ final class LiftingImporterTests: XCTestCase {
         let r = LiftingImporter.parseLiftosaur(data: Data(json.utf8))
         let s = r.sessions[0]
         XCTAssertEqual(s.setCount, 1)                                   // template set without completedReps skipped
-        XCTAssertEqual(s.volumeLoadKg, 100 * 0.45359237 * 5, accuracy: 1e-4)
+        XCTAssertEqual(s.volumeLoadKg!, 100 * 0.45359237 * 5, accuracy: 1e-4)
     }
 
     func testLiftosaurBareArrayAndStorageWrappers() {
@@ -193,7 +193,7 @@ final class LiftingImporterTests: XCTestCase {
         let s = r.sessions[0]
         XCTAssertEqual(s.end, Date(timeIntervalSince1970: 1748775600))
         XCTAssertEqual(s.durationS, 3600)
-        XCTAssertEqual(s.volumeLoadKg, 400, accuracy: 1e-6)
+        XCTAssertEqual(s.volumeLoadKg!, 400, accuracy: 1e-6)
         XCTAssertEqual(s.setCount, 1)
         XCTAssertEqual(s.exerciseCount, 1)
         XCTAssertEqual(s.totalReps, 5)

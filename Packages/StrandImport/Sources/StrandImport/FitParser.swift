@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 // MARK: - FIT parser (Garmin/ANT FIT binary)
 //
@@ -472,9 +473,11 @@ private struct FitDecoder {
             ?? (lapAscentSum > 0 ? lapAscentSum : ActivityFileImporter.ascentM(from: samples))
 
         let sampledHrs = samples.compactMap { $0.hr }
+        let localSummary = PhoneComputeRuntime.permitsLocal("import.fit_hr_summary")
+        if localSummary { PhoneComputeRuntime.entered("import.fit_hr_summary") }
         let avgHr = sessionAvgHr
-            ?? (sampledHrs.isEmpty ? nil : Int((Double(sampledHrs.reduce(0, +)) / Double(sampledHrs.count)).rounded()))
-        let maxHr = sessionMaxHr ?? lapMaxHr ?? sampledHrs.max()
+            ?? (!localSummary || sampledHrs.isEmpty ? nil : Int((Double(sampledHrs.reduce(0, +)) / Double(sampledHrs.count)).rounded()))
+        let maxHr = sessionMaxHr ?? lapMaxHr ?? (localSummary ? sampledHrs.max() : nil)
 
         // Time window: the session start + elapsed when present, else the sampled span.
         let start = times.min() ?? sessionStart ?? Date(timeIntervalSince1970: 0)
