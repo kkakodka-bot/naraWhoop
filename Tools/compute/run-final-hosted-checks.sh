@@ -17,5 +17,7 @@ xcodebuild -project .derived/compute-checks/ComputeChecks.xcodeproj \
   -only-testing:ComputeChecksTests/CanonicalPhysiologySurfaceTests \
   -only-testing:ComputeChecksTests/CanonicalConsumerPublicationTests \
   -only-testing:ComputeChecksTests/CanonicalWorkoutInputTests \
+  -only-testing:ComputeChecksTests/ImportTraceEmitTests/testHostedImportPreservesReportedHistoryWithoutPhysiologicalReconstruction \
+  -only-testing:ComputeChecksTests/WorkoutZonesTests/testHostedModeReadsReportedPercentagesWithoutReconstructingZoneMinutes \
   -only-testing:ComputeChecksTests/ScoringPreferenceContainmentTests/testFinalHostedExportsUseCanonicalAdmissionWithoutPreferenceProjection \
   -only-testing:ComputeChecksTests/ScoringPreferenceContainmentTests/testFinalHostedResultChangeAtAttemptRetainsExactExportToken test
