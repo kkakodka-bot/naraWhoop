@@ -114,6 +114,7 @@ jobs:
         run: >-
           xcodebuild -scheme '${{ matrix.scheme }}' -configuration Debug
           -destination '${{ matrix.destination }}' ${{ matrix.extra_args }}
+          -derivedDataPath "$RUNNER_TEMP/app-build"
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
           build
 
@@ -149,4 +150,4 @@ jobs:
         run: |
           bash Tests/ServerScoreContextNative/run-hosted.sh \
             "$RUNNER_TEMP/context-fixture/W4-POPULATED-CONTEXT-SNAPSHOT-V2-NATIVE-FIXTURE.json" \
-            "$RUNNER_TEMP/full-hosted-build" "$RUNNER_TEMP/full-hosted.xcresult"
+            "$RUNNER_TEMP/app-build" "$RUNNER_TEMP/full-hosted.xcresult"

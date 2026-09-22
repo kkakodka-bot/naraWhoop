@@ -149,6 +149,15 @@ kills actual processes around real WhoopStore commits and reopens SQLite, but it
 ACK, ATT and cloud events are scripted. SQLite-full injection is not a physical
 full-filesystem or power-loss experiment.
 
+The complete hosted app suite additionally requires the actual JVM populated-context
+fixture. App-build CI runs `PopulatedContextSnapshotFixtureIntegrationTest` against
+a new disposable PostgreSQL cluster, then `Tests/ServerScoreContextNative/run-hosted.sh`
+binds that file into the generated XCTest run environment. Missing fixtures fail;
+the interoperability tests are not skipped. Full-suite repairs retain cloud debt
+separately from widget work, validate checksummed IMU fixtures, and assert account
+retirement after deferred maintenance. A calendar-date caption bug found by this
+suite is fixed without changing the local 04:00 logical-day boundary.
+
 `Tools/SyncAcceptance/manifest.py` records the candidate SHA/build, allowlisted XCTest
 counts and environments, evidence hashes, and a complete physical matrix initialized
 to `NOT_MEASURED`. It omits hardware identifiers and failure-message contents. The
