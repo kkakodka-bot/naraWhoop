@@ -253,13 +253,21 @@ class SchemaOracleTest {
             grdb.subList(45, 48))
         grdb.forEachIndexed { i, id ->
             val n = id.removePrefix("v").takeWhile { it.isDigit() }.toIntOrNull()
-            val expected = if (i == 47) 46 else i + 1 - (if (i > 47) 1 else 0)
+            val expected = when {
+                i >= 55 -> 48 + i - 55 // Second deployed sensor feature-line, registered after v54.
+                i == 47 -> 46
+                i > 47 -> i
+                else -> i + 1
+            }
             assertEquals(
                 "Unexpected GRDB prefix at registration #${i + 1}: '$id'. Deployed migration names must not be renumbered.",
                 expected,
                 n,
             )
         }
+        assertEquals("preserve sensor feature-line deployed identifiers",
+            listOf("v48-ppg-record-identity", "v49-owner-scoped-physiology-cache", "v50-rr-packet-provenance", "v51-standard-hr-receipts"),
+            grdb.subList(55, 59))
         // loadRoomSchema asserts the exported version equals this; call it so the check is not vacuous.
         loadRoomSchema(oracle.getInt("roomVersion"))
     }

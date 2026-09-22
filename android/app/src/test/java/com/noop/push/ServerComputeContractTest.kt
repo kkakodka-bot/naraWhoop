@@ -83,4 +83,17 @@ class ServerComputeContractTest {
         assertTrue(f.usableDecision(java.time.Instant.parse("2026-09-22T07:01:00Z").toEpochMilli()))
         assertFalse(f.usableDecision(java.time.Instant.parse("2026-09-22T07:01:30Z").toEpochMilli()))
     }
+    @Test fun immutableRevisionRejectsChangedNumbersButNeverBlocksRevocation() {
+        val root = body(); available(root, 42)
+        val before = decode(root)
+        family(root, "night_hrv").getJSONObject("values").put("hrv_rmssd_ms", 55)
+        assertFalse(ServerComputeRevisionFence.admits(before, decode(root)))
+        family(root, "night_hrv").put("status", "revoked").put("input_revision", 1)
+            .put("canonical_qualification", JSONObject.NULL).getJSONObject("values").put("hrv_rmssd_ms", JSONObject.NULL)
+        val revoked = decode(root)
+        assertTrue(ServerComputeRevisionFence.admits(before, revoked))
+        assertNull(revoked.compute!!.families.getValue("night_hrv").number("hrv_rmssd_ms"))
+        assertEquals(before.compute!!.families.getValue("night_hrv").resultRevision,
+            revoked.compute!!.families.getValue("night_hrv").resultRevision)
+    }
 }
