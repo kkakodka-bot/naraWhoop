@@ -9,8 +9,11 @@ export const USER_A = '11111111-1111-4111-8111-111111111111';
 export const USER_B = '22222222-2222-4222-8222-222222222222';
 const decoder = new TextDecoder();
 
-export async function startLocalPostgres({ scalarProjections = false, auxiliaryIdentity = false }:
-  { scalarProjections?: boolean; auxiliaryIdentity?: boolean } = {}) {
+export async function startLocalPostgres({ scalarProjections = false, auxiliaryIdentity = false, statementTimeoutMs = 0 }:
+  { scalarProjections?: boolean; auxiliaryIdentity?: boolean; statementTimeoutMs?: number } = {}) {
+  if (!Number.isInteger(statementTimeoutMs) || statementTimeoutMs < 0 || statementTimeoutMs > 600000) {
+    throw new Error("invalid_fixture_statement_timeout");
+  }
   const artifacts = Deno.env.get('EDGE_TEST_ARTIFACTS');
   if (!artifacts?.startsWith('/Volumes/')) throw new Error('EDGE_TEST_ARTIFACTS must name an external-volume directory');
   const base = await Deno.makeTempDir({ dir: artifacts, prefix: 'edge-pg-' });
@@ -37,7 +40,7 @@ export async function startLocalPostgres({ scalarProjections = false, auxiliaryI
   }
   try {
     await run(`${bin}/initdb`, ['-D', data, '-U', 'edge_test', '--auth-local=trust', '--auth-host=reject', '--no-locale', '--encoding=UTF8']);
-    await run(`${bin}/pg_ctl`, ['-D', data, '-l', `${base}/postgres.log`, '-o', `-k ${base} -c listen_addresses='' -c unix_socket_permissions=0700 -c max_connections=30`, '-w', 'start']);
+    await run(`${bin}/pg_ctl`, ['-D', data, '-l', `${base}/postgres.log`, '-o', `-k ${base} -c listen_addresses='' -c unix_socket_permissions=0700 -c max_connections=30 -c statement_timeout=${statementTimeoutMs}`, '-w', 'start']);
     started = true;
     await sql(`
       create role postgres nologin; create role anon nologin; create role authenticated nologin;

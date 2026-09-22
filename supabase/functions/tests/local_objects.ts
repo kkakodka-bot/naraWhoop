@@ -1,7 +1,8 @@
 import { createS3 } from '../_shared/s3.ts';
 
 /** Synthetic, loopback-only object server. Uses the real signed S3 client and streamed reads. */
-export function startObjectHttp({ versioned = false }: { versioned?: boolean } = {}) {
+export function startObjectHttp({ versioned = false, chunkBytes = 31 }: { versioned?: boolean; chunkBytes?: number } = {}) {
+  if (!Number.isInteger(chunkBytes) || chunkBytes < 1 || chunkBytes > 262144) throw new Error("invalid_fixture_chunk_size");
   const objects = new Map<string, Uint8Array>();
   const versions = new Map<string, Map<string, Uint8Array>>();
   function save(key: string, bytes: Uint8Array) {
@@ -46,7 +47,7 @@ export function startObjectHttp({ versioned = false }: { versioned?: boolean } =
       ? [...versions.get(key)!.keys()].at(-1)! : 'fixture-version';
     if (req.method === 'HEAD') return new Response(null, { headers });
     return new Response(new ReadableStream({ start(controller) {
-      for (let i = 0; i < bytes.length; i += 31) controller.enqueue(bytes.slice(i, i + 31));
+      for (let i = 0; i < bytes.length; i += chunkBytes) controller.enqueue(bytes.slice(i, i + chunkBytes));
       controller.close();
     } }), { headers });
   });
