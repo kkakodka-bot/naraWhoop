@@ -15,6 +15,7 @@ import SwiftUI
 import StrandDesign
 import WhoopStore
 import StrandAnalytics
+import WhoopProtocol
 
 struct LiquidTodayView: View {
     @EnvironmentObject private var serverScores: ServerScoreRepository
@@ -400,6 +401,14 @@ struct LiquidTodayView: View {
                     // pinned above the reorderable block so an active manual workout is immediately visible
                     // and taps straight through to Live. Renders nothing when no workout is active.
                     ActiveWorkoutIndicatorSection()
+                    if PhoneComputeRuntime.isFinalHosted {
+                        CanonicalPhysiologySection(families: ["recovery", "strain_energy", "sleep_history", "night_hrv", "stress", "readiness_load"], day: selectedDayKey)
+                        if selectedDayOffset == 0 {
+                            DeviceReportedHeartRateSection()
+                            if liveSessionsBeta { liveSessionStartRow }
+                            JournalReminderCard()
+                        }
+                    } else {
                     // #today-layout (parity with Android): every Today section — the Charge/Effort/Rest hero
                     // and Start-session included — renders in the user's saved order. Reorder via the Arrange
                     // sheet (the header's up/down button; native drag rows); the order persists under the
@@ -436,6 +445,7 @@ struct LiquidTodayView: View {
                     // Self-gates on the toggle AND on the detector finding an unsaved, un-dismissed window,
                     // so it renders nothing by default.
                     AutoWorkoutCard()
+                    }
                     dataSourcesSection
                     Color.clear.frame(height: 90) // floating tab-bar clearance
                 }
@@ -509,6 +519,7 @@ struct LiquidTodayView: View {
             ready: serverScores.state.hasScalarContent(day: selectedDayKey)
                 || (serverScores.state.owns(.sleepSessions) && serverHostedSleepDay == selectedDayKey && serverHostedSleepModel != nil))
         .task(id: "\(serverScores.state.revision)-\(selectedDayKey)-\(repo.refreshSeq)-\(localHostedSleepRevision)") {
+            guard PhoneComputeRuntime.permitsLocal("LiquidTodayView.legacySleepPresentation") else { return }
             let load = ScoringPreferenceViewLoad(app: app, repo: repo)
             guard load.isCurrent(app: app, repo: repo, requiringAcceptedPreferences: false) else { return }
             let state = serverScores.state
@@ -1647,6 +1658,8 @@ struct LiquidTodayView: View {
     // MARK: - Data
 
     private func load() async {
+        guard PhoneComputeRuntime.permitsLocal("LiquidTodayView.loadAnalytics") else { return }
+        PhoneComputeRuntime.entered("LiquidTodayView.loadAnalytics")
         let load = ScoringPreferenceViewLoad(app: app, repo: repo)
         let loadDayKey = selectedDayKey
         let loadDayOffset = selectedDayOffset

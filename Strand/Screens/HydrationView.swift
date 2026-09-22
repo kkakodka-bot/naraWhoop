@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 
 // MARK: - Hydration detail (MVP, opt-in, local-only)
 //
@@ -42,8 +43,16 @@ struct HydrationView: View {
     @AppStorage(CardAppearancePrefs.opacityKey) private var cardOpacityPercent = CardAppearancePrefs.defaultPercent
     private var cardOpacity: Double { max(0, min(1, Double(cardOpacityPercent) / 100)) }
 
-    private var goalML: Int { repo.hydrationGoalML(profileSex: profile.sex) }
-    private var fraction: Double { HydrationGoal.fraction(totalML: totalML, goalML: goalML) }
+    private var goalML: Int {
+        guard let goal = repo.hydrationGoalML(profileSex: profile.sex) else {
+            preconditionFailure("Reference hydration presentation cannot run in final hosted mode")
+        }
+        return goal
+    }
+    private var fraction: Double {
+        guard !PhoneComputeRuntime.isFinalHosted else { return 0 }
+        return HydrationGoal.fraction(totalML: totalML, goalML: goalML)
+    }
     private var percent: Int { min(100, Int((fraction * 100).rounded(.towardZero))) }
 
     var body: some View {
@@ -54,12 +63,14 @@ struct HydrationView: View {
                        // tabs carry, so Hydration sits in one atmosphere.
                        topBackground: liquidScaffoldSky()) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                ringSection
+                if !PhoneComputeRuntime.isFinalHosted { ringSection }
                 logSection
                 entriesSection
                 historySection
-                todayTotalSection
-                Text("A simple goal that adjusts to your effort. General wellness guidance, not medical advice.")
+                if !PhoneComputeRuntime.isFinalHosted { todayTotalSection }
+                Text(PhoneComputeRuntime.isFinalHosted
+                     ? "Logged water is available offline. Personalized hydration goals are unavailable until supplied by the server."
+                     : "A simple goal that adjusts to your effort. General wellness guidance, not medical advice.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -296,7 +307,7 @@ struct HydrationView: View {
                 .foregroundStyle(StrandPalette.textTertiary)
         } else {
             // Scale the bars to the LARGER of the goal and the biggest day, so an over-goal day doesn't clip.
-            let ceiling = max(Double(max(goalML, 1)), history.map(\.value).max() ?? 0, 1)
+            let ceiling = max(PhoneComputeRuntime.isFinalHosted ? 1 : Double(max(goalML, 1)), history.map(\.value).max() ?? 0, 1)
             let lastIndex = history.count - 1
             HStack(alignment: .bottom, spacing: 10) {
                 ForEach(Array(history.enumerated()), id: \.element.day) { idx, bar in

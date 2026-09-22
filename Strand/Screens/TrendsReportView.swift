@@ -2,6 +2,7 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 import Foundation
 
 // MARK: - Trends Report (#436)
@@ -136,6 +137,7 @@ enum TrendsReportData {
     static func report(for range: ReportRange, days: [DailyMetric],
                        today: String, stressByDay: [String: Double] = [:],
                        units: ReportDisplayUnits = .stored) -> RangeReport {
+        PhoneComputeRuntime.entered("TrendsReportData.report")
         let (start, end) = window(for: range, days: days, today: today)
         return RangeReportEngine.build(metrics: metricMaps(from: days, stressByDay: stressByDay),
                                        start: start, end: end, units: units)
@@ -471,8 +473,9 @@ struct TrendsReportSheet: View {
     }
 
     private var report: RangeReport {
-        TrendsReportData.report(for: range, days: days, today: today,
-                                stressByDay: stressByDay, units: units)
+        PhoneComputeRuntime.entered("TrendsReportSheet.report")
+        return TrendsReportData.report(for: range, days: days, today: today,
+                                      stressByDay: stressByDay, units: units)
     }
 
     private func seriesMap(start: String, end: String) -> [ReportMetric: [Double]] {
@@ -498,6 +501,46 @@ struct TrendsReportSheet: View {
     }
 
     var body: some View {
+        if PhoneComputeRuntime.isFinalHosted { hostedBody }
+        else { referenceBody }
+    }
+
+    private var hostedBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                Text("Export trends report").font(StrandFont.title2)
+                Text("Immutable server results, including quality, missingness, authorization and revision metadata. No physiological summaries are reconstructed on this device.")
+                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+                SegmentedPillControl(ReportRange.allCases, selection: $range) { $0.label }
+                ForEach(canonicalExportDays, id: \.day) { result in
+                    CanonicalPhysiologySection(families: ["insights", "recovery", "sleep_history", "night_hrv", "strain_energy"], day: result.day)
+                }
+                if canonicalExportDays.isEmpty {
+                    Text("Unavailable: no canonical server results in this range.")
+                        .font(StrandFont.subhead)
+                }
+                NoopButton("Export server results", systemImage: "square.and.arrow.up", kind: .primary, fullWidth: true) {
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                    guard let data = try? encoder.encode(canonicalExportDays),
+                          let text = String(data: data, encoding: .utf8) else { return }
+                    FileExport.exportText(text, suggestedName: "NARA-server-results-\(today).json")
+                }
+            }
+            .screenPadding().padding(.vertical, NoopMetrics.space6)
+        }
+        .background(StrandPalette.surfaceBase)
+        .frame(width: 460, height: 640)
+    }
+
+    private var canonicalExportDays: [ServerCanonicalResults] {
+        let window = TrendsReportData.window(for: range, days: [], today: today)
+        return repo.serverPresentation.canonicalDays.values.filter {
+            (range == .all || $0.day >= window.start) && $0.day <= window.end
+        }.sorted { $0.day < $1.day }
+    }
+
+    @ViewBuilder private var referenceBody: some View {
         let rpt = report
         ScrollView {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
@@ -569,6 +612,7 @@ struct TrendsReportSheet: View {
 
     @MainActor
     private func export(_ report: RangeReport) {
+        guard PhoneComputeRuntime.permitsLocal("TrendsReportSheet.legacyExport") else { return }
         guard !exporting else { return }
         exporting = true
         let name = "NARA-trends-\(report.start)_to_\(report.end).pdf"

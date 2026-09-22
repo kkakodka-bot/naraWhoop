@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import Foundation
 
 /// Strain/illness early-warning banner. Observes AppModel in isolation so the ~1 Hz HR stream
@@ -8,7 +9,9 @@ import Foundation
 struct HealthAlertBanner: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
-        if let alert = model.healthAlert {
+        if PhoneComputeRuntime.isFinalHosted {
+            CanonicalPhysiologySection(families: ["illness"])
+        } else if let alert = model.healthAlert {
             let copy = localizedHealthAlertCopy(alert)
             // A frosted, warning-tinted alert card (not a flat coloured bar) — prominent but on-brand.
             // The amber wash + a glyph in a soft amber chip read as an early-warning without a hard rule.

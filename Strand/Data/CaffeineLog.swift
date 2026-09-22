@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 // MARK: - Caffeine window (#526) — log an intake + a rough on-device "still active" estimate
 //
@@ -28,6 +29,7 @@ public enum CaffeineDecay {
     /// time (a future-dated log) clamps to 1.0 (nothing has decayed yet) rather than amplifying the dose.
     public static func fractionRemaining(hoursElapsed: Double,
                                          halfLifeHours: Double = defaultHalfLifeHours) -> Double {
+        PhoneComputeRuntime.entered("CaffeineDecay.fractionRemaining")
         guard halfLifeHours > 0 else { return 0 }
         let t = max(0, hoursElapsed)
         return pow(0.5, t / halfLifeHours)
@@ -52,6 +54,7 @@ public enum CaffeineDecay {
     /// rule of thumb). Two half-lives ≈ 25% remaining, so this is ~2 × halfLife at the default.
     public static func hoursUntilFraction(_ fraction: Double,
                                           halfLifeHours: Double = defaultHalfLifeHours) -> Double {
+        PhoneComputeRuntime.entered("CaffeineDecay.hoursUntilFraction")
         guard fraction > 0, fraction < 1, halfLifeHours > 0 else { return 0 }
         // 0.5 ^ (t / hl) = fraction  →  t = hl · log(fraction) / log(0.5)
         return halfLifeHours * (log(fraction) / log(0.5))
@@ -155,6 +158,7 @@ public struct CaffeineActiveEstimate: Equatable, Sendable {
     public static func compute(intakes: [CaffeineIntake], now: Date = Date(),
                                halfLifeHours: Double = CaffeineDecay.defaultHalfLifeHours,
                                activeThreshold: Double = 0.25) -> CaffeineActiveEstimate {
+        PhoneComputeRuntime.entered("CaffeineActiveEstimate.compute")
         var activeCount = 0
         var mgSum = 0.0
         var anyMg = false

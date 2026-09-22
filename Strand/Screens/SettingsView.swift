@@ -3508,9 +3508,13 @@ struct StepsCalibrationSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                     explainerCard
-                    if strapHasNoMotion { noMotionNote }
-                    currentFitCard
-                    comparisonCard
+                    if PhoneComputeRuntime.isFinalHosted {
+                        CanonicalPhysiologySection(families: ["steps", "baselines"])
+                    } else {
+                        if strapHasNoMotion { noMotionNote }
+                        currentFitCard
+                        comparisonCard
+                    }
                     manualAdjustCard
                 }
                 .padding(20)
@@ -3797,7 +3801,7 @@ struct StepsCalibrationSheet: View {
                 ScoringPreferenceActionStatus(actions: preferenceActions)
 
                 // Live preview: a typical recent day re-estimated at the draft coefficient.
-                if let motion = sampleMotion {
+                if !PhoneComputeRuntime.isFinalHosted, let motion = sampleMotion {
                     let effective = draftManual > 0 ? draftManual : profile.stepsCalibrationCoefficient
                     if effective > 0 {
                         let preview = Int((motion * effective).rounded())
@@ -3835,6 +3839,8 @@ struct StepsCalibrationSheet: View {
     /// the engine does (gravity over [localMidnight, +24h)) and run the public `StepsEstimateEngine` with
     /// the live calibration. This reuses the engine, never invents a number, and needs no extra storage.
     private func loadIfNeeded() async {
+        guard PhoneComputeRuntime.permitsLocal("StepsCalibration.loadComparison") else { return }
+        PhoneComputeRuntime.entered("StepsCalibration.loadComparison")
         guard !didLoad else { return }
         didLoad = true
 

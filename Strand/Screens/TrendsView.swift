@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 import Foundation
 
@@ -276,7 +277,10 @@ struct TrendsView: View {
                        onRefresh: { await repo.refresh() },
                        lazy: true,
                        topBackground: liquidScaffoldSky()) {
-            if repo.days.isEmpty {
+            if PhoneComputeRuntime.isFinalHosted {
+                CanonicalPhysiologySection(families: ["recovery", "night_hrv", "strain_energy", "sleep_history", "readiness_load", "insights"], history: true)
+                exportReportRow
+            } else if repo.days.isEmpty {
                 ComingSoon(what: repo.loaded
                     ? "Trends need history to draw. Import your WHOOP export in Data Sources to see weeks, months and years instantly."
                     : "Loading your history…")
@@ -330,6 +334,7 @@ struct TrendsView: View {
         // count so a newly-banked/-scored night refreshes Rest reactively, like the other metrics that
         // read `repo.days` directly (and like the Android LaunchedEffect(days) twin).
         .task(id: repo.days.count) {
+            guard PhoneComputeRuntime.permitsLocal("TrendsView.loadLegacySeries") else { return }
             let s = await repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
             sleepPerfByDay = Dictionary(s.map { ($0.day, $0.value) }, uniquingKeysWith: { _, last in last })
         }

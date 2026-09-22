@@ -4,6 +4,7 @@ import Charts
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 
 // MARK: - Training Load card (CTL / ATL / TSB)
 //
@@ -48,6 +49,7 @@ struct TrainingLoadCard: View {
     /// Model straight from the training-load engine — NOT the paired `evaluateWithTrainingLoad`, which
     /// would also run the full Readiness synthesis this card never uses. `DailyMetric.strain` is the load.
     private var result: TrainingLoadEngine.Result {
+        PhoneComputeRuntime.entered("TrainingLoadCard.result")
         let loads = days.map { TrainingLoadEngine.DailyLoad(day: $0.day, load: $0.strain) }
         return TrainingLoadEngine.evaluate(days: loads)
     }
@@ -59,6 +61,9 @@ struct TrainingLoadCard: View {
     private func signed(_ v: Double) -> String { String(format: "%+.1f", v) }
 
     var body: some View {
+        if PhoneComputeRuntime.isFinalHosted {
+            CanonicalPhysiologySection(families: ["readiness_load"])
+        } else {
         let tl = result
         if !tl.isAvailable {
             unavailableCard(contiguousDays: tl.contiguousDays)
@@ -84,6 +89,7 @@ struct TrainingLoadCard: View {
                     ])
                 }
             )
+        }
         }
     }
 

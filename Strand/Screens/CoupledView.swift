@@ -1,6 +1,7 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 import Foundation
 
@@ -133,6 +134,9 @@ struct CoupledView: View {
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends: a fixed,
                        // full-bleed time-of-day sky behind the scroll content (does not scroll).
                        topBackground: liquidScaffoldSky()) {
+            if PhoneComputeRuntime.isFinalHosted {
+                CanonicalPhysiologySection(families: ["recovery", "strain_energy", "sleep", "sleep_history", "readiness_load", "baselines"])
+            } else {
             ViewThatFits(in: .horizontal) {
                 // Regular width (macOS / iPad): hero left, strain + sleep stacked right in a 2-column grid.
                 HStack(alignment: .top, spacing: NoopMetrics.gap) {
@@ -152,11 +156,13 @@ struct CoupledView: View {
                 }
             }
             footerCaption
+            }
         }
         .sheet(isPresented: $showChargeBreakdown) { chargeBreakdownSheet }
         // Loads the SAME learned habitual the Sleep tab hero threads into its main-night pick, so the
         // bed→wake span below resolves identically (#294). Re-runs on a sync/import refresh.
         .task(id: repo.refreshSeq) {
+            guard PhoneComputeRuntime.permitsLocal("CoupledView.load") else { return }
             habitualMidsleepSec = await repo.habitualMidsleepSec()
             workoutsToday = day?.exerciseCount ?? 0
         }

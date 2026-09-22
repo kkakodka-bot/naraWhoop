@@ -3,6 +3,7 @@ import Foundation
 import Charts
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 
 // MARK: - Compare
@@ -181,6 +182,9 @@ struct CompareView: View {
                        // analysis tabs, exactly like Today and the batch-1 screens.
                        topBackground: liquidScaffoldSky()) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                if PhoneComputeRuntime.isFinalHosted {
+                    CanonicalPhysiologySection(families: ["insights"], history: true)
+                } else {
                 metricSection
 
                 if selected.count < minSelection {
@@ -195,6 +199,7 @@ struct CompareView: View {
                         overlaySection(series)
                         correlationSection(series)
                     }
+                }
                 }
             }
         }
@@ -334,6 +339,7 @@ struct CompareView: View {
     /// so a repository refresh can safely replace cached rows instead of leaving
     /// Compare on a stale pre-sync snapshot.
     private func loadSelected() async {
+        guard PhoneComputeRuntime.permitsLocal("CompareView.load") else { return }
         for metric in selected {
             let s = await repo.resolvedSeries(key: metric.key, source: metric.source).values
             fullSeries[metric.id] = s
@@ -552,6 +558,8 @@ struct CompareView: View {
 
     /// Recompute the pair cache if (and only if) the correlation inputs changed.
     private func refreshPairCache(_ series: [CompareSeries]) {
+        guard PhoneComputeRuntime.permitsLocal("CompareView.correlations") else { return }
+        PhoneComputeRuntime.entered("CompareView.correlations")
         let key = correlationKey(series)
         guard key != pairCacheKey else { return }
         pairCacheKey = key

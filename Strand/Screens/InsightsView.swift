@@ -2,6 +2,7 @@ import SwiftUI
 import Foundation
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 
 // MARK: - Insights
@@ -219,7 +220,14 @@ struct InsightsView: View {
                        // tabs carry, so Insights sits in one atmosphere ("the options change, not the page").
                        // Static + non-interactive; the cards below sit on the opaque canvas and stay legible.
                        topBackground: liquidScaffoldSky()) {
-            if !loaded {
+            if PhoneComputeRuntime.isFinalHosted {
+                JournalLogCard(importedQuestions: importedQuestions, answers: dayAnswers,
+                               numericAnswers: dayNumeric, dayOffset: $journalDayOffset,
+                               onChanged: { Task { await load() } })
+                MindSection()
+                CaffeineLogCard(store: model.caffeineLog, defaults: model.accountDefaults)
+                CanonicalPhysiologySection(families: ["insights"], history: true)
+            } else if !loaded {
                 ComingSoon(what: "Reading your journal and outcomes…")
             } else {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
@@ -341,6 +349,17 @@ struct InsightsView: View {
     /// path (a re-mount / data-refresh / day-rollover); the direct write-then-reload sites (journal toggle,
     /// experiment mark) leave it false so a change that doesn't bump `refreshSeq` always re-reads.
     private func load(allowCache: Bool = false) async {
+        if PhoneComputeRuntime.isFinalHosted {
+            // User input remains available without admitting the analytical half of this loader.
+            let imported = await repo.importedJournalEntries()
+            let day = Repository.localDayKey(Calendar.current.date(byAdding: .day, value: -journalDayOffset, to: Date()) ?? Date())
+            importedQuestions = NSOrderedSet(array: imported.map(\.question)).array as? [String] ?? []
+            dayAnswers = await repo.nativeJournalAnswers(day: day)
+            dayNumeric = await repo.nativeJournalNumeric(day: day)
+            loaded = true
+            return
+        }
+        PhoneComputeRuntime.entered("InsightsView.loadAnalysis")
         // #833: same-state re-mount → restore from the repo-level cache (no store queries). The dayKey guard
         // mirrors the `.task(id:)` key so a day-rollover still re-loads even at an unchanged seq.
         if allowCache,
@@ -526,6 +545,8 @@ struct InsightsView: View {
     /// Rebuild the cached behaviour ranking for the current inputs.
     /// Called at load and whenever `outcome` changes, NOT in `body`.
     private func recomputeRanked() {
+        guard PhoneComputeRuntime.permitsLocal("InsightsView.rank") else { return }
+        PhoneComputeRuntime.entered("InsightsView.rank")
         let outcomeDays = outcomeByKey[outcome.key] ?? [:]
         ranked = BehaviorInsights.rank(
             behaviors: behaviours,
@@ -538,6 +559,8 @@ struct InsightsView: View {
     /// Rebuild the cached metric relationships from the loaded series.
     /// Called at load only, the series don't change after that.
     private func recomputeRelationships() {
+        guard PhoneComputeRuntime.permitsLocal("InsightsView.relationships") else { return }
+        PhoneComputeRuntime.entered("InsightsView.relationships")
         relationships = computeRelationships()
     }
 

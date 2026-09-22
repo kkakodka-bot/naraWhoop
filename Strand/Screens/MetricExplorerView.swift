@@ -3,6 +3,7 @@ import Foundation
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 
 // MARK: - Explore (Metric Explorer + Detail)
 //
@@ -471,6 +472,17 @@ struct MetricExplorerView: View {
     /// with layout, and one assignment publishes the lot. Rows still render their label / icon / unit
     /// without waiting on this — the map only ever ADDS a trailing dot.
     private func probeEmptiness(refreshSeq: Int) async {
+        if PhoneComputeRuntime.isFinalHosted {
+            emptyByID = Dictionary(uniqueKeysWithValues: MetricCatalog.all.map { metric in
+                let key = RepositoryServerScores.metric(key: metric.key)?.rawValue ?? metric.key
+                let present = repo.serverPresentation.canonicalDays.values.contains {
+                    $0.result(for: key)?.number(key) != nil
+                }
+                return (metric.id, !present)
+            })
+            probing = false
+            return
+        }
         guard probedRefreshSeq != refreshSeq || emptyByID.isEmpty else { probing = false; return }
         probedRefreshSeq = refreshSeq
         probing = true
@@ -791,6 +803,20 @@ struct MetricDetailView: View {
     // MARK: Body
 
     var body: some View {
+        if PhoneComputeRuntime.isFinalHosted {
+            ScreenScaffold(title: LocalizedStringKey(metric.title)) {
+                let key = RepositoryServerScores.metric(key: metric.key)?.rawValue ?? metric.key
+                if let family = ServerCanonicalResults.familyMetrics.first(where: { $0.value.contains(key) })?.key {
+                    CanonicalPhysiologySection(families: [family], history: true)
+                } else {
+                    Text("Server-owned · unsupported: no canonical result contract for this metric.")
+                        .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+        } else { referenceBody }
+    }
+
+    private var referenceBody: some View {
         // Compute the heavy window derivations ONCE per body eval, then hand them to
         // the subviews — instead of every subview re-deriving `effectiveRange` /
         // `windowed` (each of which re-parses + re-filters the full history).
@@ -936,6 +962,7 @@ struct MetricDetailView: View {
     /// flips there. Phase 2 is the catalog scan, awaited afterwards, and only the correlation card waits
     /// on it. Same reads, same results, same order; only the gate moved.
     private func load() async {
+        guard PhoneComputeRuntime.permitsLocal("MetricDetailView.loadLegacy") else { return }
         let load = ScoringPreferenceViewLoad(app: app, repo: repo)
         let taskID = loadTaskID
         let skinTempPreference = skinTempPreferred
@@ -1513,6 +1540,8 @@ struct MetricDetailView: View {
     /// the window so the heavy scan can be driven from `recomputeCorrelations()` into
     /// the `@State` cache instead of running inside `body`.
     private func computeCorrelationRows(windowed: [(day: String, value: Double)]) -> [CorrRow] {
+        guard PhoneComputeRuntime.permitsLocal("MetricDetailView.correlations") else { return [] }
+        PhoneComputeRuntime.entered("MetricDetailView.correlations")
         let myDays = Set(windowed.map(\.day))
         guard !myDays.isEmpty else { return [] }
         var rows: [CorrRow] = []

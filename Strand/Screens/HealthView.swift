@@ -2,6 +2,7 @@ import SwiftUI
 import Charts
 import StrandDesign
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 import NoopPush
 
@@ -94,7 +95,11 @@ struct HealthView: View {
                     }
                 }
             }
-            if repo.days.isEmpty {
+            if PhoneComputeRuntime.isFinalHosted {
+                SyncStatusSection()
+                DeviceReportedHeartRateSection()
+                CanonicalPhysiologySection(families: ["night_hrv", "current_hrv", "respiration", "oxygen", "temperature", "recovery", "fitness_longevity", "illness", "cycle", "circadian"])
+            } else if repo.days.isEmpty {
                 // First run / no history: whether to show the empty state or the full live stack depends
                 // on whether a strap is streaming live HR — a `live`-dependent choice. It's isolated to
                 // this leaf (which owns `live`/`model`) so a ~1 Hz HR tick re-renders only this branch,
@@ -161,6 +166,7 @@ private struct HealthFirstRunContent: View {
     /// HR to display: the spike-filtered median (model.bpm, #39) when available, else the reported
     /// value, else R-R-derived (the strap streams R-R even when its HR field reads 0).
     private var displayHR: Int? {
+        if PhoneComputeRuntime.isFinalHosted { return live.heartRate.flatMap { $0 > 0 ? $0 : nil } }
         if let hr = model.bpm, hr > 0 { return hr }
         if let hr = live.heartRate, hr > 0 { return hr }
         if let last = live.rr.last, last > 0 { return Int((60_000.0 / Double(last)).rounded()) }

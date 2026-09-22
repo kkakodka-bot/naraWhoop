@@ -1,4 +1,5 @@
 import SwiftUI
+import WhoopProtocol
 import StrandAnalytics
 import StrandDesign
 
@@ -14,6 +15,12 @@ struct FiveMinuteHeartRateView: View {
 
     private var requestKey: String { "\(repo.deviceId)|\(repo.refreshSeq)|\(refresh)" }
     var body: some View {
+        if PhoneComputeRuntime.isFinalHosted {
+            CanonicalPhysiologySection(families: ["live_hr_selection", "strain_energy"])
+        } else { referenceBody }
+    }
+
+    @ViewBuilder private var referenceBody: some View {
         let rows = loadedDevice == repo.deviceId ? measurements : []
         NoopCard(tint: StrandPalette.accent) {
             VStack(alignment: .leading, spacing: 8) {
@@ -53,6 +60,8 @@ struct FiveMinuteHeartRateView: View {
     }
 
     @MainActor private func load() async {
+        guard PhoneComputeRuntime.permitsLocal("FiveMinuteHeartRateView.windows") else { return }
+        PhoneComputeRuntime.entered("FiveMinuteHeartRateView.windows")
         let device = repo.deviceId
         guard let store = await repo.storeHandle() else { return }
         let end = Int(Date().timeIntervalSince1970) / 300 * 300, start = end - 86400

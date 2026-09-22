@@ -1,6 +1,7 @@
 import Foundation
 import WhoopStore
 import StrandAnalytics
+import WhoopProtocol
 
 // MARK: - Hydration tracker (MVP) — opt-in, local-only water logging
 //
@@ -311,7 +312,9 @@ extension Repository {
 
     /// Today's hydration goal (ml) from the profile sex + today's Effort score. Pure math in
     /// `HydrationGoal`; this just feeds it the live inputs (today's `strain` is NOOP's 0–100 Effort).
-    func hydrationGoalML(profileSex: String) -> Int {
-        HydrationGoal.dailyGoalML(sex: profileSex, effort: today?.strain)
+    func hydrationGoalML(profileSex: String) -> Int? {
+        guard PhoneComputeRuntime.permitsLocal("Repository.hydrationGoal") else { return nil }
+        PhoneComputeRuntime.entered("Repository.hydrationGoal")
+        return HydrationGoal.dailyGoalML(sex: profileSex, effort: today?.strain)
     }
 }

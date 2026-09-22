@@ -2,6 +2,7 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 import Foundation
 
 // MARK: - Weekly Digest (#208)
@@ -30,6 +31,7 @@ enum WeeklyDigestSource {
     static func digest(from days: [DailyMetric],
                        anchorDay: String,
                        effortDisplayFactor: Double = UnitPrefs.currentEffortDisplayFactor()) -> WeeklyDigest {
+        PhoneComputeRuntime.entered("WeeklyDigestSource.digest")
         var charge: [String: Double] = [:]
         var effort: [String: Double] = [:]
         var rest: [String: Double] = [:]
@@ -66,6 +68,9 @@ struct WeeklyDigestCard: View {
     @EnvironmentObject var repo: Repository
 
     var body: some View {
+        if PhoneComputeRuntime.isFinalHosted {
+            CanonicalPhysiologySection(families: ["insights"])
+        } else {
         let digest = WeeklyDigestSource.digest(from: repo.days, anchorDay: Repository.localDayKey(Date()))
         if digest.isEmpty {
             EmptyView()
@@ -74,6 +79,7 @@ struct WeeklyDigestCard: View {
             // card), so it's no longer wrapped in an outer NoopCard — that would double
             // the frost. The compact flag trims it to the three headline scores.
             WeeklyDigestContent(digest: digest, compact: true)
+        }
         }
     }
 }
@@ -93,7 +99,9 @@ struct WeeklyDigestView: View {
                        // for pixel-identical spacing (the scaffold stack is 20pt), so the win is partial
                        // until those rows are promoted to direct children.
                        lazy: true) {
-            if repo.days.isEmpty {
+            if PhoneComputeRuntime.isFinalHosted {
+                CanonicalPhysiologySection(families: ["insights"], history: true)
+            } else if repo.days.isEmpty {
                 ComingSoon(what: repo.loaded
                     ? "A weekly digest needs a few days of history. Wear your strap or import your WHOOP export in Data Sources."
                     : "Loading your history…")
