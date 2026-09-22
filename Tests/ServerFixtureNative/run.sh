@@ -49,7 +49,8 @@ fixtureFingerprint() {
 }
 fixtureFingerprint > "$fixtureOutput/source-before.sha256"
 git -C "$fixtureRoot" rev-parse HEAD > "$fixtureOutput/source-head.txt"
-mkdir -p "$fixtureOutput/tmp" "$fixtureHarness/Sources/CloudUploadHarness" "$fixtureHarness/Tests/CloudUploadHarnessTests"
+mkdir -p "$fixtureOutput/tmp" "$fixtureOutput/representation-swift" \
+  "$fixtureHarness/Sources/CloudUploadHarness" "$fixtureHarness/Tests/CloudUploadHarnessTests"
 ln -s "$fixtureScript/Package.swift" "$fixtureHarness/Package.swift"
 ln -s "$fixtureRoot/Tests/CloudUploadNative/BoundaryStubs.swift" "$fixtureHarness/Sources/CloudUploadHarness/BoundaryStubs.swift"
 ln -s "$fixtureRoot/Tests/CloudUploadNative/ReceiptFixture.swift" "$fixtureHarness/Tests/CloudUploadHarnessTests/ReceiptFixture.swift"
