@@ -19,6 +19,7 @@ targets:
       - ../../StrandTests/ImportTraceEmitTests.swift
       - ../../StrandTests/WorkoutZonesTests.swift
       - ../../StrandiOSShared/WidgetSnapshot.swift
+      - ../../StrandiOS/Health/HealthKitBridge.swift
       - path: ../../Tests/Fixtures/compute-account-sleep-only.json
         buildPhase: resources
     dependencies:
@@ -29,6 +30,7 @@ targets:
       - package: StrandAnalytics
       - package: StrandDesign
       - package: GRDB
+      - package: ZIPFoundation
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
