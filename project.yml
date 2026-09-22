@@ -23,6 +23,7 @@ settings:
     # macOS sets its own CFBundleVersion on the Strand target and is unaffected by this.
     CURRENT_PROJECT_VERSION: "371"
     NOOP_SOURCE_REVISION: development
+    COMPUTE_TEST_SCRATCH: $(BUILT_PRODUCTS_DIR)/fixtures
     SWIFT_VERSION: "5.0"
     # Emit localizable strings so Xcode auto-extracts every LocalizedStringKey into the
     # String Catalog on build (the English (US) base entries).
@@ -563,6 +564,7 @@ schemes:
         NOOP_TEST_DISABLE_BLUETOOTH: "1"
         NOOP_COMPUTE_REFERENCE_TESTS: "1"
         NARA_TEST_FIXTURE_ROOT: "$(BUILT_PRODUCTS_DIR)/fixtures"
+        SCORING_PREFERENCE_SCRATCH: "$(COMPUTE_TEST_SCRATCH)"
         TMPDIR: "$(BUILT_PRODUCTS_DIR)/fixtures/"
       targets:
         - StrandTests

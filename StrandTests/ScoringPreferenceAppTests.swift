@@ -260,6 +260,7 @@ final class ScoringPreferenceAppTests: XCTestCase {
         XCTAssertEqual(ticket.state, .held(.retired))
         XCTAssertNil(f.model.acceptedScoringPreferences)
         XCTAssertThrowsError(try f.model.completePreferenceAction([.init(key: .weightKg, value: .number(91))]))
-        XCTAssertNil(f.model.accountDefaults.object(forKey: "profile.weightKg"))
+        XCTAssertNil(f.model.accountDefaults.persistentDomain(forName: f.layout.preferencesSuite)?["profile.weightKg"],
+                     "Retirement must not persist an action; registration-domain defaults are not account data")
     }
 }
