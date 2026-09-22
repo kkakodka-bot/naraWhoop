@@ -35,7 +35,10 @@ extension WhoopStore {
             // The seeded sequence has no source ownership. Revision rows and sync debt remain
             // outside this set: even a deleted source can leave an unassigned account's tombstone.
             let metadata = Set(["grdb_migrations", "device", "pairedDevice", "localAccountOwner",
-                                "quarantineMaintenance", "cloudMutableSequence"])
+                                "quarantineMaintenance", "cloudMutableSequence", "cloudSourceBootstrap"])
+            if try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM cloudSourceBootstrap WHERE lastRowId IS NOT NULL)") == true {
+                throw LocalAccountOwnershipError.unassignedExistingData
+            }
             for table in tables where !metadata.contains(table) {
                 let identifier = "\"" + table.replacingOccurrences(of: "\"", with: "\"\"") + "\""
                 if try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \(identifier) LIMIT 1)") == true {

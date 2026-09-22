@@ -193,6 +193,7 @@ final class DeviceRegistryStoreTests: XCTestCase {
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM journal"), 0)
             XCTAssertGreaterThan(try XCTUnwrap(Int64.fetchOne(db, sql: "SELECT revision FROM cloudMutableRevision WHERE deviceId='synthetic-noop'")), try XCTUnwrap(before))
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM syncJob WHERE kind='cloudPush'"), 1)
+            XCTAssertEqual(try WhoopStore.cloudSourceMembership(db, tables: [.journal]).deviceIDs, ["synthetic-noop"])
         }
     }
 
@@ -210,6 +211,7 @@ final class DeviceRegistryStoreTests: XCTestCase {
             let old = try XCTUnwrap(Int64.fetchOne(db, sql: "SELECT revision FROM cloudMutableRevision WHERE deviceId=?", arguments: [from]))
             let new = try XCTUnwrap(Int64.fetchOne(db, sql: "SELECT revision FROM cloudMutableRevision WHERE deviceId=?", arguments: [to]))
             XCTAssertGreaterThan(old, try XCTUnwrap(before)); XCTAssertGreaterThan(new, try XCTUnwrap(before))
+            XCTAssertEqual(try WhoopStore.cloudSourceMembership(db, tables: [.journal]).deviceIDs, [to, from].sorted())
         }
     }
 

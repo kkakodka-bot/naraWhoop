@@ -59,7 +59,8 @@
     "v54-workout-preference-evaluation",
     "v55-quarantine-maintenance",
     "v56-cloud-mutable-revisions",
-    "v57-cloud-mutable-order"
+    "v57-cloud-mutable-order",
+    "v58-cloud-source-membership"
   ],
   "divergenceReasons": {
     "workout-preference-window-ios-only": "GRDB v54 adds the bounded workout preference evaluation scan index. Android has no equivalent evaluation lane; Room44 remains unchanged. The index does not change workout values or their shared primary key.",
@@ -75,6 +76,55 @@
     "ppg-record-index-default": "Both platforms preserve device/timestamp/recordIndex identity. Room v40 declares DEFAULT -1 for the explicit unknown legacy identity; GRDB retains its deployed no-default column. Both writers bind the index explicitly, and the wire maps unknown to null."
   },
   "tables": {
+    "cloudSourceMembership": {
+      "platform": "ios_only",
+      "columns": [
+        {
+          "name": "tableName",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "deviceId",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        }
+      ],
+      "primaryKey": [
+        "tableName",
+        "deviceId"
+      ],
+      "indices": []
+    },
+    "cloudSourceBootstrap": {
+      "platform": "ios_only",
+      "columns": [
+        {
+          "name": "tableName",
+          "affinity": "TEXT",
+          "notNull": true,
+          "default": null
+        },
+        {
+          "name": "lastRowId",
+          "affinity": "INTEGER",
+          "notNull": false,
+          "default": null
+        },
+        {
+          "name": "complete",
+          "affinity": "INTEGER",
+          "notNull": true,
+          "default": "0"
+        }
+      ],
+      "primaryKey": [
+        "tableName"
+      ],
+      "indices": []
+    },
     "cloudMutableSequence": {
       "platform": "ios_only",
       "columns": [

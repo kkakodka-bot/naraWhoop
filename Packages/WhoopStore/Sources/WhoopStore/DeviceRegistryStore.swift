@@ -205,7 +205,7 @@ public struct DeviceRegistryStore: Sendable {
     /// Pending deletion control metadata is retained under its original identity. Erasing or
     /// rekeying it could hide an empty replacement still owed to that identity's cloud window.
     /// These tables contain no sample values; account deletion removes the account store itself.
-    static let deviceDeletionJournalTables: Set<String> = ["cloudMutableRevision"]
+    static let deviceDeletionJournalTables: Set<String> = ["cloudMutableRevision", "cloudSourceMembership"]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all
     /// `deviceId`-keyed tables, in a single transaction (all-or-nothing). The `pairedDevice` registry

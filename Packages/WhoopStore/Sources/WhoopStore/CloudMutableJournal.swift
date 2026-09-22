@@ -69,8 +69,8 @@ extension WhoopStore {
     }
 
     /// Coalesced revisions live in the same account database and source transaction. No source
-    /// scan is needed on migration: an absent legacy marker means revision zero, and a receiver
-    /// without a saved revision still needs its ordinary initial snapshot.
+    /// scan is needed on migration: v58's pressure-admitted membership bootstrap seeds absent
+    /// legacy markers before cloud discovery can report completion.
     nonisolated static func installCloudMutableJournal(_ db: Database) throws {
         try db.execute(sql: """
             CREATE TABLE cloudMutableSequence (
