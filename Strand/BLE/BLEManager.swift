@@ -1889,9 +1889,6 @@ public final class BLEManager: NSObject, ObservableObject {
                     self?.afterBackfillIngest()
                 }
             },
-            opticalSink: { [weak self] deviceId, frames in
-                await MainActor.run { self?.opticalRecorder.persistHistory(deviceId: deviceId, frames: frames) ?? false }
-            },
             chunkInfo: { [weak self, weak actor] events in
                 guard let self, actor?.deliverySessionIsCurrent == true else { return }
                 for event in events {
@@ -1910,6 +1907,9 @@ public final class BLEManager: NSObject, ObservableObject {
                         self.offloadSkinTemp += skinTemp; self.offloadSpo2 += spo2
                     }
                 }
+            },
+            opticalSink: { [weak self] deviceId, frames in
+                await MainActor.run { self?.opticalRecorder.persistHistory(deviceId: deviceId, frames: frames) ?? false }
             })
         hooks.onQuarantined = { [weak self, weak actor] count in
             await MainActor.run {
