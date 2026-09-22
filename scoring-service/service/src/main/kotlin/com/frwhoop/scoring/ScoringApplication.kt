@@ -123,7 +123,12 @@ fun main(args: Array<String>) {
     }
     val heartbeat = HeartbeatReporter(db, config.algorithmVersion, workerIdentity)
     val archiveOutbox = derivedWriter?.let { DerivedArchiveOutbox(db, it) }
-    val poller = ScoringPoller(config, reader, queue, scorer, writer, heartbeat, archiveOutbox)
+    val computePublisher = com.frwhoop.scoring.db.ComputeContractPublisher(db)
+    val poller = ScoringPoller(config, reader, queue, scorer, writer, heartbeat, archiveOutbox,
+        publishComputeDispositions = { computePublisher.publishDay(it) })
+    val sessionWorker = com.frwhoop.scoring.derived.ArchiveRetryWorker(config.pollInterval,
+        work = computePublisher::processSession,
+        onError = { log.warn("Compute session request unavailable: {}", it.javaClass.simpleName) })
 
     try {
         ScoringWorkerProcess.run {
@@ -135,7 +140,7 @@ fun main(args: Array<String>) {
                 poller.scoreDay(userId, deviceId, day)
             } else poller.runForever()
         }
-    } finally { db.close() }
+    } finally { sessionWorker.close(); db.close() }
 }
 
 private fun resolveReplayDeviceId(

@@ -466,5 +466,13 @@
   {
     "basename": "20260921104000_server_unrepresentable_clock.sql",
     "sha256": "0f723d9e2789d45b26e37aad9f6b95bc8f372d85f2441d8b4be3252abab8a014"
+  },
+  {
+    "basename": "20260921110000_final_hosted_compute_contract.sql",
+    "sha256": "a7e3ede8d625bfa3cdf77244af2dec78dea31fd8bb49565bb725bed0fa0e197f"
+  },
+  {
+    "basename": "20260921111000_compute_session_requests.sql",
+    "sha256": "9cb9ec7808880692bdf7fd74d797b94b19278be3f531b96a917cfe6c802022fe"
   }
 ]

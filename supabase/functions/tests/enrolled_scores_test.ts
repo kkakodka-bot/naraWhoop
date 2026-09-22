@@ -40,10 +40,12 @@ function request(path = `?day=2026-09-19&deviceId=${LOCAL}`, body?: unknown, bea
   });
 }
 
-Deno.test('enrolled scores: fleet-only, legacy and JWT credentials cannot read personal data', async () => {
+Deno.test('scores: fleet-only, legacy and unvalidated JWT credentials cannot read personal data', async () => {
   for (const bearer of ['noop_fleet', 'noop_legacy', 'header.payload.signature']) {
     const { rest, calls } = await fixture();
-    assertEquals((await handleScoresRequest(request(undefined, undefined, bearer), { rest, cfg })).status, 401);
+    assertEquals((await handleScoresRequest(request(undefined, undefined, bearer), {
+      rest, cfg, fetchImpl:async()=>Response.json({error:'invalid_token'},{status:401}),
+    })).status, 401);
     assertEquals(calls.length, 0);
   }
 });
@@ -63,7 +65,7 @@ Deno.test('enrolled scores: requested user cannot override token owner; missing 
   const res = await handleScoresRequest(request(`?day=2026-09-19&deviceId=${LOCAL}&userId=${OTHER}`), { rest, cfg });
   assertEquals(res.status, 200);
   const body = await res.json();
-  assertEquals(body.identity, { userId: USER, sourceId: SOURCE, deviceId: DEVICE, externalDeviceId: LOCAL });
+  assertEquals(body.identity, { userId: USER, sourceId: SOURCE, deviceId: DEVICE, externalDeviceId: LOCAL, project:cfg.supabaseUrl });
   assertEquals(calls[0].args, { p_user: USER, p_day: '2026-09-19', p_device: DEVICE });
   calls.length = 0;
   const other = await handleScoresRequest(request('?day=2026-09-19&deviceId=whoop-OTHER123'), { rest, cfg });
