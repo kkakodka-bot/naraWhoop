@@ -5,12 +5,18 @@ import os
 enum SyncPipelineTrace {
     enum Stage: String {
         case discovery, connection, bleDecode, chunkPersistence, ackWait
+        case receive, localCommit, cloudAcknowledgement, projectionReady, displayFreshness
         case uploadPreparation, uploadScheduling, uploadReceipt
         case cacheLoad, scoreRefresh, snapshotPublication, cachedContentReady, firstUsableFrame, interaction
 
         fileprivate var name: StaticString {
             switch self {
             case .discovery: return "Discovery"
+            case .receive: return "Receive"
+            case .localCommit: return "LocalCommit"
+            case .cloudAcknowledgement: return "CloudAcknowledgement"
+            case .projectionReady: return "ProjectionReady"
+            case .displayFreshness: return "DisplayFreshness"
             case .connection: return "Connection"
             case .bleDecode: return "BLEDecode"
             case .chunkPersistence: return "ChunkPersistence"
@@ -59,5 +65,19 @@ enum SyncPipelineTrace {
     static func event(_ stage: Stage, outcome: Outcome = .succeeded, correlation: UUID = UUID()) {
         os_signpost(.event, log: log, name: stage.name,
                     "correlation=%{public}@ outcome=%{public}@", correlation.uuidString, outcome.rawValue)
+    }
+
+    /// Timestamp of the source represented by a stage, independent of the event's own timestamp.
+    /// A missing source timestamp remains unknown, not fresh. Contains no signal values or identifiers.
+    static func freshness(_ stage: Stage, sourceDate: Date?) {
+        os_signpost(.event, log: log, name: stage.name,
+                    "sourceUnixSeconds=%{public}.3f", sourceDate?.timeIntervalSince1970 ?? -1)
+    }
+
+    static func sourceDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 }

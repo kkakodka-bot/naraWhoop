@@ -5,6 +5,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PpgIdentityBinaryTest {
+    // Independent fixture reader: production only encodes this wire format. Keep the oracle test
+    // self-contained instead of referring to a decoder that was never part of the merged client.
+    private fun PushBinaryCodec.unpackPpgRecords(bytes: ByteArray): List<PushPpgWaveformRecord> {
+        try {
+            val input = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            val magic = ByteArray(4).also(input::get)
+            check(magic.contentEquals(MAGIC))
+            val version = input.get().toInt(); check(version in 1..2)
+            check(input.get().toInt() == 1)
+            val count = input.int; check(count in 1..100_000)
+            fun nullableIndex(): Long? = when (input.get().toInt()) {
+                0 -> null
+                1 -> input.long.also { check(it in 0..4294967295L) }
+                else -> error("flag")
+            }
+            val result = List(count) {
+                val row = input.long; val ts = input.long
+                val record = if (version == 2) nullableIndex() else null
+                val burst = when (input.get().toInt()) { 0 -> null; 1 -> input.int; else -> error("flag") }
+                val size = input.int; check(size in 0..input.remaining())
+                val samples = ByteArray(size).also(input::get)
+                PushPpgWaveformRecord(row, ts, burst, samples, record)
+            }
+            check(!input.hasRemaining())
+            return result
+        } catch (_: Exception) { throw PushProtocolException("invalid fixture payload") }
+    }
     private fun hex(value: String) = value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
     @Test fun sharedOraclePreservesMultipleRecordsAndUnsignedIdentity() {

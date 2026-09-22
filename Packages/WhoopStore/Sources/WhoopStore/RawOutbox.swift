@@ -132,6 +132,17 @@ extension WhoopStore {
         let packed = WhoopStore.packFrames(frames)
         let blob = try WhoopStore.zlibCompressWithLength(packed)
         try syncWrite { db in
+            // Pending required evidence is not an evictable diagnostic log. Exact retries remain
+            // admissible at capacity; a new batch fails closed and its caller retains it / holds ACK.
+            let exists = try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM rawBatch WHERE batchId = ?)",
+                                          arguments: [meta.batchId]) ?? false
+            if !exists {
+                let pendingBytes = try Int.fetchOne(db,
+                    sql: "SELECT COALESCE(SUM(length(framesBlob)), 0) FROM rawBatch WHERE syncedAt IS NULL") ?? 0
+                guard blob.count <= 128 * 1_024 * 1_024 - pendingBytes else {
+                    throw DurableIngestError.capacityExceeded
+                }
+            }
             try db.execute(sql: """
                 INSERT INTO rawBatch
                     (batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,

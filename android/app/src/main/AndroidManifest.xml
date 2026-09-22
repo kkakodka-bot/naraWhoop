@@ -243,6 +243,12 @@
         <!-- Keeps the WHOOP connection alive while the app is backgrounded or closed. Not exported;
              started/stopped only from within the app, gated by the "Keep connected in the
              background" Settings toggle. -->
+        <receiver android:name="com.noop.ble.BleRecoveryReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         <service
             android:name="com.noop.ble.WhoopConnectionService"
             android:exported="false"

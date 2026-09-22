@@ -39,7 +39,7 @@ struct CollectorPolicy {
         self.maxInterval = maxInterval
         self.maxPreClockFrames = maxPreClockFrames
     }
-    static let `default` = CollectorPolicy(maxFrames: 64, maxInterval: 30, maxPreClockFrames: 4096)
+    static let `default` = CollectorPolicy(maxFrames: 64, maxInterval: 0.75, maxPreClockFrames: 4096)
 }
 
 /// Buffers complete (reassembled) frames and periodically persists them:
@@ -80,6 +80,7 @@ final class Collector {
         let frame: [UInt8]
         let parsed: ParsedFrame
         let deviceID: String
+        let sessionID: String
         let family: DeviceFamily
         let clock: ClockRef?
         let capturedAt: Int
@@ -91,6 +92,7 @@ final class Collector {
         let meta: RawBatchMeta?
         let correlation: UUID
         var decodedCommitted = false
+        var committedCounts: BankedCounts?
     }
     private var buffer: [BufferedFrame] = []
     private var bufferedWireBytes = 0
@@ -98,6 +100,7 @@ final class Collector {
     private var pendingLive: PendingLive?
     private var liveDrain: Task<Bool, Never>?
     private var standardDrain: Task<Bool, Never>?
+    private var flushDeadline: Task<Void, Never>?
     private(set) var acceptingCapture = true
     private(set) var lastDrainSucceeded = true
     private let onDurabilityFailure: (() -> Void)?
@@ -242,6 +245,7 @@ final class Collector {
     @discardableResult
     func ingest(frame: [UInt8], parsed: ParsedFrame) -> Bool {
         guard acceptingCapture else { return false }
+        SyncPipelineTrace.event(.receive)
         guard bufferedCount < max(1, policy.maxPreClockFrames),
               frame.count <= maximumBufferedWireBytes - bufferedWireBytes else {
             lastDrainSucceeded = false
@@ -253,20 +257,45 @@ final class Collector {
                "Collector.ingest: threaded ParsedFrame != fresh parse (#47 parse-once invariant)")
         #endif
         recordGroundTruthImu(frame)
-        buffer.append(BufferedFrame(frame: frame, parsed: parsed, deviceID: deviceId,
+        buffer.append(BufferedFrame(frame: frame, parsed: parsed, deviceID: deviceId, sessionID: stdReceiptSessionId,
             family: family, clock: clockRef, capturedAt: now(),
             wantsRaw: enableRawCapture || rawCapture.isActive(at: monotonic())))
         bufferedWireBytes += frame.count
+        armFlushDeadline()
         // Missing clock is not permission to drop accepted frames: flush archives exact bytes
         // without inventing decoded timestamps. Memory pressure rejects NEW intake visibly.
-        if buffer.count >= policy.maxFrames || (monotonic() - batchStartedAt) >= policy.maxInterval {
+        if buffer.count >= policy.maxFrames || bufferedWireBytes >= 256 * 1_024 ||
+            (monotonic() - batchStartedAt) >= policy.maxInterval {
             Task { @MainActor in await self.flush() }
         }
         return true
     }
 
     /// Synchronous fence. Existing tasks retain this collector and its immutable old store.
-    func shutdownForAccountChange() { acceptingCapture = false }
+    func shutdownForAccountChange() {
+        acceptingCapture = false
+        flushDeadline?.cancel()
+        flushDeadline = nil
+    }
+
+    /// A deadline is armed by the first item, never postponed by later arrivals. It runs only
+    /// while the OS grants execution; lifecycle drains and the durable outbox cover later wakes.
+    private func armFlushDeadline(retrying: Bool = false) {
+        guard acceptingCapture, flushDeadline == nil else { return }
+        let seconds = retrying ? max(5, policy.maxInterval) : max(0.001, policy.maxInterval)
+        flushDeadline = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+            catch { return }
+            guard let self else { return }
+            let live = await self.flush()
+            let standard = await self.flushStandardHR(reason: .cadence)
+            self.flushDeadline = nil
+            if self.bufferedCount > 0 || !self.stdHR.isEmpty || !self.stdRR.isEmpty ||
+                !self.stdContact.isEmpty || !self.stdReceipts.isEmpty {
+                self.armFlushDeadline(retrying: !live || !standard)
+            }
+        }
+    }
 
     /// May be retried after failure; false means retained work still needs durable storage.
     @discardableResult
@@ -301,10 +330,11 @@ final class Collector {
         if pendingLive == nil {
             guard let first = buffer.first else { return true }
             let batch = Array(buffer.prefix {
-                $0.deviceID == first.deviceID && $0.family == first.family && $0.wantsRaw == first.wantsRaw
+                $0.deviceID == first.deviceID && $0.sessionID == first.sessionID && $0.family == first.family && $0.wantsRaw == first.wantsRaw
                     && $0.clock?.device == first.clock?.device && $0.clock?.wall == first.clock?.wall
             }.prefix(max(1, policy.maxFrames)))
-            let ref = first.clock ?? (first.deviceID == deviceId && first.family == family ? clockRef : nil)
+            let ref = first.clock ?? (first.deviceID == deviceId && first.sessionID == stdReceiptSessionId &&
+                first.family == family ? clockRef : nil)
             let streams = ref.map { extractStreams(batch.map(\.parsed), deviceClockRef: $0.device, wallClockRef: $0.wall) } ?? Streams()
             let correlation = UUID()
             let frames = batch.map(\.frame)
@@ -359,7 +389,7 @@ final class Collector {
                 }
                 realtimeInsertFailures = 0
                 pendingLive?.decodedCommitted = true
-                if acceptingCapture { onBanked?(inserted) }
+                pendingLive?.committedCounts = inserted
             }
             if let meta = pending.meta {
                 let assembly = SyncPipelineTrace.begin(.uploadPreparation, correlation: pending.correlation)
@@ -390,7 +420,9 @@ final class Collector {
         // inserts fail (batchStartedAt must NOT advance on a failed drain).
         batchStartedAt = monotonic()
         bufferedWireBytes -= frames.reduce(0) { $0 + $1.count }
+        if acceptingCapture, let counts = pendingLive?.committedCounts { onBanked?(counts) }
         pendingLive = nil
+        SyncPipelineTrace.event(.localCommit, correlation: pending.correlation)
         outcome = .succeeded
         return true
     }
@@ -405,10 +437,17 @@ final class Collector {
     }
 
     func ingestStandardHRReceipt(_ bytes: [UInt8], receivedUnixMs: Int64, receivedMonotonicNs: Int64) {
+        guard acceptingCapture else { return }
+        guard stdHR.count + stdRR.count + stdContact.count + stdReceipts.count < max(30, policy.maxPreClockFrames) else {
+            lastDrainSucceeded = false
+            onDurabilityFailure?()
+            return
+        }
         if let receipt = StandardHRReceipt.capture(bytes, sessionId: stdReceiptSessionId,
             notificationOrdinal: stdReceiptOrdinal, receivedUnixMs: receivedUnixMs,
             receivedMonotonicNs: receivedMonotonicNs) {
             stdReceipts.append((deviceId, receipt))
+            armFlushDeadline()
         }
         if stdReceiptOrdinal == Int64.max { beginStandardHRReceiptSession() }
         else { stdReceiptOrdinal += 1 }
@@ -420,6 +459,7 @@ final class Collector {
     func ingestStandardHR(hr: Int, rr: [Int], contact: StandardHRContact? = nil,
                           family: DeviceFamily? = nil, at ts: Int) {
         guard acceptingCapture else { return }
+        SyncPipelineTrace.freshness(.receive, sourceDate: Date(timeIntervalSince1970: TimeInterval(ts)))
         guard stdHR.count + stdRR.count + stdContact.count + stdReceipts.count + rr.count + 3 <= max(30, policy.maxPreClockFrames) else {
             lastDrainSucceeded = false
             onDurabilityFailure?()
@@ -443,6 +483,7 @@ final class Collector {
             acceptedHRRows: acceptedHR, acceptedRRRows: acceptedRR.count,
             rejectedHRRows: 1 - acceptedHR, rejectedRRRows: rr.count - acceptedRR.count,
             pendingHRRows: stdHR.count, pendingRRRows: stdRR.count))
+        armFlushDeadline()
         if stdHR.count + stdRR.count + stdContact.count >= 30 {
             Task { @MainActor in await self.flushStandardHR(reason: .cadence) }
         }
@@ -505,6 +546,7 @@ final class Collector {
                     captureScope: captureScope.forDevice(deviceId)).counts
             } else { inserted = try await store.insert(streams, deviceId: deviceId) }
             stdInsertFailures = 0
+            SyncPipelineTrace.event(.localCommit)
             if acceptingCapture { onBanked?(inserted) }
             log?(LivePersistTrace.standardHRFlushSucceededLine(
                 reason: reason, offeredHRRows: hr.count, offeredRRRows: rr.count,

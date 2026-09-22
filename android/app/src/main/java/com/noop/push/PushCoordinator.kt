@@ -14,6 +14,7 @@ class PushCoordinator(
     private val today: () -> LocalDate,
     private val zoneId: ZoneId,
     private val destinationStillCurrent: () -> Boolean = { true },
+    private val trace: (com.noop.ble.BlePipelineTrace.Stage) -> Unit = {},
 ) {
     suspend fun pushAppend(table: PushAppendTable, deviceId: String, protocolVersion: String = PushProtocol.VERSION): PushResult {
         val stored = try {
@@ -204,7 +205,8 @@ class PushCoordinator(
         return try {
             batch.endCursor?.let { progress.saveBinaryCursor(table, deviceId, it) }
             source.acknowledgeBinary(table, deviceId, rows)
-            val hasMore = table != PushBinaryTable.RAW_BATCH && rows.size > batch.sampleCount
+            val hasMore = if (table == PushBinaryTable.RAW_BATCH)
+                source.binaryRows(table, deviceId, 0, 1).isNotEmpty() else rows.size > batch.sampleCount
             accepted.copy(hasMore = hasMore)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -303,7 +305,8 @@ class PushCoordinator(
                 progress.savePreparedBoundary(table, progressDevice, null)
                 check(progress.preparedBoundary(table, progressDevice) == null)
             }
-            val hasMore = table != PushBinaryTable.RAW_BATCH && rows.size > batch.sampleCount
+            val hasMore = if (table == PushBinaryTable.RAW_BATCH)
+                source.binaryRows(table, deviceId, 0, 1).isNotEmpty() else rows.size > batch.sampleCount
             accepted.copy(hasMore = hasMore)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -450,6 +453,7 @@ class PushCoordinator(
             throw CancellationException("push destination changed")
         }
         val response = try {
+            trace(com.noop.ble.BlePipelineTrace.Stage.UPLOAD_ATTEMPT)
             transport.postBinary(batch)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -474,6 +478,7 @@ class PushCoordinator(
         if (!ack.exactlyMatches(batch)) {
             return rejected(PushFailure(PushFailureCode.ACK_INVALID))
         }
+        trace(com.noop.ble.BlePipelineTrace.Stage.CLOUD_ACK)
         return PushResult.Accepted(batch.batchId, batch.sampleCount, hasMore = false)
     }
 
@@ -502,6 +507,7 @@ class PushCoordinator(
         if (!uploaded) {
             val intent = try {
                 requireCurrentDestination()
+                trace(com.noop.ble.BlePipelineTrace.Stage.UPLOAD_ATTEMPT)
                 transport.createObjectIntent(manifest, lane)
             } catch (intentFailure: PushTransportException) {
                 if (frozenIdentity || intentFailure.failure.receiverCode != "object_id_conflict") {
@@ -510,6 +516,7 @@ class PushCoordinator(
                 manifest = manifest.replacingObjectId(PushProtocol.freshObjectId())
                 try {
                     requireCurrentDestination()
+                    trace(com.noop.ble.BlePipelineTrace.Stage.UPLOAD_ATTEMPT)
                     transport.createObjectIntent(manifest, lane)
                 } catch (retry: PushTransportException) {
                     return objectLaneFailure(retry)
@@ -523,7 +530,8 @@ class PushCoordinator(
                 return rejected(PushFailure(PushFailureCode.ACK_INVALID))
             }
             if (intent.duplicate) {
-                if (!frozenIdentity) runCatching { progress.saveInFlightObject(batch.table, progressDevice, null) }
+                trace(com.noop.ble.BlePipelineTrace.Stage.CLOUD_ACK)
+                if (!frozenIdentity) progress.saveInFlightObject(batch.table, progressDevice, null)
                 return PushResult.Accepted(batch.batchId, batch.sampleCount, hasMore = false)
             }
             if (expectedKey != null && intent.objectKey != expectedKey) {
@@ -545,6 +553,7 @@ class PushCoordinator(
                 throw CancellationException("push destination changed")
             }
             try {
+                trace(com.noop.ble.BlePipelineTrace.Stage.UPLOAD_ATTEMPT)
                 transport.uploadObject(intent, batch.payload)
             } catch (failure: PushTransportException) {
                 return objectLaneFailure(failure)
@@ -569,6 +578,7 @@ class PushCoordinator(
         while (true) {
             val ack = try {
                 requireCurrentDestination()
+                trace(com.noop.ble.BlePipelineTrace.Stage.UPLOAD_ATTEMPT)
                 transport.completeObject(manifest.objectId, lane)
             } catch (completeFailure: PushTransportException) {
                 val code = completeFailure.failure.receiverCode
@@ -576,12 +586,14 @@ class PushCoordinator(
                     reuploaded = true
                     try {
                         requireCurrentDestination()
+                        trace(com.noop.ble.BlePipelineTrace.Stage.UPLOAD_ATTEMPT)
                         val refreshed = transport.createObjectIntent(manifest, lane)
                         if (refreshed.duplicate) continue
                         if (refreshed.objectId != manifest.objectId) {
                             return rejected(PushFailure(PushFailureCode.ACK_INVALID))
                         }
                         requireCurrentDestination()
+                        trace(com.noop.ble.BlePipelineTrace.Stage.UPLOAD_ATTEMPT)
                         transport.uploadObject(refreshed, batch.payload)
                         expectedKey = refreshed.objectKey
                     } catch (failure: PushTransportException) {
@@ -605,7 +617,9 @@ class PushCoordinator(
             if (expectedKey != null && ack.objectKey != expectedKey) {
                 return rejected(PushFailure(PushFailureCode.ACK_INVALID))
             }
-            if (!frozenIdentity) runCatching { progress.saveInFlightObject(batch.table, progressDevice, null) }
+            // Do not release local rows if the durable retry identity could not be settled.
+            trace(com.noop.ble.BlePipelineTrace.Stage.CLOUD_ACK)
+            if (!frozenIdentity) progress.saveInFlightObject(batch.table, progressDevice, null)
             return PushResult.Accepted(batch.batchId, batch.sampleCount, hasMore = false)
         }
     }
@@ -624,6 +638,7 @@ class PushCoordinator(
             throw CancellationException("push destination changed")
         }
         val response = try {
+            trace(com.noop.ble.BlePipelineTrace.Stage.UPLOAD_ATTEMPT)
             transport.post(batch)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -648,6 +663,7 @@ class PushCoordinator(
         if (!ack.exactlyMatches(batch)) {
             return rejected(PushFailure(PushFailureCode.ACK_INVALID))
         }
+        trace(com.noop.ble.BlePipelineTrace.Stage.CLOUD_ACK)
         return PushResult.Accepted(batch.batchId, batch.recordCount, hasMore = false)
     }
 

@@ -61,8 +61,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LocalCaptureMember::class,
         GpsWorkoutDelivery::class,
         GpsDestinationBarrier::class,
+        BleRawBatchEntity::class,
+        BleRawMemberEntity::class,
     ],
-    version = 46,
+    version = 47,
     // #775: ON so Room's KSP processor writes the generated schema (every table's exact `CREATE TABLE`,
     // columns in declaration order with affinity/NOT NULL/default, PK and indices) as JSON. That export
     // is what lets a plain JVM test — no device, no Robolectric — read Android's REAL schema and compare
@@ -84,15 +86,15 @@ abstract class WhoopDatabase : RoomDatabase() {
     abstract fun whoopDao(): WhoopDao
 
     /** Read-only, schema-neutral snapshots for the opt-in self-hosted push worker. */
-    fun pushDao(imuPushSource: com.noop.push.ImuSessionPushSource? = null): PushDao =
-        PushDao(this, imuPushSource)
+    fun pushDao(imuPushSource: com.noop.push.ImuSessionPushSource? = null, captureSourceId: String? = null): PushDao =
+        PushDao(this, imuPushSource, captureSourceId)
 
     companion object {
         const val DB_NAME = "noop_whoop.db"
         fun databaseName(context: Context): String = com.noop.push.EnrollmentDataScope.databaseName(context)
         /** Room schema version — MUST equal the `@Database(version = …)` above. Surfaced in the backup
          *  manifest (#1410) so an export states its schema. Bump both together on a migration. */
-        const val SCHEMA_VERSION = 46
+        const val SCHEMA_VERSION = 47
 
         private val instances = mutableMapOf<String, WhoopDatabase>()
 
@@ -1109,6 +1111,12 @@ abstract class WhoopDatabase : RoomDatabase() {
          * Starts at 2 -> 3 on purpose: v1 predates this regime and has no upgrade path, which is why the
          * test asserts NO HOLES up to [SCHEMA_VERSION] rather than coverage from 1.
          */
+        internal val PPG_RECORD_IDENTITY_MIGRATION_SQL = listOf(
+            "CREATE TABLE ppgWaveformSample_v40 (deviceId TEXT NOT NULL, ts INTEGER NOT NULL, samples BLOB NOT NULL, burstIndex INTEGER, recordIndex INTEGER NOT NULL DEFAULT -1, PRIMARY KEY(deviceId,ts,recordIndex))",
+            "INSERT INTO ppgWaveformSample_v40(rowid,deviceId,ts,samples,burstIndex,recordIndex) SELECT rowid,deviceId,ts,samples,burstIndex,-1 FROM ppgWaveformSample",
+            "DROP TABLE ppgWaveformSample",
+            "ALTER TABLE ppgWaveformSample_v40 RENAME TO ppgWaveformSample",
+        )
         internal val MIGRATION_39_40 = object : Migration(39, 40) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 val key = mutableListOf<Pair<Int, String>>()
@@ -1129,10 +1137,7 @@ abstract class WhoopDatabase : RoomDatabase() {
                     return
                 }
                 check(columns == listOf("deviceId", "ts")) { "Unsupported legacy PPG waveform key" }
-                db.execSQL("CREATE TABLE ppgWaveformSample_v40 (deviceId TEXT NOT NULL, ts INTEGER NOT NULL, samples BLOB NOT NULL, burstIndex INTEGER, recordIndex INTEGER NOT NULL DEFAULT -1, PRIMARY KEY(deviceId,ts,recordIndex))")
-                db.execSQL("INSERT INTO ppgWaveformSample_v40(rowid,deviceId,ts,samples,burstIndex,recordIndex) SELECT rowid,deviceId,ts,samples,burstIndex,-1 FROM ppgWaveformSample")
-                db.execSQL("DROP TABLE ppgWaveformSample")
-                db.execSQL("ALTER TABLE ppgWaveformSample_v40 RENAME TO ppgWaveformSample")
+                PPG_RECORD_IDENTITY_MIGRATION_SQL.forEach(db::execSQL)
             }
         }
 
@@ -1191,6 +1196,10 @@ abstract class WhoopDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) { STANDARD_HR_RECEIPT_MIGRATION_SQL.forEach(db::execSQL) }
         }
 
+        internal val MIGRATION_46_47 = object : Migration(46, 47) {
+            override fun migrate(db: SupportSQLiteDatabase) { BleRawCapture.schema.forEach(db::execSQL) }
+        }
+
         internal val ALL_MIGRATIONS: Array<Migration> = arrayOf(
             MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
             MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
@@ -1203,7 +1212,7 @@ abstract class WhoopDatabase : RoomDatabase() {
             MIGRATION_36_37,
             MIGRATION_37_38,
             MIGRATION_38_39, MIGRATION_39_40, V18AuxIdentityMigration, MIGRATION_41_42,
-            MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46,
+            MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47,
         )
 
         private fun build(appContext: com.noop.account.AccountStorageContext,

@@ -50,6 +50,7 @@ struct ServerScoreInputStatusNote: View {
 private struct ServerScoreContentReadyModifier: ViewModifier {
     let identity: ServerScoreContentReadyTrace.Identity
     let ready: Bool
+    let computedAt: String?
     @StateObject private var trace = ServerScoreContentReadyTrace()
 
     func body(content: Content) -> some View {
@@ -58,6 +59,15 @@ private struct ServerScoreContentReadyModifier: ViewModifier {
             .onChangeCompat(of: identity) { newIdentity in trace.update(identity: newIdentity, ready: ready) }
             .onChangeCompat(of: ready) { isReady in trace.update(identity: identity, ready: isReady) }
             .onDisappear { trace.disappear() }
+            .onAppear { recordDisplay() }
+            .onChangeCompat(of: computedAt) { _ in recordDisplay() }
+            .onChangeCompat(of: ready) { _ in recordDisplay() }
+    }
+
+    private func recordDisplay() {
+        // View appearance/update witness, not proof of screen pixels or raw cloud freshness.
+        SyncPipelineTrace.freshness(.displayFreshness,
+            sourceDate: ready ? SyncPipelineTrace.sourceDate(computedAt) : nil)
     }
 }
 
@@ -65,6 +75,6 @@ extension View {
     @MainActor
     func serverScoreContentReady(state: ServerScoreViewState, day: String, ready: Bool) -> some View {
         modifier(ServerScoreContentReadyModifier(identity: .init(generation: state.generation,
-            day: day, timezone: state.timezone), ready: ready))
+            day: day, timezone: state.timezone), ready: ready, computedAt: state.days[day]?.snapshot?.computedAt))
     }
 }

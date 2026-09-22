@@ -22,6 +22,8 @@ class AccountAppRuntime(val context: AccountStorageContext) {
     val scoringContextConsent = ScoringContextConsent(context, capture = { scoringSettings.captureConsent() })
     val gpsSession = com.noop.location.AccountGpsSession(context)
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val acquisitionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    @Volatile private var rememberedTarget: com.noop.ble.BleRuntimeTarget? = null
     @Volatile private var scoringDeviceId: String? = null
     val scoringSettings = ScoringSettingsSync(context, scoringInputs, applicationScope, source = {
         val selected = if (coordinatorHandle.isInitialized()) coordinatorHandle.value.activeDeviceId.value else scoringDeviceId
@@ -44,6 +46,26 @@ class AccountAppRuntime(val context: AccountStorageContext) {
                         SelfHostedPushSettings.from(context).sourceId(), ImuSessionFileStore(context))
                     if (repository.hasOwedSyncJobs()) ble.resumeOwedPostBackfillWork()
                     SelfHostedPushScheduler.enqueueLaunchCatchUp(context)
+                    SelfHostedPushScheduler.registerRecovery(context)
+                    acquisitionScope.launch {
+                        ble.connectedPeripheralAddress.collect { address ->
+                            sourceCoordinator.connectedPeripheralChanged(address)
+                            if (address != null) rememberBleConnection()
+                        }
+                    }
+                    acquisitionScope.launch {
+                        ble.state.collect { state -> if (state.bonded) rememberBleConnection() }
+                    }
+                    // Runtime-owned idle pump also covers older supported sources whose insert path
+                    // predates cloudPush debt. New WHOOP commits have the faster trailing wake.
+                    applicationScope.launch {
+                        while (isActive && !closed && context.isCurrent()) {
+                            runCatching {
+                                SelfHostedPushScheduler.enqueueIfDue(context, 30_000)
+                            }
+                            delay(30_000)
+                        }
+                    }
                     scoringContextConsent.load()
                     // Input APIs and the worker also recover under the same DB ordering barrier.
                     runCatching { scoringInputs.recoverConsent() }
@@ -72,7 +94,56 @@ class AccountAppRuntime(val context: AccountStorageContext) {
             runCatching { bleHandle.value.shutdown() }
         }
         applicationScope.cancel()
+        acquisitionScope.cancel()
         // Keep the writer bound to its original files; delayed callbacks cannot enter a new DB.
+    }
+
+    /** Revalidates persisted physical identity against the current registry before touching GATT. */
+    suspend fun restoreBleConnection() = withContext(Dispatchers.Main.immediate) {
+        if (closed) return@withContext false
+        val intent = com.noop.ble.BleRuntimeIntent(context)
+        val target = intent.target() ?: return@withContext false
+        val active = withContext(Dispatchers.IO) {
+            deviceRegistry.all().firstOrNull { it.id == deviceRegistry.activeDeviceId() }
+        } ?: return@withContext false
+        if (!intent.mayRun() || active.id != target.deviceId || !SourceIdentity.isWhoop(active) ||
+            !active.peripheralId.equals(target.address, ignoreCase = true)) return@withContext false
+        applyCapturePreferences()
+        sourceCoordinator.start()
+        ble.setWhoopIsActiveDevice(true)
+        ble.setActiveDeviceId(target.deviceId)
+        ble.reconnectToAddress(target.address, target.model)
+        true
+    }
+
+    fun rememberBleConnection() {
+        acquisitionScope.launch {
+            val intent = com.noop.ble.BleRuntimeIntent(context)
+            if (closed || !intent.mayRun()) return@launch
+            val target = ble.recoveryTarget ?: return@launch
+            if (target == rememberedTarget) return@launch
+            withContext(Dispatchers.IO) {
+                val activeId = deviceRegistry.activeDeviceId()
+                val row = deviceRegistry.all().firstOrNull { it.id == activeId } ?: return@withContext
+                if (row.id != target.deviceId || !SourceIdentity.isWhoop(row)) return@withContext
+                if (row.peripheralId == null) deviceRegistry.setPeripheralId(row.id, target.address)
+                else if (!row.peripheralId.equals(target.address, ignoreCase = true)) return@withContext
+                if (intent.remember(target)) {
+                    NoopPrefs.setLastDevice(context, target.address, target.model)
+                    rememberedTarget = target
+                }
+            }
+        }
+    }
+
+    private fun applyCapturePreferences() {
+        val saving = NoopPrefs.powerSaving(context)
+        ble.setKeepStreamForData(NoopPrefs.continuousHrv(context) && NoopPrefs.backgroundConnection(context))
+        ble.setConnectionPriorityManagement(NoopPrefs.fastHistorySync(context), NoopPrefs.idleThrottleBatteryPct(context))
+        ble.setFastLinkPhy(NoopPrefs.fastLinkPhy(context))
+        ble.setLowRefreshMode(saving && NoopPrefs.lowRefresh(context))
+        ble.setLowBatteryOffloadThrottle(if (saving) NoopPrefs.powerSavingBatteryPct(context) else 0)
+        ble.setPauseCaptureOnPowerSave(saving && NoopPrefs.pauseHrvOnPowerSave(context), NoopPrefs.powerSavingBatteryPct(context))
     }
 
     /** One captured account store shared by this runtime's UI and BLE service. */
@@ -186,10 +257,7 @@ class AccountAppRuntime(val context: AccountStorageContext) {
      * current active id at launch (a no-op for a single-WHOOP install); the Devices screen (next task)
      * calls [SourceCoordinator.onActiveDeviceChanged] after a setActive.
      *
-     * Multi-WHOOP identity adoption: AppViewModel's init collects [WhoopBleClient.connectedPeripheralAddress]
-     * (distinctUntilChanged) into [SourceCoordinator.connectedPeripheralChanged] — the Kotlin analogue of
-     * macOS wiring `BLEManager.connectedPeripheralUUID` into the coordinator's adoption sink. Kept beside
-     * the other `ble`-flow collectors there (this Application owns no CoroutineScope of its own).
+     * Multi-WHOOP address observation belongs to this runtime's acquisition scope, independent of UI.
      */
     private val coordinatorHandle = lazy {
         SourceCoordinator(

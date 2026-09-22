@@ -57,10 +57,9 @@ import kotlin.math.roundToInt
  * [com.noop.NoopApplication]-owned [WhoopBleClient] and its GATT link) resident, so heart rate
  * keeps streaming and offloads keep landing in the background.
  *
- * It does **not** own or drive the connection: it simply holds the process up and mirrors the
- * client's [LiveState] into the notification. Start/stop is gated by a Settings toggle (see
- * `NoopPrefs.backgroundConnection`) and only ever happens from the foreground (on connect / when
- * the user flips the toggle), so we never trip Android 12+'s background-start restriction.
+ * Restores the account runtime's authorized target after ordinary sticky process recovery.
+ * Start/stop remains permission and user-intent gated. Eligible boot/update broadcasts may request
+ * recovery; a denied OS start is not bypassed. Force-stop is not ordinary process eviction.
  *
  * The matching capability on macOS is free: `AppModel` is an app-level `@StateObject` kept alive by
  * the menu-bar extra, so closing the window leaves the strap connected.
@@ -257,7 +256,7 @@ class WhoopConnectionService : Service() {
                 // Catch TURNING_OFF (the earliest signal) AND OFF — by TURNING_OFF the binder is already
                 // on its way down, so tearing down here pre-empts the crash window.
                 BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> ble.onBluetoothRadioOff()
-                BluetoothAdapter.STATE_ON -> ble.onBluetoothRadioOn()
+                BluetoothAdapter.STATE_ON -> if (BleRuntimeIntent(accountRuntime.context).mayRun()) ble.onBluetoothRadioOn()
             }
         }
     }
@@ -270,6 +269,7 @@ class WhoopConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) BleRuntimeIntent(accountRuntime.context).stop()
         if (!com.noop.push.EnrollmentDataScope.active(this) ||
             accountRuntime.closed || !accountRuntime.context.isCurrent() || accountRuntime.identity.scope == null) {
             stopSelf()
@@ -277,12 +277,20 @@ class WhoopConnectionService : Service() {
         }
         // The notification "Disconnect" action routes back here as a self-intent.
         if (intent?.action == ACTION_STOP) {
+            BleRuntimeIntent(accountRuntime.context).stop()
             runCatching { ble.disconnect() }
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
 
+        val recovery = BleRuntimeIntent(accountRuntime.context)
+        val authorizedCapture = recovery.mayRun() && (intent != null || recovery.target() != null)
+        val workoutOnly = intent?.action == ACTION_WORKOUT && accountRuntime.gpsSession.state.value.active
+        if (!authorizedCapture && !workoutOnly) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         ensureChannel()
         // Must call startForeground promptly after startForegroundService(). If it fails (e.g. the
         // API 34 connectedDevice type needs BLUETOOTH_CONNECT and the user denied it) we stop cleanly
@@ -290,6 +298,15 @@ class WhoopConnectionService : Service() {
         if (!startForegroundCompat(buildNotification(ble.state.value, null))) {
             stopSelf()
             return START_NOT_STICKY
+        }
+
+        if (authorizedCapture && (intent == null || intent.action == ACTION_RECOVER)) scope.launch {
+            val restored = runCatching { accountRuntime.restoreBleConnection() }.getOrDefault(false)
+            if (!restored && (intent == null || intent.action == ACTION_RECOVER)) {
+                // Never leave a restored foreground notification advertising an invalid target.
+                ServiceCompat.stopForeground(this@WhoopConnectionService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
         }
 
         // Listen for the OS Bluetooth radio toggling so turning it off tears the link down at once (#314).
@@ -601,12 +618,9 @@ class WhoopConnectionService : Service() {
                 }
         }
 
-        // START_NOT_STICKY: the FGS's job is to keep this process *alive* (which it does while
-        // running, making OS kills unlikely). We deliberately do NOT resurrect after a kill, because
-        // a fresh process has no strap/model context to reconnect with — the user reopening the app
-        // re-establishes it. Resurrecting would only show a "Reconnecting…" notification that never
-        // resolves.
-        return START_NOT_STICKY
+        // Authorized BLE recovery now has a persisted target; GPS-only sessions retain
+        // their existing non-sticky policy and never authorize a stopped BLE connection.
+        return if (authorizedCapture) START_STICKY else START_NOT_STICKY
     }
 
     /** Promote to the foreground. Returns false (rather than throwing) if the platform refuses. When
@@ -765,6 +779,15 @@ class WhoopConnectionService : Service() {
         private const val CHANNEL_ID = "noop_strap_connection"
         private const val NOTIF_ID = 4201
         const val ACTION_STOP = "com.noop.ble.action.STOP_CONNECTION"
+        private const val ACTION_WORKOUT = "com.noop.ble.action.KEEP_WORKOUT"
+        private const val ACTION_RECOVER = "com.noop.ble.action.RECOVER"
+
+        fun startWorkout(context: Context) {
+            // A workout is not authorization to undo a prior strap Disconnect.
+            if (!com.noop.push.EnrollmentDataScope.active(context)) return
+            runCatching { ContextCompat.startForegroundService(context,
+                Intent(context, WhoopConnectionService::class.java).setAction(ACTION_WORKOUT)) }
+        }
 
         /**
          * Promote the process to the foreground so the strap stays connected. Safe to call when
@@ -772,18 +795,27 @@ class WhoopConnectionService : Service() {
          * Settings toggle) to satisfy Android 12+'s background-start rule. Defensive: any failure is
          * swallowed so it can never break the core connect flow.
          */
-        fun start(context: Context) {
+        fun start(context: Context, userInitiated: Boolean = true) {
             if (!com.noop.push.EnrollmentDataScope.active(context)) return
+            val account = com.noop.account.AccountStorageContext.capture(context)
+            val recovery = BleRuntimeIntent(account)
+            if (userInitiated) {
+                if (!recovery.authorize()) return
+                com.noop.account.AccountStorageContext.runtime(account)?.rememberBleConnection()
+            } else if (recovery.target() == null) return
             runCatching {
                 ContextCompat.startForegroundService(
                     context,
-                    Intent(context, WhoopConnectionService::class.java),
+                    Intent(context, WhoopConnectionService::class.java).apply {
+                        if (!userInitiated) action = ACTION_RECOVER
+                    },
                 )
             }
         }
 
         /** Drop the foreground promotion. The connection itself is torn down by the caller. */
         fun stop(context: Context) {
+            BleRuntimeIntent(com.noop.account.AccountStorageContext.capture(context)).stop()
             runCatching { context.stopService(Intent(context, WhoopConnectionService::class.java)) }
         }
     }

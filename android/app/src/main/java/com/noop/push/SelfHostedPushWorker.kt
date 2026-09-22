@@ -105,6 +105,8 @@ class SelfHostedPushWorker(
             PushEnrollmentStore.from(applicationContext)
         }
         var ownerFinished = false
+        val captureRepo by lazy { com.noop.data.WhoopRepository(WhoopDatabase.get(storageContext)) }
+        val rawDebt = runCatching { captureRepo.owedSyncJobs().firstOrNull { it.kind == "cloudPush" } }.getOrNull()
         try {
             PushRunSignal.begin(storageContext, requestId)
             settings.recordRunning()
@@ -177,6 +179,15 @@ class SelfHostedPushWorker(
             // Healthy pagination/device rotation is a fresh successful work item. This deliberately
             // avoids WorkManager retry/backoff, which is reserved for real network/HTTP failures.
             val needsContinuation = !decision.willRetry && (decision.continueNormally || settlement.pending)
+            if (!needsContinuation && decision.status == Status.SUCCESS && rawDebt != null) {
+                // CAS keeps a new commit made during upload owed for the next pass.
+                runCatching {
+                    val pendingRaw = WhoopDatabase.get(storageContext).openHelper.readableDatabase
+                        .query("SELECT EXISTS(SELECT 1 FROM bleRawBatch WHERE syncedAt IS NULL)")
+                        .use { it.moveToFirst(); it.getInt(0) != 0 }
+                    if (!pendingRaw) captureRepo.settleSyncJob(rawDebt)
+                }
+            }
             if (needsContinuation && !SelfHostedPushScheduler.enqueueContinuation(storageContext)) {
                 // The append Operation itself failed asynchronously. Re-arm THIS WorkRequest so
                 // WorkManager's bounded runAttemptCount/backoff handles the infrastructure failure.
@@ -315,7 +326,7 @@ class SelfHostedPushWorker(
         val snapshotSource: PushSnapshotSource = if (admission != null && captured != null) {
             val binding = AccountPushCaptureBindings.binding(captured)
                 ?: throw AccountAuthException(AuthFailure.UNBOUND_CAPTURE)
-            AccountFencedSnapshot(binding.database.pushDao(binding.imuSource), admission)
+            AccountFencedSnapshot(binding.database.pushDao(binding.imuSource, binding.sourceID), admission)
         } else {
             WhoopDatabase.get(storageContext).pushDao(ImuSessionFileStore(storageContext))
         }
@@ -330,6 +341,7 @@ class SelfHostedPushWorker(
         }
         val startDeviceIndex = settings.nextDeviceIndex(namespace)
         val run = PushCoordinator(
+            trace = { com.noop.ble.BlePipelineTrace.event(storageContext, it) },
             source = snapshotSource,
             transport = transport,
             progress = progress,

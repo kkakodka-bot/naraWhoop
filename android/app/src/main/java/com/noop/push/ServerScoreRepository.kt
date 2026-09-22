@@ -105,6 +105,10 @@ class ServerScoreRepository(
                     _days.value = (_days.value + (day to state)).entries.sortedByDescending { it.key }.take(56).associate { it.toPair() }
                     _sleepDays.value = _days.value.mapNotNull { (key, value) -> ServerSleepPresentation.from(value)?.let { key to it } }.toMap()
                     _lastFetchedAtMs.value = state.fetchedAt
+                    if (!state.cached && !state.pending && state.snapshot != null) {
+                        val computed = runCatching { java.time.Instant.parse(state.snapshot.computedAt).toEpochMilli() }.getOrNull()
+                        com.noop.ble.BlePipelineTrace.event(account, com.noop.ble.BlePipelineTrace.Stage.PROJECTION, computed)
+                    }
                 }
             }
         } catch (failure: AccountAuthException) {
@@ -118,6 +122,12 @@ class ServerScoreRepository(
             publish(day, ServerSnapshotDayState(snapshot, snapshot.status, true, envelope.optBoolean("pending", false),
                 if (envelope.isNull("requestedInputRevision")) null else SyncJson.long(envelope, "requestedInputRevision"), fetched))
         }
+    }
+
+    fun recordDisplayed(snapshot: ServerScoreDayCache?) {
+        if (!current()) return
+        val computed = snapshot?.computedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+        com.noop.ble.BlePipelineTrace.event(account, com.noop.ble.BlePipelineTrace.Stage.DISPLAY, computed)
     }
 
     fun overlay(day: String): ServerScoreDayCache? {

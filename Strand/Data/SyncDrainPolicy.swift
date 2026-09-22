@@ -17,7 +17,8 @@ enum SyncDrainPolicy {
         case manual
     }
 
-    /// Fixed stage order: scored data first, then export surfaces.
+    /// Derived-tail order. SyncEngine runs cloudPush through independent owner/transport admission
+    /// BEFORE this tail; rescore/backlog guards below apply only to derived Health/widget exports.
     static let stageOrder: [SyncJobKind] = [
         .rescore, .cloudPush, .healthWriteback, .widgetPublish,
     ]

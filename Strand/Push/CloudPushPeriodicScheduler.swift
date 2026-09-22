@@ -6,29 +6,31 @@ import GRDB
 /// waiting for a full strap sync.
 ///
 /// Design:
-/// - Throttled: at most one run per `interval` (default 5 min), shared across all callers.
-/// - Safe: no-op when push is disabled, unconfigured, or a run is already in flight.
+/// - Throttled: at most one run per `interval` (default ten seconds), shared across callers.
+/// - Safe: disabled/unconfigured push is a no-op; an in-flight run retains a trailing wake.
 /// - Foreground-friendly: uses `CloudPushWorker.runOnce` (which respects Wi‑Fi-only and network policy).
 /// - Binary lane: `CloudPushWorker` already includes `ppgWaveformSample`, `v18AuxSample`, `rawBatch`,
 ///   and `rawImuSession` when `binaryObjectsEnabled` and the receiver advertises the object lane.
 enum CloudPushPeriodicScheduler {
-    /// Default cadence for research push. 5 minutes balances freshness vs battery/network.
-    static let defaultInterval: TimeInterval = 5 * 60
+    /// Permitted-execution transport cadence, independent of local physiological computation.
+    /// This is a scheduling target, not an OS/background network delivery guarantee.
+    static let defaultInterval: TimeInterval = 10
 
-    /// Push throttle for the current server-scoring mode (5 min legacy, 30–60 s when flag on).
+    /// Raw transport cadence is never slowed by disabling server physiological computation.
     static func effectiveInterval(serverScoringEnabled: Bool = ServerScoringSettings.isEnabled) -> TimeInterval {
-        serverScoringEnabled ? ServerScoringSettings.idlePushIntervalSeconds : defaultInterval
+        serverScoringEnabled ? min(defaultInterval, ServerScoringSettings.idlePushIntervalSeconds) : defaultInterval
     }
 
     private static var lastRunAt: Date?
     private static var lastScheduledAt: Date?
     private static var pendingTask: Task<Void, Never>?
+    private static var trailingRequested = false
     private static let lock = NSLock()
 
     /// Call when live data lands or on a timer. Runs at most one push per `interval`.
     /// - Parameters:
     ///   - db: registry writer (from `Repository.registryWriterForPush()`)
-    ///   - interval: minimum seconds between runs (default 5 min)
+    ///   - interval: minimum seconds between runs (default ten seconds)
     ///   - reason: label for diagnostics (e.g. "live-hr", "timer", "imu")
     static func pushIfDue(db: any DatabaseWriter, interval: TimeInterval? = nil, reason: String = "periodic") {
         guard CloudPushSettings.ready, ResourceBudget.shared.permits(.bulk) else { return }
@@ -38,23 +40,24 @@ enum CloudPushPeriodicScheduler {
         lock.lock()
         let now = Date()
         let last = lastRunAt ?? .distantPast
-        let due = now.timeIntervalSince(last) >= interval
-        let alreadyPending = pendingTask != nil
-        lock.unlock()
-
-        guard due, !alreadyPending else { return }
-
-        lock.lock()
-        // Double-check under lock: another caller may have just scheduled.
-        if pendingTask != nil { lock.unlock(); return }
+        let delay = max(0, interval - now.timeIntervalSince(last))
+        if pendingTask != nil { trailingRequested = true; lock.unlock(); return }
+        trailingRequested = false
         lastScheduledAt = now
         let task = Task {
             defer {
                 lock.lock()
                 pendingTask = nil
                 lastRunAt = Date()
+                let trailing = trailingRequested
+                trailingRequested = false
                 lock.unlock()
+                if trailing { pushIfDue(db: db, interval: interval, reason: "trailing-commit") }
             }
+            // A last commit inside the throttle window still gets its own trailing wake.
+            // Suspension can delay this; durable rows and background transfers remain authoritative.
+            if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+            guard !Task.isCancelled else { return }
             await CloudPushBackgroundRuntime.reconcileActive()
             let outcome = await CloudPushWorker.runOnce(db: db, trigger: reason)
             if case .completed = outcome {

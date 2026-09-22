@@ -841,14 +841,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // export can answer "what ran when". Idempotent — the stored last-seen version only advances
         // once the transition is recorded, so a background-only launch is caught on the next UI open.
         viewModelScope.launch { recordAppVersionChange() }
-        // Phase 4: when server scoring is on, keep push cadence at 30–60 s while foreground (spec).
-        viewModelScope.launch {
-            while (isActive) {
-                SelfHostedPushScheduler.enqueueIfDue(
-                    appContext, ServerScoringSettings.IDLE_PUSH_INTERVAL_MS)
-                delay(ServerScoringSettings.IDLE_PUSH_INTERVAL_MS)
-            }
-        }
         // #1121: re-arm the opt-in detailed-capture rolling log on launch, so a capture the user started
         // keeps going across the process being killed (this phone class is not battery-exempt and Android
         // kills the background BLE overnight — the very window a battery capture needs to span).
@@ -886,16 +878,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 lastBonded = state.bonded
             }
         }
-        // Multi-WHOOP identity adoption: feed the connected strap's BLE address into the coordinator so the
-        // active WHOOP row adopts it on first connect (and a different-but-registered strap is logged, not
-        // overwritten). The Kotlin analogue of Swift's `connectedPeripheralUUID.removeDuplicates().sink`
-        // (SourceCoordinator.swift:111-114) — connectedPeripheralAddress is a StateFlow, which already only
-        // emits distinct values (operator fusion), so no distinctUntilChanged is needed. Inert on the
-        // single-WHOOP path: my-whoop simply learns its strap's address once.
-        viewModelScope.launch {
-            ble.connectedPeripheralAddress
-                .collect { addr -> noopApp.sourceCoordinator.connectedPeripheralChanged(addr) }
-        }
+        // Connected-address observation now belongs to AccountAppRuntime, not this UI owner.
         // #1303: the 5/MG DIS read hands up the strap's OWN serial, so re-point this pairing from its
         // transient address-based id onto a stable `whoop-<serial>` id, through the SAME migration the ring
         // already uses (#771) — a re-pair or factory reset then stops forking one physical strap into a
@@ -1416,8 +1399,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // APK updates tear down the old foreground service along with the old process. Re-promote it
         // on the first launch after update/restart before reconnecting, so the persistent notification
         // and long-lived connection both come back without the user toggling the setting again.
-        WhoopConnectionService.start(appContext)
-        ble.reconnectToAddress(saved.first, saved.second)
+        // Launch must not turn a persisted Disconnect / OS user-stop into new authorization.
+        WhoopConnectionService.start(appContext, userInitiated = false)
     }
 
     /** Snapshot the user's body profile from SharedPreferences as an analytics [UserProfile]. */
@@ -1544,7 +1527,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _activeWorkout.value = ActiveWorkout(startMs = saved.startMs, sport = sport, gpsEnabled = true,
                     gpsSessionId = saved.sessionId, sourceDeviceId = saved.deviceId)
                 observeGpsSession()
-                WhoopConnectionService.start(appContext)
+                WhoopConnectionService.startWorkout(appContext)
                 buzz(1, HapticPrefs.WORKOUT)
             }
             return
@@ -1645,7 +1628,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (s.endMs != null) { gpsFailure("This workout is waiting to save. Tap End to retry."); return@launchGpsMutation }
                 if (s.active) noopApp.gpsSession.pauseDurable() else {
                     noopApp.gpsSession.resumeDurable()
-                    WhoopConnectionService.start(appContext)
+                    WhoopConnectionService.startWorkout(appContext)
                 }
             }
             return
