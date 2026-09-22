@@ -16,6 +16,8 @@ test('commands cannot replace executed gates with echoed success or filtered ful
   assert.throws(() => validateCommand('macos-tests', ['xcodebuild', 'test', '-only-testing:A/B']));
   assert.throws(() => validateCommand('ios-final-runtime', ['bash', '-c', 'echo passed']));
   validateCommand('android-app', ['./gradlew', ':app:assembleDebug', ':app:testDebugUnitTest']);
+  validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testFullDebugUnitTest']);
+  assert.throws(() => validateCommand('android-app', ['./gradlew', ':app:assembleFullDebug', ':app:testSlimDebugUnitTest']));
 });
 test('zero-test runs and route-only tests cannot satisfy executed proof', () => {
   assert.throws(() => validateOutput('swift-analytics', 'Executed 0 tests, with 0 failures'));

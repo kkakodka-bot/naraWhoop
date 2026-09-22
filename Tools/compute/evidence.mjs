@@ -52,7 +52,9 @@ export function validateCommand(gate, command) {
   if (gate === 'ios-final-runtime') assert(script('Tools/compute/run-final-hosted-checks.sh'));
   if (gate === 'android-app') {
     assert(has(command, 'gradlew') || command[0].endsWith('/gradle'));
-    assert(command.some((v) => /(^|:)assembleDebug$/.test(v)) && command.some((v) => /(^|:)testDebugUnitTest$/.test(v)),
+    const assemble = command.map((v) => v.match(/^(?::?app:)?assemble([A-Za-z0-9]*)Debug$/)).find(Boolean);
+    assert(assemble && command.some((v) => v === `:app:test${assemble[1]}DebugUnitTest` ||
+      v === `app:test${assemble[1]}DebugUnitTest` || v === `test${assemble[1]}DebugUnitTest`),
       'An Android application build and executed unit suite are both required');
   }
   if (['ios-build', 'watch-build', 'macos-tests'].includes(gate)) {
