@@ -2780,4 +2780,7 @@
     <string name="imu_recorder_delete_message">Toutes les données 100 Hz enregistrées en continu sur cet appareil seront définitivement supprimées.</string>
     <string name="imu_recorder_delete_confirm">Supprimer</string>
     <string name="imu_recorder_cancel">Annuler</string>
+    <string name="update_whats_new_nara_version">Nouveautés de NARA %1$s</string>
+    <string name="update_nara_version_available">NARA %1$s est disponible — touchez pour découvrir les nouveautés.</string>
+    <string name="widget_open_nara_to_connect">Ouvrez NARA pour vous connecter</string>
 </resources>
