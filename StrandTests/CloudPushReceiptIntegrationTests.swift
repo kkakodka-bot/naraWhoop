@@ -949,20 +949,46 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
         } catch { await close(f); throw error }
         await close(f)
     }
-    func testInvalidCachedHTTP2xxIsRetriedAfterRelaunchRatherThanReplayedForever() async throws {
+    func testInvalidCachedHTTP2xxRetainsExactBytesAcrossRelaunchUntilExplicitResolution() async throws {
         var f = try await fixture()
         do {
             let batch = try await inlineBatch(f)
             var legacy = W5ReceiptFixture.inline(batch, owner: f.context.scope.userID); legacy["durabilityReceipt"] = nil
             try serve(inline: batch, mutation: legacy); _ = try await f.transport.capabilities()
             let rejected = await coordinator(f).pushAppend(.hrSample, deviceId: device)
-            if case .accepted = rejected { XCTFail("legacy ACK accepted") }
+            guard case .rejected(_, let retryable, let failure) = rejected else {
+                throw TestFailure.rejected(String(describing: rejected))
+            }
+            XCTAssertEqual(failure?.code, .ackInvalid); XCTAssertFalse(retryable)
             let cursor = try await f.progress.cursor(table: .hrSample, deviceId: device); XCTAssertNil(cursor)
-            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().values.first?.phase, .retryPending)
+            let retained = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory).load().values.first)
+            XCTAssertEqual(retained.phase, .pausedTerminal)
+            XCTAssertEqual(retained.responseCode, "receipt_mismatch")
+            XCTAssertNil(retained.validatedReceipt); XCTAssertFalse(retained.acknowledged)
+            // This legacy convenience transport has no prepared device identity. It must not
+            // borrow the narrower, one-time upgrade exception for a device-bound prepared job.
+            XCTAssertEqual(retained.deviceID, "")
+            let payloadURL = f.layout.uploadDirectory.appendingPathComponent(try XCTUnwrap(retained.payloadName))
+            let retainedBytes = try Data(contentsOf: payloadURL)
             f = try await reopen(f)
             try serve(inline: batch); _ = try await f.transport.capabilities()
+            let stillRejected = await coordinator(f).pushAppend(.hrSample, deviceId: device)
+            guard case .rejected(_, let afterRetryable, let afterFailure) = stillRejected else {
+                throw TestFailure.rejected(String(describing: stillRejected))
+            }
+            XCTAssertEqual(afterFailure?.code, .ackInvalid); XCTAssertFalse(afterRetryable)
+            let paused = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory).load()[retained.id])
+            XCTAssertEqual(paused.phase, .pausedTerminal)
+            XCTAssertEqual(paused.failures, retained.failures)
+            XCTAssertEqual(paused.payloadSHA256, retained.payloadSHA256)
+            XCTAssertEqual(try Data(contentsOf: payloadURL), retainedBytes)
+            let afterRelaunchCursor = try await f.progress.cursor(table: .hrSample, deviceId: device)
+            XCTAssertNil(afterRelaunchCursor)
+            try await f.runtime.queue.resumePaused(jobID: retained.id, captured: f.context)
             let result = await coordinator(f).pushAppend(.hrSample, deviceId: device)
             guard case .accepted = result else { throw TestFailure.rejected(String(describing: result)) }
+            let committedCursor = try await f.progress.cursor(table: .hrSample, deviceId: device)
+            XCTAssertEqual(committedCursor, batch.endCursor)
             XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
