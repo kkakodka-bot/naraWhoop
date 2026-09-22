@@ -16,11 +16,7 @@ import XCTest
 final class StrapConsoleMirrorTests: XCTestCase {
 
     private func bleManagerSource() throws -> String {
-        // StrandTests/<this file> → repo root → Strand/BLE/BLEManager.swift
-        let here = URL(fileURLWithPath: #filePath)
-        let root = here.deletingLastPathComponent().deletingLastPathComponent()
-        let url = root.appendingPathComponent("Strand/BLE/BLEManager.swift")
-        return try String(contentsOf: url, encoding: .utf8)
+        try SourceContractResources.text("Strand/BLE/BLEManager.swift", in: Bundle(for: Self.self))
     }
 
     /// Both offload branches must mirror the console, or one family goes silent mid-sync — which is the
