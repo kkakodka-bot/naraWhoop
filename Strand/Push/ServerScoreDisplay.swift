@@ -1,5 +1,6 @@
 import Foundation
 import WhoopStore
+import WhoopProtocol
 
 /// Maps server score cache onto Today/Sleep display fields when `serverScoring` is on.
 enum ServerScoreDisplay {
@@ -33,6 +34,7 @@ enum ServerScoreDisplay {
     }
 
     static func detailSnapshot(_ metric: ServerScoreMetric, day: String, state: ServerScoreViewState) -> ServerScoreSnapshot? {
+        guard !PhoneComputeRuntime.isFinalHosted else { return nil }
         guard state.owns(metric), let snapshot = state.days[day]?.snapshot,
               snapshot.status != "no_data", snapshot.supported.contains(metric) else { return nil }
         return snapshot
@@ -81,7 +83,9 @@ enum ServerScoreDisplay {
         return DailyMetric(day: day,
             totalSleepMin: value(.sleepTotal, local?.totalSleepMin),
             efficiency: state.owns(.sleepEfficiency)
-                ? (carry ? nil : (state.enrollmentValues[day] != nil
+                ? (carry ? nil : (state.canonicalDays[day] != nil
+                    ? state.scalar(.sleepEfficiency, day: day).map { $0 / 100 }
+                    : state.enrollmentValues[day] != nil
                     ? state.scalar(.sleepEfficiency, day: day).map { $0 > 1 ? $0 / 100 : $0 }
                     : efficiencyFraction(state.days[day]?.snapshot))) : local?.efficiency,
             deepMin: value(.sleepDeep, local?.deepMin), remMin: value(.sleepREM, local?.remMin),
@@ -106,6 +110,11 @@ enum ServerScoreDisplay {
 
     static func series(_ metric: ServerScoreMetric, through day: String, state: ServerScoreViewState) -> [(day: String, value: Double)] {
         guard state.owns(metric) else { return [] }
+        if PhoneComputeRuntime.isFinalHosted || !state.canonicalDays.isEmpty {
+            return state.canonicalDays.keys.sorted().filter { $0 <= day }.compactMap { day in
+                state.scalar(metric, day: day).map { (day: day, value: $0) }
+            }
+        }
         var values: [String: Double] = [:]
         // Use one history envelope, not a union of potentially incompatible source/algorithm eras.
         // An individually requested day always wins, even when its value is null or still pending.

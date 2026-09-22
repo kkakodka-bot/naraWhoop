@@ -19,7 +19,7 @@ final class ServerScoreRepository: ObservableObject {
     /// Owner-scoped enrollment overlay used by physiology tests and sleep edits.
     struct Dependencies {
         var ownerId: () -> String?
-        var clearSession: () -> Void
+        var clearSession: () throws -> Void
         var clearIfCurrent: (String, String) -> Bool
         var signIn: (String, String) async throws -> Void
         var fetch: (String, String, String) async throws -> ServerScoreDayCache
@@ -32,15 +32,20 @@ final class ServerScoreRepository: ObservableObject {
 
         static let live = Dependencies(
             ownerId: {
-                guard let owner = CloudScoreIdentity.storedOwnerId(), CloudCaptureScope.isActive(for: owner) else { return nil }
-                return owner
+                CloudRuntimeIdentity.snapshot().scope?.userID
             },
-            clearSession: { try? CloudEnrollment.clear() },
-            clearIfCurrent: { CloudEnrollment.clear(ifUploadToken: $0, ownerId: $1) },
-            signIn: { _, _ in throw CloudEnrollmentError.notConfigured },
-            fetch: { try await ServerScoreClient.fetchDaySnapshot(day: $0, ownerId: $1, deviceId: $2) },
+            clearSession: {
+                if CloudRuntimeIdentity.currentEnrollmentSnapshot() != nil { try CloudEnrollment.clear() }
+                else { try CloudAuthClient.clearSessionChecked() }
+            },
+            clearIfCurrent: { token, owner in
+                if CloudRuntimeIdentity.currentEnrollmentSnapshot() != nil { return CloudEnrollment.clear(ifUploadToken: token, ownerId: owner) }
+                return CloudAuthClient.clearSession(ifAccessToken: token, ownerId: owner)
+            },
+            signIn: { _ = try await CloudAuthClient.signIn(email: $0, password: $1) },
+            fetch: { try await CanonicalScoreTransport.fetch(day: $0, owner: $1, localDevice: $2) },
             enabled: { ServerScoringSettings.isEnabled }, ready: { ServerScoringSettings.ready },
-            canonicalDeviceId: { ServerScoreClient.canonicalDeviceId(ownerId: $0, localDeviceId: $1) })
+            canonicalDeviceId: { CanonicalScoreTransport.canonicalDevice(owner: $0, localDevice: $1) })
     }
 
     typealias Fetch = @Sendable (String, AccountSessionContext) async throws -> ServerScoreResponse
@@ -95,8 +100,10 @@ final class ServerScoreRepository: ObservableObject {
     private var enrollmentReadFailures = Set<String>()
     private var currentEnrollmentReadIdentity: EnrollmentReadIdentity {
         let credential = CloudEnrollment.currentCredential()
+        let context = CloudRuntimeIdentity.snapshot().context
         return .init(project: legacy?.projectURL(), owner: currentOwnerId,
-            localDevice: activeDeviceId, source: credential?.sourceId, token: credential?.tokenId)
+            localDevice: activeDeviceId, source: context.map { CloudPushSettings.sourceId(scope: $0.scope) },
+            token: credential?.tokenId ?? CloudAuthClient.storedSession()?.accessToken)
     }
     private var linkInFlight = false
     private var pollingDay: String?
@@ -113,6 +120,10 @@ final class ServerScoreRepository: ObservableObject {
         signedIn = dependencies.ownerId() != nil
         session.activate(ownerId: dependencies.ownerId())
         NotificationCenter.default.publisher(for: .cloudEnrollmentDidChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.enrollmentChanged() }
+            .store(in: &subscriptions)
+        NotificationCenter.default.publisher(for: CloudAuthClient.identityDidChange)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.enrollmentChanged() }
             .store(in: &subscriptions)
@@ -255,7 +266,8 @@ final class ServerScoreRepository: ObservableObject {
             stopPolling()
             ownership = nil
             ServerScoringSettings.bindComputeOwnership(nil)
-            dependencies.clearSession()
+            do { try dependencies.clearSession() }
+            catch { signOutNeedsRetry = true; lastError = "Session changes could not be saved"; return }
             CloudScoreIdentity.clearIngestOwner()
             session.activate(ownerId: nil)
             signedIn = false
@@ -301,7 +313,8 @@ final class ServerScoreRepository: ObservableObject {
             ownership = nil
             ServerScoringSettings.bindComputeOwnership(nil)
             state = .empty
-            dependencies.clearSession()
+            do { try dependencies.clearSession(); signOutNeedsRetry = false }
+            catch { signOutNeedsRetry = true; lastError = "Sign-out could not be saved. Retry before closing NARA."; return }
             CloudScoreIdentity.clearIngestOwner()
             signedIn = false
             deviceLinked = false
@@ -879,7 +892,7 @@ final class ServerScoreRepository: ObservableObject {
         } catch ServerScoreClient.FetchError.unauthorized {
             synchronizeOwner()
             guard !Task.isCancelled, session.isCurrentRequest(day: day, generation: generation, currentOwnerId: currentOwnerId, request: request) else { return }
-            if let token = CloudEnrollment.currentCredential()?.uploadToken {
+            if let token = CloudEnrollment.currentCredential()?.uploadToken ?? CloudAuthClient.storedSession()?.accessToken {
                 _ = dependencies.clearIfCurrent(token, owner)
             }
             signedIn = false
@@ -954,11 +967,12 @@ final class ServerScoreRepository: ObservableObject {
                 cached: cache.stale || readFailed, pending: pending, requestedInputRevision: nil, archiveStatus: nil)
         }
         for day in enrollmentReadFailures where readStates[day] == nil { readStates[day] = .empty(.failed) }
-        var next = ServerScoreViewState(generation: CloudRuntimeIdentity.currentEnrollmentSnapshot()?.generation,
+        var next = ServerScoreViewState(generation: CloudRuntimeIdentity.snapshot().generation,
             revision: state.revision &+ 1, currentDay: currentDay, timezone: timeZone.identifier,
             configured: legacy?.ready() == true || ownership?.metrics.isEmpty == false, authenticated: true, capabilities: metrics,
             activated: metrics, days: readStates)
         for (day, cache) in enrolledDays where cache.ownerId == owner {
+            if let canonical = cache.canonicalResults { next.canonicalDays[day] = canonical }
             let d = cache.daily
             let authorized = Self.authorizedEnrollmentMetrics(cache).intersection(metrics)
             let entries: [(ServerScoreMetric, Double?)] = [
@@ -974,7 +988,7 @@ final class ServerScoreRepository: ObservableObject {
             }
             if !values.isEmpty { next.enrollmentValues[day] = values }
         }
-        if next.enrollmentValues != state.enrollmentValues || next.currentDay != state.currentDay
+        if next.canonicalDays != state.canonicalDays || next.enrollmentValues != state.enrollmentValues || next.currentDay != state.currentDay
             || next.generation != state.generation || next.configured != state.configured
             || next.authenticated != state.authenticated || next.capabilities != state.capabilities
             || next.days != state.days {
@@ -1009,7 +1023,7 @@ final class ServerScoreRepository: ObservableObject {
     private func observeOwnership(_ cache: ServerScoreDayCache) {
         guard cache.ownerId == currentOwnerId, activeDeviceId != nil,
               let project = legacy?.projectURL() else { return }
-        let devices = Set(cache.features.values.compactMap(\.deviceId))
+        let devices = cache.canonicalResults.map { Set([$0.deviceID]) } ?? Set(cache.features.values.compactMap(\.deviceId))
         guard devices.count == 1, let device = devices.first else { return }
         let scope = ServerMetricOwnership.Scope(project: project, ownerID: cache.ownerId, deviceID: device)
         ownership = ownershipStore.observe(cache, scope: scope)
@@ -1061,6 +1075,11 @@ final class ServerScoreRepository: ObservableObject {
         guard cacheProjectURL == legacy?.projectURL(),
               let local = activeDeviceId, let canonical = legacy?.canonicalDeviceId(ownerId, local),
               let row = try? cacheStore?.load(ownerId: ownerId, day: day, deviceId: canonical) else { return nil }
+        if let results = row.canonicalResults {
+            guard let context = CloudRuntimeIdentity.snapshot().context,
+                  (try? results.validate(owner: ownerId, day: day, project: legacy?.projectURL(),
+                    source: CloudPushSettings.sourceId(scope: context.scope), device: canonical)) != nil else { return nil }
+        }
         return row
     }
 

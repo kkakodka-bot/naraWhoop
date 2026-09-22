@@ -396,7 +396,7 @@ final class AppModel: ObservableObject {
         _ = CloudCaptureScope.processOwnerId
         self.accountContext = context
         self.enrollmentScope = enrollmentScope
-        self.serverScores = enrollmentScope == nil ? ServerScoreRepository() : ServerScoreRepository(dependencies: .live)
+        self.serverScores = ServerScoreRepository(dependencies: .live)
         self.resourceBudget = resourceBudget
         self.capturePreparationHooks = capturePreparationHooks
         self.currentAccountCheck = isCurrent
