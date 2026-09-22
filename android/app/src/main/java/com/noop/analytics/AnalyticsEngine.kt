@@ -443,6 +443,7 @@ object AnalyticsEngine {
         excludedMainSleepStarts: Set<Long> = emptySet(),
         timezone: java.time.ZoneId? = null,
     ): DayResult {
+        PhoneComputeRuntime.inferenceStarted("AnalyticsEngine.analyzeDay")
 
         // Precompute the day's UTC bounds ONCE (#996). isoDay is a FIXED-UTC formatter, so
         // `dayString(ts, tzOffsetSeconds) == day` is exactly membership in [dayStartUtc, +86400). That turns
@@ -1711,6 +1712,8 @@ object RestScorer {
      * Swift `AnalyticsEngine.Rest.composite(daily:)`.
      */
     fun restFromDaily(daily: DailyMetric, consistency: Double? = null): Double? {
+        if (!PhoneComputeRuntime.allowsLocal("rest_reconstruction")) return null
+        PhoneComputeRuntime.inferenceStarted("rest_reconstruction")
         val tstMin = daily.totalSleepMin ?: return null
         val eff = daily.efficiency ?: return null
         if (tstMin <= 0.0) return null

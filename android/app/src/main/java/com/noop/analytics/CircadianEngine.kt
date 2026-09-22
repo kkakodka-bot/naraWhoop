@@ -102,6 +102,7 @@ object CircadianEngine {
 
     /** Fit a single 24 h cosine to the (hour, activity) bins by ordinary least squares. null if degenerate. */
     fun cosinor(bins: List<ActivityBin>): CosinorFit? {
+        PhoneComputeRuntime.inferenceStarted("CircadianEngine.cosinor")
         if (bins.size < 3) return null
         val w = 2.0 * PI / 24.0
         val n = bins.size.toDouble()
@@ -170,6 +171,7 @@ object CircadianEngine {
         habitualWakeHour: Double,
         observedTempMinHour: Double? = null,
     ): PhaseEstimate? {
+        PhoneComputeRuntime.inferenceStarted("CircadianEngine.estimatePhase")
         val fit = cosinor(bins) ?: return null
 
         val relativeAmplitude = if (fit.mesor != 0.0) fit.amplitude / abs(fit.mesor) else 0.0
@@ -241,6 +243,7 @@ object CircadianEngine {
      * ADVANCE (earlier; eastward), NEGATIVE = DELAY (later; westward).
      */
     fun planShift(shiftHours: Double, currentSleepHour: Double, currentWakeHour: Double): JetLagPlan {
+        PhoneComputeRuntime.inferenceStarted("CircadianEngine.planShift")
         val magnitude = abs(shiftHours)
         if (magnitude < 0.5) {
             return JetLagPlan(ShiftDirection.NONE, 0.0, 0, emptyList(),
@@ -344,6 +347,7 @@ object CircadianEngine {
      * Mirrors the Swift twin exactly.
      */
     fun idealSleepWindow(tempMinHour: Double, durationHours: Double): IdealSleepWindow? {
+        PhoneComputeRuntime.inferenceStarted("CircadianEngine.idealSleepWindow")
         if (durationHours <= 0.0 || durationHours >= 24.0) return null
         val wake = wrap24(tempMinHour + cbtMinBeforeWakeHours)
         return IdealSleepWindow(bedHour = wrap24(wake - durationHours), wakeHour = wake)

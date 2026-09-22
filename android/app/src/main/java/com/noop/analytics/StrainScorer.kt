@@ -437,6 +437,8 @@ object StrainScorer {
         diag: ((String) -> Unit)? = null,
         day: String = "",
     ): Double? {
+        if (!PhoneComputeRuntime.allowsLocal("strain")) return null
+        PhoneComputeRuntime.inferenceStarted("strain")
         val resolvedDenominator = denominator ?: logMapDenominator(method, sex)
         val effMax = maxHR ?: defaultMaxHR().toDouble()
         // Enough data to trust the score: a dense stream (≥ minReadings) OR a sparse-but-sustained

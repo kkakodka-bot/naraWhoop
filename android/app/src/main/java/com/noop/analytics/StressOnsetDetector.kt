@@ -196,6 +196,7 @@ object StressOnsetDetector {
         nowSec: Long,
         tzOffsetSec: Long,
     ): Decision {
+        PhoneComputeRuntime.inferenceStarted("StressOnsetDetector.evaluate")
 
         // 1) Master gates: off / auto-nudge off → never nudge, state untouched.
         if (!config.enabled || !config.autoNudge) {

@@ -86,6 +86,7 @@ object IllnessSignalEngine {
      * for signals that clear [signalZThreshold] are surfaced.
      */
     fun evaluate(inputs: Inputs, context: Context, firedLabels: Map<String, String> = emptyMap()): Result {
+        PhoneComputeRuntime.inferenceStarted("IllnessSignalEngine.evaluate")
         // Order is fixed so firedSignals is deterministic across platforms.
         val ordered: List<Pair<String, SignalReading?>> = listOf(
             "restingHR" to inputs.restingHR,

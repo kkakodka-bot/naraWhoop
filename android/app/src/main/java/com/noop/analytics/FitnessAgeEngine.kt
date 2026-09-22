@@ -40,6 +40,7 @@ object FitnessAgeEngine {
 
     /** Body-mass index from metric height/weight (used by callers; not required for Fitness Age). */
     fun bmi(weightKg: Double, heightCm: Double): Double {
+        PhoneComputeRuntime.inferenceStarted("FitnessAgeEngine.bmi")
         val m = heightCm / 100.0
         if (m <= 0) return 0.0
         return weightKg / (m * m)
@@ -47,6 +48,7 @@ object FitnessAgeEngine {
 
     /** Nes 2011 waist-variant VO₂max (ml/kg/min). Optional display metric — needs a waist measurement. */
     fun estimateVO2max(age: Double, sex: String, waistCm: Double, restingHR: Double, paIndex: Double): Double {
+        PhoneComputeRuntime.inferenceStarted("FitnessAgeEngine.estimateVO2max")
         val c = coeffs(sex)
         return c[0] - c[1] * age + c[4] * paIndex - c[2] * waistCm - c[3] * restingHR
     }
@@ -54,6 +56,7 @@ object FitnessAgeEngine {
     /** Self-consistent Fitness Age (years, clamped [20,80]). The waist term cancels:
      *  FA = age + (rhrC·(RHR−RHRref) − paiC·(PAI−PAIref)) / ageC. */
     fun fitnessAge(age: Double, sex: String, restingHR: Double, paIndex: Double): Double {
+        PhoneComputeRuntime.inferenceStarted("FitnessAgeEngine.fitnessAge")
         val c = coeffs(sex)
         val ageC = c[1]; val rhrC = c[3]; val paiC = c[4]
         val fa = age + (rhrC * (restingHR - restingHRReference) - paiC * (paIndex - paiReference)) / ageC
@@ -64,6 +67,7 @@ object FitnessAgeEngine {
      *  aggregates. Bucket edges mirror the HUNT1 PA-Q response options (Kurtze 2008). */
     fun physicalActivityIndex(activeDaysPerWeek: Int, avgActiveMinutesPerDay: Double,
                               highIntensityFraction: Double): Double {
+        PhoneComputeRuntime.inferenceStarted("FitnessAgeEngine.physicalActivityIndex")
         val frequency = when {
             activeDaysPerWeek < 1 -> 0.0
             activeDaysPerWeek == 1 -> 0.5
@@ -92,6 +96,7 @@ object FitnessAgeEngine {
      *  intensity×duration product (0–3) and multiply by the frequency factor (no double-counting).
      *  Reference peer (≈4 active days, mean strain ≈60) → PA-index ≈ 5. */
     fun physicalActivityIndexFromStrain(activeDaysPerWeek: Int, meanActiveStrain: Double): Double {
+        PhoneComputeRuntime.inferenceStarted("FitnessAgeEngine.physicalActivityIndexFromStrain")
         val frequency = when {
             activeDaysPerWeek < 1 -> 0.0
             activeDaysPerWeek == 1 -> 0.5
@@ -108,6 +113,7 @@ object FitnessAgeEngine {
      *  waist measurement is supplied; callers gate data-coverage separately. */
     fun compute(age: Double, sex: String, restingHR: Double, paIndex: Double,
                 waistCm: Double? = null, lowerConfidence: Boolean = false): FitnessAgeResult? {
+        PhoneComputeRuntime.inferenceStarted("FitnessAgeEngine.compute")
         if (age <= 0 || restingHR <= 0) return null
         val fa = fitnessAge(age, sex, restingHR, paIndex)
         val vo2 = if (waistCm != null && waistCm > 0)

@@ -1064,7 +1064,7 @@ fun extractHistoricalStreams(
 
     // Derive HR from the accumulated v26 PPG waveform (8 s / 24 Hz autocorrelation, conf>=0.3). Empty
     // unless the strap sent v26 records; falls back gracefully (no rows) on noise (#156).
-    val ppgHr = PpgHr.estimateRecords(ppgWaveform.map { PpgHr.Record(it.ts, it.recordIndex, it.samples) },
+    val ppgHr = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) emptyList() else PpgHr.estimateRecords(ppgWaveform.map { PpgHr.Record(it.ts, it.recordIndex, it.samples) },
         subLagInterp = ppgHrSubLagInterp).map { selected ->
             val estimate = selected.estimate
             PpgHrRow(ts = estimate.ts, bpm = estimate.bpm, conf = estimate.conf,

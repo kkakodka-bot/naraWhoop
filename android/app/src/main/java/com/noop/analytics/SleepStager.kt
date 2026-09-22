@@ -722,6 +722,7 @@ object SleepStager {
          */
         traceSink: ((String) -> Unit)? = null,
     ): List<DetectedSleep> {
+        PhoneComputeRuntime.inferenceStarted("SleepStager.detectSleep")
         val hrS = hr.sortedBy { it.ts }
         // ONE sort of the bpm axis, reused for the anchor and for the spread the trace reports.
         val sortedBpm = hrS.map { it.bpm.toDouble() }.sorted()
@@ -1493,6 +1494,7 @@ object SleepStager {
         timezone: java.time.ZoneId? = null,
     ): List<DetectedSleep> {
         // Test mode ONLY: a requested trace MUST run the live gate ladder so every verdict emits for THIS
+        PhoneComputeRuntime.inferenceStarted("SleepStager.detectSleep")
         // night — never a silent memo replay. The trace is side-effect-only (the returned list is
         // byte-identical to the untraced call), so every real call still memoizes below. Mirrors the
         // Swift detectSleep traceSink bypass (#707).

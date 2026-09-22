@@ -329,6 +329,7 @@ object Baselines {
      */
     fun update(state: BaselineState?, value: Double?, cfg: MetricCfg,
                rejectHardOutliers: Boolean = true): BaselineState {
+        PhoneComputeRuntime.inferenceStarted("Baselines.update")
         val lb = lambda(cfg.halfLifeB)
         val ls = lambda(cfg.halfLifeS)
 
@@ -425,6 +426,7 @@ object Baselines {
      */
     fun foldHistory(values: List<Double?>, cfg: MetricCfg,
                     rejectHardOutliers: Boolean = true): BaselineState {
+        PhoneComputeRuntime.inferenceStarted("Baselines.foldHistory")
         var state: BaselineState? = null
         for (v in values) state = update(state, v, cfg, rejectHardOutliers)
         state?.let { return it }
@@ -455,6 +457,7 @@ object Baselines {
         cfg: MetricCfg,
         baselineEpoch: Double,
     ): BaselineState {
+        PhoneComputeRuntime.inferenceStarted("Baselines.foldHistoryWithEpoch")
         if (baselineEpoch <= 0.0) return foldHistory(values, cfg)
 
         var state: BaselineState? = null

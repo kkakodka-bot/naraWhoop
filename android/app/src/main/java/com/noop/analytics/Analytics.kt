@@ -19,6 +19,7 @@ object Hrv {
      * guard `rr.count >= 2`).
      */
     fun rmssd(rr: List<Int>): Double {
+        PhoneComputeRuntime.inferenceStarted("Hrv.rmssd")
         if (rr.size < 2) return 0.0
         var sum = 0.0
         var n = 0
@@ -81,6 +82,8 @@ object IllnessWatch {
      * Requires at least 14 days of history (matching `days.count >= 14`).
      */
     fun evaluate(days: List<DailyMetric>): String? {
+        if (!PhoneComputeRuntime.allowsLocal("illness_watch")) return null
+        PhoneComputeRuntime.inferenceStarted("illness_watch")
         if (days.size < 14) return null
 
         val recent = days.takeLast(2)

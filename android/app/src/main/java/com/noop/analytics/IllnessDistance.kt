@@ -60,6 +60,7 @@ object IllnessDistance {
      * features in fixed order, or null for identity (which makes D == the Euclidean norm of the z-vector).
      */
     fun evaluate(features: FeatureVector, correlation: List<List<Double>>? = null): Result {
+        PhoneComputeRuntime.inferenceStarted("IllnessDistance.evaluate")
         val x = features.present()
         val k = x.size
         if (k == 0) return Result(0.0, 0, fires = false, usedDiagonalFallback = false)

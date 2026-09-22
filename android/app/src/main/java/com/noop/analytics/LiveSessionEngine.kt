@@ -106,6 +106,7 @@ class LiveSessionEngine(private val config: Config, private val startTs: Int) {
 
     /** Advance to `now`. Pass the live bpm if one arrived, or null for a plain time tick (staleness check). */
     fun update(now: Int, bpm: Int?): Output {
+        PhoneComputeRuntime.inferenceStarted("LiveSessionEngine.update")
         val dt = maxOf(now - lastUpdateTs, 0)
 
         // 1. Validate + accept the sample (never-fabricate guard).

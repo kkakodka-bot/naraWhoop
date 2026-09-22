@@ -57,6 +57,8 @@ object PpgHr {
 
     /** Observe the existing selection without deduplicating records or changing any sample math. */
     fun estimateRecords(records: List<Record>, subLagInterp: Boolean = false): List<SelectedEstimate> {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("ppg_hr")) return emptyList()
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("ppg_hr")
         // Copy before estimation: later caller mutations cannot rewrite an estimate's provenance.
         val frozen = records.filter { it.samples.isNotEmpty() }.map { it.copy(samples = it.samples.toList()) }
         val bySecond = frozen.groupBy { it.ts }
@@ -80,6 +82,8 @@ object PpgHr {
 
     private fun estimateSelected(samples: List<Sample>, subLagInterp: Boolean,
                                  selected: (Estimate, List<Long>) -> Unit): List<Estimate> {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("ppg_estimate")) return emptyList()
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("PpgHr.estimateSelected")
         if (samples.isEmpty()) return emptyList()
         // Every sample contributes, in encounter order within each second. Do not deduplicate.
         val secs = LinkedHashMap<Long, ArrayList<Int>>()

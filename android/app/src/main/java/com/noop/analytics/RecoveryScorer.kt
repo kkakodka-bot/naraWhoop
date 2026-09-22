@@ -331,6 +331,7 @@ object RecoveryScorer {
         effortBaseline: DriverBaseline? = null,
         priorDayEffort: Double? = null,
     ): Double? {
+        PhoneComputeRuntime.inferenceStarted("RecoveryScorer.recovery")
         // Cold-start gate: HRV is the dominant driver; if its baseline isn't
         // usable, refuse to score (more honest than a fabricated value).
         if (!hrvBaselineUsable) return null

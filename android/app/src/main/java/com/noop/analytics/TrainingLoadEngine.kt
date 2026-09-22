@@ -85,6 +85,7 @@ object TrainingLoadEngine {
         through: String? = null,
         configuration: Configuration = standard,
     ): Result {
+        PhoneComputeRuntime.inferenceStarted("TrainingLoadEngine.evaluate")
         if (!configuration.isValid) return unavailable(UnavailableReason.INVALID_CONFIGURATION, 0)
         if (days.isEmpty()) return unavailable(UnavailableReason.NO_DATA, 0)
 
@@ -162,6 +163,7 @@ object TrainingLoadEngine {
 
     /** Convenience for dense load arrays. Day labels are synthetic but deterministic; math is identical. */
     fun evaluateDense(loads: List<Double>, configuration: Configuration = standard): Result {
+        PhoneComputeRuntime.inferenceStarted("TrainingLoadEngine.evaluateDense")
         val baseOrdinal = dayOrdinal("2000-01-01")!!
         val days = loads.mapIndexed { index, load -> DailyLoad(dayString(baseOrdinal + index), load) }
         return evaluate(days, configuration = configuration)
