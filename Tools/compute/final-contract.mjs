@@ -57,6 +57,11 @@ export function validateFinalSourceContracts(registry) {
     'permitsLocal("coach_stress_context")', 'permitsLocal("legacy_coach_provider")']);
   contains('Strand/System/CoachBriefScheduler.swift', ['!PhoneComputeRuntime.isFinalHosted', 'permitsLocal("legacy_scheduled_coaching")']);
   contains('Tools/compute/Tests/FinalHostedRuntimeTests.swift', ['AICoachError.serverOwnedUnavailable', 'CoachBriefScheduler.consumeStoredBrief()']);
+  contains('StrandTests/CanonicalPhysiologySurfaceTests.swift', ['testFinalHostedLegacySleepAdapterCannotReconstructOrReturnLocalModel']);
+  contains('Strand/Data/WhoopImporter.swift', ['let derivesLocally = PhoneComputeRuntime.permitsLocal("import.whoop_derived")',
+    'if derivesLocally, let deep', 'entered("import.whoop_restorative")',
+    'if derivesLocally, let asleep', 'entered("import.whoop_sleep_need")',
+    'if derivesLocally {\n            PhoneComputeRuntime.entered("import.whoop_baselines_stress_zones")']);
   for (const [screen, producer] of [['AppleHealthView', 'physiological_mean'],
     ['XiaomiBandView', 'physiological_mean'], ['MedicationsView', 'physiological_response']]) {
     contains(`Strand/Screens/${screen}.swift`, ['PhoneComputeRuntime.isFinalHosted',

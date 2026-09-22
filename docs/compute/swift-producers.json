@@ -1,9 +1,37 @@
 {
   "schema_version": 1,
-  "scope": "shared Swift physiological producer entrypoints",
+  "scope": "shared Swift physiological producer entrypoints and audited app reconstruction adapters",
   "policy": "final hosted blocks entry before numerical work; reference tools remain enabled",
   "excluded": "Transport framing, durable input capture, timestamps/timers, data structures, user-input validation, canonical selection, unit conversion and text formatting.",
   "entrypoints": [
+    {
+      "file": "Strand/Push/ServerScoreSleepPresentation.swift",
+      "symbol": "static func model(day: String, state: ServerScoreViewState, local: SleepModel?) -> SleepModel?",
+      "producer": "legacy_sleep_presentation_composite",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Strand/Data/WorkoutZones.swift",
+      "symbol": "static func summary(from rows: [WorkoutRow]) -> Summary?",
+      "producer": "workout.zone_summary",
+      "bodyguard": "permitsLocal:nil+entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Strand/Data/WorkoutZones.swift",
+      "symbol": "var totalMinutes: Double",
+      "producer": "workout.zone_total",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
+    {
+      "file": "Strand/Data/WhoopImporter.swift",
+      "symbol": "func meanStd(_ a: [Double]) -> (Double, Double)",
+      "producer": "import.whoop_personal_baseline",
+      "bodyguard": "entered",
+      "mode": "reference_only"
+    },
     {
       "file": "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
       "symbol": "public static func vendorRespRateBpm(_ rows: [RespSample], sessions: [(start: Int, end: Int)]) -> Double?",

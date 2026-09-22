@@ -1,11 +1,14 @@
 import Foundation
 import WhoopStore
+import WhoopProtocol
 import StrandDesign
 import StrandAnalytics
 
-/// Converts a bounded immutable snapshot to existing render models. No sleep detection or debt scoring.
+/// Reference-mode adapter for historical snapshots. Hosted panels consume canonical family results.
 extension ServerScoreSleepPresentation {
     static func model(day: String, state: ServerScoreViewState, local: SleepModel?) -> SleepModel? {
+        guard PhoneComputeRuntime.permitsLocal("legacy_sleep_presentation_composite") else { return nil }
+        PhoneComputeRuntime.entered("legacy_sleep_presentation_composite")
         if !state.owns(.sleepSessions) { return local.map { applyingMetrics(to: $0, day: day, state: state) } }
         guard let snapshot = ServerScoreDisplay.detailSnapshot(.sleepSessions, day: day, state: state),
               let anchor = snapshot.sleep.first else { return nil }

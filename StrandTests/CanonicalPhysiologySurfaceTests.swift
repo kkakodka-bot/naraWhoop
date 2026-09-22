@@ -2,6 +2,8 @@ import XCTest
 import SwiftUI
 import WhoopStore
 import WhoopProtocol
+import StrandAnalytics
+import StrandDesign
 @testable import Strand
 
 @MainActor
@@ -53,6 +55,29 @@ final class CanonicalPhysiologySurfaceTests: XCTestCase {
             for producer in ["InsightsHub.load", "InsightsHub.rank", "StressModel.init", "Repository.hydrationGoal"] {
                 XCTAssertEqual(counters.denied[producer], 1, producer)
             }
+        }
+    }
+
+    func testFinalHostedLegacySleepAdapterCannotReconstructOrReturnLocalModel() {
+        let session = CachedSleepSession(startTs: 1, endTs: 28_801, efficiency: 0.9,
+            restingHr: 55, avgHrv: 40, stagesJSON: nil)
+        let empty: SleepModel.Metric = (nil, nil, [])
+        let local = SleepModel(night: Night(session: session, stages: Stages(awake: 10, light: 300, deep: 60, rem: 110)),
+            intervals: [], isPersistedHypnogram: false, isStubNight: false,
+            performance: empty, efficiency: empty, consistency: empty, hoursVsNeeded: empty,
+            restorative: empty, respiratory: empty, sleepDebt: empty,
+            typicalTotalMin: 480, typicalDeepMin: 60, typicalRemMin: 110, typicalLightMin: 300,
+            trendPoints: [], sleepDebtLedger: SleepDebtLedger(balanceMin: -60, nights: [], needMin: 480))
+        PhoneComputeRuntime.$testMode.withValue(.reference) {
+            XCTAssertNotNil(ServerScoreSleepPresentation.model(day: "2026-09-21", state: .empty, local: local))
+        }
+        PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            XCTAssertNil(ServerScoreSleepPresentation.model(day: "2026-09-21", state: .empty, local: local))
+            XCTAssertNil(ServerScoreSleepPresentation.model(day: "2026-09-21", state: .empty, local: nil))
+            let counters = PhoneComputeRuntime.counters()
+            XCTAssertTrue(counters.executions.isEmpty, "\(counters.executions)")
+            XCTAssertEqual(counters.denied["legacy_sleep_presentation_composite"], 2)
         }
     }
 
