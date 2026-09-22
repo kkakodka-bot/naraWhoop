@@ -65,6 +65,26 @@ final class PushResourceAdmissionTests: XCTestCase {
         let resumedCalls = await probe.calls
         XCTAssertEqual(resumedCalls, ["progress.cursor", "source.append"])
     }
+
+    func testWakeBudgetBoundsActualSourceSelectionAndStopsNextLaneBeforeRead() async throws {
+        let probe = AdmissionProbe(appendCount: 5_001)
+        let budget = PushWakeBudget(maximumRequests: 1, clock: { 100 })
+        let coordinator = PushCoordinator(source: probe, transport: probe, progress: probe,
+            sourceId: sourceID, wakeBudget: budget)
+        _ = await coordinator.pushAppend(.battery, deviceId: "synthetic-device")
+        let firstCalls = await probe.calls
+        let limit = await probe.lastAppendLimit
+        let posted = await probe.lastPostedRows
+        XCTAssertEqual(limit, 2_001)
+        XCTAssertEqual(posted, 2_000)
+        let next = await coordinator.pushAppend(.hrSample, deviceId: "synthetic-device")
+        guard case .rejected(let reason, let retryable, _) = next else { return XCTFail("exhausted wake started another lane") }
+        XCTAssertEqual(reason, "resource_pressure")
+        XCTAssertTrue(retryable)
+        let nextCalls = await probe.calls
+        XCTAssertEqual(nextCalls, firstCalls)
+        XCTAssertFalse(nextCalls.contains("progress.saveCursor"))
+    }
 }
 
 private final class AdmissionGate: @unchecked Sendable {
@@ -77,8 +97,12 @@ private final class AdmissionGate: @unchecked Sendable {
 
 private actor AdmissionProbe: PushSnapshotSource, PushProgressStore, PushTransport {
     private let revokeAfterMutableRead: @Sendable () -> Void
+    private let appendCount: Int
     private(set) var calls: [String] = []
-    init(revokeAfterMutableRead: @escaping @Sendable () -> Void = {}) {
+    private(set) var lastAppendLimit = 0
+    private(set) var lastPostedRows = 0
+    init(appendCount: Int = 0, revokeAfterMutableRead: @escaping @Sendable () -> Void = {}) {
+        self.appendCount = appendCount
         self.revokeAfterMutableRead = revokeAfterMutableRead
     }
     func knownDeviceIds(capabilities: PushCapabilities) -> [String] {
@@ -88,7 +112,11 @@ private actor AdmissionProbe: PushSnapshotSource, PushProgressStore, PushTranspo
         calls.append("source.appendRecord"); return nil
     }
     func appendRows(table: PushAppendTable, deviceId: String, afterRowId: Int64, limit: Int) -> [PushAppendRecord] {
-        calls.append("source.append"); return []
+        calls.append("source.append"); lastAppendLimit = limit
+        return (0..<min(limit, appendCount)).map { index in
+            .init(rowId: Int64(index + 1), key: ["ts": .int(Int64(1_800_000_000 + index))],
+                data: ["soc": .int(50), "mv": .null, "charging": .null])
+        }
     }
     func mutableRows(table: PushMutableTable, deviceId: String, window: PushWindow, limit: Int) -> [PushMutableRecord] {
         calls.append("source.mutable"); revokeAfterMutableRead(); return []
@@ -121,7 +149,8 @@ private actor AdmissionProbe: PushSnapshotSource, PushProgressStore, PushTranspo
         calls.append("progress.saveWindow")
     }
     func post(_ batch: PushBatch) throws -> PushTransportResponse {
-        calls.append("transport.post"); throw PushProtocolException("unexpected transport")
+        calls.append("transport.post"); lastPostedRows = batch.recordCount
+        throw PushProtocolException("unexpected transport")
     }
     func postBinary(_ batch: PushBinaryBatch) throws -> PushTransportResponse {
         calls.append("transport.binary"); throw PushProtocolException("unexpected transport")

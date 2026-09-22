@@ -16,6 +16,7 @@ public struct PushCoordinator: Sendable {
     private let commitSource: (@Sendable (PushSourceCommit) async throws -> Void)?
     private let prepareSelection: (@Sendable (PushPreparedSelection) async throws -> Void)?
     private let allowsPreparation: @Sendable () -> Bool
+    private let wakeBudget: PushWakeBudget?
     private var pressureDeferred: PushResult { .rejected(reason: "resource_pressure", retryable: true, failure: nil) }
 
     public init(
@@ -32,7 +33,8 @@ public struct PushCoordinator: Sendable {
         associateInlineReceipt: (@Sendable (PushBatch, PushDurabilityReceipt) async throws -> Void)? = nil,
         commitSource: (@Sendable (PushSourceCommit) async throws -> Void)? = nil,
         prepareSelection: (@Sendable (PushPreparedSelection) async throws -> Void)? = nil,
-        allowsPreparation: @escaping @Sendable () -> Bool = { true }
+        allowsPreparation: @escaping @Sendable () -> Bool = { true },
+        wakeBudget: PushWakeBudget? = nil
     ) {
         self.source = source
         self.transport = transport
@@ -47,7 +49,8 @@ public struct PushCoordinator: Sendable {
         self.associateInlineReceipt = associateInlineReceipt
         self.commitSource = commitSource
         self.prepareSelection = prepareSelection
-        self.allowsPreparation = allowsPreparation
+        self.allowsPreparation = { allowsPreparation() && (wakeBudget?.permitsPreparation ?? true) }
+        self.wakeBudget = wakeBudget
     }
 
     public func pushAppend(_ table: PushAppendTable, deviceId: String,
@@ -81,7 +84,7 @@ public struct PushCoordinator: Sendable {
                 table: table,
                 deviceId: deviceId,
                 afterRowId: effective?.rowId ?? 0,
-                limit: PushProtocolLimits.maxRecords + 1
+                limit: (wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords) + 1
             )
         } catch let error as PushProtocolException {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
@@ -95,11 +98,12 @@ public struct PushCoordinator: Sendable {
         do {
             guard allowsPreparation() else { return pressureDeferred }
             batch = try PushProtocol.appendBatch(table: table, sourceId: sourceId, deviceId: deviceId,
-                startCursor: effective, records: rows, protocolVersion: protocolVersion)
+                startCursor: effective, records: Array(rows.prefix(wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords)), protocolVersion: protocolVersion)
         } catch {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         }
 
+        guard wakeBudget?.admitPreparation(bytes: batch.body.count) ?? true else { return pressureDeferred }
         if let prepareSelection {
             do {
                 guard destinationStillCurrent() else { throw CancellationError() }
@@ -216,6 +220,7 @@ public struct PushCoordinator: Sendable {
         let value = PushWindowProgress(window: fullWindow, batchId: replacementId, dayHashes: currentHashes)
         let sourceCommit = PushSourceCommit(kind: .mutable, table: table.wireName, deviceID: deviceId,
             batchIDs: batches.map(\.batchId), window: value)
+        guard wakeBudget?.admitPreparation(bytes: batches.reduce(0) { $0 + $1.body.count }) ?? true else { return pressureDeferred }
         if let prepareSelection {
             do {
                 guard destinationStillCurrent() else { throw CancellationError() }
@@ -271,7 +276,7 @@ public struct PushCoordinator: Sendable {
             effective = nil
         }
 
-        let limit = table == .rawBatch ? 1 : PushProtocolLimits.maxRecords + 1
+        let limit = table == .rawBatch ? 1 : (wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords) + 1
         let rows: [PushBinaryRow]
         do {
             rows = try await source.binaryRows(
@@ -292,12 +297,14 @@ public struct PushCoordinator: Sendable {
         do {
             guard allowsPreparation() else { return pressureDeferred }
             batch = try PushProtocol.binaryObjectBatch(
-                table: table, sourceId: sourceId, deviceId: deviceId, startCursor: effective, rows: rows
+                table: table, sourceId: sourceId, deviceId: deviceId, startCursor: effective,
+                rows: Array(rows.prefix(wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords))
             )
         } catch {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         }
 
+        guard wakeBudget?.admitPreparation(bytes: batch.payload.count) ?? true else { return pressureDeferred }
         let accepted = await deliverBinary(batch)
         guard case .accepted(let batchId, let recordCount, _, let batchCount) = accepted else { return accepted }
 
@@ -345,7 +352,7 @@ public struct PushCoordinator: Sendable {
             effective = nil
         }
 
-        let limit = table == .rawBatch ? 2 : PushProtocolLimits.maxRecords + 1
+        let limit = table == .rawBatch ? 2 : (wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords) + 1
         let rows: [PushBinaryRow]
         do {
             rows = try await source.binaryRows(
@@ -367,7 +374,7 @@ public struct PushCoordinator: Sendable {
             guard allowsPreparation() else { return pressureDeferred }
             batch = try PushProtocol.binaryObjectBatch(
                 table: table, sourceId: sourceId, deviceId: deviceId, startCursor: effective,
-                rows: table == .rawBatch ? Array(rows.prefix(1)) : rows,
+                rows: table == .rawBatch ? Array(rows.prefix(1)) : Array(rows.prefix(wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords)),
                 protocolVersion: objectProtocolVersion,
                 decodedLimit: PushProtocolLimits.maxObjectDecodedBytes
             )
@@ -380,6 +387,7 @@ public struct PushCoordinator: Sendable {
         guard Int64(batch.payload.count) <= lane.maxObjectBytes else {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         }
+        guard wakeBudget?.admitPreparation(bytes: batch.payload.count) ?? true else { return pressureDeferred }
 
         let selected = table == .rawBatch ? Array(rows.prefix(1)) : rows.filter { row in
             guard let end = batch.endCursor else { return true }
@@ -545,6 +553,7 @@ public struct PushCoordinator: Sendable {
     }
 
     private func deliverBinary(_ batch: PushBinaryBatch) async -> PushResult {
+        guard wakeBudget?.admitRequest(bytes: batch.payload.count) ?? true else { return pressureDeferred }
         guard destinationStillCurrent() else {
             return .rejected(reason: "cancelled", retryable: true, failure: nil)
         }
@@ -649,12 +658,14 @@ public struct PushCoordinator: Sendable {
         if !uploaded {
             let intent: PushObjectIntent
             do {
+                guard wakeBudget?.admitRequest(bytes: 8 * 1024) ?? true else { return pressureDeferred }
                 intent = try await transport.createObjectIntent(manifest, lane: lane)
             } catch let error as PushTransportException where receiptOwner == nil && error.failure.receiverCode == "object_id_conflict" {
                 // Same id, different bytes: the id is burned server-side. Mint a fresh one and
                 // retry exactly once; a second conflict means something is deeply wrong.
                 manifest = manifest.replacingObjectId(PushProtocol.freshObjectId())
                 do {
+                    guard wakeBudget?.admitRequest(bytes: 8 * 1024) ?? true else { return pressureDeferred }
                     intent = try await transport.createObjectIntent(manifest, lane: lane)
                 } catch {
                     return objectLaneFailure(error)
@@ -689,6 +700,7 @@ public struct PushCoordinator: Sendable {
                 return .rejected(reason: "cancelled", retryable: true, failure: nil)
             }
             do {
+                guard wakeBudget?.admitRequest(bytes: batch.payload.count) ?? true else { return pressureDeferred }
                 try await transport.uploadObject(intent, body: batch.payload)
             } catch {
                 // Keep the in-flight record: the next run re-intents for a fresh URL onto the
@@ -712,6 +724,7 @@ public struct PushCoordinator: Sendable {
         while true {
             let ack: PushObjectAck
             do {
+                guard wakeBudget?.admitRequest(bytes: 0) ?? true else { return pressureDeferred }
                 ack = try await transport.completeObject(objectId: manifest.objectId, lane: lane)
             } catch let error as PushTransportException {
                 let code = error.failure.receiverCode
@@ -720,11 +733,13 @@ public struct PushCoordinator: Sendable {
                     // re-sign the same objectId and re-PUT exactly once.
                     reuploaded = true
                     do {
+                        guard wakeBudget?.admitRequest(bytes: 8 * 1024) ?? true else { return pressureDeferred }
                         let refreshed = try await transport.createObjectIntent(manifest, lane: lane)
                         if refreshed.duplicate { continue } // became ready meanwhile → complete again
                         guard refreshed.objectId == manifest.objectId else {
                             return .rejected(reason: PushFailure(code: .ackInvalid).safeCode, retryable: false, failure: PushFailure(code: .ackInvalid))
                         }
+                        guard wakeBudget?.admitRequest(bytes: batch.payload.count) ?? true else { return pressureDeferred }
                         try await transport.uploadObject(refreshed, body: batch.payload)
                         expectedKey = refreshed.objectKey
                     } catch {
@@ -764,6 +779,7 @@ public struct PushCoordinator: Sendable {
     }
 
     private func deliver(_ batch: PushBatch) async -> PushResult {
+        guard wakeBudget?.admitRequest(bytes: batch.body.count) ?? true else { return pressureDeferred }
         guard destinationStillCurrent() else {
             return .rejected(reason: "cancelled", retryable: true, failure: nil)
         }
