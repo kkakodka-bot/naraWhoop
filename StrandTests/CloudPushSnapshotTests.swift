@@ -41,7 +41,11 @@ final class CloudPushSnapshotTests: XCTestCase {
 
     func testEveryExportQueryIsCompatibleWithTheMigratedAppleSchema() async throws {
         let store = try await WhoopStore.inMemory()
-        let snapshot = CloudPushSnapshot(db: store.registryWriter)
+        // IMU is file-backed and requires its owner-bound membership source;
+        // missing source admission must not be confused with an empty lane.
+        let imu = try W5ImuFixture()
+        defer { imu.close() }
+        let snapshot = CloudPushSnapshot(db: store.registryWriter, imuPushSource: imu.source)
         _ = try await snapshot.knownDeviceIds(capabilities: .all)
         for table in PushAppendTable.allCases {
             _ = try await snapshot.appendRows(table: table, deviceId: "d", afterRowId: 0, limit: 10)
@@ -69,6 +73,25 @@ final class CloudPushSnapshotTests: XCTestCase {
         let rows = try await CloudPushSnapshot(db: store.registryWriter).appendRows(
             table: .standardHRReceipt, deviceId: "d", afterRowId: 0, limit: 10)
         XCTAssertEqual(rows.first?.data["receivedMonotonicNs"], .string("9007199254740993"))
+        let receipt = try await CloudPushSnapshot(db: store.registryWriter).appendRecordAt(
+            table: .standardHRReceipt, deviceId: "d", rowId: XCTUnwrap(rows.first?.rowId))
+        XCTAssertEqual(receipt?.data["receivedMonotonicNs"], .string("9007199254740993"))
+    }
+
+    func testSmallMonotonicClockUsesTheSameLosslessWireType() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                INSERT INTO standardHRReceipt(deviceId,receiptId,ts,sessionId,notificationOrdinal,
+                  receivedUnixMs,receivedMonotonicNs,rawHex,schemaVersion,clockVersion)
+                VALUES('d','00000000-0000-4000-8000-000000000001:0',1700000000,
+                  '00000000-0000-4000-8000-000000000001',0,1700000000123,123,'103c0004',1,'host-arrival-unmapped')
+                """)
+        }
+        let rows = try await CloudPushSnapshot(db: store.registryWriter).appendRows(
+            table: .standardHRReceipt, deviceId: "d", afterRowId: 0, limit: 10)
+        XCTAssertEqual(rows.first?.data["receivedMonotonicNs"], .string("123"))
+        XCTAssertEqual(rows.first?.data["receivedUnixMs"], .int(1_700_000_000_123))
     }
 
     func testCopiedPhoneWorkoutExportReadOnlyWhenFixtureIsProvided() async throws {
