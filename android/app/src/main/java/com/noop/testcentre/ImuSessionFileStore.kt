@@ -53,6 +53,7 @@ class ImuSessionFileStore internal constructor(
     init { directory.mkdirs() }
 
     fun start(id: String, deviceId: String, fromMs: Long) = synchronized(lock) {
+        check(id !in pushWithdrawnWindows()) { "Deleted IMU window identity cannot be reused" }
         prefs.edit().putStringSet("ids", ids() + id).putString("$id.device", deviceId)
             .putLong("$id.from", fromMs / 1_000L).putLong("$id.fromMs", fromMs)
             .remove("$id.to").remove("$id.toMs").apply()
@@ -100,6 +101,10 @@ class ImuSessionFileStore internal constructor(
     fun prepareForRead(id: String) = synchronized(lock) { flushSession(id) }
 
     fun deleteFiles(id: String): Boolean = synchronized(lock) {
+        // Persist the user's withdrawal before removing any bytes. A failed/partial deletion stays
+        // retryable, but its remaining bytes must not re-enter cloud delivery.
+        if (!prefs.edit().putStringSet("push-withdrawn-windows-v1", pushWithdrawnWindows() + id).commit())
+            return@synchronized false
         flushSession(id)
         val dir = sessionDir(id)
         if (dir.listFiles().orEmpty().any { it.isDirectory || !it.delete() }) return@synchronized false
@@ -193,6 +198,7 @@ class ImuSessionFileStore internal constructor(
         val ts = decoded.baseTs
         var writes = 0
         for (id in ids()) {
+            if (id in pushWithdrawnWindows()) continue
             if (prefs.getString("$id.device", null) != deviceId) continue
             val from = prefs.getLong("$id.from", Long.MAX_VALUE)
             val to = if (prefs.contains("$id.to")) prefs.getLong("$id.to", Long.MIN_VALUE) else Long.MAX_VALUE
@@ -228,13 +234,16 @@ class ImuSessionFileStore internal constructor(
     }
 
     override fun pushDeviceIds(): Set<String> = synchronized(lock) {
-        ids().mapNotNull { id -> prefs.getString("$id.device", null)?.takeIf { it.isNotEmpty() } }.toSet()
+        (ids() - pushWithdrawnWindows()).mapNotNull { id -> prefs.getString("$id.device", null)?.takeIf { it.isNotEmpty() } }.toSet()
     }
 
     fun pushOwnerMatches(namespace: String): Boolean = ownerNamespace == namespace
+    fun pushWithdrawnWindows(): Set<String> = synchronized(lock) {
+        prefs.getStringSet("push-withdrawn-windows-v1", emptySet()).orEmpty().toSet()
+    }
 
     fun pushSegments(deviceId: String): List<PushSegment> = synchronized(lock) {
-        registeredWindows().filter { it.deviceId == deviceId }.flatMap { window ->
+        registeredWindows().filter { it.deviceId == deviceId && it.id !in pushWithdrawnWindows() }.flatMap { window ->
             flushSession(window.id)
             segmentFiles(window.id).map { file ->
                 PushSegment(window, checkNotNull(segmentBucket(file)) { "Invalid IMU segment header" })

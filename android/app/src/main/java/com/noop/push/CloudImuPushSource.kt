@@ -48,7 +48,8 @@ class CloudImuPushSource internal constructor(
 
     override fun pushDeviceIds(): Set<String> = withIndex { db ->
         stores.values.flatMap { it.pushDeviceIds() }.toMutableSet().also { devices ->
-            db.rawQuery("SELECT device FROM member UNION SELECT device FROM archive", null).use { cursor ->
+            db.rawQuery("SELECT device FROM member m WHERE NOT EXISTS (SELECT 1 FROM withdrawn w WHERE w.origin = m.origin AND w.window = m.window) " +
+                "UNION SELECT device FROM archive a WHERE NOT EXISTS (SELECT 1 FROM withdrawn w WHERE w.origin = a.origin AND w.window = a.window)", null).use { cursor ->
                 while (cursor.moveToNext()) devices += cursor.getString(0)
             }
         }
@@ -62,15 +63,23 @@ class CloudImuPushSource internal constructor(
         materialize(members(db, deviceId, rowId - 1, 1).filter { it.id == rowId }).firstOrNull()
     }
 
+    override fun rowsWereUserWithdrawn(deviceId: String, afterRowId: Long, throughRowId: Long): Boolean = withIndex { db ->
+        require(afterRowId >= 0 && throughRowId >= afterRowId)
+        db.rawQuery("SELECT 1 FROM member m JOIN withdrawn w ON w.origin = m.origin AND w.window = m.window " +
+            "WHERE m.device = ? AND m.id > ? AND m.id <= ? LIMIT 1",
+            arrayOf(deviceId, afterRowId.toString(), throughRowId.toString())).use { it.moveToFirst() }
+    }
+
     override fun indexedPushRows(deviceId: String, afterRowId: Long, limit: Int): List<ImuPushRecord> = withIndex { db ->
         require(afterRowId >= 0 && limit in 1..PushProtocol.MAX_RECORDS + 1)
-        val scan = scanPosition(db, "rows", deviceId)
         val pending = members(db, deviceId, afterRowId, limit)
-        if (!scan.second && pending.isNotEmpty()) return@withIndex materialize(pending)
-        if (scan(db, "rows", deviceId) { origin, segment, snapshot ->
+        if (pending.isNotEmpty()) return@withIndex materialize(pending)
+        val more = scan(db, "rows", deviceId) { origin, segment, snapshot ->
                 indexSegment(db, origin, segment, snapshot)
-            }) throw ImuInventoryPendingException()
-        materialize(members(db, deviceId, afterRowId, limit))
+            }
+        val indexed = members(db, deviceId, afterRowId, limit)
+        if (indexed.isEmpty() && more) throw ImuInventoryPendingException()
+        materialize(indexed)
     }
 
     override fun archiveRows(deviceId: String, limit: Int): List<PushRawBatchRecord> = withIndex { db ->
@@ -89,6 +98,7 @@ class CloudImuPushSource internal constructor(
         require(destination.isNotBlank())
         val saved = db.rawQuery("SELECT * FROM archive WHERE batchID = ? AND device = ?",
             arrayOf(row.batchId, deviceId)).use { cursor -> if (cursor.moveToFirst()) cursor.archive() else null }
+        if (saved != null && isWithdrawn(db, saved.origin, saved.window)) return@withIndex
         check(saved != null && archiveRecord(saved) == row) { "IMU archive acknowledgement mismatch" }
         // This is destination-scoped transport progress, not a durability receipt or a pruning gate.
         db.execSQL("INSERT OR IGNORE INTO delivered(destination, batchID) VALUES(?, ?)", arrayOf(destination, row.batchId))
@@ -100,7 +110,8 @@ class CloudImuPushSource internal constructor(
                                val window: String, val bucket: Long, val descriptor: String)
 
     private fun members(db: SQLiteDatabase, deviceId: String, after: Long, limit: Int): List<Member> =
-        db.rawQuery("SELECT * FROM member WHERE device = ? AND id > ? ORDER BY id LIMIT ?",
+        db.rawQuery("SELECT m.* FROM member m WHERE device = ? AND id > ? AND NOT EXISTS " +
+            "(SELECT 1 FROM withdrawn w WHERE w.origin = m.origin AND w.window = m.window) ORDER BY id LIMIT ?",
             arrayOf(deviceId, after.toString(), limit.toString())).use { cursor -> buildList {
                 while (cursor.moveToNext()) add(Member(cursor.long("id"), cursor.string("device"),
                     cursor.string("origin"), cursor.string("window"), cursor.long("bucket"),
@@ -133,6 +144,8 @@ class CloudImuPushSource internal constructor(
     private fun scan(db: SQLiteDatabase, lane: String, deviceId: String,
                      consume: (String, ImuSessionFileStore.PushSegment, ImuSessionFileStore.PushSnapshot) -> Unit): Boolean {
         val (last, inProgress) = scanPosition(db, lane, deviceId)
+        // Payload verification is bounded below; metadata discovery still walks/sorts all retained
+        // segment headers. This is not a constant-time inventory or a long-soak capacity claim.
         val all = stores.flatMap { (origin, store) -> store.pushSegments(deviceId).map { origin to it } }
             .sortedBy { (origin, segment) -> "$origin/${segment.window.id}/${segment.bucket}" }
         val remaining = all.filter { (origin, segment) ->
@@ -165,10 +178,15 @@ class CloudImuPushSource internal constructor(
 
     private fun pendingArchives(db: SQLiteDatabase, deviceId: String, limit: Int): List<Archive> =
         db.rawQuery("SELECT a.* FROM archive a WHERE device = ? AND NOT EXISTS " +
-            "(SELECT 1 FROM delivered d WHERE d.batchID = a.batchID AND d.destination = ?) ORDER BY a.id LIMIT ?",
+            "(SELECT 1 FROM delivered d WHERE d.batchID = a.batchID AND d.destination = ?) AND NOT EXISTS " +
+            "(SELECT 1 FROM withdrawn w WHERE w.origin = a.origin AND w.window = a.window) ORDER BY a.id LIMIT ?",
             arrayOf(deviceId, destination, limit.toString())).use { cursor -> buildList {
                 while (cursor.moveToNext()) add(cursor.archive())
             } }
+
+    private fun isWithdrawn(db: SQLiteDatabase, origin: String, window: String): Boolean =
+        db.rawQuery("SELECT 1 FROM withdrawn WHERE origin = ? AND window = ?", arrayOf(origin, window))
+            .use { it.moveToFirst() }
 
     private fun prepareArchive(db: SQLiteDatabase, origin: String, segment: ImuSessionFileStore.PushSegment,
                                snapshot: ImuSessionFileStore.PushSnapshot) {
@@ -235,8 +253,8 @@ class CloudImuPushSource internal constructor(
             db.rawQuery("PRAGMA max_page_count = ${128 * 1024 * 1024L / pageSize}", null).use {
                 check(it.moveToFirst() && it.getLong(0) <= 128 * 1024 * 1024L / pageSize)
             }
-            check(db.version in 0..1) { "Unknown IMU index version" }
-            check(!initialized || db.version == 1) { "IMU membership index reset" }
+            check(db.version in 0..2) { "Unknown IMU index version" }
+            check(!initialized || db.version in 1..2) { "IMU membership index reset" }
             if (db.version == 0) {
                 db.beginTransaction()
                 try {
@@ -249,7 +267,8 @@ class CloudImuPushSource internal constructor(
                     db.execSQL("CREATE INDEX archive_device ON archive(device, id)")
                     db.execSQL("CREATE INDEX archive_segment ON archive(device, origin, window, bucket, id)")
                     db.execSQL("CREATE TABLE delivered(destination TEXT NOT NULL, batchID TEXT NOT NULL, PRIMARY KEY(destination, batchID))")
-                    db.version = 1
+                    db.execSQL("CREATE TABLE withdrawn(origin TEXT NOT NULL, window TEXT NOT NULL, PRIMARY KEY(origin, window))")
+                    db.version = 2
                     db.setTransactionSuccessful()
                 } finally { db.endTransaction() }
             }
@@ -258,9 +277,22 @@ class CloudImuPushSource internal constructor(
                     "IMU index owner mismatch"
                 }
             }
+            if (db.version == 1) {
+                db.beginTransaction()
+                try {
+                    db.execSQL("CREATE TABLE withdrawn(origin TEXT NOT NULL, window TEXT NOT NULL, PRIMARY KEY(origin, window))")
+                    db.version = 2
+                    db.setTransactionSuccessful()
+                } finally { db.endTransaction() }
+            }
             if (!initialized) check(indexState.edit().putBoolean("initialized", true).commit()) {
                 "IMU index identity could not be persisted"
             }
+            // Withdrawal is independent of transport acknowledgement. Keep original identities and
+            // AUTOINCREMENT sequence, but never select explicitly deleted captures for delivery.
+            stores.forEach { (origin, store) -> store.pushWithdrawnWindows().forEach { window ->
+                db.execSQL("INSERT OR IGNORE INTO withdrawn(origin, window) VALUES(?, ?)", arrayOf(origin, window))
+            } }
             block(db)
         }
     }

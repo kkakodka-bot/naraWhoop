@@ -7,6 +7,8 @@ import com.noop.data.StreamPersistence
 import com.noop.data.WhoopDatabase
 import com.noop.protocol.Whoop5RawImu
 import com.noop.testcentre.ImuSessionFileStore
+import com.noop.testcentre.ImuContinuousRecorder
+import com.noop.testcentre.GroundTruthCollector
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -136,14 +138,160 @@ class CloudImuPushSourceTest {
     @Test fun boundedScanResumesAfterReopenWithoutReportingEmptyAndDoesNotStarveEarlierLateData() {
         capture(continuous, "c-one", ts)
         continuous.append(device, frame(ts + 1800)); continuous.flushAll()
-        assertThrows(ImuInventoryPendingException::class.java) { source(budget = 1).indexedPushRows(device, 0, 10) }
-        val initial = source(budget = 1).indexedPushRows(device, 0, 10)
-        assertEquals(2, initial.size)
+        val first = source(budget = 1).indexedPushRows(device, 0, 10).single()
+        val second = source(budget = 1).indexedPushRows(device, first.rowId, 10).single()
+        assertTrue(second.rowId > first.rowId)
         continuous.append(device, frame(ts - 10)); continuous.flushAll()
-        assertThrows(ImuInventoryPendingException::class.java) {
-            source(budget = 1).indexedPushRows(device, initial.last().rowId, 10)
+        assertEquals(ts - 10, source(budget = 1).indexedPushRows(device, second.rowId, 10).single().ts)
+    }
+
+    @Test fun completedContinuousDeletePreservesAcceptedCursorAndAllowsNewCapture() = runBlocking {
+        capture(continuous, "c-deleted")
+        val http = FixtureTransport()
+        val progress = testProgress()
+        assertTrue(coordinator(http, progress).pushObjects(PushBinaryTable.RAW_IMU_SESSION, device, imuLane) is PushResult.Accepted)
+        val accepted = progress.binaryCursor(PushBinaryTable.RAW_IMU_SESSION, progressDevice)!!
+        val oldArchive = source().archiveRows(device, 1).single()
+        val recorder = ImuContinuousRecorder(continuous, storage.getSharedPreferences("recorder-fixture", 0),
+            nowMs = { (ts + 60) * 1000 }, tickIntervalMs = null)
+        assertTrue(recorder.deleteAll())
+        assertTrue(source().rowsWereUserWithdrawn(device, 0, accepted.rowId))
+        assertNull(source().indexedPushRecord(device, accepted.rowId))
+        assertTrue(source().archiveRows(device, 1).isEmpty())
+        assertEquals(accepted, progress.binaryCursor(PushBinaryTable.RAW_IMU_SESSION, progressDevice))
+        assertThrows(IllegalStateException::class.java) { continuous.start("c-deleted", device, ts * 1000) }
+        capture(continuous, "c-next", ts + 10, 2)
+        val next = source().indexedPushRows(device, accepted.rowId, 10).single()
+        assertTrue(next.rowId > accepted.rowId)
+        assertTrue(coordinator(http, progress).pushObjects(PushBinaryTable.RAW_IMU_SESSION, device, imuLane) is PushResult.Accepted)
+        assertEquals(next.rowId, progress.binaryCursor(PushBinaryTable.RAW_IMU_SESSION, progressDevice)!!.rowId)
+        val newArchive = source().archiveRows(device, 1).single()
+        assertNotEquals(oldArchive.batchId, newArchive.batchId)
+        assertEquals("c-next", unpack(newArchive).first.getString("window"))
+        assertNoFabricatedArchiveDelivery()
+    }
+
+    @Test fun supportedSessionDeleteWithdrawsPendingArchiveAndFrozenUploadWithoutAck() = runBlocking {
+        val collector = GroundTruthCollector.from(storage)
+        val deleted = collector.start(device, (ts - 1) * 1000).sessionId!!
+        sessions.append(device, frame(ts)); collector.stop((ts + 1) * 1000)
+        val http = FixtureTransport().apply { offline = true }
+        val progress = testProgress()
+        assertTrue(coordinator(http, progress).pushObjects(PushBinaryTable.RAW_IMU_SESSION, device, imuLane) is PushResult.Rejected)
+        val boundary = progress.preparedBoundary(PushBinaryTable.RAW_IMU_SESSION, progressDevice)!!
+        source().archiveRows(device, 1).single()
+        assertTrue(collector.deleteSession(deleted))
+        assertEquals(PushResult.NoData, coordinator(http, progress).pushObjects(PushBinaryTable.RAW_IMU_SESSION, device, imuLane))
+        assertNull(progress.binaryCursor(PushBinaryTable.RAW_IMU_SESSION, progressDevice))
+        assertNull(progress.preparedBoundary(PushBinaryTable.RAW_IMU_SESSION, progressDevice))
+        assertNull(progress.inFlightObject(PushBinaryTable.RAW_IMU_SESSION, progressDevice))
+        val nextId = collector.start(device, (ts + 10) * 1000).sessionId!!
+        sessions.append(device, frame(ts + 11, 2)); collector.stop((ts + 12) * 1000)
+        http.offline = false
+        assertTrue(coordinator(http, progress).pushObjects(PushBinaryTable.RAW_IMU_SESSION, device, imuLane) is PushResult.Accepted)
+        assertTrue(progress.binaryCursor(PushBinaryTable.RAW_IMU_SESSION, progressDevice)!!.rowId > boundary.endCursor.rowId)
+        assertEquals(nextId, unpack(source().archiveRows(device, 1).single()).first.getString("window"))
+        assertNoFabricatedArchiveDelivery()
+    }
+
+    @Test fun missingFilesWithoutExplicitDeletionRemainAnError() {
+        capture(continuous, "c-one")
+        val row = source().indexedPushRows(device, 0, 10).single()
+        val path = File(storage.filesDir, EnrollmentDataScope.storageName(storage, "raw-imu-continuous"))
+        val file = File(path, "c-one").listFiles()!!.single { it.extension == "imus" }
+        assertTrue(file.delete()) // simulate loss of this test's synthetic source, not a user delete
+        assertFalse(source().rowsWereUserWithdrawn(device, 0, row.rowId))
+        assertThrows(IllegalStateException::class.java) { source().indexedPushRecord(device, row.rowId) }
+    }
+
+    @Test fun deletingOneOriginCancelsMixedFrozenBoundaryButKeepsOtherMembership() = runBlocking {
+        capture(continuous, "c-deleted")
+        capture(sessions, "s-kept", seed = 2)
+        val original = source().indexedPushRows(device, 0, 10)
+        val http = FixtureTransport().apply { offline = true }
+        val progress = testProgress()
+        assertTrue(coordinator(http, progress).pushObjects(PushBinaryTable.RAW_IMU_SESSION, device, imuLane) is PushResult.Rejected)
+        assertEquals(2, progress.preparedBoundary(PushBinaryTable.RAW_IMU_SESSION, progressDevice)!!.sampleCount)
+        val recorder = ImuContinuousRecorder(continuous, storage.getSharedPreferences("recorder-fixture", 0),
+            nowMs = { (ts + 60) * 1000 }, tickIntervalMs = null)
+        assertTrue(recorder.deleteAll())
+        val remaining = source().indexedPushRows(device, 0, 10).single()
+        assertEquals(original.last(), remaining)
+        http.offline = false
+        val uploaded = coordinator(http, progress).pushObjects(PushBinaryTable.RAW_IMU_SESSION, device, imuLane) as PushResult.Accepted
+        assertEquals(1, uploaded.recordCount)
+        assertEquals(remaining.rowId, progress.binaryCursor(PushBinaryTable.RAW_IMU_SESSION, progressDevice)!!.rowId)
+    }
+
+    @Test fun versionOneIndexUpgradesWithoutReassigningExistingMembership() {
+        capture(continuous, "c-one")
+        val original = source().indexedPushRows(device, 0, 10).single()
+        val index = File(storage.filesDir, "cloud-imu-v1/$sourceId/membership.sqlite")
+        android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(index, null).use {
+            it.execSQL("DROP TABLE withdrawn") // this isolated synthetic index is the old v1 schema
+            it.version = 1
         }
-        assertEquals(ts - 10, source(budget = 1).indexedPushRows(device, initial.last().rowId, 10).single().ts)
+        assertEquals(original, source().indexedPushRows(device, 0, 10).single())
+        assertTrue(continuous.deleteFiles("c-one"))
+        continuous.remove("c-one")
+        assertTrue(source().rowsWereUserWithdrawn(device, 0, original.rowId))
+    }
+
+    @Test fun indexedPrefixUploadsBeforeInventoryCompletesAndDiscoveryUsesNormalWorkerContinuation() = runBlocking {
+        capture(continuous, "c-large")
+        repeat(33) { continuous.append(device, frame(ts + (it + 1) * 1800L)) }
+        continuous.flushAll()
+        val progress = testProgress()
+        val http = FixtureTransport()
+        val capabilities = PushCapabilities(emptySet(), emptySet(), setOf(PushBinaryTable.RAW_IMU_SESSION),
+            "1.4", objectLane = imuLane)
+        val first = coordinator(http, progress, 1).pushKnownDevices(capabilities = capabilities, binaryEnabled = true)
+        assertEquals(1, first.acceptedRecords)
+        assertEquals(0, first.rejectedBatches)
+        assertTrue(shouldContinuePushRun(first, false))
+        // Drain more slices than the worker's failure-attempt budget. Each real coordinator slice
+        // receives a synthetic transport ACK and schedules normal continuation, never failure retry.
+        repeat(33) {
+            val slice = coordinator(http, progress, 1).pushKnownDevices(capabilities = capabilities, binaryEnabled = true)
+            assertEquals(1, slice.acceptedRecords)
+            assertEquals(0, slice.rejectedBatches)
+            assertTrue(shouldContinuePushRun(slice, false))
+        }
+        val scan = coordinator(http, progress, 1).pushKnownDevices(capabilities = capabilities, binaryEnabled = true)
+        assertEquals(0, scan.acceptedBatches)
+        assertEquals(0, scan.acceptedRecords)
+        assertEquals(0, scan.rejectedBatches)
+        assertFalse(scan.hasRetryableFailure)
+        assertTrue(scan.hasMoreBinaryRows)
+        assertTrue(shouldContinuePushRun(scan, false))
+        assertNull(scan.failure)
+    }
+
+    private val progressDevice get() = "$device:imu-membership-v1"
+    private val imuLane get() = PushObjectLane("/objects", PushProtocol.MAX_OBJECT_WIRE_BYTES.toLong(), 3600,
+        setOf(PushBinaryTable.RAW_IMU_SESSION))
+    private fun testProgress() = SharedPrefsPushProgressStore(storage.getSharedPreferences("delete-progress", 0))
+    private fun coordinator(http: PushTransport, progress: PushProgressStore, budget: Int = 16) =
+        PushCoordinator(WhoopDatabase.get(storage).pushDao(source(budget)), http, progress, sourceId,
+            { LocalDate.of(2026, 9, 21) }, ZoneId.of("UTC"))
+    private fun assertNoFabricatedArchiveDelivery() {
+        android.database.sqlite.SQLiteDatabase.openDatabase(
+            File(storage.filesDir, "cloud-imu-v1/$sourceId/membership.sqlite").path, null,
+            android.database.sqlite.SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("SELECT count(*) FROM delivered", null).use { assertTrue(it.moveToFirst()); assertEquals(0, it.getInt(0)) }
+            db.rawQuery("SELECT count(*) FROM withdrawn", null).use { assertTrue(it.moveToFirst()); assertEquals(1, it.getInt(0)) }
+        }
+    }
+    private class FixtureTransport : PushTransport {
+        var offline = false
+        override suspend fun post(batch: PushBatch): PushTransportResponse = error("inline not used")
+        override suspend fun createObjectIntent(manifest: PushObjectManifest, lane: PushObjectLane) =
+            PushObjectIntent(manifest.objectId, "fixture/${manifest.objectId}", "https://object.invalid/put", emptyMap(), null, false)
+        override suspend fun uploadObject(intent: PushObjectIntent, body: ByteArray) {
+            if (offline) throw PushTransportException(PushFailure(PushFailureCode.NETWORK_IO))
+        }
+        override suspend fun completeObject(objectId: String, lane: PushObjectLane) =
+            PushObjectAck(objectId, "ready", "fixture/$objectId", false)
     }
 
     @Test fun offlineObjectReplayFreezesMembershipAndIgnoresLegacyTimestampCursor() = runBlocking {

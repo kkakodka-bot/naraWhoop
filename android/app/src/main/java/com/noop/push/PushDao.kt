@@ -197,6 +197,11 @@ class PushDao internal constructor(
         }
     }
 
+    override suspend fun binaryRowsWereUserWithdrawn(table: PushBinaryTable, deviceId: String,
+                                                     afterRowId: Long, throughRowId: Long): Boolean =
+        table == PushBinaryTable.RAW_IMU_SESSION &&
+            imuPushSource?.rowsWereUserWithdrawn(deviceId, afterRowId, throughRowId) == true
+
     override suspend fun acknowledgeBinary(
         table: PushBinaryTable,
         deviceId: String,

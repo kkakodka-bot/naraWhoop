@@ -22,6 +22,9 @@ internal fun persistedDeviceIndex(startDeviceIndex: Int, nextDeviceIndex: Int, r
     if (retryableFailure) startDeviceIndex else nextDeviceIndex
 internal const val PUSH_MAX_ATTEMPTS = 32
 internal fun shouldRetryPush(runAttemptCount: Int): Boolean = runAttemptCount + 1 < PUSH_MAX_ATTEMPTS
+internal fun shouldContinuePushRun(run: PushRunResult, cycleNeedsAnotherPass: Boolean): Boolean =
+    !run.hasRetryableFailure && (run.nextDeviceIndex != 0 || cycleNeedsAnotherPass ||
+        run.hasMoreAppendRows || run.hasMoreBinaryRows)
 internal fun resultAfterScheduledContinuation(
     current: ListenableWorker.Result,
     scheduled: Boolean,
@@ -378,7 +381,7 @@ class SelfHostedPushWorker(
         )
 
         return when {
-            !cycleCompleted || cycleNeedsAnotherPass -> {
+            shouldContinuePushRun(run, cycleNeedsAnotherPass) -> {
                 ExecutionOutcome(Execution.CONTINUE)
             }
             cycleHadRejection -> {
@@ -549,6 +552,9 @@ class AccountFencedSnapshot(
         admission.fenced { base.mutableRows(table, deviceId, window, limit) }
     override suspend fun binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Long) =
         admission.fenced { base.binaryRecordAt(table, deviceId, rowId) }
+    override suspend fun binaryRowsWereUserWithdrawn(table: PushBinaryTable, deviceId: String,
+                                                     afterRowId: Long, throughRowId: Long) =
+        admission.fenced { base.binaryRowsWereUserWithdrawn(table, deviceId, afterRowId, throughRowId) }
     override suspend fun binaryRows(table: PushBinaryTable, deviceId: String, afterRowId: Long, limit: Int) =
         admission.fenced { base.binaryRows(table, deviceId, afterRowId, limit) }
     override suspend fun acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: List<PushBinaryRow>) =
