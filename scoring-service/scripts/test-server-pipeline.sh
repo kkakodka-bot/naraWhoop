@@ -14,8 +14,10 @@ cleanup() {
 }
 trap cleanup EXIT
 printf 'Local pipeline evidence: %s\n' "$evidence"
+mkdir -p "$evidence/database-data"
 docker network create "$network" > "$evidence/network.txt"
 docker run --detach --name "$database" --network "$network" --network-alias database \
+  --mount "type=bind,source=$evidence/database-data,target=/var/lib/postgresql/data" \
   --label nara.test=server-pipeline --memory 2g --cpus 2 \
   --log-opt max-size=20m --log-opt max-file=2 \
   -p 127.0.0.1::5432 -e POSTGRES_PASSWORD=isolated-pipeline-only \

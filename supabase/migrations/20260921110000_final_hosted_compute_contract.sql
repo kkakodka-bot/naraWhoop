@@ -111,10 +111,9 @@ declare
  base jsonb; families jsonb:='{}'; policy compute_family_policy; feature jsonb;
  disposition server_compute_dispositions; stored server_physiology_results;
  result jsonb; vals jsonb; metric text; status text; reason text; revision text;
- input_revision bigint; computed timestamptz; zone text; device uuid; details jsonb; hrv_window jsonb; expires timestamptz;
+ input_revision bigint; computed timestamptz; device uuid; details jsonb; hrv_window jsonb; expires timestamptz;
 begin
  base:=server_scoring_read_contract_v1(p_user,p_day,p_device);
- select timezone into zone from profiles where id=p_user;
  for policy in select * from compute_family_policy order by family loop
    feature:=base->'features'->policy.feature;
    device:=coalesce(p_device,(base->'daily'->>'source_device_id')::uuid,(feature->>'device_id')::uuid);

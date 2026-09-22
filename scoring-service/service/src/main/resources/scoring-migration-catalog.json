@@ -469,7 +469,7 @@
   },
   {
     "basename": "20260921110000_final_hosted_compute_contract.sql",
-    "sha256": "a3914b638cc8e7866d9f0b3507baaa79188ffaed58b9c4db3724c6f761adb13a"
+    "sha256": "e3c8d0d25d682e96d638f87fe422ff00ecaf0e8366bd55bbdc54240b57b39667"
   },
   {
     "basename": "20260921111000_compute_session_requests.sql",
