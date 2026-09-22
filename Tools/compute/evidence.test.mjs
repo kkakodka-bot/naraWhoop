@@ -3,11 +3,31 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { requiredGates, validateCommand, validateOutput, validateReceipts, sourceSnapshot, hash } from './evidence.mjs';
+import { requiredGates, validateCommand, validateOutput, validateReceipts, sourceSnapshot, sourceContentHash, isSourceEvidencePath, hash } from './evidence.mjs';
 import { validateSwiftProducerGuards } from './final-contract.mjs';
 
 test('shared producer inventory names real first-instruction guards', () => {
   assert(validateSwiftProducerGuards() >= 395);
+});
+test('native sources, baseline builders and build identities invalidate source-bound receipts', () => {
+  const files = ['scoring-service/legacy-baseline/build.py', 'scoring-service/legacy-baseline/transport.patch',
+    'Sources/input.c', 'Sources/input.h', 'Sources/input.cpp', 'Sources/input.hpp', 'Sources/input.m',
+    'Sources/input.mm', 'api/input.proto', 'CMakeLists.txt', 'Makefile', 'service/Dockerfile',
+    'service/Dockerfile.baseline', 'scoring-service/gradlew', 'android/gradlew.bat',
+    'Packages/WhoopStore/Package.resolved', 'gradle.lockfile', 'Tools/check.zsh', 'Tools/check.bash'];
+  const data = new Map(files.map((file) => [file, 'original bytes']));
+  const before = sourceContentHash(files, (file) => data.get(file));
+  for (const file of files) {
+    assert(isSourceEvidencePath(file), `${file} must bind verification evidence`);
+    data.set(file, 'mutated bytes');
+    assert.notEqual(sourceContentHash(files, (name) => data.get(name)), before, `${file}: mutation escaped evidence identity`);
+    data.set(file, 'original bytes');
+  }
+  assert.equal(sourceContentHash([...files].reverse(), (file) => data.get(file)), before);
+  assert.notEqual(sourceContentHash(files.slice(1), (file) => data.get(file)), before, 'Deleting build input must invalidate evidence');
+  for (const file of ['HANDOFF_compute.md', 'docs/compute/evidence/server-jvm.json', 'docs/compute/evidence/server-jvm.log']) {
+    assert(!isSourceEvidencePath(file), `${file}: evidence cannot hash itself`);
+  }
 });
 test('commands cannot replace executed gates with echoed success or filtered full suites', () => {
   assert.throws(() => validateCommand('swift-store', ['echo', 'swift', 'test', '--package-path', 'Packages/WhoopStore']));

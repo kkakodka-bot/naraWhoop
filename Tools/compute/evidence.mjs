@@ -16,24 +16,29 @@ const git = (...args) => {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
 };
-const relevant = (name) => !name.startsWith('docs/compute/evidence/') &&
+export const isSourceEvidencePath = (name) => !name.startsWith('docs/compute/evidence/') &&
   (!name.startsWith('docs/') || /^docs\/compute\/(metric-ownership|swift-producers|android-producers|consumer-revisions)\.json$/.test(name)) &&
-  /\.(swift|kt|kts|java|ts|tsx|js|mjs|json|sql|sh|yml|yaml|xml|plist|pbxproj|xcscheme|xcconfig|toml|properties|gradle|jar)$/.test(name);
+  (/\.(swift|kt|kts|java|ts|tsx|js|mjs|json|sql|sh|bash|zsh|yml|yaml|xml|plist|pbxproj|xcscheme|xcconfig|toml|properties|gradle|jar|py|c|h|cpp|hpp|m|mm|proto|patch|lock|lockfile|resolved)$/.test(name) ||
+    /(?:^|\/)(?:CMakeLists\.txt|Makefile|GNUmakefile|Dockerfile(?:\.[^/]+)?|gradlew|gradlew\.bat|configure|Gemfile|Podfile)$/.test(name));
+
+export function sourceContentHash(files, readBytes) {
+  const digest = crypto.createHash('sha256');
+  for (const file of [...files].filter(isSourceEvidencePath).sort()) {
+    digest.update(file).update('\0').update(readBytes(file)).update('\0');
+  }
+  return digest.digest('hex');
+}
 
 /// Evidence binds to all checked-in implementation, tests and build contracts, not merely a branch
 /// name. Markdown handoffs and evidence receipts are excluded to avoid self-referential hashes.
 export function sourceSnapshot() {
   const files = [...new Set(git('ls-files', '-z', '--cached', '--others', '--exclude-standard').split('\0'))]
-    .filter(relevant).sort();
-  const digest = crypto.createHash('sha256');
-  for (const file of files) {
-    digest.update(file).update('\0');
-    digest.update(fs.existsSync(path.join(root, file)) ? fs.readFileSync(path.join(root, file)) : '<deleted>');
-    digest.update('\0');
-  }
+    .filter(isSourceEvidencePath).sort();
+  const digest = sourceContentHash(files, (file) =>
+    fs.existsSync(path.join(root, file)) ? fs.readFileSync(path.join(root, file)) : '<deleted>');
   const dirty = git('status', '--porcelain=v1', '--untracked-files=all').split('\n')
-    .filter(Boolean).map((line) => line.slice(3).replace(/^"|"$/g, '')).filter(relevant);
-  return { source_sha: git('rev-parse', 'HEAD').trim(), source_content_sha256: digest.digest('hex'),
+    .filter(Boolean).map((line) => line.slice(3).replace(/^"|"$/g, '')).filter(isSourceEvidencePath);
+  return { source_sha: git('rev-parse', 'HEAD').trim(), source_content_sha256: digest,
     source_file_count: files.length, source_clean: dirty.length === 0, dirty_source_paths: dirty };
 }
 
