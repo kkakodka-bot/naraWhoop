@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import NoopPush
 import StrandAnalytics
 import WhoopProtocol
@@ -64,7 +65,9 @@ final class ScoringPreferenceReaderTests: XCTestCase {
             await model.scoringPreferences?.waitForRetirement()
             try await model.scoringInputs?.waitForRetirement()
             defaults.removePersistentDomain(forName: layout.preferencesSuite)
-            if captured == nil, FileManager.default.fileExists(atPath: root.path) {
+            // Consent retirement fences but does not close its SQLite handle; preserve the
+            // synthetic directory while the model retains it instead of unlinking a live database.
+            if captured == nil, model.scoringContextConsent == nil, FileManager.default.fileExists(atPath: root.path) {
                 try FileManager.default.removeItem(at: root)
             }
         }
@@ -158,27 +161,46 @@ final class ScoringPreferenceReaderTests: XCTestCase {
         XCTAssertEqual(repo.captureScoringReaderInputs()?.algorithms, captured.algorithms)
     }
 
-    func testActualAnalysisReadsProviderOnceBeforeStoreSuspension() async throws {
-        try globals([RescoreBackgroundScheduler.owedKey: false,
-            RescoreBackgroundScheduler.owedTokenKey: "reader-fixture",
-            RescoreBackgroundScheduler.lastPassSecondsKey: 0.0])
+    func testActualAnalysisRejectsChangedPreferencesAfterStoreSuspension() async throws {
         let store = try await WhoopStore.inMemory(), owner = try context(), defaults = try defaults()
-        let initial = ScoringPreferenceSnapshot.seed(context: owner, domain: ["noop.hrvBaselineEpoch": 1234.25])
+        try await store.bindAccountOwner(projectURL: owner.scope.projectURL, userID: owner.scope.userID)
+        let now = Date(timeIntervalSince1970: 1_789_693_200)
+        let initial = ScoringPreferenceSnapshot.seed(context: owner,
+            domain: ["noop.hrvBaselineEpoch": 1234.25], now: now)
+        let successor = ScoringPreferenceSnapshot.seed(context: owner,
+            domain: ["noop.hrvBaselineEpoch": 9000.75, "noopBanisterEffort": true], now: now)
         var current: ScoringPreferenceSnapshot? = initial
         var observed: [ScoringPreferenceSnapshot?] = []
+        var starts = 0, completions = 0
         let gate = StoreGate(store: store, entered: expectation(description: "analysis suspended at actual store opener"))
         let repo = Repository(deviceId: "reader", openStore: { store }, scoringPreferences: { current })
         let engine = IntelligenceEngine(repo: repo, profile: ProfileStore(defaults: defaults), deviceId: "reader",
             defaults: defaults, scoringPreferences: { observed.append(current); return current },
-            analysisStoreProvider: { await gate.open() })
+            analysisStoreProvider: { await gate.open() },
+            preferenceRecomputeDriver: .init(markOwed: { starts += 1; return "reader-fixture" },
+                markCompleted: { _, _ in completions += 1; return true }, parkAttempt: { _ in true }),
+            resourceBudget: ResourceBudget(thermal: { ProcessInfo.ThermalState.nominal.rawValue }, lowPower: { false }))
+        defer { engine.shutdownForAccountChange(); repo.shutdownForAccountChange() }
         let running = Task { await engine.analyzeRecent(maxDays: 0) }
         await fulfillment(of: [gate.entered], timeout: 5)
-        current = .seed(context: owner, domain: ["noop.hrvBaselineEpoch": 9000.75, "noopBanisterEffort": true])
+        XCTAssertFalse(observed.isEmpty)
+        XCTAssertTrue(observed.allSatisfy { $0 == initial })
+        current = successor
         await gate.release()
         await running.value
-        XCTAssertEqual(observed, [initial], "the whole pass, including self-healing, must use its original capture")
-        XCTAssertEqual(engine.configuredHrvWindow, .whole)
-        engine.shutdownForAccountChange(); repo.shutdownForAccountChange()
+        // Accepted-preference projection rechecks its captured identity after suspension. The
+        // successor must revoke admission, never become a mixed recipe for the already-started pass.
+        XCTAssertEqual(observed.last ?? nil, successor)
+        XCTAssertEqual(engine.preferenceWorkDisposition, .unvalidated)
+        XCTAssertEqual(starts, 0)
+        XCTAssertEqual(completions, 0)
+        let evaluationRows = try await store.registryWriter.read {
+            try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM workoutPreferenceEvaluation")
+        }
+        XCTAssertEqual(evaluationRows, 0, "a superseded capture must not admit an evaluation lease")
+        XCTAssertNil(defaults.object(forKey: IntelligenceEngine.preferenceCompletionKey))
+        let scores = try await store.dailyMetrics(deviceId: "reader-noop", from: "0000-01-01", to: "9999-12-31")
+        XCTAssertTrue(scores.isEmpty)
     }
 
     func testActualRestageKeepsCapturedNativeRecipeAcrossOpen() async throws {

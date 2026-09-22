@@ -1,7 +1,7 @@
 import XCTest
 @testable import Strand
 
-/// Remaining 3: when `serverScoring` is on, sync-coupled rescore drains must not invoke analyzeRecent.
+/// Server ownership suppresses individual migrated metrics; the local pass still owes unmigrated fields.
 @MainActor
 final class ServerScoringRescoreSkipTests: XCTestCase {
 
@@ -35,9 +35,9 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
         XCTAssertTrue(ServerScoringSettings.isEnabled)
     }
 
-    func testSkipsSyncCoupledRescoreWhenFlagOn() {
+    func testPreservesSyncCoupledRescoreForUnmigratedFieldsWhenFlagOn() {
         ServerScoringSettings.setEnabled(true)
-        XCTAssertTrue(ServerScoringSettings.skipsSyncCoupledRescore)
+        XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
     }
 
     func testRunsSyncCoupledRescoreWhenFlagOff() {
@@ -45,19 +45,21 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
         XCTAssertFalse(ServerScoringSettings.skipsSyncCoupledRescore)
     }
 
-    func testSettleSkippedLocalRescoreDebtClearsOwedMark() {
+    func testServerScoringFlagCannotSettleLocalRescoreDebt() {
         ServerScoringSettings.setEnabled(true)
-        _ = RescoreBackgroundScheduler.markRescoreOwed()
+        let token = RescoreBackgroundScheduler.markRescoreOwed()
         XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
         ServerScoringSettings.settleSkippedLocalRescoreDebt()
-        XCTAssertFalse(RescoreBackgroundScheduler.isRescoreOwed)
+        XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
+        XCTAssertEqual(RescoreBackgroundScheduler.currentOwedToken, token)
     }
 
     func testSettleSkippedLocalRescoreDebtNoOpWhenFlagOff() {
         ServerScoringSettings.setEnabled(false)
-        _ = RescoreBackgroundScheduler.markRescoreOwed()
+        let token = RescoreBackgroundScheduler.markRescoreOwed()
         ServerScoringSettings.settleSkippedLocalRescoreDebt()
         XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
+        XCTAssertEqual(RescoreBackgroundScheduler.currentOwedToken, token)
     }
 
     func testPushIntervalTightensWhenServerScoringOn() {

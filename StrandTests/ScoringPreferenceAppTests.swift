@@ -66,8 +66,10 @@ final class ScoringPreferenceAppTests: XCTestCase {
             await model.scoringPreferences?.waitForRetirement()
             try await model.scoringInputs?.waitForRetirement()
             UserDefaults(suiteName: layout.preferencesSuite)?.removePersistentDomain(forName: layout.preferencesSuite)
-            if captured != nil {
-                print("Retained preference fixture with capture-store handle: \(root.path)")
+            // Consent retirement fences its writer but does not close its SQLite handle. The model
+            // still owns that handle here, so retain this synthetic fixture instead of unlinking it.
+            if captured != nil || model.scoringContextConsent != nil {
+                print("Retained preference fixture with live store handles: \(root.path)")
             } else if FileManager.default.fileExists(atPath: root.path) {
                 try FileManager.default.removeItem(at: root)
             }
@@ -237,12 +239,15 @@ final class ScoringPreferenceAppTests: XCTestCase {
     func testSameOwnerGenerationRetirementCannotPublishQueuedChange() async throws {
         let f = try fixture()
         try await f.model.prepareScoringPreferences()
+        XCTAssertNil(f.model.accountDefaults.persistentDomain(forName: f.layout.preferencesSuite)?["profile.weightKg"])
         let ticket = try f.model.completePreferenceAction([.init(key: .weightKg, value: .number(88))])
         f.identity.replace(.init(scope: f.context.scope, generation: UUID()))
         f.model.shutdownForAccountChange()
         XCTAssertEqual(ticket.state, .held(.retired))
         XCTAssertNil(f.model.acceptedScoringPreferences)
         XCTAssertThrowsError(try f.model.completePreferenceAction([.init(key: .weightKg, value: .number(91))]))
-        XCTAssertNil(f.model.accountDefaults.object(forKey: "profile.weightKg"))
+        // A suite's search list includes process-global/registration defaults; only this account's
+        // persistent domain can prove whether the retired action published an account mirror.
+        XCTAssertNil(f.model.accountDefaults.persistentDomain(forName: f.layout.preferencesSuite)?["profile.weightKg"])
     }
 }

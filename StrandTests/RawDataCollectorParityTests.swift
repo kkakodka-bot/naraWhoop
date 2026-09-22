@@ -70,7 +70,11 @@ final class RawDataCollectorParityTests: XCTestCase {
     func testAppleRoutesLiveAndHistoricalImuIntoSessions() throws {
         let ble = try String(contentsOf: repoRoot.appendingPathComponent("Strand/BLE/BLEManager.swift"))
         XCTAssertTrue(ble.contains("recordGroundTruthImuFrame(frame)"))
-        XCTAssertTrue(ble.contains("imuSessionSink: { deviceId, records in"))
+        XCTAssertTrue(ble.contains("await actor.configure(store: store, deviceId: deviceId, hooks: hooks,"))
+        XCTAssertTrue(ble.contains("imuStore: imuSessionStore)"))
+        let actor = try String(contentsOf: repoRoot.appendingPathComponent("Strand/Collect/BackfillActor.swift"))
+        XCTAssertTrue(actor.contains("imuSessionSink: { deviceId, records in"))
+        XCTAssertTrue(actor.contains("return imuStore.persistHistoricalImu(deviceId: deviceId, records: records)"))
         XCTAssertTrue(ble.contains("func repairGroundTruthImuSessions()"))
         let backfiller = try String(contentsOf: repoRoot.appendingPathComponent("Strand/Collect/Backfiller.swift"))
         XCTAssertTrue(backfiller.contains("imuSessionSink(deviceId, imuRecords)"))
