@@ -97,11 +97,22 @@ function sorted(value) {
 export const canonicalJSON = value => JSON.stringify(sorted(value));
 export const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 
-function run(program, args, options = {}) {
+function runResult(program, args, options = {}) {
   const result = spawnSync(program, args, { ...options, maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024 });
   invariant(!result.error && !result.signal && result.status === 0,
     `${path.basename(program)} failed${result.stderr?.length ? `: ${result.stderr.toString('utf8').trim().slice(0, 500)}` : ''}`);
-  return result.stdout;
+  return result;
+}
+function run(program, args, options = {}) {
+  return runResult(program, args, options).stdout;
+}
+export function inspectAapt2Version(program) {
+  const result = runResult(program, ['version']);
+  const stdout = result.stdout.toString('utf8').trim();
+  const stderr = result.stderr.toString('utf8').trim();
+  invariant(stdout.length === 0 && stderr === ANDROID_INSPECTION_TOOLS.aapt2.version,
+    'aapt2 version differs from reviewed Android SDK build-tools 34.0.0');
+  return stderr;
 }
 function git(repo, ...args) {
   return run('git', ['--no-replace-objects', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
@@ -271,7 +282,7 @@ export function parseAndroidBadging(text) {
   const first = text.split('\n').find(line => line.startsWith('package: '));
   const match = first?.match(/name='([^']+)' versionCode='([^']+)' versionName='([^']+)'/);
   invariant(match, 'aapt2 package identity missing');
-  const min = text.match(/^minSdkVersion:'([^']+)'$/m), target = text.match(/^targetSdkVersion:'([^']+)'$/m);
+  const min = text.match(/^sdkVersion:'([^']+)'$/m), target = text.match(/^targetSdkVersion:'([^']+)'$/m);
   invariant(min && target, 'aapt2 SDK identity missing');
   return { applicationId: match[1], versionCode: Number(match[2]), versionName: match[3],
     minSdk: Number(min[1]), targetSdk: Number(target[1]) };
@@ -605,7 +616,7 @@ function inspectAndroid(repo, commit, root, value, versions) {
     apksigFile.sha256 === ANDROID_INSPECTION_TOOLS.apksigJar.sha256,
   'Android inspection tool bytes differ from reviewed SDK build-tools 34.0.0');
   const tools = verifyAndroidInspectionTools({
-    aapt2: { file: aapt2File, version: run(aapt2, ['version']).toString('utf8').trim() },
+    aapt2: { file: aapt2File, version: inspectAapt2Version(aapt2) },
     apksigJar: { file: apksigFile },
   });
   const badging = run(aapt2, ['dump', 'badging', apkPath]).toString('utf8');

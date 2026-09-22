@@ -11,6 +11,7 @@ import {
   ANDROID_INSPECTION_TOOLS,
   canonicalJSON,
   createWorkerDeployment,
+  inspectAapt2Version,
   inspectOCI,
   parseAndroidBadging,
   parseAndroidReleaseMetadata,
@@ -128,7 +129,7 @@ test('OCI inspection rejects source/metadata substitutions and changed bytes', t
 test('Android inspection parsers bind staging package/build and signed manifest release markers', () => {
   const badging = [
     "package: name='com.noop.whoop.staging' versionCode='450' versionName='11.1.1-staging' platformBuildVersionName='15'",
-    "minSdkVersion:'26'",
+    "sdkVersion:'26'",
     "targetSdkVersion:'34'",
   ].join('\n');
   assert.deepEqual(parseAndroidBadging(badging), {
@@ -143,6 +144,26 @@ test('Android inspection parsers bind staging package/build and signed manifest 
 `;
   assert.deepEqual(parseAndroidReleaseMetadata(xml, REVISION), { sourceRevision: REVISION, finalHostedCompute: true });
   assert.throws(() => parseAndroidReleaseMetadata(xml, 'b'.repeat(40)), /NOT_READY/);
+});
+
+test('aapt2 version inspection reads the exact reviewed version from stderr and rejects other output', t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-aapt2-version-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  let serial = 0;
+  const tool = body => {
+    const filename = path.join(directory, `aapt2-${serial++}`);
+    fs.writeFileSync(filename, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(filename, 0o755);
+    return filename;
+  };
+  const expected = ANDROID_INSPECTION_TOOLS.aapt2.version;
+  assert.equal(inspectAapt2Version(tool(`printf '%s\\n' '${expected}' >&2`)), expected);
+  for (const body of [
+    `printf '%s\\n' 'substituted aapt2' >&2`,
+    `printf '%s\\n' '${expected}'`,
+    `printf '%s\\n' 'unexpected stdout'; printf '%s\\n' '${expected}' >&2`,
+    `printf '%s\\n' '${expected}' >&2; exit 17`,
+  ]) assert.throws(() => inspectAapt2Version(tool(body)), /NOT_READY/);
 });
 
 test('Android semantic inspection accepts only the reviewed self-contained SDK tools', () => {
