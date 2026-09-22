@@ -180,6 +180,7 @@ public struct PushPreparedSelection: Codable, Sendable {
         let maxObjectBytes: Int64
         let urlTtlSec: Int64?
         let streams: [String]
+        let completionMode: PushObjectCompletionMode?
         init(batch: PushBinaryBatch, rows: [PushBinaryRow], manifest: PushObjectManifest, lane: PushObjectLane) throws {
             originalManifest = .init(batch: batch); self.manifest = manifest; endCursor = batch.endCursor
             manifestJSON = batch.manifestJSON; payload = batch.payload
@@ -187,6 +188,7 @@ public struct PushPreparedSelection: Codable, Sendable {
             wireSHA256 = PushDurabilityReceipt.sha256(batch.payload); self.rows = rows.map(Member.init)
             lanePath = lane.endpoint; maxObjectBytes = lane.maxObjectBytes; urlTtlSec = lane.urlTtlSec
             streams = lane.streams.map(\.rawValue).sorted()
+            completionMode = lane.completionMode
         }
         func restore() throws -> (batch: PushBinaryBatch, rows: [PushBinaryRow], manifest: PushObjectManifest, lane: PushObjectLane) {
             guard rows.count > 0, rows.count <= PushProtocolLimits.maxRecords,
@@ -205,7 +207,7 @@ public struct PushPreparedSelection: Codable, Sendable {
             let batch = try PushBinaryBatch.restoring(manifest: originalManifest, endCursor: endCursor,
                 manifestJSON: manifestJSON, payload: payload, wireSHA256: wireSHA256, rows: restoredRows)
             return (batch, restoredRows, manifest, .init(endpoint: lanePath, maxObjectBytes: maxObjectBytes,
-                urlTtlSec: urlTtlSec, streams: Set(tables)))
+                urlTtlSec: urlTtlSec, streams: Set(tables), completionMode: completionMode))
         }
     }
 

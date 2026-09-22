@@ -66,6 +66,29 @@ public struct AccountFencedSnapshot: PushSnapshotSource {
         try admission.check(); let value = try await source.binaryRows(table: table, deviceId: deviceId, afterRowId: afterRowId, limit: limit)
         try admission.check(); return value
     }
+    public func appendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64,
+                           limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage {
+        try admission.check(); let value = try await source.appendPage(table: table, deviceId: deviceId,
+            afterRowId: afterRowId, limit: limit, limits: limits)
+        try admission.check(); return value
+    }
+    public func appendFingerprintAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> String? {
+        try admission.check(); let value = try await source.appendFingerprintAt(table: table, deviceId: deviceId, rowId: rowId)
+        try admission.check(); return value
+    }
+    public func binaryFingerprintAt(table: PushBinaryTable, deviceId: String, rowId: Int64,
+                                     protocolVersion: String) async throws -> String? {
+        try admission.check(); let value = try await source.binaryFingerprintAt(table: table, deviceId: deviceId,
+            rowId: rowId, protocolVersion: protocolVersion)
+        try admission.check(); return value
+    }
+    public func binaryPage(table: PushBinaryTable, deviceId: String, afterRowId: Int64,
+                           limit: Int, limits: PushSourceReadLimits) async throws -> PushBinaryPage {
+        try admission.check()
+        let value = try await source.binaryPage(table: table, deviceId: deviceId, afterRowId: afterRowId,
+            limit: limit, limits: limits)
+        try admission.check(); return value
+    }
     public func acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: [PushBinaryRow]) async throws {
         try admission.check(); try await source.acknowledgeBinary(table: table, deviceId: deviceId, rows: rows)
         try admission.check()
@@ -119,6 +142,13 @@ public struct AccountFencedTransport: PushTransport {
     private let admission: AccountPushAdmission
     public init(transport: any PushTransport, admission: AccountPushAdmission) {
         self.transport = transport; self.admission = admission
+    }
+    public func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool {
+        try admission.check(); let value = try await transport.isPreparationPaused(lane)
+        try admission.check(); return value
+    }
+    public func pausePreparation(_ lane: PushPreparationLane) async throws {
+        try admission.check(); try await transport.pausePreparation(lane); try admission.check()
     }
     public func capabilities() async throws -> PushCapabilitiesResult {
         try admission.check(); let value = try await transport.capabilities(); try admission.check(); return value

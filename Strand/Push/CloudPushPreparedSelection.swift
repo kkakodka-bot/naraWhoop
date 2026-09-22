@@ -125,7 +125,7 @@ struct CloudPreparedQuota: Sendable {
     var maximumGroups = 64
     var maximumJobs = 256
 
-    struct Reservation: Equatable, Sendable {
+    struct Reservation: Codable, Equatable, Sendable {
         let bodyBytes: Int
         let selectionBytes: Int
         let jobSlots: Int
@@ -204,11 +204,12 @@ enum CloudPushPreparedRecovery {
     static func recover(queue: CloudUploadQueue, context: AccountSessionContext, sourceID: String,
                         endpoint: String, receiverStateID: String, directory: URL,
                         coordinator: (CloudPushProgressStore, String) -> PushCoordinator) async throws -> Bool {
-        let selections = try await queue.preparedSelections(sourceID: sourceID, endpoint: endpoint,
+        let selectionIDs = try await queue.preparedSelectionIDs(sourceID: sourceID, endpoint: endpoint,
             receiverStateID: receiverStateID, captured: context)
         var blocked = false
-        for selection in selections {
+        for id in selectionIDs {
             do {
+                let selection = try await queue.preparedSelection(id, captured: context)
                 try await queue.prepareSelection(selection, captured: context)
                 let progress = try CloudPushProgressStore(namespace: selection.progressNamespace, directory: directory,
                     auxiliaryIdentityV2: selection.progressVersion == PushProtocol.auxiliaryIdentityVersion)

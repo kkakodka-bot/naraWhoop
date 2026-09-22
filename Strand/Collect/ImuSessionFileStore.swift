@@ -25,10 +25,18 @@ protocol ImuSessionPushSource: Sendable {
     func pushRecords(deviceId: String, afterTs: Int64, limit: Int) -> [ImuPushRecord]
     func indexedPushRecord(deviceId: String, rowId: Int64) throws -> ImuPushRecord?
     func indexedPushRows(deviceId: String, afterRowId: Int64, limit: Int) throws -> [ImuPushRecord]
+    func indexedPushRows(deviceId: String, afterRowId: Int64, limit: Int,
+                         shouldContinue: @Sendable () -> Bool) throws -> [ImuPushRecord]
     func associatePushReceipt(rows: [PushRawImuRecord], receipt: PushDurabilityReceipt, scope: AccountScope) throws
 }
 
 extension ImuSessionPushSource {
+    func indexedPushRows(deviceId: String, afterRowId: Int64, limit: Int,
+                         shouldContinue: @Sendable () -> Bool) throws -> [ImuPushRecord] {
+        guard shouldContinue() else { throw PushSourceReadError.deferred }
+        return try indexedPushRows(deviceId: deviceId, afterRowId: afterRowId, limit: limit)
+    }
+
     // Timestamp-only adapters cannot prove window membership. Production uses CloudImuPushSource.
     func indexedPushRecord(deviceId: String, rowId: Int64) throws -> ImuPushRecord? { throw ImuPushSourceError.membershipUnavailable }
     func indexedPushRows(deviceId: String, afterRowId: Int64, limit: Int) throws -> [ImuPushRecord] { throw ImuPushSourceError.membershipUnavailable }
@@ -109,7 +117,7 @@ final class ImuSessionFileStore: @unchecked Sendable {
 
     /// Reads one complete canonical file under the same serialization as its writer. Row receipts
     /// may refer to its membership, but never claim to archive this file's framing/receivedAt bytes.
-    func pushSegmentSnapshot(_ segment: ImuPushSegment) throws -> ImuPushSegmentSnapshot {
+    func pushSegmentSnapshot(_ segment: ImuPushSegment, maximumBytes: Int = 8 * 1_048_576) throws -> ImuPushSegmentSnapshot {
         try isolation.sync {
             guard let captureScope, captureScope.isAssigned,
                   let window = windows().first(where: { $0.id == segment.windowID && $0.deviceId == segment.deviceID }),
@@ -117,6 +125,7 @@ final class ImuSessionFileStore: @unchecked Sendable {
             let file = segmentFile(segment.windowID, segment.bucket)
             let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
             guard size > 0, size <= 8 * 1_048_576 else { throw ImuPushSourceError.corruptSegment }
+            guard size <= maximumBytes else { throw PushSourceReadError.requiresCompatibleEncoding }
             let data = try Data(contentsOf: file)
             let decoded = decodeFile(data, maximumRecords: Int(Self.segmentSeconds))
             guard segment.bucket >= 0, segment.bucket <= Int64.max - Self.segmentSeconds,

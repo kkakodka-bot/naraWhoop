@@ -133,11 +133,17 @@ public struct PushCapabilities: Sendable {
             guard laneStreams.insert(table).inserted else { return nil }
         }
         guard !laneStreams.isEmpty else { return nil }
+        let completionMode: PushObjectCompletionMode?
+        if let modes = obj["completionModes"] as? [String], modes.count <= 2,
+           Set(modes).count == modes.count, modes.allSatisfy({ ["sync", "async-v1"].contains($0) }),
+           modes.contains("async-v1") { completionMode = .asynchronousV1 }
+        else { completionMode = nil }
         return PushObjectLane(
             endpoint: endpoint,
             maxObjectBytes: maxObjectBytes,
             urlTtlSec: urlTtlSec,
-            streams: laneStreams
+            streams: laneStreams,
+            completionMode: completionMode
         )
     }
 

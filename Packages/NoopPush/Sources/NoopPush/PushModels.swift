@@ -377,17 +377,25 @@ public struct PushTransportResponse: Sendable {
 
 /// The `objectLane` block of a 1.2 capabilities response: where object intents go, how large an
 /// object may be, and which binary streams the receiver archives direct-to-bucket.
+public enum PushObjectCompletionMode: String, Codable, Sendable {
+    case asynchronousV1 = "async-v1"
+}
+
 public struct PushObjectLane: Sendable, Equatable {
     public let endpoint: String
     public let maxObjectBytes: Int64
     public let urlTtlSec: Int64?
     public let streams: Set<PushBinaryTable>
+    /// Nil preserves synchronous completion for legacy selections and unnegotiated receivers.
+    public let completionMode: PushObjectCompletionMode?
 
-    public init(endpoint: String, maxObjectBytes: Int64, urlTtlSec: Int64?, streams: Set<PushBinaryTable>) {
+    public init(endpoint: String, maxObjectBytes: Int64, urlTtlSec: Int64?, streams: Set<PushBinaryTable>,
+                completionMode: PushObjectCompletionMode? = nil) {
         self.endpoint = endpoint
         self.maxObjectBytes = maxObjectBytes
         self.urlTtlSec = urlTtlSec
         self.streams = streams
+        self.completionMode = completionMode
     }
 }
 
@@ -581,6 +589,8 @@ public struct PushRunResult: Sendable {
 }
 
 public protocol PushTransport: Sendable {
+    func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool
+    func pausePreparation(_ lane: PushPreparationLane) async throws
     func capabilities() async throws -> PushCapabilitiesResult
     func post(_ batch: PushBatch) async throws -> PushTransportResponse
     func postBinary(_ batch: PushBinaryBatch) async throws -> PushTransportResponse
@@ -593,6 +603,8 @@ public protocol PushTransport: Sendable {
 }
 
 public extension PushTransport {
+    func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool { false }
+    func pausePreparation(_ lane: PushPreparationLane) async throws {}
     func createObjectIntent(_ manifest: PushObjectManifest, lane: PushObjectLane) async throws -> PushObjectIntent {
         throw PushTransportException(PushFailure(code: .localData))
     }
@@ -628,6 +640,13 @@ public extension PushProgressStore {
 }
 
 public protocol PushSnapshotSource: Sendable {
+    func appendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64,
+                    limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage
+    func appendFingerprintAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> String?
+    func binaryFingerprintAt(table: PushBinaryTable, deviceId: String, rowId: Int64,
+                             protocolVersion: String) async throws -> String?
+    func binaryPage(table: PushBinaryTable, deviceId: String, afterRowId: Int64,
+                    limit: Int, limits: PushSourceReadLimits) async throws -> PushBinaryPage
     func knownDeviceIds(capabilities: PushCapabilities) async throws -> [String]
     func appendRecordAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> PushAppendRecord?
     func appendRows(table: PushAppendTable, deviceId: String, afterRowId: Int64, limit: Int) async throws -> [PushAppendRecord]

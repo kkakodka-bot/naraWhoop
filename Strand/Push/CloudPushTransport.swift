@@ -144,10 +144,20 @@ struct CloudPushTransport: PushTransport {
     /// retroactively acquire source intent merely because a receipt shares a batch identifier.
     func requirePreparedSelections() { destination.requirePrepared() }
 
+    func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool {
+        let (queue, captured, state) = try durableQueue()
+        return try await queue.isPreparationPaused(lane, receiverStateID: state, captured: captured)
+    }
+
+    func pausePreparation(_ lane: PushPreparationLane) async throws {
+        let (queue, captured, state) = try durableQueue()
+        try await queue.pausePreparation(lane, receiverStateID: state, captured: captured)
+    }
+
     func prepareSelection(_ selection: PushPreparedSelection, progressVersion: String) async throws {
-        guard ResourceBudget.shared.permits(.bulk) else { throw CloudUploadError.retryScheduled }
         requirePreparedSelections()
         let (queue, captured, state) = try durableQueue()
+        try await queue.checkSelectionEncodingAdmission(captured: captured)
         let value = try CloudPushPreparedSelection(context: captured, endpoint: endpoint.url,
             receiverStateID: state, progressVersion: progressVersion, selection: selection,
             inlineGzip: selection.restoredInlineBatches().map { try Self.gzip($0.body) })

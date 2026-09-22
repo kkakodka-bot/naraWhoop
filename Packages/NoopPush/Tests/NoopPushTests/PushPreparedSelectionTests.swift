@@ -85,6 +85,30 @@ final class PushPreparedSelectionTests: XCTestCase {
         }
     }
 
+    func testCompletionModeRoundTripKeepsLegacyEncodingAndObjectIdentity() throws {
+        let rows: [PushBinaryRow] = [.ppgWaveform(.init(rowId: 1, ts: 100, burstIndex: nil, samples: Data([1, 2, 3])))]
+        let batch = try PushProtocol.binaryObjectBatch(table: .ppgWaveformSample, sourceId: source,
+            deviceId: "synthetic", startCursor: nil, rows: rows, protocolVersion: "1.2")
+        let commit = PushSourceCommit(kind: .binary, table: batch.wireName, deviceID: batch.deviceId,
+            batchIDs: [batch.batchId], cursor: batch.endCursor)
+        for mode: PushObjectCompletionMode? in [nil, .asynchronousV1] {
+            let lane = PushObjectLane(endpoint: "/objects", maxObjectBytes: 8_000_000, urlTtlSec: 60,
+                streams: [.ppgWaveformSample], completionMode: mode)
+            let selection = try PushPreparedSelection(binary: batch, rows: rows, manifest: .init(batch: batch), lane: lane, commit: commit)
+            let encoded = try selection.encoded()
+            let restored = try PushPreparedSelection.decode(encoded)
+            XCTAssertEqual(try restored.encoded(), encoded)
+            let object = try XCTUnwrap(restored.restoredObject())
+            XCTAssertEqual(object.lane.completionMode, mode)
+            XCTAssertEqual(object.batch.payload, batch.payload)
+            XCTAssertEqual(object.batch.objectId, batch.objectId)
+            XCTAssertEqual(object.manifest.contentSha256, batch.contentSha256)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+            let binary = try XCTUnwrap(json["binary"] as? [String: Any])
+            XCTAssertEqual(binary["completionMode"] as? String, mode?.rawValue)
+        }
+    }
+
     func testEveryFreshLanePreparesBeforeAnyDeliveryAndPreparationFailureStopsSend() async throws {
         let state = PreparedHookFixture()
         let coordinator = PushCoordinator(source: state, transport: state, progress: state, sourceId: source,

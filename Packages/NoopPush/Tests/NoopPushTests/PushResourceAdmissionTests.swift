@@ -85,6 +85,66 @@ final class PushResourceAdmissionTests: XCTestCase {
         XCTAssertEqual(nextCalls, firstCalls)
         XCTAssertFalse(nextCalls.contains("progress.saveCursor"))
     }
+    func testEmptyLanesRefundTheirByteReservationBeforeLaterSourceDebt() async throws {
+        let probe = AdmissionProbe(binary: [.ppgWaveform(.init(rowId: 1, ts: 100, burstIndex: nil, samples: Data([1])))])
+        let captured = PreparedCapture()
+        let coordinator = PushCoordinator(source: probe, transport: probe, progress: probe, sourceId: sourceID,
+            prepareSelection: { await captured.save($0) },
+            wakeBudget: PushWakeBudget(maximumPreparedBytes: 4 * 1_048_576 + 64 * 1024, clock: { 100 }))
+        for table in PushAppendTable.allCases {
+            guard case .noData = await coordinator.pushAppend(table, deviceId: "fixture") else { return XCTFail("empty lane exhausted real-work budget") }
+        }
+        _ = await coordinator.pushObjects(.ppgWaveformSample, deviceId: "fixture",
+            lane: .init(endpoint: "/objects", maxObjectBytes: 10_000_000, urlTtlSec: nil, streams: [.ppgWaveformSample]))
+        let saved = await captured.selection
+        XCTAssertNotNil(saved)
+    }
+
+    func testInsufficientObjectControlBudgetDefersBeforeSourceOrCursorRead() async throws {
+        let probe = AdmissionProbe()
+        let budget = PushWakeBudget(maximumWireBytes: 4 * 1_048_576 + 64 * 1024, clock: { 100 })
+        let coordinator = PushCoordinator(source: probe, transport: probe, progress: probe, sourceId: sourceID, wakeBudget: budget)
+        let lane = PushObjectLane(endpoint: "/objects", maxObjectBytes: 10_000_000, urlTtlSec: nil, streams: [.ppgWaveformSample])
+        let result = await coordinator.pushObjects(.ppgWaveformSample, deviceId: "fixture", lane: lane)
+        guard case .rejected("resource_pressure", true, _) = result else { return XCTFail("packing began without control headroom") }
+        let calls = await probe.calls
+        XCTAssertEqual(calls, [])
+    }
+
+    func testUnsplittableMemberPausesAndNextWakeDoesNotReadOrSkipIt() async throws {
+        let probe = AdmissionProbe(binary: [.ppgWaveform(.init(rowId: 1, ts: 100, burstIndex: nil, samples: Data(count: 1000))),
+            .ppgWaveform(.init(rowId: 2, ts: 101, burstIndex: nil, samples: Data([1])))])
+        let lane = PushObjectLane(endpoint: "/objects", maxObjectBytes: 10_000_000, urlTtlSec: nil, streams: [.ppgWaveformSample])
+        for _ in 0..<2 {
+            let coordinator = PushCoordinator(source: probe, transport: probe, progress: probe, sourceId: sourceID,
+                wakeBudget: PushWakeBudget(objectDecodedBytesPerJob: 100, clock: { 100 }))
+            let result = await coordinator.pushObjects(.ppgWaveformSample, deviceId: "fixture", lane: lane)
+            guard case .rejected("compatible_encoder_required", false, _) = result else { return XCTFail("unsplittable row was not visibly paused") }
+        }
+        let calls = await probe.calls
+        XCTAssertEqual(calls, ["progress.binaryCursor", "source.binary", "transport.pause"])
+    }
+
+    func testExactPreparationReservationStillFinishesOneBoundedJob() async throws {
+        let row = PushBinaryRow.ppgWaveform(.init(rowId: 1, ts: 100, burstIndex: nil, samples: Data(count: 1000)))
+        let probe = AdmissionProbe(binary: [row])
+        let captured = PreparedCapture()
+        let decoded = try PushBinaryCodec.pack(table: .ppgWaveformSample, rows: [row]).count
+        let budget = PushWakeBudget(maximumPreparedBytes: decoded + 64 * 1024,
+            maximumWireBytes: decoded + 80 * 1024, maximumRequests: 3,
+            objectDecodedBytesPerJob: decoded, clock: { 100 })
+        let coordinator = PushCoordinator(source: probe, transport: probe, progress: probe, sourceId: sourceID,
+            prepareSelection: { await captured.save($0) }, wakeBudget: budget)
+        let lane = PushObjectLane(endpoint: "/objects", maxObjectBytes: 10_000_000, urlTtlSec: nil, streams: [.ppgWaveformSample])
+        _ = await coordinator.pushObjects(.ppgWaveformSample, deviceId: "fixture", lane: lane)
+        let saved = await captured.selection
+        XCTAssertNotNil(saved, "already-reserved finite preparation was incorrectly denied by remaining quota")
+        let calls = await probe.calls
+        XCTAssertEqual(calls, ["progress.binaryCursor", "source.binary", "transport.intent"])
+        XCTAssertFalse(budget.permitsPreparation)
+        XCTAssertTrue(budget.permitsFinishingPreparation)
+    }
+
 }
 
 private final class AdmissionGate: @unchecked Sendable {
@@ -98,11 +158,13 @@ private final class AdmissionGate: @unchecked Sendable {
 private actor AdmissionProbe: PushSnapshotSource, PushProgressStore, PushTransport {
     private let revokeAfterMutableRead: @Sendable () -> Void
     private let appendCount: Int
+    private let binary: [PushBinaryRow]
+    private var paused = false
     private(set) var calls: [String] = []
     private(set) var lastAppendLimit = 0
     private(set) var lastPostedRows = 0
-    init(appendCount: Int = 0, revokeAfterMutableRead: @escaping @Sendable () -> Void = {}) {
-        self.appendCount = appendCount
+    init(appendCount: Int = 0, binary: [PushBinaryRow] = [], revokeAfterMutableRead: @escaping @Sendable () -> Void = {}) {
+        self.appendCount = appendCount; self.binary = binary
         self.revokeAfterMutableRead = revokeAfterMutableRead
     }
     func knownDeviceIds(capabilities: PushCapabilities) -> [String] {
@@ -125,7 +187,7 @@ private actor AdmissionProbe: PushSnapshotSource, PushProgressStore, PushTranspo
         calls.append("source.binaryRecord"); return nil
     }
     func binaryRows(table: PushBinaryTable, deviceId: String, afterRowId: Int64, limit: Int) -> [PushBinaryRow] {
-        calls.append("source.binary"); return []
+        calls.append("source.binary"); return Array(binary.prefix(limit))
     }
     func acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: [PushBinaryRow]) {
         calls.append("source.acknowledge")
@@ -152,7 +214,17 @@ private actor AdmissionProbe: PushSnapshotSource, PushProgressStore, PushTranspo
         calls.append("transport.post"); lastPostedRows = batch.recordCount
         throw PushProtocolException("unexpected transport")
     }
+    func isPreparationPaused(_ lane: PushPreparationLane) -> Bool { paused }
+    func pausePreparation(_ lane: PushPreparationLane) { paused = true; calls.append("transport.pause") }
+    func createObjectIntent(_ manifest: PushObjectManifest, lane: PushObjectLane) throws -> PushObjectIntent {
+        calls.append("transport.intent"); throw PushTransportException(PushFailure(code: .networkIO))
+    }
     func postBinary(_ batch: PushBinaryBatch) throws -> PushTransportResponse {
         calls.append("transport.binary"); throw PushProtocolException("unexpected transport")
     }
+}
+
+private actor PreparedCapture {
+    private(set) var selection: PushPreparedSelection?
+    func save(_ value: PushPreparedSelection) { selection = value }
 }

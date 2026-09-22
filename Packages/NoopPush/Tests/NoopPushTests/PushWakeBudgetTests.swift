@@ -16,6 +16,31 @@ final class PushWakeBudgetTests: XCTestCase {
         XCTAssertFalse(budget.admitRequest(bytes: 0))
     }
 
+    func testObjectAdmissionIncludesControlOverheadBeforePacking() {
+        let payload = 4 * 1_048_576 + 64 * 1024
+        let tooSmall = PushWakeBudget(maximumWireBytes: payload, clock: { 100 })
+        XCTAssertFalse(tooSmall.admitObjectPreparation())
+        let exact = PushWakeBudget(maximumPreparedBytes: payload, maximumWireBytes: payload + 16 * 1024,
+            maximumRequests: 3, clock: { 100 })
+        XCTAssertTrue(exact.admitObjectPreparation())
+        XCTAssertFalse(exact.permitsPreparation)
+        XCTAssertTrue(exact.permitsFinishingPreparation)
+        XCTAssertTrue(exact.admitRequest(bytes: 8 * 1024))
+        XCTAssertTrue(exact.admitRequest(bytes: payload))
+        XCTAssertTrue(exact.admitRequest(bytes: 0))
+        XCTAssertFalse(exact.admitObjectPreparation())
+    }
+
+    func testOneExistingOversizedImmutableObjectCanDrainWithoutReencoding() {
+        let budget = PushWakeBudget(maximumWireBytes: 8 * 1024, clock: { 100 })
+        XCTAssertTrue(budget.admitRequest(bytes: 8 * 1024))
+        XCTAssertFalse(budget.admitRequest(bytes: 16 * 1024))
+        XCTAssertTrue(budget.admitRequest(bytes: 16 * 1024, savedObject: true))
+        XCTAssertFalse(budget.permitsPreparation)
+        XCTAssertFalse(budget.admitRequest(bytes: 16 * 1024, savedObject: true))
+        XCTAssertFalse(budget.admitRequest(bytes: Int.max, savedObject: true))
+    }
+
     func testMonotonicDeadlineStopsPreparationAndTransferAdmission() {
         let clock = WakeBudgetClock()
         let budget = PushWakeBudget(duration: 20, clock: { clock.value })

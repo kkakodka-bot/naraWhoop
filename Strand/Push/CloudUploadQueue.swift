@@ -7,9 +7,9 @@ struct CloudUploadPolicy: Sendable {
     var allowsConstrained: Bool
     var cancelTransfers = false
 
-    static func current(wifiOnly: Bool, enabled: Bool = true) -> Self {
+    static func current(wifiOnly: Bool, enabled: Bool = true, resourceBudget: ResourceBudget = .shared) -> Self {
         let state = ProcessInfo.processInfo.thermalState
-        let limit = enabled ? ResourceBudget.shared.snapshot(for: .cloudTransfer).maximumTransfers : 0
+        let limit = enabled ? resourceBudget.snapshot(for: .cloudTransfer).maximumTransfers : 0
         return .init(concurrency: limit, allowsCellular: !wifiOnly, allowsConstrained: !wifiOnly,
                      cancelTransfers: !enabled || state == .critical)
     }
@@ -18,6 +18,15 @@ struct CloudUploadPolicy: Sendable {
 /// The coordinator owns source cursors. This actor owns only immutable transfer bytes and receipts.
 /// An HTTP success never deletes a file or advances a source cursor.
 actor CloudUploadQueue {
+    struct PresentationStatus: Sendable {
+        enum PauseReason: Sendable { case authentication, compatibleEncoding, terminal }
+        let pendingJobs: Int
+        let pendingSelections: Int
+        let transferringJobs: Int
+        let pausedReason: PauseReason?
+        let lastVerifiedReceipt: Date?
+        let retryAt: Date?
+    }
     typealias Authorize = @Sendable (AccountSessionContext) async throws -> String
     typealias Current = @Sendable (AccountSessionContext) -> Bool
     private let context: AccountSessionContext
@@ -30,6 +39,7 @@ actor CloudUploadQueue {
     private let now: @Sendable () -> Date
     private let randomUnit: @Sendable () -> Double
     private let refreshCredentials: (@Sendable (AccountSessionContext) async throws -> Void)?
+    private let resourceBudget: ResourceBudget
     private var jobs: [String: CloudUploadJob]
     private var controlOutcomes: [String: CloudControlOutcome]
     private var controlsInFlight: Set<String> = []
@@ -55,7 +65,8 @@ actor CloudUploadQueue {
          maximumBytes: Int = 1_073_741_824, now: @escaping @Sendable () -> Date = { Date() },
          journalWriteObserver: (@Sendable (URL) throws -> Void)? = nil,
          randomUnit: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
-         refreshCredentials: (@Sendable (AccountSessionContext) async throws -> Void)? = nil) throws {
+         refreshCredentials: (@Sendable (AccountSessionContext) async throws -> Void)? = nil,
+         resourceBudget: ResourceBudget = .shared) throws {
         guard layout.scope == context.scope else { throw CloudUploadError.staleOwner }
         self.context = context
         self.adapter = adapter
@@ -66,7 +77,9 @@ actor CloudUploadQueue {
         self.now = now
         self.randomUnit = randomUnit
         self.refreshCredentials = refreshCredentials
-        journal = try CloudUploadJournal(directory: layout.uploadDirectory, maximumBytes: maximumBytes, afterWrite: journalWriteObserver)
+        self.resourceBudget = resourceBudget
+        journal = try CloudUploadJournal(directory: layout.uploadDirectory, maximumBytes: maximumBytes,
+            afterWrite: journalWriteObserver, resourceBudget: resourceBudget)
         try journal.loadSelections(owner: context.scope)
         jobs = try journal.load()
         controlOutcomes = try journal.loadControlOutcomes(owner: context.scope)
@@ -89,25 +102,53 @@ actor CloudUploadQueue {
         }
         for job in jobs.values {
             if let id = job.preparedSelectionID {
-                guard let selection = journal.selections[id], let state = journal.continuations[id],
-                      try selection.jobIDs(state).contains(job.id), !job.acknowledged || state.sourceCommitted else {
+                guard let selection = journal.selectionIndex[id], let state = journal.continuations[id],
+                      selection.jobIDs(state).contains(job.id), !job.acknowledged || state.sourceCommitted else {
                     throw CloudUploadError.corruptJournal
                 }
             }
         }
+        let pending = jobs.values.filter { !$0.acknowledged }
+        resourceBudget.queuedCloud(owner: budgetOwner,
+            bytes: pending.reduce(0) { $0 + $1.payloadBytes }, jobs: pending.count)
     }
 
     private func check(_ captured: AccountSessionContext) throws {
         guard !suspended, captured == context, isCurrent(captured) else { throw CloudUploadError.staleOwner }
     }
 
-    deinit { ResourceBudget.shared.queuedCloud(owner: budgetOwner, bytes: 0, jobs: 0) }
+    deinit { resourceBudget.queuedCloud(owner: budgetOwner, bytes: 0, jobs: 0) }
 
     private func publishQueuePressure() {
         guard !suspended else { return }
         let pending = jobs.values.filter { !$0.acknowledged }
-        ResourceBudget.shared.queuedCloud(owner: budgetOwner,
+        resourceBudget.queuedCloud(owner: budgetOwner,
             bytes: pending.reduce(0) { $0 + $1.payloadBytes }, jobs: pending.count)
+    }
+
+    /// Account-fenced presentation contains no payload, account or device identifiers.
+    /// Reading it performs no storage access and does not treat transfer success as durability.
+    func presentationStatus(captured: AccountSessionContext) throws -> PresentationStatus {
+        try check(captured)
+        var pending = 0, transferring = 0
+        var reason: PresentationStatus.PauseReason?
+        for job in jobs.values where !job.acknowledged {
+            pending += 1
+            if job.phase == .transferring { transferring += 1 }
+            if job.phase == .pausedTerminal {
+                if job.responseDisposition == .authentication { reason = .authentication }
+                else if reason == nil { reason = .terminal }
+            }
+        }
+        for control in controlOutcomes.values where control.paused {
+            if control.disposition == .authentication { reason = .authentication }
+            else if control.receiverCode == "compatible_encoder_required", reason != .authentication { reason = .compatibleEncoding }
+            else if reason == nil { reason = .terminal }
+        }
+        return .init(pendingJobs: pending,
+            pendingSelections: journal.continuations.values.filter { !$0.sourceCommitted }.count,
+            transferringJobs: transferring, pausedReason: reason,
+            lastVerifiedReceipt: lastVerifiedReceiptAt, retryAt: try nextWakeDate(captured: captured))
     }
 
     func pausedMessage(captured: AccountSessionContext) throws -> String? {
@@ -119,7 +160,35 @@ actor CloudUploadQueue {
             pausedControls.contains(where: { $0.disposition == .authentication }) {
             return "Cloud sync paused for authentication. Local data is retained."
         }
+        if pausedControls.contains(where: { $0.receiverCode == "compatible_encoder_required" }) {
+            return "Retained cloud data needs a compatible app upgrade"
+        }
         return "Cloud sync paused for a server or receipt error. Local data is retained; retry after resolution."
+    }
+
+    private func preparationID(_ lane: PushPreparationLane, receiverStateID: String) throws -> String {
+        guard UUID(uuidString: lane.sourceID) != nil, !lane.table.isEmpty, lane.table.utf8.count <= 128,
+              !lane.deviceID.isEmpty, lane.deviceID.utf8.count <= 1024,
+              !receiverStateID.isEmpty, receiverStateID.utf8.count <= 256 else { throw CloudUploadError.invalidRequest }
+        return AccountScope.digest(["source-preparation-v1", context.scope.namespace, receiverStateID,
+            lane.sourceID, lane.table, lane.deviceID].joined(separator: "\u{0}"))
+    }
+
+    func isPreparationPaused(_ lane: PushPreparationLane, receiverStateID: String,
+                             captured: AccountSessionContext) throws -> Bool {
+        try check(captured)
+        return controlOutcomes[try preparationID(lane, receiverStateID: receiverStateID)]?.paused == true
+    }
+
+    func pausePreparation(_ lane: PushPreparationLane, receiverStateID: String,
+                          captured: AccountSessionContext) throws {
+        try check(captured)
+        let id = try preparationID(lane, receiverStateID: receiverStateID)
+        guard controlOutcomes[id]?.paused != true else { return }
+        var value = controlOutcomes[id] ?? CloudControlOutcome(id: id, owner: context.scope)
+        value.paused = true; value.disposition = .terminal; value.receiverCode = "compatible_encoder_required"
+        value.nextAttemptAt = nil; value.failures += 1
+        try saveControl(value)
     }
 
     func lastVerifiedReceiptDate(captured: AccountSessionContext) throws -> Date? {
@@ -222,7 +291,7 @@ actor CloudUploadQueue {
         var value = controlOutcomes[id] ?? CloudControlOutcome(id: id, owner: context.scope)
         if value.paused { throw controlFailure(value) }
         if let date = value.nextAttemptAt, date > now() { throw CloudUploadError.retryScheduled }
-        guard policy().concurrency > 0, ResourceBudget.shared.permits(.cloudTransfer) else { throw CloudUploadError.retryScheduled }
+        guard policy().concurrency > 0, resourceBudget.permits(.cloudTransfer) else { throw CloudUploadError.retryScheduled }
         if value.authenticationRefreshPending {
             value.authenticationRefreshPending = false
             value.paused = true
@@ -238,7 +307,7 @@ actor CloudUploadQueue {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         try check(context)
         let admission = policy()
-        guard admission.concurrency > 0, ResourceBudget.shared.permits(.cloudTransfer) else { throw CloudUploadError.retryScheduled }
+        guard admission.concurrency > 0, resourceBudget.permits(.cloudTransfer) else { throw CloudUploadError.retryScheduled }
         request.allowsCellularAccess = admission.allowsCellular
         request.allowsExpensiveNetworkAccess = admission.allowsCellular
         request.allowsConstrainedNetworkAccess = admission.allowsConstrained
@@ -342,14 +411,17 @@ actor CloudUploadQueue {
                           beforeFreshAdmission: @Sendable () throws -> Void = {}) throws {
         try check(captured)
         guard value.owner == context.scope else { throw CloudUploadError.staleOwner }
-        guard ResourceBudget.shared.permits(.cloudPreparation) else { throw CloudUploadError.retryScheduled }
+        let isFresh = journal.selectionIndex[value.id] == nil
+        // Saved receipt debt must be able to drain a full queue. Heat/history still gate replay;
+        // the queued-byte/job threshold applies only before accepting a new source selection.
+        guard resourceBudget.permits(isFresh ? .cloudPreparation : .bulk) else { throw CloudUploadError.retryScheduled }
         let legacyJobs = jobs.values.filter { $0.preparedSelectionID == nil }.count
         // This synchronous actor-local boundary precedes any new reservation/body publication.
         // An exact existing reservation (including interrupted publication) keeps its original
         // authority. reserve still verifies its immutable bytes; it is not a new preference claim.
-        if journal.selections[value.id] == nil { try beforeFreshAdmission() }
+        if isFresh { try beforeFreshAdmission() }
         try journal.reserve(value, legacyJobs: legacyJobs)
-        guard let saved = journal.selections[value.id], var state = journal.continuations[value.id], !state.sourceCommitted else {
+        guard let saved = try journal.selection(value.id), var state = journal.continuations[value.id], !state.sourceCommitted else {
             throw CloudUploadError.corruptJournal
         }
         if state.published {
@@ -370,6 +442,7 @@ actor CloudUploadQueue {
                 job.manifest = objectID == object.manifest.objectId ? saved.selection.objectIntentBytes
                     : try object.manifest.replacingObjectId(objectID).encode()
                 job.objectID = objectID; job.batchID = object.batch.batchId; job.lanePath = object.lane.endpoint
+                job.completionMode = object.lane.completionMode
                 try prepare(object.batch.payload, job: &job); try commit(job)
             }
         } else {
@@ -417,17 +490,18 @@ actor CloudUploadQueue {
         return job
     }
 
-    func preparedSelections(sourceID: String, endpoint: String, receiverStateID: String,
-                            captured: AccountSessionContext) throws -> [CloudPushPreparedSelection] {
+    func preparedSelectionIDs(sourceID: String, endpoint: String, receiverStateID: String,
+                              captured: AccountSessionContext) throws -> [String] {
         try check(captured)
-        return journal.selections.values.filter { $0.matches(owner: context.scope, sourceID: sourceID,
-            endpoint: endpoint, receiverStateID: receiverStateID) }.sorted { $0.id < $1.id }
+        return journal.selectionIndex.values.filter { $0.matches(owner: context.scope, sourceID: sourceID,
+            endpoint: endpoint, receiverStateID: receiverStateID) }.map(\.id).sorted()
     }
 
     func selectionID(batchID: String, sourceID: String, endpoint: String, receiverStateID: String,
                      captured: AccountSessionContext) throws -> String {
-        let candidates = try preparedSelections(sourceID: sourceID, endpoint: endpoint, receiverStateID: receiverStateID, captured: captured)
-            .filter { $0.commit.batchIDs.contains(batchID) }
+        try check(captured)
+        let candidates = journal.selectionIndex.values.filter { $0.matches(owner: context.scope, sourceID: sourceID,
+            endpoint: endpoint, receiverStateID: receiverStateID) && $0.commit.batchIDs.contains(batchID) }
         guard candidates.count == 1 else { throw CloudUploadError.invalidRequest }
         return candidates[0].id
     }
@@ -436,7 +510,7 @@ actor CloudUploadQueue {
                         captured: AccountSessionContext) throws -> (selectionID: String, gzip: Data) {
         let id = try selectionID(batchID: batch.batchId, sourceID: batch.sourceId, endpoint: endpoint,
             receiverStateID: receiverStateID, captured: captured)
-        guard let saved = journal.selections[id], journal.continuations[id]?.published == true,
+        guard let saved = try journal.selection(id), journal.continuations[id]?.published == true,
               let index = saved.commit.batchIDs.firstIndex(of: batch.batchId),
               try saved.selection.restoredInlineBatches()[index].body == batch.body else { throw CloudUploadError.changedPayload }
         return (id, saved.inlineGzip[index])
@@ -447,7 +521,7 @@ actor CloudUploadQueue {
                              captured: AccountSessionContext) throws {
         let id = try selectionID(batchID: manifest.batchId, sourceID: manifest.sourceId, endpoint: endpoint,
             receiverStateID: receiverStateID, captured: captured)
-        guard let saved = journal.selections[id], var state = journal.continuations[id], state.published,
+        guard let saved = try journal.selection(id), var state = journal.continuations[id], state.published,
               !state.sourceCommitted, let object = try saved.selection.restoredObject(),
               object.manifest.replacingObjectId(manifest.objectId) == manifest else { throw CloudUploadError.changedPayload }
         if !state.objectIDs.contains(manifest.objectId) {
@@ -461,6 +535,7 @@ actor CloudUploadQueue {
             var job = preparedJob(saved, id: jobID, operation: .objectPut, headers: [:])
             job.manifest = try manifest.encode(); job.objectID = manifest.objectId
             job.batchID = manifest.batchId; job.lanePath = object.lane.endpoint
+            job.completionMode = object.lane.completionMode
             try prepare(object.batch.payload, job: &job); try commit(job)
         }
     }
@@ -476,7 +551,7 @@ actor CloudUploadQueue {
 
     func resumeManifest(selectionID: String, captured: AccountSessionContext) throws -> PushObjectManifest? {
         try check(captured)
-        guard let saved = journal.selections[selectionID], let state = journal.continuations[selectionID] else { throw CloudUploadError.corruptJournal }
+        guard let saved = try journal.selection(selectionID), let state = journal.continuations[selectionID] else { throw CloudUploadError.corruptJournal }
         guard let object = try saved.selection.restoredObject() else { return nil }
         guard let last = state.objectIDs.last else { throw CloudUploadError.corruptJournal }
         if state.conflictedObjectIDs.contains(last) {
@@ -514,8 +589,14 @@ actor CloudUploadQueue {
 
     func preparedSelection(_ id: String, captured: AccountSessionContext) throws -> CloudPushPreparedSelection {
         try check(captured)
-        guard let value = journal.selections[id] else { throw CloudUploadError.corruptJournal }
+        guard resourceBudget.permits(.bulk) else { throw CloudUploadError.retryScheduled }
+        guard let value = try journal.selection(id) else { throw CloudUploadError.corruptJournal }
         return value
+    }
+
+    func checkSelectionEncodingAdmission(captured: AccountSessionContext) throws {
+        try check(captured)
+        guard resourceBudget.permits(.bulk) else { throw CloudUploadError.retryScheduled }
     }
 
     func checkIntentAdmission(captured: AccountSessionContext) throws {
@@ -534,7 +615,7 @@ actor CloudUploadQueue {
 
     private func mayDeliver(_ job: CloudUploadJob) -> Bool {
         guard let id = job.preparedSelectionID else { return true }
-        guard job.deliveryAdmitted == true, let saved = journal.selections[id], let state = journal.continuations[id],
+        guard job.deliveryAdmitted == true, let saved = journal.selectionIndex[id], let state = journal.continuations[id],
               state.published, !state.sourceCommitted else { return false }
         if let objectID = job.objectID { return state.objectIDs.last == objectID && !state.conflictedObjectIDs.contains(objectID) }
         guard let batchID = job.batchID, let index = saved.commit.batchIDs.firstIndex(of: batchID) else { return false }
@@ -552,11 +633,11 @@ actor CloudUploadQueue {
     /// Authority is the exact selection reference atomically staged with the full-group commit.
     func preparedSourceCommitted(selectionID: String, captured: AccountSessionContext) throws {
         try check(captured)
-        guard let saved = journal.selections[selectionID], var state = journal.continuations[selectionID] else {
+        guard let saved = journal.selectionIndex[selectionID], var state = journal.continuations[selectionID] else {
             // Retirement may have completed before the progress-store debt was settled.
             return
         }
-        let ids = try saved.jobIDs(state)
+        let ids = saved.jobIDs(state)
         guard !ids.contains(where: { jobs[$0]?.phase == .transferring }) else { throw CloudUploadError.retryScheduled }
         state.sourceCommitted = true
         try journal.saveContinuation(state) // Group marker precedes EVERY unlink.
@@ -588,6 +669,8 @@ actor CloudUploadQueue {
         if let prior = job.manifest {
             guard prior == encoded, intent.duplicate || job.objectKey == nil || job.objectKey == intent.objectKey else { throw CloudUploadError.changedPayload }
         }
+        // A retry keeps its captured mode even if a new capability document changes.
+        if jobs[id] == nil { job.completionMode = lane.completionMode }
         // Replaying an intent must not erase an in-flight attempt or a durable receipt.
         guard job.phase != .receiptSaved, job.phase != .transferring else { return }
         job.manifest = encoded
@@ -642,7 +725,7 @@ actor CloudUploadQueue {
         let headerData = try JSONSerialization.data(withJSONObject: headers, options: [.sortedKeys])
         let id: String
         if let selectionID {
-            guard let saved = journal.selections[selectionID], saved.endpoint == endpoint, saved.receiverStateID == receiverStateID,
+            guard let saved = try journal.selection(selectionID), saved.endpoint == endpoint, saved.receiverStateID == receiverStateID,
                   let batchID, saved.commit.batchIDs.contains(batchID), journal.continuations[selectionID]?.published == true else { throw CloudUploadError.invalidRequest }
             id = saved.jobID(batchID: batchID, representation: headers["Content-Encoding"] == "gzip" ? "gzip" : "identity")
             guard jobs[id]?.headers == headers else { throw CloudUploadError.changedPayload }
@@ -820,9 +903,10 @@ actor CloudUploadQueue {
     /// Logout fences callbacks immediately via isCurrent; cancellation never assigns old jobs to a new owner.
     func suspend() {
         suspended = true
-        ResourceBudget.shared.queuedCloud(owner: budgetOwner, bytes: 0, jobs: 0)
+        resourceBudget.queuedCloud(owner: budgetOwner, bytes: 0, jobs: 0)
         for job in jobs.values { if let task = job.taskIdentifier { adapter.cancel(task) } }
         for id in Array(waiters.keys) { resolve(id, result: .failure(CloudUploadError.staleOwner)) }
+        journal.close()
     }
 
     func receive(_ task: CloudUploadTaskSnapshot, status: Int, body: Data, error: Bool, retryAfter: String? = nil) async {
@@ -963,7 +1047,7 @@ actor CloudUploadQueue {
             defer { SyncPipelineTrace.end(interval, outcome: outcome) }
             do {
                 try check(context)
-                guard ResourceBudget.shared.permits(.cloudTransfer) else { throw CloudUploadError.retryScheduled }
+                guard resourceBudget.permits(.cloudTransfer) else { throw CloudUploadError.retryScheduled }
                 if job.authenticationRefreshPending == true {
                     job.authenticationRefreshPending = false
                     job.phase = .pausedTerminal
@@ -996,7 +1080,12 @@ actor CloudUploadQueue {
                     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     request.setValue("application/json", forHTTPHeaderField: "Accept")
                     for (key, value) in job.headers { request.setValue(value, forHTTPHeaderField: key) }
-                    if job.operation == .objectComplete { file = try journal.emptyBodyURL() }
+                    if job.operation == .objectComplete {
+                        if let mode = job.completionMode {
+                            request.setValue(mode.rawValue, forHTTPHeaderField: "Noop-Push-Completion")
+                        }
+                        file = try journal.emptyBodyURL()
+                    }
                     else { try journal.verifyBody(job); file = try journal.bodyURL(job) }
                 }
                 try check(context)

@@ -70,6 +70,11 @@ final class CloudImuPushSource: ImuSessionPushSource, @unchecked Sendable {
         return try materialize([row]).first
     }
     func indexedPushRows(deviceId: String, afterRowId: Int64, limit: Int) throws -> [ImuPushRecord] {
+        try indexedPushRows(deviceId: deviceId, afterRowId: afterRowId, limit: limit, shouldContinue: { true })
+    }
+    func indexedPushRows(deviceId: String, afterRowId: Int64, limit: Int,
+                         shouldContinue: @Sendable () -> Bool) throws -> [ImuPushRecord] {
+        guard shouldContinue() else { throw PushSourceReadError.deferred }
         isolation.lock(); defer { isolation.unlock() }
         guard limit > 0, limit <= PushProtocolLimits.maxRecords + 1 else { throw ImuPushSourceError.membershipUnavailable }
         func pendingRows() throws -> [Row] {
@@ -82,14 +87,14 @@ final class CloudImuPushSource: ImuSessionPushSource, @unchecked Sendable {
         // Drain an already inventoried page without restarting a long scan on each upload.
         if !scanning {
             let rows = try pendingRows()
-            if !rows.isEmpty { return try materialize(rows) }
+            if !rows.isEmpty { return try materialize(rows, shouldContinue: shouldContinue) }
         }
         // Do not report noData/hasMore=false halfway through a bounded inventory. The saved scan
         // resumes after relaunch; the coordinator retains debt while this retryable state exists.
-        if try scan(deviceID: deviceId) { throw ImuPushSourceError.scanPending }
-        return try materialize(pendingRows())
+        if try scan(deviceID: deviceId, shouldContinue: shouldContinue) { throw ImuPushSourceError.scanPending }
+        return try materialize(pendingRows(), shouldContinue: shouldContinue)
     }
-    private func scan(deviceID: String) throws -> Bool {
+    private func scan(deviceID: String, shouldContinue: @Sendable () -> Bool) throws -> Bool {
         let segments = try stores.sorted { $0.key < $1.key }.flatMap { origin, store in
             try store.pushSegmentInventory(deviceID: deviceID).map { (origin, $0) }
         }
@@ -100,6 +105,7 @@ final class CloudImuPushSource: ImuSessionPushSource, @unchecked Sendable {
         let selected = Array((tail.isEmpty ? sorted : tail).prefix(segmentBudget))
         let more = selected.count < (tail.isEmpty ? sorted.count : tail.count)
         for (origin, segment) in selected {
+            guard shouldContinue() else { throw PushSourceReadError.deferred }
             let snapshot = try stores[origin]!.pushSegmentSnapshot(segment)
             try index.write { db in
                 try indexSegment(db, origin: origin, segment: segment, snapshot: snapshot)
@@ -114,11 +120,12 @@ final class CloudImuPushSource: ImuSessionPushSource, @unchecked Sendable {
         }
         return more
     }
-    private func materialize(_ members: [Row]) throws -> [ImuPushRecord] {
+    private func materialize(_ members: [Row], shouldContinue: @Sendable () -> Bool = { true }) throws -> [ImuPushRecord] {
         // At most one decoded segment is retained, even when a row page spans many windows.
         var cachedKey: String?
         var cached: [Int64: Data] = [:]
         return try members.map { row in
+            guard shouldContinue() else { throw PushSourceReadError.deferred }
             let origin: String = row["origin"], window: String = row["window"], bucket: Int64 = row["bucket"]
             let key = "\(origin)/\(window)/\(bucket)"
             if cachedKey != key {

@@ -76,6 +76,14 @@ struct CloudAccountPushTransport: PushTransport {
         return result
     }
     func postBinary(_ batch: PushBinaryBatch) async throws -> PushTransportResponse { try await base.postBinary(batch) }
+    func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool {
+        guard isCurrent(context) else { throw AccountAuthError.staleOperation }
+        return try await base.isPreparationPaused(lane)
+    }
+    func pausePreparation(_ lane: PushPreparationLane) async throws {
+        guard isCurrent(context) else { throw AccountAuthError.staleOperation }
+        try await base.pausePreparation(lane)
+    }
     func createObjectIntent(_ manifest: PushObjectManifest, lane: PushObjectLane) async throws -> PushObjectIntent {
         try await base.createObjectIntent(manifest, lane: lane)
     }

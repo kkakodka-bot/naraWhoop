@@ -138,7 +138,7 @@ struct CloudPushView: View {
                         .foregroundStyle(StrandPalette.statusWarning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Text("Last verified cloud receipt: \(formattedDate(lastVerifiedReceipt) ?? String(localized: "Never"))")
+                Text("Last verified cloud receipt: \(formattedDate(lastVerifiedReceipt) ?? "—")")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
                 if cloudPaused {
@@ -156,7 +156,7 @@ struct CloudPushView: View {
                                 CloudPushScheduler.enqueueManualCatchUp(db: writer)
                             } catch {
                                 if CloudAuthClient.isCurrent(context) {
-                                    resolutionError = "Cloud sync could not resume. Saved data is retained."
+                                    resolutionError = String(localized: "Cloud sync could not resume. Saved data is retained.")
                                 }
                             }
                         }

@@ -16,6 +16,7 @@ public struct PushCoordinator: Sendable {
     private let commitSource: (@Sendable (PushSourceCommit) async throws -> Void)?
     private let prepareSelection: (@Sendable (PushPreparedSelection) async throws -> Void)?
     private let allowsPreparation: @Sendable () -> Bool
+    private let allowsActivePreparation: @Sendable () -> Bool
     private let wakeBudget: PushWakeBudget?
     private var pressureDeferred: PushResult { .rejected(reason: "resource_pressure", retryable: true, failure: nil) }
 
@@ -50,12 +51,15 @@ public struct PushCoordinator: Sendable {
         self.commitSource = commitSource
         self.prepareSelection = prepareSelection
         self.allowsPreparation = { allowsPreparation() && (wakeBudget?.permitsPreparation ?? true) }
+        self.allowsActivePreparation = { allowsPreparation() && (wakeBudget?.permitsFinishingPreparation ?? true) && destinationStillCurrent() }
         self.wakeBudget = wakeBudget
     }
 
     public func pushAppend(_ table: PushAppendTable, deviceId: String,
                            protocolVersion: String = PushProtocol.version) async -> PushResult {
         guard allowsPreparation() else { return pressureDeferred }
+        if let paused = await preparationPaused(table: table.wireName, deviceId: deviceId) { return paused }
+        guard wakeBudget?.admitInlinePreparation(maximumDecodedBytes: PushProtocolLimits.maxBodyBytes) ?? true else { return pressureDeferred }
         let stored: PushCursor?
         do {
             stored = try await progress.cursor(table: table, deviceId: deviceId)
@@ -66,8 +70,7 @@ public struct PushCoordinator: Sendable {
         let effective: PushCursor?
         if let stored, stored.rowId > 0 {
             do {
-                let atCursor = try await source.appendRecordAt(table: table, deviceId: deviceId, rowId: stored.rowId)
-                let fingerprint = atCursor.flatMap { try? PushProtocol.keyFingerprint(table: table, deviceId: deviceId, key: $0.key) }
+                let fingerprint = try await source.appendFingerprintAt(table: table, deviceId: deviceId, rowId: stored.rowId)
                 effective = fingerprint == stored.naturalKeyFingerprint ? stored : nil
             } catch is PushProtocolException {
                 return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
@@ -78,32 +81,41 @@ public struct PushCoordinator: Sendable {
             effective = nil
         }
 
-        let rows: [PushAppendRecord]
+        let page: PushAppendPage
         do {
-            rows = try await source.appendRows(
+            page = try await source.appendPage(
                 table: table,
                 deviceId: deviceId,
                 afterRowId: effective?.rowId ?? 0,
-                limit: (wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords) + 1
+                limit: (wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords) + 1,
+                limits: .init(maximumDecodedBytes: PushProtocolLimits.maxBodyBytes,
+                    protocolVersion: protocolVersion, shouldContinue: allowsActivePreparation)
             )
+        } catch let error as PushSourceReadError {
+            return await sourceReadFailure(error, table: table.wireName, deviceId: deviceId)
         } catch let error as PushProtocolException {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         } catch {
             return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
         }
 
-        guard !rows.isEmpty else { return .noData }
+        let rows = page.rows
+        guard !rows.isEmpty else {
+            wakeBudget?.refundEmptyPreparation(maximumDecodedBytes: PushProtocolLimits.maxBodyBytes)
+            return .noData
+        }
 
         let batch: PushBatch
         do {
-            guard allowsPreparation() else { return pressureDeferred }
+            guard allowsActivePreparation() else { return pressureDeferred }
             batch = try PushProtocol.appendBatch(table: table, sourceId: sourceId, deviceId: deviceId,
                 startCursor: effective, records: Array(rows.prefix(wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords)), protocolVersion: protocolVersion)
+        } catch let error as PushProtocolException where error.errorDescription == "first append record exceeds the 4 MiB decoded batch limit" {
+            return await sourceReadFailure(.requiresCompatibleEncoding, table: table.wireName, deviceId: deviceId)
         } catch {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         }
 
-        guard wakeBudget?.admitPreparation(bytes: batch.body.count) ?? true else { return pressureDeferred }
         if let prepareSelection {
             do {
                 guard destinationStillCurrent() else { throw CancellationError() }
@@ -122,7 +134,7 @@ public struct PushCoordinator: Sendable {
                 try await commitSource(.init(kind: .append, table: table.wireName, deviceID: deviceId,
                                               batchIDs: [batchId], cursor: end))
             } else { try await progress.saveCursor(table: table, deviceId: deviceId, cursor: end) }
-            return .accepted(batchId: batchId, recordCount: recordCount, hasMore: rows.count > batch.recordCount, batchCount: batchCount)
+            return .accepted(batchId: batchId, recordCount: recordCount, hasMore: page.hasMore || rows.count > batch.recordCount, batchCount: batchCount)
         } catch let error as PushProtocolException {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         } catch {
@@ -132,6 +144,8 @@ public struct PushCoordinator: Sendable {
 
     public func pushMutable(_ table: PushMutableTable, deviceId: String) async -> PushResult {
         guard allowsPreparation() else { return pressureDeferred }
+        if let paused = await preparationPaused(table: table.wireName, deviceId: deviceId) { return paused }
+        guard wakeBudget?.admitInlinePreparation(maximumDecodedBytes: PushProtocolLimits.maxMutableSnapshotEncodedBytes) ?? true else { return pressureDeferred }
         let fullWindow = PushWindow.ending(today: today(), calendar: calendar)
         let rows: [PushMutableRecord]
         do {
@@ -141,6 +155,8 @@ public struct PushCoordinator: Sendable {
                 window: fullWindow,
                 limit: PushProtocolLimits.maxMutableSnapshotRecords + 1
             )
+        } catch let error as PushSourceReadError {
+            return await sourceReadFailure(error, table: table.wireName, deviceId: deviceId)
         } catch let error as PushProtocolException {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         } catch {
@@ -148,15 +164,15 @@ public struct PushCoordinator: Sendable {
         }
 
         if rows.count > PushProtocolLimits.maxMutableSnapshotRecords {
-            return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+            return await sourceReadFailure(.requiresCompatibleEncoding, table: table.wireName, deviceId: deviceId)
         }
 
-        guard allowsPreparation() else { return pressureDeferred }
+        guard allowsActivePreparation() else { return pressureDeferred }
         var encodedBytes = 0
         let days = enumerateDays(from: fullWindow.fromDay, to: fullWindow.toDay)
         var recordsByDay = Dictionary(uniqueKeysWithValues: days.map { ($0, [PushMutableRecord]()) })
         for record in rows {
-            guard allowsPreparation() else { return pressureDeferred }
+            guard allowsActivePreparation() else { return pressureDeferred }
             let size: Int
             do {
                 size = try PushProtocol.mutableRecordEncodedSize(table: table, record: record)
@@ -165,7 +181,7 @@ public struct PushCoordinator: Sendable {
             }
             encodedBytes += size
             if encodedBytes > PushProtocolLimits.maxMutableSnapshotEncodedBytes {
-                return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+                return await sourceReadFailure(.requiresCompatibleEncoding, table: table.wireName, deviceId: deviceId)
             }
             let day: String
             do {
@@ -198,7 +214,10 @@ public struct PushCoordinator: Sendable {
         }
 
         let changedDays = days.filter { previousHashes[$0] != currentHashes[$0] }
-        if changedDays.isEmpty { return .noData }
+        if changedDays.isEmpty {
+            wakeBudget?.refundEmptyPreparation(maximumDecodedBytes: PushProtocolLimits.maxMutableSnapshotEncodedBytes)
+            return .noData
+        }
 
         guard let firstChanged = changedDays.first, let lastChanged = changedDays.last else { return .noData }
         let window = PushWindow.days(
@@ -220,7 +239,6 @@ public struct PushCoordinator: Sendable {
         let value = PushWindowProgress(window: fullWindow, batchId: replacementId, dayHashes: currentHashes)
         let sourceCommit = PushSourceCommit(kind: .mutable, table: table.wireName, deviceID: deviceId,
             batchIDs: batches.map(\.batchId), window: value)
-        guard wakeBudget?.admitPreparation(bytes: batches.reduce(0) { $0 + $1.body.count }) ?? true else { return pressureDeferred }
         if let prepareSelection {
             do {
                 guard destinationStillCurrent() else { throw CancellationError() }
@@ -327,6 +345,9 @@ public struct PushCoordinator: Sendable {
     /// lane; when the receiver advertises no lane the rows stay local.
     public func pushObjects(_ table: PushBinaryTable, deviceId: String, lane: PushObjectLane) async -> PushResult {
         guard allowsPreparation() else { return pressureDeferred }
+        if let paused = await preparationPaused(table: table.wireName, deviceId: deviceId) { return paused }
+        guard wakeBudget?.admitObjectPreparation() ?? true else { return pressureDeferred }
+        let decodedLimit = wakeBudget?.objectDecodedBytesPerJob ?? PushProtocolLimits.maxObjectDecodedBytes
         let stored: PushCursor?
         do {
             stored = try await progress.binaryCursor(table: table, deviceId: deviceId)
@@ -339,9 +360,8 @@ public struct PushCoordinator: Sendable {
             effective = nil
         } else if let stored, stored.rowId > 0 {
             do {
-                let atCursor = try await source.binaryRecordAt(table: table, deviceId: deviceId, rowId: stored.rowId)
-                let fingerprint = atCursor.flatMap { try? PushProtocol.binaryKeyFingerprint(table: table, deviceId: deviceId,
-                    row: $0, v18IdentityV2: objectProtocolVersion == PushProtocol.auxiliaryIdentityVersion) }
+                let fingerprint = try await source.binaryFingerprintAt(table: table, deviceId: deviceId,
+                    rowId: stored.rowId, protocolVersion: objectProtocolVersion)
                 effective = fingerprint == stored.naturalKeyFingerprint ? stored : nil
             } catch is PushProtocolException {
                 return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
@@ -353,30 +373,37 @@ public struct PushCoordinator: Sendable {
         }
 
         let limit = table == .rawBatch ? 2 : (wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords) + 1
-        let rows: [PushBinaryRow]
+        let page: PushBinaryPage
         do {
-            rows = try await source.binaryRows(
+            page = try await source.binaryPage(
                 table: table,
                 deviceId: deviceId,
                 afterRowId: effective?.rowId ?? 0,
-                limit: limit
+                limit: limit, limits: .init(maximumDecodedBytes: decodedLimit,
+                    protocolVersion: objectProtocolVersion, shouldContinue: allowsActivePreparation)
             )
+        } catch let error as PushSourceReadError {
+            return await sourceReadFailure(error, table: table.wireName, deviceId: deviceId)
         } catch is PushProtocolException {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         } catch {
             return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
         }
 
-        guard !rows.isEmpty else { return .noData }
+        let rows = page.rows
+        guard !rows.isEmpty else {
+            wakeBudget?.refundEmptyPreparation(maximumDecodedBytes: decodedLimit)
+            return .noData
+        }
 
         let batch: PushBinaryBatch
         do {
-            guard allowsPreparation() else { return pressureDeferred }
+            guard allowsActivePreparation() else { return pressureDeferred }
             batch = try PushProtocol.binaryObjectBatch(
                 table: table, sourceId: sourceId, deviceId: deviceId, startCursor: effective,
                 rows: table == .rawBatch ? Array(rows.prefix(1)) : Array(rows.prefix(wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords)),
                 protocolVersion: objectProtocolVersion,
-                decodedLimit: PushProtocolLimits.maxObjectDecodedBytes
+                decodedLimit: decodedLimit
             )
         } catch {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
@@ -385,9 +412,8 @@ public struct PushCoordinator: Sendable {
         // The negotiated ceiling is enforced before any network I/O; an object too large for the
         // advertised lane can never succeed, so do not burn an intent on it.
         guard Int64(batch.payload.count) <= lane.maxObjectBytes else {
-            return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+            return await sourceReadFailure(.requiresCompatibleEncoding, table: table.wireName, deviceId: deviceId)
         }
-        guard wakeBudget?.admitPreparation(bytes: batch.payload.count) ?? true else { return pressureDeferred }
 
         let selected = table == .rawBatch ? Array(rows.prefix(1)) : rows.filter { row in
             guard let end = batch.endCursor else { return true }
@@ -413,13 +439,33 @@ public struct PushCoordinator: Sendable {
                 try await source.acknowledgeBinary(table: table, deviceId: deviceId, rows: selected)
                 if let end = batch.endCursor { try await progress.saveBinaryCursor(table: table, deviceId: deviceId, cursor: end) }
             }
-            let hasMore = rows.count > selected.count
+            let hasMore = page.hasMore || rows.count > selected.count
             return .accepted(batchId: batchId, recordCount: recordCount, hasMore: hasMore, batchCount: batchCount)
         } catch is PushProtocolException {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         } catch {
             return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
         }
+    }
+
+    private var incompatiblePreparation: PushResult {
+        .rejected(reason: "compatible_encoder_required", retryable: false, failure: PushFailure(code: .localData))
+    }
+
+    private func preparationPaused(table: String, deviceId: String) async -> PushResult? {
+        do {
+            return try await transport.isPreparationPaused(.init(sourceID: sourceId, table: table, deviceID: deviceId))
+                ? incompatiblePreparation : nil
+        } catch { return preparationFailure() }
+    }
+
+    private func sourceReadFailure(_ error: PushSourceReadError, table: String, deviceId: String) async -> PushResult {
+        if case .deferred = error { return pressureDeferred }
+        do {
+            guard destinationStillCurrent() else { throw CancellationError() }
+            try await transport.pausePreparation(.init(sourceID: sourceId, table: table, deviceID: deviceId))
+            return incompatiblePreparation
+        } catch { return preparationFailure() }
     }
 
     public func pushKnownDevices(
@@ -700,7 +746,7 @@ public struct PushCoordinator: Sendable {
                 return .rejected(reason: "cancelled", retryable: true, failure: nil)
             }
             do {
-                guard wakeBudget?.admitRequest(bytes: batch.payload.count) ?? true else { return pressureDeferred }
+                guard wakeBudget?.admitRequest(bytes: batch.payload.count, savedObject: restoredManifest != nil) ?? true else { return pressureDeferred }
                 try await transport.uploadObject(intent, body: batch.payload)
             } catch {
                 // Keep the in-flight record: the next run re-intents for a fresh URL onto the
@@ -739,7 +785,7 @@ public struct PushCoordinator: Sendable {
                         guard refreshed.objectId == manifest.objectId else {
                             return .rejected(reason: PushFailure(code: .ackInvalid).safeCode, retryable: false, failure: PushFailure(code: .ackInvalid))
                         }
-                        guard wakeBudget?.admitRequest(bytes: batch.payload.count) ?? true else { return pressureDeferred }
+                        guard wakeBudget?.admitRequest(bytes: batch.payload.count, savedObject: restoredManifest != nil) ?? true else { return pressureDeferred }
                         try await transport.uploadObject(refreshed, body: batch.payload)
                         expectedKey = refreshed.objectKey
                     } catch {

@@ -27,7 +27,8 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
          policy: @escaping @Sendable () -> CloudUploadPolicy,
          backgroundEventsCompletion: (() -> Void)? = nil,
          sessionConfiguration: URLSessionConfiguration? = nil,
-         now: @escaping @Sendable () -> Date = { Date() }) throws {
+         now: @escaping @Sendable () -> Date = { Date() },
+         resourceBudget: ResourceBudget = .shared) throws {
         guard layout.scope == context.scope else { throw CloudUploadError.staleOwner }
         self.context = context
         progressDirectory = layout.uploadDirectory.appendingPathComponent("source-progress", isDirectory: true)
@@ -36,7 +37,7 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
         if let backgroundEventsCompletion { completion.store(backgroundEventsCompletion) }
         adapter = CloudUploadURLSession(identifier: identifier, configuration: sessionConfiguration)
         let adapter = self.adapter
-        let controlSession = CloudPushTransport.makeSession()
+        let controlSession = sessionConfiguration.map { URLSession(configuration: $0) } ?? CloudPushTransport.makeSession()
         self.controlSession = controlSession
         do { queue = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
             authorize: authorize, isCurrent: isCurrent, policy: policy, control: { request in
@@ -44,7 +45,8 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
                 guard data.count <= PushProtocolLimits.maxAckBytes else { throw CloudUploadError.responseTooLarge }
                 return .init(statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0, body: data,
                              retryAfter: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After"))
-            }, now: now, refreshCredentials: { try await CloudAuthClient.refreshRejectedCredentials($0) })
+            }, now: now, refreshCredentials: { try await CloudAuthClient.refreshRejectedCredentials($0) },
+               resourceBudget: resourceBudget)
         } catch {
             let identifier = self.identifier
             let completion = self.completion
