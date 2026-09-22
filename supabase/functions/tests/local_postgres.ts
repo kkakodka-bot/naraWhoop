@@ -15,7 +15,12 @@ export async function startLocalPostgres({ scalarProjections = false, auxiliaryI
     throw new Error("invalid_fixture_statement_timeout");
   }
   const artifacts = Deno.env.get('EDGE_TEST_ARTIFACTS');
-  if (!artifacts?.startsWith('/Volumes/')) throw new Error('EDGE_TEST_ARTIFACTS must name an external-volume directory');
+  if (!artifacts?.startsWith('/')) throw new Error('EDGE_TEST_ARTIFACTS must name an absolute directory outside the checkout');
+  const artifactRoot = await Deno.realPath(artifacts);
+  const checkoutRoot = await Deno.realPath(new URL('../../../', import.meta.url));
+  if (artifactRoot === checkoutRoot || artifactRoot.startsWith(`${checkoutRoot}/`)) {
+    throw new Error('EDGE_TEST_ARTIFACTS must remain outside the checkout');
+  }
   const base = await Deno.makeTempDir({ dir: artifacts, prefix: 'edge-pg-' });
   const bin = Deno.env.get('EDGE_TEST_PG_BIN') || '/opt/homebrew/bin';
   const data = `${base}/data`;
@@ -83,6 +88,7 @@ export async function startLocalPostgres({ scalarProjections = false, auxiliaryI
     if (auxiliaryIdentity) migrations.push('20260918070000_production_aux_identity_provenance.sql',
       '20260918080000_production_ppg_input_selection.sql');
     migrations.push('20260922010000_object_copy_intents.sql');
+    migrations.push('20260922020000_async_object_verification.sql');
     for (const migration of migrations) {
       const file = new URL(`../../migrations/${migration}`, import.meta.url);
       await run(`${bin}/psql`, ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-h', base, '-U', 'edge_test', '-d', 'postgres', '-f', decodeURIComponent(file.pathname)]);

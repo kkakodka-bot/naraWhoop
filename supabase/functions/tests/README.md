@@ -1,5 +1,10 @@
 # Local intake gate
 
+For a clean checkout or CI runner, start with
+[`Tests/ServerFixtureNative/README.md`](../../../Tests/ServerFixtureNative/README.md).
+Its exporter generates all three actual Swift fixture directories and documents the portable
+tool setup and complete gate command. Historical paths below describe retained earlier evidence.
+
 Run from `supabase/functions` in the integrated worktree. This creates a fresh synthetic
 PostgreSQL cluster, starts PostgREST and an HTTP object fixture on loopback, applies the
 listed **actual** prerequisite migrations plus scoring `20260918010000`, intake `020000`,
@@ -8,6 +13,8 @@ The separate scalar integration fixture opts into actual `050000` plus additive 
 the shared harness default remains through `040000` for root's Swift loopback runner.
 The identity/provenance and actual Swift IMU fixtures opt into the entire chain through `070000`.
 All fixtures also apply additive `20260922010000_object_copy_intents.sql`.
+They now also apply `20260922020000_async_object_verification.sql`; absent explicit negotiation,
+the object-completion endpoint retains its synchronous behavior.
 It never accepts a production database URL, reads an env file, or invokes a device.
 Cluster data, SQL/server logs and `receipt-example.json` remain on the external SSD.
 The older failed bootstrap fixtures are retained as evidence too, not running services.
@@ -99,6 +106,69 @@ lost committed responses, racing completions, current-key preservation, stale sw
 late-COPY tombstones after account/manifest deletion, version races between HEAD and DELETE,
 row/byte/admission budgets, missing version IDs, and account-role RPC denials.
 These synthetic process-boundary failures do not simulate a B2 outage or machine power loss.
+
+## Opt-in asynchronous object verification
+
+Apply `20260922020000_async_object_verification.sql` before this Edge code. Capability advertisement is off
+unless `NOOP_ASYNC_OBJECT_VERIFICATION=1`; enable only after an authenticated reconcile worker
+schedule is configured. Capability `objectLane.completionModes` then advertises `sync` and
+`async-v1`. An authenticated completion must also send `Noop-Push-Completion: async-v1`.
+Missing/unknown mode retains synchronous completion for an object that never opted in. Once
+verification debt exists it is authoritative even if a later client drops or changes the header;
+terminal pauses and worker leases cannot be bypassed by a mode downgrade. Disabling capability
+advertisement later does not change already-negotiated jobs: explicit async-v1 requests remain
+valid so persisted polls cannot silently become synchronous verification.
+No upload encoding or version-1 durability receipt fields change.
+
+The opted-in POST `/objects/:id/complete` durably enqueues verification, then serves as its own
+poll endpoint. Pending returns HTTP 503 with numeric `Retry-After` and the typed error code
+`verification_pending`, state `pending_verification`, manifest protocol version and object ID.
+It performs no object HEAD/COPY/GET/decode/hash. A pending response is never a source release.
+Once verified, polling returns the original exact `objectAck` only if current owner, manifest
+identity/digests/sizes, immutable object key and committed index agree. Repeated polling does
+not verify the object again. Missing index becomes bounded repair debt; an unverified or
+mismatched record cannot masquerade as a completed receipt. Cached fields also require correct
+JSON types, canonical UUIDs, hashes, positive sizes and valid ordered ISO timestamps. Malformed
+receipt state pauses as `receipt_mismatch`; a missing index alone remains repairable.
+
+`reconcile` processes four serial claims by default (hard row cap 16), with at most 256 MiB of
+declared compressed bytes and 512 MiB of declared decoded bytes per invocation, matching the
+existing maximum single-object contract. These are server ceilings, not recommended phone
+job sizes or a throughput measurement. Claims stop after ten seconds of admission time; the
+worker rechecks after database awaits and releases an unused claim without recording failure.
+An in-flight HEAD can take 30 seconds, COPY/streamed GET 120 seconds each; PostgreSQL/network
+awaits and decoding also consume wall time. **This is not a hard ten-second execution limit.**
+Leases last ten minutes and expire across worker termination. No SQL lock spans storage I/O.
+A lost commit response is healed from the exact receipt; duplicate/stale settlement cannot
+increment failure counts twice or overwrite a successor's lease. The legacy intake cursor
+excludes all async debt, including terminal pauses; previously admitted legacy work may finish
+using the existing copy-intent/receipt concurrency fences. A manifest-locked copy-reservation
+wrapper requires the current async lease token after opt-in; its previous implementation is
+private and denied even to direct service-role calls. Async claims wait for any live COPY
+admitted before opt-in, closing the lookup/enqueue race without holding locks during I/O.
+
+Transient failures use persisted full-jitter backoff; terminal manifest/byte validation failures
+remain `paused_terminal`. Polling returns the recorded typed terminal HTTP outcome and retains
+source/objects. Explicit service-only `noop_retry_object_verification(user,object)` may requeue
+only a paused row after a compatible fix or operator resolution. A phone's local Retry button
+alone cannot resolve server terminal debt. This RPC is not exposed as an unauthenticated or
+ordinary-user reset endpoint. Existing copy-intent tombstones survive account/manifest removal;
+verification debt itself may cascade because it no longer has authority to publish.
+
+`noop_object_verification_metrics` adds queue depth/oldest debt, retry/terminal counts, active
+and expired leases, verification duration and requested-to-receipt-index latency. Receipt timing
+uses the original indexed timestamp, not a later poll or lost-response recovery time. Prior
+receipt repair cannot produce a negative latency. Metrics contain no owner/device/object IDs
+or health values. Deployed schedule, monitoring, production B2 behavior, fleet drain rate and
+phone-to-receipt/energy improvements remain `NOT_MEASURED`.
+
+`object_verification_integration_test.ts` exercises actual additive SQL and role denials,
+HTTP response negotiation, no-I/O enqueue/polls, concurrent claims, crash/response boundaries,
+lease recovery, exact cached receipts, index repair, terminal resolution, worker row/byte/time
+admission bounds, and deletion with delayed COPY. The fixture uses real local PostgreSQL,
+PostgREST and loopback signed-object HTTP. It does not deploy or certify server scheduling. Duplicate **intent** requests still use the
+existing synchronous verification branch when a receipt already exists; the no-repeat-I/O
+claim applies to persisted completion polling, not every control-plane request.
 
 ## Projection recovery contract (P1-4)
 

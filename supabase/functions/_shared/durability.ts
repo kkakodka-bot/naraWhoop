@@ -125,8 +125,8 @@ export async function verifyStoredObject(raw: S3Store, row: any, key: string) {
     auxiliaryValidation: auxiliary?.finish() };
 }
 
-export async function completeDurableObject({ rest, raw, row }: {
-  rest: SupabaseRest; raw: S3Store; row: any;
+export async function completeDurableObject({ rest, raw, row, verificationToken }: {
+  rest: SupabaseRest; raw: S3Store; row: any; verificationToken?: string;
 }): Promise<DurabilityReceipt> {
   if (['deleted', 'deleting', 'expired'].includes(row.status)) mismatch('object_unavailable');
   const owner = await rest.select('devices', `id=eq.${row.device_id}&user_id=eq.${row.user_id}&select=id`);
@@ -138,7 +138,9 @@ export async function completeDurableObject({ rest, raw, row }: {
   let intent: any = null;
   if (!prior) {
     try {
-      const reserved = await rest.rpc('noop_reserve_copy_intent', { p_user_id: row.user_id, p_object_id: row.id });
+      const reserved = await rest.rpc('noop_reserve_copy_intent', { p_user_id: row.user_id, p_object_id: row.id,
+        ...(verificationToken ? { p_verification_token: verificationToken } : {}),
+      });
       if (reserved?.receipt) prior = reserved.receipt;
       else {
         if (!reserved?.id || !reserved.lease_token || !reserved.verified_key || reserved.upload_key !== uploadKey) {
@@ -149,6 +151,9 @@ export async function completeDurableObject({ rest, raw, row }: {
     } catch (err) {
       if (err instanceof Error && err.message.includes('copy_attempt_limit')) {
         throw new PushProtocolError('copy_attempt_limit', 503);
+      }
+      if (err instanceof Error && err.message.includes('async_verification_required')) {
+        throw new PushProtocolError('async_verification_required', 503);
       }
       intakeError(err);
     }

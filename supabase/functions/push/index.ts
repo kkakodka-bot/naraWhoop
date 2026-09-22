@@ -32,6 +32,7 @@ import { pushConfig, defaultReceiverStateId } from '../_shared/config.ts';
 import { IdentityError, resolvePushUser, createIngestTokenStore } from '../_shared/tokens.ts';
 import { registerDevice } from '../_shared/durability.ts';
 import { commitArchivedBatch } from '../_shared/projections.ts';
+import { ASYNC_OBJECT_COMPLETION, ASYNC_OBJECT_HEADER, objectCompletionResponse } from '../_shared/objectVerification.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024 + 64 * 1024;
 
@@ -131,6 +132,7 @@ async function handleCapabilities(req: Request): Promise<Response> {
           endpoint: OBJECT_LANE_PATH,
           maxObjectBytes: MAX_OBJECT_LANE_BYTES,
           urlTtlSec: UPLOAD_URL_TTL_SEC,
+          ...(cfg.asyncObjectVerification ? { completionModes: ['sync', ASYNC_OBJECT_COMPLETION] } : {}),
         }
         : null,
     });
@@ -174,8 +176,14 @@ async function handleObjectComplete(req: Request, objectId: string): Promise<Res
     if (!pushObjects.configured) {
       return json({ type: 'error', protocolVersion: '1.2', code: 'object_lane_unavailable' }, 503);
     }
-    const ack = await pushObjects.completeObject({ userId: user.id, objectId });
-    return json({ type: 'objectAck', ...ack });
+    // Advertisement may be disabled after a job negotiated async-v1. Keep honoring that
+    // persisted mode; capability rollback must not turn polls into synchronous verification.
+    return await objectCompletionResponse({
+      mode: req.headers.get(ASYNC_OBJECT_HEADER),
+      completeSync: () => pushObjects.completeObject({ userId: user.id, objectId }),
+      enqueue: () => pushObjects.requestVerification({ userId: user.id, objectId }),
+      hasDebt: () => pushObjects.hasVerificationDebt({ userId: user.id, objectId }),
+    });
   } catch (err: any) {
     if (err instanceof Response) return err;
     if (err instanceof PushProtocolError) return protocolError(err);

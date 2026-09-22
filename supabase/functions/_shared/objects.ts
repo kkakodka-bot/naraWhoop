@@ -15,6 +15,7 @@ import { PushProtocolError, schemaVersionFor } from './registry.ts';
 import type { SupabaseRest } from './rest.ts';
 import type { S3Store } from './s3.ts';
 import type { PushFunctionConfig } from './config.ts';
+import { requestObjectVerification } from './objectVerification.ts';
 
 /** Presigned PUT lifetime. Long enough for a large object on a slow link, short enough to expire. */
 export const UPLOAD_URL_TTL_SEC = 15 * 60;
@@ -237,10 +238,29 @@ export function createPushObjects({
       const row = await manifests.get(objectId);
       if (!row) throw fail('missing_manifest', 404);
       if (row.user_id !== userId) throw fail('forbidden', 403);
+      if ((await rest.select('noop_object_verification_debt', `object_id=eq.${objectId}&user_id=eq.${userId}&select=object_id&limit=1`)).length) {
+        throw fail('async_verification_required', 503);
+      }
       const duplicate = Boolean(row.durability_receipt);
       const durabilityReceipt = await completeDurableObject({ rest, raw, row });
       return { protocolVersion: row.push_protocol_version ?? '1.2', objectId: row.id, status: 'ready', objectKey: durabilityReceipt.objectKey,
         durabilityReceipt, duplicate };
+    },
+
+    /** Explicitly negotiated mode: enqueue/poll only, with no storage reads or verification work. */
+    async requestVerification({ userId, objectId }: { userId: string; objectId: string }) {
+      if (!isUuid(userId)) throw fail('unauthorized', 401);
+      if (!isUuid(objectId)) throw fail('invalid_object_id', 400);
+      if (!manifests || !raw) throw fail('archive_not_configured', 503);
+      return await requestObjectVerification(rest, userId, objectId);
+    },
+
+    async hasVerificationDebt({ userId, objectId }: { userId: string; objectId: string }) {
+      if (!isUuid(userId)) throw fail('unauthorized', 401);
+      if (!isUuid(objectId)) throw fail('invalid_object_id', 400);
+      if (!manifests) throw fail('archive_not_configured', 503);
+      return (await rest.select('noop_object_verification_debt',
+        `object_id=eq.${objectId}&user_id=eq.${userId}&select=object_id&limit=1`)).length > 0;
     },
   };
 }

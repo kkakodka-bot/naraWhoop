@@ -1,0 +1,72 @@
+name: Server sync and codec integrity
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - 'Packages/NoopPush/**'
+      - 'Packages/WhoopStore/**'
+      - 'Strand/Push/**'
+      - 'Strand/Collect/ImuSessionFileStore.swift'
+      - 'StrandTests/CloudImuPushSourceTests.swift'
+      - 'Tests/ServerFixtureNative/**'
+      - 'Tests/PushBinaryStreamEncoder/**'
+      - '.github/workflows/server-sync-integrity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  server-integrity:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.5.6
+      - name: Disposable database tools
+        shell: bash
+        run: |
+          brew install postgresql@18 postgrest
+          mkdir -p "$RUNNER_TEMP/edge-bin" "$RUNNER_TEMP/edge-cache" "$RUNNER_TEMP/edge-tmp"
+          chmod 700 "$RUNNER_TEMP/edge-cache" "$RUNNER_TEMP/edge-tmp"
+          ln -s "$(brew --prefix postgresql@18)/bin/"* "$RUNNER_TEMP/edge-bin/"
+          ln -s "$(command -v postgrest)" "$RUNNER_TEMP/edge-bin/postgrest"
+          echo "EDGE_TEST_PG_BIN=$RUNNER_TEMP/edge-bin" >> "$GITHUB_ENV"
+          echo "EDGE_TEST_ARTIFACTS=$RUNNER_TEMP/edge-artifacts" >> "$GITHUB_ENV"
+          echo "DENO_DIR=$RUNNER_TEMP/edge-cache" >> "$GITHUB_ENV"
+          echo "EDGE_TEST_DENO=$(command -v deno)" >> "$GITHUB_ENV"
+          git rev-parse HEAD
+          "$RUNNER_TEMP/edge-bin/postgres" --version
+          postgrest --version
+          deno --version
+      - name: Actual Swift fixture exporters
+        run: zsh Tests/ServerFixtureNative/run.sh "$EDGE_TEST_ARTIFACTS"
+      - name: Frozen dependencies and entrypoint type check
+        working-directory: supabase/functions
+        run: |
+          env -i PATH=/opt/homebrew/bin:/usr/bin:/bin DENO_DIR="$DENO_DIR" TMPDIR="$RUNNER_TEMP/edge-tmp" \
+            "$EDGE_TEST_DENO" cache --frozen --lock=deno.lock tests/*_test.ts push/index.ts reconcile/index.ts ingest-verify/index.ts
+          env -i PATH=/opt/homebrew/bin:/usr/bin:/bin DENO_DIR="$DENO_DIR" TMPDIR="$RUNNER_TEMP/edge-tmp" \
+            "$EDGE_TEST_DENO" check --frozen --lock=deno.lock push/index.ts reconcile/index.ts ingest-verify/index.ts
+      - name: SQL, receipt, retry and asynchronous verification integration
+        working-directory: supabase/functions
+        run: |
+          env -i PATH=/opt/homebrew/bin:/usr/bin:/bin DENO_DIR="$DENO_DIR" TMPDIR="$RUNNER_TEMP/edge-tmp" \
+            EDGE_TEST_ARTIFACTS="$EDGE_TEST_ARTIFACTS" EDGE_TEST_PG_BIN="$EDGE_TEST_PG_BIN" \
+            "$EDGE_TEST_DENO" test --cached-only --frozen --lock=deno.lock --allow-env --allow-read \
+            --allow-write="$EDGE_TEST_ARTIFACTS" \
+            --allow-run="$EDGE_TEST_PG_BIN/initdb,$EDGE_TEST_PG_BIN/pg_ctl,$EDGE_TEST_PG_BIN/psql,$EDGE_TEST_PG_BIN/postgrest" \
+            --allow-net=127.0.0.1,localhost tests/
+      - name: Swift-to-receiver streaming codec goldens
+        run: |
+          env -i PATH=/opt/homebrew/bin:/usr/bin:/bin DENO_DIR="$DENO_DIR" TMPDIR="$RUNNER_TEMP/edge-tmp" \
+            "$EDGE_TEST_DENO" run --cached-only --frozen --lock=supabase/functions/deno.lock --allow-read \
+            Tests/PushBinaryStreamEncoder/verify.ts
+      - name: Acceptance boundary
+        run: echo 'Synthetic loopback storage and disposable PostgreSQL only. Deployment, phone performance and physical release gates remain NOT_MEASURED.'
