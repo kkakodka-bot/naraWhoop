@@ -1,5 +1,10 @@
-# Context is produced only by scoring-service/legacy-baseline/build.py.
-FROM eclipse-temurin:17-jdk-jammy AS build
+# Context is produced only by scoring-service/legacy-baseline/build.py. Keep the
+# defaults digest-qualified so an omitted override cannot silently select newer
+# Temurin bytes. The builder validates and passes these values explicitly too.
+ARG BUILD_IMAGE=docker.io/library/eclipse-temurin@sha256:e573c097106f35634857604fdfbe70a2a2bbcaa52574bca3d2025703d0df994d
+ARG RUNTIME_IMAGE=docker.io/library/eclipse-temurin@sha256:24cd8eed18b5976441d27b45823490eb5e8efff4b3ecdc632e442717ea66f160
+ARG RELEASE_PLATFORM=linux/amd64
+FROM --platform=${RELEASE_PLATFORM} ${BUILD_IMAGE} AS build
 WORKDIR /build
 COPY android /build/android
 COPY scoring-service /build/scoring-service
@@ -7,7 +12,10 @@ COPY baseline-transport-provenance.json /build/baseline-transport-provenance.jso
 WORKDIR /build/scoring-service
 RUN ./gradlew :service:installDist --no-daemon -x test
 
-FROM eclipse-temurin:17-jre-jammy
+FROM --platform=${RELEASE_PLATFORM} ${RUNTIME_IMAGE}
+ARG BUILD_IMAGE
+ARG RUNTIME_IMAGE
+ARG RELEASE_PLATFORM
 ARG RELEASE_SHA
 ARG TRANSPORT_PATCH_SHA256
 ARG IDENTITY_PATCH_SHA256
@@ -15,7 +23,10 @@ LABEL org.opencontainers.image.revision=$RELEASE_SHA \
       io.frwhoop.algorithm.version="frwhoop-server-1" \
       io.frwhoop.baseline.commit="5caa31689da0023e111beb36850d3f81d67e1be2" \
       io.frwhoop.baseline.transport-sha256=$TRANSPORT_PATCH_SHA256 \
-      io.frwhoop.baseline.identity-sha256=$IDENTITY_PATCH_SHA256
+      io.frwhoop.baseline.identity-sha256=$IDENTITY_PATCH_SHA256 \
+      io.frwhoop.build.image=$BUILD_IMAGE \
+      io.frwhoop.runtime.image=$RUNTIME_IMAGE \
+      io.frwhoop.image.platform=$RELEASE_PLATFORM
 WORKDIR /app
 COPY --from=build /build/scoring-service/service/build/install/service /app/
 COPY --from=build /build/baseline-transport-provenance.json /app/

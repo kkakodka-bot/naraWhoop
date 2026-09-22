@@ -36,11 +36,20 @@ localhost `physiology_queue_test` database before building. Never use a deployed
 The queue migration suite separately covers more than 350 revisions, v1/v2 independence,
 publication races, owner/device fences, and archive retries.
 
-Append `--image frwhoop/scoring-baseline-fenced:reviewed --release-sha <full-repair-commit>` to build
-a local Docker image after tests pass. Builder, both patches and baseline Dockerfile must match
-that committed repair exactly; dirty build inputs cannot carry its source label. The image labels
-retain both the original numerical baseline commit and the repair SHA. The builder never starts,
-pushes, or deploys that image. Inspect the resulting
+Append these arguments to build a local Docker image after tests pass:
+
+```sh
+--image frwhoop/scoring-baseline-fenced:reviewed \
+  --release-sha <full-repair-commit> --platform linux/amd64
+```
+
+The builder uses audited,
+digest-qualified Temurin 17 JDK/JRE defaults; `--build-image` and `--runtime-image` accept only
+digest-qualified registry references and are recorded in the embedded provenance. Builder, both
+patches and baseline Dockerfile must match that committed repair exactly; dirty build inputs cannot
+carry its source label. The image labels retain both the original numerical baseline commit and the
+repair SHA, base images and target platform. The builder never starts, pushes, or deploys that image.
+Inspect the resulting
 `baseline-transport-provenance.json`, test XML, patch hash, and image identity before authorized use.
 
 ## Runtime contract

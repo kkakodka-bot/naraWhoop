@@ -67,6 +67,50 @@ class BaselineBuilderTests(unittest.TestCase):
                     builder.main()
                 prepare.assert_not_called()
 
+    def test_image_requires_explicit_audited_platform(self):
+        with self.assertRaisesRegex(ValueError, "platform must be explicit linux/amd64"):
+            builder.validate_image_inputs(None, builder.DEFAULT_BUILD_IMAGE, builder.DEFAULT_RUNTIME_IMAGE)
+        with self.assertRaisesRegex(ValueError, "platform must be explicit linux/amd64"):
+            builder.validate_image_inputs("linux/arm64", builder.DEFAULT_BUILD_IMAGE, builder.DEFAULT_RUNTIME_IMAGE)
+
+    def test_mutable_or_malformed_base_images_are_rejected(self):
+        for value in (
+            "eclipse-temurin:17-jdk-jammy",
+            "docker.io/library/eclipse-temurin:17-jdk-jammy",
+            "docker.io/library/eclipse-temurin@sha256:" + "A" * 64,
+            "docker.io/library/eclipse-temurin@sha256:" + "a" * 63,
+            "docker.io/library/eclipse-temurin@sha256:" + "a" * 64 + "\n",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "digest-qualified registry reference"):
+                    builder.validate_image_inputs(builder.RELEASE_PLATFORM, value, builder.DEFAULT_RUNTIME_IMAGE)
+
+    def test_docker_build_command_passes_platform_and_both_base_digests(self):
+        provenance = {
+            "transport_patch_sha256": "1" * 64,
+            "identity_patch_sha256": "2" * 64,
+        }
+        inputs = builder.validate_image_inputs(
+            builder.RELEASE_PLATFORM, builder.DEFAULT_BUILD_IMAGE, builder.DEFAULT_RUNTIME_IMAGE)
+        command = builder.docker_build_command(
+            "fixture.invalid/baseline:reviewed", "a" * 40, provenance, inputs, Path("Dockerfile.baseline"))
+        self.assertEqual(command[:4], ["docker", "build", "--platform", "linux/amd64"])
+        self.assertIn("RELEASE_PLATFORM=linux/amd64", command)
+        self.assertIn("BUILD_IMAGE=" + builder.DEFAULT_BUILD_IMAGE, command)
+        self.assertIn("RUNTIME_IMAGE=" + builder.DEFAULT_RUNTIME_IMAGE, command)
+        self.assertIn("RELEASE_SHA=" + "a" * 40, command)
+        self.assertEqual(command[-1], ".")
+
+    def test_dockerfile_defaults_match_the_audited_builder_inputs(self):
+        dockerfile = MODULE_PATH.parents[2] / "infra/vps/templates/Dockerfile.baseline"
+        source = dockerfile.read_text()
+        self.assertIn("ARG BUILD_IMAGE=" + builder.DEFAULT_BUILD_IMAGE, source)
+        self.assertIn("ARG RUNTIME_IMAGE=" + builder.DEFAULT_RUNTIME_IMAGE, source)
+        self.assertIn("ARG RELEASE_PLATFORM=linux/amd64", source)
+        self.assertIn("FROM --platform=${RELEASE_PLATFORM} ${BUILD_IMAGE} AS build", source)
+        self.assertIn("FROM --platform=${RELEASE_PLATFORM} ${RUNTIME_IMAGE}", source)
+        self.assertIn("io.frwhoop.image.platform=$RELEASE_PLATFORM", source)
+
 
 if __name__ == "__main__":
     unittest.main()
