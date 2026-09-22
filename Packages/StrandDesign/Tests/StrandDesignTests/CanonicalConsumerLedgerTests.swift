@@ -71,7 +71,7 @@ final class CanonicalConsumerLedgerTests: XCTestCase {
             families: current.families, readState: "failed", cached: true)
         XCTAssertEqual(failed.scopeIdentity, current.scopeIdentity)
         XCTAssertEqual(failed.families, current.families)
-        XCTAssertEqual(failed.families["recovery"]?.resultRevision, "result-17")
+        XCTAssertEqual(failed.families["recovery"]?.resultRevision, "compute:17")
         XCTAssertNotEqual(failed, current, "Read failure must bypass a glance publication dedup/throttle")
         XCTAssertFalse(failed.permitsRead)
         XCTAssertFalse(snapshot(failed, charge: 0).hasCanonicalAdmission)
