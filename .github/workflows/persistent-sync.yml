@@ -6,8 +6,12 @@ on:
     paths:
       - 'Strand/**'
       - 'StrandiOS/**'
+      - 'StrandiOSShared/**'
+      - 'StrandiOSWidgets/**'
       - 'StrandTests/**'
       - 'Packages/**'
+      - 'Config/**'
+      - 'project.yml'
       - 'Tests/PersistentSyncNative/**'
       - 'Tests/BLETransportNative/**'
       - 'Tests/SyncPresentationNative/**'
