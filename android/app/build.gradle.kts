@@ -258,6 +258,8 @@ val syncRoomSchemaSnapshot = tasks.register<Sync>("syncRoomSchemaSnapshot") {
 }
 
 tasks.withType<Test>().configureEach {
+    // Robolectric's real ContentResolver file stream closes Android FileDescriptor through this JDK field.
+    jvmArgs("--add-opens=java.base/java.io=ALL-UNNAMED")
     doFirst { systemProperty("noop.test.runtimeClasspath", classpath.asPath) }
     // Java ignores TMPDIR on macOS unless forwarded to each forked test VM.
     providers.environmentVariable("TMPDIR").orNull?.let { systemProperty("java.io.tmpdir", it) }

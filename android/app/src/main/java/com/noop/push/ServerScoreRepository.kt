@@ -35,6 +35,7 @@ class ServerScoreRepository(
     private val timezone: () -> String = { ZoneId.systemDefault().id },
     private val rpc: AccountScoringRpc = AccountScoringRpc(AccountStorageContext.capture(appContext)),
     private val ready: () -> Boolean = { ServerScoringSettings.ready(appContext) },
+    private val fetchSnapshot: suspend (Context, String, String) -> ServerScoreDayCache = ServerScoreClient::fetchDaySnapshot,
 ) {
     private val account = AccountStorageContext.capture(appContext)
     private val ownershipStore = ServerMetricOwnershipStore(appContext)
@@ -245,7 +246,7 @@ class ServerScoreRepository(
         if (retired) return
         synchronizeOwner()
         visibleDays.add(day)
-        if (ServerScoringSettings.ready(appContext) && currentOwnerId() != null) {
+        if (ready() && currentOwnerId() != null) {
             refreshPhysiology(day)
         }
         if (!com.noop.analytics.PhoneComputeRuntime.finalHosted) refreshAccountSnapshot(day)
@@ -258,7 +259,7 @@ class ServerScoreRepository(
         val generation = session.generation()
         val request = session.beginRequest(day)
         runCatching {
-            val cache = ServerScoreClient.fetchDaySnapshot(appContext, day, owner)
+            val cache = fetchSnapshot(appContext, day, owner)
             currentCoroutineContext().ensureActive()
             synchronizeOwner()
             synchronized(publicationLock) {

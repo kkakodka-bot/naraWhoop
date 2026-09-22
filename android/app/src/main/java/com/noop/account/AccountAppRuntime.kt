@@ -15,7 +15,11 @@ import com.noop.testcentre.ImuSessionFileStore
 import kotlinx.coroutines.*
 
 /** Every handle and closure in this object belongs to one immutable account session. */
-class AccountAppRuntime(val context: AccountStorageContext) {
+class AccountAppRuntime(
+    val context: AccountStorageContext,
+    private val createServerScoreRepository: (AccountStorageContext, CoroutineScope) -> ServerScoreRepository =
+        { account, scope -> ServerScoreRepository(account, scope) },
+) {
     val identity get() = context.identity
     val database = WhoopDatabase.get(context)
     val scoringInputs = ScoringInputRuntime(context)
@@ -83,7 +87,7 @@ class AccountAppRuntime(val context: AccountStorageContext) {
     /** Opt-in server readback; local scoring stays enabled until metric activation is verified. */
     val serverScoreRepository: ServerScoreRepository get() = serverScoreHandle.value
     private val serverScoreHandle = lazy {
-        ServerScoreRepository(context, applicationScope).also { repo ->
+        createServerScoreRepository(context, applicationScope).also { repo ->
             if (ServerScoringSettings.isEnabled(context)) {
                 applicationScope.launch {
                     val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)

@@ -219,7 +219,12 @@ object HealthConnectWriter {
         NoopPrefs.setHcWritebackStatus(context, result.statusCode, result.written, System.currentTimeMillis())
     }
 
-    private suspend fun writeCanonical(context: Context, repo: WhoopRepository): WritebackResult {
+    internal suspend fun writeCanonical(
+        context: Context,
+        repo: WhoopRepository,
+        clientFactory: () -> HealthConnectClient = { HealthConnectClient.getOrCreate(context) },
+    ): WritebackResult {
+        checkAdmitted(context)
         val account = AccountStorageContext.capture(context)
         val source = account.runtime?.serverScoreRepository ?: return WritebackResult.UNAVAILABLE
         val snapshots = source.canonicalDays.value.values.toList()
@@ -233,7 +238,7 @@ object HealthConnectWriter {
                 val identity = "${family.project}:${family.ownerId}:${family.deviceId}:$familyID:${family.window}"
                 val previous = receipts.getString(identity, null)?.let { runCatching { org.json.JSONObject(it) }.getOrNull() }
                 val exportState = if (family.authorized && !family.expired()) family.status else "unavailable"
-                if (previous?.optString("result_revision") == family.resultRevision && previous?.optString("health_export_state") == exportState) continue
+                if (previous?.optString("result_revision") == family.resultRevision && previous?.optString("health_source_state") == exportState) continue
                 previous?.optJSONArray("health_export_ids")?.let { ids ->
                     for (index in 0 until ids.length()) {
                         val old = ids.getJSONObject(index)
@@ -249,6 +254,7 @@ object HealthConnectWriter {
                     }
                 }
                 val receipt = org.json.JSONObject(family.json).put("health_export_state", exportState)
+                    .put("health_source_state", exportState)
                     .put("health_export_ids", org.json.JSONArray())
                 pendingReceipts[identity] = receipt.toString()
                 if (!family.authorized || family.expired()) continue
@@ -256,16 +262,24 @@ object HealthConnectWriter {
                 val observed = family.observedThrough?.let { runCatching { Instant.parse(it) }.getOrNull() }
                 val resultIdentity = "$identity:$revision"
                 val before = records.size
+                val unsupported = org.json.JSONObject()
+                fun addRecord(metric: String, create: () -> Record) {
+                    try { records.add(create()) }
+                    catch (_: IllegalArgumentException) {
+                        // HC ranges are narrower than the canonical contract (HRV zero is valid there).
+                        unsupported.put(metric, "health_connect_record_not_representable")
+                    }
+                }
                 val metadata = Metadata(clientRecordId = accountRecordId(context, resultIdentity), clientRecordVersion = 1)
                 when (familyID) {
                     "night_hrv" -> {
                         if (observed == null) continue
-                        family.number("resting_hr_bpm")?.let { records.add(RestingHeartRateRecord(observed, null, it.toLong(), metadata)) }
-                        family.number("hrv_rmssd_ms")?.let { records.add(HeartRateVariabilityRmssdRecord(observed, null, it, Metadata(clientRecordId = accountRecordId(context, "$resultIdentity:hrv"), clientRecordVersion = 1))) }
+                        family.number("resting_hr_bpm")?.let { addRecord("resting_hr_bpm") { RestingHeartRateRecord(observed, null, it.toLong(), metadata) } }
+                        family.number("hrv_rmssd_ms")?.let { addRecord("hrv_rmssd_ms") { HeartRateVariabilityRmssdRecord(observed, null, it, Metadata(clientRecordId = accountRecordId(context, "$resultIdentity:hrv"), clientRecordVersion = 1)) } }
                     }
-                    "respiration" -> if (observed != null) family.number("resp_rate_bpm")?.let { records.add(RespiratoryRateRecord(observed, null, it, metadata)) }
-                    "oxygen" -> if (observed != null) family.number("spo2_pct")?.let { records.add(OxygenSaturationRecord(observed, null, Percentage(it), metadata)) }
-                    "sleep" -> cache.nights.forEach { night ->
+                    "respiration" -> if (observed != null) family.number("resp_rate_bpm")?.let { addRecord("resp_rate_bpm") { RespiratoryRateRecord(observed, null, it, metadata) } }
+                    "oxygen" -> if (observed != null) family.number("spo2_pct")?.let { addRecord("spo2_pct") { OxygenSaturationRecord(observed, null, Percentage(it), metadata) } }
+                    "sleep" -> cache.nights.forEach { night -> addRecord("sleep_sessions:${night.id}") {
                         val start = Instant.parse(night.startAt); val end = Instant.parse(night.endAt)
                         val stages = night.stages.mapNotNull { stage ->
                             val kind = when (stage.stage) {
@@ -277,10 +291,12 @@ object HealthConnectWriter {
                             }
                             SleepSessionRecord.Stage(Instant.ofEpochSecond(stage.start), Instant.ofEpochSecond(stage.end), kind)
                         }
-                        records.add(SleepSessionRecord(start, null, end, null, title = null, notes = "Server result $revision", stages = stages,
-                            metadata = Metadata(clientRecordId = accountRecordId(context, "$resultIdentity:${night.id}"), clientRecordVersion = 1)))
-                    }
+                        SleepSessionRecord(start, null, end, null, title = null, notes = "Server result $revision", stages = stages,
+                            metadata = Metadata(clientRecordId = accountRecordId(context, "$resultIdentity:${night.id}"), clientRecordVersion = 1))
+                    } }
                 }
+                if (unsupported.length() > 0) receipt.put("health_export_unsupported", unsupported)
+                    .put("health_export_state", if (records.size == before) "unsupported" else "partial")
                 records.subList(before, records.size).forEach { record ->
                     val type = when (record) {
                         is HeartRateVariabilityRmssdRecord -> "hrv"
@@ -298,7 +314,7 @@ object HealthConnectWriter {
         return runCatching {
             checkAdmitted(context)
             check(snapshots.all { saved -> source.overlay(saved.day)?.compute == saved.compute }) { "Canonical result changed during Health export" }
-            val client = HealthConnectClient.getOrCreate(context)
+            val client = clientFactory()
             retract.forEach { (type, ids) ->
                 checkAdmitted(context)
                 check(snapshots.all { saved -> source.overlay(saved.day)?.compute == saved.compute })
