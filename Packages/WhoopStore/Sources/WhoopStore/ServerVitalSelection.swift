@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 /// Hosted mode retains explicit server ownership for computed physiology metrics.
 /// The caller supplies an owner-scoped overlay only after configuration and authentication checks.
@@ -34,17 +35,27 @@ public struct ServerVitalSelection: Equatable {
     public let sourceFeature: String?
     public let deviceId: String?
     public let algorithmVersion: String?
+    public var canonicalResult: ServerCanonicalFamilyResult?
     public var displayDiagnostic: ServerScoreStageDiagnostic {
         ServerScoreStageDiagnostic(stage: "displayed", status: value == nil ? "unavailable" : "available",
             reason: !fromServer ? "local_producer_retained" : value == nil ? "metric_unavailable" : "server_metric_selected")
     }
 
     public static func resolve(_ metric: Metric, serverEnabled: Bool, selectedDay: String,
-                               overlay: ServerScoreDayCache?, localValue: Double?) -> Self {
+                               overlay: ServerScoreDayCache?, localValue: @autoclosure () -> Double?) -> Self {
+        if PhoneComputeRuntime.isFinalHosted || overlay?.canonicalResults != nil {
+            let family = overlay?.day == selectedDay ? overlay?.canonicalResults?.result(for: metric.key) : nil
+            var result = Self(value: family?.number(metric.key), fromServer: true, day: selectedDay,
+                status: overlay?.readFailure ?? family?.reason ?? family?.status ?? "awaiting_server_result",
+                stale: overlay?.stale == true || family?.freshness != "current",
+                sourceFeature: metric.feature, deviceId: family?.deviceID, algorithmVersion: family?.algorithmVersion)
+            result.canonicalResult = family
+            return result
+        }
         // An explicit ledger supersedes the legacy caller's hosted-selection argument.
         let owned = overlay?.ownedMetrics?.contains(metric.key) ?? serverEnabled
         guard owned else {
-            return Self(value: localValue, fromServer: false, day: selectedDay, status: nil, stale: false,
+            return Self(value: localValue(), fromServer: false, day: selectedDay, status: nil, stale: false,
                         sourceFeature: nil, deviceId: nil, algorithmVersion: nil)
         }
         // A pending snapshot must not resurrect a competing local calculation.

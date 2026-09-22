@@ -169,6 +169,7 @@ public struct ServerScoreNightCache: Equatable, Codable {
 }
 
 public struct ServerScoreDayCache: Equatable, Codable {
+    public var canonicalResults: ServerCanonicalResults?
     /// Populated from the separate account/device cutover ledger at read time.
     public var ownedMetrics: Set<String>? = nil
     /// Transport state is separate from the server's processing/publication status.
@@ -332,6 +333,15 @@ public enum ServerScoreCacheCodec {
         var result = ServerScoreDayCache(day: day, algorithmVersion: version, daily: daily, nights: nights,
             computedAt: o["computed_at"] as? String, stale: o["stale"] as? Bool ?? true, fetchedAt: fetchedAt)
         result.ownerId = ownerId.lowercased(); result.features = features
+        if let compute = o["compute"] ?? root["compute"] {
+            let encoded = try JSONSerialization.data(withJSONObject: compute)
+            let canonical = try JSONDecoder().decode(ServerCanonicalResults.self, from: encoded)
+            try canonical.validate(owner: ownerId, day: day)
+            guard features.values.allSatisfy({ $0.deviceId == nil || $0.deviceId == canonical.deviceID }) else {
+                throw DecodeError.invalidScope
+            }
+            result.canonicalResults = canonical
+        }
         if let epochs = (o["daily"] as? [String: Any])?["full_day_sleep_epochs"] as? [[String: Any]] {
             result.fullDaySleepEpochs = try epochs.map { s in
                 guard let lo = number(s["start"]), let hi = number(s["end"]), hi > lo,

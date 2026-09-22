@@ -25,6 +25,7 @@ public struct ServerMetricOwnership: Codable, Equatable, Sendable {
 
     public let scope: Scope
     public private(set) var claims: [String: Claim] = [:]
+    public private(set) var declaredFamilies: Set<String>?
 
     public init(scope: Scope) { self.scope = scope }
 
@@ -39,13 +40,20 @@ public struct ServerMetricOwnership: Codable, Equatable, Sendable {
     ]
 
     public var metrics: Set<String> {
-        claims.values.reduce(into: Set<String>()) { $0.formUnion($1.metrics) }
+        var result = claims.values.reduce(into: Set<String>()) { $0.formUnion($1.metrics) }
+        for family in declaredFamilies ?? [] { result.formUnion(ServerCanonicalResults.familyMetrics[family] ?? []) }
+        return result
     }
 
     @discardableResult
     public mutating func observe(_ cache: ServerScoreDayCache) -> Bool {
         guard cache.ownerId.lowercased() == scope.ownerID else { return false }
         let before = claims
+        let priorFamilies = declaredFamilies
+        if let result = cache.canonicalResults,
+           (try? result.validate(owner: scope.ownerID, day: cache.day, project: scope.project, device: scope.deviceID)) != nil {
+            declaredFamilies = Set(result.families.keys)
+        }
         for (key, feature) in cache.features where Self.featureMetrics[key] != nil {
             guard feature.deviceId == scope.deviceID, feature.isCanonicalAvailable,
                   let version = feature.algorithmVersion, let revision = feature.inputRevision,
@@ -55,7 +63,7 @@ public struct ServerMetricOwnership: Codable, Equatable, Sendable {
             claims[key] = Claim(metrics: Self.featureMetrics[key] ?? [], algorithmVersion: version, inputRevision: revision,
                 manifestHash: feature.manifestHash, featureManifestHash: feature.featureManifestHash)
         }
-        return before != claims
+        return before != claims || priorFamilies != declaredFamilies
     }
 
     public func owns(_ metric: String) -> Bool { metrics.contains(metric) }
@@ -67,7 +75,7 @@ public struct ServerMetricOwnership: Codable, Equatable, Sendable {
             if readFailed { cache.stale = true; cache.readFailure = "server_read_failed" }
             return cache
         }
-        guard !claims.isEmpty else { return nil }
+        guard !metrics.isEmpty else { return nil }
         var pending = ServerScoreDayCache(day: day, algorithmVersion: "per_feature", daily: nil,
             nights: [], computedAt: nil, stale: false, fetchedAt: .distantPast)
         pending.ownerId = scope.ownerID
@@ -114,6 +122,7 @@ public final class ServerMetricOwnershipStore {
         guard let data = defaults.data(forKey: key(scope)),
               let value = try? JSONDecoder().decode(ServerMetricOwnership.self, from: data),
               value.scope == scope,
+              (value.declaredFamilies ?? []).isSubset(of: Set(ServerCanonicalResults.familyMetrics.keys)),
               value.claims.allSatisfy({ key, claim in
                   claim.inputRevision >= 0 && !claim.algorithmVersion.isEmpty &&
                     claim.metrics.isSubset(of: ServerMetricOwnership.featureMetrics[key] ?? [])
