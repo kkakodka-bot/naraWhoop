@@ -90,38 +90,8 @@ struct CloudPushTransport: PushTransport {
             if let saved = try await queue.savedPreparedIntent(manifest, endpoint: endpoint.url, receiverStateID: state, captured: captured) { return saved }
             try await queue.checkIntentAdmission(captured: captured)
         }
-        let body = destination.requiresPrepared
-            ? try await queue.preparedIntentBody(manifest, endpoint: endpoint.url, receiverStateID: state, captured: captured)
-            : try manifest.encode()
-        guard body.count <= 8 * 1024 else {
-            throw PushTransportException(PushFailure(code: .localData))
-        }
-        var request = URLRequest(url: try laneURL(lane.endpoint))
-        request.httpMethod = "POST"
-        request.httpBody = body
-        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await session.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status >= 200, status <= 299 else {
-            if destination.requiresPrepared, PushError.parseCode(data, expectedVersion: manifest.protocolVersion) == "object_id_conflict" {
-                try await queue.recordPreparedConflict(manifest, endpoint: endpoint.url, receiverStateID: state, captured: captured)
-            }
-            throw PushTransportException(PushFailure.http(
-                status: status,
-                receiverCode: PushError.parseCode(data, expectedVersion: manifest.protocolVersion)
-            ))
-        }
-        let intent: PushObjectIntent
-        do { intent = try PushObjectIntent.parse(data, expectedObjectId: manifest.objectId, expectedVersion: manifest.protocolVersion) }
-        catch {
-            throw PushTransportException(PushFailure(code: .ackInvalid))
-        }
-        try await queue.recordIntent(manifest, lane: lane, intent: intent, endpoint: endpoint.url, captured: captured, receiverStateID: state)
-        // The coordinator supplies the immutable payload even for duplicates, then asks complete.
-        // This permits comparing the receipt's wire digest on a fresh launch with no prior job.
-        return intent
+        return try await queue.initialObjectIntent(manifest, lane: lane, endpoint: endpoint.url,
+            receiverStateID: state, captured: captured)
     }
 
     func uploadObject(_ intent: PushObjectIntent, body: Data) async throws {

@@ -3,6 +3,7 @@ import NoopPush
 
 // Unexpected credential access must fail, never open the host Keychain or refresh a real account.
 enum CloudAuthClient {
+    static func isCurrent(_ context: AccountSessionContext) -> Bool { false }
     static func refreshRejectedCredentials(_ context: AccountSessionContext) async throws {
         throw AccountAuthError.signedOut
     }

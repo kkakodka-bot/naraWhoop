@@ -129,6 +129,14 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
         try? await runtime?.reconcile()
     }
 
+    static func nextWake() async -> (AccountSessionContext, Date?)? {
+        guard let runtime = snapshot(), !runtime.isRetired else { return nil }
+        guard let date = try? await runtime.queue.nextWakeDate(captured: runtime.context) else {
+            return (runtime.context, nil)
+        }
+        return (runtime.context, date)
+    }
+
     private static func snapshot() -> CloudPushBackgroundRuntime? {
         lock.lock(); defer { lock.unlock() }; return active
     }

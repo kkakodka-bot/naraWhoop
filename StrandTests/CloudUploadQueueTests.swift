@@ -358,6 +358,8 @@ final class CloudUploadQueueTests: XCTestCase {
         XCTAssertEqual(persisted.correlation, UUID(uuidString: job.objectID!))
         XCTAssertEqual(persisted.operation, .objectComplete)
         XCTAssertNotEqual(persisted.phase, .receiptSaved)
+        let afterPUT = try await q.lastVerifiedReceiptDate(captured: context)
+        XCTAssertNil(afterPUT, "HTTP PUT success is not a verified cloud receipt")
         XCTAssertTrue(FileManager.default.fileExists(atPath: put.file.path))
         let completion = try XCTUnwrap(adapter.last)
         XCTAssertEqual(completion.request.httpMethod, "POST")
@@ -371,6 +373,8 @@ final class CloudUploadQueueTests: XCTestCase {
         let reopened = try queue(context, layout, reopenedAdapter)
         let ack = try await reopened.completeObject(endpoint: endpoint, objectID: job.objectID!, captured: context)
         XCTAssertEqual(ack.objectKey, job.objectKey)
+        let verifiedDate = try await reopened.lastVerifiedReceiptDate(captured: context)
+        XCTAssertEqual(verifiedDate, ack.durabilityReceipt.flatMap { PushDurabilityReceipt.date($0.indexedAt) })
         XCTAssertEqual(reopenedAdapter.count, 0)
         XCTAssertEqual(try Data(contentsOf: put.file), Data([2, 4, 6]))
         XCTAssertEqual(try journal.load()[job.id]?.correlation, UUID(uuidString: job.objectID!))
@@ -435,6 +439,9 @@ final class CloudUploadQueueTests: XCTestCase {
         XCTAssertEqual(try journal.load()[job.id]?.payloadSHA256, original.payloadSHA256)
         await q.receive(created.task, status: 403, body: Data(), error: false)
         XCTAssertEqual(try journal.load()[job.id]?.needsNewIntent, true)
+        XCTAssertEqual(try journal.load()[job.id]?.signedURLRenewalCount, 1)
+        XCTAssertEqual(try journal.load()[job.id]?.authenticationRefreshCount ?? 0, 0,
+            "an expired storage URL must not consume the receiver credential refresh allowance")
         XCTAssertEqual(try journal.load()[job.id]?.phase, .retryPending)
     }
 

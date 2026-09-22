@@ -49,6 +49,7 @@ struct CloudUploadJob: Codable, Sendable {
     var responseAttempt: UUID?
     var authenticationRefreshCount: Int?
     var authenticationRefreshPending: Bool?
+    var signedURLRenewalCount: Int?
     var acknowledged = false
     var receiverStateID: String = ""
     var batchID: String?
@@ -66,6 +67,28 @@ struct CloudUploadJob: Codable, Sendable {
         guard let status = responseStatus, let body = responseBody else { return nil }
         return .init(statusCode: status, body: body, retryAfter: responseRetryAfter)
     }
+}
+
+/// Control responses cannot release source data. Their retry state survives process death.
+struct CloudControlOutcome: Codable, Sendable {
+    let id: String
+    let owner: AccountScope
+    var failures = 0
+    var nextAttemptAt: Date?
+    var status: Int?
+    var receiverCode: String?
+    var retryAfter: String?
+    var disposition: CloudUploadJob.Disposition?
+    var authenticationRefreshCount = 0
+    var authenticationRefreshPending = false
+    var paused = false
+    var responseValidated = false
+    var responseAttempt: UUID?
+}
+
+struct CloudReceiptCheckpoint: Codable {
+    let owner: AccountScope
+    let verifiedAt: Date
 }
 
 /// Only the upload actor accesses this journal. Payloads never change after their metadata commits.
@@ -125,6 +148,44 @@ final class CloudUploadJournal: @unchecked Sendable {
                   job.localVersion == 2, try selection.jobIDs(state).contains(job.id), bytes.count <= 128 * 1024 else { throw CloudUploadError.corruptJournal }
         }
         try durableWrite(bytes, to: directory.appendingPathComponent("\(job.id).json"))
+    }
+
+    func loadControlOutcomes(owner: AccountScope) throws -> [String: CloudControlOutcome] {
+        var values: [String: CloudControlOutcome] = [:]
+        for url in try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            where url.pathExtension == "control" {
+            let bytes = try Data(contentsOf: url)
+            guard bytes.count <= 16 * 1024 else { throw CloudUploadError.corruptJournal }
+            let value = try JSONDecoder().decode(CloudControlOutcome.self, from: bytes)
+            guard value.owner == owner, Self.validID(value.id),
+                  url.lastPathComponent == value.id + ".control" else { throw CloudUploadError.staleOwner }
+            values[value.id] = value
+        }
+        return values
+    }
+
+    func saveControlOutcome(_ value: CloudControlOutcome) throws {
+        guard Self.validID(value.id) else { throw CloudUploadError.corruptJournal }
+        try durableWrite(JSONEncoder().encode(value), to: directory.appendingPathComponent(value.id + ".control"))
+    }
+
+    func removeControlOutcome(_ id: String) throws {
+        guard Self.validID(id) else { throw CloudUploadError.corruptJournal }
+        try unlinkFile(directory.appendingPathComponent(id + ".control"))
+        try syncDirectory()
+    }
+
+    func receiptCheckpoint(owner: AccountScope) throws -> Date? {
+        let url = directory.appendingPathComponent("last-verified.receipt")
+        guard fm.fileExists(atPath: url.path) else { return nil }
+        let value = try JSONDecoder().decode(CloudReceiptCheckpoint.self, from: Data(contentsOf: url))
+        guard value.owner == owner else { throw CloudUploadError.staleOwner }
+        return value.verifiedAt
+    }
+
+    func saveReceiptCheckpoint(owner: AccountScope, at date: Date) throws {
+        try durableWrite(JSONEncoder().encode(CloudReceiptCheckpoint(owner: owner, verifiedAt: date)),
+            to: directory.appendingPathComponent("last-verified.receipt"))
     }
 
     func persistBody(_ body: Data, job: inout CloudUploadJob) throws {

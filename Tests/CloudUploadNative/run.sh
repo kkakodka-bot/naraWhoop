@@ -20,6 +20,7 @@ cloudNativeSources=(
   Strand/Push/CloudPushPreparedSelection.swift
   Strand/Push/CloudPushProgressStore.swift
   Strand/Push/CloudPushTransport.swift
+  Strand/Push/CloudAccountPushTransport.swift
   Strand/Push/CloudPushBackgroundRuntime.swift
   Strand/Push/CloudPushRefreshCompletion.swift
   Strand/System/ResourceBudget.swift
