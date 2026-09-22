@@ -342,8 +342,27 @@ class SensorWindowIntegrationTest {
             "object_class,object_kind,compressed_bytes,uncompressed_bytes,sample_count) values " +
             "('${manifest.id}','$user','$device','$source','${manifest.key}','ready','client_claimed','${manifest.sha256}'," +
             "'none','noop_push_npb1','raw','noop_$kind',${raw.bytes.size},${raw.bytes.size},300)")
-        sql("insert into noop_signal_windows(user_id,device_id,stream,hour_start,object_id,object_key,start_ts,end_ts,received_records) " +
-            "values('$user','$device','$stream',$start,'${manifest.id}','${manifest.key}',$start,${start+300},300)")
+        sql("insert into noop_signal_windows(user_id,device_id,stream,hour_start,object_id,object_key,start_ts,end_ts," +
+            "received_records,expected_records,missing_records,coverage) " +
+            "values('$user','$device','$stream',$start,'${manifest.id}','${manifest.key}',$start,${start+300},300,300,0,1.0)")
+        assertUnknownCatalogueCoverage(manifest.id)
+        sql("update noop_signal_windows set expected_records=600,missing_records=300,coverage=0.5 " +
+            "where user_id='$user' and object_id='${manifest.id}'")
+        assertUnknownCatalogueCoverage(manifest.id)
+    }
+
+    private fun assertUnknownCatalogueCoverage(objectId: UUID) = db.withConnection { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery("select received_records,expected_records,missing_records,coverage from noop_signal_windows " +
+                "where user_id='$user' and object_id='$objectId'").use { rows ->
+                assertTrue(rows.next())
+                assertEquals(300L,rows.getLong("received_records"))
+                assertNull(rows.getObject("expected_records"))
+                assertNull(rows.getObject("missing_records"))
+                assertNull(rows.getObject("coverage"))
+                assertFalse(rows.next())
+            }
+        }
     }
 
     private fun exportRaw(raw: SensorFixtures.Raw) {
