@@ -86,10 +86,11 @@ export async function handleScoresRequest(req: Request, { rest, cfg: _cfg, fetch
         await rest.rpc('register_account_compute_source',{p_user:account.id,p_source:sourceId});
       } else {
         const registered = await rest.select('compute_account_sources',
-          `user_id=eq.${account.id}&source_id=eq.${sourceId}&revoked_at=is.null&select=source_id`);
+          `source_id=eq.${sourceId}&select=user_id,source_id,revoked_at`);
         const installation = await rest.select('noop_app_installations',
           `source_id=eq.${sourceId}&select=user_id,revoked_at`);
-        if (installation?.[0] && (installation[0].user_id!==account.id || installation[0].revoked_at!=null)) {
+        if ((registered?.[0] && (registered[0].user_id!==account.id || registered[0].revoked_at!=null)) ||
+          (installation?.[0] && (installation[0].user_id!==account.id || installation[0].revoked_at!=null))) {
           throw new IdentityError('source revoked');
         }
         if (!registered?.[0] && !installation?.[0]) throw new IdentityError('registered source required');

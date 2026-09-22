@@ -61,6 +61,39 @@ Deno.test('enrolled scores: expired token, revoked installation and missing flee
   }
 });
 
+Deno.test('account scores: explicit source revocation cannot fall back to an active installation', async () => {
+  for (const binding of [
+    { user_id: USER, revoked_at: '2026-09-20T00:00:00Z' },
+    { user_id: OTHER, revoked_at: null },
+  ]) {
+    const { rest, calls } = await fixture();
+    await rest.upsert('compute_account_sources', { ...binding, source_id: SOURCE });
+    const req = request(undefined, undefined, 'header.payload.signature');
+    req.headers.set('x-noop-source-id', SOURCE);
+    const response = await handleScoresRequest(req, {
+      rest, cfg, fetchImpl: async () => Response.json({ id: USER }),
+    });
+    assertEquals(response.status, 401);
+    assertEquals(calls, []);
+  }
+});
+
+Deno.test('account scores: an active owned account source and enrollment use the same selected-device RPC', async () => {
+  const { rest, calls } = await fixture();
+  await rest.upsert('compute_account_sources', { user_id: USER, source_id: SOURCE, revoked_at: null });
+  const account = request(undefined, undefined, 'header.payload.signature');
+  account.headers.set('x-noop-source-id', SOURCE);
+  const response = await handleScoresRequest(account, {
+    rest, cfg, fetchImpl: async () => Response.json({ id: USER }),
+  });
+  assertEquals(response.status, 200);
+  const accountBody = await response.json();
+  const enrolled = await handleScoresRequest(request(), { rest, cfg });
+  assertEquals(await enrolled.json(), accountBody);
+  assertEquals(calls.length, 2);
+  assertEquals(calls[0], calls[1]);
+});
+
 Deno.test('enrolled scores: requested user cannot override token owner; missing device never defaults', async () => {
   const { rest, calls } = await fixture();
   const res = await handleScoresRequest(request(`?day=2026-09-19&deviceId=${LOCAL}&userId=${OTHER}`), { rest, cfg });

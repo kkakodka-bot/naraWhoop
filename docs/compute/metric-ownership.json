@@ -3414,7 +3414,7 @@
     "android/app/src/main/java/com/noop/ingest/HealthConnectWriter.kt"
   ],
   "sharedReadback": {
-    "route": "GET /functions/v1/scores?date=<day>&deviceId=<external-device>",
+    "route": "GET /functions/v1/scores?day=<day>&deviceId=<external-device>",
     "handler": "supabase/functions/_shared/serverScores.ts",
     "accountAuthorization": "Bearer account JWT verified via auth/v1/user plus x-noop-source-id account source binding",
     "enrollmentAuthorization": "Source-bound enrollment installation token",

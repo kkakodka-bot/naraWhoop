@@ -30,8 +30,9 @@ export function validateFinalSourceContracts(registry) {
   assert.deepEqual(sqlMap, expected, 'Production server disposition policy must cover every family and metric');
   contains(sqlFile, ['server_scoring_read_contract_v1', 'server_compute_dispositions', 'source_result_hash',
     'process_compute_disposition', 'input_revision', 'timezone_id', 'canonical_qualification', 'configuration_metadata_status']);
-  contains('supabase/functions/_shared/serverScores.ts', ['auth/v1/user', 'server_scoring_for_device_day',
+  contains('supabase/functions/_shared/serverScores.ts', ['resolveJwtUser({headers:req.headers', 'server_scoring_for_device_day',
     'compute-requests', 'source_id', 'supabaseUrl']);
+  contains('supabase/functions/_shared/tokens.ts', ['export async function resolveJwtUser', '/auth/v1/user']);
   contains('scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt',
     ['ComputeContractPublisher', 'publishDay(', 'computePublisher::retryDay', 'computePublisher::processSession']);
   contains('scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt', ['publishComputeDispositions']);
