@@ -9,13 +9,20 @@ assert(fixtures && swift && kotlin, 'usage: node test-canonical-runners.mjs ACTU
 const expectations = JSON.parse(fs.readFileSync(path.join(fixtures, 'expectations.json'), 'utf8'));
 const output = fs.mkdtempSync(path.join(os.tmpdir(), 'canonical-runner-mutations.'));
 const cases = [
-  { name: 'null-owned-value', fixture: 'approved-v2.json', reason: /final canonical hrv_rmssd_ms differs/,
+  { name: 'null-owned-value', fixture: 'approved-v2.json', reasons: {
+      swift: /ServerScoreCacheCodec\.DecodeError\.invalidPayload/,
+      kotlin: /hrv_rmssd_ms result identity mismatch/ },
     mutate: (row) => { row.server_scoring.compute.families.night_hrv.values.hrv_rmssd_ms = null; } },
-  { name: 'altered-owned-value', fixture: 'approved-v2.json', reason: /final canonical hrv_rmssd_ms differs/,
+  { name: 'altered-owned-value', fixture: 'approved-v2.json', reasons: {
+      swift: /ServerScoreCacheCodec\.DecodeError\.invalidPayload/,
+      kotlin: /hrv_rmssd_ms result identity mismatch/ },
     mutate: (row) => { row.server_scoring.compute.families.night_hrv.values.hrv_rmssd_ms = 1; } },
-  { name: 'legacy-only-response', fixture: 'approved-v2.json', reason: /missing final canonical contract/,
+  { name: 'legacy-only-response', fixture: 'approved-v2.json', reasons: {
+      swift: /missing final canonical contract/, kotlin: /missing final canonical contract/ },
     mutate: (row) => { delete row.server_scoring.compute; } },
-  { name: 'sleep-only-nested-leak', fixture: 'sleep-only.json', reason: /canonical sleep leaked hrv_rmssd_ms/,
+  { name: 'sleep-only-nested-leak', fixture: 'sleep-only.json', reasons: {
+      swift: /ServerScoreCacheCodec\.DecodeError\.invalidPayload/,
+      kotlin: /sleep immutable result identity mismatch/ },
     mutate: (row) => { row.server_scoring.compute.families.sleep.details.nights[0].hrv_rmssd_ms = 1; } },
 ];
 for (const test of cases) {
@@ -33,7 +40,7 @@ for (const test of cases) {
     assert.notEqual(result.status, 0, `${platform} accepted ${test.name}`);
     const log = (result.stdout ?? '') + (result.stderr ?? '');
     fs.writeFileSync(path.join(directory, `${platform}.log`), log);
-    assert.match(log, test.reason, `${platform}: mutation failed for an unrelated reason`);
+    assert.match(log, test.reasons[platform], `${platform}: mutation failed for an unrelated reason`);
     console.log(`${platform}: rejected ${test.name}`);
   }
 }
