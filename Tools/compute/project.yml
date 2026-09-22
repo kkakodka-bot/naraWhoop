@@ -36,6 +36,23 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NOOP Staging.app/Contents/MacOS/NOOP Staging"
         BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
+  SyncRenderChecks:
+    build:
+      targets:
+        Strand: all
+    test:
+      config: Debug
+      environmentVariables:
+        NOOP_HERMETIC_TESTING: "1"
+        NOOP_TEST_DISABLE_BLUETOOTH: "1"
+        NOOP_COMPUTE_REFERENCE_TESTS: "1"
+        NARA_SYNC_RENDER_ISOLATED_HOST: "1"
+        NARA_TEST_FIXTURE_ROOT: "$(COMPUTE_TEST_SCRATCH)"
+        SCORING_PREFERENCE_SCRATCH: "$(COMPUTE_TEST_SCRATCH)"
+      targets:
+        - name: StrandTests
+          selectedTests:
+            - ScoringSyncControlRenderTests
   FinalHostedChecks:
     build:
       targets:
