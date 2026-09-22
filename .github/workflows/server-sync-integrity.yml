@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - 'supabase/**'
-      - 'Packages/NoopPush/**'
-      - 'Packages/WhoopStore/**'
+      - 'Packages/**'
       - 'Strand/Push/**'
       - 'Strand/Collect/ImuSessionFileStore.swift'
+      - 'Strand/System/ResourceBudget.swift'
+      - 'Strand/System/SyncPipelineTrace.swift'
       - 'StrandTests/CloudImuPushSourceTests.swift'
       - 'Tests/ServerFixtureNative/**'
+      - 'Tests/CloudUploadNative/**'
       - 'Tests/PushBinaryStreamEncoder/**'
       - '.github/workflows/server-sync-integrity.yml'
   workflow_dispatch:
