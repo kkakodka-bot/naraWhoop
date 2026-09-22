@@ -31,7 +31,7 @@ final class CloudUploadOutcomeTests: XCTestCase {
             }
             base = URL(fileURLWithPath: path, isDirectory: true)
         } else {
-            base = FileManager.default.temporaryDirectory
+            base = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         }
         let root = base.appendingPathComponent("cloud-outcome-" + UUID().uuidString, isDirectory: true)
         let scope = try AccountScope(projectURL: "https://project.example",

@@ -31,7 +31,7 @@ final class ServerSleepInputTests: XCTestCase {
     }
 
     func testEditDeleteUndoAreOrderedDurableInputsWithoutOpeningLocalPhysiology() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let layout = AccountStorageLayout(baseDirectory: root,
             scope: try AccountScope(projectURL: "https://sleep-input.invalid", userID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))

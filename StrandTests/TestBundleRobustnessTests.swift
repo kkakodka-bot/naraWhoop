@@ -12,7 +12,7 @@ final class TestBundleRobustnessTests: XCTestCase {
     // MARK: - raw-capture / crash gather
 
     func testFileEntryReadsAnExistingFile() throws {
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("noop-raw-\(UUID()).jsonl")
+        let tmp = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent("noop-raw-\(UUID()).jsonl")
         let body = "{\"console\":\"connected to WHOOP 4C1594026\"}"
         try body.write(to: tmp, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -22,7 +22,7 @@ final class TestBundleRobustnessTests: XCTestCase {
     }
 
     func testFileEntryReturnsNilForMissingFile() {
-        let missing = FileManager.default.temporaryDirectory.appendingPathComponent("does-not-exist-\(UUID())")
+        let missing = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent("does-not-exist-\(UUID())")
         XCTAssertNil(TestBundleAssembler.fileEntry(at: missing, name: "raw-capture.jsonl"))
     }
 

@@ -83,7 +83,7 @@ final class RawCaptureManifestTests: XCTestCase {
     }
 
     func testDecodedEmptyLiveCapturePersistsFallbackBoundsForRetry() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         let suite = "RawCaptureManifestTests.\(UUID().uuidString)"

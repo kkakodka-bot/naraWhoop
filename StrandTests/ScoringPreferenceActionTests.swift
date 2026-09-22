@@ -63,7 +63,7 @@ final class ScoringPreferenceActionTests: XCTestCase {
 
         init(coupled: Bool) throws {
             let temporary = ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-                ?? FileManager.default.temporaryDirectory
+                ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             root = temporary.appendingPathComponent("preference-actions-" + UUID().uuidString)
             let scope = try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid", userID: UUID().uuidString)
             context = .init(scope: scope, generation: UUID())
@@ -474,7 +474,7 @@ final class ScoringPreferenceActionTests: XCTestCase {
     func testSignedOutAlgorithmAndHRVGesturesKeepLegacyLocalOnlyWithoutAcceptanceClaim() async throws {
         try XCTSkipUnless(AppRuntimeMode.isUnitTesting, "requires hermetic app construction")
         let temporary = ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.temporaryDirectory
+            ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         let root = temporary.appendingPathComponent("preference-guest-action-" + UUID().uuidString)
         let suite = "preference-guest-action-" + UUID().uuidString
         let localDefaults = try XCTUnwrap(UserDefaults(suiteName: suite))

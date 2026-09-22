@@ -23,7 +23,7 @@ final class IntelligenceRuntimeIsolationTests: XCTestCase {
     }
 
     private func runBarrier(_ checkpoint: IntelligenceEngine.LifecycleCheckpoint) async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let name = "test.analyzer.retire." + UUID().uuidString

@@ -37,7 +37,7 @@ final class ScoringPreferenceAppTests: XCTestCase {
         let model: AppModel
         init(coupled: Bool = false, seed: [String: Any] = [:], registration: [String: Any] = [:]) throws {
             let temporary = ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-                ?? FileManager.default.temporaryDirectory
+                ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             root = temporary.appendingPathComponent("preference-app-" + UUID().uuidString)
             let scope = try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid", userID: UUID().uuidString)
             context = .init(scope: scope, generation: UUID())

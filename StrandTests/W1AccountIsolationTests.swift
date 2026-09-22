@@ -19,7 +19,7 @@ final class W1AccountIsolationTests: XCTestCase {
 
         init() throws {
             let id = UUID().uuidString
-            directory = FileManager.default.temporaryDirectory.appendingPathComponent(id)
+            directory = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(id)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             suite = "W1AccountIsolationTests.\(id)"
             defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

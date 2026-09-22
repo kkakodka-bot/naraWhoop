@@ -90,7 +90,7 @@ private final class PreferenceJournalFixture: @unchecked Sendable {
 
     init() throws {
         let base = ProcessInfo.processInfo.environment["SCORING_PREFERENCE_SCRATCH"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.temporaryDirectory
+            ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         root = base.appendingPathComponent("preference-\(UUID().uuidString)", isDirectory: true)
         context = try PreferenceIntentFixture.context()
         layout = .init(baseDirectory: root, scope: context.scope)

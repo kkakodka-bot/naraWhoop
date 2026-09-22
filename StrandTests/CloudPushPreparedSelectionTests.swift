@@ -11,7 +11,7 @@ import GRDB
 
 private func preparedSelectionFixtureBaseDirectory() throws -> URL {
     guard let path = ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"] else {
-        return FileManager.default.temporaryDirectory
+        return (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
     }
     var isDirectory: ObjCBool = false
     guard path.hasPrefix("/"), !path.utf8.contains(0),

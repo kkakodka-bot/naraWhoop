@@ -47,7 +47,7 @@ final class ScoringPreferenceReaderTests: XCTestCase {
     private func model(seed: [String: Any] = [:]) throws -> AppModel {
         try XCTSkipUnless(AppRuntimeMode.isUnitTesting, "requires hermetic app construction")
         let temporary = ProcessInfo.processInfo.environment["TMPDIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.temporaryDirectory
+            ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         let root = temporary.appendingPathComponent("preference-readers-" + UUID().uuidString)
         let context = try context(), layout = AccountStorageLayout(baseDirectory: root, scope: context.scope)
         let defaults = try XCTUnwrap(UserDefaults(suiteName: layout.preferencesSuite))

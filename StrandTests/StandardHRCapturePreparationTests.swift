@@ -51,7 +51,7 @@ final class StandardHRCapturePreparationTests: XCTestCase {
             // Capacity fault suites retain their explicit low-space hooks and production is unchanged.
             if hooks.availableBytes == nil { hooks.availableBytes = { _ in 4 * 1_024 * 1_024 * 1_024 } }
             let temporary = ProcessInfo.processInfo.environment["NARA_CAPTURE_TEST_ROOT"]
-                .map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory
+                .map { URL(fileURLWithPath: $0, isDirectory: true) } ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             let root = temporary.appendingPathComponent("capture-wiring-" + UUID().uuidString, isDirectory: true)
             let scope = try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid", userID: UUID().uuidString)
             let context = AccountSessionContext(scope: scope, generation: UUID())

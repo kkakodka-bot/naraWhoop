@@ -337,7 +337,7 @@ private final class RenderFixture {
         self.scenario = scenario
         let temporary = (ProcessInfo.processInfo.environment["NARA_SYNC_RENDER_ROOT"]
             ?? ProcessInfo.processInfo.environment["TMPDIR"]).map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.temporaryDirectory
+            ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         root = temporary.appendingPathComponent("nara-sync-render-" + UUID().uuidString, isDirectory: true)
         let context: AccountSessionContext?
         if scenario == .guest { context = nil }

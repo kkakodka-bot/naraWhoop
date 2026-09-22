@@ -73,7 +73,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
     }
     private func fixture(imuSource: (any ImuSessionPushSource)? = nil,
                          progressVersion: String? = nil) async throws -> Fixture {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("w5-integration-" + UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent("w5-integration-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let context = AccountSessionContext(scope: try .init(projectURL: "https://project.example", userID: W5ReceiptFixture.owner), generation: UUID())
         let layout = AccountStorageLayout(baseDirectory: root, scope: context.scope)

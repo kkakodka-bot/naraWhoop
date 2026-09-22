@@ -39,7 +39,7 @@ final class RepositoryPreferenceRecoveryTests: XCTestCase {
         let snapshot = ScoringPreferenceSnapshot.seed(context: context, domain: ["noopExperimentalSleepV2": false])
         let scratch = ProcessInfo.processInfo.environment["SCORING_PREFERENCE_SCRATCH"]
             ?? ProcessInfo.processInfo.environment["TMPDIR"]
-        let base = scratch.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory
+        let base = scratch.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         let root = base.appendingPathComponent("repository-recovery-" + UUID().uuidString, isDirectory: true)
         let layout = AccountStorageLayout(baseDirectory: root, scope: context.scope)
         let repo = Repository(deviceId: device, storageLayout: layout, openStore: opener ?? { store },

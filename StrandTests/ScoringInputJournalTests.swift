@@ -29,7 +29,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testConsentRecheckedInsideAdmissionTransactionImmediatelyBeforeInsert() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let journal = try ScoringInputJournal(layout: layout(root))
         let consent = ScoringInputTestState()
@@ -50,7 +50,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testRevokedFenceRollsBackReceiptHeadAndDebtDeletionAtomically() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let location = try layout(root)
         let fence = StoreWriteFence()
@@ -77,7 +77,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testLostResponseRetriesExactRevisionAndReopenRetainsFollowingEdit() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let location = try layout(root)
         let first = try ScoringInputJournal(layout: location)
@@ -101,7 +101,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testConflictRetainsEditsAndDoesNotBlockUnrelatedEntity() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let journal = try ScoringInputJournal(layout: layout(root))
         _ = try await journal.enqueue(change(1))
@@ -117,7 +117,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testRetirementFencesAdmissionAndLateReceiptWithoutDeletingDebt() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let journal = try ScoringInputJournal(layout: layout(root))
         _ = try await journal.enqueue(change(1))
@@ -132,7 +132,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testCopiedJournalCannotBeAdoptedByAnotherAccount() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let a = try layout(root)
         let b = try layout(root, user: "cccccccc-cccc-cccc-cccc-cccccccccccc")
@@ -150,7 +150,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testAdditiveUpgradePreservesMutationExpectedRevisionAndSequence() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let location = try layout(root)
         try location.prepare()
@@ -188,7 +188,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testEveryReceiptAssociationMustMatchBeforeSettlement() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let journal = try ScoringInputJournal(layout: layout(root))
         _ = try await journal.enqueue(change(1))
@@ -215,7 +215,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testOwnerAndProjectHaveIndependentDurableClientIdentities() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let a = try ScoringInputJournal(layout: layout(root))
         let b = try ScoringInputJournal(layout: layout(root, user: "cccccccc-cccc-cccc-cccc-cccccccccccc"))
@@ -246,7 +246,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testInitialHeadFreezesOpaqueRevisionOnceAndRejectsWrongOwner() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let journal = try ScoringInputJournal(layout: layout(root))
         _ = try await journal.enqueue(change(1))
@@ -268,7 +268,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testConsentHoldDoesNotPinAndDoesNotBlockOtherEntities() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let location = try layout(root)
         let journal = try ScoringInputJournal(layout: location)
@@ -292,7 +292,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testSleepEarliestDaySurvivesPendingSettlementAndReopen() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let location = try layout(root)
         let journal = try ScoringInputJournal(layout: location)
@@ -323,7 +323,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testOlderReceiptCannotLowerKnownHeadOrDeleteDebt() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let location = try layout(root)
         let journal = try ScoringInputJournal(layout: location)
@@ -344,7 +344,7 @@ final class ScoringInputJournalTests: XCTestCase {
     }
 
     func testExplicitResolutionRetainsReviewedChainAndRejectsNewArrivalUntilReviewed() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let location = try layout(root)
         let journal = try ScoringInputJournal(layout: location)

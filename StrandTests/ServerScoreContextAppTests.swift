@@ -48,7 +48,7 @@ final class ServerScoreContextAppTests: XCTestCase {
         var notificationMessages: [String] = []
         init(inputGate: InputOpenGate? = nil, recordNotifications: Bool = false) throws {
             self.inputGate = inputGate
-            root = FileManager.default.temporaryDirectory.appendingPathComponent("context-app-" + UUID().uuidString)
+            root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent("context-app-" + UUID().uuidString)
             let scope = try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid", userID: UUID().uuidString)
             context = .init(scope: scope, generation: UUID())
             layout = .init(baseDirectory: root, scope: scope)

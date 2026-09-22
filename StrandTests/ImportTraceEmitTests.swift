@@ -21,7 +21,7 @@ final class ImportTraceEmitTests: XCTestCase {
 
     /// A minimal but valid WHOOP cycles CSV folder (two cycles, two days), written to a temp dir.
     private func makeWhoopFolder() throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("noop-import-trace-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let header = "Cycle start time,Cycle end time,Cycle timezone,Recovery score %,"

@@ -7,7 +7,7 @@ final class WhoopOnboardingSetupTests: XCTestCase {
     private let other = "22222222-2222-2222-2222-222222222222"
 
     private func checkpointURL() -> URL {
-        FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
             .appendingPathComponent("setup.json")
     }
 

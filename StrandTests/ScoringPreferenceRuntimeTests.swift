@@ -58,7 +58,7 @@ final class PreferenceRuntimeFixture {
          maxActions: Int = 64, maxBytes: Int = 1_048_576,
          open: PreferenceRuntimeGate? = nil, hooks: ScoringPreferenceRuntime.Hooks = .init()) throws {
         let base = ProcessInfo.processInfo.environment["SCORING_PREFERENCE_SCRATCH"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.temporaryDirectory
+            ?? (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         self.root = root ?? base.appendingPathComponent("preference-runtime-" + UUID().uuidString, isDirectory: true)
         let owner = try context ?? AccountSessionContext(scope: AccountScope(projectURL: "https://runtime-fixture.invalid",
             userID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), generation: UUID())

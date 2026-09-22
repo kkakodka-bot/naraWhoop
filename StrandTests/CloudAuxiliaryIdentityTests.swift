@@ -11,7 +11,7 @@ final class CloudAuxiliaryIdentityTests: XCTestCase {
     private let device = "strap"
 
     private func withStore(_ body: (WhoopStore, CloudPushSnapshot) async throws -> Void) async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("aux-identity-" + UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent("aux-identity-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let store = try await WhoopStore(path: root.appendingPathComponent("source.sqlite").path)
         defer {
@@ -95,7 +95,7 @@ final class CloudAuxiliaryIdentityTests: XCTestCase {
     }
 
     func testAuxiliaryProgressUpgradeDoesNotRewriteOtherStreamsOrOldInFlightObject() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("aux-progress-" + UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent("aux-progress-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let old = try CloudPushProgressStore(namespace: "same-receiver", directory: root)
         let cursor = PushCursor(rowId: 42, naturalKeyFingerprint: String(repeating: "a", count: 64))

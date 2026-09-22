@@ -23,7 +23,7 @@ final class AccountRuntimeConstructionTests: XCTestCase {
     }
     func testTesterRuntimeAdmitsCaptureWithoutPasswordSessionAndRetiresOnRevocation() throws {
         let scope = try AccountScope(projectURL: "https://tester.invalid", userID: UUID().uuidString)
-        let layout = AccountStorageLayout(baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), scope: scope)
+        let layout = AccountStorageLayout(baseDirectory: (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString), scope: scope)
         var current = true
         let model = AccountAppRuntime.buildModel(context: nil, layout: layout, enrollmentScope: scope,
                                                  isCurrent: { _ in current })
@@ -38,7 +38,7 @@ final class AccountRuntimeConstructionTests: XCTestCase {
     func testStorageRecoveryBlocksCaptureWithoutBlockingNewOwnerPresentation() throws {
         let scope = try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid", userID: UUID().uuidString)
         let context = AccountSessionContext(scope: scope, generation: UUID())
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         let layout = AccountStorageLayout(baseDirectory: root, scope: scope)
         defer { UserDefaults(suiteName: layout.preferencesSuite)?.removePersistentDomain(forName: layout.preferencesSuite) }
         let held = AccountAppRuntime.buildModel(context: context, layout: layout,
@@ -61,7 +61,7 @@ final class AccountRuntimeConstructionTests: XCTestCase {
         let a = try AccountScope(projectURL: "https://runtime.invalid", userID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
         let b = try AccountScope(projectURL: "https://runtime.invalid", userID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
         let captured = AccountSessionContext(scope: a, generation: UUID())
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         let layout = AccountStorageLayout(baseDirectory: root, scope: a)
         let defaults = try XCTUnwrap(UserDefaults(suiteName: layout.preferencesSuite))
         let original = defaults.persistentDomain(forName: layout.preferencesSuite)
@@ -84,7 +84,7 @@ final class AccountRuntimeConstructionTests: XCTestCase {
     }
 
     func testLayoutContextMismatchAndScopedRecalibrationRemainIsolated() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         let a = try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid", userID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
         let b = try AccountScope(projectURL: a.projectURL, userID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
         let aContext = AccountSessionContext(scope: a, generation: UUID())
@@ -140,7 +140,7 @@ final class AccountRuntimeConstructionTests: XCTestCase {
     }
 
     func testExplicitContextBuilderRequiresCurrentPurposeAndNeverAdoptsOtherSource() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let scope = try AccountScope(projectURL: "https://" + UUID().uuidString + ".invalid", userID: UUID().uuidString)
         let context = AccountSessionContext(scope: scope, generation: UUID())

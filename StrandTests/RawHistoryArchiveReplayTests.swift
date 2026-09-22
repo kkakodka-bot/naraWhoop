@@ -11,7 +11,7 @@ import GRDB
 final class RawHistoryArchiveReplayTests: XCTestCase {
 
     func testOwnedReplayNeverImportsGlobalOrOtherDeviceArchive() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let legacy = RawHistoryArchive(directory: root.appendingPathComponent("com.noopapp.noop"))
         let frame = bytes("aa50000c2f190013390000140d2b6a4075010068a2010032fdbcfd98fdd3fdccfd47ffb00366064f073e06c103d3016cffa2fc87fa2ffae5fdbe03140675060c0510012dff1bfec0018f3c500500010068dc8f44")
