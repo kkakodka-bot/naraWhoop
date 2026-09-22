@@ -27,12 +27,20 @@ struct CanonicalPhysiologySection: View {
                             .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
                         Text("\(window) · Server · \(result?.status ?? "unavailable")")
                             .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                        if repo.serverPresentation.days[window]?.phase == .failed {
+                            Text("Server read failed · cached result is not current")
+                                .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                        } else if repo.serverPresentation.days[window]?.cached == true {
+                            Text("Cached server revision")
+                                .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                        }
                         if let result {
                             ForEach(result.metrics.sorted(), id: \.self) { metric in
                                 HStack(alignment: .top) {
                                     Text(metric.replacingOccurrences(of: "_", with: " "))
                                     Spacer(minLength: 12)
-                                    Text(Self.display(result: result, metric: metric))
+                                    Text(repo.serverPresentation.days[window]?.phase == .failed
+                                         ? "—" : Self.display(result: result, metric: metric))
                                         .multilineTextAlignment(.trailing)
                                 }
                                 .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)

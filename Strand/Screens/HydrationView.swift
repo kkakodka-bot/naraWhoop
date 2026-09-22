@@ -67,6 +67,9 @@ struct HydrationView: View {
                 logSection
                 entriesSection
                 historySection
+                if PhoneComputeRuntime.isFinalHosted {
+                    CanonicalPhysiologySection(families: ["insights"])
+                }
                 if !PhoneComputeRuntime.isFinalHosted { todayTotalSection }
                 Text(PhoneComputeRuntime.isFinalHosted
                      ? "Logged water is available offline. Personalized hydration goals are unavailable until supplied by the server."

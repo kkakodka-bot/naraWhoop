@@ -69,7 +69,7 @@ struct RhythmHost: View {
     var body: some View {
         if PhoneComputeRuntime.isFinalHosted {
             ScreenScaffold(title: "Rhythm", subtitle: "Server-owned analysis; no on-device screening.") {
-                CanonicalPhysiologySection(families: ["stress", "current_hrv"])
+                CanonicalPhysiologySection(families: ["insights", "stress", "current_hrv"])
                 if let onClose { Button("Done", action: onClose).buttonStyle(.noopGhost) }
             }
         } else {

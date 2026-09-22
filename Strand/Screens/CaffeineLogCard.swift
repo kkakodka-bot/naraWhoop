@@ -40,6 +40,9 @@ struct CaffeineLogCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             SectionHeader("Caffeine", overline: "Log")
+            if PhoneComputeRuntime.isFinalHosted {
+                CanonicalPhysiologySection(families: ["insights"])
+            }
             NoopCard(tint: StrandPalette.accent) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(PhoneComputeRuntime.isFinalHosted

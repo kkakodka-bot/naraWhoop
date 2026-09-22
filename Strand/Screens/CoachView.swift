@@ -1,6 +1,7 @@
 import SwiftUI
 import MarkdownUI
 import StrandDesign
+import WhoopProtocol
 
 /// Coach, the one feature in NARA that talks to the network.
 ///
@@ -60,6 +61,21 @@ struct CoachView: View {
     private var suggestions: [String] { coach.suggestions }
 
     var body: some View {
+        if PhoneComputeRuntime.isFinalHosted {
+            ScreenScaffold(title: "Coach", subtitle: "Canonical server coaching") {
+                CanonicalPhysiologySection(families: ["live_coaching", "insights"])
+                Text("Personalized conversation and brief generation require a qualified server result. Saved drafts remain on this device; no legacy model request is sent.")
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                TextField("Draft a question", text: $draft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .onChangeCompat(of: draft) { UserDefaults.standard.set($0, forKey: Self.draftKey) }
+            }
+        } else {
+            legacyBody
+        }
+    }
+
+    private var legacyBody: some View {
         ScreenScaffold(title: "Coach",
                        subtitle: "Ask about your charge, effort, rest and workouts, grounded in your own numbers.",
                        // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid

@@ -2269,11 +2269,12 @@ final class Repository: ObservableObject {
     /// tables (low frequency, no 86k risk) and bin to the same bucket grid when zoomed out.
     func timelineSeries(metric: TimelineMetric, from: Int, to: Int,
                         targetPoints: Int = 600, source: String? = nil) async -> TimelineSeries {
+        guard metric == .hr || PhoneComputeRuntime.permitsLocal("timeline_physiological_reconstruction") else { return .empty }
         guard to > from, let store = await ensureStore() else { return .empty }
         // Default (no explicit source) → the complete worn WHOOP timeline: active, every registered prior
         // strap, then canonical history. An explicit per-source page still reads that source verbatim.
         let unionIds: [String] = source.map { [$0] } ?? rawPhysiologyReadIds(store: store)
-        let bucket = Self.timelineBucketSeconds(spanSeconds: to - from, targetPoints: targetPoints)
+        let bucket = PhoneComputeRuntime.isFinalHosted ? 1 : Self.timelineBucketSeconds(spanSeconds: to - from, targetPoints: targetPoints)
         let isRaw = bucket <= 1
 
         if metric == .hr {
