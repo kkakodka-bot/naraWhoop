@@ -51,6 +51,7 @@ enum ServerScoreReadTransport {
             throw ServerScoreClient.FetchError.invalidResponse
         }
         if http.statusCode == 401 || http.statusCode == 403 { throw ServerScoreClient.FetchError.unauthorized }
+        if http.statusCode == 409 { throw ServerScoreClient.FetchError.conflict }
         guard http.statusCode == 200 else { throw ServerScoreClient.FetchError.invalidResponse }
         guard response.expectedContentLength <= Int64(maximumResponseBytes) else { throw ServerScoreDecodeError.tooLarge }
         var data = Data()
