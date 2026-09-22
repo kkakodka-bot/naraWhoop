@@ -1,0 +1,10 @@
+Local JVM/Swift/PostgreSQL evidence: /var/folders/rk/rw132g3n6zv9hbqb1tw_ctxm0000gn/T//server-jvm.KWqZIX
+> Task :service:compileTestKotlin
+> Task :service:compileTestJava NO-SOURCE
+> Task :service:testClasses
+> Task :service:test
+
+BUILD SUCCESSFUL in 4m 11s
+21 actionable tasks: 21 executed
+Disposable PostgreSQL queue evidence: /var/folders/rk/rw132g3n6zv9hbqb1tw_ctxm0000gn/T//physiology-queue.TnyyIw
+Clean JVM tests and installDist passed with a newly exported actual-Swift corpus: /var/folders/rk/rw132g3n6zv9hbqb1tw_ctxm0000gn/T//server-jvm.KWqZIX
