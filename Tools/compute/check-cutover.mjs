@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { evidenceDefault, sourceSnapshot, validateReceipts } from './evidence.mjs';
+import { validateFinalSourceContracts } from './final-contract.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
@@ -62,6 +64,19 @@ assert(!read('Strand/Push/ServerScoreRepository.swift').includes('markOverlayLiv
 assert(!read('android/app/src/main/java/com/noop/push/ServerScoreRepository.kt').includes('markOverlayLive'));
 
 const blocked = registry.entries.filter((entry) => !entry.cutover.finalHostedEligible).map((entry) => entry.id);
+const requireFinal = process.argv.includes('--require-final');
+let finalSource, runtimeEvidence, finalFailure;
+if (requireFinal) {
+  try {
+    assert.equal(blocked.length, 0, `Incomplete registry families: ${blocked.join(', ')}`);
+    finalSource = validateFinalSourceContracts(registry);
+    const position = process.argv.indexOf('--evidence-dir');
+    const directory = path.resolve(root, position >= 0 ? process.argv[position + 1] :
+      process.env.COMPUTE_EVIDENCE_DIR ?? evidenceDefault);
+    runtimeEvidence = validateReceipts(directory, sourceSnapshot());
+  } catch (error) { finalFailure = error.message; process.exitCode = 1; }
+}
 console.log(JSON.stringify({ registry: 'PASS', families: ids.size, outputs: metrics.size,
-  ownershipParity: 'PASS', finalHosted: blocked.length ? 'NOT_READY' : 'READY', blocked }, null, 2));
-if (process.argv.includes('--require-final') && blocked.length) process.exitCode = 1;
+  ownershipParity: 'PASS', assertions: { static: finalSource ?? 'registry and legacy ownership maps only',
+    executed: runtimeEvidence ?? 'NOT_VERIFIED' },
+  finalHosted: requireFinal && !finalFailure ? 'READY' : 'NOT_VERIFIED', blocked, finalFailure }, null, 2));
