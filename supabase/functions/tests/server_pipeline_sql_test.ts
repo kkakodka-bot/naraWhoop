@@ -12,6 +12,8 @@ const other = '22222222-2222-4222-8222-222222222222';
 const source = '33333333-3333-4333-8333-333333333333';
 const secondSource = '44444444-4444-4444-8444-444444444444';
 const allFeatures = ['sleep', 'hrv', 'respiration'];
+const sleepCompatibilityKeys = ['full_day_sleep_epochs', 'main_sleep_group_id', 'off_body_min',
+  'opportunity_kind', 'sleep_onset_at', 'sleep_unstaged_min', 'state_unknown_min', 'wake_onset_at'];
 
 async function sql(statement: string): Promise<string> {
   const process = new Deno.Command('docker', { args: ['exec', '-i', container!, 'psql', '-U', 'postgres',
@@ -100,14 +102,62 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     assert.equal(account.status,200,await account.clone().text());
     const accountBytes=await account.text();
     assert.deepEqual(JSON.parse(accountBytes).server_scoring,score,`${name}: account/enrollment divergence`);
-    for (const family of Object.values(score.compute.families) as any[]) {
+    assert.equal(score.compute.owner_id,score.user_id,`${name}: compute owner differs from legacy scope`);
+    assert.equal(score.compute.device_id,body.identity.deviceId,`${name}: compute device differs from Edge identity`);
+    assert.equal(score.compute.day,score.day,`${name}: compute day differs from legacy scope`);
+    for (const [familyName,family] of Object.entries(score.compute.families) as [string,any][]) {
       assert.equal(family.owner,'server');
       assert.equal(family.owner_id,owner);
       assert.equal(family.device_id,body.identity.deviceId);
+      assert.equal(family.window,score.day,`${name}: ${familyName} window differs from response day`);
       assert.equal(family.source_id,source);
       assert.equal(family.project,restUrl);
       assert.ok(family.result_revision===null || /^(sha256:[a-f0-9]{64}|compute:\d+)$/.test(family.result_revision));
       if (!family.canonical_qualification) assert.ok(Object.values(family.values).every(value=>value===null));
+      if (family.canonical_qualification && ['available','stale'].includes(family.status) && score.daily) {
+        for (const metric of family.metrics as string[]) {
+          if (metric==='sleep_sessions' || !Object.hasOwn(score.daily,metric)) continue;
+          const expected=metric==='sleep_efficiency' && typeof score.daily[metric]==='number'
+            ? score.daily[metric]*100 : score.daily[metric];
+          assert.deepEqual(family.values[metric],expected,
+            `${name}: ${familyName}.${metric} differs from its top-level compatibility value`);
+        }
+      }
+    }
+    const sleep=score.compute.families.sleep;
+    if (sleep.canonical_qualification && ['available','stale'].includes(sleep.status)) {
+      assert.ok(Array.isArray(score.nights),`${name}: authorized top-level nights must be an array`);
+      assert.ok(Array.isArray(sleep.values.sleep_sessions),`${name}: authorized sleep_sessions must be an array`);
+      assert.ok(Array.isArray(sleep.details.nights),`${name}: authorized sleep details.nights must be an array`);
+      assert.deepEqual(sleep.values.sleep_sessions,score.nights,`${name}: sleep_sessions diverges from top-level nights`);
+      assert.deepEqual(sleep.details.nights,score.nights,`${name}: sleep details.nights diverges from top-level nights`);
+      assert.equal(JSON.stringify(sleep.values.sleep_sessions),JSON.stringify(score.nights),
+        `${name}: sleep_sessions wire ordering differs from top-level nights`);
+      assert.equal(JSON.stringify(sleep.details.nights),JSON.stringify(score.nights),
+        `${name}: sleep details wire ordering differs from top-level nights`);
+      const compatibility=sleep.details.daily_compatibility;
+      assert.deepEqual(Object.keys(compatibility).sort(),sleepCompatibilityKeys,
+        `${name}: sleep daily compatibility key set drifted`);
+      for (const key of sleepCompatibilityKeys) {
+        assert.ok(Object.hasOwn(score.daily,key),`${name}: top-level daily omits ${key}`);
+        assert.deepEqual(compatibility[key],score.daily[key],`${name}: sleep daily compatibility ${key} diverged`);
+      }
+      assert.equal(JSON.stringify(compatibility.full_day_sleep_epochs),JSON.stringify(score.daily.full_day_sleep_epochs),
+        `${name}: full-day epoch wire ordering differs from top-level daily`);
+      if (name==='approved-v2') {
+        assert.equal(compatibility.sleep_unstaged_min,0,'valid-zero sleep compatibility is preserved');
+        assert.equal(compatibility.state_unknown_min,null,'explicit-null sleep compatibility is preserved');
+        assert.deepEqual(compatibility.full_day_sleep_epochs.map((epoch:any)=>epoch.state),['state_unknown','off_body'],
+          'full-day epoch order is preserved');
+      }
+      if (name==='sleep-only') assert.deepEqual(compatibility.full_day_sleep_epochs,[],
+        'an explicit empty full-day epoch array is preserved');
+    } else {
+      assert.ok(Array.isArray(score.nights),`${name}: compatibility nights must remain an explicit array`);
+      assert.equal(sleep.values.sleep_sessions,null,`${name}: unavailable sleep must remain explicit null`);
+      assert.equal(Object.hasOwn(sleep.details,'nights'),false,`${name}: unavailable sleep cannot invent episode details`);
+      assert.equal(Object.hasOwn(sleep.details,'daily_compatibility'),false,
+        `${name}: unavailable sleep cannot invent daily compatibility details`);
     }
     if (name==='approved-v2') {
       assert.equal(score.compute.families.sleep.values.sleep_efficiency,87.5,'canonical metric contract uses percent');
@@ -313,18 +363,24 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
       return result;
     end $body$;
   `);
-  async function publish(mismatch = false) {
+  async function publish(mismatch = false, fullDaySleepEpochs?: unknown[]) {
     await rest.rpc('physiology_enqueue_day',{p_user:owner,p_device:device,p_day:day,p_timezone:'UTC',p_debounce_seconds:0});
     const [claim] = await rest.rpc('scoring_claim_one',{p_user:owner,p_device:device,p_day:day});
     assert.ok(claim,'real queue claim');
     const hashes = Object.fromEntries((await rest.select('physiology_feature_manifests','select=feature,manifest_sha256'))
       .map((row:any)=>[row.feature,mismatch?'0'.repeat(64):row.manifest_sha256]));
     const start = Math.floor(Date.parse(`${day}T00:00:00Z`)/1000);
+    const epochs=fullDaySleepEpochs ?? [
+      {start,end:start+3600,stage:'unknown',state:'state_unknown'},
+      {start:start+3600,end:start+7200,stage:'unknown',state:'off_body'},
+    ];
     const payload = {schema_version:2,user_id:owner,device_id:device,day,algorithm_version:'frwhoop-physiology-2',
       input_revision:claim.input_revision,lease_token:claim.lease_token,run_id:claim.run_id,
       computed_at:new Date().toISOString(),publication_status:'provisional',feature_manifest_hashes:hashes,
       daily:{day,source_device_id:device,hrv_rmssd_ms:0,hrv_sdnn_ms:0,resting_hr_bpm:60,resp_rate_bpm:14,sleep_total_min:420,
-        sleep_efficiency:0.875,sleep_in_bed_min:480,sleep_awake_min:60,sleep_light_min:240,sleep_deep_min:120,sleep_rem_min:60},
+        sleep_efficiency:0.875,sleep_in_bed_min:480,sleep_awake_min:60,sleep_light_min:240,sleep_deep_min:120,sleep_rem_min:60,
+        sleep_onset_at:`${day}T00:00:00Z`,wake_onset_at:`${day}T08:00:00Z`,sleep_unstaged_min:0,state_unknown_min:null,
+        off_body_min:15,main_sleep_group_id:'group-a',opportunity_kind:'estimated_sleep_opportunity',full_day_sleep_epochs:epochs},
       nights:[{id:'55555555-5555-4555-8555-555555555555',device_id:device,period_day:day,
         start_at:`${day}T00:00:00Z`,end_at:`${day}T08:00:00Z`,start,end:start+28800,is_nap:false,
         asleep_min:420,in_bed_min:480,awake_min:60,light_min:240,deep_min:120,rem_min:60,efficiency:0.875,
@@ -366,6 +422,7 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
   await assert.rejects(()=>rest.rpc('server_scoring_for_device_day',{p_user:owner,p_device:identities[2].deviceId,p_day:day}),/403/);
   await sql(`delete from physiology_source_selection where user_id='${owner}';`);
   await sql("update physiology_feature_defaults set algorithm_version='frwhoop-server-1' where feature<>'sleep';");
+  await publish(false,[]);
   await capture('sleep-only',['sleep']);
   await sql("insert into physiology_promotion_revocations(approval_id,reason) select approval_id,'disposable revocation test' from physiology_promotion_approvals where feature='sleep';");
   const revoked = await capture('revoked',[]);

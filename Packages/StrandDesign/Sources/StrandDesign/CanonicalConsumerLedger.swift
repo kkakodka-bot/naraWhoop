@@ -26,7 +26,8 @@ public struct CanonicalConsumerLedger: Codable, Equatable, Hashable, Sendable {
         public var permitsValue: Bool { permitsValue(at: Date()) }
 
         public func permitsValue(at now: Date) -> Bool {
-            guard ["available", "stale"].contains(status), Self.revision(resultRevision),
+            guard ["available", "stale"].contains(status), ["current", "stale"].contains(freshness),
+                  Self.revision(resultRevision),
                   let inputRevision, inputRevision >= 0, Self.timestamp(computedAt) != nil,
                   algorithmVersion?.isEmpty == false, Self.hash(manifestHash) else { return false }
             if let expiresAt {
@@ -100,7 +101,8 @@ public struct CanonicalConsumerLedger: Codable, Equatable, Hashable, Sendable {
               UUID(uuidString: sourceID) != nil, UUID(uuidString: deviceID) != nil,
               !window.isEmpty, !families.isEmpty else { return false }
         return families.allSatisfy { key, receipt in
-            key == receipt.family && (receipt.inputRevision == nil || receipt.inputRevision! >= 0) &&
+            key == receipt.family && ["current", "stale", "expired", "unavailable"].contains(receipt.freshness) &&
+                (receipt.inputRevision == nil || receipt.inputRevision! >= 0) &&
                 [receipt.computedAt, receipt.observedThrough, receipt.expiresAt].allSatisfy({ $0 == nil || Receipt.timestamp($0) != nil }) &&
                 (receipt.resultRevision == nil || (Receipt.revision(receipt.resultRevision) &&
                     receipt.inputRevision != nil && receipt.algorithmVersion?.isEmpty == false && receipt.computedAt != nil))

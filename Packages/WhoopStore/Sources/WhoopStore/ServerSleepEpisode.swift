@@ -49,7 +49,7 @@ public struct ServerSleepEpisode: Identifiable {
         guard let cache, cache.day == day, let feature = cache.features["sleep"], feature.isCanonicalAvailable else { return [] }
         let result = cache.canonicalResults?.families["sleep"]
         if PhoneComputeRuntime.isFinalHosted || cache.canonicalResults != nil {
-            guard let result, result.hasCanonicalAuthorization, ["available", "stale"].contains(result.status),
+            guard let result, result.admitsCanonicalPublication(),
                   result.algorithmVersion == feature.algorithmVersion,
                   result.inputRevision == feature.inputRevision else { return [] }
         }

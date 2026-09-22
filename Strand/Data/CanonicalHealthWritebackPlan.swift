@@ -149,7 +149,7 @@ enum CanonicalHealthWritebackPlan {
                 result.result(for: metric)?.number(metric).map { (metric, $0) }
             })
             var sleeps: [Sleep] = []
-            if let family = result.families["sleep"], family.status == "available", family.hasCanonicalAuthorization,
+            if let family = result.families["sleep"], family.status == "available", family.admitsCanonicalPublication(),
                let payload = family.values["sleep_sessions"], payload != .null {
                 // Fail the export on a malformed session contract; never substitute empty DTOs.
                 sleeps = try JSONDecoder().decode([Sleep].self, from: JSONEncoder().encode(payload))

@@ -13,7 +13,7 @@ const sourceRoot = path.resolve(testDirectory, '../..');
 const generator = path.join(testDirectory, 'generate-migration-manifest.mjs');
 const catalogRelative = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
 const migrationsRelative = 'supabase/migrations';
-const expectedFingerprint = '777209b3e10f4f940d25e6f9fd17cc9a381095a174ea782ceb2f054d015b7dd3';
+const expectedFingerprint = '910a1c74a760b496028d7c2c58c009f45e29f9643fd2c279c278156f9a23d4c5';
 
 const sources = {
   'server-pipeline': {

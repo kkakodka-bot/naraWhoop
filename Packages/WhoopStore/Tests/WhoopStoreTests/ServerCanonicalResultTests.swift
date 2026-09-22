@@ -113,4 +113,25 @@ final class ServerCanonicalResultTests: XCTestCase {
             XCTAssertEqual(localCalls, 0)
         }
     }
+
+    func testFreshnessOutsideCurrentOrStaleCannotPublishSignedNumbers() throws {
+        for freshness in ["expired", "unavailable"] {
+            var raw = document(status: "available", value: 0)
+            var families = raw["families"] as! [String: [String: Any]]
+            families["recovery"]?["freshness"] = freshness
+            raw["families"] = families
+            let result = try decode(raw)
+            try result.validate(owner: owner, day: day, project: project, source: source, device: device)
+            let recovery = try XCTUnwrap(result.families["recovery"])
+            XCTAssertFalse(recovery.admitsCanonicalPublication(), freshness)
+            XCTAssertNil(recovery.number("recovery"), freshness)
+        }
+
+        var invalid = document(status: "available", value: 0)
+        var families = invalid["families"] as! [String: [String: Any]]
+        families["recovery"]?["freshness"] = "future"
+        invalid["families"] = families
+        XCTAssertThrowsError(try decode(invalid).validate(owner: owner, day: day,
+            project: project, source: source, device: device))
+    }
 }

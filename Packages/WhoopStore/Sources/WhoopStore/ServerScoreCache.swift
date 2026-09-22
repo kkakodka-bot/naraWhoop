@@ -305,6 +305,220 @@ public enum ServerScoreCacheCodec {
     public static let schemaVersion = 2
     public enum DecodeError: Error { case invalidScope, invalidPayload }
 
+    private struct DailyBinding {
+        let topLevel: String
+        let family: String
+        let metric: String
+        let canonicalScale: Double
+    }
+
+    private static let dailyBindings = [
+        DailyBinding(topLevel: "hrv_rmssd_ms", family: "night_hrv", metric: "hrv_rmssd_ms", canonicalScale: 1),
+        DailyBinding(topLevel: "hrv_sdnn_ms", family: "night_hrv", metric: "hrv_sdnn_ms", canonicalScale: 1),
+        DailyBinding(topLevel: "resting_hr_bpm", family: "night_hrv", metric: "resting_hr_bpm", canonicalScale: 1),
+        DailyBinding(topLevel: "sleep_total_min", family: "sleep", metric: "sleep_total_min", canonicalScale: 1),
+        DailyBinding(topLevel: "sleep_in_bed_min", family: "sleep", metric: "sleep_in_bed_min", canonicalScale: 1),
+        DailyBinding(topLevel: "sleep_awake_min", family: "sleep", metric: "sleep_awake_min", canonicalScale: 1),
+        DailyBinding(topLevel: "sleep_light_min", family: "sleep", metric: "sleep_light_min", canonicalScale: 1),
+        DailyBinding(topLevel: "sleep_deep_min", family: "sleep", metric: "sleep_deep_min", canonicalScale: 1),
+        DailyBinding(topLevel: "sleep_rem_min", family: "sleep", metric: "sleep_rem_min", canonicalScale: 1),
+        // The compatibility payload stores a fraction. The canonical family stores percent.
+        DailyBinding(topLevel: "sleep_efficiency", family: "sleep", metric: "sleep_efficiency", canonicalScale: 100),
+        DailyBinding(topLevel: "disturbances", family: "sleep", metric: "disturbances", canonicalScale: 1),
+        DailyBinding(topLevel: "resp_rate_bpm", family: "respiration", metric: "resp_rate_bpm", canonicalScale: 1),
+        DailyBinding(topLevel: "recovery", family: "recovery", metric: "recovery", canonicalScale: 1),
+        DailyBinding(topLevel: "strain", family: "strain_energy", metric: "strain", canonicalScale: 1),
+        DailyBinding(topLevel: "spo2_pct", family: "oxygen", metric: "spo2_pct", canonicalScale: 1),
+        DailyBinding(topLevel: "skin_temp_c", family: "temperature", metric: "skin_temp_c", canonicalScale: 1),
+        DailyBinding(topLevel: "skin_temp_dev_c", family: "temperature", metric: "skin_temp_dev_c", canonicalScale: 1),
+    ]
+
+    private static let featureBackedFamilies = [
+        "night_hrv": "hrv", "current_hrv": "hrv", "recovery": "hrv", "strain_energy": "hrv",
+        "oxygen": "hrv", "temperature": "hrv", "sleep": "sleep", "respiration": "respiration",
+    ]
+
+    private static let sleepCompatibilityKeys: Set<String> = [
+        "sleep_onset_at", "wake_onset_at", "sleep_unstaged_min", "state_unknown_min", "off_body_min",
+        "main_sleep_group_id", "opportunity_kind", "full_day_sleep_epochs",
+    ]
+
+    private static func semanticJSON(_ value: Any) throws -> ServerJSONValue {
+        if value is NSNull { return .null }
+        if let number = value as? NSNumber {
+            if CFGetTypeID(number) == CFBooleanGetTypeID() { return .bool(number.boolValue) }
+            guard number.doubleValue.isFinite else { throw DecodeError.invalidPayload }
+            return .number(number.doubleValue)
+        }
+        if let string = value as? String { return .string(string) }
+        if let array = value as? [Any] { return .array(try array.map(semanticJSON)) }
+        if let object = value as? [String: Any] {
+            return .object(try object.mapValues(semanticJSON))
+        }
+        throw DecodeError.invalidPayload
+    }
+
+    private static func foundationJSON(_ value: ServerJSONValue) -> Any {
+        switch value {
+        case .null: return NSNull()
+        case .number(let value): return value
+        case .string(let value): return value
+        case .bool(let value): return value
+        case .array(let value): return value.map(foundationJSON)
+        case .object(let value): return value.mapValues(foundationJSON)
+        }
+    }
+
+    private static func requireProjectionIdentity(
+        _ family: ServerCanonicalFamilyResult,
+        feature key: String,
+        features: [String: ServerScoreFeatureCache]
+    ) throws {
+        guard let feature = features[key], feature.hasCanonicalAuthorization,
+              family.deviceID == feature.deviceId,
+              family.algorithmVersion == feature.algorithmVersion,
+              family.inputRevision == feature.inputRevision,
+              family.manifestHash == feature.manifestHash,
+              family.featureManifestHash == feature.featureManifestHash,
+              family.canonicalQualification == feature.canonicalQualification else {
+            throw DecodeError.invalidScope
+        }
+    }
+
+    private static func admitsCompatibilityProjection(
+        _ family: ServerCanonicalFamilyResult,
+        family name: String,
+        at now: Date
+    ) -> Bool {
+        guard family.hasCanonicalAuthorization, !family.isExpired(at: now),
+              ["current", "stale"].contains(family.freshness) else { return false }
+        if ["available", "stale"].contains(family.status) { return true }
+        // A selected closed HRV window can carry immutable measurement details while
+        // intentionally withholding the scalar current-HRV value.
+        return name == "current_hrv" && family.status == "insufficient_quality"
+    }
+
+    /// Compatibility fields remain for older presentation call sites, but final-hosted responses may
+    /// only populate them from the same immutable family result consumed by the canonical adapters.
+    private static func reconcileCanonicalCompatibility(
+        _ overlay: [String: Any],
+        canonical: ServerCanonicalResults,
+        features: [String: ServerScoreFeatureCache],
+        at now: Date
+    ) throws -> [String: Any] {
+        var result = overlay
+        let rawDaily = overlay["daily"] as? [String: Any]
+        var daily: [String: Any] = [:]
+        var hasDailyProjection = false
+
+        for (familyName, featureKey) in featureBackedFamilies {
+            if let family = canonical.families[familyName], family.hasCanonicalAuthorization {
+                try requireProjectionIdentity(family, feature: featureKey, features: features)
+            }
+        }
+
+        for binding in dailyBindings {
+            guard let family = canonical.families[binding.family], family.hasCanonicalAuthorization else { continue }
+            guard let raw = rawDaily?[binding.topLevel], let expected = family.values[binding.metric] else {
+                throw DecodeError.invalidPayload
+            }
+            var observed = try semanticJSON(raw)
+            if binding.canonicalScale != 1, case .number(let value) = observed {
+                observed = .number(value * binding.canonicalScale)
+            }
+            guard observed == expected else { throw DecodeError.invalidPayload }
+            guard admitsCompatibilityProjection(family, family: binding.family, at: now) else { continue }
+            let projected: ServerJSONValue
+            if binding.canonicalScale != 1, case .number(let value) = expected {
+                projected = .number(value / binding.canonicalScale)
+            } else {
+                projected = expected
+            }
+            daily[binding.topLevel] = foundationJSON(projected)
+            hasDailyProjection = true
+        }
+
+        if let family = canonical.families["night_hrv"], family.hasCanonicalAuthorization {
+            for (topLevel, detail) in [("hrv_summary", "summary"), ("heart_rate_windows", "heart_rate_windows")] {
+                guard let raw = rawDaily?[topLevel], let expected = family.details[detail],
+                      try semanticJSON(raw) == expected else { throw DecodeError.invalidPayload }
+                if admitsCompatibilityProjection(family, family: "night_hrv", at: now) {
+                    daily[topLevel] = foundationJSON(expected)
+                    hasDailyProjection = true
+                }
+            }
+        }
+        if let family = canonical.families["respiration"], family.hasCanonicalAuthorization {
+            guard let raw = rawDaily?["respiration_summary"], let expected = family.details["summary"],
+                  try semanticJSON(raw) == expected else { throw DecodeError.invalidPayload }
+            if admitsCompatibilityProjection(family, family: "respiration", at: now) {
+                daily["respiration_summary"] = foundationJSON(expected)
+                hasDailyProjection = true
+            }
+        }
+
+        if let family = canonical.families["sleep"], family.hasCanonicalAuthorization {
+            guard let rawNights = overlay["nights"], let valueNights = family.values["sleep_sessions"],
+                  let detailNights = family.details["nights"],
+                  try semanticJSON(rawNights) == valueNights, valueNights == detailNights,
+                  let rawOverrides = overlay["sleep_overrides"], let detailOverrides = family.details["sleep_overrides"],
+                  try semanticJSON(rawOverrides) == detailOverrides else { throw DecodeError.invalidPayload }
+            let admitted = admitsCompatibilityProjection(family, family: "sleep", at: now)
+            result["nights"] = admitted ? foundationJSON(valueNights) : [Any]()
+            result["sleep_overrides"] = admitted ? foundationJSON(detailOverrides) : [Any]()
+
+            if let compatibility = family.details["daily_compatibility"] {
+                guard case .object(let values) = compatibility,
+                      Set(values.keys) == sleepCompatibilityKeys else { throw DecodeError.invalidPayload }
+                for key in sleepCompatibilityKeys {
+                    guard let raw = rawDaily?[key], let expected = values[key],
+                          try semanticJSON(raw) == expected else { throw DecodeError.invalidPayload }
+                    if admitted { daily[key] = foundationJSON(expected) }
+                }
+                if admitted { hasDailyProjection = true }
+            }
+        } else {
+            result["nights"] = [Any]()
+            result["sleep_overrides"] = [Any]()
+        }
+
+        if let family = canonical.families["current_hrv"], family.hasCanonicalAuthorization {
+            guard let rows = overlay["measurements"] as? [Any], let expected = family.details["measurements"] else {
+                throw DecodeError.invalidPayload
+            }
+            let hrvRows = rows.filter { ($0 as? [String: Any])?["feature"] as? String == "hrv" }
+            guard try semanticJSON(hrvRows) == expected else { throw DecodeError.invalidPayload }
+            result["measurements"] = admitsCompatibilityProjection(family, family: "current_hrv", at: now)
+                ? foundationJSON(expected) : [Any]()
+        } else {
+            result["measurements"] = [Any]()
+        }
+
+        let admittedFamilies = canonical.families.filter {
+            admitsCompatibilityProjection($0.value, family: $0.key, at: now)
+        }.map(\.value)
+        let computed = admittedFamilies.compactMap(\.computedAt).max { lhs, rhs in
+            guard let left = ServerCanonicalFamilyResult.timestamp(lhs),
+                  let right = ServerCanonicalFamilyResult.timestamp(rhs) else { return lhs < rhs }
+            return left < right
+        }
+        let stale = admittedFamilies.isEmpty || admittedFamilies.contains {
+            $0.status == "stale" || $0.freshness != "current"
+        }
+        result["computed_at"] = computed ?? NSNull()
+        result["stale"] = stale
+
+        if hasDailyProjection {
+            daily["day"] = canonical.day
+            daily["source_device_id"] = canonical.deviceID
+            daily["computed_at"] = computed ?? NSNull()
+            result["daily"] = daily
+        } else {
+            result["daily"] = NSNull()
+        }
+        return result
+    }
+
     public static func parseSnapshot(_ data: Data, day: String, ownerId: String,
                                      fetchedAt: Date = Date()) throws -> ServerScoreDayCache {
         guard !ownerId.isEmpty,
@@ -339,6 +553,29 @@ public enum ServerScoreCacheCodec {
                 timezoneIds: f["timezone_ids"] as? [String],
                 canonicalQualification: f["canonical_qualification"] as? String,
                 featureManifestHash: f["feature_manifest_hash"] as? String)
+        }
+        var canonicalResults: ServerCanonicalResults?
+        var pendingCanonicalResults: ServerPendingCanonicalResults?
+        if let compute = o["compute"] ?? root["compute"] {
+            let encoded = try JSONSerialization.data(withJSONObject: compute)
+            if (compute as? [String: Any])?["device_id"] is NSNull {
+                let pending = try JSONDecoder().decode(ServerPendingCanonicalResults.self, from: encoded)
+                try pending.validate(owner: ownerId, day: day)
+                guard o["daily"] is NSNull, (o["nights"] as? [Any])?.isEmpty == true,
+                      o["computed_at"] is NSNull,
+                      features.values.allSatisfy({ $0.deviceId == nil && $0.status == "unavailable" }) else {
+                    throw DecodeError.invalidPayload
+                }
+                pendingCanonicalResults = pending
+            } else {
+                let canonical = try JSONDecoder().decode(ServerCanonicalResults.self, from: encoded)
+                try canonical.validate(owner: ownerId, day: day)
+                guard features.values.allSatisfy({ $0.deviceId == nil || $0.deviceId == canonical.deviceID }) else {
+                    throw DecodeError.invalidScope
+                }
+                o = try reconcileCanonicalCompatibility(o, canonical: canonical, features: features, at: fetchedAt)
+                canonicalResults = canonical
+            }
         }
         var daily: ServerScoreDailyCache?
         if let d = o["daily"] as? [String: Any] {
@@ -416,25 +653,11 @@ public enum ServerScoreCacheCodec {
         var result = ServerScoreDayCache(day: day, algorithmVersion: version, daily: daily, nights: nights,
             computedAt: o["computed_at"] as? String, stale: o["stale"] as? Bool ?? true, fetchedAt: fetchedAt)
         result.ownerId = ownerId.lowercased(); result.features = features
-        if let compute = o["compute"] ?? root["compute"] {
-            let encoded = try JSONSerialization.data(withJSONObject: compute)
-            if (compute as? [String: Any])?["device_id"] is NSNull {
-                let pending = try JSONDecoder().decode(ServerPendingCanonicalResults.self, from: encoded)
-                try pending.validate(owner: ownerId, day: day)
-                guard daily == nil, nights.isEmpty, result.computedAt == nil,
-                      features.values.allSatisfy({ $0.deviceId == nil && $0.status == "unavailable" }) else {
-                    throw DecodeError.invalidPayload
-                }
-                result.pendingCanonicalResults = pending
-                result.ownedMetrics = pending.ownedMetrics
-            } else {
-            let canonical = try JSONDecoder().decode(ServerCanonicalResults.self, from: encoded)
-            try canonical.validate(owner: ownerId, day: day)
-            guard features.values.allSatisfy({ $0.deviceId == nil || $0.deviceId == canonical.deviceID }) else {
-                throw DecodeError.invalidScope
-            }
-            result.canonicalResults = canonical
-            }
+        if let pendingCanonicalResults {
+            result.pendingCanonicalResults = pendingCanonicalResults
+            result.ownedMetrics = pendingCanonicalResults.ownedMetrics
+        } else if let canonicalResults {
+            result.canonicalResults = canonicalResults
         }
         if let epochs = (o["daily"] as? [String: Any])?["full_day_sleep_epochs"] as? [[String: Any]] {
             result.fullDaySleepEpochs = try epochs.map { s in
@@ -451,7 +674,13 @@ public enum ServerScoreCacheCodec {
                     contextKind: s["context_kind"] as? String, contextProvenance: s["context_provenance"] as? String)
             }
         }
-        o["nights"] = authorizedNights
+        if canonicalResults == nil {
+            o["nights"] = authorizedNights
+        } else if case .array = canonicalResults?.families["sleep"]?.values["sleep_sessions"] {
+            // Parsing can strip nested fields owned by a different family, but preserves
+            // the selected sleep family's array order exactly.
+            o["nights"] = authorizedNights
+        }
         root["server_scoring"] = o
         result.rawSnapshotJSON = String(data: try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys]), encoding: .utf8)
         return result

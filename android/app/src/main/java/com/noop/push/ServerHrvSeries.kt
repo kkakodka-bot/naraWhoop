@@ -17,12 +17,18 @@ data class ServerHrvSeries(
     companion object {
         fun from(cache: ServerScoreDayCache?, day: String): ServerHrvSeries {
             val feature = cache?.features?.get("hrv")
-            val canonical = cache?.compute?.families?.get("night_hrv")
+            val canonical = cache?.compute?.families?.get("current_hrv")
+            var admittedResultRevision: String? = null
             fun result(rows: List<Window>) = ServerHrvSeries(rows, feature?.status, feature?.reason, feature?.deviceId,
-                feature?.algorithmVersion, feature?.observedThrough, cache?.stale ?: true, canonical?.resultRevision)
-            if (cache?.compute != null && (feature == null || canonical?.authorized != true || canonical.expired() ||
+                feature?.algorithmVersion, feature?.observedThrough, cache?.stale ?: true, admittedResultRevision)
+            if (cache?.compute != null && (feature == null || canonical?.hasImmutableIdentity != true || canonical.expired() ||
+                    canonical.freshness !in setOf("current", "stale") ||
+                    canonical.status !in setOf("available", "fresh", "stale", "insufficient_quality") ||
                     canonical.inputRevision != feature.inputRevision || canonical.deviceId != feature.deviceId ||
-                    canonical.algorithmVersion != feature.algorithmVersion || canonical.manifestHash != feature.manifestHash)) {
+                    canonical.algorithmVersion != feature.algorithmVersion || canonical.manifestHash != feature.manifestHash ||
+                    canonical.featureManifestHash != feature.featureManifestHash ||
+                    canonical.canonicalQualification != feature.canonicalQualification ||
+                    canonical.computedAt != feature.computedAt || canonical.observedThrough != feature.observedThrough)) {
                 return result(emptyList())
             }
             if (cache == null || cache.day != day || cache.ownerId.isBlank() || cache.schemaVersion != 2 || feature == null ||
@@ -36,6 +42,7 @@ data class ServerHrvSeries(
                 selected.optString("device_id") != feature.deviceId || selected.optString("algorithm_version") != feature.algorithmVersion ||
                 selected.opt("input_revision")?.toString() != feature.inputRevision.toString()) return result(emptyList())
             val rows = overlay.optJSONArray("measurements") ?: return result(emptyList())
+            admittedResultRevision = canonical?.resultRevision
             fun JSONObject.text(key: String) = opt(key) as? String
             fun JSONObject.number(key: String) = (opt(key) as? Number)?.toDouble()?.takeIf { it.isFinite() }
             fun JSONObject.integer(key: String) = number(key)?.takeIf {

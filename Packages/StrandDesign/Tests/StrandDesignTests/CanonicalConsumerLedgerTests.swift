@@ -4,12 +4,13 @@ import XCTest
 final class CanonicalConsumerLedgerTests: XCTestCase {
     private func ledger(status: String = "available", revision: String? = "compute:17",
                         authorization: String? = "retained_legacy", algorithm: String = "frwhoop-server-1",
-                        manifest: String? = String(repeating: "a", count: 64), expires: String? = nil) -> CanonicalConsumerLedger {
+                        manifest: String? = String(repeating: "a", count: 64), expires: String? = nil,
+                        freshness: String = "current") -> CanonicalConsumerLedger {
         let receipt = CanonicalConsumerLedger.Receipt(family: "recovery", status: status, reason: nil,
             algorithmVersion: algorithm, configurationVersion: "config-1", modelVersion: nil,
             preprocessingVersion: "preprocess-1", qualityVersion: "quality-1", inputRevision: 17,
             resultRevision: revision, computedAt: "2026-09-21T10:00:00Z", observedThrough: "2026-09-21T09:00:00Z",
-            freshness: "current", timezoneID: "America/Los_Angeles", manifestHash: manifest,
+            freshness: freshness, timezoneID: "America/Los_Angeles", manifestHash: manifest,
             featureManifestHash: nil, canonicalAuthorization: authorization, expiresAt: expires)
         return CanonicalConsumerLedger(project: "https://example.supabase.co", ownerID: UUID().uuidString,
             sourceID: UUID().uuidString, deviceID: UUID().uuidString, window: "2026-09-21", families: ["recovery": receipt])
@@ -55,6 +56,15 @@ final class CanonicalConsumerLedgerTests: XCTestCase {
         XCTAssertEqual(restored.canonicalLedger?.families["recovery"]?.expiresAt, "2000-01-01T00:00:00.000Z")
         XCTAssertFalse(restored.hasCanonicalAdmission)
         XCTAssertTrue(snapshot(ledger(expires: "2000-01-01T00:00:00.000Z"), charge: nil).hasCanonicalAdmission)
+    }
+    func testUnavailableExpiredOrUnknownFreshnessCannotAdmitPersistedValue() {
+        for freshness in ["expired", "unavailable"] {
+            XCTAssertFalse(snapshot(ledger(freshness: freshness), charge: 80).hasCanonicalAdmission, freshness)
+            XCTAssertTrue(snapshot(ledger(freshness: freshness), charge: nil).hasCanonicalAdmission, freshness)
+        }
+        let unknown = ledger(freshness: "future")
+        XCTAssertFalse(unknown.isValid)
+        XCTAssertFalse(snapshot(unknown, charge: 80).hasCanonicalAdmission)
     }
     func testExpiryBoundaryAndHistoricalDailyWithoutExpiry() throws {
         let expiry = ISO8601DateFormatter().date(from: "2026-09-21T10:01:00Z")!

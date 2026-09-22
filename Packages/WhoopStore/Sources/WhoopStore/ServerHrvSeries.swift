@@ -1,5 +1,6 @@
 import Foundation
 import CoreFoundation
+import WhoopProtocol
 
 /// Display projection of the selected server RMSSD series; never substitutes a daily scalar or SDNN.
 public struct ServerHrvSeries {
@@ -20,14 +21,30 @@ public struct ServerHrvSeries {
     public let windows: [Window]
     public let featureStatus: String?, featureReason: String?
     public let deviceId: String?, algorithmVersion: String?, observedThrough: String?
+    public let resultRevision: String?
     public let stale: Bool
 
     public static func from(_ cache: ServerScoreDayCache?, day: String) -> Self {
         let feature = cache?.features["hrv"]
+        let canonical = cache?.canonicalResults?.families["current_hrv"]
+        var admittedResultRevision: String?
         func result(_ windows: [Window]) -> Self {
             Self(windows: windows, featureStatus: feature?.status, featureReason: feature?.reason,
                 deviceId: feature?.deviceId, algorithmVersion: feature?.algorithmVersion,
-                observedThrough: feature?.observedThrough, stale: cache?.stale ?? true)
+                observedThrough: feature?.observedThrough, resultRevision: admittedResultRevision,
+                stale: cache?.stale ?? true)
+        }
+        if PhoneComputeRuntime.isFinalHosted || cache?.canonicalResults != nil {
+            guard let canonical, canonical.hasCanonicalAuthorization,
+                  ["available", "stale", "insufficient_quality"].contains(canonical.status),
+                  ["current", "stale"].contains(canonical.freshness), !canonical.isExpired(),
+                  canonical.deviceID == feature?.deviceId,
+                  canonical.algorithmVersion == feature?.algorithmVersion,
+                  canonical.inputRevision == feature?.inputRevision,
+                  canonical.manifestHash == feature?.manifestHash,
+                  canonical.featureManifestHash == feature?.featureManifestHash,
+                  canonical.canonicalQualification == feature?.canonicalQualification else { return result([]) }
+            admittedResultRevision = canonical.resultRevision
         }
         guard let cache, cache.day == day, !cache.ownerId.isEmpty, cache.schemaVersion == 2,
               let feature, feature.hasCanonicalAuthorization, feature.algorithmVersion == "frwhoop-physiology-2", let device = feature.deviceId, !device.isEmpty,

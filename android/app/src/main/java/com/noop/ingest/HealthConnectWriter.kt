@@ -240,9 +240,13 @@ object HealthConnectWriter {
         val retract = linkedMapOf<kotlin.reflect.KClass<out Record>, MutableList<String>>()
         for (cache in snapshots) {
             for ((familyID, family) in cache.compute?.families.orEmpty()) {
-                if (familyID !in setOf("night_hrv", "respiration", "oxygen", "sleep") || cache.stale || cache.readFailure != null) continue
+                if (familyID !in setOf("night_hrv", "respiration", "oxygen", "sleep") || cache.readFailure != null) continue
                 val identity = "${family.project}:${family.ownerId}:${family.deviceId}:$familyID:${family.window}"
                 val previous = receipts.getString(identity, null)?.let { runCatching { org.json.JSONObject(it) }.getOrNull() }
+                // A stale source result must not republish. A fresh authoritative unavailable/revoked
+                // result still retracts an older receipt even though the compatibility envelope has no
+                // admitted family and therefore reports stale=true.
+                if (cache.stale && (family.status == "stale" || family.freshness in setOf("stale", "expired") || previous == null)) continue
                 val exportState = if (family.authorized && !family.expired()) family.status else "unavailable"
                 if (previous?.optString("result_revision") == family.resultRevision && previous?.optString("health_source_state") == exportState) continue
                 previous?.optJSONArray("health_export_ids")?.let { ids ->

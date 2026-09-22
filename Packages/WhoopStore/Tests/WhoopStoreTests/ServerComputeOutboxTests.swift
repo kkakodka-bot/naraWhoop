@@ -13,7 +13,8 @@ final class ServerComputeOutboxTests: XCTestCase {
         .init(id: id, family: "spot_hrv", sessionID: session, start: Date(timeIntervalSince1970: 1793520000),
             end: Date(timeIntervalSince1970: 1793520060), timezone: TimeZone(identifier: "America/Los_Angeles")!, inputRevision: revision, consent: true)
     }
-    private func result(_ request: ServerComputeRequest, status: String = "unqualified", value: Any = NSNull(), expires: String? = nil) throws -> ServerCanonicalFamilyResult {
+    private func result(_ request: ServerComputeRequest, status: String = "unqualified", value: Any = NSNull(),
+                        expires: String? = nil, freshness: String = "current") throws -> ServerCanonicalFamilyResult {
         var raw: [String: Any] = ["owner": "server", "project": scope.project, "owner_id": owner,
             "source_id": source, "device_id": device, "window": request.sessionID,
             "metrics": Array(ServerCanonicalResults.familyMetrics[request.family]!), "status": status,
@@ -22,7 +23,7 @@ final class ServerComputeOutboxTests: XCTestCase {
             "canonical_qualification": status == "available" ? "retained_legacy" : NSNull(),
             "manifest_hash": status == "available" ? String(repeating: "a", count: 64) : NSNull(),
             "configuration_version": "vps-only-1", "computed_at": "2026-09-21T10:00:00Z",
-            "timezone_id": request.timezoneID, "freshness": "current",
+            "timezone_id": request.timezoneID, "freshness": freshness,
             "values": Dictionary(uniqueKeysWithValues: ServerCanonicalResults.familyMetrics[request.family]!.map { ($0, value) }), "details": [:]]
         if let expires { raw["expires_at"] = expires; raw["decision_id"] = "decision-1" }
         return try JSONDecoder().decode(ServerCanonicalFamilyResult.self, from: JSONSerialization.data(withJSONObject: raw))
@@ -69,5 +70,20 @@ final class ServerComputeOutboxTests: XCTestCase {
         XCTAssertTrue(try outbox.consumeDecision(decision, now: clock.date(from: "2026-09-21T10:00:30Z")!))
         XCTAssertFalse(try outbox.consumeDecision(decision, now: clock.date(from: "2026-09-21T10:00:31Z")!))
         XCTAssertFalse(try outbox.consumeDecision(decision, now: clock.date(from: "2026-09-21T10:01:00Z")!))
+    }
+
+    func testDecisionFreshnessIsValidatedAndCannotReplayUnavailableOrExpiredValue() throws {
+        let db = try DatabaseQueue(), outbox = try ServerComputeOutbox(db: db, scope: scope), request = request()
+        let item = try outbox.enqueue(request, localDevice: "whoop-local")
+        let clock = ISO8601DateFormatter(), now = clock.date(from: "2026-09-21T10:00:30Z")!
+        for freshness in ["expired", "unavailable"] {
+            let decision = try result(request, status: "available", value: 0,
+                expires: "2026-09-21T10:01:00Z", freshness: freshness)
+            XCTAssertFalse(try outbox.consumeDecision(decision, now: now), freshness)
+        }
+
+        let invalid = try result(request, status: "available", value: 0,
+            expires: "2026-09-21T10:01:00Z", freshness: "future")
+        XCTAssertThrowsError(try outbox.accept(invalid, for: item))
     }
 }

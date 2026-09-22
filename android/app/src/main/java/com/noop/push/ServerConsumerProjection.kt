@@ -25,7 +25,7 @@ object ServerConsumerProjection {
             activeKcalEst = n("active_kcal_est"), spo2Red = n("spo2_red")?.toInt(), spo2Ir = n("spo2_ir")?.toInt())
     }
     fun sleeps(cache: ServerScoreDayCache): List<SleepSession> {
-        val family = cache.compute?.families?.get("sleep")?.takeIf { it.authorized } ?: return emptyList()
+        val family = cache.compute?.families?.get("sleep")?.takeIf { it.authorized && !it.expired() } ?: return emptyList()
         return cache.nights.mapNotNull { night ->
             val start = runCatching { java.time.Instant.parse(night.startAt).epochSecond }.getOrNull() ?: return@mapNotNull null
             val end = runCatching { java.time.Instant.parse(night.endAt).epochSecond }.getOrNull() ?: return@mapNotNull null

@@ -14,7 +14,7 @@ enum CanonicalConsumerPublication {
         let insight = result?.result(for: "insights")
         let text: String?
         if ledger(result, state: state)?.permitsRead == true,
-           let insight, insight.hasCanonicalAuthorization, insight.status == "available",
+           let insight, insight.status == "available", insight.admitsCanonicalPublication(at: now),
            case .string(let content) = insight.values["insights"] { text = content }
         else { text = nil }
         return WidgetSnapshot(recovery: rounded("recovery"), bpm: heartRate, batteryPct: batteryPct,

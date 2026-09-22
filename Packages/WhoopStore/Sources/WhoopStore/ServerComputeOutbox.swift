@@ -135,6 +135,7 @@ public final class ServerComputeOutbox {
               Set(result.metrics) == ServerCanonicalResults.familyMetrics[item.request.family],
               Set(result.values.keys).isSubset(of: Set(result.metrics)),
               ServerCanonicalResults.states.contains(result.status),
+              ServerCanonicalResults.freshnessStates.contains(result.freshness),
               !["available", "stale"].contains(result.status) || result.hasCanonicalAuthorization,
               ["available", "stale"].contains(result.status) || result.values.values.allSatisfy({ $0 == .null }) else { throw Failure.invalidResult }
         let body = try Self.encoded(result), key = try Self.encoded(scope)
@@ -162,7 +163,7 @@ public final class ServerComputeOutbox {
     public func consumeDecision(_ result: ServerCanonicalFamilyResult, now: Date) throws -> Bool {
         guard result.ownerID == scope.owner, result.deviceID == scope.device, result.sourceID == scope.source,
               ServerCanonicalResults.projectKey(result.project) == scope.project,
-              result.status == "available", result.hasCanonicalAuthorization,
+              result.status == "available", result.admitsCanonicalPublication(at: now),
               let decision = result.decisionID, let revision = result.resultRevision,
               let expires = ServerCanonicalFamilyResult.timestamp(result.expiresAt), expires > now,
               let computed = ServerCanonicalFamilyResult.timestamp(result.computedAt), computed <= now else { return false }

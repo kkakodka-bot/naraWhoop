@@ -3913,8 +3913,8 @@ private fun dashboardCardValue(
                     serverOverlay, null)
                 val reading = if (selection.fromServer) {
                     com.noop.analytics.SkinTempDisplay.leadReading(
-                        absC = serverOverlay?.daily?.skinTempC,
-                        devC = serverOverlay?.daily?.skinTempDevC,
+                        absC = com.noop.push.ServerConsumerProjection.number(serverOverlay, "skin_temp_c"),
+                        devC = com.noop.push.ServerConsumerProjection.number(serverOverlay, "skin_temp_dev_c"),
                         prefer = skinTempPreferred,
                     )
                 } else {

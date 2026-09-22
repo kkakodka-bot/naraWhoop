@@ -7,7 +7,7 @@ data class ServerRespirationSummary(
     val breathsPerMinute: Double?, val mean: Double?, val distribution: List<Double>, val coverage: Double?,
     val acceptedSeconds: Double?, val acceptedWindows: Int?, val totalWindows: Int?, val context: String?,
     val method: String?, val calibrationStatus: String?, val reason: String?, val legacy: Boolean,
-    val measurementReason: String? = null,
+    val measurementReason: String? = null, val resultRevision: String? = null,
 ) {
     companion object {
         fun project(cache: ServerScoreDayCache?, day: String): ServerRespirationSummary? {
@@ -16,6 +16,13 @@ data class ServerRespirationSummary(
             if (!feature.hasCanonicalAuthorization) return null
             val device = feature.deviceId?.takeIf { it.isNotBlank() } ?: return null
             val version = feature.algorithmVersion?.takeIf { it.isNotBlank() } ?: return null
+            val canonical = cache.compute?.families?.get("respiration")
+            if (cache.compute != null && (canonical?.authorized != true || canonical.expired() ||
+                    canonical.deviceId != feature.deviceId || canonical.algorithmVersion != feature.algorithmVersion ||
+                    canonical.inputRevision != feature.inputRevision || canonical.manifestHash != feature.manifestHash ||
+                    canonical.featureManifestHash != feature.featureManifestHash ||
+                    canonical.canonicalQualification != feature.canonicalQualification ||
+                    canonical.computedAt != feature.computedAt || canonical.observedThrough != feature.observedThrough)) return null
             val overlay = runCatching { JSONObject(cache.rawSnapshotJSON ?: "").getJSONObject("server_scoring") }.getOrNull() ?: return null
             val rawFeature = overlay.optJSONObject("features")?.optJSONObject("respiration") ?: return null
             if (!overlay.optString("user_id").equals(cache.ownerId, ignoreCase = true) || overlay.optString("day") != day ||
@@ -56,7 +63,7 @@ data class ServerRespirationSummary(
                 if (legacy) null else coverage, if (legacy) null else seconds, if (legacy) null else accepted,
                 if (legacy) null else total, if (legacy) null else context, if (legacy) null else text(summary, "method_version"),
                 if (legacy) null else text(summary, "calibration_status"), reason, legacy,
-                if (primary == null) measurementReason else null)
+                if (primary == null) measurementReason else null, canonical?.resultRevision)
         }
     }
 }

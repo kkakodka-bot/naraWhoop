@@ -9,7 +9,7 @@ const CATALOG_RELATIVE_PATH = 'scoring-service/service/src/main/resources/scorin
 const MIGRATIONS_RELATIVE_PATH = 'supabase/migrations';
 const BASELINE_COUNT = 117;
 const EXPECTED_TOTAL = 124;
-const EXPECTED_SCHEMA_FINGERPRINT = '777209b3e10f4f940d25e6f9fd17cc9a381095a174ea782ceb2f054d015b7dd3';
+const EXPECTED_SCHEMA_FINGERPRINT = '910a1c74a760b496028d7c2c58c009f45e29f9643fd2c279c278156f9a23d4c5';
 const HOSTED_PROJECT_REF = 'sgoyxzcagqyxexmsidtk';
 const HOSTED_HIGHEST_IDENTITY = '20260921104000_server_unrepresentable_clock.sql';
 const SUPERSEDED_HOSTED_IDENTITY = '20260918234000_motion_evidence_provenance.sql';
@@ -65,7 +65,7 @@ const PENDING_CONTRACT = Object.freeze([
   }),
   Object.freeze({
     stableIdentity: '20260921121000_final_hosted_compute_contract.sql',
-    sha256: 'eedc287a3e0081c13f85924add06041bb0c164eb3984bbca3d07bd2a9b314fd2',
+    sha256: '4f19d77777d1da06f5a3be1683fd03264f8563a4b0fa104d2a80dd9fc74d300a',
     workstream: 'vps-only-compute',
   }),
   Object.freeze({

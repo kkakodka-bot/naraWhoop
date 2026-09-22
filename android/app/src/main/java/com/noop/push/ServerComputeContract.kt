@@ -9,16 +9,18 @@ data class ServerComputeFamily(
     val status: String, val reason: String?, val resultRevision: String?, val inputRevision: Long?,
     val algorithmVersion: String?, val configurationVersion: String?, val manifestHash: String?,
     val featureManifestHash: String?, val canonicalQualification: String?,
-    val computedAt: String?, val observedThrough: String?, val expiresAt: String?, val decisionId: String?,
+    val computedAt: String?, val observedThrough: String?, val freshness: String, val expiresAt: String?, val decisionId: String?,
     val json: String,
 ) {
-    val authorized: Boolean get() = resultRevision != null && inputRevision != null &&
+    /** Qualification and immutable identity are independent of whether this result currently has a value. */
+    val hasImmutableIdentity: Boolean get() = resultRevision != null && inputRevision != null &&
         computedAt != null && !deviceId.isNullOrBlank() && !algorithmVersion.isNullOrBlank() &&
-        status in setOf("available", "fresh", "stale") &&
         manifestHash?.matches(Regex("^[a-f0-9]{64}$")) == true &&
         (algorithmVersion == "frwhoop-server-1" && canonicalQualification == "retained_legacy" ||
             canonicalQualification == "signed_reference_approval" &&
             featureManifestHash?.matches(Regex("^[a-f0-9]{64}$")) == true)
+    val authorized: Boolean get() = hasImmutableIdentity && status in setOf("available", "stale") &&
+        freshness in setOf("current", "stale")
     fun expired(nowMs: Long = System.currentTimeMillis()): Boolean = expiresAt?.let {
         runCatching { java.time.Instant.parse(it).toEpochMilli() <= nowMs }.getOrDefault(true)
     } ?: false
@@ -64,46 +66,87 @@ data class ServerComputeContract(val project: String, val ownerId: String, val s
             "respiration", "recovery", "strain_energy", "steps", "workouts", "live_workout", "oxygen", "temperature",
             "intraday_temperature", "ppg_hr", "stress", "stress_events", "illness", "cycle", "circadian", "readiness_load",
             "fitness_longevity", "baselines", "biofeedback", "live_coaching", "insights")
-        private val states = setOf("available", "fresh", "stale", "unsupported", "insufficient_input", "insufficient_quality",
-            "unqualified", "processing", "pending", "failed", "unavailable", "revoked")
+        private val states = setOf("available", "stale", "unsupported", "insufficient_input", "insufficient_quality",
+            "unqualified", "processing", "failed", "unavailable", "revoked")
         fun decode(compute: JSONObject?, owner: String, day: String): ServerComputeContract? {
             if (compute == null) return null
             require(compute.getString("mode") == "final_hosted" && compute.getString("policy_version") == "vps-only-1")
+            require(canonicalUuid(owner)) { "Invalid compute owner" }
             val project = compute.getString("project").trimEnd('/')
-            require(project.isNotBlank() && compute.getString("owner_id").equals(owner, true))
-            val source = compute.text("source_id")
+            require(AccountScope.canonicalProjectURL(project) == project &&
+                compute.getString("owner_id").equals(owner, true) && compute.getString("day") == day) {
+                "Invalid compute scope"
+            }
+            val source = compute.getString("source_id").also { require(canonicalUuid(it)) { "Invalid compute source" } }
+            val device = compute.optionalString("device_id")
+            require(device == null || canonicalUuid(device)) { "Invalid compute device" }
             val raw = compute.getJSONObject("families")
             require(raw.keys().asSequence().toSet() == familyIDs) { "Incomplete compute family contract" }
             val results = familyIDs.associateWith { key ->
                 val f = raw.getJSONObject(key)
-                decodeFamily(f, key, project, owner, source, day, compute.text("device_id"))
+                decodeFamily(f, key, project, owner, source, day, device)
             }
             require(results.values.flatMap { it.metrics }.let { it.size == it.toSet().size }) { "Ambiguous metric family" }
             return ServerComputeContract(project, owner.lowercase(), source, results)
         }
-        fun decodeFamily(f: JSONObject, key: String, project: String, owner: String, source: String?,
+        fun decodeFamily(f: JSONObject, key: String, project: String, owner: String, source: String,
                          window: String, device: String?): ServerComputeFamily {
                 require(key in familyIDs)
-                require(f.getString("owner") == "server" && f.getString("status") in states)
-                require(f.text("project")?.trimEnd('/') == project && f.text("owner_id")?.lowercase() == owner.lowercase())
-                require(f.text("source_id") == source && f.getString("window") == window)
+                val status = f.getString("status")
+                require(f.getString("owner") == "server" && status in states)
+                require(f.getString("project").trimEnd('/') == project &&
+                    f.getString("owner_id").lowercase() == owner.lowercase())
+                require(f.getString("source_id") == source && f.getString("window") == window)
                 val ids = f.getJSONArray("metrics").let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }
                 require(ids == familyMetrics.getValue(key)) { "Metric family contract mismatch" }
-                val input = (f.opt("input_revision") as? Number)?.let { number -> number.toLong().also {
+                val inputValue = f.opt("input_revision")
+                require(inputValue == null || inputValue === JSONObject.NULL || inputValue is Number) {
+                    "Invalid compute input revision"
+                }
+                val input = (inputValue as? Number)?.let { number -> number.toLong().also {
                     require(it >= 0 && number.toDouble().isFinite() && number.toDouble() == it.toDouble())
                 } }
-                val revision = f.text("result_revision")
-                require(revision == null || (input != null && f.text("computed_at") != null &&
+                val revision = f.optionalString("result_revision")
+                val freshness = f.getString("freshness")
+                require(freshness in setOf("current", "stale", "expired", "unavailable")) { "Invalid compute freshness" }
+                val computedAt = f.optionalTimestamp("computed_at")
+                val observedThrough = f.optionalTimestamp("observed_through")
+                val expiresAt = f.optionalTimestamp("expires_at")
+                require(revision == null || (input != null && computedAt != null &&
                     revision.matches(Regex("^(sha256:[a-f0-9]{64}|compute:[0-9]+|session:[0-9]+)$"))))
-                require(f.text("device_id") == device) { "Cross-device family result" }
-                listOf("computed_at", "observed_through", "expires_at").forEach { name ->
-                    f.text(name)?.let(java.time.Instant::parse)
+                val familyDevice = f.optionalString("device_id")
+                require(familyDevice == device && (familyDevice == null || canonicalUuid(familyDevice))) {
+                    "Cross-device family result"
                 }
-                return ServerComputeFamily(key, project, owner.lowercase(), f.text("device_id"), source, window, f.text("timezone_id"), ids,
-                    f.getString("status"), f.text("reason"), revision, input, f.text("algorithm_version"),
+                val timezone = f.optionalString("timezone_id")
+                timezone?.let { runCatching { java.time.ZoneId.of(it) }.getOrElse { throw IllegalArgumentException("Invalid compute timezone", it) } }
+                val values = f.getJSONObject("values")
+                val valueKeys = values.keys().asSequence().toSet()
+                require(valueKeys == familyMetrics.getValue(key)) { "Metric value contract mismatch" }
+                require(status in setOf("available", "stale") || valueKeys.all { values.opt(it) === JSONObject.NULL }) {
+                    "Unavailable family cannot carry values"
+                }
+                f.getJSONObject("details")
+                val family = ServerComputeFamily(key, project, owner.lowercase(), familyDevice, source, window, timezone, ids,
+                    status, f.text("reason"), revision, input, f.text("algorithm_version"),
                     f.text("configuration_version"), f.text("manifest_hash"), f.text("feature_manifest_hash"),
-                    f.text("canonical_qualification"), f.text("computed_at"), f.text("observed_through"),
-                    f.text("expires_at"), f.text("decision_id"), f.toString())
+                    f.text("canonical_qualification"), computedAt, observedThrough,
+                    freshness, expiresAt, f.text("decision_id"), f.toString())
+                require(status !in setOf("available", "stale") || family.hasImmutableIdentity) {
+                    "Available family lacks canonical authorization"
+                }
+                return family
+        }
+        private fun canonicalUuid(value: String): Boolean = runCatching {
+            java.util.UUID.fromString(value).toString().equals(value, ignoreCase = true)
+        }.getOrDefault(false)
+        private fun JSONObject.optionalString(key: String): String? {
+            val value = opt(key)
+            require(value == null || value === JSONObject.NULL || value is String) { "$key must be a string or null" }
+            return (value as? String)?.also { require(it.isNotBlank()) { "$key cannot be blank" } }
+        }
+        private fun JSONObject.optionalTimestamp(key: String): String? = optionalString(key)?.also {
+            java.time.Instant.parse(it)
         }
         internal fun JSONObject.text(key: String): String? = (opt(key) as? String)?.takeIf { it.isNotBlank() }
     }

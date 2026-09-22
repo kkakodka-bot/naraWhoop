@@ -177,7 +177,17 @@ begin
                if expires<=now() then status:='stale'; reason:='window_expired'; end if;
              else reason:=coalesce(hrv_window->>'reason',reason); end if;
            end if;
-         elsif policy.family='sleep' then details:=jsonb_build_object('nights',base->'nights','sleep_overrides',base->'sleep_overrides');
+         elsif policy.family='sleep' then details:=jsonb_build_object(
+           'nights',base->'nights','sleep_overrides',base->'sleep_overrides',
+           'daily_compatibility',jsonb_build_object(
+             'sleep_onset_at',base->'daily'->'sleep_onset_at',
+             'wake_onset_at',base->'daily'->'wake_onset_at',
+             'sleep_unstaged_min',base->'daily'->'sleep_unstaged_min',
+             'state_unknown_min',base->'daily'->'state_unknown_min',
+             'off_body_min',base->'daily'->'off_body_min',
+             'main_sleep_group_id',base->'daily'->'main_sleep_group_id',
+             'opportunity_kind',base->'daily'->'opportunity_kind',
+             'full_day_sleep_epochs',base->'daily'->'full_day_sleep_epochs'));
          elsif policy.family='respiration' then details:=jsonb_build_object('summary',base->'daily'->'respiration_summary');
          elsif policy.family='night_hrv' then details:=jsonb_build_object('summary',base->'daily'->'hrv_summary','heart_rate_windows',base->'daily'->'heart_rate_windows');
          end if;

@@ -44,14 +44,35 @@ final class CloudIngestionRegistryTests: XCTestCase {
 
     func testShippedStreamsAreUnique() throws {
         let fixture = try loadFixture()
-        var seen: [String: String] = [:]
         var problems: [String] = []
-        for (table, entry) in fixture.tables where entry.classification == .shipped {
-            guard let stream = entry.wireStream else { continue }
-            if let prior = seen[stream] {
-                problems.append("wire stream \(stream) claimed by both \(prior) and \(table)")
-            } else {
-                seen[stream] = table
+        let runtimePlatforms: [String: Set<String>] = [
+            "ios": ["both", "both_file", "ios_only"],
+            "android": ["both", "both_file", "android_only"],
+        ]
+        for (runtime, platforms) in runtimePlatforms {
+            var seen: [String: String] = [:]
+            for (table, entry) in fixture.tables.sorted(by: { $0.key < $1.key })
+                where entry.classification == .shipped && platforms.contains(entry.platform) {
+                guard let stream = entry.wireStream else { continue }
+                if let prior = seen[stream] {
+                    problems.append("\(runtime) wire stream \(stream) claimed by both \(prior) and \(table)")
+                } else {
+                    seen[stream] = table
+                }
+            }
+        }
+
+        for (stream, entries) in Dictionary(grouping: fixture.tables.filter {
+            $0.value.classification == .shipped && $0.value.wireStream != nil
+        }, by: { $0.value.wireStream! }) where entries.count > 1 {
+            let first = entries[0].value
+            for (table, entry) in entries.dropFirst() {
+                if entry.delivery != first.delivery || entry.b2Stream != first.b2Stream
+                    || entry.b2Extension != first.b2Extension
+                    || entry.b2RetentionClass != first.b2RetentionClass
+                    || entry.supabaseTable != first.supabaseTable {
+                    problems.append("cross-platform wire stream \(stream) has a divergent contract at \(table)")
+                }
             }
         }
         XCTAssertTrue(problems.isEmpty, problems.joined(separator: "\n"))

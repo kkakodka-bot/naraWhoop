@@ -14,7 +14,8 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
     }
 
     private func result(revision: String = "compute:17", inputRevision: Int64 = 17, status: String = "available",
-                        sleep: Any = NSNull(), hrv: Any = NSNull(), vitals: [String: Double] = [:]) throws -> ServerCanonicalResults {
+                        sleep: Any = NSNull(), hrv: Any = NSNull(), vitals: [String: Double] = [:],
+                        freshness: String = "current", insight: String? = nil) throws -> ServerCanonicalResults {
         let owner = "11111111-1111-4111-8111-111111111111"
         let source = "22222222-2222-4222-8222-222222222222"
         let device = "33333333-3333-4333-8333-333333333333"
@@ -25,6 +26,7 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
             if name == "recovery", status == "available" { values["recovery"] = 0 }
             if name == "night_hrv", status == "available" { values["hrv_sdnn_ms"] = hrv }
             if name == "sleep", status == "available" { values["sleep_sessions"] = sleep }
+            if name == "insights", status == "available", let insight { values["insights"] = insight }
             if status == "available" {
                 for (metric, value) in vitals where metrics.contains(metric) { values[metric] = value }
             }
@@ -36,7 +38,7 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
                 "project": project, "owner_id": owner, "source_id": source, "device_id": device,
                 "window": day, "computed_at": "2026-09-21T01:00:00Z",
                 "observed_through": "2026-09-21T00:00:00Z", "timezone_id": "UTC",
-                "freshness": "current", "values": values, "details": [:]]
+                "freshness": freshness, "values": values, "details": [:]]
         }
         let payload: [String: Any] = ["mode": "final_hosted", "policy_version": "vps-only-1",
             "project": project, "owner_id": owner, "source_id": source, "device_id": device,
@@ -82,6 +84,125 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
             ["start": 1_789_948_680, "end": 1_789_948_710, "stage": "light", "state": "sleep"],
             ["start": 1_789_948_710, "end": 1_789_948_740, "stage": "unknown", "state": "state_unknown"],
             ["start": 1_789_948_740, "end": 1_789_948_800, "stage": "rem", "state": "sleep"]]]
+    }
+
+    private func productionDecoderEnvelope() -> [String: Any] {
+        let owner = "11111111-1111-4111-8111-111111111111"
+        let source = "22222222-2222-4222-8222-222222222222"
+        let device = "33333333-3333-4333-8333-333333333333"
+        let project = "https://example.supabase.co", day = "2026-09-21"
+        let computedAt = "2026-09-21T01:00:00Z", manifest = String(repeating: "a", count: 64)
+        var night = observedSleep()
+        night["user_id"] = owner; night["device_id"] = device; night["algorithm_version"] = "frwhoop-server-1"
+        let compatibility: [String: Any] = [
+            "sleep_onset_at": NSNull(), "wake_onset_at": NSNull(), "sleep_unstaged_min": 0,
+            "state_unknown_min": NSNull(), "off_body_min": 0, "main_sleep_group_id": NSNull(),
+            "opportunity_kind": "estimated_sleep_opportunity", "full_day_sleep_epochs": [Any](),
+        ]
+        var families: [String: [String: Any]] = [:]
+        for (name, metrics) in ServerCanonicalResults.familyMetrics {
+            families[name] = [
+                "owner": "server", "metrics": metrics.sorted(), "status": "unqualified",
+                "reason": "reference_required", "result_revision": NSNull(), "input_revision": NSNull(),
+                "algorithm_version": "vps-only-1", "configuration_version": "vps-only-1",
+                "manifest_hash": NSNull(), "feature_manifest_hash": NSNull(), "canonical_qualification": NSNull(),
+                "project": project, "owner_id": owner, "source_id": source, "device_id": device,
+                "window": day, "timezone_id": "UTC", "computed_at": NSNull(), "observed_through": NSNull(),
+                "freshness": "unavailable",
+                "values": Dictionary(uniqueKeysWithValues: metrics.map { ($0, NSNull() as Any) }),
+                "details": [String: Any](),
+            ]
+        }
+        func authorize(_ name: String, values: [String: Any], details: [String: Any]) {
+            var family = families[name]!, complete = family["values"] as! [String: Any]
+            complete.merge(values, uniquingKeysWith: { _, next in next })
+            family["status"] = "available"; family["reason"] = NSNull()
+            family["result_revision"] = "compute:17"; family["input_revision"] = 17
+            family["algorithm_version"] = "frwhoop-server-1"; family["configuration_version"] = "config-1"
+            family["manifest_hash"] = manifest; family["canonical_qualification"] = "retained_legacy"
+            family["computed_at"] = computedAt; family["observed_through"] = "2026-09-21T00:00:00Z"
+            family["freshness"] = "current"; family["values"] = complete; family["details"] = details
+            families[name] = family
+        }
+        authorize("recovery", values: ["recovery": 0], details: [:])
+        authorize("sleep", values: [
+            "sleep_total_min": 1.5, "sleep_in_bed_min": 2, "sleep_awake_min": 0,
+            "sleep_light_min": 0.5, "sleep_deep_min": 0, "sleep_rem_min": 1,
+            "sleep_efficiency": 75, "disturbances": 0, "sleep_sessions": [night],
+        ], details: ["nights": [night], "sleep_overrides": [Any](), "daily_compatibility": compatibility])
+        let feature: [String: Any] = [
+            "status": "available", "device_id": device, "algorithm_version": "frwhoop-server-1",
+            "input_revision": 17, "manifest_hash": manifest, "canonical_qualification": "retained_legacy",
+            "computed_at": computedAt, "observed_through": "2026-09-21T00:00:00Z",
+        ]
+        var daily = compatibility
+        daily.merge([
+            "recovery": 0, "sleep_total_min": 1.5, "sleep_in_bed_min": 2, "sleep_awake_min": 0,
+            "sleep_light_min": 0.5, "sleep_deep_min": 0, "sleep_rem_min": 1,
+            "sleep_efficiency": 0.75, "disturbances": 0,
+        ], uniquingKeysWith: { _, next in next })
+        let compute: [String: Any] = [
+            "mode": "final_hosted", "policy_version": "vps-only-1", "project": project,
+            "owner_id": owner, "source_id": source, "device_id": device, "day": day, "families": families,
+        ]
+        return ["server_scoring": [
+            "schema_version": 2, "contract_revision": 2, "user_id": owner, "day": day,
+            "algorithm_version": "per_feature", "features": [
+                "hrv": feature, "sleep": feature,
+                "respiration": ["status": "unavailable", "reason": "awaiting_result"],
+            ], "daily": daily, "nights": [night], "measurements": [Any](), "sleep_overrides": [Any](),
+            "computed_at": computedAt, "stale": false, "compute": compute,
+        ]]
+    }
+
+    func testProductionDecoderFeedsOneSleepRevisionToWidgetWatchHealthAndExport() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            PhoneComputeRuntime.resetTestCounters()
+            let envelope = productionDecoderEnvelope()
+            let cache = try ServerScoreCacheCodec.parseSnapshot(JSONSerialization.data(withJSONObject: envelope),
+                day: "2026-09-21", ownerId: "11111111-1111-4111-8111-111111111111")
+            let canonical = try XCTUnwrap(cache.canonicalResults)
+            let selected = state(canonical, phase: .available)
+            XCTAssertEqual(cache.nights.count, 1)
+            XCTAssertEqual(cache.daily?.sleepEfficiency, 0.75)
+            XCTAssertEqual(cache.fullDaySleepEpochs?.count, 0)
+
+            let widget = CanonicalConsumerPublication.widgetSnapshot(state: selected,
+                accountNamespace: "decoder-owner", heartRate: nil, batteryPct: nil, bonded: true)
+            let watch = CanonicalConsumerPublication.watchSnapshot(state: selected,
+                accountNamespace: "decoder-owner", heartRate: nil)
+            XCTAssertEqual(widget.recovery, 0); XCTAssertEqual(watch.charge, 0)
+            XCTAssertEqual(widget.canonicalLedger, watch.canonicalLedger)
+            XCTAssertEqual(widget.canonicalLedger?.families["sleep"]?.resultRevision, "compute:17")
+
+            let health = try CanonicalHealthWritebackPlan.replacements(state: selected, accountNamespace: "decoder-owner")
+            let sleep = try XCTUnwrap(health.first {
+                if case .sleep = $0.target { return true }
+                return false
+            })
+            XCTAssertEqual(sleep.records.map(\.payload), [.sleep(.inBed), .sleep(.light), .sleep(.rem)])
+            for record in sleep.records {
+                let receipt = try JSONDecoder().decode(CanonicalConsumerLedger.Receipt.self,
+                    from: Data(try XCTUnwrap(record.metadata["naraCanonicalResult"]).utf8))
+                XCTAssertEqual(receipt.resultRevision, "compute:17")
+                XCTAssertEqual(receipt, watch.canonicalLedger?.families["sleep"])
+            }
+
+            let directory = try directory()
+            try CanonicalExport.writeShortcut(state: selected, directory: directory)
+            let exported = try JSONDecoder().decode(CanonicalExport.Document.self,
+                from: Data(contentsOf: directory.appendingPathComponent("noop_server_results.json")))
+            XCTAssertEqual(exported.windows.first?.currentResult, canonical)
+            XCTAssertEqual(exported.windows.first?.ledger.families["sleep"]?.resultRevision, "compute:17")
+
+            var tampered = envelope, score = tampered["server_scoring"] as! [String: Any]
+            var nights = score["nights"] as! [[String: Any]]
+            nights[0]["asleep_min"] = 99; score["nights"] = nights; tampered["server_scoring"] = score
+            XCTAssertThrowsError(try ServerScoreCacheCodec.parseSnapshot(
+                JSONSerialization.data(withJSONObject: tampered), day: "2026-09-21",
+                ownerId: "11111111-1111-4111-8111-111111111111"))
+            XCTAssertEqual(PhoneComputeRuntime.counters().executions.values.reduce(0, +), 0)
+        }
     }
 
     func testActualProductionAdaptersPersistOneIdentityAndZeroInference() async throws {
@@ -402,6 +523,34 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
         XCTAssertTrue(csv.contains("\"recovery\",\"recovery\",\"0.0\",\"available\""))
         XCTAssertTrue(csv.contains("\"night_hrv\",\"hrv_sdnn_ms\",\"\",\"available\""))
         XCTAssertTrue(csv.contains("\"17\",\"compute:17\",\"frwhoop-server-1\",\"config-1\""))
+    }
+
+    func testUnavailableOrExpiredFreshnessCannotReachUIWidgetWatchHealthOrCSV() throws {
+        for freshness in ["expired", "unavailable"] {
+            let canonical = try result(sleep: [observedSleep()], hrv: 0,
+                vitals: ["resting_hr_bpm": 48], freshness: freshness, insight: "do not publish")
+            let selected = state(canonical, phase: .available)
+            let widget = CanonicalConsumerPublication.widgetSnapshot(state: selected,
+                accountNamespace: "owner", heartRate: 71, batteryPct: 50, bonded: true)
+            let watch = CanonicalConsumerPublication.watchSnapshot(state: selected,
+                accountNamespace: "owner", heartRate: 71)
+            XCTAssertNil(widget.recovery, freshness)
+            XCTAssertNil(widget.hrv, freshness)
+            XCTAssertNil(widget.restingHr, freshness)
+            XCTAssertNil(widget.insights, freshness)
+            XCTAssertNil(watch.charge, freshness)
+            XCTAssertNil(watch.effort, freshness)
+            XCTAssertNil(watch.rest, freshness)
+
+            let health = try XCTUnwrap(CanonicalHealthWritebackPlan.days(state: selected).first)
+            XCTAssertTrue(health.quantities.isEmpty, freshness)
+            XCTAssertTrue(health.sleeps.isEmpty, freshness)
+            let recovery = try XCTUnwrap(canonical.families["recovery"])
+            XCTAssertEqual(CanonicalPhysiologySection.display(result: recovery, metric: "recovery"), "—", freshness)
+            let csv = CsvExport.canonicalCSV(selected)
+            XCTAssertTrue(csv.contains("\"recovery\",\"recovery\",\"\",\"available\""), freshness)
+            XCTAssertFalse(csv.contains("\"recovery\",\"recovery\",\"0.0\",\"available\""), freshness)
+        }
     }
 
     func testWidgetChangesOnRevisionEvenWhenValuesAreEqualAndRejectsOldCache() throws {

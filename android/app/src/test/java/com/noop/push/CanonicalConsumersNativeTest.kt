@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
 import androidx.health.connect.client.records.Record
+import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.response.InsertRecordsResponse
 import com.noop.account.AccountAppRuntime
 import com.noop.analytics.PhoneComputeRuntime
@@ -103,11 +104,51 @@ class CanonicalConsumersNativeTest {
         fun family(key: String) = response.getJSONObject("server_scoring")
             .getJSONObject("compute").getJSONObject("families").getJSONObject(key)
         fun available(key: String, metric: String, value: Any, result: String = revision) {
-            family(key).put("status", "available").put("reason", JSONObject.NULL)
+            val resultFamily = family(key).put("status", "available").put("reason", JSONObject.NULL)
                 .put("algorithm_version", "frwhoop-physiology-2").put("configuration_version", JSONObject.NULL)
                 .put("manifest_hash", "a".repeat(64)).put("feature_manifest_hash", "b".repeat(64))
                 .put("canonical_qualification", "signed_reference_approval").put("result_revision", result)
-                .getJSONObject("values").put(metric, value)
+                .put("freshness", "current")
+            resultFamily.getJSONObject("values").put(metric, value)
+            val daily = response.getJSONObject("server_scoring").getJSONObject("daily")
+            if (key == "night_hrv") resultFamily.getJSONObject("details")
+                .put("summary", daily.opt("hrv_summary")).put("heart_rate_windows", daily.opt("heart_rate_windows"))
+            if (key == "respiration") resultFamily.getJSONObject("details")
+                .put("summary", daily.opt("respiration_summary"))
+            mapOf("night_hrv" to "hrv", "current_hrv" to "hrv", "sleep" to "sleep", "respiration" to "respiration",
+                "recovery" to "hrv", "strain_energy" to "hrv", "oxygen" to "hrv", "temperature" to "hrv")[key]?.let { featureID ->
+                response.getJSONObject("server_scoring").getJSONObject("features").getJSONObject(featureID)
+                    .put("status", "available").put("reason", JSONObject.NULL).put("device_id", auth.device)
+                    .put("algorithm_version", "frwhoop-physiology-2").put("input_revision", 8)
+                    .put("computed_at", "${day}T07:01:00Z").put("observed_through", "${day}T07:00:00Z")
+                    .put("publication_status", "canonical").put("manifest_hash", "a".repeat(64))
+                    .put("feature_manifest_hash", "b".repeat(64)).put("canonical_qualification", "signed_reference_approval")
+            }
+            val topValue = if (metric == "sleep_efficiency" && value is Number) value.toDouble() / 100.0 else value
+            if (metric in setOf("hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "sleep_total_min", "sleep_in_bed_min",
+                    "sleep_awake_min", "sleep_light_min", "sleep_deep_min", "sleep_rem_min", "sleep_efficiency",
+                    "disturbances", "resp_rate_bpm", "recovery", "strain", "spo2_pct", "skin_temp_c", "skin_temp_dev_c")) {
+                response.getJSONObject("server_scoring").getJSONObject("daily").put(metric, topValue)
+            }
+        }
+        fun availableSleep() {
+            val night = JSONObject().put("id", "sleep-a").put("device_id", auth.device)
+                .put("user_id", auth.owner.userID).put("algorithm_version", "frwhoop-physiology-2")
+                .put("start_at", "${day}T00:00:00Z").put("end_at", "${day}T01:00:00Z")
+                .put("asleep_min", 0).put("stages", JSONArray())
+            val top = JSONArray().put(night)
+            available("sleep", "sleep_sessions", JSONArray(top.toString()))
+            family("sleep").getJSONObject("details").put("nights", JSONArray(top.toString()))
+                .put("sleep_overrides", JSONArray(response.getJSONObject("server_scoring")
+                    .getJSONArray("sleep_overrides").toString()))
+            val daily = response.getJSONObject("server_scoring").getJSONObject("daily")
+            val dailyCopy = JSONObject(daily.toString())
+            val compatibility = JSONObject()
+            listOf("sleep_onset_at", "wake_onset_at", "sleep_unstaged_min", "state_unknown_min", "off_body_min",
+                "main_sleep_group_id", "opportunity_kind", "full_day_sleep_epochs")
+                .forEach { key -> compatibility.put(key, dailyCopy.get(key)) }
+            family("sleep").getJSONObject("details").put("daily_compatibility", compatibility)
+            response.getJSONObject("server_scoring").put("nights", top)
         }
         suspend fun refresh() {
             source.refreshDay(day)
@@ -149,15 +190,28 @@ class CanonicalConsumersNativeTest {
                     .put("algorithm_version", "vps-only-1").put("configuration_version", "vps-only-1")
                     .put("input_revision", 8).put("result_revision", "compute:17")
                     .put("computed_at", "${day}T07:01:00Z").put("observed_through", "${day}T07:00:00Z")
-                    .put("values", values).put("details", JSONObject()))
+                    .put("freshness", "unavailable").put("values", values).put("details", JSONObject()))
+            }
+            val daily = JSONObject()
+            listOf("hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "sleep_total_min", "sleep_in_bed_min",
+                "sleep_awake_min", "sleep_light_min", "sleep_deep_min", "sleep_rem_min", "sleep_efficiency",
+                "disturbances", "resp_rate_bpm", "recovery", "strain", "spo2_pct", "skin_temp_c", "skin_temp_dev_c",
+                "sleep_onset_at", "wake_onset_at", "sleep_unstaged_min", "state_unknown_min", "off_body_min",
+                "main_sleep_group_id", "opportunity_kind", "full_day_sleep_epochs", "hrv_summary",
+                "heart_rate_windows", "respiration_summary")
+                .forEach { daily.put(it, JSONObject.NULL) }
+            val features = JSONObject(); listOf("hrv", "sleep", "respiration").forEach { featureID ->
+                features.put(featureID, JSONObject().put("status", "unavailable").put("device_id", auth.device))
             }
             return JSONObject().put("server_scoring", JSONObject().put("schema_version", 2)
                 .put("day", day).put("user_id", auth.owner.userID).put("algorithm_version", "per_feature")
-                .put("features", JSONObject().put("sleep", JSONObject().put("status", "unavailable").put("device_id", auth.device)))
-                .put("daily", JSONObject()).put("nights", JSONArray()).put("stale", false)
+                .put("features", features)
+                .put("daily", daily).put("nights", JSONArray()).put("sleep_overrides", JSONArray())
+                .put("measurements", JSONArray()).put("stale", false)
                 .put("compute", JSONObject().put("mode", "final_hosted").put("policy_version", "vps-only-1")
                     .put("project", auth.owner.projectURL).put("owner_id", auth.owner.userID)
-                    .put("device_id", auth.device).put("source_id", identity.source).put("families", families)))
+                    .put("device_id", auth.device).put("source_id", identity.source).put("day", day)
+                    .put("families", families)))
         }
         override fun close() { runtime.close(); auth.close() }
     }
@@ -197,6 +251,56 @@ class CanonicalConsumersNativeTest {
         }
     }
 
+    @Test fun rawSnapshotWidgetAndExportClearUnauthorizedCompatibilityValues() = runBlocking(Dispatchers.IO) {
+        PhoneComputeRuntime.installFinalHosted()
+        Fixture().use { f ->
+            val overlay = f.response.getJSONObject("server_scoring")
+            overlay.getJSONObject("daily").put("skin_temp_c", 34.5).put("hrv_rmssd_ms", 88)
+            overlay.put("nights", JSONArray().put(JSONObject().put("id", "unauthorized-night")))
+                .put("sleep_overrides", JSONArray().put(JSONObject().put("id", "unauthorized-override")))
+                .put("measurements", JSONArray().put(JSONObject().put("feature", "hrv").put("observed_rmssd_ms", 99)))
+            f.refresh()
+            val cache = requireNotNull(f.source.overlay(f.day))
+            val raw = JSONObject(cache.rawSnapshotJSON!!).getJSONObject("server_scoring")
+            assertTrue(raw.isNull("daily"))
+            assertEquals(0, raw.getJSONArray("nights").length())
+            assertEquals(0, raw.getJSONArray("sleep_overrides").length())
+            assertEquals(0, raw.getJSONArray("measurements").length())
+            assertEquals(cache.rawSnapshotJSON, f.widget().canonicalJSON)
+            val exported = f.export().getValue("${f.day}.json").getJSONObject("server_scoring")
+            assertTrue(exported.isNull("daily"))
+            assertEquals(0, exported.getJSONArray("nights").length())
+            assertEquals(0, exported.getJSONArray("sleep_overrides").length())
+            assertEquals(0, exported.getJSONArray("measurements").length())
+            assertFalse(exported.toString().contains("34.5"))
+            assertFalse(exported.toString().contains("unauthorized"))
+        }
+    }
+
+    @Test fun sleepHealthReceiptAndRecordShareTheDecodedImmutableRevision() = runBlocking(Dispatchers.IO) {
+        PhoneComputeRuntime.installFinalHosted()
+        Fixture().use { f ->
+            f.availableSleep()
+            f.refresh()
+            val result = f.health()
+            assertTrue(result.ok); assertEquals(1, result.written)
+            val record = f.provider.inserted.single() as SleepSessionRecord
+            assertTrue(record.metadata.clientRecordId!!.contains(f.revision))
+            assertEquals(java.time.Instant.parse("${f.day}T00:00:00Z"), record.startTime)
+            assertEquals(java.time.Instant.parse("${f.day}T01:00:00Z"), record.endTime)
+            val receipt = f.receipt("sleep")!!
+            assertEquals(f.revision, receipt.getString("result_revision"))
+            assertEquals(0.0, receipt.getJSONObject("values").getJSONArray("sleep_sessions")
+                .getJSONObject(0).getDouble("asleep_min"), 0.0)
+            assertEquals(1, receipt.getJSONArray("health_export_ids").length())
+            assertEquals(record.metadata.clientRecordId,
+                receipt.getJSONArray("health_export_ids").getJSONObject(0).getString("id"))
+            assertEquals(0, f.health().written)
+            assertEquals(1, f.provider.inserted.size)
+            assertTrue(PhoneComputeRuntime.evidence().isEmpty()); assertTrue(PhoneComputeRuntime.forbiddenAttempts().isEmpty())
+        }
+    }
+
     @Test fun ownedNullAndSameRevisionRevocationRetractWithoutFallback() = runBlocking(Dispatchers.IO) {
         PhoneComputeRuntime.installFinalHosted()
         Fixture().use { f ->
@@ -218,8 +322,12 @@ class CanonicalConsumersNativeTest {
             f.available("night_hrv", "hrv_rmssd_ms", 48, "sha256:" + "e".repeat(64))
             f.available("recovery", "recovery", 76, "sha256:" + "e".repeat(64))
             f.refresh(); assertEquals(1, f.health().written)
-            for (key in listOf("night_hrv", "recovery")) f.family(key).put("status", "revoked")
-                .put("canonical_qualification", JSONObject.NULL).put("input_revision", 1)
+            for (key in listOf("night_hrv", "recovery")) {
+                val family = f.family(key).put("status", "revoked")
+                    .put("canonical_qualification", JSONObject.NULL).put("input_revision", 1)
+                val values = family.getJSONObject("values")
+                values.keys().asSequence().toList().forEach { metric -> values.put(metric, JSONObject.NULL) }
+            }
             f.refresh()
             assertNull(f.widget().recoveryPct)
             assertEquals(0, f.health().written)

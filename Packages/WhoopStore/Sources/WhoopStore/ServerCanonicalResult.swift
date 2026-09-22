@@ -73,9 +73,12 @@ public struct ServerCanonicalFamilyResult: Codable, Equatable, Sendable {
         return algorithmVersion == "frwhoop-server-1" && canonicalQualification == "retained_legacy" ||
             canonicalQualification == "signed_reference_approval" && Self.isHash(featureManifestHash)
     }
+    public func admitsCanonicalPublication(at now: Date = Date()) -> Bool {
+        ["available", "stale"].contains(status) && ["current", "stale"].contains(freshness) &&
+            hasCanonicalAuthorization && !isExpired(at: now)
+    }
     public func number(_ metric: String, now: Date = Date()) -> Double? {
-        guard metrics.contains(metric), ["available", "stale"].contains(status), hasCanonicalAuthorization,
-              !isExpired(at: now) else { return nil }
+        guard metrics.contains(metric), admitsCanonicalPublication(at: now) else { return nil }
         return values[metric]?.number
     }
     public func isExpired(at now: Date = Date()) -> Bool {
@@ -144,6 +147,7 @@ public struct ServerCanonicalResults: Codable, Equatable, Sendable {
     ]
     public static let allMetrics = familyMetrics.values.reduce(into: Set<String>()) { $0.formUnion($1) }
     public static let states: Set<String> = ["available", "unsupported", "insufficient_input", "insufficient_quality", "unqualified", "processing", "failed", "unavailable", "stale", "revoked"]
+    public static let freshnessStates: Set<String> = ["current", "stale", "expired", "unavailable"]
 
     public func validate(owner: String, day: String, project expectedProject: String? = nil,
                          source: String? = nil, device: String? = nil) throws {
@@ -159,6 +163,7 @@ public struct ServerCanonicalResults: Codable, Equatable, Sendable {
                   result.project == project, result.sourceID == sourceID, result.deviceID == deviceID,
                   result.window == day, result.inputRevision == nil || result.inputRevision! >= 0,
                   Set(result.values.keys).isSubset(of: Self.familyMetrics[key]!),
+                  Self.freshnessStates.contains(result.freshness),
                   result.timezoneID == nil || TimeZone(identifier: result.timezoneID!) != nil,
                   result.resultRevision == nil || (ServerCanonicalFamilyResult.isResultRevision(result.resultRevision) && result.computedAt != nil && result.algorithmVersion?.isEmpty == false && result.inputRevision != nil),
                   [result.computedAt, result.observedThrough, result.expiresAt].allSatisfy({ $0 == nil || ServerCanonicalFamilyResult.timestamp($0) != nil }),
