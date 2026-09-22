@@ -10,12 +10,12 @@ final class PushFileBackedSelectionTests: XCTestCase {
         return path
     }
     private func rows() -> [(PushBinaryTable, String, [PushBinaryRow])] {
-        [(.ppgWaveformSample, "1.2", [.ppgWaveform(.init(rowId: 4, ts: 100, burstIndex: 1, samples: Data([1, 2])))]),
-         (.ppgWaveformSample, "1.3", [.ppgWaveform(.init(rowId: 4, ts: 100, burstIndex: 1, samples: Data([1, 2]), recordIndex: 19))]),
-         (.v18AuxSample, "1.4", [.v18Aux(.init(rowId: 7, ts: 100, fields: Data([3]), recordIndex: 19, resourceKey: "synthetic-resource"))]),
-         (.rawImuSession, "1.2", [.rawImuSession(.init(rowId: 1, ts: 100, columns: Data(repeating: 2, count: 1200)))]),
-         (.rawBatch, "1.2", [.rawBatch(.init(rowId: 9, batchId: "synthetic-archive", capturedAt: 100, deviceClockRef: 99,
-             wallClockRef: 100, startTs: 100, endTs: 100, frameCount: 1, byteSize: 4, framesBlob: Data([1, 2, 3, 4])))])]
+        [(.ppgWaveformSample, "1.2", [.ppgWaveform(.init(rowId: 4, ts: 1_800_000_000, burstIndex: 1, samples: Data([1, 2])))]),
+         (.ppgWaveformSample, "1.3", [.ppgWaveform(.init(rowId: 4, ts: 1_800_000_000, burstIndex: 1, samples: Data([1, 2]), recordIndex: 19))]),
+         (.v18AuxSample, "1.4", [.v18Aux(.init(rowId: 7, ts: 1_800_000_000, fields: Data([3]), recordIndex: 19, resourceKey: "synthetic-resource"))]),
+         (.rawImuSession, "1.2", [.rawImuSession(.init(rowId: 1, ts: 1_800_000_000, columns: Data(repeating: 2, count: 1200)))]),
+         (.rawBatch, "1.2", [.rawBatch(.init(rowId: 9, batchId: "synthetic-archive", capturedAt: 1_800_000_000, deviceClockRef: 1_799_999_999,
+             wallClockRef: 1_800_000_000, startTs: 1_800_000_000, endTs: 1_800_000_000, frameCount: 1, byteSize: 4, framesBlob: Data([1, 2, 3, 4])))])]
     }
     func testFileEncodingKeepsExactDecodedAndStableIdentitiesForEverySupportedKind() throws {
         for (table, version, rows) in rows() {
@@ -118,9 +118,9 @@ final class PushFileBackedSelectionTests: XCTestCase {
             }
             let artifact: [String: Any] = ["schema_version": 1, "synthetic_only": true,
                 "decoded_base64": decoded.base64EncodedString(),
-                "legacy": ["manifest": try JSONSerialization.jsonObject(with: JSONEncoder().encode(oldManifest)),
+                "legacy": ["manifest": try JSONSerialization.jsonObject(with: oldManifest.encode()),
                            "wire_base64": rawFrame.base64EncodedString(), "wire_sha256": oldBatch.wireSHA256],
-                "streamed": ["manifest": try JSONSerialization.jsonObject(with: JSONEncoder().encode(PushObjectManifest(batch: streamed))),
+                "streamed": ["manifest": try JSONSerialization.jsonObject(with: PushObjectManifest(batch: streamed).encode()),
                              "wire_base64": try streamed.payload.base64EncodedString(), "wire_sha256": streamed.wireSHA256]]
             try JSONSerialization.data(withJSONObject: artifact, options: [.sortedKeys, .prettyPrinted])
                 .write(to: URL(fileURLWithPath: output).appendingPathComponent("representation-compatibility.json"))

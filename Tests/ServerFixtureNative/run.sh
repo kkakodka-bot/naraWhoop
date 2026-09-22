@@ -43,7 +43,9 @@ fixtureFingerprint() {
     shasum -a 256 "$fixtureRoot/Packages/$fixturePackage/Package.swift" \
       "$fixtureRoot/Packages/$fixturePackage/Sources"/**/*(.N)
   done
-  shasum -a 256 "$fixtureRoot/Packages/NoopPush/Tests/NoopPushTests/PushAuxiliaryIdentityTests.swift"
+  shasum -a 256 "$fixtureRoot/Packages/NoopPush/Tests/NoopPushTests/PushAuxiliaryIdentityTests.swift" \
+    "$fixtureRoot/Packages/NoopPush/Tests/NoopPushTests/PushMutableGenerationTests.swift" \
+    "$fixtureRoot/Packages/NoopPush/Tests/NoopPushTests/PushFileBackedSelectionTests.swift"
 }
 fixtureFingerprint > "$fixtureOutput/source-before.sha256"
 git -C "$fixtureRoot" rev-parse HEAD > "$fixtureOutput/source-head.txt"
@@ -63,8 +65,10 @@ print -r -- "Artifacts: $fixtureOutput"
 env -i PATH=/opt/homebrew/bin:/usr/bin:/bin DEVELOPER_DIR="$fixtureDeveloper" TMPDIR="$fixtureOutput/tmp/" \
   NOOP_EXPORT_AUX_FIXTURE="$fixtureOutput/aux14-swift" \
   NOOP_EXPORT_AUX_INTAKE_FIXTURE="$fixtureOutput/aux14-swift-intake-v1" \
+  NOOP_MUTABLE_GENERATION_FIXTURES="$fixtureOutput/mutable-generation-swift" \
+  NARA_REPRESENTATION_FIXTURE_ROOT="$fixtureOutput/representation-swift" \
   /usr/bin/xcrun swift test --package-path "$fixtureRoot/Packages/NoopPush" \
-  --scratch-path "$fixtureOutput/push-build" --jobs 4 --filter PushAuxiliaryIdentityTests \
+  --scratch-path "$fixtureOutput/push-build" --jobs 4 --filter 'PushAuxiliaryIdentityTests|PushMutableGenerationTests|PushFileBackedSelectionTests/testLegacyRawZstdAndCompressedFileHaveDifferentObjectIDsWithSameDecodedIdentity' \
   2>&1 | tee "$fixtureOutput/auxiliary-tests.log"
 
 env -i PATH=/opt/homebrew/bin:/usr/bin:/bin DEVELOPER_DIR="$fixtureDeveloper" TMPDIR="$fixtureOutput/tmp/" \
@@ -73,7 +77,8 @@ env -i PATH=/opt/homebrew/bin:/usr/bin:/bin DEVELOPER_DIR="$fixtureDeveloper" TM
   --jobs 4 --filter CloudImuPushSourceTests/testExportActualSwiftImf1FixturesForSessionAndContinuous \
   2>&1 | tee "$fixtureOutput/imu-tests.log"
 
-for fixtureFile in aux14-swift/payload.npb1 aux14-swift/payload.gz aux14-swift/golden.json \
+for fixtureFile in mutable-generation-swift/mutable-generations.json representation-swift/representation-compatibility.json \
+  aux14-swift/payload.npb1 aux14-swift/payload.gz aux14-swift/golden.json \
   aux14-swift-intake-v1/manifest.json aux14-swift-intake-v1/payload.npb1 aux14-swift-intake-v1/payload.gz \
   aux14-swift-intake-v1/golden.json imf1-swift-native-v1/fixture.json \
   imf1-swift-native-v1/session/manifest.json imf1-swift-native-v1/session/payload.zst \
@@ -85,5 +90,6 @@ cmp -s "$fixtureOutput/source-before.sha256" "$fixtureOutput/source-after.sha256
   print -u2 'Source changed during export; evidence is not an exact candidate result'; exit 4
 }
 shasum -a 256 "$fixtureOutput"/aux14-swift/*(.N) "$fixtureOutput"/aux14-swift-intake-v1/*(.N) \
-  "$fixtureOutput"/imf1-swift-native-v1/**/*(.N) > "$fixtureOutput/fixture-files.sha256"
-print -r -- 'PASS: actual Swift auxiliary and IMF1 fixtures exported; source fingerprint unchanged'
+  "$fixtureOutput"/imf1-swift-native-v1/**/*(.N) "$fixtureOutput"/mutable-generation-swift/*(.N) \
+  "$fixtureOutput"/representation-swift/*(.N) > "$fixtureOutput/fixture-files.sha256"
+print -r -- 'PASS: actual Swift auxiliary, IMF1, mutable-generation and representation fixtures exported; source fingerprint unchanged'

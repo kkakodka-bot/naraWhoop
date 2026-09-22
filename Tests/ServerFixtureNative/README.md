@@ -21,8 +21,8 @@ pinned codec in NoopPush, not a Homebrew library. Swift source fingerprints must
 before/after export. Package tests and the exact existing exporter test must succeed, and every
 required output must exist. A failed export retains its directory and never overwrites evidence.
 
-Outputs consumed by the Deno suite are `aux14-swift`, `aux14-swift-intake-v1` and
-`imf1-swift-native-v1`. Source SHA, source fingerprints, fixture digests, SwiftPM build products
+Outputs consumed by the Deno suite are `aux14-swift`, `aux14-swift-intake-v1` ,
+`imf1-swift-native-v1`, `mutable-generation-swift` and `representation-swift`. Source SHA, source fingerprints, fixture digests, SwiftPM build products
 and separate test logs remain alongside them. They are synthetic codec/interoperability proof,
 not physical strap captures, background behavior, thermal or production object-storage evidence.
 
@@ -52,3 +52,5 @@ reconcile/index.ts ingest-verify/index.ts` with the same DENO_DIR. That resolves
 packages; test execution permits only loopback network traffic. Keep the artifacts path short
 enough for PostgreSQL's Unix socket filename limit. The worker scheduling and B2 deployment
 configuration remain separate release evidence.
+
+The additional identity fixtures exercise the actual Swift mutable replacement generator and the old raw-block versus current compressed Zstandard representation. The server regression replays A→B→A and empty→row→empty through the production receipt cache and projection transaction. It also verifies both binary representations retain the decoded batch identity while earning separate exact wire receipts. Old saved bytes remain unchanged. Binary inline posts are rejected before the receipt cache; the account-scoped client uses the object lane.
