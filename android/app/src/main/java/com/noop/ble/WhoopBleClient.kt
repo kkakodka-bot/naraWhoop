@@ -4823,6 +4823,7 @@ class WhoopBleClient(
      * Self-gates on the NapPrefs toggle (default OFF, opt-in), so it's fully inert until enabled.
      */
     private fun maybeDetectNaps() {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("sleep_nap_detection")) return
         if (!NapPrefs.enabled(context)) return   // cheap master gate before any DB work
         ioScope.launch {
             try {

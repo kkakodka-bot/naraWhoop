@@ -10,7 +10,12 @@ object ServerComputeRevisionFence {
         if (old.project != fresh.project || old.ownerId != fresh.ownerId || old.sourceId != fresh.sourceId) return false
         return old.families.all { (key, before) ->
             val after = fresh.families[key] ?: return@all false
-            if (before.deviceId != after.deviceId || before.window != after.window) return@all false
+            if (before.window != after.window) return@all false
+            if (before.deviceId != after.deviceId) {
+                val registrationPending = (before.deviceId == null && before.reason == "device_registration_pending") ||
+                    (after.deviceId == null && after.reason == "device_registration_pending" && !after.authorized)
+                if (!registrationPending) return@all false
+            }
             // Authorization is live read-time evidence: revocation/missingness must evict a formerly
             // admitted value even when the immutable stored result identity has not changed.
             if (!after.authorized) return@all true

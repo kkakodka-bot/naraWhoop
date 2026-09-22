@@ -28,6 +28,7 @@ class ServerComputeRequests(context: Context) {
             .put("consent", consent).put("expires_at", expiresAt?.let { Instant.ofEpochSecond(it).toString() } ?: JSONObject.NULL))
         synchronized(lock) {
             check(prefs.edit().putString("request:$id", JSONObject().put("scope", identity.key)
+                .put("authorization_scope", ServerScoreClient.requestIdentity(account))
                 .put("body", body).put("state", "queued").toString()).commit()) { "Session intent not durable" }
         }
         return id
@@ -39,7 +40,7 @@ class ServerComputeRequests(context: Context) {
         val captured = synchronized(lock) { prefs.all.filterKeys { it.startsWith("request:") }.toMap() }
         for ((key, raw) in captured) {
             val entry = runCatching { JSONObject(raw as String) }.getOrNull() ?: continue
-            if (entry.optString("scope") != identity.key) continue
+            if (entry.optString("scope") != identity.key || entry.optString("authorization_scope") != ServerScoreClient.requestIdentity(account)) continue
             val body = entry.getJSONObject("body")
             val id = body.getJSONObject("request").getString("id")
             val current = ServerScoreClient.requestIdentity(account)
@@ -64,7 +65,7 @@ class ServerComputeRequests(context: Context) {
         val identity = DeviceLinkStore.identity(account) ?: return null
         if (!account.isCurrent()) return null
         return runCatching { JSONObject(prefs.getString("request:$id", null) ?: return null)
-            .takeIf { it.getString("scope") == identity.key }?.optJSONObject("response") }.getOrNull()
+            .takeIf { it.getString("scope") == identity.key && it.optString("authorization_scope") == ServerScoreClient.requestIdentity(account) }?.optJSONObject("response") }.getOrNull()
     }
 
     fun latestId(family: String, start: Long? = null): String? {
@@ -74,7 +75,7 @@ class ServerComputeRequests(context: Context) {
             runCatching {
                 val entry = JSONObject(raw as String)
                 val request = entry.getJSONObject("body").getJSONObject("request")
-                if (entry.getString("scope") != identity.key || request.getString("family") != family ||
+                if (entry.getString("scope") != identity.key || entry.optString("authorization_scope") != ServerScoreClient.requestIdentity(account) || request.getString("family") != family ||
                     (start != null && request.getString("event_start") != Instant.ofEpochSecond(start).toString())) null
                 else request
             }.getOrNull()
@@ -87,6 +88,7 @@ class ServerComputeRequests(context: Context) {
         val canonicalDevice = DeviceLinkStore.from(account).confirmed(identity) ?: return null
         val entry = JSONObject(prefs.getString("request:$id", null) ?: return null)
         require(entry.getString("scope") == identity.key)
+        require(entry.optString("authorization_scope") == ServerScoreClient.requestIdentity(account))
         val request = entry.getJSONObject("body").getJSONObject("request")
         val response = entry.optJSONObject("response") ?: return null
         require(response.getString("request_id") == id)

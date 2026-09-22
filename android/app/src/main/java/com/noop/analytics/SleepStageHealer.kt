@@ -67,6 +67,7 @@ object SleepStageHealer {
         // (e.g. a WHOOP 4.0, which never emits a step sample at all).
         useMotionAwareWake: Boolean = false,
     ): String? {
+        PhoneComputeRuntime.inferenceStarted("SleepStageHealer.restageFromRaw")
         val lo = start - 3_600L
         val hi = end + 3_600L
         val grav = repo.gravitySamplesForDevice(deviceId, lo, hi, IntelligenceEngine.STREAM_LIMIT)
@@ -124,6 +125,7 @@ object SleepStageHealer {
         // observed density either way — see [WakeMotionRefinement].
         useMotionAwareWake: Boolean = false,
     ): String? {
+        PhoneComputeRuntime.inferenceStarted("SleepStageHealer.restageFromSamples")
         if (!isDense(grav, start, end)) return null
         val segs = if (useExperimentalSleepV2) {
             SleepStagerV2.stageSession(start = start, end = end, grav = grav, hr = hr, rr = rr, resp = resp)
@@ -160,6 +162,7 @@ object SleepStageHealer {
         // Opt-in motion-aware wake refinement (#364 follow-up), threaded the same way. Default false.
         useMotionAwareWake: Boolean = false,
     ): List<SleepSession> {
+        PhoneComputeRuntime.inferenceStarted("SleepStageHealer.selfHealEditedStages")
         suspend fun editedRows(): List<SleepSession> =
             repo.sleepSessionsForDevice(computedDeviceId, windowStart, windowEnd).filter { it.userEdited }
 

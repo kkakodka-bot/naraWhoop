@@ -85,6 +85,7 @@ object DaytimeBaselines {
      */
     fun dayDaytimeAggregate(hr: List<HrSample>, rr: List<RrInterval>, tzOffsetSeconds: Long,
                            timezone: ZoneId? = null): DayAggregate {
+                               PhoneComputeRuntime.inferenceStarted("DaytimeBaselines.dayDaytimeAggregate")
         if (hr.isEmpty()) return DayAggregate(null, null)
 
         // Bucket HR + R-R into LOCAL hour-of-day buckets, byte-for-byte the scorer's step 1.
@@ -138,6 +139,7 @@ object DaytimeBaselines {
      * baseline — the whole-baseline grain of the per-hour graceful-null already in rawScore.
      */
     fun foldDaytimeBaselines(days: List<DaytimeDayStreams>): DaytimeBaselineStates {
+        PhoneComputeRuntime.inferenceStarted("DaytimeBaselines.foldDaytimeBaselines")
         val hrAggs = ArrayList<Double?>(days.size)
         val rmssdAggs = ArrayList<Double?>(days.size)
         for (d in days) {
@@ -159,6 +161,7 @@ object DaytimeBaselines {
      * pre-existing day-relative behaviour.
      */
     fun scoringMode(days: List<DaytimeDayStreams>): DaytimeStress.ScoringMode {
+        PhoneComputeRuntime.inferenceStarted("DaytimeBaselines.scoringMode")
         val baselines = foldDaytimeBaselines(days)
         if (!baselines.hr.usable) return DaytimeStress.ScoringMode.DayRelative
         // RMSSD stays out of the LIVE score until it has its own validation pass — see

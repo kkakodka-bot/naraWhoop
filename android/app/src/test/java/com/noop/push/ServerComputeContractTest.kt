@@ -96,4 +96,28 @@ class ServerComputeContractTest {
         assertEquals(before.compute!!.families.getValue("night_hrv").resultRevision,
             revoked.compute!!.families.getValue("night_hrv").resultRevision)
     }
+
+    @Test fun registrationPendingPersistsOwnershipAndEvictsAvailableDeviceResult() {
+        val root = body(); available(root, 42)
+        val before = decode(root)
+        root.getJSONObject("server_scoring").getJSONObject("compute").put("device_id", JSONObject.NULL)
+        ServerComputeContract.familyIDs.forEach { key ->
+            family(root, key).put("device_id", JSONObject.NULL).put("result_revision", JSONObject.NULL)
+                .put("status", "unavailable").put("reason", "device_registration_pending")
+                .put("input_revision", JSONObject.NULL).put("canonical_qualification", JSONObject.NULL)
+        }
+        val pending = decode(root)
+        assertTrue(ServerComputeRevisionFence.admits(before, pending))
+        assertTrue(ServerComputeRevisionFence.admits(pending, before))
+        assertTrue(pending.compute!!.families.values.none { it.authorized })
+        val ownership = ServerMetricOwnership(project, owner, device).observe(pending)
+        val restored = ServerMetricOwnership.restore(ownership.encode(), project, owner, device)
+        assertEquals(ServerComputeContract.metricIDs, restored.metrics)
+        assertEquals(pending.compute, restored.presentation(pending, day)!!.compute)
+        assertNull(ServerVitalSelection.resolve(ServerVitalSelection.Metric.HRV, false, day,
+            restored.presentation(pending, day), 77.0).value)
+        val session = ServerScoreSessionState().apply { activate(owner) }
+        assertTrue(session.accept(before, session.generation(), owner))
+        assertTrue(session.accept(pending, session.generation(), owner))
+    }
 }

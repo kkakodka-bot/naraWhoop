@@ -127,6 +127,7 @@ object EffectRanker {
         outcomeByDay: Map<String, Double>,
         outcome: String,
     ): List<RankedEffect> {
+        PhoneComputeRuntime.inferenceStarted("EffectRanker.rank")
         val rows = ArrayList<RankedEffect>()
         for (name in behaviors.keys.sorted()) {
             val days = behaviors.getValue(name)
@@ -156,6 +157,7 @@ object EffectRanker {
         outcomeByDay: Map<String, Double>,
         outcome: String,
     ): List<BehaviorEffect> {
+        PhoneComputeRuntime.inferenceStarted("EffectRanker.rankNoLag")
         val effects = ArrayList<BehaviorEffect>()
         for ((name, days) in behaviors) {
             val e = effect(days, controls[name].orEmpty(), outcomeByDay, name, outcome)
@@ -176,6 +178,7 @@ object EffectRanker {
         behavior: String,
         outcome: String,
     ): RankedEffect? {
+        PhoneComputeRuntime.inferenceStarted("EffectRanker.bestLag")
         var bestLagValue = 0
         var bestEffect: BehaviorEffect? = null
         for (lag in lagSet) {

@@ -97,6 +97,7 @@ private const val CHARGE_SENTENCE_MS: Long = 6_000L
  * app-wide [AppViewModel]'s viewModelScope, so navigating away never kills the guardian.
  */
 fun startOrResumeLiveSession(vm: AppViewModel, context: Context): LiveSessionRunner {
+    val config = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else {
     val today = vm.today.value
     // Latest known resting HR: today's row first, else the most recent scored day (recentDays is
     // oldest → newest). 60 bpm is the same neutral default AutoWorkoutDetector uses when nothing is known.
@@ -104,13 +105,11 @@ fun startOrResumeLiveSession(vm: AppViewModel, context: Context): LiveSessionRun
         ?: vm.recentDays.value.lastOrNull { it.restingHr != null }?.restingHr
         ?: 60
     val profile = ProfileStore.from(context.applicationContext)
+        LiveSessionEngine.Config(restingHR = restingHr.toDouble(), hrMax = profile.hrMax.toDouble(), charge = today?.recovery)
+    }
     val sessionId = java.util.UUID.randomUUID().toString()
     val runner = LiveSessionRunner(
-        config = if (com.noop.analytics.PhoneComputeRuntime.finalHosted) null else LiveSessionEngine.Config(
-            restingHR = restingHr.toDouble(),
-            hrMax = profile.hrMax.toDouble(),
-            charge = today?.recovery,
-        ),
+        config = config,
         deviceId = vm.activeStrapId,
         scope = vm.viewModelScope,
         readBpm = { vm.live.value.heartRate },
@@ -144,6 +143,24 @@ fun LiveSessionScreen(vm: AppViewModel, onClose: () -> Unit) {
 
     val snap by runner.snapshot.collectAsStateWithLifecycle()
     Box(modifier = Modifier.fillMaxSize().background(Palette.surfaceBase)) {
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+            val live by vm.live.collectAsStateWithLifecycle()
+            Column(Modifier.fillMaxSize().navigationBarsPadding().padding(28.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(uiString(R.string.l10n_live_session_screen_live_session_73c925a5), style = NoopType.title1)
+                Text("Elapsed: ${snap.elapsedSec}s")
+                Text("Device heart rate: ${live.heartRate?.toString() ?: "unavailable"}")
+                CanonicalFamilyReadout(vm, "live_coaching")
+                CanonicalSessionReadout(vm, vm.serverScores.computeRequests.latestId("live_coaching", runner.startTs))
+                Spacer(Modifier.weight(1f))
+                Button(onClick = {
+                    if (snap.ended) { LiveSessionRunner.clear(runner); onClose() } else runner.end()
+                }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (snap.ended) "Done" else uiString(R.string.l10n_live_session_screen_end_session_8c0f4c33))
+                }
+            }
+            return@Box
+        }
         if (snap.ended) {
             LiveSessionSummary(
                 vm = vm,

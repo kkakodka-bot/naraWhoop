@@ -49,6 +49,7 @@ object PuffinDeepBufferLog {
      *  decode miss just omits the field, so a diagnostics-only summary can never disturb the capture path.
      *  The first CALLER of [Whoop5RawImu.decode] outside its own tests. */
     fun decodedImuField(frame: ByteArray): String {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("diagnostic_imu_activity_features")) return ""
         if (frame.size != Whoop5RawImu.bufferLength) return ""
         val decoded = Whoop5RawImu.decode(frame) ?: return ""
         val f = ImuFeatureExtractor.extract(decoded.samples, decoded.sampleRateHz)

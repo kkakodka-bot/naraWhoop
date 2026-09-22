@@ -857,7 +857,10 @@ class WhoopRepository(
                 startTsAdjusted = safeStartTs,
                 endTs = safeEndTs,
                 userEdited = true,
-                stagesJSON = reclipped ?: session.stagesJSON,
+                stagesJSON = if (hosted()) null else reclipped ?: session.stagesJSON,
+                efficiency = session.efficiency.takeUnless { hosted() },
+                restingHr = session.restingHr.takeUnless { hosted() },
+                avgHrv = session.avgHrv.takeUnless { hosted() },
             )),
         )
     }
@@ -1011,7 +1014,7 @@ class WhoopRepository(
             startTs, endTs, System.currentTimeMillis() / 1000L,
         ) ?: return
         val computedId = computedDeviceId(strapDeviceId)
-        val stagesJSON = com.noop.analytics.SleepStageHealer.restageFromRaw(this, strapDeviceId, safeStartTs, safeEndTs)
+        val stagesJSON = if (hosted()) null else com.noop.analytics.SleepStageHealer.restageFromRaw(this, strapDeviceId, safeStartTs, safeEndTs)
             ?: com.noop.analytics.AnalyticsEngine.encodeStages(
                 listOf(com.noop.analytics.StageSegment(start = safeStartTs, end = safeEndTs, stage = "wake")),
             )

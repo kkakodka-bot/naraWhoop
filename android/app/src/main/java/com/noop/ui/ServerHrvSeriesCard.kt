@@ -81,6 +81,7 @@ internal fun ServerHrvSeriesCard(vm: AppViewModel) {
                     Text(uiString(R.string.physiology_hrv_device, series.deviceId ?: "—"), style = NoopType.footnote)
                     Text(uiString(R.string.physiology_hrv_model, series.algorithmVersion ?: "—"), style = NoopType.footnote)
                     Text(uiString(R.string.physiology_hrv_observed, series.observedThrough ?: "—"), style = NoopType.footnote)
+                    Text("Result: ${series.resultRevision ?: "pending publication"}", style = NoopType.footnote)
                     series.featureReason?.let { reason ->
                         physiologyReasonResource(reason)?.let { Text(uiString(it), style = NoopType.footnote) }
                         Text(reason, style = NoopType.footnote)
@@ -103,7 +104,7 @@ internal fun ServerHrvSeriesCard(vm: AppViewModel) {
 }
 
 @Composable
-private fun HrvWindowRow(window: ServerHrvSeries.Window) {
+internal fun HrvWindowRow(window: ServerHrvSeries.Window) {
     val clock = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).withZone(ZoneOffset.UTC) }
     fun decimal(value: Double) = String.format(Locale.getDefault(), "%.1f", value)
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

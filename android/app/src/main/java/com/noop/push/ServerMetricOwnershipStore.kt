@@ -24,6 +24,16 @@ class ServerMetricOwnershipStore(context: Context) {
     }
 
     fun observe(cache: ServerScoreDayCache): ServerMetricOwnership? = synchronized(lock) {
+        val identity = DeviceLinkStore.identity(context)
+        cache.compute?.let { compute ->
+            if (identity != null && context.isCurrent() && compute.ownerId.equals(identity.owner, true) &&
+                compute.sourceId == identity.source && compute.project == identity.endpoint.removeSuffix("/functions/v1/push").trimEnd('/')) {
+                val policy = org.json.JSONObject().put("project", compute.project).put("owner", compute.ownerId)
+                    .put("source", compute.sourceId).put("externalDevice", identity.device).put("policyVersion", "vps-only-1")
+                    .put("families", org.json.JSONArray(compute.families.keys.sorted()))
+                check(prefs.edit().putString("policy:${identity.key}", policy.toString()).commit()) { "Pending ownership not durable" }
+            }
+        }
         val before = load() ?: return@synchronized null
         val next = before.observe(cache)
         if (next != before && context.isCurrent()) {

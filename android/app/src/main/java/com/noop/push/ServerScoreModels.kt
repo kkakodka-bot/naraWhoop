@@ -156,7 +156,7 @@ class ServerScoreSessionState {
         if (request != null && requests[value.day] != request) return false
         val old = values[value.day]
         if (!ServerComputeRevisionFence.admits(old, value)) return false
-        if (old?.scopeKey == value.scopeKey && old.features.any { (key, prior) ->
+        if (value.compute == null && old?.scopeKey == value.scopeKey && old.features.any { (key, prior) ->
             prior.inputRevision != null && value.features[key]?.inputRevision?.let { it < prior.inputRevision } == true
         }) return false
         values[value.day] = value

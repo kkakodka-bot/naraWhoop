@@ -50,13 +50,23 @@ object ServerScoreClient {
         withContext(Dispatchers.IO) {
             check(ownerId(context) == ownerId) { "account changed" }
             val device = localDeviceId(context)
-            registerCurrentDevice(context)
+            try { registerCurrentDevice(context) }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { /* The read route can return an explicit registration-pending disposition. */ }
             check(localDeviceId(context) == device) { "device changed during registration" }
             val encode: (String) -> String = { java.net.URLEncoder.encode(it, "UTF-8") }
             val body = request(context, "?day=${encode(day)}&deviceId=${encode(device)}", null)
             val identity = DeviceLinkStore.identity(context) ?: error("identity changed")
-            val canonical = DeviceLinkStore.from(context).record(identity, body)
             val cache = parseSnapshot(body, day, ownerId)
+            val receipt = JSONObject(body).getJSONObject("identity")
+            require(receipt.getString("userId") == identity.owner && receipt.getString("sourceId") == identity.source &&
+                receipt.getString("externalDeviceId") == identity.device) { "Readback identity changed" }
+            val canonical = if (receipt.isNull("deviceId")) {
+                val compute = requireNotNull(cache.compute) { "Unregistered device requires explicit compute disposition" }
+                require(compute.families.values.all { it.deviceId == null && !it.authorized &&
+                    it.reason == "device_registration_pending" && it.resultRevision == null })
+                null
+            } else DeviceLinkStore.from(context).record(identity, body)
             require(cache.features.values.all { it.deviceId == null || it.deviceId == canonical })
             cache.compute?.let { contract ->
                 require(contract.project == identity.endpoint.removeSuffix("/functions/v1/push").trimEnd('/') &&

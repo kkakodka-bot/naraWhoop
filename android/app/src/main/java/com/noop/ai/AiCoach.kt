@@ -58,7 +58,7 @@ class AiCoach(
         val family = account.runtime?.serverScoreRepository
             ?.overlay(java.time.LocalDate.now().toString())?.compute?.families?.get("live_coaching")
         return (family?.detail("response") ?: family?.value("coaching_decision"))?.let { "$it\nResult: ${family?.resultRevision}" }
-            ?: "Coaching: ${family?.reason ?: family?.status ?: "awaiting_server_result"}. Result: ${family?.resultRevision ?: "pending publication"}. Your input is retained; phone inference is disabled."
+            ?: "Coaching: ${if (family?.expired() == true) "expired_server_result" else family?.reason ?: family?.status ?: "awaiting_server_result"}. Result: ${family?.resultRevision ?: "pending publication"}. Your input is retained; phone inference is disabled."
     }
 
     // K13: cached summary of the dropped middle turns, regenerated when the dropped set changes.

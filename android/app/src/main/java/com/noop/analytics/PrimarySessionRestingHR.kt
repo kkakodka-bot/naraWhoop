@@ -47,6 +47,7 @@ object PrimarySessionRestingHR {
         validBpm: IntRange = DEFAULT_VALID_BPM,
         minValidSamples: Int = DEFAULT_MIN_VALID_SAMPLES,
     ): Double? {
+        PhoneComputeRuntime.inferenceStarted("PrimarySessionRestingHR.meanHR")
         // Primary = longest by duration. `maxByOrNull` keeps the FIRST of equal-duration sessions (only a
         // strictly-longer one replaces it); Swift `max(by:)` resolves ties the same way, so parity holds.
         val primary = sessions.maxByOrNull { it.durationSec } ?: return null

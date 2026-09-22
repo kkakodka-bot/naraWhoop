@@ -72,6 +72,12 @@ fun CanonicalPhysiologyScreen(vm: AppViewModel, title: String, families: Set<Str
                     }
                 }
             }
+            if (key == "night_hrv") {
+                val series = com.noop.push.ServerHrvSeries.from(cache, selected.toString())
+                series.windows.forEach { window ->
+                    item(key = "hrv-window:${window.start}") { HrvWindowRow(window) }
+                }
+            }
         }
     }
 }

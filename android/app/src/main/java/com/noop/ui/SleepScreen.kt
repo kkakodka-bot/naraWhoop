@@ -231,7 +231,16 @@ private fun ServerSleepScreen(vm: AppViewModel) {
                     else {
                         for (state in serverSleepStates) {
                             val bands = episode.bands.filter { it.state == state }
-                            val total = bands.sumOf { it.end - it.start } / 60.0
+                            val night = cache?.nights?.firstOrNull { it.id == episode.id }
+                            val total = when (state) {
+                                "wake" -> night?.awakeMin
+                                "light" -> night?.lightMin
+                                "deep" -> night?.deepMin
+                                "rem" -> night?.remMin
+                                "sleep_unstaged" -> night?.sleepUnstagedMin
+                                "off_body" -> night?.offBodyMin
+                                else -> night?.stateUnknownMin
+                            }
                             val color = when (state) {
                                 "wake" -> Palette.sleepAwake; "light" -> Palette.sleepLight
                                 "deep" -> Palette.sleepDeep; "rem" -> Palette.sleepREM
@@ -250,7 +259,7 @@ private fun ServerSleepScreen(vm: AppViewModel) {
                                             Size(size.width * (band.end - band.start) / span, size.height))
                                     }
                                 }
-                                Text(if (bands.isEmpty()) "—" else uiString(R.string.server_sleep_minutes_decimal, total),
+                                Text(total?.let { uiString(R.string.server_sleep_minutes_decimal, it) } ?: "—",
                                     Modifier.width(48.dp), style = NoopType.footnote)
                             }
                         }

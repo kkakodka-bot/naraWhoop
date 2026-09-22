@@ -114,6 +114,7 @@ object SleepOpportunityDetector {
     fun detect(start: Long, end: Long, hr: List<HrSample>, gravity: List<GravitySample>,
                steps: List<StepSample> = emptyList(), context: List<SleepContextSpan> = emptyList(),
                policy: Policy = Policy()): Result {
+                   PhoneComputeRuntime.inferenceStarted("SleepOpportunityDetector.detect")
         require(end > start && end - start <= 76 * 3600 && policy.minimumSleepSeconds in 300..14400)
         require(policy.minimumFeatureBinCoverage in 0.5..1.0 && policy.maximumRelativeHr in 0.5..0.99 &&
             policy.maximumRelativeHrWithoutOrientation in 0.5..0.99 &&

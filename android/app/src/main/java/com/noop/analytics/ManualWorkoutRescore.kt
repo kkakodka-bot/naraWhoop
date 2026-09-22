@@ -48,6 +48,7 @@ object ManualWorkoutRescore {
         // #1545: see WorkoutDetector.detect — EDWARDS by default, threaded by the app.
         effortMethod: StrainScorer.Method = StrainScorer.Method.EDWARDS,
     ): Scored? {
+        PhoneComputeRuntime.inferenceStarted("ManualWorkoutRescore.scored")
         if (windowSamples.size < 2) return null
         val bpms = windowSamples.map { it.bpm }
         // Integer mean, matching AppViewModel.endWorkout (Android truncates; iOS rounds — each mirrors

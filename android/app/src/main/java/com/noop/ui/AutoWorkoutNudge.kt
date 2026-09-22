@@ -94,6 +94,10 @@ fun AutoWorkoutNudgeCard(
     viewModel: AppViewModel,
     days: List<DailyMetric>,
 ) {
+    if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
+        CanonicalFamilyReadout(viewModel, "workouts")
+        return
+    }
     val context = LocalContext.current
     val locale = LocalConfiguration.current.locales[0]
     // Read once — SharedPreferences isn't reactive; when off, the whole feature is invisible + inert.

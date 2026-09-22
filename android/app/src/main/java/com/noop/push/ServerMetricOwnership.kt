@@ -8,22 +8,25 @@ data class ServerMetricOwnership(
     val ownerId: String,
     val deviceId: String,
     val claims: Map<String, Claim> = emptyMap(),
+    val ownedFamilies: Set<String> = emptySet(),
 ) {
     data class Claim(val metrics: Set<String>, val algorithmVersion: String, val inputRevision: Long,
                      val manifestHash: String?, val featureManifestHash: String?)
 
-    val metrics: Set<String> get() = claims.values.flatMap { it.metrics }.toSet()
+    val metrics: Set<String> get() = claims.values.flatMap { it.metrics }.toSet() +
+        ownedFamilies.flatMap { ServerComputeContract.familyMetrics[it].orEmpty() }
     fun owns(metric: String) = metric in metrics
 
     fun presentation(cache: ServerScoreDayCache?, day: String, readFailed: Boolean = false): ServerScoreDayCache? {
         if (cache != null && cache.day == day && cache.ownerId.equals(ownerId, true) &&
             cache.features.values.all { it.deviceId == null || it.deviceId == deviceId } &&
             (cache.compute == null || cache.compute.project.trimEnd('/') == project.trimEnd('/') &&
-                cache.compute.families.values.all { it.deviceId == deviceId })) {
+                cache.compute.families.values.all { it.deviceId == deviceId ||
+                    it.deviceId == null && it.reason == "device_registration_pending" && !it.authorized })) {
             return cache.copy(ownedMetrics = metrics + cache.compute?.ownedMetrics.orEmpty(), stale = cache.stale || readFailed,
                 readFailure = if (readFailed) "server_read_failed" else cache.readFailure)
         }
-        if (claims.isEmpty()) return null
+        if (metrics.isEmpty()) return null
         return ServerScoreDayCache(day, "per_feature", null, emptyList(), null, false, 0,
             ownerId, features = claims.mapValues { (_, claim) ->
                 ServerScoreFeatureCache("pending", "awaiting_server_result", deviceId,
@@ -56,10 +59,14 @@ data class ServerMetricOwnership(
             if (prior?.algorithmVersion == version && prior.inputRevision > revision) return@forEach
             next[key] = Claim(featureMetrics.getValue(key), version, revision, feature.manifestHash, feature.featureManifestHash)
         }
-        return copy(claims = next)
+        val families = cache.compute?.takeIf { it.project.trimEnd('/') == project.trimEnd('/') }
+            ?.families?.filterValues { it.deviceId == deviceId ||
+                it.deviceId == null && it.reason == "device_registration_pending" && !it.authorized }?.keys.orEmpty()
+        return copy(claims = next, ownedFamilies = ownedFamilies + families)
     }
 
     fun encode(): String = JSONObject().put("project", project).put("ownerId", ownerId).put("deviceId", deviceId)
+        .put("ownedFamilies", org.json.JSONArray(ownedFamilies.sorted()))
         .put("claims", JSONObject(claims.mapValues { (_, claim) -> JSONObject()
             .put("metrics", org.json.JSONArray(claim.metrics.sorted()))
             .put("algorithmVersion", claim.algorithmVersion).put("inputRevision", claim.inputRevision)
@@ -89,7 +96,10 @@ data class ServerMetricOwnership(
                 require(root.getString("project") == empty.project && root.getString("ownerId") == empty.ownerId &&
                     root.getString("deviceId") == empty.deviceId)
                 val values = root.getJSONObject("claims")
-                empty.copy(claims = values.keys().asSequence().filter { it in featureMetrics || it in ServerComputeContract.familyMetrics }.associateWith { key ->
+                val owned = root.optJSONArray("ownedFamilies")?.let { array ->
+                    (0 until array.length()).map { array.getString(it) }.toSet().also { require(ServerComputeContract.familyIDs.containsAll(it)) }
+                }.orEmpty()
+                empty.copy(ownedFamilies = owned, claims = values.keys().asSequence().filter { it in featureMetrics || it in ServerComputeContract.familyMetrics }.associateWith { key ->
                     val item = values.getJSONObject(key)
                     val metricArray = item.getJSONArray("metrics")
                     val metrics = (0 until metricArray.length()).map { metricArray.getString(it) }.toSet()
