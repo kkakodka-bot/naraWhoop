@@ -241,7 +241,7 @@ final class ScoringPreferenceRecomputeTests: XCTestCase {
         XCTAssertFalse(model.intelligence.results.isEmpty)
         // The real producer rejects current second-resolution RR even with a populated baseline.
         // Discriminate the reset through its accepted epochs and durable completion identity.
-        XCTAssertTrue(model.intelligence.results.allSatisfy { $0.avgHrv == nil && $0.recovery == nil })
+        XCTAssertTrue(model.intelligence.results.allSatisfy { $0.hrv == nil && $0.recovery == nil })
         XCTAssertEqual(model.acceptedScoringPreferences?.hrvBaselineEpoch, 0)
         XCTAssertEqual(model.acceptedScoringPreferences?.recoveryBaselineEpoch, 0)
         let completed = try XCTUnwrap(f.defaults.data(forKey: IntelligenceEngine.preferenceCompletionKey))
@@ -260,7 +260,7 @@ final class ScoringPreferenceRecomputeTests: XCTestCase {
         await model.retryScoringPreferenceRecompute()
         XCTAssertFalse(model.intelligence.hasPendingPreferenceRecompute)
         XCTAssertFalse(model.intelligence.results.isEmpty)
-        XCTAssertTrue(model.intelligence.results.allSatisfy { $0.avgHrv == nil && $0.recovery == nil },
+        XCTAssertTrue(model.intelligence.results.allSatisfy { $0.hrv == nil && $0.recovery == nil },
                       "reset must not promote unqualified current RR into HRV or recovery")
         XCTAssertEqual(model.acceptedScoringPreferences?.position.id, receipt.position.id)
         XCTAssertNotEqual(try XCTUnwrap(f.defaults.data(forKey: IntelligenceEngine.preferenceCompletionKey)), completed)
