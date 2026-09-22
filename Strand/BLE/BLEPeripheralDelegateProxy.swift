@@ -1,41 +1,35 @@
 import CoreBluetooth
 
-/// Retained for one admitted connection generation. Delayed callbacks cannot consume a new ACK queue.
+/// Retains the admitted generation. The driver rejects a callback from an obsolete proxy
+/// before it reaches the manager's current ACK queue. Native callbacks have no operation ID.
 @MainActor
 final class BLEPeripheralDelegateProxy: NSObject, @preconcurrency CBPeripheralDelegate {
-    private weak var manager: BLEManager?
+    private weak var driver: BLETransportDriver<CoreBluetoothCentralTransport>?
     private let token: BLEConnectionOwner.Token
-    init(manager: BLEManager, token: BLEConnectionOwner.Token) {
-        self.manager = manager
+    init(driver: BLETransportDriver<CoreBluetoothCentralTransport>, token: BLEConnectionOwner.Token) {
+        self.driver = driver
         self.token = token
     }
-    private func current(_ peripheral: CBPeripheral) -> BLEManager? {
-        guard peripheral.identifier == token.peripheralID,
-              manager?.acceptsPeripheralCallback(token) == true else { return nil }
-        return manager
-    }
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        current(peripheral)?.peripheral(peripheral, didDiscoverServices: error)
+        guard let driver else { return }
+        driver.discoveredServices(driver.central.wrap(peripheral), token: token, error: error)
     }
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        guard peripheral.services?.contains(where: { $0 === service }) == true else { return }
-        current(peripheral)?.peripheral(peripheral, didDiscoverCharacteristicsFor: service, error: error)
-    }
-    private func owns(_ peripheral: CBPeripheral, _ characteristic: CBCharacteristic) -> Bool {
-        peripheral.services?.contains(where: { service in
-            service.characteristics?.contains(where: { $0 === characteristic }) == true
-        }) == true
+        guard let driver else { return }
+        driver.discoveredCharacteristics(driver.central.wrap(peripheral), token: token, service: service, error: error)
     }
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard owns(peripheral, characteristic) else { return }
-        current(peripheral)?.peripheral(peripheral, didWriteValueFor: characteristic, error: error)
+        guard let driver else { return }
+        driver.writeCompleted(driver.central.wrap(peripheral), token: token, characteristic: characteristic, error: error)
     }
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard owns(peripheral, characteristic) else { return }
-        current(peripheral)?.peripheral(peripheral, didUpdateValueFor: characteristic, error: error)
+        guard let driver else { return }
+        driver.valueChanged(driver.central.wrap(peripheral), token: token, characteristic: characteristic,
+                            value: characteristic.value, error: error)
     }
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
-        guard owns(peripheral, characteristic) else { return }
-        current(peripheral)?.peripheral(peripheral, didUpdateNotificationStateFor: characteristic, error: error)
+        guard let driver else { return }
+        driver.notificationChanged(driver.central.wrap(peripheral), token: token, characteristic: characteristic,
+                                   notifying: characteristic.isNotifying, error: error)
     }
 }

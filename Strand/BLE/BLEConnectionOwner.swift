@@ -74,6 +74,17 @@ final class BLEConnectionOwner {
         return current
     }
 
+    /// Restoration can hand us a link whose OS-owned teardown is already in progress.
+    /// Retain an admitted generation so its disconnect callback can submit the standing
+    /// connection; dropping the token here would make that callback look obsolete.
+    func awaitRestoredDisconnect(_ id: UUID) -> Token? {
+        guard !intentionallyStopped, phase == .restoring, token == nil else { return nil }
+        let current = nextToken(id)
+        recoveryDisconnectPending = true
+        phase = .reconnecting
+        return current
+    }
+
     /// This is the only connection-request effect. No timers can own reconnect correctness.
     @discardableResult
     func request(_ id: UUID, link: LinkState, startDelay: TimeInterval = 0,
@@ -95,6 +106,7 @@ final class BLEConnectionOwner {
         guard !intentionallyStopped, token?.peripheralID == id,
               [.pendingConnection, .connecting, .reconnecting].contains(phase) else { return false }
         automaticReconnectPending = false
+        recoveryDisconnectPending = false
         submittedAt = nil
         recoveryAttempts.removeAll()
         phase = .discovering
