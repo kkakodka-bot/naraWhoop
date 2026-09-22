@@ -235,7 +235,11 @@ final class ServerDaySwiftV3ContextTests: XCTestCase {
             XCTAssertEqual(o.observation.input.raw, original.raw)
             XCTAssertNil(o.observation.mainNight)
             XCTAssertFalse(o.observation.native.sleepSessions.contains { $0.start == session.start })
-            XCTAssertTrue(o.observation.native.sleepSessions.flatMap(\.stages).isEmpty)
+            // Missing observations are now explicit unknown epochs, not an empty hypnogram.
+            // Neither a dismissed original nor a moved interval with no raw coverage may gain sleep.
+            XCTAssertTrue(o.observation.native.sleepSessions.flatMap(\.stages).allSatisfy {
+                $0.stage == "unknown" && !SleepStageSemantics.isSleep($0)
+            })
         }
         var split = original
         let lo = try V.validate(split).dayLo
@@ -250,7 +254,7 @@ final class ServerDaySwiftV3ContextTests: XCTestCase {
         XCTAssertEqual(o.observation.mainNight?.originalIDs, Array(o.observation.sleep.entries.prefix(2)).map { $0.identity.id })
     }
 
-    func test04RawHistoryIllnessPositiveDirectNativeAndSeparatedCalendarWindows() async throws {
+    func test04RawHistoryUntimedRRIsNotAnIllnessSignalAndCalendarWindowsStaySeparated() async throws {
         let history = try await S13HistoryCache.shared.nights(31)
         let input = try F.night(31, hr: 86, variation: 10, raw: 3420)
         let o = try await F.run(input, history), evidence = o.output.illness
@@ -260,8 +264,12 @@ final class ServerDaySwiftV3ContextTests: XCTestCase {
         XCTAssertEqual(evidence.baselineDays.last, "2026-01-29")
         XCTAssertEqual(evidence.recentDays, ["2026-01-31", "2026-02-01"])
         XCTAssertFalse(evidence.baselineDays.contains("2026-01-30"))
-        XCTAssertEqual(result.level, .raised)
-        XCTAssertGreaterThanOrEqual(result.signalCount, 2)
+        // F.night intentionally carries one coarse RR every ten seconds and no continuity proof.
+        // It cannot supply qualified nightly HRV or turn one observed signal into a raised illness flag.
+        XCTAssertNil(o.observation.native.daily.avgHrv)
+        XCTAssertFalse(evidence.signals.contains { $0.metric == .hrv })
+        XCTAssertEqual(result.level, .quiet)
+        XCTAssertEqual(result.signalCount, 1)
         XCTAssertEqual(result.firedSignals, [])
         let direct = IllnessSignalEngine.evaluate(evidence.inputs, context: .init(baselineTrusted: true))
         XCTAssertEqual(result, direct)
@@ -492,14 +500,14 @@ final class ServerDaySwiftV3ContextTests: XCTestCase {
         for index in 0..<14 {
             var i = try Raw.input("circadian-\(index)", day: S11Fixtures.day(index))
             let lo = try V.validate(i).dayLo
-            // Sparse HR still triggers native HR-only sleep. Preserve that positive behavior,
-            // then use an explicit authoritative dismissal for the no-observed-wake control.
+            // Hourly HR is insufficient sleep evidence. Circadian activity bins must not fabricate
+            // a wake reference from it; an explicit dismissal remains authoritative as well.
             for hour in 0..<24 {
                 Raw.append(&i, .hr, lo + hour * 3600, ["bpm": .number(Double(65 + Int(10 * cos(Double(hour - 16) * .pi / 12))))])
             }
             if index == 0 {
-                let nativePositive = try await X.run(i)
-                XCTAssertNotNil(nativePositive.observation.mainNight)
+                let sparse = try await X.run(i)
+                XCTAssertNil(sparse.observation.mainNight)
             }
             let raw = i.raw
             i.journal.append(F.edit(i, start: lo, end: i.asOfExclusive, dismissed: true))
