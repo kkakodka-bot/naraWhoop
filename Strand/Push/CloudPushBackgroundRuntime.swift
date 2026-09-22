@@ -21,7 +21,8 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
         (Bundle.main.bundleIdentifier ?? "com.frwhoop.strand") + ".cloud-upload.v1." + scope.namespace
     }
 
-    init(context: AccountSessionContext, layout: AccountStorageLayout,
+    init(resourceBudget: ResourceBudget = .shared,
+         context: AccountSessionContext, layout: AccountStorageLayout,
          authorize: @escaping CloudUploadQueue.Authorize,
          isCurrent: @escaping CloudUploadQueue.Current,
          policy: @escaping @Sendable () -> CloudUploadPolicy,
@@ -38,7 +39,8 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
         let adapter = self.adapter
         let controlSession = CloudPushTransport.makeSession()
         self.controlSession = controlSession
-        do { queue = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+        do { queue = try CloudUploadQueue(resourceBudget: resourceBudget,
+            context: context, layout: layout, adapter: adapter,
             authorize: authorize, isCurrent: isCurrent, policy: policy, control: { request in
                 let (data, response) = try await controlSession.data(for: request)
                 guard data.count <= PushProtocolLimits.maxAckBytes else { throw CloudUploadError.responseTooLarge }

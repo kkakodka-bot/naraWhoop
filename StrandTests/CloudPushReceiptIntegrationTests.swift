@@ -10,6 +10,11 @@ import GRDB
 #endif
 
 enum W5ReceiptFixture {
+    /// Protocol tests control policy explicitly, independent of concurrent builds/physical BLE history.
+    /// ResourceBudgetTests and queue pressure tests retain blocked-admission coverage.
+    static var resourceBudget: ResourceBudget {
+        ResourceBudget(thermal: { ProcessInfo.ThermalState.nominal.rawValue }, lowPower: { false })
+    }
     static let owner = "11111111-1111-4111-8111-111111111111"
     static let source = "44444444-4444-4444-8444-444444444444"
     static func objectKey(owner: String, device: String, stream: String) -> String {
@@ -77,7 +82,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
         try await store.upsertDevice(id: device, mac: nil, name: nil)
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [W5IntakeProtocol.self]
         let session = URLSession(configuration: config)
-        let runtime = try CloudPushBackgroundRuntime(context: context, layout: layout, authorize: { _ in "synthetic" },
+        let runtime = try CloudPushBackgroundRuntime(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, authorize: { _ in "synthetic" },
             isCurrent: { _ in true }, policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) },
             sessionConfiguration: config)
         CloudPushBackgroundRuntime.install(runtime)
@@ -916,7 +921,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
         let context = AccountSessionContext(scope: f.context.scope, generation: UUID())
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [W5IntakeProtocol.self]
         let session = URLSession(configuration: config)
-        let runtime = try CloudPushBackgroundRuntime(context: context, layout: f.layout,
+        let runtime = try CloudPushBackgroundRuntime(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: f.layout,
             authorize: { _ in "synthetic-new-generation" }, isCurrent: { _ in true },
             policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) },
             sessionConfiguration: config, now: { Date().addingTimeInterval(60) })
