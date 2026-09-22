@@ -129,9 +129,11 @@ public final class ServerComputeOutbox {
         guard item.scope == scope, result.owner == "server", result.ownerID == scope.owner,
               ServerCanonicalResults.projectKey(result.project) == scope.project, result.sourceID == scope.source,
               result.deviceID == scope.device, result.window == item.request.sessionID,
-              result.inputRevision == item.request.inputRevision, result.resultRevision?.isEmpty == false,
-              result.computedAt != nil, result.algorithmVersion?.isEmpty == false,
+              result.inputRevision == item.request.inputRevision, ServerCanonicalFamilyResult.isResultRevision(result.resultRevision),
+              ServerCanonicalFamilyResult.timestamp(result.computedAt) != nil, result.algorithmVersion?.isEmpty == false,
+              [result.observedThrough, result.expiresAt].allSatisfy({ $0 == nil || ServerCanonicalFamilyResult.timestamp($0) != nil }),
               Set(result.metrics) == ServerCanonicalResults.familyMetrics[item.request.family],
+              Set(result.values.keys).isSubset(of: Set(result.metrics)),
               ServerCanonicalResults.states.contains(result.status),
               !["available", "stale"].contains(result.status) || result.hasCanonicalAuthorization,
               ["available", "stale"].contains(result.status) || result.values.values.allSatisfy({ $0 == .null }) else { throw Failure.invalidResult }
@@ -162,8 +164,8 @@ public final class ServerComputeOutbox {
               ServerCanonicalResults.projectKey(result.project) == scope.project,
               result.status == "available", result.hasCanonicalAuthorization,
               let decision = result.decisionID, let revision = result.resultRevision,
-              let expires = result.expiresAt.flatMap({ ISO8601DateFormatter().date(from: $0) }), expires > now,
-              let computed = result.computedAt.flatMap({ ISO8601DateFormatter().date(from: $0) }), computed <= now else { return false }
+              let expires = ServerCanonicalFamilyResult.timestamp(result.expiresAt), expires > now,
+              let computed = ServerCanonicalFamilyResult.timestamp(result.computedAt), computed <= now else { return false }
         let key = try Self.encoded(scope)
         return try db.write { db in
             try db.execute(sql: "INSERT OR IGNORE INTO serverComputeDecisionReceipts(decisionID,scope,resultRevision,consumedAt) VALUES(?,?,?,?)",

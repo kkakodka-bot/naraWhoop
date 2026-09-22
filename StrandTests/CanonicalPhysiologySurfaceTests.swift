@@ -7,11 +7,12 @@ import WhoopProtocol
 @MainActor
 final class CanonicalPhysiologySurfaceTests: XCTestCase {
     private func result(status: String = "available", value: Any = 0,
-                        revision: Any = "immutable-17", authorization: String = "frwhoop-server-1") throws -> ServerCanonicalFamilyResult {
+                        revision: Any = "compute:17", authorization: String = "frwhoop-server-1") throws -> ServerCanonicalFamilyResult {
         let json: [String: Any] = [
             "owner": "server", "metrics": ["recovery"], "status": status,
             "result_revision": revision, "input_revision": 17,
             "algorithm_version": authorization, "configuration_version": "config-1",
+            "manifest_hash": String(repeating: "a", count: 64), "canonical_qualification": "retained_legacy",
             "project": "https://example.supabase.co", "owner_id": UUID().uuidString,
             "source_id": UUID().uuidString, "device_id": UUID().uuidString,
             "window": "2026-09-21", "computed_at": "2026-09-21T00:00:00Z",

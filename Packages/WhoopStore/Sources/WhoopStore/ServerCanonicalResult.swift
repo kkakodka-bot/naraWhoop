@@ -66,14 +66,38 @@ public struct ServerCanonicalFamilyResult: Codable, Equatable, Sendable {
     }
 
     public var hasCanonicalAuthorization: Bool {
-        guard owner == "server", let revision = resultRevision, !revision.isEmpty,
-              let inputRevision, inputRevision >= 0, computedAt != nil else { return false }
-        if algorithmVersion == "frwhoop-server-1" { return true }
-        return canonicalQualification == "signed_reference_approval" && Self.isHash(manifestHash) && Self.isHash(featureManifestHash)
+        guard owner == "server", Self.isResultRevision(resultRevision),
+              let inputRevision, inputRevision >= 0, Self.timestamp(computedAt) != nil,
+              UUID(uuidString: deviceID) != nil, algorithmVersion?.isEmpty == false,
+              Self.isHash(manifestHash) else { return false }
+        return algorithmVersion == "frwhoop-server-1" && canonicalQualification == "retained_legacy" ||
+            canonicalQualification == "signed_reference_approval" && Self.isHash(featureManifestHash)
     }
-    public func number(_ metric: String) -> Double? {
-        guard metrics.contains(metric), ["available", "stale"].contains(status), hasCanonicalAuthorization else { return nil }
+    public func number(_ metric: String, now: Date = Date()) -> Double? {
+        guard metrics.contains(metric), ["available", "stale"].contains(status), hasCanonicalAuthorization,
+              !isExpired(at: now) else { return nil }
         return values[metric]?.number
+    }
+    public func isExpired(at now: Date = Date()) -> Bool {
+        guard let expiresAt else { return false }
+        guard let expiry = Self.timestamp(expiresAt) else { return true }
+        return expiry <= now
+    }
+    static func timestamp(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: value) { return date }
+        formatter.formatOptions.insert(.withFractionalSeconds)
+        return formatter.date(from: value)
+    }
+    static func isResultRevision(_ value: String?) -> Bool {
+        guard let value else { return false }
+        if value.hasPrefix("sha256:") { return isHash(String(value.dropFirst(7))) }
+        for prefix in ["compute:", "session:"] where value.hasPrefix(prefix) {
+            let number = value.dropFirst(prefix.count)
+            return !number.isEmpty && number.allSatisfy { "0123456789".contains($0) }
+        }
+        return false
     }
     public static func isHash(_ value: String?) -> Bool {
         guard let value, value.count == 64 else { return false }
@@ -136,7 +160,8 @@ public struct ServerCanonicalResults: Codable, Equatable, Sendable {
                   result.window == day, result.inputRevision == nil || result.inputRevision! >= 0,
                   Set(result.values.keys).isSubset(of: Self.familyMetrics[key]!),
                   result.timezoneID == nil || TimeZone(identifier: result.timezoneID!) != nil,
-                  result.resultRevision == nil || (result.computedAt != nil && result.algorithmVersion?.isEmpty == false && result.inputRevision != nil),
+                  result.resultRevision == nil || (ServerCanonicalFamilyResult.isResultRevision(result.resultRevision) && result.computedAt != nil && result.algorithmVersion?.isEmpty == false && result.inputRevision != nil),
+                  [result.computedAt, result.observedThrough, result.expiresAt].allSatisfy({ $0 == nil || ServerCanonicalFamilyResult.timestamp($0) != nil }),
                   !["available", "stale"].contains(result.status) || result.hasCanonicalAuthorization,
                   ["available", "stale"].contains(result.status) || result.values.values.allSatisfy({ $0 == .null })
             else { throw ServerScoreCacheCodec.DecodeError.invalidPayload }

@@ -19,6 +19,8 @@ final class ServerComputeOutboxTests: XCTestCase {
             "metrics": Array(ServerCanonicalResults.familyMetrics[request.family]!), "status": status,
             "result_revision": "session:123", "input_revision": request.inputRevision,
             "algorithm_version": status == "available" ? "frwhoop-server-1" : "vps-only-1",
+            "canonical_qualification": status == "available" ? "retained_legacy" : NSNull(),
+            "manifest_hash": status == "available" ? String(repeating: "a", count: 64) : NSNull(),
             "configuration_version": "vps-only-1", "computed_at": "2026-09-21T10:00:00Z",
             "timezone_id": request.timezoneID, "freshness": "current",
             "values": Dictionary(uniqueKeysWithValues: ServerCanonicalResults.familyMetrics[request.family]!.map { ($0, value) }), "details": [:]]

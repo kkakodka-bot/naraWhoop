@@ -25,7 +25,8 @@ final class ServerComputeRevisionFenceTests: XCTestCase {
                 "computed_at": pending ? null : "2026-09-22T06:00:00Z", "observed_through": NSNull(),
                 "algorithm_version": active ? "frwhoop-server-1" : "vps-only-1",
                 "configuration_version": "vps-only-1", "timezone_id": pending ? null : "UTC",
-                "manifest_hash": NSNull(), "feature_manifest_hash": NSNull(), "canonical_qualification": NSNull(),
+                "manifest_hash": active ? String(repeating: "a", count: 64) : null,
+                "feature_manifest_hash": NSNull(), "canonical_qualification": active ? "retained_legacy" : null,
                 "freshness": pending ? "unavailable" : "current", "values": values, "details": [String: Any](),
             ]
         }
@@ -161,5 +162,30 @@ final class ServerComputeRevisionFenceTests: XCTestCase {
         XCTAssertThrowsError(try pending.validate(owner: source, day: day))
         XCTAssertThrowsError(try pending.validate(owner: owner, day: day, project: "https://other.supabase.co"))
         XCTAssertThrowsError(try pending.validate(owner: owner, day: day, source: device))
+    }
+
+    func testAlgorithmNameCannotAuthorizeLegacyOrShadowAndImmutableIdentityMustBeReal() throws {
+        for (key, value): (String, Any) in [
+            ("canonical_qualification", NSNull()), ("manifest_hash", NSNull()),
+            ("manifest_hash", "not-a-manifest"), ("result_revision", "unrelated-snapshot-field"),
+            ("computed_at", "not-a-time"),
+        ] {
+            XCTAssertThrowsError(try decode(modify(document()) { $0[key] = value }), key)
+        }
+    }
+
+    func testExpiryWithholdsTimeSensitiveValueWithoutErasingItsImmutableHistory() throws {
+        let family = try XCTUnwrap(try decode(modify(document()) {
+            $0["expires_at"] = "2026-09-21T10:01:00.250Z"
+            $0["status"] = "stale"; $0["reason"] = "window_expired"
+        }).canonicalResults?.result(for: "recovery"))
+        let expiry = try XCTUnwrap(ServerCanonicalFamilyResult.timestamp("2026-09-21T10:01:00.250Z"))
+        XCTAssertEqual(family.number("recovery", now: expiry.addingTimeInterval(-0.001)), 0)
+        XCTAssertNil(family.number("recovery", now: expiry))
+        XCTAssertNil(family.number("recovery", now: expiry.addingTimeInterval(60)))
+        XCTAssertTrue(family.isExpired(at: expiry)); XCTAssertEqual(family.values["recovery"], .number(0))
+        let daily = try XCTUnwrap(try decode(document()).canonicalResults?.result(for: "recovery"))
+        XCTAssertFalse(daily.isExpired(at: .distantFuture))
+        XCTAssertEqual(daily.number("recovery", now: .distantFuture), 0)
     }
 }

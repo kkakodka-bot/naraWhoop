@@ -16,6 +16,8 @@ final class ServerCanonicalResultTests: XCTestCase {
                 "reason": status == "available" ? NSNull() : "reference_required",
                 "result_revision": "compute:1", "input_revision": 4,
                 "algorithm_version": status == "available" ? "frwhoop-server-1" : "vps-only-1",
+                "canonical_qualification": status == "available" ? "retained_legacy" as Any : NSNull(),
+                "manifest_hash": status == "available" ? String(repeating: "a", count: 64) as Any : NSNull(),
                 "configuration_version": "vps-only-1", "project": project, "owner_id": owner,
                 "device_id": device, "source_id": source, "window": day,
                 "timezone_id": "America/Los_Angeles", "computed_at": "2026-09-22T06:00:00Z",
