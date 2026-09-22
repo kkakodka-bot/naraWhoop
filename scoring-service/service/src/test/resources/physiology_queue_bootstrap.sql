@@ -16,7 +16,7 @@ create table auth.users(id uuid primary key);
 create table public.profiles(id uuid primary key references auth.users,timezone text not null default 'UTC',
   reported_age_years integer,sex_model text,weight_kg numeric,height_cm numeric);
 create table public.devices(id uuid primary key,user_id uuid not null references auth.users,last_seen_at timestamptz,
-  device_family text,firmware text,is_active boolean not null default true,calibration jsonb not null default '{}'::jsonb);
+  external_device_id text,device_family text,firmware text,is_active boolean not null default true,calibration jsonb not null default '{}'::jsonb);
 create table public.sessions(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users,
   device_id uuid references public.devices,start_at timestamptz not null,end_at timestamptz not null,
   user_modified boolean not null default false,kind text not null default 'sleep',updated_at timestamptz default now());

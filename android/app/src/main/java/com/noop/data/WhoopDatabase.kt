@@ -1266,6 +1266,7 @@ abstract class WhoopDatabase : RoomDatabase() {
 
         /** Read-only legacy access. Never copy samples, analysis, ownership, jobs, or upload cursors. */
         private fun copyLegacyPairingMetadata(context: Context, target: SupportSQLiteDatabase) {
+            if (!com.noop.push.EnrollmentDataScope.mayImportLegacyPairing(context)) return
             val legacy = com.noop.account.AccountStorageContext.platform(context).getDatabasePath(DB_NAME)
             if (!legacy.exists()) return
             android.database.sqlite.SQLiteDatabase.openDatabase(legacy.path, null,

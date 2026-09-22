@@ -31,6 +31,7 @@ class ScoringWorkQueueIntegrationTest {
         assumeTrue("Run scripts/test-physiology-queue.sh for real PostgreSQL tests", url != null)
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db = PostgresClient(url)
+        resetFleetTestState(db)
         queue = ScoringWorkQueue(db)
         sql("insert into auth.users values ('$user')")
         sql("insert into profiles(id,timezone) values ('$user','UTC')")
@@ -67,6 +68,7 @@ class ScoringWorkQueueIntegrationTest {
         assertEquals(otherDevice,queue.peekOne(userId=user)?.deviceId)
         assertNull(queue.peekOne(userId=user,excludedDevices=setOf(ScoringWorkQueue.DeviceKey(user,otherDevice))))
         sql("update physiology_work_items set lease_expires_at=clock_timestamp()-interval '1 second' where user_id='$user' and device_id='$device'")
+        sql("update scoring_fleet_reservations set expires_at=clock_timestamp()-interval '1 second' where user_id='$user' and device_id='$device'")
         assertNotNull(queue.peekOne(userId=user,deviceId=device,day=day))
     }
 
@@ -111,6 +113,8 @@ class ScoringWorkQueueIntegrationTest {
         queue.dirtyWorkItem(user, device, day)
         val obsolete = claim()
         queue.dirtyWorkItem(user, device, day)
+        assertNull("superseded computation still consumes its slot until settled",queue.claimOne(user,device,day))
+        assertFalse(queue.markDone(obsolete,1))
         val current = claim()
         assertFalse(queue.renew(obsolete))
         assertFalse(queue.markDone(obsolete, 1))
@@ -119,6 +123,7 @@ class ScoringWorkQueueIntegrationTest {
         expectStale { fence(obsolete) }
         assertTrue(queue.renew(current))
         sql("update physiology_work_items set lease_expires_at=clock_timestamp()-interval '1 second' where user_id='$user'")
+        sql("update scoring_fleet_reservations set expires_at=clock_timestamp()-interval '1 second' where user_id='$user'")
         assertFalse(queue.renew(current))
         expectStale { fence(current) }
         val successor = claim()
@@ -354,6 +359,7 @@ class ScoringWorkQueueIntegrationTest {
                     conn.commit()
                     assertFalse("expired waiter gained authority",waiting.get(5,TimeUnit.SECONDS))
                 }
+                assertFalse(queue.markDone(item,1))
             }
         } finally { pool.shutdownNow() }
     }

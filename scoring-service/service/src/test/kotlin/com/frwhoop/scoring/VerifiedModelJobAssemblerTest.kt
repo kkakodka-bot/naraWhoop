@@ -107,6 +107,19 @@ class VerifiedModelJobAssemblerTest {
         assertThrows(IllegalArgumentException::class.java) { assembler.prepare(model(contract), request, listOf(decoded)) }
     }
 
+    @Test fun twoPhonesExactRawReplayKeepsOneSeriesAndConflictingCopyFailsClosed() = fixture { _, contract, decoded, model ->
+        contract.put("adapter_version",VerifiedModelJobAssembler.DEDUPLICATING_VERSION)
+        val reference=assembler.prepare(model(contract),request,listOf(decoded))!!.payload.getJSONArray("signals").toString()
+        val second=decoded.copy(manifest=decoded.manifest.copy(id=UUID.randomUUID()))
+        contract.getJSONArray("raw_object_attestations").put(JSONObject(contract.getJSONArray("raw_object_attestations").getJSONObject(0).toString())
+            .put("object_id",second.manifest.id))
+        val records=contract.getJSONArray("channels").getJSONObject(0).getJSONArray("records")
+        records.put(JSONObject(records.getJSONObject(0).toString()).put("object_id",second.manifest.id))
+        assertEquals(reference,assembler.prepare(model(contract),request,listOf(decoded,second))!!.payload.getJSONArray("signals").toString())
+        val conflicting=second.copy(records=second.records.map { it.copy(columns=it.columns.map { value -> value+1 }) })
+        assertThrows(IllegalArgumentException::class.java) { assembler.prepare(model(contract),request,listOf(decoded,conflicting)) }
+    }
+
     @Test fun typedHashMatchesPythonGolden() {
         val value = JSONObject().put("n", JSONArray().put(JSONObject.NULL).put(true).put(false).put(1).put(1.5).put("é")).put("x", "abc")
         val prefix = "{s1:n[ntfd".toByteArray()

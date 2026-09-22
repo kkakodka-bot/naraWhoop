@@ -35,6 +35,7 @@ class RawSignalCatalogueIntegrationTest {
         assumeTrue("Run scripts/test-physiology-queue.sh", url != null)
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db = PostgresClient(url)
+        resetFleetTestState(db)
         sql("insert into auth.users values('$user')")
         sql("insert into profiles(id,timezone) values('$user','UTC')")
         sql("insert into devices(id,user_id) values('$device','$user')")
@@ -45,6 +46,35 @@ class RawSignalCatalogueIntegrationTest {
             "values('$user','$device','ppg',$start,'$objectId','$key',$start,${start + 1})")
     }
     @After fun close() { if (::db.isInitialized) db.close() }
+
+    @Test fun confirmedAliasReadsOriginalObjectsAndFencesCanonicalCorrectionsWithoutRewritingKeys() {
+        val source=UUID.randomUUID(); val code=UUID.randomUUID(); val canonical=UUID.randomUUID()
+        sql("insert into noop_enrollment_codes(id,user_id,code_hash,expires_at) values('$code','$user',repeat('a',64),now()+interval '1 day')")
+        sql("insert into noop_app_installations(source_id,user_id,enrollment_code_id,platform,app_version) values('$source','$user','$code','ios','fixture')")
+        sql("update devices set external_device_id='installation:$source:local-band' where id='$device'")
+        sql("insert into devices(id,user_id,external_device_id) values('$canonical','$user','whoop-SYNTH001')")
+        sql("update object_manifests set source_id='$source' where id='$objectId'")
+        db.withConnection { c ->
+            c.autoCommit=false
+            try {
+                c.createStatement().use { s ->
+                    s.execute("set local request.jwt.claim.role='service_role'")
+                    s.execute("select confirm_noop_wearable('$user','$source','$device','$canonical',"+
+                        "'{\"method\":\"device_information_serial_v1\",\"serial\":\"SYNTH001\",\"receiptSha256\":\"${"a".repeat(64)}\"}')")
+                }; c.commit()
+            } finally { c.rollback() }
+        }
+        val catalogue=catalogue { encoded }
+        val manifest=catalogue.discover(user,canonical,start,start+60).single()
+        assertEquals(device,manifest.deviceId);assertEquals(canonical,manifest.canonicalDeviceId)
+        assertEquals(key,manifest.key)
+        assertTrue(catalogue.discover(UUID.randomUUID(),canonical,start,start+60).isEmpty())
+        catalogue.verify(manifest)
+        val before=number("select input_revision from physiology_work_items where user_id='$user' and device_id='$canonical' and day='2026-08-01'")
+        sql("delete from noop_signal_windows where object_id='$objectId'")
+        assertTrue(number("select input_revision from physiology_work_items where user_id='$user' and device_id='$canonical' and day='2026-08-01'")>before)
+        assertEquals(device.toString(),string("select device_id from object_manifests where id='$objectId'"))
+    }
 
     @Test fun repeatedActualHashAndDecodeDoesNotContinuouslyRedirtyTheQueue() {
         var fetches = 0

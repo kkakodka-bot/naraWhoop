@@ -15,6 +15,7 @@ class PhysiologyPromotionIntegrationTest {
         assumeTrue("Run scripts/test-physiology-queue.sh",url!=null)
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db=PostgresClient(url); SignedPromotionFixtures.reset(db)
+        resetFleetTestState(db)
     }
     @After fun close() { if(::db.isInitialized) { SignedPromotionFixtures.reset(db); db.close() } }
     private fun sql(value:String)=db.withConnection { c -> c.createStatement().use { it.execute(value) } }

@@ -26,6 +26,7 @@ class ProjectionInvalidationIntegrationTest {
         assumeTrue("Run scripts/test-physiology-queue.sh", url != null)
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db = PostgresClient(url)
+        resetFleetTestState(db)
         sql("insert into auth.users values('$user'),('$otherUser')")
         sql("insert into profiles(id,timezone) values('$user','UTC'),('$otherUser','UTC')")
         sql("insert into devices(id,user_id) values('$device','$user'),('$otherDevice','$otherUser')")

@@ -233,6 +233,13 @@ class SelfHostedPushWorker(
             ) && (settings.capturedContext == null || CloudAuthClient.isCurrent(storageContext, settings.capturedContext))
         }
         if (!identityStillCurrent()) throw CancellationException("push identity changed")
+        val associations = WearableAssociationStore.from(applicationContext)
+        for (item in associations.pending(credential)) {
+            if (!identityStillCurrent()) throw CancellationException("push identity changed")
+            PushEnrollmentClient(endpoint,fleetToken,com.noop.BuildConfig.VERSION_NAME).confirmWearable(item,credential)
+            if (!identityStillCurrent()) throw CancellationException("push identity changed")
+            associations.acknowledge(item,credential)
+        }
         val captured = settings.capturedContext
         val admission = if (captured != null) {
             val binding = AccountPushCaptureBindings.binding(captured) ?: withContext(Dispatchers.IO) {

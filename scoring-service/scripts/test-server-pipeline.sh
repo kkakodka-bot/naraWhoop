@@ -53,6 +53,13 @@ export PIPELINE_TEST_REST_URL="http://$rest_address"
 export PIPELINE_TEST_DATABASE_URL="postgresql://supabase_admin:isolated-pipeline-only@$database_address/postgres"
 export PIPELINE_TEST_OUTPUT="$evidence/decoders"
 cd "$repo_dir/supabase/functions"
+if [[ "${PIPELINE_TEST_MULTIUSER:-0}" == 1 ]]; then
+  npx --yes deno test --allow-all --filter "${PIPELINE_TEST_FILTER:-}" tests/multiuser_sql_test.ts tests/multiuser_worker_sql_test.ts 2>&1 | tee "$evidence/multiuser.log"
+  git rev-parse HEAD > "$evidence/source-sha.txt"
+  git diff --binary > "$evidence/source-diff.patch"
+  printf 'Fully migrated local multi-user evidence: %s\n' "$evidence"
+  exit 0
+fi
 npx --yes deno test --allow-all tests/server_pipeline_sql_test.ts 2>&1 | tee "$evidence/edge.log"
 cd "$repo_dir"
 bash Tools/server-score-contract/run-mobile-decoders.sh "$PIPELINE_TEST_OUTPUT" 2>&1 | tee "$evidence/mobile.log"

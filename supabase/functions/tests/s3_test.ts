@@ -64,3 +64,24 @@ Deno.test('s3 deleteObject reports a server error instead of swallowing it', asy
   }
   assert(threw, 'deleteObject must throw on a non-404 failure');
 });
+
+Deno.test('version erasure checks owner prefix before deletion and removes all archived versions', async () => {
+  const prefix='v2/users/11111111-1111-4111-8111-111111111111/';
+  const deleted:string[]=[];let listed=0;
+  const s3=makeS3(async(url,init)=>{
+    const parsed=new URL(url);
+    if(init.method==='DELETE') {deleted.push(parsed.searchParams.get('versionId')!);return new Response(null,{status:204});}
+    listed++;
+    const versions=listed===1?`<Version><Key>${encodeURIComponent(prefix+'raw/a')}</Key><VersionId>v1</VersionId></Version>
+      <DeleteMarker><Key>${encodeURIComponent(prefix+'raw/a')}</Key><VersionId>v2</VersionId></DeleteMarker>`:'';
+    return new Response(`<ListVersionsResult><IsTruncated>false</IsTruncated>${versions}</ListVersionsResult>`);
+  });
+  assertEquals(await s3.purgePrefixVersions(prefix),{deleted:2});
+  assertEquals(deleted,['v1','v2']);assertEquals(listed,2);
+  const foreign=makeS3(async(_url,init)=>{
+    assertEquals(init.method,'GET');
+    return new Response('<ListVersionsResult><Version><Key>v2/users/another-owner/raw/a</Key><VersionId>x</VersionId></Version></ListVersionsResult>');
+  });
+  let denied=false;try {await foreign.purgePrefixVersions(prefix);} catch {denied=true;}
+  assert(denied);
+});

@@ -222,7 +222,7 @@ export function createDeletionService({
   uuid,
 }: {
   rest: SupabaseRest;
-  objectStore: Pick<S3Store, 'deleteObject' | 'listPrefix'>;
+  objectStore: Pick<S3Store, 'deleteObject' | 'listPrefix' | 'purgePrefixVersions'>;
   now?: () => Date;
   uuid?: () => string;
 }) {
@@ -249,15 +249,29 @@ export function createDeletionService({
       created_at: now().toISOString(),
       updated_at: now().toISOString(),
     };
+    if (job.user_id !== userId) throw new Error('deletion_owner_mismatch');
+    job.state ??= { failures: [], deleted_keys: [] };
     job.status = 'running';
     job.updated_at = now().toISOString();
     await saveJob(job);
 
     try {
+      await rest.rpc('begin_noop_account_deletion', { p_user: userId });
+      const [freeze] = await rest.select('noop_account_retirements',`user_id=eq.${userId}&select=requested_at`);
+      const frozenAt = Date.parse(freeze?.requested_at);
+      // Previously issued PUT URLs live for at most 15 minutes. Keep Auth and the deletion journal
+      // until that window and a one-minute in-flight grace have elapsed, then census all versions.
+      if (!Number.isFinite(frozenAt) || now().getTime() < frozenAt + 16 * 60_000) {
+        job.status='blocked'; job.step='wait_for_upload_expiry';
+        await saveJob(job);
+        return {status:'retry',job_id:job.id,reason:'waiting_for_upload_expiry'};
+      }
       job.step = 'list_manifests';
       const manifests = (await rest.select('object_manifests', `user_id=eq.${userId}&select=id,object_key,status`)) as any[];
       job.state.manifest_ids = manifests.map((m) => m.id);
       job.state.object_keys = [...new Set(manifests.map((m) => m.object_key).filter(Boolean))];
+      if (job.state.object_keys.some((key: unknown) => typeof key !== 'string' ||
+          !allUserPrefixes(userId).some(prefix => key.startsWith(prefix)))) throw new Error('deletion_object_owner_mismatch');
       await saveJob(job);
 
       job.step = 'delete_b2_versions';
@@ -267,8 +281,10 @@ export function createDeletionService({
       }
       for (const prefix of allUserPrefixes(userId)) {
         try {
+          await objectStore.purgePrefixVersions(prefix);
           const leftover = await objectStore.listPrefix(prefix);
           for (const key of leftover) {
+            if (!key.startsWith(prefix)) throw new Error('deletion_object_owner_mismatch');
             try { await objectStore.deleteObject(key); } catch { failures.push({ key }); }
           }
         } catch { failures.push({ prefix }); }
@@ -286,11 +302,11 @@ export function createDeletionService({
         try {
           const col = table === 'profiles' ? 'id' : 'user_id';
           await rest.delete(table, `${col}=eq.${userId}`);
-        } catch { /* table may not exist in older environments */ }
+        } catch { throw new Error('deletion_rows_unavailable'); }
       }
       try {
-        await rest.request(`integration_credentials?user_id=eq.${userId}`, { method: 'DELETE', schema: 'internal' });
-      } catch { /* schema-qualified */ }
+        await rest.rpc('delete_noop_integration_credentials', {p_user:userId});
+      } catch { throw new Error('deletion_credentials_unavailable'); }
       await saveJob(job);
 
       job.step = 'delete_auth_user';

@@ -110,7 +110,10 @@ enum CloudRuntimeIdentity {
     }
 
     static func snapshot() -> AccountIdentitySnapshot {
-        currentEnrollmentSnapshot() ?? CloudAuthClient.identitySnapshot()
+        if CloudEnrollment.runtimeBlocked {
+            return AccountIdentitySnapshot(projectURL: nil, scope: nil, generation: CloudEnrollment.retirementGeneration)
+        }
+        return currentEnrollmentSnapshot() ?? CloudAuthClient.identitySnapshot()
     }
 
     static func isEnrollment(_ context: AccountSessionContext) -> Bool {
@@ -122,6 +125,7 @@ enum CloudRuntimeIdentity {
     }
 
     static func authorizedSession() async throws -> AuthorizedCloudSession {
+        guard !CloudEnrollment.runtimeBlocked else { throw CloudEnrollmentError.superseded }
         if let context = currentEnrollmentSnapshot()?.context,
            let credential = CloudEnrollment.currentCredential(),
            context.generation == UUID(uuidString: credential.tokenId) {

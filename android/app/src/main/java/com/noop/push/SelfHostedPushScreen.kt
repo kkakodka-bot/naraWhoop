@@ -68,6 +68,7 @@ fun SelfHostedPushScreen() {
             blurb = stringResource(R.string.push_disclosure),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                InstallationRetirementControl()
                 Text(
                     stringResource(R.string.push_one_way_warning),
                     style = NoopType.footnote,

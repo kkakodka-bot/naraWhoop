@@ -908,9 +908,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // after a SECOND sighting of the same value — see `WhoopBleClient.noteHarvardSerial` for why a 4.0
         // waits where a 5/MG adopts on the first read (#1193).
         ble.onSerial = { serial ->
+            val attestingAddress = ble.connectedPeripheralAddress.value
             viewModelScope.launch {
+                if (attestingAddress == null || ble.connectedPeripheralAddress.value != attestingAddress) return@launch
                 val serialId = com.noop.data.WhoopSerialIdentity.adoptedId(serial)
                 val currentId = deviceRegistry.activeDeviceId()
+                val paired = deviceRegistry.all().filter { it.status != "archived" }
+                val active = paired.firstOrNull { it.id == currentId } ?: return@launch
+                if (!active.peripheralId.equals(attestingAddress, ignoreCase = true) &&
+                    !(paired.size == 1 && active.peripheralId == null)) return@launch
+                if (serialId != null && currentId != null) {
+                    com.noop.push.EnrollmentDataScope.credential(appContext)?.let { credential ->
+                        if (runCatching {
+                            com.noop.push.WearableAssociationStore.from(appContext).record(currentId,serial,credential)
+                        }.isFailure) {
+                            ble.logIdentity("Wearable identity conflict. Sync is paused until installation retirement.")
+                            return@launch
+                        }
+                    }
+                }
                 // Idempotent: once adopted the id already equals the serial id, so a reconnect costs one
                 // string compare and no database work. A serial WhoopSerialIdentity refuses (blank,
                 // truncated, non-serial prose) leaves the strap on its existing id — adopting onto a junk id

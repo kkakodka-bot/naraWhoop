@@ -22,6 +22,7 @@ class StandardHRReceiptIntegrationTest {
         assumeTrue("Run the disposable PostgreSQL harness", url != null)
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db = PostgresClient(url)
+        resetFleetTestState(db)
         sql("insert into auth.users values ('$user'),('$other')")
         sql("insert into profiles(id,timezone) values ('$user','UTC'),('$other','UTC')")
         sql("insert into devices(id,user_id) values ('$device','$user')")

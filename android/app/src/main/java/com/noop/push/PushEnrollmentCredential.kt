@@ -43,6 +43,33 @@ class PushEnrollmentStore private constructor(
     private val prefs: SharedPreferences,
 ) {
     private var generation = 0L
+    data class Retirement(val credential: PushEnrollmentCredential, val nextSourceId: String)
+    @Synchronized fun pendingRetirement(): Retirement? {
+        val encoded = prefs.getString("retirement_v1", null) ?: return null
+        val row = org.json.JSONObject(encoded)
+        val credential = PushEnrollmentCredential(row.getString("user"), row.getString("source"),
+            row.getString("tokenId"), row.getString("token"))
+        val next = row.getString("next")
+        check(PushEnrollmentCredential.isCanonicalUuid(next) && next != credential.sourceId)
+        return Retirement(credential, next)
+    }
+    @Synchronized fun beginRetirement(credential: PushEnrollmentCredential): Retirement {
+        pendingRetirement()?.let { check(it.credential == credential); return it }
+        check(load(credential.sourceId) == credential)
+        val next = UUID.randomUUID().toString()
+        val row = org.json.JSONObject().put("user",credential.userId).put("source",credential.sourceId)
+            .put("tokenId",credential.tokenId).put("token",credential.uploadToken).put("next",next)
+        check(prefs.edit().putString("retirement_v1",row.toString()).remove(KEY_VERSION).remove(KEY_USER_ID)
+            .remove(KEY_SOURCE_ID).remove(KEY_TOKEN_ID).remove(KEY_UPLOAD_TOKEN).commit())
+        generation++
+        return Retirement(credential,next)
+    }
+    @Synchronized fun completeRetirement(pending: Retirement) {
+        check(pendingRetirement() == pending)
+        check(prefs.edit().putString("retired_owner.${pending.credential.sourceId}",pending.credential.userId)
+            .remove(KEY_BOUND_USER).remove("retirement_v1").commit())
+        generation++
+    }
     @Synchronized fun generation(): Long = generation
 
     @Synchronized fun saveIfCurrent(expectedGeneration: Long, sourceId: String, credential: PushEnrollmentCredential): Boolean {
@@ -64,6 +91,7 @@ class PushEnrollmentStore private constructor(
 
     @Synchronized
     fun load(expectedSourceId: String): PushEnrollmentCredential? {
+        if (pendingRetirement() != null) return null
         if (!PushEnrollmentCredential.isCanonicalUuid(expectedSourceId)) {
             clearBestEffort()
             return null
@@ -90,6 +118,7 @@ class PushEnrollmentStore private constructor(
 
     @Synchronized
     fun save(expectedSourceId: String, credential: PushEnrollmentCredential) {
+        check(pendingRetirement() == null) { "Installation retirement pending" }
         require(credential.sourceId == expectedSourceId) { "enrollment source mismatch" }
         require(PushEnrollmentCredential.isCanonicalUuid(expectedSourceId)) { "sourceId must be a canonical UUID" }
         require(boundUserId()?.let { it == credential.userId } != false) { "installation owner mismatch" }
@@ -134,5 +163,53 @@ class PushEnrollmentStore private constructor(
         }
 
         internal fun forTest(prefs: SharedPreferences): PushEnrollmentStore = PushEnrollmentStore(prefs)
+    }
+}
+
+/** Installation-scoped immutable serial witnesses survive retries and local device adoption. */
+class WearableAssociationStore(private val prefs: SharedPreferences) {
+    data class Association(val provisional: String, val serial: String, val confirmed: Boolean = false)
+    private fun key(c: PushEnrollmentCredential) = "wearables.${c.userId}.${c.sourceId}"
+    private fun read(c: PushEnrollmentCredential) = org.json.JSONObject(prefs.getString(key(c), null) ?: "{\"records\":[],\"conflicted\":false}")
+    private fun write(c: PushEnrollmentCredential, journal: org.json.JSONObject) {
+        check(prefs.edit().putString(key(c),journal.toString()).commit()) { "Wearable evidence storage unavailable" }
+    }
+    @Synchronized fun record(provisional: String, serial: String, credential: PushEnrollmentCredential) {
+        val normalized = serial.trim().uppercase(java.util.Locale.ROOT)
+        require(Regex("[A-Z0-9-]{6,64}").matches(normalized) && !PushEnrollmentCredential.isCanonicalUuid(normalized.lowercase()))
+        require(provisional.isNotBlank() && provisional.length <= 128)
+        if (provisional == "whoop-$normalized") return
+        val journal = read(credential); val records = journal.getJSONArray("records")
+        val previous = (0 until records.length()).map(records::getJSONObject).find { it.getString("provisional") == provisional }
+        if (previous != null) {
+            if (previous.getString("serial") != normalized) { journal.put("conflicted",true); write(credential,journal) }
+        } else {
+            check(records.length() < 64)
+            records.put(org.json.JSONObject().put("provisional",provisional).put("serial",normalized).put("confirmed",false))
+            write(credential,journal)
+        }
+        check(!journal.getBoolean("conflicted")) { "Wearable identity conflict requires installation retirement" }
+    }
+    @Synchronized fun pending(credential: PushEnrollmentCredential): List<Association> {
+        val journal = read(credential)
+        check(!journal.getBoolean("conflicted")) { "Wearable identity conflict requires installation retirement" }
+        val records = journal.getJSONArray("records")
+        return (0 until records.length()).map(records::getJSONObject).filter { !it.getBoolean("confirmed") }
+            .map { Association(it.getString("provisional"),it.getString("serial")) }
+    }
+    @Synchronized fun acknowledge(item: Association, credential: PushEnrollmentCredential) {
+        val journal = read(credential); check(!journal.getBoolean("conflicted"))
+        val records = journal.getJSONArray("records")
+        val row = (0 until records.length()).map(records::getJSONObject).first {
+            it.getString("provisional") == item.provisional && it.getString("serial") == item.serial
+        }
+        row.put("confirmed",true); write(credential,journal)
+    }
+    companion object {
+        @Volatile private var instance: WearableAssociationStore? = null
+        fun from(context: Context): WearableAssociationStore = instance ?: synchronized(this) {
+            instance ?: WearableAssociationStore(SecurePrefs.of(com.noop.account.AccountStorageContext.platform(context),
+                "wearable_associations")).also { instance = it }
+        }
     }
 }

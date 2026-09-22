@@ -152,6 +152,9 @@ export function createPushObjects({
   now?: () => Date;
   urlTtlSec?: number;
 }) {
+  if (!Number.isInteger(urlTtlSec) || urlTtlSec < 1 || urlTtlSec > UPLOAD_URL_TTL_SEC) {
+    throw new Error('upload URL lifetime exceeds retirement policy');
+  }
   const manifests: ManifestStore | null = rest?.configured ? createManifestStore({ rest, now }) : null;
 
   async function writeSignalWindow({ userId, deviceId, row, stream, startTs, endTs, sampleCount }: {

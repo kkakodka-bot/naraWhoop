@@ -236,7 +236,11 @@ Deno.test('deletion is resumable and deletes b2 before auth', async () => {
   const rest = {
     configured: true,
     request: async () => [],
-    async select(table: string) { return table === 'object_manifests' ? [{ id: 'm', object_key: 'k', status: 'ready' }] : []; },
+    rpc: async () => null,
+    async select(table: string) {
+      if (table === 'noop_account_retirements') return [{requested_at:'2020-01-01T00:00:00Z'}];
+      return table === 'object_manifests' ? [{ id: 'm', object_key: `v2/users/${USER}/raw/fixture`, status: 'ready' }] : [];
+    },
     async upsert(_t: string, row: any) { order.push(`job:${row.status}:${row.step}`); return row; },
     async delete(table: string) { order.push(`sql:${table}`); return []; },
     async adminDeleteAuthUser(id: string) { order.push(`auth:${id}`); return { deleted: true }; },
@@ -244,6 +248,7 @@ Deno.test('deletion is resumable and deletes b2 before auth', async () => {
   const objectStore = {
     async deleteObject(key: string) { order.push(`b2-obj:${key}`); return {}; },
     async listPrefix(prefix: string) { order.push(`b2:${prefix}`); return []; },
+    async purgePrefixVersions(prefix: string) { order.push(`versions:${prefix}`); return {deleted:0}; },
   } as any;
   const deletion = createDeletionService({ rest, objectStore, uuid: () => 'job-1' });
   const result = await deletion.run(USER, {

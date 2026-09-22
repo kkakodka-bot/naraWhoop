@@ -34,7 +34,7 @@ Deno.serve(async (req: Request) => {
     // pg_cron posts {} — retry every pending/blocked deletion job.
     const pending = await rest.select(
       'deletion_jobs',
-      'status=in.(pending,running,blocked)&select=user_id,id,status&order=created_at.asc&limit=20',
+      'status=in.(pending,running,blocked)&select=*&order=created_at.asc&limit=20',
     ) as any[];
     if (!pending.length) return Response.json({ ok: true, swept: 0, results: [] });
 

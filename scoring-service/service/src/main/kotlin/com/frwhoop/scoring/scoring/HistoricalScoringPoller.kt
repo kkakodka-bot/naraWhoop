@@ -37,13 +37,14 @@ class HistoricalScoringPoller(
 
     fun runForever(interval: Duration) {
         while (!Thread.currentThread().isInterrupted) {
-            try { pollOnce() }
+            var published = 0
+            try { published = pollOnce() }
             catch (error: Exception) {
                 if (error is ScoringPoller.UnresponsiveAttempt) throw error
                 heartbeat.recordError("history_poll_${error.javaClass.simpleName}")
                 log.warn("Historical poll failed: {}", error.javaClass.simpleName)
             }
-            Thread.sleep(interval.toMillis())
+            Thread.sleep(if (published > 0) 10 else interval.toMillis())
         }
     }
 

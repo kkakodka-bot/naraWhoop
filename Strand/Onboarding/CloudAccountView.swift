@@ -5,6 +5,8 @@ struct CloudAccountView: View {
     @EnvironmentObject private var model: AppModel
     @State private var credential = CloudEnrollment.currentCredential()
     @State private var errorMessage: String?
+    @State private var confirmRetirement = false
+    @State private var retiring = false
 
     var body: some View {
         Form {
@@ -27,6 +29,22 @@ struct CloudAccountView: View {
                 }
             }
             .disabled(credential == nil)
+            Section("Reassign this phone") {
+                Text("Retire this installation before giving the phone to another person. Pending records stay with the original account. Reopen the app and use a new enrollment code afterward.")
+                    .font(.footnote)
+                Button("Retire this installation", role: .destructive) { confirmRetirement = true }
+                    .disabled(credential == nil || retiring)
+            }
+        }
+        .confirmationDialog("Retire this installation?", isPresented: $confirmRetirement, titleVisibility: .visible) {
+            Button("Retire installation", role: .destructive) {
+                retiring = true
+                Task { @MainActor in
+                    defer { retiring = false }
+                    do { try await CloudEnrollment.retireInstallation() }
+                    catch { errorMessage = "Retirement is pending. Reopen the app to retry. The original records remain on this phone." }
+                }
+            }
         }
         .navigationTitle("NARA account")
         .onReceive(NotificationCenter.default.publisher(for: .cloudEnrollmentDidChange)) { _ in

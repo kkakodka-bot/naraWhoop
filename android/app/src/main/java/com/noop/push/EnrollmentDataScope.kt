@@ -29,6 +29,10 @@ object EnrollmentDataScope {
     fun storageName(context: Context, legacy: String): String = if (BuildConfig.ENABLE_DEMO) legacy
         else "$legacy-${scope(context)?.suffix ?: "unenrolled"}"
 
+    fun mayImportLegacyPairing(context: Context): Boolean =
+        !com.noop.account.AccountStorageContext.platform(context)
+            .getSharedPreferences("noop_installation_epochs", Context.MODE_PRIVATE).contains("source_id")
+
     fun credential(context: Context): PushEnrollmentCredential? = runCatching {
         if (com.noop.ui.NoopPrefs.of(context).getString(com.noop.ui.NoopPrefs.KEY_ACCEPTED_TERMS_VERSION, "") !=
             com.noop.ui.Terms.CURRENT_VERSION) return null
@@ -49,6 +53,12 @@ object EnrollmentDataScope {
         val witness = runCatching { file.readText() }.getOrNull()
         if (saved != null && saved == witness && PushEnrollmentCredential.isCanonicalUuid(saved)) return saved
         val fresh = UUID.randomUUID().toString()
+        return replaceInstallationSource(directory, prefs, fresh)
+    }
+
+    @Synchronized internal fun replaceInstallationSource(directory: File, prefs: android.content.SharedPreferences, fresh: String): String {
+        require(PushEnrollmentCredential.isCanonicalUuid(fresh))
+        val file = File(directory, "noop-installation-source")
         file.parentFile?.mkdirs()
         val pending = File(file.parentFile, "${file.name}.pending")
         java.io.FileOutputStream(pending).use { it.write(fresh.toByteArray()); it.fd.sync() }

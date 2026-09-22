@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import NoopPush
 import Security
 
@@ -79,6 +80,7 @@ enum CloudEnrollmentError: Error, Equatable, LocalizedError {
     case networkUnavailable
     case credentialStorageUnavailable
     case ownerMismatch
+    case wearableConflict
     case superseded
 
     var errorDescription: String? {
@@ -97,6 +99,8 @@ enum CloudEnrollmentError: Error, Equatable, LocalizedError {
             return String(localized: "Enrollment could not save the device credential.")
         case .ownerMismatch:
             return String(localized: "This installation belongs to another account. Reconnect with a code for its original account.")
+        case .wearableConflict:
+            return String(localized: "This pairing has conflicting wearable identities. Retire this installation before enrolling again.")
         case .superseded:
             return String(localized: "This sign-in was replaced or canceled. Enter your code again.")
         }
@@ -108,6 +112,50 @@ struct CloudEnrollmentClient {
 
     init(session: URLSession = CloudPushTransport.makeSession()) {
         self.session = session
+    }
+
+    func retire(_ credential: CloudEnrollmentCredential, endpoint: PushValidEndpoint, fleetToken: String) async throws {
+        guard let url = URL(string: endpoint.url + "/installation/retire") else { throw CloudEnrollmentError.notConfigured }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("Bearer \(credential.uploadToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(fleetToken, forHTTPHeaderField: "x-noop-fleet-token")
+        let (data, response) = try await session.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              data.count <= PushProtocolLimits.maxAckBytes,
+              let receipt = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              receipt["userId"] as? String == credential.userId,
+              receipt["sourceId"] as? String == credential.sourceId,
+              let retirement = receipt["retirementId"] as? String, UUID(uuidString: retirement) != nil,
+              receipt["policy"] as? String == "retain_original_owner" else {
+            throw CloudEnrollmentError.invalidResponse
+        }
+    }
+
+    func confirmWearable(_ association: CloudWearableAssociation, credential: CloudEnrollmentCredential,
+                         endpoint: PushValidEndpoint, fleetToken: String) async throws {
+        guard let url = URL(string: endpoint.url.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/wearables/confirm")
+        else { throw CloudEnrollmentError.notConfigured }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"; request.timeoutInterval = 30
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("Bearer \(credential.uploadToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(fleetToken, forHTTPHeaderField: "x-noop-fleet-token")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let witness = "device_information_serial_v1:\(credential.sourceId):\(association.provisional):\(association.serial)"
+        let digest = SHA256.hash(data: Data(witness.utf8)).map { String(format: "%02x", $0) }.joined()
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "provisionalExternalDeviceId": association.provisional,
+            "evidence": ["method": "device_information_serial_v1", "serial": association.serial, "receiptSha256": digest]
+        ])
+        let (data, response) = try await session.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200, data.count <= PushProtocolLimits.maxAckBytes,
+              let receipt = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              receipt["userId"] as? String == credential.userId, receipt["sourceId"] as? String == credential.sourceId,
+              receipt["state"] as? String == "confirmed", let device = receipt["deviceId"] as? String,
+              UUID(uuidString: device) != nil else { throw CloudEnrollmentError.invalidResponse }
     }
 
     func verify(_ credential: CloudEnrollmentCredential, endpoint: PushValidEndpoint,
@@ -428,6 +476,56 @@ struct CloudEnrollmentOwnerStore {
         }
         try backend.write(Data(ownerId.utf8), service: service, account: account)
     }
+
+    func retire(ownerId: String, sourceId: String) throws {
+        if let existing = try load(), existing != ownerId { throw CloudEnrollmentError.ownerMismatch }
+        // Retain the first owner of the old epoch; only the active pointer is removed.
+        try backend.write(Data(ownerId.utf8), service: service, account: "retired-owner.\(sourceId)")
+        try backend.delete(service: service, account: account)
+    }
+}
+
+struct CloudInstallationRetirement: Codable, Equatable {
+    let credential: CloudEnrollmentCredential
+    let nextSourceId: String
+}
+
+struct CloudInstallationRetirementStore {
+    static let system = CloudInstallationRetirementStore(backend: sharedEnrollmentKeychain)
+    let backend: any CloudEnrollmentKeychainBackend
+    private let service = "noop.cloudEnrollment"
+    func hasRetiredInstallation() throws -> Bool {
+        try backend.read(service: service, account: "retired-installation.v1") != nil
+    }
+    func load() throws -> CloudInstallationRetirement? {
+        guard let data = try backend.read(service: service, account: "retirement.v1") else { return nil }
+        let pending = try JSONDecoder().decode(CloudInstallationRetirement.self, from: data)
+        guard pending.credential.isValid(forSourceId: pending.credential.sourceId),
+              CloudEnrollmentCredential.isCanonicalUUID(pending.nextSourceId),
+              pending.nextSourceId != pending.credential.sourceId else { throw CloudEnrollmentError.invalidResponse }
+        return pending
+    }
+    func begin(_ credential: CloudEnrollmentCredential) throws -> CloudInstallationRetirement {
+        if let pending = try load() {
+            guard pending.credential == credential else { throw CloudEnrollmentError.ownerMismatch }
+            return pending
+        }
+        let pending = CloudInstallationRetirement(credential: credential, nextSourceId: UUID().uuidString.lowercased())
+        try backend.write(try JSONEncoder().encode(pending), service: service, account: "retirement.v1")
+        return pending
+    }
+    func complete(_ pending: CloudInstallationRetirement, credentialStore: CloudEnrollmentCredentialStore,
+                  ownerStore: CloudEnrollmentOwnerStore, sourceStore: CloudInstallationSourceStore,
+                  defaults: UserDefaults) throws {
+        guard try load() == pending else { throw CloudEnrollmentError.superseded }
+        try backend.write(Data([1]), service: service, account: "retired-installation.v1")
+        try credentialStore.clear()
+        try sourceStore.save(pending.nextSourceId)
+        defaults.set(pending.nextSourceId, forKey: "cloudPush.sourceId")
+        defaults.removeObject(forKey: "noop.acceptedTermsVersion")
+        try ownerStore.retire(ownerId: pending.credential.userId, sourceId: pending.credential.sourceId)
+        try backend.delete(service: service, account: "retirement.v1")
+    }
 }
 
 extension Notification.Name {
@@ -483,13 +581,83 @@ final class CloudEnrollmentSessionController: @unchecked Sendable {
     }
 }
 
+struct CloudWearableAssociation: Codable, Equatable {
+    let provisional: String
+    let serial: String
+    var confirmed = false
+}
+
+/// A device-local serial observation is acquisition evidence, never a server/hardware attestation.
+/// Keep it after acknowledgement so reusing an old pairing for a replacement cannot relabel history.
+final class CloudWearableAssociationStore {
+    static let system = CloudWearableAssociationStore(backend: SystemCloudEnrollmentKeychain())
+    private let backend: any CloudEnrollmentKeychainBackend
+    private let lock = NSLock()
+    private struct Journal: Codable { var records: [CloudWearableAssociation] = []; var conflicted = false }
+    init(backend: any CloudEnrollmentKeychainBackend) { self.backend = backend }
+    private func key(_ c: CloudEnrollmentCredential) -> String { "wearables.\(c.userId).\(c.sourceId)" }
+    private func read(_ c: CloudEnrollmentCredential) throws -> Journal {
+        guard let data = try backend.read(service: "noop.cloudEnrollment", account: key(c)) else { return Journal() }
+        return try JSONDecoder().decode(Journal.self, from: data)
+    }
+    private func write(_ journal: Journal, _ c: CloudEnrollmentCredential) throws {
+        try backend.write(JSONEncoder().encode(journal), service: "noop.cloudEnrollment", account: key(c))
+    }
+    func record(provisional: String, serial: String, credential: CloudEnrollmentCredential) throws {
+        lock.lock(); defer { lock.unlock() }
+        let serial = serial.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard serial.range(of: "^[A-Z0-9-]{6,64}$", options: .regularExpression) != nil,
+              UUID(uuidString: serial) == nil, !provisional.isEmpty, provisional.count <= 128 else {
+            throw CloudEnrollmentError.invalidResponse
+        }
+        if provisional == "whoop-" + serial { return }
+        var journal = try read(credential)
+        if let previous = journal.records.first(where: { $0.provisional == provisional }) {
+            if previous.serial != serial { journal.conflicted = true; try write(journal, credential) }
+        } else {
+            guard journal.records.count < 64 else { throw CloudEnrollmentError.invalidResponse }
+            journal.records.append(.init(provisional: provisional, serial: serial)); try write(journal, credential)
+        }
+        if journal.conflicted { throw CloudEnrollmentError.wearableConflict }
+    }
+    func pending(_ credential: CloudEnrollmentCredential) throws -> [CloudWearableAssociation] {
+        lock.lock(); defer { lock.unlock() }
+        let journal = try read(credential)
+        if journal.conflicted { throw CloudEnrollmentError.wearableConflict }
+        return journal.records.filter { !$0.confirmed }
+    }
+    func acknowledge(_ item: CloudWearableAssociation, credential: CloudEnrollmentCredential) throws {
+        lock.lock(); defer { lock.unlock() }
+        var journal = try read(credential)
+        guard !journal.conflicted, let index = journal.records.firstIndex(of: item) else { throw CloudEnrollmentError.superseded }
+        journal.records[index].confirmed = true; try write(journal, credential)
+    }
+    static func synchronize(_ credential: CloudEnrollmentCredential, endpoint: PushValidEndpoint) async throws {
+        guard let fleet = CloudPushSettings.resolvedFleetToken() else { throw CloudEnrollmentError.notConfigured }
+        for item in try system.pending(credential) {
+            guard CloudEnrollment.currentCredential() == credential else { throw CloudEnrollmentError.superseded }
+            try await CloudEnrollmentClient().confirmWearable(item, credential: credential, endpoint: endpoint, fleetToken: fleet)
+            guard CloudEnrollment.currentCredential() == credential else { throw CloudEnrollmentError.superseded }
+            try system.acknowledge(item, credential: credential)
+        }
+    }
+}
+
 enum CloudEnrollment {
     private static let controller = CloudEnrollmentSessionController()
+    private(set) static var requiresRestart = false
+    static let retirementGeneration = UUID()
+    static var retirementPending: Bool {
+        do { return try CloudInstallationRetirementStore.system.load() != nil }
+        catch { return true }
+    }
+    static var runtimeBlocked: Bool { requiresRestart || retirementPending }
     static func currentCredential(
         sourceId: String? = nil,
         store: CloudEnrollmentCredentialStore = .system,
         ownerStore: CloudEnrollmentOwnerStore = .system
     ) -> CloudEnrollmentCredential? {
+        guard !runtimeBlocked else { return nil }
         let currentSourceId = sourceId ?? CloudPushSettings.sourceId()
         return controller.current(sourceId: currentSourceId, store: store, ownerStore: ownerStore)
     }
@@ -501,6 +669,7 @@ enum CloudEnrollment {
         store: CloudEnrollmentCredentialStore = .system,
         ownerStore: CloudEnrollmentOwnerStore = .system
     ) async throws -> CloudEnrollmentCredential {
+        guard !runtimeBlocked else { throw CloudEnrollmentError.superseded }
         let request = controller.begin()
         guard let endpoint = CloudPushSettings.configuredEndpoint(),
               let fleetToken = CloudPushSettings.resolvedFleetToken(),
@@ -544,6 +713,28 @@ enum CloudEnrollment {
     static func clear(store: CloudEnrollmentCredentialStore = .system) throws {
         defer { NotificationCenter.default.post(name: .cloudEnrollmentDidChange, object: nil, userInfo: ["revoked": true]) }
         try controller.clear(store: store)
+    }
+
+    /// Call again after a network/storage interruption. New enrollment requires a fresh process:
+    /// old SQLite and BLE handles keep their immutable A scope until then.
+    @MainActor static func retireInstallation(client: CloudEnrollmentClient = CloudEnrollmentClient()) async throws {
+        let journal = CloudInstallationRetirementStore.system
+        let pending: CloudInstallationRetirement
+        if let saved = try journal.load() { pending = saved }
+        else {
+            guard let credential = currentCredential() else { throw CloudEnrollmentError.notConfigured }
+            pending = try journal.begin(credential)
+        }
+        requiresRestart = true
+        defer { NotificationCenter.default.post(name: .cloudEnrollmentDidChange, object: nil, userInfo: ["revoked": true]) }
+        try controller.clear(store: .system)
+        NotificationCenter.default.post(name: .cloudEnrollmentDidChange, object: nil, userInfo: ["revoked": true])
+        try CloudAuthClient.clearSessionChecked()
+        guard let endpoint = CloudPushSettings.configuredEndpoint(),
+              let fleet = CloudPushSettings.resolvedFleetToken() else { throw CloudEnrollmentError.notConfigured }
+        try await client.retire(pending.credential, endpoint: endpoint, fleetToken: fleet)
+        try journal.complete(pending, credentialStore: .system, ownerStore: .system, sourceStore: .system, defaults: .standard)
+        NotificationCenter.default.post(name: .cloudEnrollmentDidChange, object: nil, userInfo: ["revoked": true])
     }
 
     @discardableResult

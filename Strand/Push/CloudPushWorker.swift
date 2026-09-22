@@ -79,6 +79,8 @@ enum CloudPushWorker {
                 guard await CloudCaptureScope.verifyDatabase(db, ownerId: credential.userId) else {
                     throw AccountAuthError.unboundCapture
                 }
+                try await CloudWearableAssociationStore.synchronize(credential, endpoint: endpoint)
+                guard CloudRuntimeIdentity.isCurrent(initial) else { throw AccountAuthError.staleOperation }
             }
             guard await validate(dependentAdmission) else { throw CancellationError() }
             admission = try AccountPushAdmission(

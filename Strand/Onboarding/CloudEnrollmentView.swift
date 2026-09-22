@@ -8,6 +8,8 @@ struct CloudEnrollmentView: View {
     @State private var errorMessage: String?
     @State private var linked = CloudEnrollment.currentCredential() != nil
     @State private var consent = false
+    @State private var retirementPending = CloudEnrollment.retirementPending
+    @State private var restartRequired = CloudEnrollment.requiresRestart
 
     var body: some View {
         ScrollView {
@@ -15,7 +17,20 @@ struct CloudEnrollmentView: View {
                 BrandMark(size: 72)
                 Text(linked ? "Account linked" : "Link your NARA account")
                     .font(StrandFont.title2)
-                if linked {
+                if retirementPending {
+                    Text("Retirement is pending. Collection is paused and previous records retain their original owner.")
+                    NoopButton(busy ? "Retiring…" : "Retry retirement", fullWidth: true) {
+                        busy = true
+                        Task { @MainActor in
+                            defer { busy = false }
+                            do { try await CloudEnrollment.retireInstallation(); errorMessage = nil }
+                            catch { errorMessage = "Retirement could not finish. Check your connection and retry." }
+                        }
+                    }.disabled(busy)
+                    if let errorMessage { Text(errorMessage).foregroundStyle(StrandPalette.statusWarning) }
+                } else if restartRequired {
+                    Text("This installation is retired. Close and reopen NARA before enrolling another account. Previous records remain in the original account's storage.")
+                } else if linked {
                     Text("Close and reopen NARA to activate your account on this phone.")
                         .font(StrandFont.body)
                     Text("Your pairing is preserved. Existing local history stays on this phone; it is not reassigned to an account. Your account's available server results will load after reopening.")
@@ -56,6 +71,8 @@ struct CloudEnrollmentView: View {
         .background(StrandPalette.surfaceBase.ignoresSafeArea())
         .onReceive(NotificationCenter.default.publisher(for: .cloudEnrollmentDidChange)) { _ in
             linked = CloudEnrollment.currentCredential() != nil
+            retirementPending = CloudEnrollment.retirementPending
+            restartRequired = CloudEnrollment.requiresRestart
         }
     }
 

@@ -48,6 +48,34 @@ class PushEnrollmentClient(
     private val appVersion: String,
     private val client: OkHttpClient = defaultClient(),
 ) {
+    suspend fun confirmWearable(item: WearableAssociationStore.Association, credential: PushEnrollmentCredential) {
+        val witness = "device_information_serial_v1:${credential.sourceId}:${item.provisional}:${item.serial}"
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(witness.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
+        val body = JSONObject().put("provisionalExternalDeviceId",item.provisional).put("evidence",JSONObject()
+            .put("method","device_information_serial_v1").put("serial",item.serial).put("receiptSha256",digest))
+        val response = execute(Request.Builder().url(endpoint.url.trimEnd('/') + "/wearables/confirm")
+            .header("Authorization","Bearer ${credential.uploadToken}").header("x-noop-fleet-token",fleetToken)
+            .post(body.toString().toRequestBody(JSON_MEDIA_TYPE)).build())
+        check(response.statusCode == 200 && response.body.size <= MAX_RESPONSE_BYTES) { "Wearable confirmation unavailable" }
+        val receipt = JSONObject(response.body.toString(Charsets.UTF_8))
+        check(receipt.optString("userId") == credential.userId && receipt.optString("sourceId") == credential.sourceId &&
+            receipt.optString("state") == "confirmed" && PushEnrollmentCredential.isCanonicalUuid(receipt.optString("deviceId")))
+    }
+
+    suspend fun retire(credential: PushEnrollmentCredential) {
+        val request = Request.Builder().url(endpoint.url.trimEnd('/') + "/installation/retire")
+            .header("Authorization", "Bearer ${credential.uploadToken}")
+            .header("x-noop-fleet-token", fleetToken).header("Cache-Control", "no-store")
+            .post(ByteArray(0).toRequestBody(JSON_MEDIA_TYPE)).build()
+        val response = execute(request)
+        check(response.statusCode == 200 && response.body.size <= MAX_RESPONSE_BYTES) { "Retirement unavailable" }
+        val receipt = JSONObject(response.body.toString(Charsets.UTF_8))
+        check(receipt.optString("userId") == credential.userId && receipt.optString("sourceId") == credential.sourceId &&
+            PushEnrollmentCredential.isCanonicalUuid(receipt.optString("retirementId")) &&
+            receipt.optString("policy") == "retain_original_owner") { "Invalid retirement receipt" }
+    }
+
     suspend fun enroll(code: String, sourceId: String): PushEnrollmentResult {
         val normalizedCode = code.trim()
         if (!validCode(normalizedCode) ||

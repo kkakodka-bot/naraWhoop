@@ -36,7 +36,8 @@ class VerifiedModelJobAssembler(private val contracts: ContractResolver? = null)
         val digest = sha256(bytes)
         require(hash(receipt.sha256) && digest == receipt.sha256) { "acquisition_contract_digest_mismatch" }
         val contract = JSONObject(String(bytes, Charsets.UTF_8))
-        require(contract.getInt("schema_version") == 1 && contract.getString("adapter_version") == VERSION) { "acquisition_adapter_version_mismatch" }
+        val adapterVersion = contract.getString("adapter_version")
+        require(contract.getInt("schema_version") == 1 && adapterVersion in setOf(VERSION, DEDUPLICATING_VERSION)) { "acquisition_adapter_version_mismatch" }
         require(contract.getString("user_id") == request.userId.toString() &&
             contract.getString("device_id") == request.deviceId.toString() &&
             contract.getString("input_revision") == request.inputRevision) { "acquisition_owner_or_revision_mismatch" }
@@ -101,14 +102,14 @@ class VerifiedModelJobAssembler(private val contracts: ContractResolver? = null)
             val values = JSONArray(); val observed = JSONArray(); val used = mutableSetOf<Pair<UUID, Long>>()
             // Archive/object IDs are storage identities, not physical sample identities. Replayed
             // packets (including conflicting bytes) must not turn into additional observed time.
-            val physicalRecords = mutableSetOf<Pair<Long, Long>>()
+            val physicalRecords = mutableMapOf<Pair<Long, Long>, String>()
             for (r in 0 until records.length()) {
                 if (Thread.currentThread().isInterrupted) throw InterruptedException("model_assembly_cancelled")
                 val mapping = records.getJSONObject(r)
                 val id = UUID.fromString(mapping.getString("object_id"))
                 val source = objects[id] ?: error("acquisition_raw_object_missing")
                 require(id in attestedObjects) { "acquisition_capture_attestation_missing" }
-                require(source.manifest.userId == request.userId && source.manifest.deviceId == request.deviceId &&
+                require(source.manifest.userId == request.userId && source.manifest.canonicalDeviceId == request.deviceId &&
                     source.digest == source.manifest.sha256 && source.digest == mapping.getString("object_sha256") &&
                     source.decoderVersion == contract.getString("decoder_version")) { "acquisition_raw_identity_mismatch" }
                 require(source.kind == "ppg_i16_unqualified") { "acquisition_raw_kind_mismatch" }
@@ -117,17 +118,24 @@ class VerifiedModelJobAssembler(private val contracts: ContractResolver? = null)
                 val record = recordsByObject[id]?.get(rowId) ?: error("acquisition_record_missing")
                 require(record.recordIndex != null && record.recordIndex == mapping.getLong("record_index") &&
                     record.timestamp == mapping.getLong("sensor_second")) { "acquisition_record_identity_mismatch" }
-                require(physicalRecords.add(record.recordIndex!! to record.timestamp)) { "acquisition_replayed_physical_record" }
                 val sampleStart = finite(mapping, "start_s")
-                require(abs(sampleStart - (start + values.length() / rate)) <= 0.000001) { "acquisition_gap_or_overlap" }
                 require(sampleStart >= source.manifest.start && sampleStart < source.manifest.end) { "acquisition_mapping_outside_object" }
                 val offset = mapping.getInt("offset"); val stride = mapping.getInt("stride"); val count = mapping.getInt("count")
                 require(offset >= 0 && stride in 1..8 && count in 1..100_000 &&
-                    offset.toLong() + (count - 1L) * stride < record.columns.size && values.length() + count <= MAX_SAMPLES) {
+                    offset.toLong() + (count - 1L) * stride < record.columns.size) {
                     "acquisition_sample_shape_invalid"
                 }
                 val mask = mapping.getJSONArray("observed")
                 require(mask.length() == count) { "acquisition_mask_shape_invalid" }
+                val fingerprint = inputHash(JSONObject().put("start",sampleStart).put("offset",offset)
+                    .put("stride",stride).put("count",count).put("observed",mask).put("columns",JSONArray(record.columns)))
+                val prior = physicalRecords.putIfAbsent(record.recordIndex!! to record.timestamp,fingerprint)
+                if (prior != null) {
+                    require(adapterVersion == DEDUPLICATING_VERSION && prior == fingerprint) { "acquisition_replayed_physical_record" }
+                    continue
+                }
+                require(values.length() + count <= MAX_SAMPLES) { "acquisition_sample_shape_invalid" }
+                require(abs(sampleStart - (start + values.length() / rate)) <= 0.000001) { "acquisition_gap_or_overlap" }
                 for (sample in 0 until count) {
                     require(mask.get(sample) is Boolean) { "acquisition_mask_invalid" }
                     values.put(record.columns[offset + sample * stride]); observed.put(mask.getBoolean(sample))
@@ -146,7 +154,7 @@ class VerifiedModelJobAssembler(private val contracts: ContractResolver? = null)
         val payload = JSONObject().put("user_id", request.userId.toString()).put("device_id", request.deviceId.toString())
             .put("input_revision", request.inputRevision).put("mode", "retrospective").put("signals", output)
             .put("input_hash_encoding", "typed-json-sha256-1").put("acquisition_contract_sha256", digest)
-            .put("acquisition_adapter_version", VERSION).put("checkpoint_sha256", checkpoint ?: JSONObject.NULL)
+            .put("acquisition_adapter_version", adapterVersion).put("checkpoint_sha256", checkpoint ?: JSONObject.NULL)
             .put("preprocess_version", model.activation.getString("preprocess_version"))
             .put("quality_policy_version", model.activation.getString("quality_policy_version"))
         if (model.id == "wav2sleep-cardiorespiratory") {
@@ -160,6 +168,7 @@ class VerifiedModelJobAssembler(private val contracts: ContractResolver? = null)
 
     companion object {
         const val VERSION = "verified-npb1-extraction-1"
+        const val DEDUPLICATING_VERSION = "verified-npb1-extraction-2"
         const val MAX_SAMPLES = 1_300_000
         private fun hash(value: String) = value.matches(Regex("[0-9a-f]{64}"))
         private fun finite(value: JSONObject, key: String) = value.getDouble(key).also { require(it.isFinite()) { "acquisition_nonfinite" } }

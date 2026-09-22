@@ -70,6 +70,13 @@ class NoopApplication : Application() {
         runtimeListeners.add(listener)
         return AutoCloseable { runtimeListeners.remove(listener) }
     }
+    fun retireInstallationRuntime() {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        runtimeValue?.close()
+        stopService(Intent(this, WhoopConnectionService::class.java))
+        getSystemService(android.app.NotificationManager::class.java)?.cancelAll()
+        runtimeListeners.forEach { it() }
+    }
 
     companion object {
         @Volatile private var instance: NoopApplication? = null
