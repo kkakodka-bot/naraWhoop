@@ -4,8 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const requiredAndroidReports = [
-  { name: 'com.noop.analytics.FinalHostedPhonePathsNativeTest', minimum: 1,
-    markers: ['FINAL_HOSTED_COLD_LAUNCH admitted=0 forbidden=0'] },
+  { name: 'com.noop.analytics.FinalHostedPhonePathsNativeTest', minimum: 2,
+    markers: ['FINAL_HOSTED_COLD_LAUNCH admitted=0 forbidden=0',
+      'FINAL_HOSTED_PROVIDER_STARTUP admitted=0 forbidden=0 attach_only=true provider_callback=true',
+      'FINAL_HOSTED_PROVIDER_NEGATIVE_CONTROL admitted=0 forbidden=1 blocked_before_body=true'] },
   { name: 'com.noop.analytics.FinalHostedComputeRuntimeTest', minimum: 2,
     markers: ['FINAL_HOSTED_RUNTIME admitted=0 forbidden=0', 'FINAL_HOSTED_NEGATIVE_CONTROL deep producer blocked before body'] },
   { name: 'com.noop.push.FinalHostedRawUploadNativeTest', minimum: 1,

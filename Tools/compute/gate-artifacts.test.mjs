@@ -16,14 +16,16 @@ function report(expected, { tests = expected.minimum, skipped = 0, failures = 0,
 test('Android proof requires executed native cases, zero skips and real zero-inference counters', () => {
   for (const expected of requiredAndroidReports) {
     assert.equal(validateAndroidReport(report(expected), expected).tests, expected.minimum);
-    for (const problem of [{ tests: 0 }, { skipped: 1 }, { failures: 1 }, { errors: 1 }]) {
+    for (const problem of [{ tests: 0 }, { tests: expected.minimum - 1 }, { skipped: 1 }, { failures: 1 }, { errors: 1 }]) {
       assert.throws(() => validateAndroidReport(report(expected, problem), expected));
     }
     assert.throws(() => validateAndroidReport(report(expected).replace('<testcase ', '<not-a-test '), expected));
     assert.throws(() => validateAndroidReport(report(expected).replace(`classname="${expected.name}"`, 'classname="other"'), expected));
     assert.throws(() => validateAndroidReport(report(expected).replace('</testsuite>', '<failure/></testsuite>'), expected));
     assert.throws(() => validateAndroidReport(report(expected).replace('</testsuite>', ''), expected));
-    if (expected.markers.length) assert.throws(() => validateAndroidReport(report(expected).replace(expected.markers[0], ''), expected));
+    for (const marker of expected.markers) {
+      assert.throws(() => validateAndroidReport(report(expected).replace(marker, ''), expected));
+    }
   }
 });
 
