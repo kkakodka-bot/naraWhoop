@@ -16,34 +16,59 @@ public struct CanonicalConsumerLedger: Codable, Equatable, Hashable, Sendable {
         public let resultRevision: String?
         public let computedAt: String?
         public let observedThrough: String?
+        public let expiresAt: String?
         public let freshness: String
         public let timezoneID: String?
         public let manifestHash: String?
         public let featureManifestHash: String?
         public let canonicalAuthorization: String?
 
-        public var permitsValue: Bool {
-            guard ["available", "stale"].contains(status), resultRevision?.isEmpty == false,
-                  let inputRevision, inputRevision >= 0, computedAt != nil else { return false }
-            if algorithmVersion == "frwhoop-server-1" { return true }
-            func hash(_ value: String?) -> Bool {
-                guard let value, value.count == 64 else { return false }
-                return value.allSatisfy { "0123456789abcdef".contains($0) }
+        public var permitsValue: Bool { permitsValue(at: Date()) }
+
+        public func permitsValue(at now: Date) -> Bool {
+            guard ["available", "stale"].contains(status), Self.revision(resultRevision),
+                  let inputRevision, inputRevision >= 0, Self.timestamp(computedAt) != nil,
+                  algorithmVersion?.isEmpty == false, Self.hash(manifestHash) else { return false }
+            if let expiresAt {
+                guard let expiry = Self.timestamp(expiresAt), expiry > now else { return false }
             }
-            return canonicalAuthorization == "signed_reference_approval" && hash(manifestHash) && hash(featureManifestHash)
+            return algorithmVersion == "frwhoop-server-1" && canonicalAuthorization == "retained_legacy" ||
+                canonicalAuthorization == "signed_reference_approval" && Self.hash(featureManifestHash)
+        }
+
+        private static func hash(_ value: String?) -> Bool {
+            guard let value, value.count == 64 else { return false }
+            return value.allSatisfy { "0123456789abcdef".contains($0) }
+        }
+        fileprivate static func revision(_ value: String?) -> Bool {
+            guard let value else { return false }
+            if value.hasPrefix("sha256:") { return hash(String(value.dropFirst(7))) }
+            for prefix in ["compute:", "session:"] where value.hasPrefix(prefix) {
+                let suffix = value.dropFirst(prefix.count)
+                return !suffix.isEmpty && suffix.allSatisfy { "0123456789".contains($0) }
+            }
+            return false
+        }
+        fileprivate static func timestamp(_ value: String?) -> Date? {
+            guard let value else { return nil }
+            let formatter = ISO8601DateFormatter()
+            if let date = formatter.date(from: value) { return date }
+            formatter.formatOptions.insert(.withFractionalSeconds)
+            return formatter.date(from: value)
         }
 
         public init(family: String, status: String, reason: String?, algorithmVersion: String?,
                     configurationVersion: String?, modelVersion: String?, preprocessingVersion: String?,
                     qualityVersion: String?, inputRevision: Int64?, resultRevision: String?,
                     computedAt: String?, observedThrough: String?, freshness: String, timezoneID: String?,
-                    manifestHash: String?, featureManifestHash: String?, canonicalAuthorization: String?) {
+                    manifestHash: String?, featureManifestHash: String?, canonicalAuthorization: String?, expiresAt: String? = nil) {
             self.family = family; self.status = status; self.reason = reason
             self.algorithmVersion = algorithmVersion; self.configurationVersion = configurationVersion
             self.modelVersion = modelVersion; self.preprocessingVersion = preprocessingVersion
             self.qualityVersion = qualityVersion; self.inputRevision = inputRevision
             self.resultRevision = resultRevision; self.computedAt = computedAt
             self.observedThrough = observedThrough; self.freshness = freshness; self.timezoneID = timezoneID
+            self.expiresAt = expiresAt
             self.manifestHash = manifestHash; self.featureManifestHash = featureManifestHash
             self.canonicalAuthorization = canonicalAuthorization
         }
@@ -75,8 +100,10 @@ public struct CanonicalConsumerLedger: Codable, Equatable, Hashable, Sendable {
               UUID(uuidString: sourceID) != nil, UUID(uuidString: deviceID) != nil,
               !window.isEmpty, !families.isEmpty else { return false }
         return families.allSatisfy { key, receipt in
-            key == receipt.family && (receipt.resultRevision == nil ||
-                (receipt.inputRevision != nil && receipt.algorithmVersion != nil && receipt.computedAt != nil))
+            key == receipt.family && (receipt.inputRevision == nil || receipt.inputRevision! >= 0) &&
+                [receipt.computedAt, receipt.observedThrough, receipt.expiresAt].allSatisfy({ $0 == nil || Receipt.timestamp($0) != nil }) &&
+                (receipt.resultRevision == nil || (Receipt.revision(receipt.resultRevision) &&
+                    receipt.inputRevision != nil && receipt.algorithmVersion?.isEmpty == false && receipt.computedAt != nil))
         }
     }
 }

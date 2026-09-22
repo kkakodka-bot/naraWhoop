@@ -2,14 +2,15 @@ import XCTest
 @testable import StrandDesign
 
 final class CanonicalConsumerLedgerTests: XCTestCase {
-    private func ledger(status: String = "available", revision: String? = "result-17",
-                        authorization: String? = nil, algorithm: String = "frwhoop-server-1") -> CanonicalConsumerLedger {
+    private func ledger(status: String = "available", revision: String? = "compute:17",
+                        authorization: String? = "retained_legacy", algorithm: String = "frwhoop-server-1",
+                        manifest: String? = String(repeating: "a", count: 64), expires: String? = nil) -> CanonicalConsumerLedger {
         let receipt = CanonicalConsumerLedger.Receipt(family: "recovery", status: status, reason: nil,
             algorithmVersion: algorithm, configurationVersion: "config-1", modelVersion: nil,
             preprocessingVersion: "preprocess-1", qualityVersion: "quality-1", inputRevision: 17,
             resultRevision: revision, computedAt: "2026-09-21T10:00:00Z", observedThrough: "2026-09-21T09:00:00Z",
-            freshness: "current", timezoneID: "America/Los_Angeles", manifestHash: nil,
-            featureManifestHash: nil, canonicalAuthorization: authorization)
+            freshness: "current", timezoneID: "America/Los_Angeles", manifestHash: manifest,
+            featureManifestHash: nil, canonicalAuthorization: authorization, expiresAt: expires)
         return CanonicalConsumerLedger(project: "https://example.supabase.co", ownerID: UUID().uuidString,
             sourceID: UUID().uuidString, deviceID: UUID().uuidString, window: "2026-09-21", families: ["recovery": receipt])
     }
@@ -24,7 +25,7 @@ final class CanonicalConsumerLedgerTests: XCTestCase {
         XCTAssertEqual(received.canonicalLedger, sent.canonicalLedger)
         XCTAssertEqual(received.charge, 0)
         XCTAssertTrue(received.hasCanonicalAdmission)
-        XCTAssertEqual(received.canonicalLedger?.families["recovery"]?.resultRevision, "result-17")
+        XCTAssertEqual(received.canonicalLedger?.families["recovery"]?.resultRevision, "compute:17")
     }
     func testMissingAndRevokedCannotAdmitAnOldFlattenedValue() {
         for state in ["unsupported", "processing", "revoked", "failed", "unqualified", "insufficient_input", "insufficient_quality", "unavailable"] {
@@ -39,7 +40,29 @@ final class CanonicalConsumerLedgerTests: XCTestCase {
     func testScopeAndRevisionArePartOfCacheIdentity() {
         let first = ledger()
         XCTAssertNotEqual(first.scopeIdentity, ledger().scopeIdentity)
-        XCTAssertNotEqual(first.families["recovery"], ledger(revision: "result-18").families["recovery"])
+        XCTAssertNotEqual(first.families["recovery"], ledger(revision: "compute:18").families["recovery"])
+    }
+    func testAlgorithmNameCannotAuthorizeLegacyReceiptWithoutItsManifestAndAdmission() {
+        XCTAssertFalse(snapshot(ledger(authorization: nil)).hasCanonicalAdmission)
+        XCTAssertFalse(snapshot(ledger(manifest: nil)).hasCanonicalAdmission)
+        XCTAssertFalse(snapshot(ledger(manifest: "not-a-manifest")).hasCanonicalAdmission)
+        XCTAssertFalse(snapshot(ledger(revision: "unrelated-snapshot-field")).hasCanonicalAdmission)
+    }
+    func testPersistedExpiredReceiptCannotReplayAnOldFlattenedWatchValue() throws {
+        let sent = snapshot(ledger(expires: "2000-01-01T00:00:00.000Z"), charge: 80)
+        let restored = try JSONDecoder().decode(WatchScoreSnapshot.self, from: JSONEncoder().encode(sent))
+        XCTAssertEqual(restored.canonicalLedger?.families["recovery"]?.resultRevision, "compute:17")
+        XCTAssertEqual(restored.canonicalLedger?.families["recovery"]?.expiresAt, "2000-01-01T00:00:00.000Z")
+        XCTAssertFalse(restored.hasCanonicalAdmission)
+        XCTAssertTrue(snapshot(ledger(expires: "2000-01-01T00:00:00.000Z"), charge: nil).hasCanonicalAdmission)
+    }
+    func testExpiryBoundaryAndHistoricalDailyWithoutExpiry() throws {
+        let expiry = ISO8601DateFormatter().date(from: "2026-09-21T10:01:00Z")!
+        let receipt = try XCTUnwrap(ledger(status: "stale", expires: "2026-09-21T10:01:00Z").families["recovery"])
+        XCTAssertTrue(receipt.permitsValue(at: expiry.addingTimeInterval(-0.001)))
+        XCTAssertFalse(receipt.permitsValue(at: expiry))
+        XCTAssertFalse(receipt.permitsValue(at: expiry.addingTimeInterval(1)))
+        XCTAssertTrue(try XCTUnwrap(ledger().families["recovery"]).permitsValue(at: .distantFuture))
     }
     func testReadFailureChangesPublicationIdentityWithoutChangingPhysiologyRevision() throws {
         let current = ledger()

@@ -23,7 +23,7 @@ enum CanonicalConsumerPublication {
                     computedAt: family.computedAt, observedThrough: family.observedThrough,
                     freshness: family.freshness, timezoneID: family.timezoneID,
                     manifestHash: family.manifestHash, featureManifestHash: family.featureManifestHash,
-                    canonicalAuthorization: family.canonicalQualification)
+                    canonicalAuthorization: family.canonicalQualification, expiresAt: family.expiresAt)
             }, readState: state?.days[result.day]?.phase.rawValue, cached: state?.days[result.day]?.cached)
     }
 
