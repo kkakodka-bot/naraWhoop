@@ -82,7 +82,7 @@ final class W4AutomaticSleepTimezoneTests: XCTestCase {
             XCTAssertEqual(omitted.count, 1)
             let only = try XCTUnwrap(omitted.first)
             XCTAssertFalse(only.stages.isEmpty)
-            XCTAssertNotNil(only.avgHRV)
+            XCTAssertNil(only.avgHRV, "Coarse RR cadence is not beat-clock qualification")
             XCTAssertEqual(omitted, explicitNil)
             XCTAssertEqual(oldLines, nilLines)
             XCTAssertEqual(F.detect(raw, v2: v2), omitted)

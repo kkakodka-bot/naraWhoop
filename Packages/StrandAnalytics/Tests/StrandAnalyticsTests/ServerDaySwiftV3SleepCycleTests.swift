@@ -71,7 +71,8 @@ final class ServerDaySwiftV3SleepCycleTests: XCTestCase {
             XCTAssertFalse(r.sleep.authoritative)
             let direct = try T.analyze(input, prepared: r.prepared, loaded: r.loaded, anchor: r.thermal)
             XCTAssertEqual(try P.reflect(r.native), try P.reflect(direct))
-            XCTAssertEqual(try V.object(P.reflect(r.native)).count, 16)
+            // The qualified result also carries observed-through, computation mode and full-day evidence.
+            XCTAssertEqual(try V.object(P.reflect(r.native)).count, 20)
             XCTAssertEqual(r.sleep.automatic, r.native.sleepSessions.map(T.Session.init))
             XCTAssertEqual(r.sleep.input.raw, input.raw)
         }

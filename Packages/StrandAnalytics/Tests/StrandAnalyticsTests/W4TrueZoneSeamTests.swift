@@ -81,13 +81,15 @@ final class W4TrueZoneSeamTests: XCTestCase {
         let hr = sessions.map { HRSample(ts: $0.start, bpm: 60) }
         let actual = AnalyticsEngine.analyzeDay(day: "2026-11-01", hr: hr, profile: UserProfile(),
             tzOffsetSeconds: -25_200, resolvedSleep: sessions, localDayBounds: bounds, timezone: zone)
-        XCTAssertEqual(actual.sleepSessions, sessions)
+        let expected = [W4QualifiedSessionFixture.session(sessions[0], episode: "main_sleep", groupStart: sessions[0].start),
+                        W4QualifiedSessionFixture.session(sessions[1], episode: "nap")]
+        XCTAssertEqual(actual.sleepSessions, expected)
         let zoneOnly = AnalyticsEngine.analyzeDay(day: "2026-11-01", hr: hr, profile: UserProfile(),
             tzOffsetSeconds: -25_200, resolvedSleep: sessions, timezone: zone)
-        XCTAssertEqual(zoneOnly.sleepSessions, [sessions[0]], "timezone alone must not override legacy membership")
+        XCTAssertEqual(zoneOnly.sleepSessions, [expected[0]], "timezone alone must not override legacy membership")
         let boundsOnly = AnalyticsEngine.analyzeDay(day: "2026-11-01", hr: hr, profile: UserProfile(),
             resolvedSleep: sessions, localDayBounds: bounds)
-        XCTAssertEqual(boundsOnly.sleepSessions, sessions)
+        XCTAssertEqual(boundsOnly.sleepSessions, expected)
     }
 
     func testEmptyExplicitRangeAdmitsNoSleepStepsOrCalorieSamples() {
