@@ -470,6 +470,7 @@ struct ServerScoreViewState: Equatable, Sendable {
     /// Keep those values separate instead of inventing snapshot revisions or provenance.
     var enrollmentValues: [String: [String: Double]] = [:]
     var canonicalDays: [String: ServerCanonicalResults] = [:]
+    var pendingCanonicalDays: [String: ServerPendingCanonicalResults] = [:]
 
     static let empty = Self(generation: nil, revision: 0, currentDay: "", timezone: "UTC", configured: false,
                             authenticated: false, capabilities: [], activated: [], days: [:])

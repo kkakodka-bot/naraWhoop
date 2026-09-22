@@ -140,6 +140,7 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     return score;
   }
   await capture('missing',[]);
+  await capture('pending-device',[],false,false,'whoop-UNREGISTERED');
   assert.equal((await accountRequest('whoop-TESTA001',secondSource)).status,401,'other-owner source rejected');
   const sessionId=crypto.randomUUID();
   const sessionRequest={id:crypto.randomUUID(),family:'spot_hrv',session_id:sessionId,

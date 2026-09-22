@@ -976,6 +976,7 @@ final class ServerScoreRepository: ObservableObject {
             activated: metrics, days: readStates)
         for (day, cache) in enrolledDays where cache.ownerId == owner {
             if let canonical = cache.canonicalResults { next.canonicalDays[day] = canonical }
+            if let pending = cache.pendingCanonicalResults { next.pendingCanonicalDays[day] = pending }
             let d = cache.daily
             let authorized = Self.authorizedEnrollmentMetrics(cache).intersection(metrics)
             let entries: [(ServerScoreMetric, Double?)] = [
@@ -991,7 +992,7 @@ final class ServerScoreRepository: ObservableObject {
             }
             if !values.isEmpty { next.enrollmentValues[day] = values }
         }
-        if next.canonicalDays != state.canonicalDays || next.enrollmentValues != state.enrollmentValues || next.currentDay != state.currentDay
+        if next.canonicalDays != state.canonicalDays || next.pendingCanonicalDays != state.pendingCanonicalDays || next.enrollmentValues != state.enrollmentValues || next.currentDay != state.currentDay
             || next.generation != state.generation || next.configured != state.configured
             || next.authenticated != state.authenticated || next.capabilities != state.capabilities
             || next.days != state.days {

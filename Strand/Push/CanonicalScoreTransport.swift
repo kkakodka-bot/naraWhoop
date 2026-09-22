@@ -97,11 +97,25 @@ enum CanonicalScoreTransport {
         guard identity.context.scope.userID == owner, ServerScoreDate.isDay(day) else { throw ServerScoreClient.FetchError.sessionChanged }
         let canonical = try await confirm(identity: identity, localDevice: localDevice)
         let data = try await request(identity: identity, query: [.init(name: "day", value: day), .init(name: "deviceId", value: localDevice)])
-        guard identity.isCurrent, let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              try validateIdentity(root, identity: identity, localDevice: localDevice) == canonical else {
+        guard identity.isCurrent, let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ServerScoreClient.FetchError.sessionChanged
         }
         let cache = try ServerScoreCacheCodec.parseSnapshot(data, day: day, ownerId: owner)
+        if let pending = cache.pendingCanonicalResults {
+            guard let returned = root["identity"] as? [String: Any],
+                  returned["userId"] as? String == owner,
+                  returned["sourceId"] as? String == identity.source,
+                  returned["externalDeviceId"] as? String == localDevice,
+                  returned["deviceId"] is NSNull else { throw ServerScoreClient.FetchError.sessionChanged }
+            try pending.validate(owner: owner, day: day, project: identity.context.scope.projectURL, source: identity.source)
+            // Registration can change between confirmation and read. Preserve the
+            // explicit server state while retiring the no-longer-confirmed mapping.
+            UserDefaults.standard.removeObject(forKey: mappingKey(scope: identity.context.scope, source: identity.source, localDevice: localDevice))
+            return cache
+        }
+        guard try validateIdentity(root, identity: identity, localDevice: localDevice) == canonical else {
+            throw ServerScoreClient.FetchError.sessionChanged
+        }
         try cache.canonicalResults?.validate(owner: owner, day: day, project: identity.context.scope.projectURL, source: identity.source, device: canonical)
         guard cache.features.values.allSatisfy({ $0.deviceId == nil || $0.deviceId == canonical }) else {
             throw ServerScoreClient.FetchError.sessionChanged

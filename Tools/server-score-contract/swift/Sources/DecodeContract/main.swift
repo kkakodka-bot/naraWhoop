@@ -25,6 +25,14 @@ try require(!expectations.isEmpty, "No real Edge envelopes were supplied")
 for expectation in expectations {
     let bytes = try Data(contentsOf: directory.appendingPathComponent(expectation.file))
     let cache = try ServerScoreCacheCodec.parseSnapshot(bytes, day: expectation.day, ownerId: expectation.ownerId)
+    if expectation.file.contains("pending-device") {
+        try require(cache.canonicalResults == nil, "Pending device fabricated a canonical result")
+        try require(cache.pendingCanonicalResults?.reason == "device_registration_pending", "Pending device state was lost")
+        try require(cache.pendingCanonicalResults?.familyIDs.count == 27, "Pending device did not retain every family")
+        try require(cache.ownedMetrics == ServerCanonicalResults.allMetrics, "Pending device lost explicit ownership")
+        let persisted = try JSONDecoder().decode(ServerScoreDayCache.self, from: JSONEncoder().encode(cache))
+        try require(persisted.pendingCanonicalResults == cache.pendingCanonicalResults, "Pending receipt did not survive persistence")
+    }
     for key in expectation.availableFeatures {
         try require(cache.features[key]?.isCanonicalAvailable == true, "\(expectation.file): \(key) did not activate")
         if let device = expectation.expectedDeviceId {

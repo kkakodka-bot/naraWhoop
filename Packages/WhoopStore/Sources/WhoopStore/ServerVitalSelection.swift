@@ -43,10 +43,11 @@ public struct ServerVitalSelection: Equatable {
 
     public static func resolve(_ metric: Metric, serverEnabled: Bool, selectedDay: String,
                                overlay: ServerScoreDayCache?, localValue: @autoclosure () -> Double?) -> Self {
-        if PhoneComputeRuntime.isFinalHosted || overlay?.canonicalResults != nil {
+        if PhoneComputeRuntime.isFinalHosted || overlay?.canonicalResults != nil || overlay?.pendingCanonicalResults != nil {
             let family = overlay?.day == selectedDay ? overlay?.canonicalResults?.result(for: metric.key) : nil
+            let pending = overlay?.day == selectedDay ? overlay?.pendingCanonicalResults : nil
             var result = Self(value: family?.number(metric.key), fromServer: true, day: selectedDay,
-                status: overlay?.readFailure ?? family?.reason ?? family?.status ?? "awaiting_server_result",
+                status: overlay?.readFailure ?? family?.reason ?? family?.status ?? pending?.reason ?? "awaiting_server_result",
                 stale: overlay?.stale == true || family?.freshness != "current",
                 sourceFeature: metric.feature, deviceId: family?.deviceID, algorithmVersion: family?.algorithmVersion)
             result.canonicalResult = family
