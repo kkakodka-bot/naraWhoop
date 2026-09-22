@@ -26,6 +26,30 @@ public struct PushBinaryPage: Sendable {
     public init(rows: [PushBinaryRow], hasMore: Bool) { self.rows = rows; self.hasMore = hasMore }
 }
 
+/// Receiver-scoped consumption frontier, captured before source reads and saved only after receipt.
+public struct PushMutableFrontier: Codable, Sendable, Equatable {
+    public let revision: Int64
+    public let key: String
+    public let calendarSignature: String
+    public init(revision: Int64, key: String, calendarSignature: String) {
+        self.revision = revision; self.key = key; self.calendarSignature = calendarSignature
+    }
+}
+public struct PushMutableDirtyRange: Sendable {
+    public let revision: Int64
+    public let key: String
+    public let fromDay: String
+    public let toDay: String
+    public init(revision: Int64, key: String, fromDay: String, toDay: String) {
+        self.revision = revision; self.key = key; self.fromDay = fromDay; self.toDay = toDay
+    }
+}
+public struct PushMutableDirtyPage: Sendable {
+    public let ranges: [PushMutableDirtyRange]
+    public let hasMore: Bool
+    public init(ranges: [PushMutableDirtyRange], hasMore: Bool) { self.ranges = ranges; self.hasMore = hasMore }
+}
+
 public struct PushSourceReadLimits: Sendable {
     public let maximumDecodedBytes: Int
     public let protocolVersion: String
@@ -38,6 +62,8 @@ public struct PushSourceReadLimits: Sendable {
 }
 
 public extension PushSnapshotSource {
+    func mutableDirtyRanges(table: PushMutableTable, deviceId: String, afterRevision: Int64,
+                            afterKey: String, limit: Int, calendar: Calendar) async throws -> PushMutableDirtyPage? { nil }
     func appendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64,
                     limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage {
         guard limits.shouldContinue() else { throw PushSourceReadError.deferred }

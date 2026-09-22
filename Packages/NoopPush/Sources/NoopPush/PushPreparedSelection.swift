@@ -118,6 +118,11 @@ public struct PushPreparedSelection: Codable, Sendable {
                   !progress.dayHashes.isEmpty, progress.dayHashes.count <= 366,
                   progress.dayHashes.allSatisfy({ Self.day($0.key) != nil && Self.digest($0.value)
                     && $0.key >= progress.window.fromDay && $0.key <= progress.window.toDay }) else { throw Self.invalid() }
+            if let frontier = progress.mutableFrontier {
+                guard frontier.revision >= 0, frontier.key.utf8.count <= 128,
+                      !frontier.calendarSignature.isEmpty, frontier.calendarSignature.utf8.count <= 1024,
+                      (frontier.revision == 0) == frontier.key.isEmpty else { throw Self.invalid() }
+            }
             let dayCount = Int(Self.day(progress.window.toDay)!.timeIntervalSince(Self.day(progress.window.fromDay)!) / 86_400) + 1
             guard dayCount == progress.dayHashes.count else { throw Self.invalid() }
             for (index, part) in batches.enumerated() {

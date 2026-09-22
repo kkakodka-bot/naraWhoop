@@ -146,7 +146,38 @@ public struct PushCoordinator: Sendable {
         guard allowsPreparation() else { return pressureDeferred }
         if let paused = await preparationPaused(table: table.wireName, deviceId: deviceId) { return paused }
         guard wakeBudget?.admitInlinePreparation(maximumDecodedBytes: PushProtocolLimits.maxMutableSnapshotEncodedBytes) ?? true else { return pressureDeferred }
-        let fullWindow = PushWindow.ending(today: today(), calendar: calendar)
+        var fullWindow = PushWindow.ending(today: today(), calendar: calendar)
+        let previous: PushWindowProgress?
+        let capturedFrontier: PushMutableFrontier?
+        let journalHasMore: Bool
+        do {
+            previous = try await progress.window(table: table, deviceId: deviceId)
+            // A time-zone database/rule change can change timestamp membership even without a
+            // source UPDATE. Reset to the initial snapshot and replay the durable marker journal.
+            let signature = "mutable-calendar-v1|\(calendar.identifier)|\(calendar.timeZone.identifier)|\(TimeZone.timeZoneDataVersion)"
+            let prior = previous?.mutableFrontier.flatMap { $0.calendarSignature == signature ? $0 : nil }
+            let page = try await source.mutableDirtyRanges(table: table, deviceId: deviceId,
+                afterRevision: prior?.revision ?? 0, afterKey: prior?.key ?? "", limit: 1, calendar: calendar)
+            if let page {
+                if prior == nil {
+                    capturedFrontier = .init(revision: 0, key: "", calendarSignature: signature)
+                    journalHasMore = !page.ranges.isEmpty || page.hasMore
+                } else if let range = page.ranges.first {
+                    guard page.ranges.count == 1, range.revision > 0,
+                          range.revision > prior!.revision || (range.revision == prior!.revision && range.key > prior!.key),
+                          let from = parseDay(range.fromDay), let to = parseDay(range.toDay), from <= to,
+                          to.timeIntervalSince(from) <= 3 * 86_400 else { throw PushProtocolException("invalid mutable range") }
+                    fullWindow = .days(from: from, to: to, calendar: calendar)
+                    capturedFrontier = .init(revision: range.revision, key: range.key, calendarSignature: signature)
+                    journalHasMore = page.hasMore
+                } else {
+                    guard !page.hasMore else { throw PushProtocolException("empty mutable page") }
+                    wakeBudget?.refundEmptyPreparation(maximumDecodedBytes: PushProtocolLimits.maxMutableSnapshotEncodedBytes)
+                    return .noData
+                }
+            } else { capturedFrontier = nil; journalHasMore = false }
+        } catch is PushSourceReadError { return pressureDeferred }
+        catch { return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase)) }
         let rows: [PushMutableRecord]
         do {
             rows = try await source.mutableRows(
@@ -206,14 +237,10 @@ public struct PushCoordinator: Sendable {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
         }
 
-        let previousHashes: [String: String]
-        do {
-            previousHashes = try await progress.window(table: table, deviceId: deviceId)?.dayHashes ?? [:]
-        } catch {
-            return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
-        }
-
-        let changedDays = days.filter { previousHashes[$0] != currentHashes[$0] }
+        // Journal revisions must settle with an exact receipt even for a no-op UPDATE or an
+        // empty deletion window. A previous content hash alone never consumes a new revision.
+        let previousHashes = previous?.dayHashes ?? [:]
+        let changedDays = capturedFrontier == nil ? days.filter { previousHashes[$0] != currentHashes[$0] } : days
         if changedDays.isEmpty {
             wakeBudget?.refundEmptyPreparation(maximumDecodedBytes: PushProtocolLimits.maxMutableSnapshotEncodedBytes)
             return .noData
@@ -236,7 +263,7 @@ public struct PushCoordinator: Sendable {
         }
 
         let replacementId = batches.first?.replacementId ?? batches.first?.batchId ?? ""
-        let value = PushWindowProgress(window: fullWindow, batchId: replacementId, dayHashes: currentHashes)
+        let value = PushWindowProgress(window: fullWindow, batchId: replacementId, dayHashes: currentHashes, mutableFrontier: capturedFrontier)
         let sourceCommit = PushSourceCommit(kind: .mutable, table: table.wireName, deviceID: deviceId,
             batchIDs: batches.map(\.batchId), window: value)
         if let prepareSelection {
@@ -258,7 +285,7 @@ public struct PushCoordinator: Sendable {
             return .accepted(
                 batchId: replacementId,
                 recordCount: changedRows.count,
-                hasMore: false,
+                hasMore: journalHasMore,
                 batchCount: batches.count
             )
         } catch {
@@ -526,6 +553,7 @@ public struct PushCoordinator: Sendable {
         var rejected = 0
         var more = false
         var binaryMore = false
+        var mutableMore = false
         var retryableFailure = false
         var selectedFailure: PushFailure?
 
@@ -543,9 +571,10 @@ public struct PushCoordinator: Sendable {
             if ndjsonEnabled {
                 for table in mutableOrder where capabilities.mutableTables.contains(table) {
                     switch await pushMutable(table, deviceId: deviceId) {
-                    case .accepted(_, let records, _, let batchCount):
+                    case .accepted(_, let records, let hasMore, let batchCount):
                         accepted += batchCount
                         acceptedRecords += records
+                        mutableMore = mutableMore || hasMore
                     case .rejected(_, let retryable, let failure):
                         rejected += 1
                         if selectedFailure == nil || (retryable && !retryableFailure) {
@@ -602,6 +631,7 @@ public struct PushCoordinator: Sendable {
             rejectedBatches: rejected,
             hasMoreAppendRows: more,
             hasMoreBinaryRows: binaryMore,
+            hasMoreMutableRows: mutableMore,
             acceptedRecords: acceptedRecords,
             hasRetryableFailure: retryableFailure,
             nextDeviceIndex: nextDeviceIndex,

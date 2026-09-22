@@ -64,6 +64,42 @@ final class CloudUploadQueueTests: XCTestCase {
         throw CloudUploadError.unavailable
     }
 
+    func testRotationCheckpointCommitsPairAndReopensPerReceiverWithoutLegacyDefaults() async throws {
+        let (_, context, layout) = try fixture()
+        let namespace = AccountScope.digest("synthetic-receiver-a"), other = AccountScope.digest("synthetic-receiver-b")
+        let first = try queue(context, layout, UploadAdapter())
+        let initial = try await first.rotationCheckpoint(namespace: namespace, captured: context)
+        XCTAssertEqual(initial, .init(index: 0, carryMore: false))
+        try await first.saveRotationCheckpoint(namespace: namespace, index: 9, carryMore: true, captured: context)
+        let reopened = try queue(context, layout, UploadAdapter())
+        let saved = try await reopened.rotationCheckpoint(namespace: namespace, captured: context)
+        XCTAssertEqual(saved, .init(index: 9, carryMore: true))
+        let separate = try await reopened.rotationCheckpoint(namespace: other, captured: context)
+        XCTAssertEqual(separate, .init(index: 0, carryMore: false))
+        do {
+            try await reopened.saveRotationCheckpoint(namespace: namespace, index: -1, carryMore: false, captured: context)
+            XCTFail("invalid partial update accepted")
+        } catch {}
+        let retained = try await reopened.rotationCheckpoint(namespace: namespace, captured: context)
+        XCTAssertEqual(retained, saved)
+        do {
+            try await reopened.saveRotationCheckpoint(namespace: namespace, index: 0, carryMore: false,
+                captured: .init(scope: context.scope, generation: UUID()))
+            XCTFail("stale generation changed rotation debt")
+        } catch {}
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget)
+        defer { journal.close() }
+        let name = try XCTUnwrap(journal.metadata.names(kind: "rotation").first)
+        XCTAssertEqual(try journal.metadata.names(kind: "rotation").count, 1)
+        XCTAssertThrowsError(try journal.metadata.transaction {
+            try journal.metadata.put(name, data: JSONEncoder().encode(CloudRotationCheckpoint(index: 0, carryMore: false)))
+            throw CloudUploadError.storageFull
+        })
+        let afterFailedTransaction = try await reopened.rotationCheckpoint(namespace: namespace, captured: context)
+        XCTAssertEqual(afterFailedTransaction, saved)
+        XCTAssertEqual(try journal.metadata.integrityCheck(), "ok")
+    }
+
     private func streamedSelection(_ context: AccountSessionContext, directory: URL) throws -> CloudPushPreparedSelection {
         let rows: [PushBinaryRow] = [.rawBatch(.init(rowId: 1, batchId: "synthetic-file-archive", capturedAt: 1,
             deviceClockRef: 1, wallClockRef: 1, startTs: 1, endTs: 1, frameCount: 1, byteSize: 262144,

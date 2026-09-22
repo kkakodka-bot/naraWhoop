@@ -42,8 +42,6 @@ enum CloudPushSettings {
         static var capabilitiesEndpoint: String { scopedKey("cloudPush.capabilitiesEndpoint") }
         static var capabilitiesStreams: String { scopedKey("cloudPush.capabilitiesStreams") }
         static var capabilitiesAt: String { scopedKey("cloudPush.capabilitiesAt") }
-        static let nextDevicePrefix = "cloudPush.nextDevice."
-        static let cycleMorePrefix = "cloudPush.cycleMore."
     }
 
     /// Fleet destination baked into Info.plist at build time from Config/CloudPush.xcconfig
@@ -243,22 +241,6 @@ enum CloudPushSettings {
         UserDefaults.standard.set(endpoint.url, forKey: K.capabilitiesEndpoint)
         UserDefaults.standard.set(capabilities.wireNames.joined(separator: ","), forKey: K.capabilitiesStreams)
         UserDefaults.standard.set(checkedAt.timeIntervalSince1970, forKey: K.capabilitiesAt)
-    }
-
-    static func nextDeviceIndex(namespace: String) -> Int {
-        max(0, UserDefaults.standard.integer(forKey: K.nextDevicePrefix + namespace))
-    }
-
-    static func saveNextDeviceIndex(namespace: String, index: Int) {
-        UserDefaults.standard.set(max(0, index), forKey: K.nextDevicePrefix + namespace)
-    }
-
-    static func cycleNeedsAnotherPass(namespace: String) -> Bool {
-        UserDefaults.standard.bool(forKey: K.cycleMorePrefix + namespace)
-    }
-
-    static func saveCycleNeedsAnotherPass(namespace: String, needed: Bool) {
-        UserDefaults.standard.set(needed, forKey: K.cycleMorePrefix + namespace)
     }
 
     private static func capabilitiesFor(endpoint: PushValidEndpoint?) -> [String]? {

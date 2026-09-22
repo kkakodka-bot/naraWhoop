@@ -11,38 +11,66 @@ import WhoopStore
 struct CloudPushSnapshot: PushSnapshotSource {
     private let db: any DatabaseWriter
     private let imuPushSource: (any ImuSessionPushSource)?
+    private let allowsPreparation: @Sendable () -> Bool
 
-    init(db: any DatabaseWriter, imuPushSource: (any ImuSessionPushSource)? = nil) {
+    init(db: any DatabaseWriter, imuPushSource: (any ImuSessionPushSource)? = nil,
+         allowsPreparation: @escaping @Sendable () -> Bool = { true }) {
         self.db = db
         self.imuPushSource = imuPushSource
+        self.allowsPreparation = allowsPreparation
     }
 
     func knownDeviceIds(capabilities: PushCapabilities) async throws -> [String] {
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
+        let tables = Set((capabilities.appendTables.map { sqlTable($0) }
+            + capabilities.mutableTables.map { sqlTable($0) }
+            + capabilities.binaryTables.filter { $0 != .rawImuSession }.map { binarySqlTable($0) })
+            .compactMap(CloudSourceTable.init(rawValue:)))
+        // Commit each bounded bootstrap page before reporting deferred work. Throwing inside
+        // the write transaction would roll back its cursor and repeat the same source page.
+        let membershipReady = try await db.read { try WhoopStore.cloudSourceMembership($0, tables: tables).isComplete }
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
+        if !membershipReady {
+            let bootstrap = try await db.write { db in
+                guard allowsPreparation() else { throw PushSourceReadError.deferred }
+                return try WhoopStore.advanceCloudSourceBootstrap(db, tables: tables, maximumRows: 2_000)
+            }
+            guard bootstrap.isComplete, allowsPreparation() else { throw PushSourceReadError.deferred }
+        }
         var ids = try await db.read { db in
-            var ids = Set<String>()
-            let deviceRows = try String.fetchAll(db, sql: "SELECT id FROM device WHERE id <> ''")
-            deviceRows.forEach { ids.insert($0) }
-            for table in capabilities.appendTables {
-                let sql = "SELECT DISTINCT deviceId FROM \(sqlTable(table)) WHERE deviceId <> ''"
-                try String.fetchAll(db, sql: sql).forEach { ids.insert($0) }
-            }
+            guard allowsPreparation() else { throw PushSourceReadError.deferred }
+            let membership = try WhoopStore.cloudSourceMembership(db, tables: tables)
+            guard membership.isComplete else { throw PushSourceReadError.deferred }
+            var ids = Set(membership.deviceIDs)
+            try String.fetchAll(db, sql: "SELECT id FROM device WHERE id <> ''").forEach { ids.insert($0) }
+            // Revision tombstones preserve devices whose last mutable row was removed/rekeyed.
             for table in capabilities.mutableTables {
-                let sql = "SELECT DISTINCT deviceId FROM \(sqlTable(table)) WHERE deviceId <> ''"
-                try String.fetchAll(db, sql: sql).forEach { ids.insert($0) }
-            }
-            for table in capabilities.binaryTables where table != .rawImuSession {
-                let sql = "SELECT DISTINCT deviceId FROM \(binarySqlTable(table)) WHERE deviceId <> ''"
-                try String.fetchAll(db, sql: sql).forEach { ids.insert($0) }
+                try String.fetchAll(db, sql: "SELECT DISTINCT deviceId FROM cloudMutableRevision WHERE tableName = ? AND deviceId <> ''",
+                    arguments: [table.wireName]).forEach { ids.insert($0) }
             }
             return ids
         }
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
         if !capabilities.binaryTables.isDisjoint(with: [.rawImuSession, .rawBatch]), let imuPushSource {
             ids.formUnion(imuPushSource.pushDeviceIds())
             if let archives = imuPushSource as? any ImuExactArchiveSource {
                 ids.formUnion(try archives.archiveDeviceIDs())
             }
         }
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
         return Array(ids).sorted()
+    }
+
+    func mutableDirtyRanges(table: PushMutableTable, deviceId: String, afterRevision: Int64,
+                            afterKey: String, limit: Int, calendar: Calendar) async throws -> PushMutableDirtyPage? {
+        guard let sourceTable = CloudMutableTable(rawValue: table.wireName) else { throw PushSourceReadError.requiresCompatibleEncoding }
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
+        return try await db.read { db in
+            guard allowsPreparation() else { throw PushSourceReadError.deferred }
+            let page = try WhoopStore.cloudMutableDirtyRanges(db, table: sourceTable, deviceID: deviceId,
+                afterRevision: afterRevision, afterKey: afterKey, limit: limit, calendar: calendar)
+            return .init(ranges: page.ranges.map { .init(revision: $0.revision, key: $0.key, fromDay: $0.fromDay, toDay: $0.toDay) }, hasMore: page.hasMore)
+        }
     }
 
     /// Cursor validation reads only natural-key columns, never retained payloads.

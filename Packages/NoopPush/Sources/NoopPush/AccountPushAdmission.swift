@@ -54,6 +54,13 @@ public struct AccountFencedSnapshot: PushSnapshotSource {
         try admission.check(); let value = try await source.appendRows(table: table, deviceId: deviceId, afterRowId: afterRowId, limit: limit)
         try admission.check(); return value
     }
+    public func mutableDirtyRanges(table: PushMutableTable, deviceId: String, afterRevision: Int64,
+                                    afterKey: String, limit: Int, calendar: Calendar) async throws -> PushMutableDirtyPage? {
+        try admission.check()
+        let value = try await source.mutableDirtyRanges(table: table, deviceId: deviceId, afterRevision: afterRevision,
+            afterKey: afterKey, limit: limit, calendar: calendar)
+        try admission.check(); return value
+    }
     public func mutableRows(table: PushMutableTable, deviceId: String, window: PushWindow, limit: Int) async throws -> [PushMutableRecord] {
         try admission.check(); let value = try await source.mutableRows(table: table, deviceId: deviceId, window: window, limit: limit)
         try admission.check(); return value

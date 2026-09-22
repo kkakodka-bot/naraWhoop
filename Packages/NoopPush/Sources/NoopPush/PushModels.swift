@@ -342,11 +342,13 @@ public struct PushWindowProgress: Sendable, Codable {
     public let window: PushWindow
     public let batchId: String
     public let dayHashes: [String: String]
+    public let mutableFrontier: PushMutableFrontier?
 
-    public init(window: PushWindow, batchId: String, dayHashes: [String: String] = [:]) {
+    public init(window: PushWindow, batchId: String, dayHashes: [String: String] = [:], mutableFrontier: PushMutableFrontier? = nil) {
         self.window = window
         self.batchId = batchId
         self.dayHashes = dayHashes
+        self.mutableFrontier = mutableFrontier
     }
 }
 
@@ -595,6 +597,7 @@ public struct PushRunResult: Sendable {
     public let rejectedBatches: Int
     public let hasMoreAppendRows: Bool
     public let hasMoreBinaryRows: Bool
+    public let hasMoreMutableRows: Bool
     public let acceptedRecords: Int
     public let hasRetryableFailure: Bool
     public let nextDeviceIndex: Int
@@ -606,6 +609,7 @@ public struct PushRunResult: Sendable {
         rejectedBatches: Int,
         hasMoreAppendRows: Bool,
         hasMoreBinaryRows: Bool = false,
+        hasMoreMutableRows: Bool = false,
         acceptedRecords: Int = 0,
         hasRetryableFailure: Bool = false,
         nextDeviceIndex: Int = 0,
@@ -616,6 +620,7 @@ public struct PushRunResult: Sendable {
         self.rejectedBatches = rejectedBatches
         self.hasMoreAppendRows = hasMoreAppendRows
         self.hasMoreBinaryRows = hasMoreBinaryRows
+        self.hasMoreMutableRows = hasMoreMutableRows
         self.acceptedRecords = acceptedRecords
         self.hasRetryableFailure = hasRetryableFailure
         self.nextDeviceIndex = nextDeviceIndex
@@ -691,6 +696,8 @@ public protocol PushSnapshotSource: Sendable {
     func appendRecordAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> PushAppendRecord?
     func appendRows(table: PushAppendTable, deviceId: String, afterRowId: Int64, limit: Int) async throws -> [PushAppendRecord]
     func mutableRows(table: PushMutableTable, deviceId: String, window: PushWindow, limit: Int) async throws -> [PushMutableRecord]
+    func mutableDirtyRanges(table: PushMutableTable, deviceId: String, afterRevision: Int64,
+                            afterKey: String, limit: Int, calendar: Calendar) async throws -> PushMutableDirtyPage?
     func binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Int64) async throws -> PushBinaryRow?
     func binaryRows(table: PushBinaryTable, deviceId: String, afterRowId: Int64, limit: Int) async throws -> [PushBinaryRow]
     func acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: [PushBinaryRow]) async throws

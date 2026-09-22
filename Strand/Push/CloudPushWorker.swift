@@ -137,13 +137,20 @@ enum CloudPushWorker {
 
         let namespace = admission.namespace(endpoint: endpoint.url, protocolVersion: capabilities.protocolVersion,
                                              receiverStateID: capabilities.receiverStateId)
-        let capturedSnapshot = CloudPushSnapshot(db: db, imuPushSource: binding.imuSource)
         let wakeBudget = PushWakeBudget()
+        let capturedSnapshot = CloudPushSnapshot(db: db, imuPushSource: binding.imuSource, allowsPreparation: {
+            ResourceBudget.shared.permits(.cloudPreparation) && wakeBudget.permitsFinishingPreparation &&
+                (try? admission.check()) != nil
+        })
         let snapshot = AccountFencedSnapshot(source: capturedSnapshot, admission: admission)
         let coordinator: PushCoordinator
         let preparedBlocked: Bool
+        let rotation: CloudRotationCheckpoint
+        let rotationQueue: CloudUploadQueue
         do {
             let runtime = try CloudPushBackgroundRuntime.current(for: initial)
+            rotationQueue = runtime.queue
+            rotation = try await runtime.queue.rotationCheckpoint(namespace: namespace, captured: initial)
             let makeCommitter: (CloudPushProgressStore) -> CloudPushSourceCommitter = { progress in
                 CloudPushSourceCommitter(progress: progress, check: { try admission.check() },
                     acknowledge: { try await capturedSnapshot.acknowledgeCommitted($0, scope: initial.scope) },
@@ -200,20 +207,23 @@ enum CloudPushWorker {
         } catch is CancellationError { traceOutcome = .cancelled; return .deferred }
         catch { traceOutcome = .failed; return .deferred }
         let run = await coordinator.pushKnownDevices(
-            startDeviceIndex: CloudPushSettings.nextDeviceIndex(namespace: namespace),
+            startDeviceIndex: rotation.index,
             maxDevices: maxDevicesPerRun, capabilities: capabilities,
             binaryEnabled: CloudPushSettings.binaryObjectsEnabled
         )
         guard await validate(dependentAdmission), (try? admission.check()) != nil else {
             traceOutcome = .cancelled; return .deferred
         }
-        if !run.hasRetryableFailure && !preparedBlocked {
-            CloudPushSettings.saveNextDeviceIndex(namespace: namespace, index: run.nextDeviceIndex)
-        }
-        let more = CloudPushSettings.cycleNeedsAnotherPass(namespace: namespace) ||
-            run.hasMoreAppendRows || run.hasMoreBinaryRows
+        let more = rotation.carryMore || run.hasMoreAppendRows || run.hasMoreBinaryRows || run.hasMoreMutableRows
         let cycleCompleted = run.nextDeviceIndex == 0
-        CloudPushSettings.saveCycleNeedsAnotherPass(namespace: namespace, needed: cycleCompleted ? false : more)
+        if !run.hasRetryableFailure && run.rejectedBatches == 0 && !preparedBlocked {
+            do {
+                // A reboot must retain both the next device and debt seen earlier in this cycle.
+                // An absent legacy checkpoint starts at device zero and conservatively replays.
+                try await rotationQueue.saveRotationCheckpoint(namespace: namespace, index: run.nextDeviceIndex,
+                    carryMore: cycleCompleted ? false : more, captured: initial)
+            } catch { traceOutcome = .failed; return .deferred }
+        }
 
         if let runtime = try? CloudPushBackgroundRuntime.current(for: initial),
            let message = try? await runtime.queue.pausedMessage(captured: initial) {

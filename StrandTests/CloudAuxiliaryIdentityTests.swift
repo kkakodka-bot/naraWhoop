@@ -32,6 +32,64 @@ final class CloudAuxiliaryIdentityTests: XCTestCase {
         try await body(store, CloudPushSnapshot(db: store.registryWriter))
     }
 
+    func testDeviceDiscoveryCommitsBoundedBootstrapAndThenReadsOnlyMetadata() async throws {
+        try await withStore { store, snapshot in
+            try await store.registryWriter.write { db in
+                for ts in 1...2001 {
+                    try db.execute(sql: "INSERT INTO hrSample(deviceId,ts,bpm) VALUES(?,?,?)", arguments: [self.device, ts, 60])
+                }
+            }
+            let caps = PushCapabilities(appendTables: [.hrSample], mutableTables: [])
+            do { _ = try await snapshot.knownDeviceIds(capabilities: caps); XCTFail("partial bootstrap hid undiscovered debt") }
+            catch { XCTAssertEqual(error as? PushSourceReadError, .deferred) }
+            let boundary = try await store.registryWriter.read { db in
+                try Int.fetchOne(db, sql: "SELECT lastRowId FROM cloudSourceBootstrap WHERE tableName='hrSample'")
+            }
+            XCTAssertEqual(boundary, 2000, "deferred return must follow a committed bootstrap cursor")
+            let ids = try await snapshot.knownDeviceIds(capabilities: caps)
+            XCTAssertTrue(ids.contains(self.device))
+            let changes = try await store.registryWriter.writeWithoutTransaction { try Int.fetchOne($0, sql: "SELECT total_changes()") }
+            _ = try await snapshot.knownDeviceIds(capabilities: caps)
+            let after = try await store.registryWriter.writeWithoutTransaction { try Int.fetchOne($0, sql: "SELECT total_changes()") }
+            XCTAssertEqual(after, changes, "completed discovery must not enter a write/scan bootstrap again")
+        }
+    }
+
+    func testHistoricalDeletedComputedDeviceSurvivesDiscoveryAndDirtyRangeSelection() async throws {
+        try await withStore { store, snapshot in
+            let deletedDevice = "synthetic-computed-deleted"
+            try await store.registryWriter.write { db in
+                try db.execute(sql: "INSERT INTO journal(deviceId,day,question,answeredYes) VALUES(?,?,?,?)",
+                    arguments: [deletedDevice, "2020-01-01", "synthetic", 1])
+                try db.execute(sql: "DELETE FROM journal WHERE deviceId=?", arguments: [deletedDevice])
+            }
+            let ids = try await snapshot.knownDeviceIds(capabilities: .init(appendTables: [], mutableTables: [.journal]))
+            XCTAssertTrue(ids.contains(deletedDevice))
+            var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+            let page = try await snapshot.mutableDirtyRanges(table: .journal, deviceId: deletedDevice,
+                afterRevision: 0, afterKey: "", limit: 1, calendar: calendar)
+            let range = try XCTUnwrap(page?.ranges.first)
+            XCTAssertEqual(range.fromDay, "2020-01-01")
+            XCTAssertEqual(range.key, "d:2020-01-01")
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = calendar.timeZone
+            let day = try XCTUnwrap(f.date(from: range.fromDay))
+            let rows = try await snapshot.mutableRows(table: .journal, deviceId: deletedDevice,
+                window: .days(from: day, to: day, calendar: calendar), limit: 1001)
+            XCTAssertTrue(rows.isEmpty, "deletion is an authoritative empty replacement, not absent device debt")
+        }
+    }
+
+    func testDiscoveryPressureBetweenMetadataReadAndBootstrapDoesNotStartScan() async throws {
+        try await withStore { store, _ in
+            let gate = SourceDiscoveryGate()
+            let snapshot = CloudPushSnapshot(db: store.registryWriter, allowsPreparation: { gate.admitFirstOnly() })
+            do { _ = try await snapshot.knownDeviceIds(capabilities: .init(appendTables: [.hrSample], mutableTables: [])); XCTFail("denied scan began") }
+            catch { XCTAssertEqual(error as? PushSourceReadError, .deferred) }
+            let complete = try await store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT complete FROM cloudSourceBootstrap WHERE tableName='hrSample'") }
+            XCTAssertEqual(complete, 0)
+        }
+    }
+
     func testSnapshotPreservesAuxiliarySiblingsAndExactReceiptMembership() async throws {
         try await withStore { store, snapshot in
             _ = try await store.insert(Streams(v18Aux: [V18AuxSample(ts: 100, recordIndex: 0),
@@ -186,4 +244,10 @@ final class CloudAuxiliaryIdentityTests: XCTestCase {
             wireBytes: batch.wireBytes, schema: 2)
         return try JSONDecoder().decode(PushDurabilityReceipt.self, from: W5ReceiptFixture.bytes(fields))
     }
+}
+
+private final class SourceDiscoveryGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    func admitFirstOnly() -> Bool { lock.lock(); defer { lock.unlock() }; calls += 1; return calls == 1 }
 }
