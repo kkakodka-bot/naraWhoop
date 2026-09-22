@@ -2805,4 +2805,6 @@
     <string name="terms_attest_cloud">我理解注册会将此手机关联到我的账户，以上传可穿戴数据并接收服务器结果。</string>
     <string name="terms_point_cloud_head">个人云端注册</string>
     <string name="terms_point_cloud_body">此版本使用你的个人注册将可穿戴数据上传到服务器，并将结果返回到你的账户。每台手机都有自己的安装凭证。此前未分配账户的数据留在手机上，不会自动上传。取消注册会停止云端访问；不会删除已经上传的数据。</string>
+    <string name="update_whats_new_nara_version">NARA %1$s 新功能</string>
+    <string name="update_nara_version_available">NARA %1$s 已推出，点按查看新功能。</string>
 </resources>

@@ -1,0 +1,37 @@
+{
+  "scope": "local combined source checks before merge commit; not production, full phone build, or physical acceptance",
+  "receipts": [
+    {
+      "path": "/Volumes/Untitled/server-repair-store-base-rerun.log",
+      "sha256": "5f9f8558941a2b123345b91b13dbdafe0f8a659393d6fb9c7c637176042828cf"
+    },
+    {
+      "path": "/private/tmp/server-repair-nooppush.log",
+      "sha256": "1ba3397353c056393f8a3584fae1e3f5049b28b1d7ec033f8ecc1f4ba05efb96"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-cloud-native-rerun.log",
+      "sha256": "2ecaf8aa8e6c3db5ed7722a3880abaeabcc7c786c57b0d77e792155afbeb9f18"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-ble-native.log",
+      "sha256": "ec709d91d45ba3190587f2967fae1fcae4d69a6f6321224c4d3c1b213bb7781b"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-evidence/deployment-contract.log",
+      "sha256": "a4d923e7154031f760fd706be19eb36605a22a7e07e2d11edc8a86eb8664a04d"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-evidence/migration-fresh.log",
+      "sha256": "eada93277b71d7fb0fd123be1285d56f39c46e897e3ec1b3e63425bc8fedfc67"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-evidence/migration-upgrade.log",
+      "sha256": "37cd4b0e3ea118dbb93e48d5c6cb4927c79a0f2c6cf2f7fe68294b17d6c9447e"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-evidence/migration-populated.log",
+      "sha256": "453a010f2aa443f151f7e53af67008f42b30c9bc392d17a3f9bce4b839e5db20"
+    }
+  ]
+}

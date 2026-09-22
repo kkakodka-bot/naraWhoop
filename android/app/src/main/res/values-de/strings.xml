@@ -2907,4 +2907,6 @@
     <string name="widget_open_nara_to_connect">NARA öffnen, um zu verbinden</string>
     <string name="whats_new_in_nara">Was ist neu in NARA %1$s</string>
     <string name="whats_new_nara_is_here">NARA %1$s ist da — tippe, um die Neuigkeiten zu lesen.</string>
+    <string name="update_whats_new_nara_version">Neu in NARA %1$s</string>
+    <string name="update_nara_version_available">NARA %1$s ist da — tippe, um die Neuerungen zu lesen.</string>
 </resources>

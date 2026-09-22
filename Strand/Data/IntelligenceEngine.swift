@@ -9,21 +9,37 @@ import CryptoKit
 final class ScoringAnalysisPassStatus: @unchecked Sendable {
     private let lock = NSLock()
     private var failure = false
+    private var pressureInterrupted = false
+    private let allowsWork: @Sendable () -> Bool
+    init(allowsWork: @escaping @Sendable () -> Bool = { true }) { self.allowsWork = allowsWork }
+    var wasPressureInterrupted: Bool { lock.lock(); defer { lock.unlock() }; return pressureInterrupted }
+    /// A revoked pass cannot resume halfway through if pressure clears during an await.
+    var canContinue: Bool {
+        let allowed = !Task.isCancelled && allowsWork()
+        lock.lock(); defer { lock.unlock() }
+        if !allowed { pressureInterrupted = true; failure = true }
+        return !pressureInterrupted
+    }
+    private func checkAdmission() throws {
+        guard canContinue else { throw CancellationError() }
+    }
     var failed: Bool { lock.lock(); defer { lock.unlock() }; return failure }
     func recordFailure() { lock.lock(); failure = true; lock.unlock() }
     func checking<T>(_ operation: () async throws -> T) async throws -> T {
         do {
-            try Task.checkCancellation()
+            try checkAdmission()
             let value = try await operation()
-            try Task.checkCancellation()
+            try checkAdmission()
             return value
         }
         catch { recordFailure(); throw error }
     }
     func checkingSync<T>(_ operation: () throws -> T) throws -> T {
         do {
-            try Task.checkCancellation()
-            return try operation()
+            try checkAdmission()
+            let value = try operation()
+            try checkAdmission()
+            return value
         }
         catch { recordFailure(); throw error }
     }
@@ -49,6 +65,8 @@ final class IntelligenceEngine: ObservableObject {
     private let dayCycleCache = DayCycleIntelligenceIntegration.Cache()
     private let repo: Repository
     private let profile: ProfileStore
+    private let resourceBudget: ResourceBudget
+    private var completedAnalysisRevision: UInt64 = 0
     private let analysisStoreProvider: @MainActor () async -> WhoopStore?
     /// The CANONICAL id under whose `-noop` sibling this engine WRITES the computed daily rows, and from
     /// which it reads the imported-only baseline (`hist`). STABLE on "my-whoop", it must NOT follow the
@@ -279,7 +297,7 @@ final class IntelligenceEngine: ObservableObject {
     enum LifecycleCheckpoint: Equatable {
         case beforeScorePersistence, afterCalibrationScan, beforeEditedSleepHealing, beforeCompletion
         case afterManagedWorkoutPersistence
-        case beforePreferenceEvaluationPages
+        case beforePreferenceEvaluationPages, beforeCalibrationScan
     }
     private let lifecycleCheckpoint: ((LifecycleCheckpoint) async -> Void)?
 
@@ -350,6 +368,7 @@ final class IntelligenceEngine: ObservableObject {
         let epoch: UUID
         var lease: WPE.Lease
         var finished = false
+        var pressureInterrupted = false
         var needsFollowup = false
         var dedupNeedsFollowup = false
         var mayRequestFollowup = true
@@ -471,15 +490,20 @@ final class IntelligenceEngine: ObservableObject {
         }
     }
 
+    private func pressureDeferredProjection() -> PreferenceWorkDisposition {
+        .retryAfter(Int64(Date().timeIntervalSince1970) + 15)
+    }
+
     /// Metadata-only admission. Cold row verification belongs to the runner's four-page budget.
     func preparePreferenceProjection(maxDays: Int = 21) async -> PreferenceWorkDisposition {
-        guard ResourceBudget.shared.permits(.bulk) else { return .retryAfter(Int64(Date().timeIntervalSince1970) + 15) }
+        guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
         guard preferenceProjectionTask == nil else { return .busy }
         let result = await preparePreferenceProjectionForAdmission(maxDays: maxDays)
         return preferenceProjectionTask == nil ? result : .busy
     }
 
     private func preparePreferenceProjectionForAdmission(maxDays: Int) async -> PreferenceWorkDisposition {
+        guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
         if let task = preferencePreflightTask {
             if preferencePreflightEpoch == preferenceEvaluationEpoch { return await task.value }
             // A revoked target's preparation cannot satisfy the explicit successor's admission.
@@ -505,6 +529,7 @@ final class IntelligenceEngine: ObservableObject {
     }
 
     private func preparePreferenceProjectionOnce(maxDays: Int) async -> PreferenceWorkDisposition {
+        guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
         preferenceEvaluationView = nil
         guard accountRuntimeActive, writeFence.isValid, !Task.isCancelled else { return .unvalidated }
         guard let inputs = captureScoringReaderInputs(), let accepted = inputs.accepted,
@@ -529,7 +554,9 @@ final class IntelligenceEngine: ObservableObject {
         }
         var epoch = preferenceEvaluationEpoch
         do {
+            guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
             let fingerprint = try await store.analysisFingerprint()
+            guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
             guard !fingerprint.isEmpty else { throw WPE.Failure.invalidState }
             // Bind the existing raw frontier and captured read namespace, without claiming an exact
             // raw-data hash. Preference/profile identity is already normalized by preferenceIdentity.
@@ -569,6 +596,7 @@ final class IntelligenceEngine: ObservableObject {
                 preferenceEvaluationSession = session
                 preferenceEvaluationStore = store
             }
+            guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
             let view = try await store.inspectWorkoutPreferenceEvaluation(session: session, request: request, now: now)
             guard evaluationIsCurrent(epoch, request: request) else { return .unvalidated }
             if let previous = preferenceEvaluationRequest, previous != request {
@@ -587,6 +615,7 @@ final class IntelligenceEngine: ObservableObject {
                 preferenceWorkDisposition = .retryAfter(fallback.deadline)
             }
             if view.disposition == .complete || view.disposition == .evaluatedPartial {
+                guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
                 finishPreferenceEvaluation(view, request: request)
             }
             return preferenceWorkDisposition
@@ -625,7 +654,7 @@ final class IntelligenceEngine: ObservableObject {
     func runPreferenceProjection(maxDays: Int = 21,
         mode: WorkoutPreferenceEvaluation.AdmissionMode = .automatic) async -> PreferenceWorkDisposition {
         guard PhoneComputeRuntime.permitsLocal("preference_projection") else { return .unvalidated }
-        guard ResourceBudget.shared.permits(.bulk) else { return .retryAfter(Int64(Date().timeIntervalSince1970) + 15) }
+        guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
         if mode == .refreshCore { invalidatePreferenceEvaluationPermit() }
         if let previous = preferenceProjectionTask {
             if mode == .automatic { return await previous.value }
@@ -656,7 +685,9 @@ final class IntelligenceEngine: ObservableObject {
     private func runPreferenceProjectionOnce(maxDays: Int, mode: WPE.AdmissionMode) async -> PreferenceWorkDisposition {
         guard PhoneComputeRuntime.permitsLocal("preference_projection_once") else { return .unvalidated }
         PhoneComputeRuntime.entered("preference_projection_once")
+        guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
         let disposition = await preparePreferenceProjectionForAdmission(maxDays: maxDays)
+        guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
         guard mode != .automatic || disposition.hasRunnableWork(at: Int64(Date().timeIntervalSince1970)) else {
             return preferenceWorkDisposition
         }
@@ -672,9 +703,11 @@ final class IntelligenceEngine: ObservableObject {
             let (lower, overflow) = now.subtractingReportingOverflow(span)
             guard !spanOverflow, !overflow else { throw WPE.Failure.invalidTarget }
             let proposed = try view.lease?.target ?? WPE.Target(request: request, lowerTs: lower, upperTs: now)
+            guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
             let admitted = try await store.admitWorkoutPreferenceEvaluation(
                 session: session, expected: view.head, target: proposed, permit: permit, mode: mode)
             guard evaluationIsCurrent(epoch, request: request) else { return .unvalidated }
+            guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
             view = try await store.inspectWorkoutPreferenceEvaluation(session: session, request: request, now: now)
             guard evaluationIsCurrent(epoch, request: request) else { return .unvalidated }
             guard view.head == admitted.head, view.lease?.evaluationID == admitted.evaluationID else {
@@ -690,6 +723,7 @@ final class IntelligenceEngine: ObservableObject {
                 let pass = PreferenceCorePass(store: store, session: session, permit: permit,
                     request: request, epoch: epoch, lease: admitted)
                 for passIndex in 0..<2 {
+                    guard resourceBudget.permits(.scoring) else { return pressureDeferredProjection() }
                     pass.needsFollowup = false
                     pass.dedupNeedsFollowup = false
                     pass.mayRequestFollowup = passIndex == 0
@@ -697,6 +731,7 @@ final class IntelligenceEngine: ObservableObject {
                     guard pass.needsFollowup, evaluationIsCurrent(epoch, request: request) else { break }
                 }
                 guard evaluationIsCurrent(epoch, request: request) else { return .unvalidated }
+                guard !pass.pressureInterrupted, resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
                 guard pass.finished else {
                     // Core failures cannot be recorded as successful prerequisites.
                     let held = try? await store.deferWorkoutPreferenceEvaluation(session: session,
@@ -713,6 +748,7 @@ final class IntelligenceEngine: ObservableObject {
             guard evaluationIsCurrent(epoch, request: request) else { return .unvalidated }
             var rowBytes = 0
             for _ in 0..<4 {
+                guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
                 guard evaluationIsCurrent(epoch, request: request), let currentLease = lease else { return .unvalidated }
                 let step = try await store.advanceWorkoutPreferenceEvaluation(
                     session: session, lease: currentLease, permit: permit)
@@ -729,6 +765,7 @@ final class IntelligenceEngine: ObservableObject {
                 break
             }
             guard evaluationIsCurrent(epoch, request: request) else { return .unvalidated }
+            guard resourceBudget.permits(.projection) else { return pressureDeferredProjection() }
             finishPreferenceEvaluation(view, request: request)
             return preferenceWorkDisposition
         } catch {
@@ -750,6 +787,7 @@ final class IntelligenceEngine: ObservableObject {
             if let bytes = try? JSONEncoder().encode(mirror) { defaults.set(bytes, forKey: Self.preferenceCompletionKey) }
             if ranCore, let completion {
                 _ = preferenceRecomputeDriver.markCompleted(completion.elapsed, completion.token)
+                completedAnalysisRevision &+= 1
             } else {
                 _ = preferenceRecomputeDriver.parkAttempt(receipt.receipt.coreWitness.legacyAttemptToken)
             }
@@ -844,9 +882,11 @@ final class IntelligenceEngine: ObservableObject {
          scoringPreferences: (() -> ScoringPreferenceSnapshot?)? = nil,
          analysisStoreProvider: (@MainActor () async -> WhoopStore?)? = nil,
          lifecycleCheckpoint: ((LifecycleCheckpoint) async -> Void)? = nil,
-         preferenceRecomputeDriver: PreferenceRecomputeDriver? = nil) {
+         preferenceRecomputeDriver: PreferenceRecomputeDriver? = nil,
+         resourceBudget: ResourceBudget = .shared) {
         self.repo = repo; self.profile = profile; self.deviceId = deviceId
         self.defaults = defaults
+        self.resourceBudget = resourceBudget
         self.hrvWindowProvider = hrvWindow
         self.scoringPreferenceProvider = scoringPreferences
         self.writeFence = repo.writeFence
@@ -1099,7 +1139,7 @@ final class IntelligenceEngine: ObservableObject {
         guard PhoneComputeRuntime.permitsLocal("fitness_age_recompute") else { return false }
         PhoneComputeRuntime.entered("fitness_age_recompute")
         guard !ServerScoringSettings.skipsSyncCoupledRescore else { return false }
-        guard captureScoringReaderInputs() != nil else { return false }
+        guard resourceBudget.permits(.scoring), captureScoringReaderInputs() != nil else { return false }
         let age = profile.age, sex = profile.sex, waistCm = profile.waistCm
         let heightCm = profile.heightCm, weightKg = profile.weightKg
         guard let store = await repo.storeHandle() else { return false }
@@ -1109,8 +1149,10 @@ final class IntelligenceEngine: ObservableObject {
         let nowLocalMidnight = Self.midnightLocal(now, offsetSec: tzOffset)
         let newestDay = AnalyticsEngine.dayString(nowLocalMidnight, offsetSec: tzOffset)
         let oldestDay = AnalyticsEngine.dayString(nowLocalMidnight - (maxDays - 1) * 86_400, offsetSec: tzOffset)
+        guard resourceBudget.permits(.scoring) else { return false }
         let gate7 = Array((await repo.localDailyMetrics(fromDay: oldestDay, toDay: newestDay))
             .sorted { $0.day < $1.day }.suffix(7))
+        guard resourceBudget.permits(.scoring) else { return false }
         let rows = Self.fitnessAgeRows(
             gateDays: gate7, age: age, sex: sex, waistCm: waistCm,
             heightCm: heightCm, weightKg: weightKg, computedId: computedId,
@@ -1143,13 +1185,15 @@ final class IntelligenceEngine: ObservableObject {
     /// from the same raw HR and lands on 0–100 again: UNCHANGED axis (verified by test).
     func runEffortRescoreIfNeeded(historyDays: Int = 4000) async {
         guard !ServerScoringSettings.skipsSyncCoupledRescore else { return }
-        guard accountRuntimeActive, !defaults.bool(forKey: Self.effortRescoreFlagKey) else { return }
+        guard accountRuntimeActive, resourceBudget.permits(.scoring),
+              !defaults.bool(forKey: Self.effortRescoreFlagKey) else { return }
+        let revision = completedAnalysisRevision
         await analyzeRecent(maxDays: historyDays)
-        // Only mark done if the pass actually completed (wasn't skipped because another tick held the
-        // `computing` lock). `computing` is false here once analyzeRecent's `defer` has run; a skipped
-        // call returns with `note` unset by it. Use the lock state: if a concurrent run was in progress
-        // the flag stays unset so the next launch retries , cheap, and correctness over a one-time cost.
-        if !rescoreInProgress { defaults.set(true, forKey: Self.effortRescoreFlagKey) }
+        // A released lock also describes a pressure-deferred or failed pass. Only an actual completion
+        // observed during this invocation authorizes the one-shot marker.
+        if !rescoreInProgress, completedAnalysisRevision != revision {
+            defaults.set(true, forKey: Self.effortRescoreFlagKey)
+        }
     }
 
     /// UserDefaults flag guarding the one-shot #547 implausible-timestamp DB heal (below). Set once the
@@ -1181,13 +1225,20 @@ final class IntelligenceEngine: ObservableObject {
     /// `analyzeRecent` loop so the rescore it triggers operates on an already-cleaned DB.
     func runTimestampHealIfNeeded(historyDays: Int = 4000) async {
         guard !ServerScoringSettings.skipsSyncCoupledRescore else { return }
-        guard ResourceBudget.shared.permits(.bulk), !Task.isCancelled else { return }
+        // Account-scoped capture cannot discard unreceipted source rows to repair a bad clock.
+        // Retain the pending marker until a provenance-preserving repair is explicitly implemented.
+        guard !repo.requiresAcceptedScoringPreferences else {
+            diagnosticSink?("Timestamp repair deferred; source history retained for verified recovery.", nil)
+            return
+        }
+        guard resourceBudget.permits(.scoring), !Task.isCancelled else { return }
         // Run when the one-shot heal hasn't run yet OR a sync just flagged a re-heal (#547 re-pollution): a
         // wandering-clock strap re-sends bad-dated records across syncs, so a single on-upgrade pass can't
         // be the only line of defence. The pending flag is cleared below once the re-heal completes.
         let pending = defaults.bool(forKey: Self.timestampHealPendingKey)
         guard accountRuntimeActive, pending || !defaults.bool(forKey: Self.timestampHealFlagKey) else { return }
         guard let store = await repo.storeHandle() else { return }   // no store yet → retry next launch
+        guard resourceBudget.permits(.scoring), !Task.isCancelled else { return }
         let result: WhoopStore.TimestampHealResult
         do {
             result = try await store.healImplausibleTimestamps()
@@ -1199,10 +1250,11 @@ final class IntelligenceEngine: ObservableObject {
             diagnosticSink?("Heal(#547): purged \(result.rawRowsDeleted) raw + \(result.computedRowsDeleted) computed row(s) with implausible (bad-clock) timestamps; rescoring the real days.", nil)
             // Recompute the affected real days from the surviving raw rows so the polluted (e.g. 721)
             // blocks regenerate cleanly. The dashboard refresh happens inside analyzeRecent on persist.
+            let revision = completedAnalysisRevision
             await analyzeRecent(maxDays: historyDays)
             // Only mark done once the rescore actually ran (wasn't skipped by a concurrent tick holding
             // the `computing` lock), so a skipped pass retries next launch , correctness over a one-time cost.
-            guard !rescoreInProgress else { return }
+            guard !rescoreInProgress, completedAnalysisRevision != revision else { return }
         }
         defaults.set(true, forKey: Self.timestampHealFlagKey)
         // Clear the re-pollution request now that this re-heal has run , a future bad-clock sync re-arms it.
@@ -1215,7 +1267,7 @@ final class IntelligenceEngine: ObservableObject {
     func analyzeRecent(maxDays: Int = 21, force: Bool = true, skipIfUnchanged: Bool = false) async {
         guard PhoneComputeRuntime.permitsLocal("daily_analytics") else { return }
         guard !ServerScoringSettings.skipsSyncCoupledRescore else { return }
-        guard ResourceBudget.shared.permits(.bulk) else { return }
+        guard resourceBudget.permits(.scoring) else { return }
         if captureScoringReaderInputs()?.accepted != nil {
             _ = await runPreferenceProjection(maxDays: maxDays,
                 mode: force && !skipIfUnchanged ? .refreshCore : .automatic)
@@ -1228,8 +1280,10 @@ final class IntelligenceEngine: ObservableObject {
                                    evaluation: PreferenceCorePass? = nil) async {
         guard PhoneComputeRuntime.permitsLocal("daily_analytics_core") else { return }
         PhoneComputeRuntime.entered("daily_analytics_core")
+        let passStatus = ScoringAnalysisPassStatus(allowsWork: { [resourceBudget] in resourceBudget.permits(.scoring) })
+        defer { if passStatus.wasPressureInterrupted { evaluation?.pressureInterrupted = true } }
         let passIsCurrent: () -> Bool = { [self] in
-            guard accountRuntimeActive, writeFence.isValid, !Task.isCancelled else { return false }
+            guard passStatus.canContinue, accountRuntimeActive, writeFence.isValid, !Task.isCancelled else { return false }
             return evaluation.map { evaluationIsCurrent($0.epoch, request: $0.request) } ?? true
         }
         guard passIsCurrent() else { return }
@@ -1243,7 +1297,6 @@ final class IntelligenceEngine: ObservableObject {
         }
         guard let preferences = captureScoringReaderInputs() else { return }
         let acceptedIdentity = preferenceIdentity(preferences)
-        let passStatus = ScoringAnalysisPassStatus()
         // Freeze ordinary profile fields beside the options before the first suspension. A later
         // accepted edit schedules another pass; it cannot mix recipes or epochs within this pass.
         let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
@@ -1631,7 +1684,7 @@ final class IntelligenceEngine: ObservableObject {
                                             unlabelledAliasOfWhoop5: activeWhoop5RR && o == Repository.whoopSource) }
             }
             for offset in 0..<maxDays {
-                guard !Task.isCancelled else { break }
+                guard passStatus.canContinue else { break }
                 let dayStart = nowLocalMidnight - offset * 86_400
                 let day = AnalyticsEngine.dayString(dayStart, offsetSec: tzOffset)
                 // Read a generous window around the night that ends on `day`; the stager finds the span.
@@ -1953,6 +2006,7 @@ final class IntelligenceEngine: ObservableObject {
                 // the same reason `hrvDiag` is carried on the scan and replayed below. A local buffer
                 // crosses no actor.
                 var strainDiagLines: [String] = []
+                guard passStatus.canContinue else { break }
                 let res = AnalyticsEngine.analyzeDay(day: day,
                                                      strainDiag: { strainDiagLines.append($0) },
                                                      hr: hr, rr: rr,
@@ -1988,6 +2042,7 @@ final class IntelligenceEngine: ObservableObject {
                                                      hrvWindowDetail: dayStart == nowLocalMidnight,
                                                      deepHrvWindow: deepHrvWindow,
                                                      effortMethod: effortMethodGlobal)
+                guard passStatus.canContinue else { break }
                 dayScoreSeconds += Date().timeIntervalSince(tScore0)
                 // #195: whole-night HRV cleaning-pipeline summary for the always-on strap log, so a "reads ~2x
                 // too high" report is triageable without the HRV test mode: RMSSD vs SDNN (rmssd >> sdnn =
@@ -2335,6 +2390,7 @@ final class IntelligenceEngine: ObservableObject {
         // loop produced them. Pure assignment / appends , no further store reads , so this is cheap and the
         // main actor was free during the heavy enumeration above.
         for scan in scanned {
+            guard passIsCurrent() else { return }
             let res = scan.result
             readOwnerByDay[res.daily.day] = (scan.readOwner, scan.hrRows)
             resolvedScoreOwnerByDay[res.daily.day] = scan.readOwner
@@ -2535,7 +2591,9 @@ final class IntelligenceEngine: ObservableObject {
         await lifecycleCheckpoint?(.beforeEditedSleepHealing)
         guard passIsCurrent(), !passStatus.failed else { return }
         let editedRows = await repo.selfHealEditedStages(from: windowStart, to: now,
-            preferences: preferences, selection: editedSleepSelection, onFailure: onFailure)
+            preferences: preferences, selection: editedSleepSelection,
+            allowsWork: { passStatus.canContinue }, onFailure: onFailure)
+        guard passIsCurrent(), !passStatus.failed else { return }
         var cycleCandidates: [(owner: String, priority: Int)] = regDevices
             .map { device in
                 let priority: Int
@@ -2555,7 +2613,8 @@ final class IntelligenceEngine: ObservableObject {
             if !$0.contains($1) { $0.append($1) }
         }
         let cycleWorkouts = await repo.workoutRows(days: maxDays + 2, preferences: preferences,
-            strainProfile: capturedStrainProfile, onFailure: onFailure)
+            strainProfile: capturedStrainProfile, allowsWork: { passStatus.canContinue }, onFailure: onFailure)
+        guard passIsCurrent(), !passStatus.failed else { return }
         let physiologicalSteps = await DayCycleIntelligenceIntegration.compute(
             nights: scoredNights.map { night in
                 DayCycleIntelligenceIntegration.Night(
@@ -2580,7 +2639,8 @@ final class IntelligenceEngine: ObservableObject {
             maxHROverride: maxHR,
             effortMethod: effortMethodGlobal,
             trace: stepsTraceActive ? { self.diagnosticSink?($0, .steps) } : nil,
-            onFailure: onFailure)
+            allowsWork: { passStatus.canContinue }, onFailure: onFailure)
+        guard passIsCurrent(), !passStatus.failed else { return }
         // #299: `editsByStart` is now built PER DAY inside the scoring loop (scoped to the day each edit
         // belongs to), NOT window-wide here. sleepEditedDaily folds any edited row that isn't a twin of THIS
         // day's detected sessions in as a "manual" block, so a window-wide edit set let ONE user edit /
@@ -2618,6 +2678,7 @@ final class IntelligenceEngine: ObservableObject {
         // "auto workout appeared then vanished" could not be explained from an export. Diagnostic only.
         let workoutsTraceActive = TestCentre.active(.workouts)
         for night in scoredNights {
+            guard passIsCurrent() else { return }
             // #299: scope the edits to THIS day before folding. A userEdited row / hand-logged nap belongs
             // to exactly ONE day — the day its night ENDS on, matching the daily's end-day bucket. `endTs`
             // is stable under a bedtime edit (only the onset/`startTsAdjusted` moves), so end-day is the
@@ -3056,6 +3117,8 @@ final class IntelligenceEngine: ObservableObject {
         // on changes. Bind `deviceId` (a MainActor instance `let`) to a local Sendable `String` so the
         // @Sendable detached closure captures the VALUE, never `self`, exactly as FIX 1's `ownerFallbackId`.
         let stepsFallbackId = deviceId
+        await lifecycleCheckpoint?(.beforeCalibrationScan)
+        guard passIsCurrent(), !passStatus.failed else { return }
         let calibrationTask = Task.detached(priority: .utility) {
             // Phone reference steps per day, from the apple-health daily rows (steps > 0 only).
             // #693: read `appleDaily`, NOT `dailyMetrics`. Apple-Health import writes the phone step count into
@@ -3070,7 +3133,7 @@ final class IntelligenceEngine: ObservableObject {
             // (Owner resolution mirrors the scoring loop; one device installs resolve to `deviceId`.)
             var motion: [String: Double] = [:]
             for off in 0..<stepsCalDays {
-                guard !Task.isCancelled else { return (refSteps, motion) }
+                guard passStatus.canContinue else { return (refSteps, motion) }
                 let dayMid = Self.midnightLocal(nowLocalMidnight - off * 86_400, offsetSec: tzOffset)
                 let dayEnd = dayMid + 86_400 - 1
                 let dayKey = AnalyticsEngine.dayString(dayMid, offsetSec: tzOffset)
@@ -3079,6 +3142,7 @@ final class IntelligenceEngine: ObservableObject {
                                                        registry: registry, fallbackDeviceId: stepsFallbackId, passStatus: passStatus)
                 let grav = (try? await passStatus.checking { try await store.gravitySamples(deviceId: owner, from: dayMid, to: dayEnd,
                                                             limit: 200_000) }) ?? []
+                guard passStatus.canContinue else { return (refSteps, motion) }
                 let m = StepsEstimateEngine.dayMotionIntensity(grav)
                 if m > 0 { motion[dayKey] = m }
             }
@@ -3180,6 +3244,7 @@ final class IntelligenceEngine: ObservableObject {
         let keptStarts = Set(cachedSleepKept.map { $0.startTs })
         var motionByStart: [Int: [Double]] = [:]
         for night in scoredNights {
+            guard passIsCurrent() else { return }
             for (start, motion) in night.sessionMotion where keptStarts.contains(start) {
                 motionByStart[start] = motion
             }
@@ -3195,6 +3260,7 @@ final class IntelligenceEngine: ObservableObject {
         // a session with no band samples was omitted (no key) and stays NULL — an absent signal stays absent.
         var sleepStateByStart: [Int: [Int]] = [:]
         for night in scoredNights {
+            guard passIsCurrent() else { return }
             for (start, states) in night.sessionSleepState where keptStarts.contains(start) {
                 sleepStateByStart[start] = states
             }
@@ -3338,6 +3404,7 @@ final class IntelligenceEngine: ObservableObject {
         // by more than an order of magnitude with history size.
         let elapsed = Date().timeIntervalSince(reScoreStart)
         let settled = preferenceRecomputeDriver.markCompleted(elapsed, owedToken)
+        completedAnalysisRevision &+= 1
         diagnosticSink?("re-score: done — scored \(scoredNights.count) night(s) in \(Int(elapsed * 1000)) ms (#1005)", nil)
         // #1681: a pass that completes while leaving the mark SET looks identical in a capture to one that
         // cleared it. Rare-event evidence, so always-on: it costs a line only when it actually happens,

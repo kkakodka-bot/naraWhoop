@@ -159,12 +159,15 @@ public enum PushProtocol {
     }
 
     /// Builds every bounded part of one authoritative replacement. Empty snapshots produce one part.
+    /// Fresh durable mutations supply a generation so A -> B -> A cannot reuse A's cached receipt
+    /// without applying its replacement again. Saved selections replay their original bytes/IDs.
     public static func mutableBatches(
         table: PushMutableTable,
         sourceId: String,
         deviceId: String,
         window: PushWindow,
-        records: [PushMutableRecord]
+        records: [PushMutableRecord],
+        replacementGeneration: String? = nil
     ) throws -> [PushBatch] {
         try validateUUID(sourceId, name: "sourceId")
         for record in records { try validateRecord(table: table, key: record.key, data: record.data) }
@@ -174,7 +177,7 @@ public enum PushProtocol {
             throw PushProtocolException("replace_window contains a duplicate key")
         }
         let lines = try records.map { try encodeMutableRecordLine(table: table, record: $0) }
-        let replacementIdentity: [String: PushJSONValue] = [
+        var replacementIdentity: [String: PushJSONValue] = [
             "deviceId": .string(deviceId),
             "delivery": .string("replace_window"),
             "protocolVersion": .string(version),
@@ -182,6 +185,15 @@ public enum PushProtocol {
             "stream": .string(table.wireName),
             "window": .map(try selectorBounds(table: table, window: window)),
         ]
+        if let replacementGeneration {
+            guard !replacementGeneration.isEmpty, replacementGeneration.utf8.count <= 4096 else {
+                throw PushProtocolException("invalid mutable replacement generation")
+            }
+            // This local identity domain changes only UUID values accepted by the existing wire
+            // schema. Source rows, selectors, receipt fields and legacy nil-generation IDs stay exact.
+            replacementIdentity["identityVersion"] = .string("mutable-generation-v1")
+            replacementIdentity["replacementGeneration"] = .string(replacementGeneration)
+        }
         let replacementId = stableUuid(header: replacementIdentity, lines: lines)
 
         var chunks: [[Data]] = []
@@ -315,7 +327,9 @@ public enum PushProtocol {
         startCursor: PushCursor?,
         rows: [PushBinaryRow],
         protocolVersion: String = binaryVersion,
-        decodedLimit: Int = PushProtocolLimits.maxBodyBytes
+        decodedLimit: Int = PushProtocolLimits.maxBodyBytes,
+        payloadDirectory: URL? = nil,
+        allowsWork: @escaping () -> Bool = { true }
     ) throws -> PushBinaryBatch {
         try validateUUID(sourceId, name: "sourceId")
         guard !rows.isEmpty else { throw PushProtocolException("binary object must contain a row") }
@@ -334,17 +348,35 @@ public enum PushProtocol {
                                             v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
         }
 
-        let decoded = try PushBinaryCodec.pack(table: table, rows: selected,
-                                               ppgIdentityV2: hasPPGIdentity(protocolVersion),
-                                               v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
-        guard decoded.count <= decodedLimit else {
-            throw PushProtocolException("binary object exceeds the decoded limit")
-        }
-        let contentSha256 = PushBinaryCodec.sha256Hex(decoded)
         let contentEncoding = table.contentEncoding
-        let payload = isObjectVersion(protocolVersion)
-            ? try PushBinaryCompression.compressObject(decoded, encoding: contentEncoding)
-            : try PushBinaryCompression.compress(decoded, encoding: contentEncoding)
+        let decodedBytes: Int, contentSha256: String
+        let decoded: Data?, payload: Data?, payloadFile: PushImmutablePayloadFile?
+        if let payloadDirectory {
+            guard isObjectVersion(protocolVersion) else { throw PushProtocolException("streaming requires object protocol") }
+            var index = 0
+            let expected = try selected.reduce(PushBinaryCodec.packedHeaderSize(for: table)) {
+                $0 + (try PushBinaryCodec.packedRowSize($1, ppgIdentityV2: hasPPGIdentity(protocolVersion),
+                    v18IdentityV2: protocolVersion == auxiliaryIdentityVersion))
+            }
+            let artifact = try PushBinaryStreamEncoder.encode(table: table, rowCount: selected.count,
+                encoding: contentEncoding, ppgIdentityV2: hasPPGIdentity(protocolVersion),
+                v18IdentityV2: protocolVersion == auxiliaryIdentityVersion, directory: payloadDirectory, requireExistingDirectory: true,
+                maxDecodedBytes: decodedLimit, maxWireBytes: decodedLimit + 64 * 1024,
+                expectedDecodedBytes: expected, allowsWork: allowsWork,
+                nextRow: { guard index < selected.count else { return nil }; defer { index += 1 }; return selected[index] })
+            decodedBytes = artifact.uncompressedBytes; contentSha256 = artifact.contentSha256
+            decoded = nil; payload = nil
+            payloadFile = try .init(url: artifact.fileURL, byteCount: artifact.wireBytes, sha256: artifact.wireSha256)
+        } else {
+            let bytes = try PushBinaryCodec.pack(table: table, rows: selected,
+                ppgIdentityV2: hasPPGIdentity(protocolVersion), v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
+            guard bytes.count <= decodedLimit else { throw PushProtocolException("binary object exceeds the decoded limit") }
+            decodedBytes = bytes.count; contentSha256 = PushBinaryCodec.sha256Hex(bytes); decoded = bytes
+            payload = isObjectVersion(protocolVersion)
+                ? try PushBinaryCompression.compressObject(bytes, encoding: contentEncoding)
+                : try PushBinaryCompression.compress(bytes, encoding: contentEncoding)
+            payloadFile = nil
+        }
         let (startTs, endTs, sampleCount) = try binaryBounds(table: table, rows: selected)
         let endCursor = try binaryEndCursor(table: table, deviceId: deviceId, rows: selected,
                                            v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
@@ -359,15 +391,29 @@ public enum PushProtocol {
             "stream": .string(table.wireName),
             "type": .string("binaryObject"),
         ]
-        let batchId = stableUuid(header: identity, lines: [decoded])
-        let objectId = stableUuid(
-            header: identity.merging(["batchId": .string(batchId)]) { $1 },
-            lines: [decoded]
-        )
+        func identityID(_ header: [String: PushJSONValue]) throws -> String {
+            if let decoded { return stableUuid(header: header, lines: [decoded]) }
+            var hasher = SHA256(), index = 0
+            hasher.update(data: Data(try canonicalJsonMap(header).utf8)); hasher.update(data: Data([0x0A]))
+            try PushBinaryStreamEncoder.visitDecodedBytes(table: table, rowCount: selected.count,
+                ppgIdentityV2: hasPPGIdentity(protocolVersion), v18IdentityV2: protocolVersion == auxiliaryIdentityVersion,
+                maxDecodedBytes: decodedLimit, allowsWork: allowsWork,
+                nextRow: { guard index < selected.count else { return nil }; defer { index += 1 }; return selected[index] },
+                consume: { hasher.update(bufferPointer: $0) })
+            return uuidFromDigest(Array(hasher.finalize()))
+        }
+        let batchId = try identityID(identity)
+        // Fresh immutable files have a representation identity as well as a decoded batch
+        // identity. Codec upgrades can emit different valid bytes of the same length; a
+        // legacy object's receipt must never authorize those new bytes.
+        let objectId = try payloadFile.map {
+            try immutableObjectID(batchId: batchId, contentEncoding: contentEncoding,
+                wireSHA256: $0.sha256, wireBytes: $0.byteCount)
+        } ?? identityID(identity.merging(["batchId": .string(batchId)]) { $1 })
         var manifest = identity
         manifest["batchId"] = .string(batchId)
         manifest["objectId"] = .string(objectId)
-        manifest["uncompressedBytes"] = .int(Int64(decoded.count))
+        manifest["uncompressedBytes"] = .int(Int64(decodedBytes))
         manifest["contentEncoding"] = .string(contentEncoding)
         let manifestJSON = Data(try canonicalJsonMap(manifest).utf8)
         return PushBinaryBatch(
@@ -380,13 +426,27 @@ public enum PushProtocol {
             startTs: startTs,
             endTs: endTs,
             sampleCount: sampleCount,
-            uncompressedBytes: decoded.count,
+            uncompressedBytes: decodedBytes,
             contentSha256: contentSha256,
             contentEncoding: contentEncoding,
             endCursor: endCursor,
             manifestJSON: manifestJSON,
-            payload: payload
+            payload: payload,
+            payloadFile: payloadFile
         )
+    }
+
+    /// Local v3 selection identity; the receiver still receives the existing versioned UUID
+    /// manifest. Saved v1/v2 object IDs and compressed bodies are replayed unchanged.
+    static func immutableObjectID(batchId: String, contentEncoding: String, wireSHA256: String, wireBytes: Int) throws -> String {
+        guard UUID(uuidString: batchId)?.uuidString.lowercased() == batchId,
+              ["gzip", "zstd"].contains(contentEncoding), PushPreparedSelection.digest(wireSHA256),
+              wireBytes > 0, wireBytes <= PushProtocolLimits.maxObjectWireBytes else {
+            throw PushProtocolException("invalid immutable representation identity")
+        }
+        return stableUuid(header: ["type": .string("immutable-wire-v1"), "batchId": .string(batchId),
+            "contentEncoding": .string(contentEncoding), "wireSha256": .string(wireSHA256),
+            "compressedBytes": .int(Int64(wireBytes))], lines: [])
     }
 
     /// Fresh random object id for the `object_id_conflict` escape: the burned id can never be
@@ -739,7 +799,11 @@ public enum PushProtocol {
         }
         hasher.update(data: Data([0x0A]))
         for line in lines { hasher.update(data: line) }
-        var bytes = Array(hasher.finalize())
+        return uuidFromDigest(Array(hasher.finalize()))
+    }
+
+    private static func uuidFromDigest(_ digest: [UInt8]) -> String {
+        var bytes = digest
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80
         let uuid = uuid_t(

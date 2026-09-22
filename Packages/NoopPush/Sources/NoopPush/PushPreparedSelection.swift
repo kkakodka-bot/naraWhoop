@@ -3,6 +3,7 @@ import Foundation
 /// Local continuation format, not a new wire protocol. Decoding never rebuilds or recompresses a batch.
 public struct PushPreparedSelection: Codable, Sendable {
     public static let formatVersion = 2
+    public static let fileFormatVersion = 3
     public static let maximumParts = 64
     public static let maximumEncodedBytes = 768 * 1_048_576
     public let version: Int
@@ -18,6 +19,20 @@ public struct PushPreparedSelection: Codable, Sendable {
     // construction/decoding; counting files must not repack every raw object on each receipt.
     public var objectManifest: PushObjectManifest? { binary?.manifest }
     public var objectPayload: Data? { binary?.payload }
+    public var objectPayloadFile: PushImmutablePayloadFile? { binary?.payloadFile }
+    public var objectWireBytes: Int? { binary.map { $0.payloadFile?.byteCount ?? $0.payload?.count ?? 0 } }
+    public var memberByteCount: Int { binary?.rows.reduce(0) { $0 + $1.byteCount } ?? 0 }
+
+    /// New local identities hash compact member digests. Legacy v2 canonical JSON stays exact.
+    public func identityData() throws -> Data {
+        if version == Self.formatVersion { return try encoded() }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        encoder.dataEncodingStrategy = .custom { data, encoder in
+            var c = encoder.unkeyedContainer()
+            try c.encode(data.count); try c.encode(PushDurabilityReceipt.sha256(data))
+        }
+        return try encoder.encode(self)
+    }
     public var objectIntentBytes: Data? { binary?.intentJSON }
     public var inlineBodies: [Data] { inline.map(\.body) }
 
@@ -29,7 +44,8 @@ public struct PushPreparedSelection: Codable, Sendable {
 
     public init(binary batch: PushBinaryBatch, rows: [PushBinaryRow], manifest: PushObjectManifest,
                 lane: PushObjectLane, commit: PushSourceCommit) throws {
-        version = Self.formatVersion; self.commit = commit; inline = []
+        version = batch.payloadFile == nil ? Self.formatVersion : Self.fileFormatVersion
+        self.commit = commit; inline = []
         binary = try Binary(batch: batch, rows: rows, manifest: manifest, lane: lane)
         try validate()
     }
@@ -46,16 +62,18 @@ public struct PushPreparedSelection: Codable, Sendable {
         return bytes
     }
 
-    public static func decode(_ bytes: Data) throws -> Self {
+    public static func decode(_ bytes: Data, payloadDirectory: URL? = nil) throws -> Self {
         guard bytes.count <= maximumEncodedBytes else { throw invalid() }
-        return try JSONDecoder().decode(Self.self, from: bytes)
+        let decoder = JSONDecoder()
+        decoder.userInfo[PushImmutablePayloadFile.directoryKey] = payloadDirectory
+        return try decoder.decode(Self.self, from: bytes)
     }
 
     private enum CodingKeys: String, CodingKey { case version, commit, inline, binary }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int.self, forKey: .version)
-        guard version == Self.formatVersion else { throw Self.invalid() }
+        guard [Self.formatVersion, Self.fileFormatVersion].contains(version) else { throw Self.invalid() }
         commit = try c.decode(PushSourceCommit.self, forKey: .commit)
         inline = try c.decode([Inline].self, forKey: .inline)
         binary = try c.decodeIfPresent(Binary.self, forKey: .binary)
@@ -63,11 +81,12 @@ public struct PushPreparedSelection: Codable, Sendable {
     }
 
     private func validate() throws {
-        guard version == Self.formatVersion, !commit.batchIDs.isEmpty,
+        guard [Self.formatVersion, Self.fileFormatVersion].contains(version), !commit.batchIDs.isEmpty,
               Set(commit.batchIDs).count == commit.batchIDs.count,
               commit.batchIDs.allSatisfy(Self.uuid), !commit.deviceID.isEmpty,
               commit.deviceID.utf8.count <= 1024 else { throw Self.invalid() }
         if let binary {
+            guard (version == Self.fileFormatVersion) == (binary.payloadFile != nil) else { throw Self.invalid() }
             let restored = try binary.restore()
             let batch = restored.batch
             let rawIDs = restored.rows.compactMap { row -> String? in
@@ -79,7 +98,7 @@ public struct PushPreparedSelection: Codable, Sendable {
                   commit.rawBatchIDs == rawIDs else { throw Self.invalid() }
             return
         }
-        guard !inline.isEmpty, inline.count <= Self.maximumParts,
+        guard version == Self.formatVersion, !inline.isEmpty, inline.count <= Self.maximumParts,
               commit.rawBatchIDs.isEmpty, inline.map(\.batchID) == commit.batchIDs else { throw Self.invalid() }
         let batches = try restoredInlineBatches()
         let first = batches[0]
@@ -99,6 +118,11 @@ public struct PushPreparedSelection: Codable, Sendable {
                   !progress.dayHashes.isEmpty, progress.dayHashes.count <= 366,
                   progress.dayHashes.allSatisfy({ Self.day($0.key) != nil && Self.digest($0.value)
                     && $0.key >= progress.window.fromDay && $0.key <= progress.window.toDay }) else { throw Self.invalid() }
+            if let frontier = progress.mutableFrontier {
+                guard frontier.revision >= 0, frontier.key.utf8.count <= 128,
+                      !frontier.calendarSignature.isEmpty, frontier.calendarSignature.utf8.count <= 1024,
+                      (frontier.revision == 0) == frontier.key.isEmpty else { throw Self.invalid() }
+            }
             let dayCount = Int(Self.day(progress.window.toDay)!.timeIntervalSince(Self.day(progress.window.fromDay)!) / 86_400) + 1
             guard dayCount == progress.dayHashes.count else { throw Self.invalid() }
             for (index, part) in batches.enumerated() {
@@ -173,20 +197,25 @@ public struct PushPreparedSelection: Codable, Sendable {
     private struct Binary: Codable, Sendable {
         let originalManifest, manifest: PushObjectManifest
         let endCursor: PushCursor?
-        let manifestJSON, intentJSON, payload: Data
+        let manifestJSON, intentJSON: Data
+        let payload: Data?
+        let payloadFile: PushImmutablePayloadFile?
         let wireSHA256: String
         let rows: [Member]
         let lanePath: String
         let maxObjectBytes: Int64
         let urlTtlSec: Int64?
         let streams: [String]
+        let completionMode: PushObjectCompletionMode?
         init(batch: PushBinaryBatch, rows: [PushBinaryRow], manifest: PushObjectManifest, lane: PushObjectLane) throws {
             originalManifest = .init(batch: batch); self.manifest = manifest; endCursor = batch.endCursor
-            manifestJSON = batch.manifestJSON; payload = batch.payload
+            manifestJSON = batch.manifestJSON; payloadFile = batch.payloadFile
+            payload = batch.payloadFile == nil ? try batch.payload : nil
             intentJSON = try manifest.encode()
-            wireSHA256 = PushDurabilityReceipt.sha256(batch.payload); self.rows = rows.map(Member.init)
+            wireSHA256 = batch.wireSHA256; self.rows = rows.map(Member.init)
             lanePath = lane.endpoint; maxObjectBytes = lane.maxObjectBytes; urlTtlSec = lane.urlTtlSec
             streams = lane.streams.map(\.rawValue).sorted()
+            completionMode = lane.completionMode
         }
         func restore() throws -> (batch: PushBinaryBatch, rows: [PushBinaryRow], manifest: PushObjectManifest, lane: PushObjectLane) {
             guard rows.count > 0, rows.count <= PushProtocolLimits.maxRecords,
@@ -197,15 +226,16 @@ public struct PushPreparedSelection: Codable, Sendable {
                   !lanePath.contains(".."), !lanePath.contains("?"), !lanePath.contains("#"),
                   lanePath.utf8.count <= 1024,
                   maxObjectBytes > 0, maxObjectBytes <= Int64(PushProtocolLimits.maxObjectWireBytes),
-                  Int64(payload.count) <= maxObjectBytes else { throw invalid() }
+                  (payload == nil) != (payloadFile == nil),
+                  Int64(payloadFile?.byteCount ?? payload?.count ?? 0) <= maxObjectBytes else { throw invalid() }
             let tables = streams.compactMap(PushBinaryTable.init(rawValue:))
             guard tables.count == streams.count, Set(tables).count == tables.count,
                   streams.contains(manifest.stream) else { throw invalid() }
             let restoredRows = try rows.map { try $0.restore() }
             let batch = try PushBinaryBatch.restoring(manifest: originalManifest, endCursor: endCursor,
-                manifestJSON: manifestJSON, payload: payload, wireSHA256: wireSHA256, rows: restoredRows)
+                manifestJSON: manifestJSON, payload: payload, payloadFile: payloadFile, wireSHA256: wireSHA256, rows: restoredRows)
             return (batch, restoredRows, manifest, .init(endpoint: lanePath, maxObjectBytes: maxObjectBytes,
-                urlTtlSec: urlTtlSec, streams: Set(tables)))
+                urlTtlSec: urlTtlSec, streams: Set(tables), completionMode: completionMode))
         }
     }
 
@@ -223,6 +253,12 @@ public struct PushPreparedSelection: Codable, Sendable {
                 deviceClock: r.deviceClockRef, wallClock: r.wallClockRef, start: r.startTs, end: r.endTs,
                 frames: r.frameCount, byteSize: r.byteSize, bytes: r.framesBlob)
             case .rawImuSession(let r): self = .imu(rowID: r.rowId, ts: r.ts, bytes: r.columns)
+            }
+        }
+        var byteCount: Int {
+            switch self {
+            case .ppg(_, _, _, _, let bytes), .auxiliary(_, _, _, _, let bytes),
+                 .raw(_, _, _, _, _, _, _, _, _, let bytes), .imu(_, _, let bytes): return bytes.count
             }
         }
         func restore() throws -> PushBinaryRow {

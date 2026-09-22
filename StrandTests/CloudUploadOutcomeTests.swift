@@ -8,6 +8,13 @@ import NoopPush
 #endif
 
 final class CloudUploadOutcomeTests: XCTestCase {
+    private let resourceBudget = ResourceBudget(thermal: { 0 }, lowPower: { false })
+    private var fixtureRoots: [URL] = []
+    override func tearDownWithError() throws {
+        for root in fixtureRoots where FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
+        fixtureRoots.removeAll()
+        try super.tearDownWithError()
+    }
     private let endpoint = "https://project.example/functions/v1/push"
     private let receiver = "synthetic-receiver"
 
@@ -34,11 +41,12 @@ final class CloudUploadOutcomeTests: XCTestCase {
             base = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory)
         }
         let root = base.appendingPathComponent("cloud-outcome-" + UUID().uuidString, isDirectory: true)
+        fixtureRoots.append(root)
         let scope = try AccountScope(projectURL: "https://project.example",
             userID: "11111111-1111-4111-8111-111111111111")
         let context = AccountSessionContext(scope: scope, generation: UUID())
         let layout = AccountStorageLayout(baseDirectory: root, scope: scope)
-        let journal = try CloudUploadJournal(directory: layout.uploadDirectory)
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget)
         let batch = try PushProtocol.appendBatch(table: .battery,
             sourceId: "22222222-2222-4222-8222-222222222222", deviceId: "synthetic-device",
             startCursor: nil, records: [.init(rowId: 1, key: ["ts": .int(1_800_000_000)],
@@ -60,11 +68,11 @@ final class CloudUploadOutcomeTests: XCTestCase {
                        control: @escaping @Sendable (URLRequest) async throws -> PushTransportResponse = { _ in throw CloudUploadError.unavailable },
                        journalWriteObserver: (@Sendable (URL) throws -> Void)? = nil,
                        refresh: (@Sendable (AccountSessionContext) async throws -> Void)? = nil) throws -> CloudUploadQueue {
-        try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context ?? f.context, layout: f.layout, adapter: adapter,
+        try CloudUploadQueue(context: context ?? f.context, layout: f.layout, adapter: adapter,
             authorize: { _ in "synthetic-token" }, isCurrent: current,
             policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
             control: control, now: { clock.value }, journalWriteObserver: journalWriteObserver,
-            randomUnit: { randomUnit }, refreshCredentials: refresh)
+            randomUnit: { randomUnit }, refreshCredentials: refresh, resourceBudget: resourceBudget)
     }
 
     private func errorBody(_ code: String) throws -> Data {
@@ -128,8 +136,7 @@ final class CloudUploadOutcomeTests: XCTestCase {
     func testTerminalHTTPOutcomesRemainPausedAfterRelaunch() async throws {
         for status in [400, 404, 409, 413, 422] {
             let f = try fixture()
-            defer { try? FileManager.default.removeItem(at: f.root) }
-            let clock = OutcomeClock()
+                let clock = OutcomeClock()
             let adapter = OutcomeSessionAdapter()
             let q = try queue(f, adapter: adapter, clock: clock)
             try await q.reconcile()
@@ -144,6 +151,12 @@ final class CloudUploadOutcomeTests: XCTestCase {
             XCTAssertEqual(saved.responseBody, body)
             XCTAssertEqual(saved.failures, 1)
             XCTAssertNil(saved.nextAttemptAt)
+            let presentation = try await q.presentationStatus(captured: f.context)
+            XCTAssertEqual(presentation.pendingJobs, 1)
+            XCTAssertEqual(presentation.transferringJobs, 0)
+            XCTAssertEqual(presentation.pausedReason, .terminal)
+            XCTAssertNil(presentation.lastVerifiedReceipt)
+            XCTAssertNil(presentation.retryAt)
             try assertSourceRetained(f)
 
             await q.suspend()
@@ -162,7 +175,6 @@ final class CloudUploadOutcomeTests: XCTestCase {
 
     func testRetryAfterAndFailureCountSurviveDuplicateCallbackAndRelaunch() async throws {
         let f = try fixture()
-        defer { try? FileManager.default.removeItem(at: f.root) }
         let clock = OutcomeClock()
         let initialDate = clock.value
         let adapter = OutcomeSessionAdapter()
@@ -179,6 +191,9 @@ final class CloudUploadOutcomeTests: XCTestCase {
         XCTAssertEqual(first.responseCode, "rate_limited")
         XCTAssertEqual(first.failures, 1)
         XCTAssertGreaterThanOrEqual(next.timeIntervalSince(initialDate), 120)
+        let presentation = try await q.presentationStatus(captured: f.context)
+        XCTAssertEqual(presentation.retryAt, next)
+        XCTAssertNil(presentation.pausedReason)
 
         clock.advance(by: 3)
         await q.receive(task, status: 429, body: body, error: false, retryAfter: "120")
@@ -203,7 +218,6 @@ final class CloudUploadOutcomeTests: XCTestCase {
 
     func testHTTPDateRetryAfterIsHonored() async throws {
         let f = try fixture()
-        defer { try? FileManager.default.removeItem(at: f.root) }
         let clock = OutcomeClock()
         let notBefore = clock.value.addingTimeInterval(300)
         let formatter = DateFormatter()
@@ -226,8 +240,7 @@ final class CloudUploadOutcomeTests: XCTestCase {
     func testTransientHTTPOutcomesRetryWithPersistedJitter() async throws {
         for status in [408, 500, 502, 503, 504] {
             let f = try fixture()
-            defer { try? FileManager.default.removeItem(at: f.root) }
-            let clock = OutcomeClock()
+                let clock = OutcomeClock()
             let adapter = OutcomeSessionAdapter()
             let q = try queue(f, adapter: adapter, clock: clock, randomUnit: 0.25)
             try await q.reconcile()
@@ -304,7 +317,6 @@ final class CloudUploadOutcomeTests: XCTestCase {
 
     func testHTTPFailureIsNotRecountedAsReceiptMismatch() async throws {
         let f = try fixture()
-        defer { try? FileManager.default.removeItem(at: f.root) }
         let adapter = OutcomeSessionAdapter()
         let q = try queue(f, adapter: adapter, clock: OutcomeClock())
         try await q.reconcile()
@@ -333,7 +345,6 @@ final class CloudUploadOutcomeTests: XCTestCase {
 
     func testInvalidReceiptPausesOnceAndNeverAuthorizesSourceCleanup() async throws {
         let f = try fixture()
-        defer { try? FileManager.default.removeItem(at: f.root) }
         let adapter = OutcomeSessionAdapter()
         let q = try queue(f, adapter: adapter, clock: OutcomeClock())
         try await q.reconcile()
@@ -492,7 +503,6 @@ final class CloudUploadOutcomeTests: XCTestCase {
 
     func testExplicitResolutionReusesExactBytesAndFencesPriorAttempt() async throws {
         let f = try fixture()
-        defer { try? FileManager.default.removeItem(at: f.root) }
         let adapter = OutcomeSessionAdapter()
         let q = try queue(f, adapter: adapter, clock: OutcomeClock())
         try await q.reconcile()
@@ -517,7 +527,6 @@ final class CloudUploadOutcomeTests: XCTestCase {
 
     func testStaleAccountCannotResumeTerminalJob() async throws {
         let f = try fixture()
-        defer { try? FileManager.default.removeItem(at: f.root) }
         let adapter = OutcomeSessionAdapter()
         let q = try queue(f, adapter: adapter, clock: OutcomeClock())
         try await q.reconcile()
@@ -541,8 +550,7 @@ final class CloudUploadOutcomeTests: XCTestCase {
     func testAuthenticationRefreshRunsOnceThenPausesOnSecondRejection() async throws {
         for status in [401, 403] {
             let f = try fixture()
-            defer { try? FileManager.default.removeItem(at: f.root) }
-            let adapter = OutcomeSessionAdapter()
+                let adapter = OutcomeSessionAdapter()
             let clock = OutcomeClock()
             let refreshes = OutcomeCounter()
             let q = try queue(f, adapter: adapter, clock: clock, refresh: { context in
@@ -573,6 +581,9 @@ final class CloudUploadOutcomeTests: XCTestCase {
             XCTAssertEqual(try persisted(f).authenticationRefreshCount, 1)
             XCTAssertEqual(try persisted(f).failures, 2)
             XCTAssertNil(try persisted(f).nextAttemptAt)
+            let presentation = try await q.presentationStatus(captured: f.context)
+            XCTAssertEqual(presentation.pausedReason, .authentication)
+            XCTAssertNil(presentation.lastVerifiedReceipt)
             clock.advance(by: 86_400)
             try await q.reconcile()
             XCTAssertEqual(refreshes.value, 1)
@@ -583,7 +594,6 @@ final class CloudUploadOutcomeTests: XCTestCase {
 
     func testRelaunchCannotSpendAnAmbiguousRefreshAllowanceAgain() async throws {
         let f = try fixture()
-        defer { try? FileManager.default.removeItem(at: f.root) }
         let adapter = OutcomeSessionAdapter()
         let clock = OutcomeClock()
         let refreshes = OutcomeCounter()
@@ -613,7 +623,6 @@ final class CloudUploadOutcomeTests: XCTestCase {
 
     func testMissingRefreshCapabilityPausesAuthenticationImmediately() async throws {
         let f = try fixture()
-        defer { try? FileManager.default.removeItem(at: f.root) }
         let adapter = OutcomeSessionAdapter()
         let q = try queue(f, adapter: adapter, clock: OutcomeClock())
         try await q.reconcile()
@@ -631,7 +640,6 @@ final class CloudUploadOutcomeTests: XCTestCase {
 
     func testAccountSwitchDuringCredentialRefreshCannotSubmitAnotherTransfer() async throws {
         let f = try fixture()
-        defer { try? FileManager.default.removeItem(at: f.root) }
         let adapter = OutcomeSessionAdapter()
         let clock = OutcomeClock()
         let fence = OutcomeAccountFence()
@@ -663,8 +671,7 @@ final class CloudUploadOutcomeTests: XCTestCase {
     func testResponseWriteFailureCannotRecountDuplicateOrReconcileOutcome() async throws {
         for status in [429, 422] {
             let f = try fixture()
-            defer { try? FileManager.default.removeItem(at: f.root) }
-            let adapter = OutcomeSessionAdapter()
+                let adapter = OutcomeSessionAdapter()
             let clock = OutcomeClock()
             let fault = OutcomeWriteFault()
             let q = try queue(f, adapter: adapter, clock: clock,
@@ -703,8 +710,7 @@ final class CloudUploadOutcomeTests: XCTestCase {
     func testTerminalIntentRenewalPausesWithoutUploadingAndSurvivesRelaunch() async throws {
         for status in [400, 404, 409, 413, 422] {
             let f = try fixture()
-            defer { try? FileManager.default.removeItem(at: f.root) }
-            var unrelated = f.job
+                var unrelated = f.job
             unrelated.phase = .pausedTerminal
             try f.journal.save(unrelated)
 
@@ -766,6 +772,170 @@ final class CloudUploadOutcomeTests: XCTestCase {
             XCTAssertEqual(try f.journal.load()[object.id]?.phase, .pausedTerminal)
             XCTAssertEqual(try f.journal.load()[object.id]?.failures, 1)
         }
+    }
+    func testCompatibleEncodingPausePersistsByLaneAndRequiresExplicitResume() async throws {
+        let f = try fixture(), clock = OutcomeClock()
+        let lane = PushPreparationLane(sourceID: f.batch.sourceId, table: "rawBatch", deviceID: f.batch.deviceId)
+        let q = try queue(f, adapter: OutcomeSessionAdapter(), clock: clock)
+        try await q.pausePreparation(lane, receiverStateID: receiver, captured: f.context)
+        try await q.pausePreparation(lane, receiverStateID: receiver, captured: f.context)
+        let controls = try f.journal.loadControlOutcomes(owner: f.context.scope)
+        XCTAssertEqual(controls.count, 1); XCTAssertEqual(controls.values.first?.failures, 1)
+        let reopened = try queue(f, adapter: OutcomeSessionAdapter(), clock: clock)
+        let paused = try await reopened.isPreparationPaused(lane, receiverStateID: receiver, captured: f.context)
+        XCTAssertTrue(paused)
+        let other = try await reopened.isPreparationPaused(.init(sourceID: f.batch.sourceId, table: "battery", deviceID: f.batch.deviceId), receiverStateID: receiver, captured: f.context)
+        XCTAssertFalse(other)
+        let status = try await reopened.presentationStatus(captured: f.context)
+        XCTAssertEqual(status.pausedReason, .compatibleEncoding)
+        XCTAssertNil(status.lastVerifiedReceipt)
+        do {
+            try await reopened.pausePreparation(lane, receiverStateID: receiver,
+                captured: .init(scope: f.context.scope, generation: UUID()))
+            XCTFail("stale account generation wrote preparation debt")
+        } catch { XCTAssertEqual(error as? CloudUploadError, .staleOwner) }
+        try await reopened.resumePaused(captured: f.context)
+        let resumed = try await reopened.isPreparationPaused(lane, receiverStateID: receiver, captured: f.context)
+        XCTAssertFalse(resumed)
+        XCTAssertEqual(try f.journal.load()[f.job.id]?.phase, f.job.phase)
+    }
+
+    func testCapabilityTerminalResponsesAreDurableAndExplicitlyResumed() async throws {
+        for status in [400, 404, 409, 413, 422, 200] {
+            let f = try fixture()
+                let clock = OutcomeClock(), calls = OutcomeCounter()
+            let body = try errorBody("invalid_request")
+            let q = try queue(f, adapter: OutcomeSessionAdapter(), clock: clock, control: { _ in
+                calls.increment(); return .init(statusCode: status, body: body)
+            })
+            do { _ = try await q.capabilities(endpoint: endpoint, captured: f.context); XCTFail("invalid control response accepted") }
+            catch { }
+            let saved = try XCTUnwrap(f.journal.loadControlOutcomes(owner: f.context.scope).values.first)
+            XCTAssertEqual(saved.status, status)
+            XCTAssertEqual(saved.failures, 1)
+            XCTAssertTrue(saved.paused)
+            XCTAssertFalse(saved.responseValidated)
+            let reopened = try queue(f, adapter: OutcomeSessionAdapter(), clock: clock, control: { _ in
+                calls.increment(); return .init(statusCode: status, body: body)
+            })
+            do { _ = try await reopened.capabilities(endpoint: endpoint, captured: f.context); XCTFail("terminal control retried") }
+            catch { }
+            XCTAssertEqual(calls.value, 1)
+            try await reopened.resumePaused(captured: f.context)
+            do { _ = try await reopened.capabilities(endpoint: endpoint, captured: f.context); XCTFail("invalid control accepted") }
+            catch { }
+            XCTAssertEqual(calls.value, 2)
+        }
+    }
+
+    func testCapabilityRetryAfterAndSingleResponseAccountingSurviveRelaunch() async throws {
+        let f = try fixture()
+        var inert = f.job; inert.phase = .pausedTerminal; try f.journal.save(inert)
+        let clock = OutcomeClock(), calls = OutcomeCounter()
+        let body = try errorBody("retry_later")
+        let q = try queue(f, adapter: OutcomeSessionAdapter(), clock: clock, control: { _ in
+            calls.increment(); return .init(statusCode: 429, body: body, retryAfter: "120")
+        })
+        do { _ = try await q.capabilities(endpoint: endpoint, captured: f.context) } catch { }
+        let saved = try XCTUnwrap(f.journal.loadControlOutcomes(owner: f.context.scope).values.first)
+        XCTAssertEqual(saved.receiverCode, "retry_later")
+        XCTAssertEqual(saved.retryAfter, "120")
+        XCTAssertEqual(saved.nextAttemptAt, clock.value.addingTimeInterval(120))
+        let next = try await q.nextWakeDate(captured: f.context)
+        XCTAssertEqual(next, saved.nextAttemptAt)
+        let reopened = try queue(f, adapter: OutcomeSessionAdapter(), clock: clock, control: { _ in
+            calls.increment(); return .init(statusCode: 429, body: body)
+        })
+        do { _ = try await reopened.capabilities(endpoint: endpoint, captured: f.context) } catch { }
+        XCTAssertEqual(calls.value, 1)
+        XCTAssertEqual(try f.journal.loadControlOutcomes(owner: f.context.scope).values.first?.failures, 1)
+        clock.advance(by: 121)
+        do { _ = try await reopened.capabilities(endpoint: endpoint, captured: f.context) } catch { }
+        XCTAssertEqual(calls.value, 2)
+        XCTAssertEqual(try f.journal.loadControlOutcomes(owner: f.context.scope).values.first?.failures, 2)
+    }
+
+    func testCapabilityAuthenticationRefreshIsSpentExactlyOnce() async throws {
+        for status in [401, 403] {
+            let f = try fixture()
+                let clock = OutcomeClock(), calls = OutcomeCounter(), refreshes = OutcomeCounter()
+            let body = try errorBody("unauthorized")
+            let q = try queue(f, adapter: OutcomeSessionAdapter(), clock: clock, control: { _ in
+                calls.increment(); return .init(statusCode: status, body: body)
+            }, refresh: { _ in refreshes.increment() })
+            do { _ = try await q.capabilities(endpoint: endpoint, captured: f.context) } catch { }
+            clock.advance(by: 120)
+            do { _ = try await q.capabilities(endpoint: endpoint, captured: f.context) } catch { }
+            clock.advance(by: 120)
+            do { _ = try await q.capabilities(endpoint: endpoint, captured: f.context) } catch { }
+            XCTAssertEqual(calls.value, 2)
+            XCTAssertEqual(refreshes.value, 1)
+            let saved = try XCTUnwrap(f.journal.loadControlOutcomes(owner: f.context.scope).values.first)
+            XCTAssertTrue(saved.paused)
+            XCTAssertEqual(saved.authenticationRefreshCount, 1)
+            XCTAssertEqual(saved.failures, 2)
+        }
+    }
+
+    func testAccountSwitchDuringControlCannotSaveResponseOrRetry() async throws {
+        let f = try fixture()
+        let fence = OutcomeAccountFence(), calls = OutcomeCounter()
+        let q = try queue(f, adapter: OutcomeSessionAdapter(), clock: OutcomeClock(), current: { _ in fence.isCurrent }, control: { _ in
+            calls.increment(); fence.revoke(); return .init(statusCode: 429, body: Data())
+        })
+        do { _ = try await q.capabilities(endpoint: endpoint, captured: f.context); XCTFail("stale response accepted") }
+        catch { XCTAssertEqual(error as? CloudUploadError, .staleOwner) }
+        XCTAssertEqual(calls.value, 1)
+        XCTAssertTrue(try f.journal.loadControlOutcomes(owner: f.context.scope).isEmpty)
+        do { try await q.resumePaused(captured: f.context); XCTFail("stale owner resumed") }
+        catch { XCTAssertEqual(error as? CloudUploadError, .staleOwner) }
+    }
+
+    func testInitialIntentTerminalResponseDoesNotHotLoop() async throws {
+        let f = try fixture()
+        let objectID = "33333333-3333-4333-8333-333333333333"
+        let manifest = try JSONDecoder().decode(PushObjectManifest.self, from: JSONSerialization.data(withJSONObject: [
+            "protocolVersion": "1.2", "objectId": objectID, "batchId": objectID,
+            "sourceId": f.batch.sourceId, "deviceId": f.batch.deviceId, "stream": "rawBatch",
+            "startTs": 1_800_000_000, "endTs": 1_800_000_001, "sampleCount": 1,
+            "uncompressedBytes": 3, "compressedBytes": 16,
+            "contentSha256": String(repeating: "a", count: 64), "contentEncoding": "zstd"
+        ]))
+        let lane = PushObjectLane(endpoint: "/functions/v1/push/objects", maxObjectBytes: 1_048_576, urlTtlSec: 300, streams: [.rawBatch])
+        let calls = OutcomeCounter()
+        let body = try JSONSerialization.data(withJSONObject: ["type": "error", "protocolVersion": "1.2", "code": "invalid_object_manifest"])
+        let q = try queue(f, adapter: OutcomeSessionAdapter(), clock: OutcomeClock(), control: { _ in
+            calls.increment(); return .init(statusCode: 422, body: body)
+        })
+        for _ in 0..<3 {
+            do { _ = try await q.initialObjectIntent(manifest, lane: lane, endpoint: endpoint, receiverStateID: receiver, captured: f.context); XCTFail("invalid intent accepted") }
+            catch { }
+        }
+        XCTAssertEqual(calls.value, 1)
+        let saved = try XCTUnwrap(f.journal.loadControlOutcomes(owner: f.context.scope).values.first)
+        XCTAssertEqual(saved.status, 422)
+        XCTAssertEqual(saved.receiverCode, "invalid_object_manifest")
+        XCTAssertEqual(saved.failures, 1)
+    }
+
+    func testAccountTransportCapabilityPathUsesDurableControlAndOwnerValidation() async throws {
+        let f = try fixture()
+        let calls = OutcomeCounter()
+        let body = try JSONSerialization.data(withJSONObject: ["type": "capabilities", "protocolVersion": "1.0",
+            "userId": f.context.scope.userID, "receiverStateId": "33333333-3333-4333-8333-333333333333", "streams": ["battery"]])
+        let q = try queue(f, adapter: OutcomeSessionAdapter(), clock: OutcomeClock(), control: { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-token")
+            calls.increment(); return .init(statusCode: 200, body: body)
+        })
+        guard case .valid(let endpoint) = PushEndpointPolicy.validate(self.endpoint) else { return XCTFail("fixture endpoint") }
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let transport = try CloudAccountPushTransport(endpoint: endpoint, context: f.context,
+            accessToken: "unused-captured-token", session: session, isCurrent: { _ in true }, controlQueue: q)
+        guard case .available(let capabilities) = try await transport.capabilities() else { return XCTFail("valid capabilities rejected") }
+        XCTAssertTrue(capabilities.appendTables.contains(.battery))
+        XCTAssertEqual(calls.value, 1)
+        XCTAssertEqual(try f.journal.loadControlOutcomes(owner: f.context.scope).values.first?.responseValidated, true)
     }
 }
 

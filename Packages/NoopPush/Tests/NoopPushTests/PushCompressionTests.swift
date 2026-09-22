@@ -32,7 +32,8 @@ final class PushCompressionTests: XCTestCase {
     }
 
     #if canImport(CNoopZstd)
-    func testProductionAndPortableZstdAgainstIndependentLibzstdDecoder() throws {
+    func testProductionAndPortableZstdAgainstPinnedReferenceDecoder() throws {
+        XCTAssertEqual(noop_zstd_version(), 10507)
         for count in [0, 1, 255, 256, 131_071, 131_072, 131_073, 4_194_304] {
             let input = payload(count)
             let portable = try PushBinaryCompression.zstdRawFrame(input,
@@ -52,6 +53,42 @@ final class PushCompressionTests: XCTestCase {
                 XCTAssertEqual(decoded.prefix(count), input)
             }
         }
+    }
+
+    func testPinnedGoldenFramesBothLevelsAndDecodedDigestCompatibility() throws {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "zstd-1.5.7-golden", withExtension: "json"))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertEqual(root["upstream_version"] as? String, "1.5.7")
+        let vectors = try XCTUnwrap(root["vectors"] as? [[String: Any]])
+        for vector in vectors {
+            let decoded = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(vector["decoded_base64"] as? String)))
+            XCTAssertEqual(PushDurabilityReceipt.sha256(decoded), vector["decoded_sha256"] as? String)
+            for frame in try XCTUnwrap(vector["frames"] as? [[String: Any]]) {
+                let wire = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(frame["wire_base64"] as? String)))
+                XCTAssertEqual(PushDurabilityReceipt.sha256(wire), frame["wire_sha256"] as? String)
+                var output = Data(count: max(1, decoded.count)), written = 0
+                let status = wire.withUnsafeBytes { source in
+                    output.withUnsafeMutableBytes { target in
+                        noop_zstd_decompress(source.bindMemory(to: UInt8.self).baseAddress, source.count,
+                            target.bindMemory(to: UInt8.self).baseAddress, target.count, &written)
+                    }
+                }
+                XCTAssertEqual(status, 0)
+                XCTAssertEqual(output.prefix(written), decoded)
+            }
+            let current = try PushBinaryCompression.compressObject(decoded, encoding: "zstd")
+            if vector["name"] as? String == "synthetic_repetition" {
+                XCTAssertLessThan(current.count, decoded.count / 10, "production codec must compress instead of emitting raw blocks")
+            }
+        }
+    }
+
+    func testOnlyMeasuredCompressionLevelsAreAdmitted() {
+        var allocation: UnsafeMutablePointer<UInt8>?
+        var written = 99
+        XCTAssertNotEqual(noop_zstd_compress_level(nil, 0, 22, &allocation, &written), 0)
+        XCTAssertNil(allocation)
+        XCTAssertEqual(written, 0)
     }
     #endif
 

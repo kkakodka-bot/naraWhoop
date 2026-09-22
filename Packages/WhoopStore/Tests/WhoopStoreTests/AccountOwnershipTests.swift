@@ -49,4 +49,22 @@ final class AccountOwnershipTests: XCTestCase {
             XCTFail("A user UUID on another project is a different owner")
         } catch { XCTAssertEqual(error as? LocalAccountOwnershipError, .mismatchedOwner) }
     }
+
+    func testDeletedUnassignedSourceCannotBeAdoptedThroughEmptySourceTables() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.registryWriter.write { db in
+            try db.execute(sql: "INSERT INTO journal(deviceId,day,question,answeredYes) VALUES('synthetic','2026-09-22','fixture',1)")
+            try db.execute(sql: "DELETE FROM journal")
+            // Exercise the tombstone fence independently of the durable debt fence.
+            try db.execute(sql: "DELETE FROM syncJob")
+        }
+        do {
+            try await store.bindAccountOwner(projectURL: project, userID: userA)
+            XCTFail("An unassigned deletion revision still belongs to the original account")
+        } catch { XCTAssertEqual(error as? LocalAccountOwnershipError, .unassignedExistingData) }
+        let revisions = try await store.registryWriter.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM cloudMutableRevision")
+        }
+        XCTAssertEqual(revisions, 1)
+    }
 }

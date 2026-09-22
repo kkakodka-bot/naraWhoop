@@ -86,6 +86,8 @@ ANDROID_INDIRECT_COPY_FILES = {
     "android/app/src/main/java/com/noop/analytics/RecoveryDrivers.kt",
 }
 ANDROID_INDIRECT_NON_UI_LITERALS = {
+    # ReadinessEngine invariant error code; never returned as a Home display value.
+    "duplicate_readiness_day",
     # Engine keys, metric units and numeric format specs.
     "hrv", "rhr", "respRate", "acwr", "monotony", "ms", "bpm", "rpm", "%.1f",
     # Auto-workout source/wire values. Workout is the persisted generic sport tag, not rendered copy.

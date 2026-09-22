@@ -218,7 +218,7 @@ final class SchemaOracleTests: XCTestCase {
             }
             numbers.append(n)
         }
-        guard ids.count >= 59 else {
+        guard ids.count >= 63 else {
             return XCTFail("Integrated migration history is incomplete: \(ids.count) identifiers")
         }
         XCTAssertEqual(Array(ids[45..<48]),
@@ -229,10 +229,14 @@ final class SchemaOracleTests: XCTestCase {
                         "v50-account-store-owner", "v51-v18-aux-record-identity",
                         "v52-scalar-provenance", "v53-standard-hr-capture-journal",
                         "v54-workout-preference-evaluation"])
-        XCTAssertEqual(Array(ids[55...]),
+        XCTAssertEqual(Array(ids[55..<59]),
                        ["v48-ppg-record-identity", "v49-owner-scoped-physiology-cache",
                         "v50-rr-packet-provenance", "v51-standard-hr-receipts"],
                        "Physiology-v2 identifiers must keep their original names after the PR22 chain")
+        XCTAssertEqual(Array(ids[59...]),
+                       ["v55-quarantine-maintenance", "v56-cloud-mutable-revisions",
+                        "v57-cloud-mutable-order", "v58-cloud-source-membership"],
+                       "PR22 follow-ups append after the preserved integration history")
         for (offset, n) in numbers.prefix(55).enumerated() {
             let expected = offset == 47 ? 46 : offset + 1 - (offset > 47 ? 1 : 0)
             XCTAssertEqual(n, expected, "Unexpected migration prefix at position \(offset + 1)")

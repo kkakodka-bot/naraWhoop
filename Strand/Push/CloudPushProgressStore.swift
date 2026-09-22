@@ -2,7 +2,7 @@ import Foundation
 import NoopPush
 import Darwin
 
-/// Account/receiver-scoped, fsynced progress and cleanup debt in one atomic state file.
+/// Account/receiver-scoped progress and cleanup debt in one FULL SQLite transaction.
 /// Legacy UserDefaults cursors have no receipt association and are intentionally replayed.
 actor CloudPushProgressStore: PushProgressStore {
     private struct State: Codable {
@@ -36,8 +36,9 @@ actor CloudPushProgressStore: PushProgressStore {
         self.namespace = namespace
         journal = try CloudUploadJournal(directory: directory)
         file = Self.stateFile(namespace: namespace, directory: directory)
-        state = FileManager.default.fileExists(atPath: file.path)
-            ? try JSONDecoder().decode(State.self, from: Data(contentsOf: file)) : State()
+        if let bytes = try journal.metadata.read(file.lastPathComponent) {
+            state = try JSONDecoder().decode(State.self, from: bytes)
+        } else { state = State() }
     }
     static func stateFile(namespace: String, directory: URL) -> URL {
         directory.appendingPathComponent(AccountScope.digest(namespace) + ".progress")
@@ -76,10 +77,10 @@ actor CloudPushProgressStore: PushProgressStore {
                    prepared: CloudPushPreparedSelection? = nil) throws {
         if let prepared {
             guard prepared.progressNamespace == namespace,
-                  let restored = try prepared.selection.restoredObject(), restored.batch.payload == batch.payload,
+                  let restored = try prepared.selection.restoredObject(), restored.batch.wireSHA256 == batch.wireSHA256, restored.batch.wireBytes == batch.wireBytes,
                   restored.batch.manifestJSON == batch.manifestJSON,
                   receipt.matches(restored.manifest.replacingObjectId(receipt.objectId), owner: prepared.owner,
-                    wireSHA256: PushDurabilityReceipt.sha256(batch.payload), wireBytes: batch.payload.count) else { throw CloudUploadError.invalidReceipt }
+                    wireSHA256: batch.wireSHA256, wireBytes: batch.wireBytes) else { throw CloudUploadError.invalidReceipt }
         }
         let ids = rows.map { row -> Int64 in
             switch row {
@@ -98,7 +99,7 @@ actor CloudPushProgressStore: PushProgressStore {
                                       receipt: receipt, rowIDs: ids, endCursor: batch.endCursor, sourceCommit: commit)
         // Historical-version discovery only opens existing namespace state files. Make the
         // namespace durable before publishing its first independently recoverable association.
-        if !FileManager.default.fileExists(atPath: file.path) { try save(state) }
+        if !(try journal.metadata.contains(file.lastPathComponent)) { try save(state) }
         try saveAssociation(association, batchID: batch.batchId, prepared: prepared)
     }
     func associateInline(batch: PushBatch, receipt: PushDurabilityReceipt, prepared: CloudPushPreparedSelection? = nil) throws {
@@ -108,7 +109,7 @@ actor CloudPushProgressStore: PushProgressStore {
         }
         let association = Association(manifest: nil, receipt: receipt, rowIDs: [], endCursor: batch.endCursor,
                                       sourceCommit: nil)
-        if prepared != nil, !FileManager.default.fileExists(atPath: file.path) { try save(state) }
+        if prepared != nil, !(try journal.metadata.contains(file.lastPathComponent)) { try save(state) }
         try saveAssociation(association, batchID: batch.batchId, prepared: prepared)
     }
     private func saveAssociation(_ value: Association, batchID: String, prepared: CloudPushPreparedSelection?) throws {
@@ -121,10 +122,10 @@ actor CloudPushProgressStore: PushProgressStore {
     func recoverAssociatedCommits() throws {
         let pendingBatches = Set(state.pending.values.flatMap(\.batchIDs))
         let prefix = file.lastPathComponent + "."
-        let paths = try FileManager.default.contentsOfDirectory(at: file.deletingLastPathComponent(),
-            includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "receipt" }
+        let paths = try journal.metadata.names(kind: "receipt").filter { $0.hasPrefix(prefix) }
+            .map { file.deletingLastPathComponent().appendingPathComponent($0) }
         for path in paths.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            let association = try JSONDecoder().decode(Association.self, from: Data(contentsOf: path))
+            let association = try JSONDecoder().decode(Association.self, from: readAssociation(path))
             guard association.preparedSelectionID == nil, let commit = association.sourceCommit else { continue }
             let receipt = association.receipt
             guard commit.kind == .binary, commit.batchIDs == [receipt.batchId], receipt.isValid,
@@ -144,6 +145,13 @@ actor CloudPushProgressStore: PushProgressStore {
             try stage(commit)
         }
     }
+    private func readAssociation(_ path: URL) throws -> Data {
+        guard let bytes = try journal.metadata.read(path.lastPathComponent) else { throw CloudUploadError.invalidReceipt }
+        return bytes
+    }
+    static func contains(namespace: String, directory: URL) throws -> Bool {
+        try CloudMetadataStore(directory: directory).contains(stateFile(namespace: namespace, directory: directory).lastPathComponent)
+    }
     private func associationFile(_ batchID: String, selectionID: String? = nil) -> URL {
         let qualified = selectionID.map { "." + $0 } ?? ""
         return file.deletingLastPathComponent().appendingPathComponent(file.lastPathComponent + "." + AccountScope.digest(batchID) + qualified + ".receipt")
@@ -161,7 +169,7 @@ actor CloudPushProgressStore: PushProgressStore {
         var references: Set<String> = []
         var legacyCount = 0
         for batchID in commit.batchIDs {
-            let association = try JSONDecoder().decode(Association.self, from: Data(contentsOf: associationFile(batchID, selectionID: preparedSelectionID)))
+            let association = try JSONDecoder().decode(Association.self, from: readAssociation(associationFile(batchID, selectionID: preparedSelectionID)))
             guard association.receipt.isValid, association.receipt.batchId == batchID,
                   association.preparedSelectionID == preparedSelectionID else { throw CloudUploadError.invalidReceipt }
             if let reference = association.preparedSelectionID {
@@ -194,21 +202,16 @@ actor CloudPushProgressStore: PushProgressStore {
     }
     func settle(_ commit: PushSourceCommit) throws {
         guard state.pending[commitKey(commit)] != nil else { return }
-        // The pending commit is the durable unlink intent. Keep it until every association and the
-        // directory entry have reached disk, so a crash midway can finish without re-staging receipts.
-        for batchID in commit.batchIDs {
-            let path = associationFile(batchID, selectionID: state.preparedReferences?[commitKey(commit)]).path
-            if Darwin.unlink(path) != 0, errno != ENOENT {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            }
-        }
-        let descriptor = Darwin.open(file.deletingLastPathComponent().path, O_RDONLY)
-        guard descriptor >= 0 else { throw CloudUploadError.corruptJournal }
-        defer { Darwin.close(descriptor) }
-        guard Darwin.fsync(descriptor) == 0 else { throw CloudUploadError.corruptJournal }
         var next = state; next.pending[commitKey(commit)] = nil
         next.preparedReferences?[commitKey(commit)] = nil
-        try save(next)
+        // Association retirement and pending-debt settlement have one SQLite durability boundary.
+        try journal.metadata.transaction {
+            for batchID in commit.batchIDs {
+                try journal.metadata.remove(associationFile(batchID, selectionID: state.preparedReferences?[commitKey(commit)]).lastPathComponent)
+            }
+            try journal.metadata.put(file.lastPathComponent, data: JSONEncoder().encode(next))
+        }
+        state = next
     }
 }
 
@@ -224,8 +227,7 @@ enum CloudPushProgressRecovery {
             try admission.check()
             let namespace = admission.namespace(endpoint: endpoint, protocolVersion: version,
                                                 receiverStateID: receiverStateID)
-            let path = CloudPushProgressStore.stateFile(namespace: namespace, directory: directory)
-            guard version == currentVersion || FileManager.default.fileExists(atPath: path.path) else { continue }
+            guard try version == currentVersion || CloudPushProgressStore.contains(namespace: namespace, directory: directory) else { continue }
             let progress = try CloudPushProgressStore(namespace: namespace, directory: directory,
                 auxiliaryIdentityV2: version == PushProtocol.auxiliaryIdentityVersion)
             try await committer(progress).recover()

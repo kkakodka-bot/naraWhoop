@@ -342,7 +342,7 @@ final class CaptureDurabilityTests: XCTestCase {
             let first = try assemble()
             let retry = try assemble()
             XCTAssertEqual(first.manifestJSON, retry.manifestJSON)
-            XCTAssertEqual(first.payload, retry.payload)
+            XCTAssertEqual(try first.payload, try retry.payload)
             // The merged protocol defines packed raw endTs as inclusive; manifests are exclusive.
             XCTAssertEqual(first.startTs, record.startTs)
             XCTAssertEqual(first.endTs, record.endTs + 1,

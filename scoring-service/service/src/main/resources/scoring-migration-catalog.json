@@ -494,5 +494,13 @@
   {
     "basename": "20260921122000_compute_session_requests.sql",
     "sha256": "14efd30ff5754a779ee300e86be08ce2db8bd6c4aa3b3e8a96bc97abf8b773a1"
+  },
+  {
+    "basename": "20260922010000_object_copy_intents.sql",
+    "sha256": "5955c91bebaf706ab0cfc67f3c9a09e67a7438226bd04d66c4d4dd42a12b6eb4"
+  },
+  {
+    "basename": "20260922020000_async_object_verification.sql",
+    "sha256": "dc8ce2caf80bf34b83027d4651386609bb7f63c6045b92c37e1e9c64dbf38a0d"
   }
 ]

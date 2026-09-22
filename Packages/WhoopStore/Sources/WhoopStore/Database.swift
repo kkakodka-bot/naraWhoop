@@ -1095,6 +1095,18 @@ extension WhoopStore {
             }
             try db.create(index: "standardHRReceipt_device_ts", on: "standardHRReceipt", columns: ["deviceId", "ts"])
         }
+        migrator.registerMigration("v55-quarantine-maintenance") { db in
+            try WhoopStore.installQuarantineMaintenanceSchema(db)
+        }
+        migrator.registerMigration("v56-cloud-mutable-revisions") { db in
+            try WhoopStore.installCloudMutableJournal(db)
+        }
+        migrator.registerMigration("v57-cloud-mutable-order") { db in
+            try db.execute(sql: "CREATE INDEX cloudMutableRevision_order ON cloudMutableRevision(tableName,deviceId,revision,rangeKey)")
+        }
+        migrator.registerMigration("v58-cloud-source-membership") { db in
+            try WhoopStore.installCloudSourceMembership(db)
+        }
         return migrator
     }
 }

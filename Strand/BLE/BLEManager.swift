@@ -605,11 +605,16 @@ public final class BLEManager: NSObject, ObservableObject {
     private var backfillIdleWatchdogID = UUID()
     private var backfillCommitWatchdogID = UUID()
     private var historicalCommitLeases: [UUID: HistoricalCommitLease] = [:]
+    #if DEBUG
+    var historicalCommitLeaseFactoryForTesting: ((@escaping () -> Void) -> HistoricalCommitLease)?
+    var test_activeCommitLeaseCount: Int { historicalCommitLeases.count }
+    #endif
     /// True while a historical offload session is in progress (frames route to Backfiller).
+    private let resourceBudget: ResourceBudget
     private let resourceBudgetOwner = UUID()
-    deinit { ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false) }
+    deinit { resourceBudget.history(owner: resourceBudgetOwner, active: false) }
     private var backfilling = false {
-        didSet { ResourceBudget.shared.history(owner: resourceBudgetOwner,
+        didSet { resourceBudget.history(owner: resourceBudgetOwner,
                                               active: backfilling || state.postOffloadBurstInProgress) }
     }
     /// Wall time of the most recent offload frame OR HISTORY_COMPLETE — drives the #174 deep-packet
@@ -646,6 +651,8 @@ public final class BLEManager: NSObject, ObservableObject {
         let submittedAt: ContinuousClock.Instant
         let commitID: UUID?
         var ackInterval: SyncPipelineTrace.Interval?
+        var realtimeIntent: RealtimeIntentController.Request? = nil
+        var realtimeRaw = false
     }
     private var confirmedCommandWriteQueue: [ConfirmedCommandWrite] = []
     private var historyCommandWriterForTesting: ((WhoopCommand, [UInt8]) -> Bool)?
@@ -832,6 +839,23 @@ public final class BLEManager: NSObject, ObservableObject {
     /// toggle only on the false↔true edge instead of on every input change. Cleared on disconnect — the
     /// strap forgets the toggle across a connection, and the post-bond branch re-arms from `wantsRealtime`.
     private var realtimeArmed = false
+    private var realtimeSubmission: (request: RealtimeIntentController.Request, raw: Bool)?
+    private lazy var realtimeIntent = makeRealtimeIntent(raw: false)
+    private lazy var realtimeRawIntent = makeRealtimeIntent(raw: true)
+
+    private func makeRealtimeIntent(raw: Bool) -> RealtimeIntentController {
+        RealtimeIntentController(submit: { [weak self] request in
+            guard let self, !self.accountShutdown else { return false }
+            self.realtimeSubmission = (request, raw)
+            defer { self.realtimeSubmission = nil }
+            return self.send(raw ? .sendR10R11Realtime : .toggleRealtimeHR,
+                payload: [request.enabled ? 1 : 0], writeType: .withResponse)
+        }, recover: { [weak self] failure in
+            guard let self, !self.accountShutdown, let peripheral = self.peripheral else { return }
+            self.log("Realtime control recovery reason=\(failure.rawValue)")
+            self.central?.cancelPeripheralConnection(peripheral)
+        })
+    }
     #if DEBUG
     var realtimeToggleForTesting: ((Bool) -> Bool)?
     #endif
@@ -924,16 +948,47 @@ public final class BLEManager: NSObject, ObservableObject {
     /// so the alarm re-arm doesn't fire GET_ALARM_TIME before the strap's reply channel is actually live.
     /// Reset on disconnect alongside `connectHandshakeDone`.
     private var cmdNotifyConfirmedActive = false
-    private var confirmedNotifyUUIDs = Set<CBUUID>()
+    private let notificationController = BLENotificationController<CBUUID>()
+    private var confirmedNotifyUUIDs: Set<CBUUID> { notificationController.confirmed }
     private var pendingReadyTrigger: BackfillTrigger?
     private var readinessTimeout: DispatchWorkItem?
     private var readinessGeneration = UUID()
+    private var connectionSetupLease: BLEConnectionSetupLease?
+    #if DEBUG
+    var connectionSetupLeaseFactoryForTesting: ((@escaping (BLEConnectionSetupLease.Failure) -> Void) -> BLEConnectionSetupLease)?
+    #endif
+    private var requiredHistoryNotifyUUIDs: [CBUUID] {
+        selectedModel.deviceFamily == .whoop5
+            ? Self.whoop5NotifyChars : [Self.cmdNotifyChar, Self.eventNotifyChar, Self.dataNotifyChar]
+    }
     private var historyTransportReady: Bool {
         if historyCommandWriterForTesting != nil { return true }
-        let required = selectedModel.deviceFamily == .whoop5
-            ? Self.whoop5NotifyChars : [Self.cmdNotifyChar, Self.eventNotifyChar, Self.dataNotifyChar]
         return !accountShutdown && connectHandshakeDone && cmdCharacteristic != nil
-            && required.allSatisfy { confirmedNotifyUUIDs.contains($0) }
+            && !sensorAcquisition.isActive && !sensorAcquisition.cleanupRequired
+            && requiredHistoryNotifyUUIDs.allSatisfy { confirmedNotifyUUIDs.contains($0) }
+    }
+
+    private func publishHistoryReadiness() {
+        state.historyReady = historyTransportReady
+        guard state.historyReady else {
+            // A required channel lost after initial readiness is another finite setup
+            // opportunity. Its repair must not depend on a later foreground cadence tick.
+            if connectionOwner.phase == .ready,
+               !requiredHistoryNotifyUUIDs.allSatisfy({ confirmedNotifyUUIDs.contains($0) }),
+               let peripheral, peripheral.state == .connected {
+                connectionOwner.notificationsLost()
+                _ = startConnectionSetup(on: peripheral)
+            }
+            return
+        }
+        connectionOwner.ready()
+        finishConnectionSetup()
+        if let trigger = pendingReadyTrigger {
+            pendingReadyTrigger = nil
+            readinessTimeout?.cancel()
+            readinessTimeout = nil
+            requestSync(trigger)
+        }
     }
     /// #34: latches once `state.connectSettled` has been bumped for the CURRENT connection, so a
     /// didUpdateNotificationStateFor re-fire (or any other later call into the check) can't double-bump.
@@ -989,7 +1044,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Read-only, set-once account mux. Nil means not ready, never an empty successful lane.
     /// Await prepareImuPushSource before binding any writer.
     var imuPushSource: (any ImuSessionPushSource)? { imuPushBootstrap.source }
-    private static let captureBootstrapFailure = "Capture storage or IMU upload index is unavailable. Local data is retained; bootstrap must retry."
+    private static let captureBootstrapFailure = "Capture storage is unavailable. Local data is retained; bootstrap must retry."
     private(set) lazy var rawDataSessionStore: RawDataSessionStore = {
         guard let storageDirectory else { return .shared }
         return RawDataSessionStore(directory: storageDirectory.appendingPathComponent("RawDataSessions"),
@@ -1047,10 +1102,13 @@ public final class BLEManager: NSObject, ObservableObject {
     private lazy var connectionOwner = BLEConnectionOwner(didTransition: { [weak self] phase in
         self?.state.connectionPhase = phase.rawValue
     })
+    private var connectionTransport: BLETransportDriver<CoreBluetoothCentralTransport>?
+    private var managedRequestInProgress = false
     private var peripheralDelegateProxy: BLEPeripheralDelegateProxy?
     private var restorationTask: Task<Void, Never>?
     private var restorationGeneration = UUID()
-    private var lastDisconnectTimestamp: CFAbsoluteTime?
+    private var deviceIntentRevision = UUID()
+    private var validatedRestorationPeripheral: UUID?
     private var protectedDataObserver: NSObjectProtocol?
 
     func acceptsPeripheralCallback(_ token: BLEConnectionOwner.Token) -> Bool {
@@ -1058,7 +1116,7 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     private func installPeripheralDelegate(_ p: CBPeripheral, token: BLEConnectionOwner.Token) {
-        let proxy = BLEPeripheralDelegateProxy(manager: self, token: token)
+        let proxy = BLEPeripheralDelegateProxy(driver: transport(for: central), token: token)
         peripheralDelegateProxy = proxy
         p.delegate = proxy
     }
@@ -1067,22 +1125,129 @@ public final class BLEManager: NSObject, ObservableObject {
     private func managedConnect(_ p: CBPeripheral, startDelay: TimeInterval = 0) -> Bool {
         guard !accountShutdown, !intentionalDisconnect, central.state == .poweredOn,
               isPreferredPeripheral(p) else { return false }
-        let link: BLEConnectionOwner.LinkState
-        switch p.state {
-        case .connected: link = .connected
-        case .connecting: link = .connecting
-        case .disconnecting: link = .disconnecting
-        default: link = .disconnected
+        let driver = transport(for: central)
+        managedRequestInProgress = true
+        defer { managedRequestInProgress = false }
+        return driver.request(driver.central.wrap(p), startDelay: startDelay)
+    }
+
+    private func transport(for central: CBCentralManager) -> BLETransportDriver<CoreBluetoothCentralTransport> {
+        if let connectionTransport, connectionTransport.central.native === central { return connectionTransport }
+        let driver = BLETransportDriver(central: CoreBluetoothCentralTransport(central), owner: connectionOwner)
+        connectionTransport = driver
+        driver.admitRequest = { [weak self] candidate in
+            guard let self else { return false }
+            guard !self.accountShutdown, !self.intentionalDisconnect else { return false }
+            let approved = self.managedRequestInProgress
+                || self.validatedRestorationPeripheral == candidate.identifier
+                || (!self.autoReconnectPausedForBondLoop && self.whoopConnectAllowed("transport-fallback"))
+            return approved && self.isPreferredPeripheral(candidate.native)
         }
-        return connectionOwner.request(p.identifier, link: link, startDelay: startDelay) { request in
-            installPeripheralDelegate(p, token: request.token)
-            var options: [String: Any] = [:]
-            if request.startDelay > 0 { options[CBConnectPeripheralOptionStartDelayKey] = NSNumber(value: request.startDelay) }
-            if #available(iOS 17.0, macOS 14.0, *) {
-                options[CBConnectPeripheralOptionEnableAutoReconnect] = request.automaticReconnect
+        driver.willSubmit = { [weak self] candidate, token in
+            guard let self else { return }
+            self.peripheral = candidate.native
+            self.installPeripheralDelegate(candidate.native, token: token)
+        }
+        driver.onEvent = { [weak self, weak central] event in
+            guard let self, let central, !self.accountShutdown else { return }
+            switch event {
+            case .connected(let candidate, _): self.handleConnected(central, peripheral: candidate.native)
+            case .restored(let candidate, _):
+                self.state.connected = true
+                self.connectedPeripheralUUID = candidate.identifier.uuidString
+                self.restoreNeedsResubscribe = true
+                if self.startConnectionSetup(on: candidate.native) {
+                    self.discoverPrimaryServices(on: candidate.native)
+                }
+            case .setupExpired(let candidate):
+                self.handleDisconnect(central, peripheral: candidate.native, isReconnecting: true,
+                                      error: nil, logicalDisconnect: true)
+            case .disconnected(let candidate, let error, let reconnecting, _):
+                self.handleDisconnect(central, peripheral: candidate.native, isReconnecting: reconnecting, error: error)
+            case .failedToConnect(let candidate, let error, _):
+                self.handleFailedConnection(central, peripheral: candidate.native, error: error)
+            case .services(let candidate, _, let error): self.peripheral(candidate.native, didDiscoverServices: error)
+            case .characteristics(let candidate, _, let service, let error):
+                self.peripheral(candidate.native, didDiscoverCharacteristicsFor: service, error: error)
+            case .notification(let candidate, _, let characteristic, _, let error):
+                self.peripheral(candidate.native, didUpdateNotificationStateFor: characteristic, error: error)
+            case .value(let candidate, _, let characteristic, _, let error):
+                self.peripheral(candidate.native, didUpdateValueFor: characteristic, error: error)
+            case .write(let candidate, _, let characteristic, let error):
+                self.peripheral(candidate.native, didWriteValueFor: characteristic, error: error)
+            case .restorationRejected:
+                self.launchedViaStateRestoration = false
             }
-            central.connect(p, options: options)
         }
+        return driver
+    }
+
+    private func transportRead(_ characteristic: CBCharacteristic, on p: CBPeripheral) {
+        guard let token = connectionOwner.token else { return }
+        let driver = transport(for: central)
+        driver.read(characteristic, on: driver.central.wrap(p), token: token)
+    }
+
+    private func finishConnectionSetup() {
+        connectionSetupLease?.finish()
+        connectionSetupLease = nil
+    }
+
+    private func startConnectionSetup(on p: CBPeripheral) -> Bool {
+        guard !accountShutdown, !intentionalDisconnect, p === peripheral,
+              let token = connectionOwner.token, connectionOwner.accepts(token) else { return false }
+        finishConnectionSetup()
+        let started = ProcessInfo.processInfo.systemUptime
+        let expired: (BLEConnectionSetupLease.Failure) -> Void = { [weak self, weak p] reason in
+            guard let self, let p, self.connectionOwner.accepts(token), !self.accountShutdown,
+                  !self.intentionalDisconnect else { return }
+            self.log("gatt_setup_expired reason=\(reason.rawValue) elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))")
+            self.state.lastSyncError = "Bluetooth subscriptions are taking longer than expected. Connection recovery is pending."
+            let driver = self.transport(for: self.central)
+            driver.expireSetup(on: driver.central.wrap(p), token: token)
+        }
+        let lease: BLEConnectionSetupLease
+        #if DEBUG
+        lease = connectionSetupLeaseFactoryForTesting?(expired) ?? BLEConnectionSetupLease.acquire(failed: expired)
+        #else
+        lease = BLEConnectionSetupLease.acquire(failed: expired)
+        #endif
+        guard connectionOwner.accepts(token), !lease.isFinished else { lease.finish(); return false }
+        connectionSetupLease = lease
+        return true
+    }
+
+    @discardableResult
+    private func transportNotify(_ enabled: Bool, for characteristic: CBCharacteristic, on p: CBPeripheral) -> Bool {
+        guard let token = connectionOwner.token else { return false }
+        let driver = transport(for: central)
+        return driver.setNotify(enabled, for: characteristic, on: driver.central.wrap(p), token: token)
+    }
+
+    private func transportDiscover(_ uuids: [CBUUID]?, for service: CBService, on p: CBPeripheral) {
+        guard let token = connectionOwner.token else { return }
+        let driver = transport(for: central)
+        driver.discoverCharacteristics(uuids?.map(\.uuidString), for: service, on: driver.central.wrap(p), token: token)
+    }
+
+    private func transportCanWrite(_ characteristic: CBCharacteristic, on p: CBPeripheral,
+                                   requiresHistoryReady: Bool) -> Bool {
+        guard let token = connectionOwner.token else { return false }
+        let driver = transport(for: central)
+        let candidate = driver.central.wrap(p)
+        return driver.accepts(candidate, token: token) && candidate.owns(characteristic: characteristic)
+            && (!requiresHistoryReady || historyTransportReady && connectionOwner.phase == .ready)
+    }
+
+    @discardableResult
+    private func transportWrite(_ bytes: Data, for characteristic: CBCharacteristic, on p: CBPeripheral,
+                                type: CBCharacteristicWriteType, requiresHistoryReady: Bool = false,
+                                beforeSubmission: (() -> Void)? = nil) -> Bool {
+        guard let token = connectionOwner.token else { return false }
+        let driver = transport(for: central)
+        return driver.write(bytes, for: characteristic, on: driver.central.wrap(p), token: token,
+            withResponse: type == .withResponse, requiresHistoryReady: requiresHistoryReady,
+            beforeSubmission: beforeSubmission)
     }
     /// Multi-WHOOP: when non-nil, the scan/discover path connects ONLY to the peripheral whose
     /// `identifier == preferredPeripheralUUID` and ignores every other discovered WHOOP. When nil
@@ -1342,7 +1507,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // Resolve the target: the held peripheral if it's the pinned strap, else retrieve the pinned UUID.
         let target: CBPeripheral? = {
             if let p = peripheral, isPreferredPeripheral(p) { return p }
-            if let id = preferredPeripheralUUID { return central.retrievePeripherals(withIdentifiers: [id]).first }
+            if let id = preferredPeripheralUUID { return transport(for: central).central.retrieve([id]).first?.native }
             return peripheral
         }()
         guard let p = target else {
@@ -1480,10 +1645,20 @@ public final class BLEManager: NSObject, ObservableObject {
         return ref.device + (wallNow - ref.wall)
     }
 
-    public init(state: LiveState, deviceId: String = "my-whoop", startCentral: Bool = true,
+    public convenience init(state: LiveState, deviceId: String = "my-whoop", startCentral: Bool = true,
                 databasePath: String? = nil, storageDirectory: URL? = nil,
                 accountScope: AccountScope? = nil, defaults: UserDefaults = .standard) {
+        self.init(state: state, deviceId: deviceId, startCentral: startCentral,
+            databasePath: databasePath, storageDirectory: storageDirectory,
+            accountScope: accountScope, defaults: defaults, resourceBudget: .shared)
+    }
+
+    init(state: LiveState, deviceId: String = "my-whoop", startCentral: Bool = true,
+         databasePath: String? = nil, storageDirectory: URL? = nil,
+         accountScope: AccountScope? = nil, defaults: UserDefaults = .standard,
+         resourceBudget: ResourceBudget) {
         self.state = state
+        self.resourceBudget = resourceBudget
         self.deviceId = deviceId
         self.databasePath = databasePath ?? (try? StorePaths.defaultDatabasePath())
         self.storageDirectory = storageDirectory
@@ -1595,6 +1770,8 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     private let storeBootstrap = BackfillStoreBootstrap()
+    private var captureMaintenanceTask: Task<Void, Never>?
+    private var captureMaintenanceComplete = false
 
     /// Wait for the saved identity even if Connect is tapped before the store finishes opening.
     private func resumeConnectionAfterStoreReady() {
@@ -1629,10 +1806,17 @@ public final class BLEManager: NSObject, ObservableObject {
     public func shutdownForAccountChange() {
         guard !accountShutdown else { return }
         accountShutdown = true
-        ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false)
+        connectionStartupTask?.cancel()
+        connectionStartupTask = nil
+        realtimeIntent.endConnection(clearIntent: true)
+        realtimeRawIntent.endConnection(clearIntent: true)
+        captureMaintenanceTask?.cancel()
+        resourceBudget.history(owner: resourceBudgetOwner, active: false)
+        finishConnectionSetup()
         connectionOwner.stop()
         restorationTask?.cancel()
         restorationGeneration = UUID()
+        validatedRestorationPeripheral = nil
         restorationTask = nil
         if let protectedDataObserver {
             NotificationCenter.default.removeObserver(protectedDataObserver)
@@ -1694,6 +1878,42 @@ public final class BLEManager: NSObject, ObservableObject {
     func bootstrapStore() async {
         guard !accountShutdown else { return }
         await storeBootstrap.run { [self] in await performBootstrapStore() }
+        resumeCaptureMaintenance()
+    }
+
+    /// Join only the finite maintenance attempt already admitted by the shared resource policy.
+    /// A blocked attempt remains durable debt; waiting never starts work or bypasses admission.
+    func waitForCaptureMaintenance() async {
+        await captureMaintenanceTask?.value
+    }
+
+    /// Quarantine records themselves are durable debt. Startup and later eligible wakes can resume
+    /// reconciliation without making archive preparation a dependency of local history receipt.
+    func resumeCaptureMaintenance() {
+        guard !accountShutdown, !captureMaintenanceComplete, captureMaintenanceTask == nil,
+              collector != nil, let store = ingestStore, resourceBudget.permits(.rawBulk) else { return }
+        captureMaintenanceTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.captureMaintenanceTask = nil }
+            do {
+                if let scope = self.accountScope, CloudPushCaptureBindings.binding(for: store.registryWriter) == nil {
+                    guard self.resourceBudget.permits(.rawBulk), !Task.isCancelled else { return }
+                    let source = try await self.prepareImuPushSource()
+                    guard !self.accountShutdown, !Task.isCancelled else { return }
+                    try CloudPushCaptureBindings.bind(db: store.registryWriter, scope: scope,
+                        sourceID: CloudPushSettings.sourceId(scope: scope), imuSource: source)
+                }
+                var page: String?
+                repeat {
+                    guard !self.accountShutdown, !Task.isCancelled, self.resourceBudget.permits(.rawBulk) else { return }
+                    page = try await store.enqueuePendingQuarantineArchives(afterID: page)
+                } while page != nil
+                self.captureMaintenanceComplete = true
+            } catch {
+                guard !self.accountShutdown else { return }
+                self.log("Capture archive preparation deferred; durable local debt retained.")
+            }
+        }
     }
 
     /// Both BLE's writer and Repository's writer must bind this same source. Construction opens
@@ -1724,16 +1944,7 @@ public final class BLEManager: NSObject, ObservableObject {
             try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
             if let accountScope {
                 try await CloudCaptureScope.bindRuntimeOwner(store, scope: accountScope)
-                let imuSource = try await prepareImuPushSource()
-                guard !accountShutdown else { return }
-                try CloudPushCaptureBindings.bind(db: store.registryWriter, scope: accountScope,
-                    sourceID: CloudPushSettings.sourceId(scope: accountScope), imuSource: imuSource)
             }
-            var quarantinePage: String?
-            repeat {
-                guard !accountShutdown else { return }
-                quarantinePage = try await store.enqueuePendingQuarantineArchives(afterID: quarantinePage)
-            } while quarantinePage != nil
         } catch {
             guard !accountShutdown else { return }
             let ns = error as NSError
@@ -1822,21 +2033,9 @@ public final class BLEManager: NSObject, ObservableObject {
                     self?.ackHistoricalChunk(trim: trim, endData: endData)
                 }
             },
-            onBankedOffload: { [weak self, weak actor] c in
-                await MainActor.run { [self, actor] in
-                    guard let self, actor?.deliverySessionIsCurrent == true else { return }
-                    self.offloadChunks += 1
-                    self.offloadHr += c.hr; self.offloadRr += c.rr
-                    self.offloadGravity += c.gravity; self.offloadResp += c.resp
-                    self.offloadSkinTemp += c.skinTemp; self.offloadSpo2 += c.spo2
-                    if ServerScoringSettings.isEnabled {
-                        CloudPushPeriodicScheduler.pushIfDue(
-                            db: pushWriter,
-                            interval: ServerScoringSettings.syncPushIntervalSeconds,
-                            reason: "chunk-ack")
-                    }
-                }
-            },
+            // The legacy per-chunk callback is test compatibility only. Production projects the
+            // batched chunkInfo below; workers consume transactional debt under ResourceBudget.
+            onBankedOffload: { _ in },
             log: { [weak self, weak actor] s in await MainActor.run { [self, actor] in
                 guard actor?.deliverySessionIsCurrent == true else { return }
                 self?.log(s)
@@ -1970,6 +2169,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Designated initializer for testing and preview use: accepts a pre-built Collector.
     init(state: LiveState, deviceId: String = "my-whoop", collector: Collector?) {
         self.state = state
+        self.resourceBudget = .shared
         self.deviceId = deviceId
         self.databasePath = try? StorePaths.defaultDatabasePath()
         self.storageDirectory = nil
@@ -2163,7 +2363,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // exactly as before. #52: this drop is what abandoned a strap that bonds fine when the pin was
         // STALE — `readoptWorkingStrap()` repoints the pin to the live-bonding strap first, so after a
         // handoff this loop drops the dead strap and attaches to the working one instead of vice-versa.
-        let existing = central.retrieveConnectedPeripherals(withServices: [Self.customService, Self.whoop5Service])
+        let existing = transport(for: central).central.retrieveConnected([Self.customService.uuidString, Self.whoop5Service.uuidString]).map(\.native)
         if preferredPeripheralUUID != nil {
             for other in existing where !isPreferredPeripheral(other) {
                 log("Dropping non-active WHOOP connection \(other.identifier) — not the selected strap")
@@ -2189,7 +2389,7 @@ public final class BLEManager: NSObject, ObservableObject {
         // would let any in-range WHOOP satisfy the connect and could land on the wrong one; the targeted
         // retrieve can only ever return the strap we asked for.
         if let preferred = preferredPeripheralUUID,
-           let p = central.retrievePeripherals(withIdentifiers: [preferred]).first {
+           let p = transport(for: central).central.retrieve([preferred]).first?.native {
             log("Connecting to selected strap \(preferred) — targeted")
             preparePeripheral(p)
             managedConnect(p)
@@ -2199,12 +2399,16 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     public func disconnect() {
+        realtimeIntent.endConnection(clearIntent: true)
+        realtimeRawIntent.endConnection(clearIntent: true)
         intentionalDisconnect = true
         connectionStartupTask?.cancel()
         connectionStartupTask = nil
+        finishConnectionSetup()
         connectionOwner.stop()
         restorationTask?.cancel()
         restorationGeneration = UUID()
+        validatedRestorationPeripheral = nil
         restorationTask = nil
         invalidateBackfillDelivery()
         cancelScanFallback()
@@ -2241,9 +2445,13 @@ public final class BLEManager: NSObject, ObservableObject {
         // strap" and that is the only place its identifier can still be read.
         let releasedUUID = peripheralId ?? peripheral?.identifier.uuidString
         intentionalDisconnect = true            // defuses the disconnect→3s-reconnect loop's guard
+        connectionStartupTask?.cancel()
+        connectionStartupTask = nil
+        finishConnectionSetup()
         connectionOwner.stop()
         restorationTask?.cancel()
         restorationGeneration = UUID()
+        validatedRestorationPeripheral = nil
         restorationTask = nil
         cancelScanFallback()
         readoptingTo = nil                       // abandon any in-flight #52 pin handoff
@@ -2442,6 +2650,8 @@ public final class BLEManager: NSObject, ObservableObject {
         let resolved = uuidString.flatMap { UUID(uuidString: $0) }
         guard uuidString == nil || resolved != nil else { return }
         if resolved != preferredPeripheralUUID {
+            deviceIntentRevision = UUID()
+            validatedRestorationPeripheral = nil
             pinnedBondRefusals = 0
             if resolved != readoptingTo { readoptingTo = nil }
         }
@@ -2495,7 +2705,7 @@ public final class BLEManager: NSObject, ObservableObject {
     private func acceptsInboundPeripheral(_ p: CBPeripheral) -> Bool {
         !accountShutdown && !intentionalDisconnect && Self.acceptsInboundPeripheral(p.identifier,
             current: peripheral?.identifier, preferred: preferredPeripheralUUID,
-            identityLoaded: registryStore != nil)
+            identityLoaded: registryStore != nil || validatedRestorationPeripheral == p.identifier)
     }
 
     /// Re-point which device id live WHOOP samples store under, when the active WHOOP changes (a
@@ -2509,7 +2719,17 @@ public final class BLEManager: NSObject, ObservableObject {
     /// so updating their mutable `deviceId` here is sufficient. Additive: nothing on the single-WHOOP
     /// path invokes it, so with one WHOOP the id stays "my-whoop" throughout.
     public func setActiveDeviceId(_ id: String) {
+        if id != deviceId {
+            deviceIntentRevision = UUID()
+            validatedRestorationPeripheral = nil
+        }
         guard !id.isEmpty else { return }
+        if id != deviceId {
+            invalidateBackfillDelivery()
+            realtimeIntent.endConnection(clearIntent: true)
+            realtimeRawIntent.endConnection(clearIntent: true)
+            screenWantsRealtime = false
+        }
         deviceId = id
         collector?.deviceId = id
         Task { await backfillActor?.setDeviceId(id) }
@@ -2526,6 +2746,8 @@ public final class BLEManager: NSObject, ObservableObject {
     /// coordinator's own `stopWhoop()` drops it: this only stops it coming back on its own.
     public func setWhoopIsActiveDevice(_ active: Bool) {
         guard whoopIsActiveDevice != active else { return }
+        deviceIntentRevision = UUID()
+        validatedRestorationPeripheral = nil
         whoopIsActiveDevice = active
         log(active
             ? "WHOOP is the active device again — scanning and reconnecting are allowed"
@@ -2534,11 +2756,9 @@ public final class BLEManager: NSObject, ObservableObject {
 
     /// The one gate every WHOOP scan/connect entry point passes through (#1881).
     ///
-    /// Deliberately at the CONNECT sites rather than only at `connectCore`: there are five
-    /// `central.connect` sites, and `connectCore` owns two. The rest are reached from `poweredOn` and
-    /// `willRestoreState` (via `connectRestored`), from `didDiscover`, and from the standing connect —
-    /// which involves no scan at all and is honoured while the app is suspended, so no scan-side guard
-    /// can cover it.
+    /// Pairing, restoration, discovery and standing reconnect all check device intent before
+    /// entering the shared transport driver. A standing request involves no scan and can remain
+    /// owned by Core Bluetooth while the app is suspended, so a scan-side check alone is insufficient.
     ///
     /// `reason` names the entry point in the strap log, so a "why did my ring's data grow legs" report
     /// says which path tried. Logged only on the transition into blocking, so a rotation timer cannot
@@ -2637,10 +2857,8 @@ public final class BLEManager: NSObject, ObservableObject {
         discoveredWhoops = []           // fresh list each time the wizard opens the scan
         central.stopScan()
         // Allow duplicates so the wizard's RSSI/signal readout updates as straps move.
-        central.scanForPeripherals(
-            withServices: [selectedModel.scanService],
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
-        )
+        transport(for: central).scan(services: [Self.customService.uuidString, Self.whoop5Service.uuidString],
+                                     allowDuplicates: true)
         log("Add-a-WHOOP scan: presenting nearby \(selectedModel.displayName) straps")
     }
 
@@ -3196,14 +3414,9 @@ public final class BLEManager: NSObject, ObservableObject {
               selectedModel.deviceFamily == .whoop5 else { return }
         send(.setClock, payload: BLEManager.setClockPayload())
         send(.getClock, payload: [])
-        let wantRealtime = realtimeWantedNow
-        wantsRealtime = wantRealtime
-        send(.toggleRealtimeHR, payload: [wantRealtime ? 0x01 : 0x00])
-        realtimeArmed = wantRealtime
-        whoop5RealtimeArmed = wantRealtime
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            self?.requestSync(.connect)
-        }
+        reconcileRealtime()
+        publishHistoryReadiness()
+        requestSync(.connect)
         startBackfillTimer()
         if didBond, !imuRecorderArmedLink {
             imuRecorderArmedLink = true
@@ -3464,6 +3677,8 @@ public final class BLEManager: NSObject, ObservableObject {
             log("send(\(command.label)) ignored — \(reason)")
             return false
         }
+        guard transportCanWrite(ch, on: p,
+            requiresHistoryReady: command == .sendHistoricalData || command == .historicalDataResult) else { return false }
         let isSensorOpcode = command == .startRawData
             || command == .stopRawData || command == .toggleIMUMode
         if isSensorOpcode && !sensorControlWriteAuthorized {
@@ -3615,11 +3830,14 @@ public final class BLEManager: NSObject, ObservableObject {
                 ? MaverickHaptics.notificationBuzz(loops: buzzLoops) : payload
             seq = seq &+ 1
             let frame = puffinCommandFrame(cmd: puffinCmd, seq: seq, payload: puffinPayload)
-            if writeType == .withResponse && !sensorControlWriteAuthorized {
-                confirmedCommandWritesOutstanding += 1
-            }
-            recordConfirmedCommandWrite(command, writeType: writeType)
-            p.writeValue(Data(frame), for: ch, type: writeType)
+            guard transportWrite(Data(frame), for: ch, on: p, type: writeType,
+                requiresHistoryReady: command == .sendHistoricalData || command == .historicalDataResult,
+                beforeSubmission: {
+                    if writeType == .withResponse && !self.sensorControlWriteAuthorized {
+                        self.confirmedCommandWritesOutstanding += 1
+                    }
+                    self.recordConfirmedCommandWrite(command, writeType: writeType)
+                }) else { return false }
             if command == .historicalDataResult { CaptureJobTrace.ackSubmission?.markSubmitted() }
             let cmdNote = isHaptics ? " cmd=0x13" : ""
             if command == .historicalDataResult {
@@ -3634,11 +3852,14 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         seq = seq &+ 1
         let frame = command.frame(seq: seq, payload: payload)
-        if writeType == .withResponse && !sensorControlWriteAuthorized {
-            confirmedCommandWritesOutstanding += 1
-        }
-        recordConfirmedCommandWrite(command, writeType: writeType)
-        p.writeValue(Data(frame), for: ch, type: writeType)
+        guard transportWrite(Data(frame), for: ch, on: p, type: writeType,
+            requiresHistoryReady: command == .sendHistoricalData || command == .historicalDataResult,
+            beforeSubmission: {
+                if writeType == .withResponse && !self.sensorControlWriteAuthorized {
+                    self.confirmedCommandWritesOutstanding += 1
+                }
+                self.recordConfirmedCommandWrite(command, writeType: writeType)
+            }) else { return false }
         if command == .historicalDataResult {
             CaptureJobTrace.ackSubmission?.markSubmitted()
             historicalAckLogCounter += 1
@@ -3661,7 +3882,9 @@ public final class BLEManager: NSObject, ObservableObject {
         confirmedCommandWriteQueue.append(ConfirmedCommandWrite(command: command, sessionID: sessionID,
                                                                  submittedAt: .now,
                                                                  commitID: command == .historicalDataResult ? backfillCommitWatchdogID : nil,
-                                                                 ackInterval: command == .historicalDataResult ? SyncPipelineTrace.begin(.ackWait, correlation: CaptureJobTrace.correlation ?? UUID()) : nil))
+                                                                 ackInterval: command == .historicalDataResult ? SyncPipelineTrace.begin(.ackWait, correlation: CaptureJobTrace.correlation ?? UUID()) : nil,
+                                                                 realtimeIntent: realtimeSubmission?.request,
+                                                                 realtimeRaw: realtimeSubmission?.raw ?? false))
     }
 
     private func submitHistoryCommand(_ command: WhoopCommand, payload: [UInt8]) -> Bool {
@@ -3713,7 +3936,7 @@ public final class BLEManager: NSObject, ObservableObject {
 
         if let batteryCharacteristic {
             if batteryCharacteristic.properties.contains(.read) {
-                p.readValue(for: batteryCharacteristic)
+                transportRead(batteryCharacteristic, on: p)
                 log("Reading standard Battery Level")
             } else {
                 log("Battery Level read unavailable; waiting for notifications")
@@ -3862,6 +4085,7 @@ public final class BLEManager: NSObject, ObservableObject {
         backfilling = true
         state.backfilling = true
         state.postOffloadBurstInProgress = true
+        reconcileRealtime()
         state.syncChunksThisSession = 0
         ackedChunksThisSession = 0
         lastBackfillTimeoutArm = nil
@@ -3955,6 +4179,8 @@ public final class BLEManager: NSObject, ObservableObject {
 
     var test_pendingBackfillStart: UUID? { backfillStartingSessionID }
     var test_confirmedHistoryChunks: Int { ackedChunksThisSession }
+    var test_captureCollectorReady: Bool { collector != nil }
+    func test_receiveStandardHR(_ data: [UInt8]) { parseStandardHR(data) }
 
     func test_completeNextHistoryWrite(error: Error? = nil) {
         guard !confirmedCommandWriteQueue.isEmpty else { return }
@@ -3998,12 +4224,22 @@ public final class BLEManager: NSObject, ObservableObject {
         backfillCommitTimeout?.cancel()
         let watchdogID = UUID()
         backfillCommitWatchdogID = watchdogID
-        let lease = HistoricalCommitLease.acquire { [weak self] in
+        let expired: () -> Void = { [weak self] in
             guard let self, self.backfillSessionID == sessionID else { return }
             self.invalidateBackfillDelivery()
+            self.backfilling = false
+            self.state.backfilling = false
+            self.state.postOffloadBurstInProgress = false
+            self.resourceBudget.history(owner: self.resourceBudgetOwner, active: false)
             self.state.lastSyncError = "History commit interrupted by background expiration. Saved data is retained for replay."
             if let p = self.peripheral { self.central?.cancelPeripheralConnection(p) }
         }
+        let lease: HistoricalCommitLease
+        #if DEBUG
+        lease = historicalCommitLeaseFactoryForTesting?(expired) ?? HistoricalCommitLease.acquire(expired: expired)
+        #else
+        lease = HistoricalCommitLease.acquire(expired: expired)
+        #endif
         guard backfillSessionID == sessionID else { lease.finish(); return }
         historicalCommitLeases[watchdogID] = lease
         let item = DispatchWorkItem { [weak self] in
@@ -4102,7 +4338,6 @@ public final class BLEManager: NSObject, ObservableObject {
                 confirmedCommandWriteQueue[index].ackInterval = nil
             }
         }
-        backfillActor?.invalidateSession()
         backfillStateRevision = UUID()
         backfillStartTimeout?.cancel()
         backfillStartTimeout = nil
@@ -4434,7 +4669,8 @@ public final class BLEManager: NSObject, ObservableObject {
             // User abort is terminal too. It never changes lastSyncedAt, but rows from this or an earlier
             // auto-continued slice are already durable and must not leave the burst gate latched forever.
             state.postOffloadBurstInProgress = false
-            ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false)
+            resourceBudget.history(owner: resourceBudgetOwner, active: false)
+            reconcileRealtime()
             if persistedSensorRows || consecutiveAutoContinues > 0 {
                 state.postOffloadBurstCompleted &+= 1
             }
@@ -4516,7 +4752,8 @@ public final class BLEManager: NSObject, ObservableObject {
                 }
                 log("Backfill: burst terminal — downstream work ready (successfulExit=\(successfulDataExit ? "yes" : "no"), rows=\(persistedSensorRows ? "yes" : "no"))")
                 state.postOffloadBurstInProgress = false
-                ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false)
+                resourceBudget.history(owner: resourceBudgetOwner, active: false)
+                reconcileRealtime()
                 state.postOffloadBurstCompleted &+= 1
                 #if os(iOS)
                 SyncMaintenanceBackgroundScheduler.scheduleIfNeeded()
@@ -4696,8 +4933,7 @@ public final class BLEManager: NSObject, ObservableObject {
         standardHRFallback = false
         state.standardHRMode = nil
         enableLiveNotifications(reason: "start realtime")
-        if state.worn { send(.sendR10R11Realtime, payload: [0x01]) }
-        reconcileRealtime()                          // arms TOGGLE_REALTIME_HR(1) on the off→on edge
+        reconcileRealtime()
         realtimeArmedAt = Date()       // start the arm→drop stopwatch for the marginal-radio detector
     }
     /// Stop the Live-tab realtime streams. The lightweight 0x2A37 HR keeps recording if firmware emits it.
@@ -4710,7 +4946,6 @@ public final class BLEManager: NSObject, ObservableObject {
         // Always stop the heavy R10/R11 burst when the Live screen leaves — it's the battery-hungry part
         // and is only ever wanted while a live screen is up. The lightweight TOGGLE/0x2A37 R-R stream is
         // what continuous capture keeps; the reconciler decides whether to disarm that.
-        send(.sendR10R11Realtime, payload: [0x00])
         reconcileRealtime()
     }
 
@@ -4728,12 +4963,6 @@ public final class BLEManager: NSObject, ObservableObject {
     public func wristStateDidChange() {
         guard !accountShutdown else { return }
         log("Wear: \(state.worn ? "on wrist" : "off wrist"); reconciling realtime request")
-        if selectedModel.deviceFamily == .whoop4 {
-            if !state.worn { send(.sendR10R11Realtime, payload: [0x00]) }
-            else if screenWantsRealtime && !standardHRFallback && !backfilling {
-                send(.sendR10R11Realtime, payload: [0x01])
-            }
-        }
         // Releasing a producer is urgent control work, including during history catch-up.
         if !state.worn || !backfilling { reconcileRealtime() }
     }
@@ -4845,15 +5074,27 @@ public final class BLEManager: NSObject, ObservableObject {
         guard !accountShutdown else { return }
         let want = realtimeWantedNow
         wantsRealtime = want   // keep-alive + post-bond arm-on-connect read this derived value
-        guard want != realtimeArmed else { return }                      // no edge — nothing to send
-        guard selectedModel.deviceFamily == .whoop4 || state.bonded else { return }   // can't reach the strap yet
         #if DEBUG
         if let writer = realtimeToggleForTesting {
+            guard want != realtimeArmed else { return }
             if writer(want) { realtimeArmed = want }
             return
         }
         #endif
-        if send(.toggleRealtimeHR, payload: [want ? 0x01 : 0x00]) { realtimeArmed = want }
+        guard state.connected, let token = connectionOwner.token else { return }
+        let ready = state.bonded && cmdCharacteristic != nil && !sensorAcquisition.isActive
+            && !sensorAcquisition.cleanupRequired && (!standardHRFallback || !want)
+        realtimeIntent.beginConnection(generation: token.generation)
+        realtimeIntent.setReady(false)
+        realtimeIntent.setDesired(want)
+        realtimeIntent.setReady(ready)
+        if selectedModel.deviceFamily == .whoop4 {
+            realtimeRawIntent.beginConnection(generation: token.generation)
+            realtimeRawIntent.setReady(false)
+            realtimeRawIntent.setDesired(want && !backfilling
+                && !state.postOffloadBurstInProgress)
+            realtimeRawIntent.setReady(ready)
+        }
     }
 
     /// EXPERIMENTAL R22 telemetry (#174): give the user (and us) live proof of what the strap is doing.
@@ -6115,7 +6356,7 @@ public final class BLEManager: NSObject, ObservableObject {
             if captureWantNow {
                 log("Continuous HRV: overnight window opened; arming the realtime stream (#927)")
             } else {
-                send(.sendR10R11Realtime, payload: [0x00])   // stop the heavy burst, like stopRealtime
+                reconcileRealtime()
                 log("Continuous HRV: overnight window closed; realtime stream disarmed until tonight (#927)")
             }
         }
@@ -6127,10 +6368,9 @@ public final class BLEManager: NSObject, ObservableObject {
         // Never re-arm the heavy R10/R11 burst once the marginal-radio fallback has tripped (#80) — that
         // would just re-trigger the drop the keep-alive is meant to prevent. 0x2A37 keeps the HR flowing.
         if wantsRealtime && !standardHRFallback {
-            realtimeArmed = true   // keep reconcileRealtime()'s edge tracking in sync with the re-arm
-            send(.sendR10R11Realtime, payload: [0x01])
-            send(.toggleRealtimeHR, payload: [0x01])
-        }   // re-arm so it can't lapse
+            realtimeIntent.refreshEnabled()
+            realtimeRawIntent.refreshEnabled()
+        }   // foreground cadence optimization; current wrist/session intent still owns both lanes
         keepAliveTick += 1
         // #battery: ~60 s normally, ~30 s while charging (see `batteryPollDue`).
         if BLEManager.batteryPollDue(tick: keepAliveTick, charging: state.charging == true) {
@@ -6176,7 +6416,7 @@ public final class BLEManager: NSObject, ObservableObject {
                           !self.historyTransportReady else { return }
                     self.pendingReadyTrigger = nil
                     self.readinessTimeout = nil
-                    self.state.lastSyncError = "History sync is waiting for Bluetooth subscriptions. Reconnect to retry."
+                    self.state.lastSyncError = "Bluetooth subscriptions are taking longer than expected. Connection recovery is pending."
                     if let peripheral = self.peripheral { self.central?.cancelPeripheralConnection(peripheral) }
                 }
                 readinessTimeout = work
@@ -6292,27 +6532,27 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     private func discoverPrimaryServices(on p: CBPeripheral) {
-        guard !accountShutdown, p === peripheral else { return }
-        p.discoverServices([
+        guard !accountShutdown, p === peripheral, let token = connectionOwner.token else { return }
+        let driver = transport(for: central)
+        driver.discoverServices([
             Self.customService, Self.whoop5Service, BLEManager.heartRateService, BLEManager.batteryService,
             BLEManager.disService,
-        ])
+        ].map(\.uuidString), on: driver.central.wrap(p), token: token)
     }
 
     private func recoverGATT(_ stage: String, on p: CBPeripheral, retry: () -> Void) {
-        guard p === peripheral, !accountShutdown, !intentionalDisconnect else { return }
+        guard p === peripheral, !accountShutdown, !intentionalDisconnect,
+              let token = connectionOwner.token else { return }
         state.historyReady = false
         let elapsed = connSessionStartedAt.map { max(0, Int(Date().timeIntervalSince($0) * 1000)) } ?? 0
         log("gatt_recovery stage=\(stage) elapsed_ms=\(elapsed)")
-        connectionOwner.recover(stage: stage, retry: retry) {
-            invalidateBackfillDelivery()
-            confirmedNotifyUUIDs.removeAll()
-            central.cancelPeripheralConnection(p)
-        }
+        let driver = transport(for: central)
+        driver.recover(stage: stage, on: driver.central.wrap(p), token: token, retry: retry)
     }
 
     private func resetCharacteristics() {
-        confirmedNotifyUUIDs.removeAll()
+        finishConnectionSetup()
+        notificationController.reset()
         cmdNotifyConfirmedActive = false
         connectSettledSignaled = false
         state.historyReady = false
@@ -6340,9 +6580,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Scan both supported advertised service families in one OS-owned scan. The model remains a
     /// fallback until the admitted device's advertisement or discovered GATT establishes its family.
     /// `allowFallback` is retained for source compatibility; scanning no longer relies on rotation.
-    /// No gate here, deliberately: the ONLY callers are `connectCore` — reached from the user's Connect or
-    /// from the already-gated `connectFromSystem` — and this method's own family-rotation timer, which
-    /// cannot start a scan that one of those did not. Gating here as well would block the user's Connect.
+    /// Callers preserve user intent and onboarding approval; the transport also refuses intentional stops.
     private func startScan(for model: WhoopModel, allowFallback: Bool) {
         guard !accountShutdown, !intentionalDisconnect else { return }
         advertisementLogged = false
@@ -6356,10 +6594,7 @@ public final class BLEManager: NSObject, ObservableObject {
         log("Scanning for \(model.displayName)…")
         let diagnosticServices = [Self.customService, Self.whoop5Service] + WhoopGattServiceFamily.unsupportedServiceUUIDStrings
             .map { CBUUID(string: $0) }
-        central.scanForPeripherals(
-            withServices: diagnosticServices,
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
-        )
+        transport(for: central).scan(services: diagnosticServices.map(\.uuidString))
     }
 
     /// Human-readable `CBPeripheralState`, so a strap log says what the peripheral actually was at
@@ -6436,7 +6671,7 @@ public final class BLEManager: NSObject, ObservableObject {
            selectedModel.deviceFamily != .whoop4,
            BLEManager.shouldPollWhoop5Battery(lastReadAt: lastBatteryReadAt,
                                               charging: state.charging == true) {
-            p.readValue(for: b)
+            transportRead(b, on: p)
             lastBatteryReadAt = Date()
         }
         // #520 DIS identity read — same post-bond reasoning as the #490 battery read above: on a 5/MG the
@@ -6451,8 +6686,8 @@ public final class BLEManager: NSObject, ObservableObject {
         if !disRead, selectedModel.deviceFamily != .whoop4,
            let serialChar = disSerialCharacteristic, serialChar.properties.contains(.read) {
             disRead = true
-            p.readValue(for: serialChar)
-            if let c = disHwRevCharacteristic, c.properties.contains(.read) { p.readValue(for: c) }
+            transportRead(serialChar, on: p)
+            if let c = disHwRevCharacteristic, c.properties.contains(.read) { transportRead(c, on: p) }
             readDisExtras(p)
         }
     }
@@ -6468,7 +6703,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// "not implemented" is per-characteristic and the ones it DOES publish should still be read.
     private func readDisExtras(_ p: CBPeripheral) {
         for c in disExtraCharacteristics where c.properties.contains(.read) {
-            p.readValue(for: c)
+            transportRead(c, on: p)
         }
     }
 
@@ -6501,8 +6736,8 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         log("DIS: trying the identity read on an UNbonded link — unproven, and a refusal is itself the answer to whether DIS needs an encrypted bond (#490)")
         disRead = true
-        p.readValue(for: serialChar)
-        if let c = disHwRevCharacteristic, c.properties.contains(.read) { p.readValue(for: c) }
+        transportRead(serialChar, on: p)
+        if let c = disHwRevCharacteristic, c.properties.contains(.read) { transportRead(c, on: p) }
         readDisExtras(p)
     }
 
@@ -6694,27 +6929,22 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     private func requestNotify(_ c: CBCharacteristic, on p: CBPeripheral, reason: String) {
+        guard let token = connectionOwner.token else { return }
         guard c.properties.contains(.notify) || c.properties.contains(.indicate) else {
             log("Notify unavailable \(c.uuid) (\(reason))")
-            return
-        }
-        if c.isNotifying {
-            // #613: after CoreBluetooth state restoration the inherited subscription is reported active but
-            // no longer delivers, and `setNotifyValue(true)` on an already-notifying char yields NO callback
-            // (no state change). Force one real off→on cycle so delivery is re-established AND
-            // `didUpdateNotificationStateFor` fires — the only path that latches `cmdNotifyConfirmedActive`
-            // → `connectSettled` → the alarm re-arm. One-shot: `restoreNeedsResubscribe` clears at settle.
-            if restoreNeedsResubscribe {
-                log("Notify re-arming after restore \(c.uuid) (\(reason))")
-                p.setNotifyValue(false, for: c)
-                p.setNotifyValue(true, for: c)
-                return
+            if requiredHistoryNotifyUUIDs.contains(c.uuid) {
+                recoverGATT("notify_unavailable", on: p) { discoverPrimaryServices(on: p) }
             }
-            log("Notify already active \(c.uuid) (\(reason))")
             return
         }
-        p.setNotifyValue(true, for: c)
-        log("Notify requested \(c.uuid) (\(reason))")
+        let accepted = notificationController.request(c.uuid, isNotifying: c.isNotifying, token: token) {
+            transportNotify($0, for: c, on: p)
+        }
+        cmdNotifyConfirmedActive = confirmedNotifyUUIDs.contains(Self.cmdNotifyChar)
+        publishHistoryReadiness()
+        if !accepted, requiredHistoryNotifyUUIDs.contains(c.uuid) {
+            recoverGATT("notify_submission", on: p) { requestNotify(c, on: p, reason: "recovery") }
+        }
     }
 
     // MARK: Alarm API (M6 — additive; does NOT touch connect/offload/sync flows)
@@ -7225,15 +7455,24 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard isPreferredPeripheral(peripheral), self.peripheral == nil || peripheral === self.peripheral else {
+            central.cancelPeripheralConnection(peripheral)
+            return
+        }
+        let driver = transport(for: central)
         guard !accountShutdown, !intentionalDisconnect,
-              connectionOwner.connected(peripheral.identifier) else {
+              driver.connected(driver.central.wrap(peripheral)) else {
             if intentionalDisconnect || accountShutdown || !isPreferredPeripheral(peripheral) {
                 central.cancelPeripheralConnection(peripheral)
             }
             return
         }
+    }
+
+    private func handleConnected(_ central: CBCentralManager, peripheral: CBPeripheral) {
         guard self.peripheral == nil || peripheral === self.peripheral,
-              whoopConnectAllowed("connected"), isPreferredPeripheral(peripheral) else {
+              (validatedRestorationPeripheral == peripheral.identifier || whoopConnectAllowed("connected")),
+              isPreferredPeripheral(peripheral) else {
             central.cancelPeripheralConnection(peripheral)
             return
         }
@@ -7309,7 +7548,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             state.append(log: "connect up gen=\(connectGeneration) "
                 + "latencyMs=\(latencyMs.map(String.init) ?? "?") uptimeStart=\(nowUnix)", domain: .connection)
         }
-        discoverPrimaryServices(on: peripheral)
+        if startConnectionSetup(on: peripheral) { discoverPrimaryServices(on: peripheral) }
     }
 
     /// Connection test mode: a STABLE, integer-token reason for a BLE error, for parity with Android's
@@ -7374,23 +7613,24 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager,
                                didDisconnectPeripheral peripheral: CBPeripheral,
                                error: Error?) {
-        handleDisconnect(central, peripheral: peripheral, isReconnecting: false, error: error)
+        let driver = transport(for: central)
+        driver.disconnected(driver.central.wrap(peripheral), error: error, isReconnecting: false)
     }
 
     public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral,
                                timestamp: CFAbsoluteTime, isReconnecting: Bool, error: Error?) {
-        guard peripheral === self.peripheral,
-              lastDisconnectTimestamp.map({ timestamp > $0 }) ?? true else { return }
-        lastDisconnectTimestamp = timestamp
-        handleDisconnect(central, peripheral: peripheral, isReconnecting: isReconnecting, error: error)
+        let driver = transport(for: central)
+        driver.disconnected(driver.central.wrap(peripheral), error: error,
+                            timestamp: timestamp, isReconnecting: isReconnecting)
     }
 
     private func handleDisconnect(_ central: CBCentralManager, peripheral: CBPeripheral,
-                                  isReconnecting: Bool, error: Error?) {
-        guard !accountShutdown, peripheral === self.peripheral, peripheral.state != .connected else { return }
-        _ = connectionOwner.disconnected(peripheral.identifier, isReconnecting: isReconnecting)
+                                  isReconnecting: Bool, error: Error?, logicalDisconnect: Bool = false) {
+        guard !accountShutdown, peripheral === self.peripheral,
+              logicalDisconnect || peripheral.state != .connected else { return }
+        finishConnectionSetup()
         readinessGeneration = UUID()
-        confirmedNotifyUUIDs.removeAll()
+        notificationController.reset()
         readinessTimeout?.cancel()
         readinessTimeout = nil
         pendingReadyTrigger = nil
@@ -7584,6 +7824,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // from `wantsRealtime`. Clear only the "what we last sent" flag — `screenWantsRealtime` /
         // `keepRealtimeForData` (and thus `wantsRealtime`) are intent and must survive a reconnect so the
         // stream comes back automatically.
+        realtimeIntent.endConnection()
+        realtimeRawIntent.endConnection()
         realtimeArmed = false
         whoop5SessionStarted = false
         clockRequested = false
@@ -7608,7 +7850,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         backfilling = false
         state.backfilling = false
         state.postOffloadBurstInProgress = false
-        ResourceBudget.shared.history(owner: resourceBudgetOwner, active: false)
+        resourceBudget.history(owner: resourceBudgetOwner, active: false)
         if interruptedBacklogBurst {
             // Rows from completed chunks already carry durable syncJob tokens. Wake the tail once now that
             // no further slice can arrive on this link; if iOS suspends it, syncmaintenance/foreground sees
@@ -7707,9 +7949,13 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager,
                                didFailToConnect peripheral: CBPeripheral,
                                error: Error?) {
-        guard !accountShutdown, peripheral === self.peripheral, peripheral.state == .disconnected,
-              [.pendingConnection, .connecting].contains(connectionOwner.phase) else { return }
-        _ = connectionOwner.disconnected(peripheral.identifier, isReconnecting: false)
+        guard !accountShutdown else { return }
+        let driver = transport(for: central)
+        driver.failedToConnect(driver.central.wrap(peripheral), error: error)
+    }
+
+    private func handleFailedConnection(_ central: CBCentralManager, peripheral: CBPeripheral, error: Error?) {
+        guard !accountShutdown, peripheral === self.peripheral, peripheral.state == .disconnected else { return }
         cancelPendingConnectProbe()   // #730: it FAILED rather than pending — this log is the answer
         log("Failed to connect\(error.map { " — \($0.localizedDescription)" } ?? "")")
         // The strap wiped its bond (a firmware update, or the official WHOOP app re-bonding it). macOS keeps
@@ -7784,7 +8030,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             return
         }
         if p.state == .connected {
-            if let token = connectionOwner.attachRestored(p.identifier) {
+            if connectionOwner.token == nil || connectionOwner.phase == .restoring {
                 preparePeripheral(p)
                 state.historyReady = false
                 state.bonded = false
@@ -7795,9 +8041,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 clockRetries = 0
                 cmdNotifyConfirmedActive = false
                 restoreNeedsResubscribe = true
-                installPeripheralDelegate(p, token: token)
-                state.connected = true
-                discoverPrimaryServices(on: p)
+                let driver = transport(for: central)
+                driver.restore([driver.central.wrap(p)], registeredID: p.identifier, accountApproved: true)
             }
         } else { connectRestored(p, reason: "restore-reconcile") }
     }
@@ -7821,6 +8066,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
               connectionOwner.beginRestoration() else { return }
         launchedViaStateRestoration = true
         let restoreGeneration = UUID()
+        let capturedDeviceIntent = deviceIntentRevision
         restorationGeneration = restoreGeneration
         restorationTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -7830,41 +8076,48 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                     self.reconcileRestoredConnection()
                 }
             }
+            let registered: PairedDevice?
             do {
-                guard let path = self.databasePath else { throw CocoaError(.fileReadNoSuchFile) }
-                let store: WhoopStore
-                if let existing = self.ingestStore { store = existing }
-                else { store = try await WhoopStore(path: path) }
-                if let scope = self.accountScope, CloudRuntimeIdentity.currentEnrollmentSnapshot()?.scope != scope {
-                    try await store.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+                guard let path = self.databasePath, let scope = self.accountScope else {
+                    throw CocoaError(.fileReadNoSuchFile)
                 }
-                try await CloudCaptureScope.prepareStore(store.registryWriter, legacyPath: StorePaths.legacyDatabasePath())
-                if let scope = self.accountScope {
-                    try await CloudCaptureScope.bindRuntimeOwner(store, scope: scope)
-                }
+                registered = try await Task.detached(priority: .userInitiated) {
+                    try DeviceRegistryStore.readRestorationDevice(path: path,
+                        projectURL: scope.projectURL, userID: scope.userID)
+                }.value
                 guard !self.accountShutdown, !Task.isCancelled,
-                      self.restorationGeneration == restoreGeneration else { return }
-                self.ingestStore = store
-                self.registryStore = DeviceRegistryStore(dbQueue: store.registryWriter)
+                      self.restorationGeneration == restoreGeneration,
+                      self.deviceIntentRevision == capturedDeviceIntent else {
+                    self.connectionOwner.restorationFailed()
+                    self.launchedViaStateRestoration = false
+                    for candidate in peripherals where candidate !== self.peripheral {
+                        central.cancelPeripheralConnection(candidate)
+                    }
+                    if !self.accountShutdown, !Task.isCancelled { await self.bootstrapStore() }
+                    return
+                }
             } catch {
-                guard self.restorationGeneration == restoreGeneration, !Task.isCancelled else { return }
+                guard self.restorationGeneration == restoreGeneration, !Task.isCancelled else {
+                    for candidate in peripherals where candidate !== self.peripheral {
+                        central.cancelPeripheralConnection(candidate)
+                    }
+                    return
+                }
                 self.connectionOwner.restorationFailed()
                 self.launchedViaStateRestoration = false
                 self.state.lastSyncError = Self.captureBootstrapFailure
                 for candidate in peripherals { central.cancelPeripheralConnection(candidate) }
+                await self.bootstrapStore()
                 return
             }
-            guard !self.accountShutdown, let registry = self.registryStore,
-                  let active = try? registry.activeDeviceId(),
-                  let row = (try? registry.all())?.first(where: { $0.id == active }),
-                  SourceIdentity.isWhoop(row), let registeredID = row.peripheralId,
-                  let selectedID = Self.restoredPeripheralID(preferred: UUID(uuidString: registeredID),
-                                                            candidates: peripherals.map(\.identifier)),
-                  let selected = peripherals.first(where: { $0.identifier == selectedID }),
-                  self.whoopConnectAllowed("restore-identity") else {
+            guard !self.accountShutdown, let row = registered,
+                  SourceIdentity.isWhoop(row), let registeredID = row.peripheralId.flatMap(UUID.init(uuidString:)),
+                  let selected = peripherals.first(where: { $0.identifier == registeredID }),
+                  !self.intentionalDisconnect else {
                 for candidate in peripherals { central.cancelPeripheralConnection(candidate) }
                 self.connectionOwner.restorationFailed()
                 self.launchedViaStateRestoration = false
+                await self.bootstrapStore()
                 if !self.accountShutdown, !self.intentionalDisconnect { self.connectFromSystem() }
                 return
             }
@@ -7878,8 +8131,6 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             self.selectedModel = row.model.localizedCaseInsensitiveContains("5") || row.model.localizedCaseInsensitiveContains("MG")
                 ? .whoop5mg : .whoop4
             self.resetCharacteristics()
-            self.confirmedNotifyUUIDs.removeAll()
-            self.readinessGeneration = UUID()
             self.reassembler = CharacteristicReassembler(family: self.selectedModel.deviceFamily)
             self.router.family = self.selectedModel.deviceFamily
             self.router.deviceId = row.id
@@ -7890,20 +8141,22 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             self.connectHandshakeDone = false
             self.clockRequested = false
             self.clockRetries = 0
-            if selected.state == .connected {
-                guard let token = self.connectionOwner.attachRestored(selected.identifier) else { return }
-                self.installPeripheralDelegate(selected, token: token)
-                self.state.connected = true
-                self.connectedPeripheralUUID = selected.identifier.uuidString
-                self.restoreNeedsResubscribe = true
-                self.discoverPrimaryServices(on: selected)
-            } else if central.state == .poweredOn {
-                self.connectRestored(selected, reason: "restored registered source")
+            let driver = self.transport(for: central)
+            // The readonly snapshot already proved the account owner and unique active registry
+            // approval. Admit only that exact device until the synchronous attach/request returns.
+            self.validatedRestorationPeripheral = selected.identifier
+            let attached = driver.restore(peripherals.map(driver.central.wrap), registeredID: selected.identifier,
+                                          accountApproved: true)
+            // Keep the minimal ownership snapshot available if an already-disconnecting restored
+            // link completes before full bootstrap. Device intent changes revoke this admission.
+            defer {
+                if self.restorationGeneration == restoreGeneration { self.validatedRestorationPeripheral = nil }
             }
             // Archive reconciliation and upload bindings cannot consume the restored attach window.
             await self.bootstrapStore()
             guard !self.accountShutdown, !Task.isCancelled else { return }
-            self.requestSync(.connect)
+            if attached == nil { self.connectFromSystem() }
+            else { self.requestSync(.connect) }
         }
     }
 }
@@ -7959,27 +8212,27 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         for s in services {
             switch s.uuid {
             case BLEManager.customService:
-                peripheral.discoverCharacteristics(
+                transportDiscover(
                     [BLEManager.cmdWriteChar, BLEManager.cmdNotifyChar,
-                     BLEManager.eventNotifyChar, BLEManager.dataNotifyChar], for: s)
+                     BLEManager.eventNotifyChar, BLEManager.dataNotifyChar], for: s, on: peripheral)
             case BLEManager.heartRateService:
-                peripheral.discoverCharacteristics([BLEManager.heartRateChar], for: s)
+                transportDiscover([BLEManager.heartRateChar], for: s, on: peripheral)
             case BLEManager.batteryService:
-                peripheral.discoverCharacteristics([BLEManager.batteryChar], for: s)
+                transportDiscover([BLEManager.batteryChar], for: s, on: peripheral)
             case BLEManager.disService:
                 // #520: read-only identity strings. Discovered here; READ post-bond, or on a suppressed
                 // link via `readDisIdentityUnbonded` (#1635) — a strap that never bonds has no other
                 // source for its firmware at all.
-                peripheral.discoverCharacteristics(
-                    BLEManager.disChars.map { $0 }, for: s)
+                transportDiscover(
+                    BLEManager.disChars.map { $0 }, for: s, on: peripheral)
             case BLEManager.whoop5Service:
                 // EXPERIMENTAL WHOOP 5.0/MG path: discover the puffin command + notify characteristics
                 // so we can send CLIENT_HELLO and receive frames. Live HR/battery still arrive over the
                 // standard 0x2A37/0x2A19 profiles (discovered alongside this); this custom path is
                 // unverified on MG hardware.
                 log("WHOOP 5/MG detected — discovering puffin characteristics (experimental).")
-                peripheral.discoverCharacteristics(
-                    [BLEManager.whoop5CmdWriteChar] + BLEManager.whoop5NotifyChars, for: s)
+                transportDiscover(
+                    [BLEManager.whoop5CmdWriteChar] + BLEManager.whoop5NotifyChars, for: s, on: peripheral)
             default: break
             }
         }
@@ -7993,14 +8246,14 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             log("Characteristic discovery failed for \(service.uuid): \(error.localizedDescription)")
             guard service.uuid == Self.customService || service.uuid == Self.whoop5Service else { return }
             recoverGATT("characteristics_\(service.uuid)", on: peripheral) {
-                peripheral.discoverCharacteristics(nil, for: service)
+                transportDiscover(nil, for: service, on: peripheral)
             }
             return
         }
         guard let chars = service.characteristics else {
             guard service.uuid == Self.customService || service.uuid == Self.whoop5Service else { return }
             recoverGATT("characteristics_missing_\(service.uuid)", on: peripheral) {
-                peripheral.discoverCharacteristics(nil, for: service)
+                transportDiscover(nil, for: service, on: peripheral)
             }
             return
         }
@@ -8010,7 +8263,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 : [Self.whoop5CmdWriteChar] + Self.whoop5NotifyChars
             guard required.allSatisfy({ uuid in chars.contains(where: { $0.uuid == uuid }) }) else {
                 recoverGATT("required_characteristics_missing", on: peripheral) {
-                    peripheral.discoverCharacteristics(required, for: service)
+                    transportDiscover(required, for: service, on: peripheral)
                 }
                 return
             }
@@ -8048,8 +8301,8 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 seq = seq &+ 1
                 let bondFrame = WhoopCommand.getBatteryLevel.frame(seq: seq, payload: [0x00])
                 log("Bonding: confirmed write GET_BATTERY_LEVEL to 61080002")
-                recordConfirmedCommandWrite(nil, writeType: .withResponse)
-                peripheral.writeValue(Data(bondFrame), for: c, type: .withResponse)
+                guard transportWrite(Data(bondFrame), for: c, on: peripheral, type: .withResponse,
+                    beforeSubmission: { self.recordConfirmedCommandWrite(nil, writeType: .withResponse) }) else { return }
             case BLEManager.whoop5CmdWriteChar:
                 guard cmdCharacteristic !== c else { continue }
                 // EXPERIMENTAL WHOOP 5.0/MG: a 5/MG strap starts a session with the static CLIENT_HELLO
@@ -8066,6 +8319,9 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 helloRetryRequested = false
                 let helloSuppressed = HelloSuppressionStore.suppressed(peripheral.identifier.uuidString)
                 if !shouldSendClientHello(suppressedForDevice: helloSuppressed, userInitiated: helloUserAsked) {
+                    // A deliberate limited live-HR session is a resolved setup outcome, not an
+                    // absent callback. History remains unavailable and the existing hint explains why.
+                    finishConnectionSetup()
                     // #1635: says what happened and what has actually worked, not "try again". This strap
                     // refuses the handshake, so a retry is the one thing that cannot help - and suggesting
                     // it invites the hammering this suppression exists to stop. Mirrors the user-facing
@@ -8087,9 +8343,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     // "Finishing the secure pairing handshake…".
                     log("WHOOP 5/MG: writing CLIENT_HELLO to fd4b0002 with response (to trigger bonding, experimental).")
                     state.pairingHint = nil   // fresh attempt; clear any stale pairing-mode guidance
-                    clientHelloWriteAt = Date()   // #1635: a hello is now outstanding
-                    recordConfirmedCommandWrite(nil, writeType: .withResponse)
-                    peripheral.writeValue(Data(hello), for: c, type: .withResponse)
+                    guard transportWrite(Data(hello), for: c, on: peripheral, type: .withResponse,
+                        beforeSubmission: {
+                            self.clientHelloWriteAt = Date()
+                            self.recordConfirmedCommandWrite(nil, writeType: .withResponse)
+                        }) else { return }
                 }
                 // The realtime-HR stream is armed POST-bond (in didWriteValueFor / startRealtime) with
                 // puffin framing — not here. Writing it pre-bond on an unauthenticated link did nothing.
@@ -8106,7 +8364,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 case BLEManager.batteryChar:
                     batteryCharacteristic = c
                     if c.properties.contains(.read) {
-                        peripheral.readValue(for: c)
+                        transportRead(c, on: peripheral)
                     }
                 default: break
                 }
@@ -8164,6 +8422,13 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             return
         }
         let completedWrite = confirmedCommandWriteQueue.isEmpty ? nil : confirmedCommandWriteQueue.removeFirst()
+        if let request = completedWrite?.realtimeIntent {
+            if confirmedCommandWritesOutstanding > 0 { confirmedCommandWritesOutstanding -= 1 }
+            let controller = completedWrite?.realtimeRaw == true ? realtimeRawIntent : realtimeIntent
+            controller.completed(request, succeeded: error == nil)
+            realtimeArmed = realtimeIntent.confirmedEnabled == true
+            return
+        }
         if let completedWrite, completedWrite.sessionID != nil {
             if confirmedCommandWritesOutstanding > 0 { confirmedCommandWritesOutstanding -= 1 }
             historicalWriteCompleted(completedWrite, error: error)
@@ -8296,7 +8561,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 // A relaunch/link loss is recovery-only: establish normal handshake state, then
                 // send the idempotent stop contract before any ordinary custom command.
                 connectHandshakeDone = true
-                state.historyReady = true
+                state.historyReady = false
                 whoop5SessionStarted = true
                 recoverUnknownSensorProducerIfNeeded()
                 return
@@ -8307,14 +8572,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             // #927: RE-DERIVE the want at arm time, never the precomputed `wantsRealtime`: that value can
             // be up to a keep-alive tick (30 s) stale, and a reconnect just OUTSIDE the overnight window
             // would re-arm the flood from it and stay armed until the next tick.
-            let realtimeWantNow = realtimeWantedNow
-            wantsRealtime = realtimeWantNow
-            if realtimeWantNow && !whoop5RealtimeArmed {
-                whoop5RealtimeArmed = true
-                realtimeArmed = true   // keep reconcileRealtime()'s edge tracking in sync with the arm
-                log("WHOOP 5/MG: arming realtime HR (puffin TOGGLE_REALTIME_HR)")
-                send(.toggleRealtimeHR, payload: [0x01])
-            }
+            reconcileRealtime()
             // Developer Options continuous 100 Hz IMU recorder: (re)arm once per bonded link — the
             // strap forgets the mode across a drop, exactly like realtime HR. Gated on didBond so a
             // declined handshake never arms it; the recorder itself no-ops while its switch is Off
@@ -8333,7 +8591,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             if !whoop5SessionStarted {
                 whoop5SessionStarted = true
                 connectHandshakeDone = true     // unblocks beginBackfill()'s guard
-                state.historyReady = true       // and the sync controls, which must not offer what it declines
+                state.historyReady = false
                 log("WHOOP 5/MG: connect handshake done — backfill unblocked")
                 noteRebootReconnectIfNeeded()
                 // Re-apply the Broadcast-HR device-config flag if the user opted in (#181).
@@ -8352,9 +8610,8 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 // answer now arrives as the "clock: …" ack line from FrameRouter.
                 log("WHOOP 5/MG: SET_CLOCK + GET_CLOCK sent — awaiting the strap's answer")
                 log("WHOOP 5/MG: scheduling first historical offload (connect)")
-                // Deferred ~1.5s so the puffin notify subscriptions settle before SEND_HISTORICAL_DATA,
-                // mirroring the WHOOP4 kick. requestSync → beginBackfill is itself gated on
-                // connectHandshakeDone, so a racing foreground/restore trigger can't fire it early.
+                // Confirmed notification callbacks gate history; no settling delay authorizes it.
+                publishHistoryReadiness()
                 requestSync(.connect)
                 startBackfillTimer()            // re-offload the type-47 store every backfillIntervalSeconds
                 // #34: signal settled directly (skip the cmd-notify gate `maybeSignalConnectSettled()`
@@ -8387,7 +8644,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         // type-47 fine because it runs the sequence once on a stable connection; the app stormed it.
         guard !connectHandshakeDone else { return }
         connectHandshakeDone = true
-        state.historyReady = true
+        state.historyReady = false
         noteRebootReconnectIfNeeded()
         backfillStarted = true
 
@@ -8419,7 +8676,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             send(.getClock, payload: [])
             send(.getClock, payload: [0x00])
         }
-        send(.sendR10R11Realtime, payload: [0x00])   // stop the type-43 realtime flood (BLE airtime/battery)
+        reconcileRealtime()
         send(.getDataRange)                          // refresh the strap's stored range for the watchdog
         // Plain offload (no high-freq-sync), rate-limited (first connect always runs; reconnect-flaps are
         // throttled by BackfillPolicy). Deferred ~1.5s so SET_CLOCK/GET_DATA_RANGE round-trip first and
@@ -8445,9 +8702,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 state.standardHRMode = "Standard HR mode (low bandwidth) - your Bluetooth radio couldn't sustain the full stream; live heart rate via the standard profile."
             } else {
                 log("Realtime HR: arming after bond")
-                realtimeArmed = true   // keep reconcileRealtime()'s edge tracking in sync with the arm
-                send(.sendR10R11Realtime, payload: [0x01])
-                send(.toggleRealtimeHR, payload: [0x01])
+                reconcileRealtime()
                 realtimeArmedAt = Date()   // start the arm→drop stopwatch for the marginal-radio detector
             }
         }
@@ -8466,6 +8721,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     /// the alarm re-arm (AppModel's `live.$connectSettled` sink) waits on instead of raw `bonded`, so
     /// SET_ALARM_TIME/GET_ALARM_TIME go out on a link whose reply channel is confirmed live (#34).
     private func maybeSignalConnectSettled() {
+        publishHistoryReadiness()
         guard connectHandshakeDone, cmdNotifyConfirmedActive, !connectSettledSignaled else { return }
         connectSettledSignaled = true
         state.connectSettled &+= 1
@@ -8933,7 +9189,8 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateNotificationStateFor characteristic: CBCharacteristic,
                            error: Error?) {
-        guard !accountShutdown, peripheral === self.peripheral, acceptsInboundPeripheral(peripheral) else { return }
+        guard !accountShutdown, peripheral === self.peripheral, acceptsInboundPeripheral(peripheral),
+              let token = connectionOwner.token else { return }
         if onboardingSetup.phase == .resetting || onboardingSetup.phase == .verifying {
             let historyChannel = [Self.cmdNotifyChar, Self.eventNotifyChar, Self.dataNotifyChar]
                 .contains(characteristic.uuid) || Self.whoop5NotifyChars.prefix(3).contains(characteristic.uuid)
@@ -8942,43 +9199,23 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 return
             }
         }
-        if error == nil, characteristic.isNotifying {
-            confirmedNotifyUUIDs.insert(characteristic.uuid)
-        } else {
-            confirmedNotifyUUIDs.remove(characteristic.uuid)
-        }
-        state.historyReady = historyTransportReady
-        if historyTransportReady { connectionOwner.ready() }
-        if historyTransportReady, let trigger = pendingReadyTrigger {
-            pendingReadyTrigger = nil
-            readinessTimeout?.cancel()
-            readinessTimeout = nil
-            requestSync(trigger)
-        }
-        if let error = error {
-            log("Notify enable failed for \(characteristic.uuid): \(error.localizedDescription)")
-            guard characteristic.uuid == Self.cmdNotifyChar || characteristic.uuid == Self.eventNotifyChar ||
-                  characteristic.uuid == Self.dataNotifyChar || Self.whoop5NotifyChars.contains(characteristic.uuid) else { return }
-            recoverGATT("notify_\(characteristic.uuid)", on: peripheral) {
-                peripheral.setNotifyValue(true, for: characteristic)
+        let observation = notificationController.observed(characteristic.uuid,
+            isNotifying: characteristic.isNotifying, succeeded: error == nil, token: token) {
+                transportNotify($0, for: characteristic, on: peripheral)
             }
-        } else {
-            log("Notify \(characteristic.isNotifying ? "active" : "off") \(characteristic.uuid)")
-            if !characteristic.isNotifying && !restoreNeedsResubscribe &&
-                (characteristic.uuid == Self.cmdNotifyChar || characteristic.uuid == Self.eventNotifyChar ||
-                 characteristic.uuid == Self.dataNotifyChar || Self.whoop5NotifyChars.contains(characteristic.uuid)) {
-                recoverGATT("notify_lost_\(characteristic.uuid)", on: peripheral) {
-                    peripheral.setNotifyValue(true, for: characteristic)
-                }
+        guard observation != .ignored else { return }
+        cmdNotifyConfirmedActive = confirmedNotifyUUIDs.contains(Self.cmdNotifyChar)
+        publishHistoryReadiness()
+        switch observation {
+        case .needsRecovery:
+            log("gatt_notify_recovery error=\(error == nil ? "inactive" : "callback")")
+            guard requiredHistoryNotifyUUIDs.contains(characteristic.uuid) else { return }
+            recoverGATT("notify_confirmation", on: peripheral) {
+                requestNotify(characteristic, on: peripheral, reason: "recovery")
             }
-            // #34: the cmd-notify channel carries GET_ALARM_TIME's (and every other COMMAND_RESPONSE's)
-            // reply. Once IT confirms subscribed, check whether the handshake side of connectSettled is
-            // also done — this is the "notify confirmed" half arriving AFTER the handshake body, the
-            // ordering a v8.6.2 strap log showed actually happens.
-            if characteristic === cmdNotifyCharacteristic, characteristic.isNotifying {
-                cmdNotifyConfirmedActive = true
-                maybeSignalConnectSettled()
-            }
+        case .confirmed:
+            if characteristic === cmdNotifyCharacteristic { maybeSignalConnectSettled() }
+        case .waiting, .ignored: break
         }
     }
 }

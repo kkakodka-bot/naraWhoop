@@ -54,6 +54,20 @@ final class PushCapabilitiesParseTests: XCTestCase {
         XCTAssertEqual(Set([.rawImuSession]), parsed.objectLane?.streams)
     }
 
+    func testAsyncCompletionRequiresExplicitWellFormedCapability() throws {
+        let modes: [Any?] = [nil, ["sync"], ["sync", "async-v1"], ["async-v1"], ["future", "async-v1"],
+            ["async-v1", "async-v1"], [true], "async-v1"]
+        for (index, value) in modes.enumerated() {
+            var lane: [String: Any] = ["endpoint": "/objects", "maxObjectBytes": 8_000_000, "streams": ["rawBatch"]]
+            lane["completionModes"] = value
+            let parsed = try PushCapabilities.parse(JSONSerialization.data(withJSONObject: [
+                "type": "capabilities", "protocolVersion": "1.2", "receiverStateId": receiverId,
+                "streams": ["rawBatch"], "objectLane": lane]))
+            XCTAssertNotNil(parsed.objectLane)
+            XCTAssertEqual(parsed.objectLane?.completionMode, [2, 3].contains(index) ? .asynchronousV1 : nil)
+        }
+    }
+
     func testMalformedObjectLaneDisablesLane() throws {
         let parsed = try PushCapabilities.parse(try JSONSerialization.data(withJSONObject: [
             "type": "capabilities",

@@ -23,7 +23,21 @@ private func preparedSelectionFixtureBaseDirectory() throws -> URL {
     return URL(fileURLWithPath: path, isDirectory: true)
 }
 
+private func preparedSavedSelection(directory: URL, id: String, owner: AccountScope, resourceBudget: ResourceBudget) throws -> CloudPushPreparedSelection {
+    let journal = try CloudUploadJournal(directory: directory, resourceBudget: resourceBudget)
+    try journal.loadSelections(owner: owner)
+    return try XCTUnwrap(journal.selection(id))
+}
+
 final class CloudPushPreparedSelectionTests: XCTestCase {
+    private let resourceBudget = ResourceBudget(thermal: { 0 }, lowPower: { false })
+    private var fixtureRoots: Set<URL> = []
+    override func tearDownWithError() throws {
+        // Test locals/progress actors have left scope; do not unlink open SQLite WAL files.
+        for root in fixtureRoots where FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
+        fixtureRoots.removeAll()
+        try super.tearDownWithError()
+    }
     private let endpoint = "https://project.example/functions/v1/push"
     private let receiver = "99999999-9999-4999-8999-999999999999"
     private let source = W5ReceiptFixture.source
@@ -45,6 +59,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                          dependentAdmission: SyncEngine.DependentStageAdmission? = nil) async throws -> Fixture {
         let temporary = try preparedSelectionFixtureBaseDirectory()
         let root = root ?? temporary.appendingPathComponent("prepared-selection-" + UUID().uuidString)
+        fixtureRoots.insert(root)
         let scope = try AccountScope(projectURL: "https://project.example", userID: W5ReceiptFixture.owner)
         let context = AccountSessionContext(scope: scope, generation: UUID())
         let layout = AccountStorageLayout(baseDirectory: root, scope: scope)
@@ -54,9 +69,9 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
         try await store.upsertDevice(id: device, mac: nil, name: nil)
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [PreparedURLProtocol.self]
         let session = URLSession(configuration: configuration)
-        let runtime = try CloudPushBackgroundRuntime(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, authorize: { _ in "synthetic" },
+        let runtime = try CloudPushBackgroundRuntime(context: context, layout: layout, authorize: { _ in "synthetic" },
             isCurrent: { _ in true }, policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) },
-            sessionConfiguration: configuration)
+            sessionConfiguration: configuration, resourceBudget: self.resourceBudget)
         CloudPushBackgroundRuntime.install(runtime)
         let transport = CloudPushTransport(endpoint: .init(url: endpoint, host: "project.example"), bearerToken: "synthetic",
             context: context, session: session, dependentAdmission: dependentAdmission)
@@ -68,7 +83,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
         try f.store.registryWriter.close()
     }
     private func close(_ f: Fixture) async {
-        do { try await stop(f); try FileManager.default.removeItem(at: f.root) }
+        do { try await stop(f) }
         catch { XCTFail("fixture retained: \(error)") }
         PreparedURLProtocol.set { _ in throw CloudUploadError.unavailable }
     }
@@ -93,7 +108,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
     private func coordinator(_ f: Fixture, _ p: CloudPushProgressStore, version: String,
                              beforeAssociation: (@Sendable () throws -> Void)? = nil,
                              beforeStage: (@Sendable () throws -> Void)? = nil,
-                             freshSource: Bool = false) -> PushCoordinator {
+                             freshSource: Bool = false, wakeBudget: PushWakeBudget? = nil) -> PushCoordinator {
         let c = committer(f, p)
         let sourceSnapshot: any PushSnapshotSource = freshSource ? f.snapshot : PreparedNoSelectionSource()
         return PushCoordinator(source: sourceSnapshot, transport: f.transport, progress: p,
@@ -114,7 +129,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 try beforeStage?()
                 let id = try await f.transport.preparedSelectionID(batchID: value.batchIDs[0], sourceID: W5ReceiptFixture.source)
                 try await c.commit(value, preparedSelectionID: id)
-            }, prepareSelection: { try await f.transport.prepareSelection($0, progressVersion: version) })
+            }, prepareSelection: { try await f.transport.prepareSelection($0, progressVersion: version) }, wakeBudget: wakeBudget)
     }
     private func raw(_ f: Fixture, key: String = "raw-prepared", ts: Int = 100) async throws -> (PushBinaryBatch, [PushBinaryRow]) {
         let meta = RawBatchMeta(batchId: key, deviceId: device, clockRef: .init(device: ts, wall: ts), capturedAt: ts,
@@ -153,6 +168,41 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 batchIDs: [batch.batchId], cursor: batch.endCursor)), inlineGzip: [CloudPushTransport.gzip(batch.body)])
     }
 
+    func testFreshCoordinatorStreamsToAccountFileBeforeTransferThenSettlesExactReceipt() async throws {
+        let f = try await fixture()
+        do {
+            let (_, rows) = try await raw(f)
+            let oracle = f.root.appendingPathComponent("synthetic-stream-oracle")
+            try FileManager.default.createDirectory(at: oracle, withIntermediateDirectories: false)
+            let expected = try PushProtocol.binaryObjectBatch(table: .rawBatch, sourceId: source, deviceId: device,
+                startCursor: nil, rows: rows, protocolVersion: "1.2", payloadDirectory: oracle)
+            try serveObject(expected)
+            let result = await coordinator(f, try progress(f, version: "1.2"), version: "1.2", beforeAssociation: {
+                let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
+                defer { journal.close() }
+                try journal.loadSelections(owner: f.context.scope)
+                let index = try XCTUnwrap(journal.selectionIndex.values.first)
+                let selection = try XCTUnwrap(journal.selection(index.id))
+                XCTAssertEqual(selection.selection.version, 3)
+                XCTAssertNil(selection.selection.objectPayload)
+                let file = try XCTUnwrap(selection.selection.objectPayloadFile)
+                XCTAssertEqual(file.url.deletingLastPathComponent(), f.layout.uploadDirectory)
+                XCTAssertEqual(file.sha256, expected.wireSHA256)
+                XCTAssertEqual(try journal.load().values.first?.phase, .receiptSaved)
+            }, freshSource: true, wakeBudget: PushWakeBudget(duration: 60)).pushObjects(.rawBatch, deviceId: device, lane: lane)
+            guard case .accepted = result else { return XCTFail("streaming coordinator failed: \(result)") }
+            let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
+            defer { journal.close() }
+            try journal.loadSelections(owner: f.context.scope)
+            XCTAssertTrue(journal.selectionIndex.isEmpty)
+            XCTAssertTrue(try journal.load().isEmpty)
+            XCTAssertEqual(try journal.metadata.names(kind: "packing"), [])
+            let remaining = try await f.snapshot.binaryRows(table: .rawBatch, deviceId: device, afterRowId: 0, limit: 1)
+            XCTAssertTrue(remaining.isEmpty)
+        } catch { await close(f); throw error }
+        await close(f)
+    }
+
     func testReceiptSavedBeforeAssociationReopensOldVersionWithoutNetworkOrFreshSelection() async throws {
         var f = try await fixture()
         do {
@@ -162,7 +212,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let result = await coordinator(f, try progress(f, version: "1.2"), version: "1.2",
                 beforeAssociation: { throw PreparedStop.crash }).resumePrepared(selection.selection)
             guard case .rejected = result else { throw PreparedStop.rejected("expected injected pre-association crash") }
-            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().values.first?.phase, .receiptSaved)
+            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().values.first?.phase, .receiptSaved)
             let before = try await f.store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rawDurabilityReceipt") }
             XCTAssertEqual(before, 0)
             let originalGeneration = f.context.generation, root = f.root
@@ -172,8 +222,9 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let current = try await CloudPushProgressRecovery.recover(admission: admission, endpoint: endpoint,
                 receiverStateID: receiver, currentVersion: "1.4", directory: f.runtime.progressDirectory,
                 committer: { self.committer(f, $0) })
-            let pending = try await f.runtime.queue.preparedSelections(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
-            XCTAssertEqual(pending.first?.capturedGeneration, originalGeneration)
+            let pending = try await f.runtime.queue.preparedSelectionIDs(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
+            let pendingSelection = try await f.runtime.queue.preparedSelection(XCTUnwrap(pending.first), captured: f.context)
+            XCTAssertEqual(pendingSelection.capturedGeneration, originalGeneration)
             XCTAssertNotEqual(f.context.generation, originalGeneration)
             let blocked = try await CloudPushPreparedRecovery.recover(queue: f.runtime.queue, context: f.context, sourceID: source,
                 endpoint: endpoint, receiverStateID: receiver, directory: f.runtime.progressDirectory,
@@ -182,9 +233,9 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let rowsAfter = try await f.store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rawDurabilityReceipt") }
             let synced = try await f.store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rawBatch WHERE syncedAt IS NOT NULL") }
             XCTAssertEqual(rowsAfter, 1); XCTAssertEqual(synced, 1)
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
             let debt = await current.pendingCommits(); XCTAssertTrue(debt.isEmpty)
-            let retained = try await f.runtime.queue.preparedSelections(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
+            let retained = try await f.runtime.queue.preparedSelectionIDs(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
             XCTAssertTrue(retained.isEmpty)
             let repeated = try await CloudPushPreparedRecovery.recover(queue: f.runtime.queue, context: f.context, sourceID: source,
                 endpoint: endpoint, receiverStateID: receiver, directory: f.runtime.progressDirectory,
@@ -201,7 +252,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let saved = try append(f)
             try await f.runtime.queue.prepareSelection(saved, captured: f.context)
             try await f.runtime.queue.reconcile()
-            let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory)
+            let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
             let jobs = try journal.load(); XCTAssertEqual(jobs.count, 2)
             XCTAssertTrue(jobs.values.allSatisfy { $0.taskIdentifier == nil && $0.deliveryAdmitted == false && $0.preparedSelectionID == saved.id })
             for job in jobs.values { try journal.verifyBody(job) }
@@ -220,7 +271,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             do { try await f.runtime.queue.prepareSelection(new, captured: f.context); XCTFail("old lane overtaken") }
             catch { XCTAssertEqual(error as? CloudUploadError, .retryScheduled) }
             try await f.runtime.queue.prepareSelection(try append(f, row: 2, device: "independent", version: "1.4"), captured: f.context)
-            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().count, 4)
+            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().count, 4)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -229,14 +280,14 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
         let f = try await fixture()
         do {
             let saved = try append(f), batch = try saved.selection.restoredInlineBatches()[0]
-            let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory)
+            let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
             var legacy = CloudUploadJob(id: AccountScope.digest("legacy-overlap"), owner: f.context.scope, generation: f.context.generation,
                 endpoint: endpoint, deviceID: device, createdAt: Date(), operation: .request, method: "POST", headers: [:])
             legacy.batchID = batch.batchId; legacy.receiverStateID = receiver; legacy.phase = .responseSaved
             legacy.correlation = UUID()
             legacy.responseStatus = 200; legacy.responseBody = Data("unproven".utf8)
             try journal.persistBody(Data("retained legacy".utf8), job: &legacy); try journal.save(legacy)
-            let legacyBytes = try Data(contentsOf: f.layout.uploadDirectory.appendingPathComponent(legacy.id + ".json"))
+            let legacyBytes = try XCTUnwrap(journal.metadata.read(legacy.id + ".json"))
             try await f.runtime.queue.prepareSelection(saved, captured: f.context)
             let reply = try W5ReceiptFixture.bytes(W5ReceiptFixture.inline(batch, owner: f.context.scope.userID))
             PreparedURLProtocol.set { request in
@@ -246,7 +297,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             guard case .accepted = result else { throw PreparedStop.rejected(String(describing: result)) }
             let remaining = try journal.load(); XCTAssertEqual(remaining.count, 1)
             XCTAssertEqual(try Data(contentsOf: journal.bodyURL(legacy)), Data("retained legacy".utf8))
-            XCTAssertEqual(try Data(contentsOf: f.layout.uploadDirectory.appendingPathComponent(legacy.id + ".json")), legacyBytes)
+            XCTAssertEqual(try XCTUnwrap(journal.metadata.read(legacy.id + ".json")), legacyBytes)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -264,13 +315,15 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             XCTAssertThrowsError(try quota.admit(allocation, occupiedBytes: 0, reservedBytes: 0, groups: 0, jobs: 255))
             XCTAssertThrowsError(try quota.admit(allocation, occupiedBytes: Int.max, reservedBytes: Int.max, groups: 0, jobs: 0))
             let path = f.root.appendingPathComponent("quota-only")
-            let journal = try CloudUploadJournal(directory: path, maximumBytes: allocation.total)
+            let baseline = try CloudUploadJournal(directory: path, resourceBudget: self.resourceBudget)
+            try baseline.loadSelections(owner: f.context.scope)
+            let journal = try CloudUploadJournal(directory: path, maximumBytes: allocation.total + baseline.storageAccounting().used, resourceBudget: self.resourceBudget)
             try journal.reserve(saved, legacyJobs: 0)
             var legacy = CloudUploadJob(id: AccountScope.digest("ordinary-overflow"), owner: f.context.scope,
                 generation: f.context.generation, endpoint: endpoint, deviceID: device, createdAt: Date(), operation: .request,
                 method: "POST", headers: [:])
             XCTAssertThrowsError(try journal.persistBody(Data([1]), job: &legacy), "ordinary bytes cannot spend completion reserve")
-            XCTAssertTrue(journal.selections[saved.id] != nil)
+            XCTAssertTrue(journal.selectionIndex[saved.id] != nil)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -283,21 +336,21 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 let layout = AccountStorageLayout(baseDirectory: f.root.appendingPathComponent("write-\(position)"), scope: f.context.scope)
                 let fault = PreparedWriteFault(position)
                 let adapter = PreparedAdapter()
-                let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: adapter,
+                let q = try CloudUploadQueue(context: f.context, layout: layout, adapter: adapter,
                     authorize: { _ in XCTFail("prepublication auth"); throw PreparedStop.crash }, isCurrent: { _ in true },
                     policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) },
                     control: { _ in XCTFail("prepublication request"); throw PreparedStop.crash },
-                    journalWriteObserver: { try fault.write($0) })
+                    journalWriteObserver: { try fault.write($0) }, resourceBudget: self.resourceBudget)
                 do { try await q.prepareSelection(saved, captured: f.context); XCTFail("fault \(position) not reached") } catch {}
                 await q.suspend()
                 XCTAssertEqual(adapter.count, 0)
-                let reopened = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: adapter,
+                let reopened = try CloudUploadQueue(context: f.context, layout: layout, adapter: adapter,
                     authorize: { _ in throw PreparedStop.crash }, isCurrent: { _ in true },
-                    policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) }, control: { _ in throw PreparedStop.crash })
+                    policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) }, control: { _ in throw PreparedStop.crash }, resourceBudget: self.resourceBudget)
                 try await reopened.reconcile()
                 XCTAssertEqual(adapter.count, 0, "partial selection cannot deliver")
                 try await reopened.prepareSelection(saved, captured: f.context)
-                let journal = try CloudUploadJournal(directory: layout.uploadDirectory)
+                let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget)
                 let jobs = try journal.load(); XCTAssertEqual(jobs.count, 2)
                 for job in jobs.values { try journal.verifyBody(job); XCTAssertEqual(job.deliveryAdmitted, false) }
                 let original = try await reopened.preparedSelection(saved.id, captured: f.context)
@@ -315,25 +368,25 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             for position in 1...7 {
                 let layout = AccountStorageLayout(baseDirectory: f.root.appendingPathComponent("live-write-\(position)"), scope: f.context.scope)
                 let fault = PreparedWriteFault(position), adapter = PreparedAdapter()
-                let queue = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: adapter,
+                let queue = try CloudUploadQueue(context: f.context, layout: layout, adapter: adapter,
                     authorize: { _ in XCTFail("no auth before delivery"); throw PreparedStop.crash }, isCurrent: { _ in true },
                     policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) },
                     control: { _ in XCTFail("no request before delivery"); throw PreparedStop.crash },
-                    journalWriteObserver: { try fault.write($0) })
+                    journalWriteObserver: { try fault.write($0) }, resourceBudget: self.resourceBudget)
                 do { try await queue.prepareSelection(saved, captured: f.context); XCTFail("missing fault \(position)") } catch {}
                 do { try await queue.prepareSelection(correction, captured: f.context); XCTFail("live lane was released") }
                 catch { XCTAssertEqual(error as? CloudUploadError, .retryScheduled) }
-                let pending = try await queue.preparedSelections(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
-                XCTAssertEqual(pending.map(\.id), [saved.id])
+                let pending = try await queue.preparedSelectionIDs(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
+                XCTAssertEqual(pending, [saved.id])
                 if position <= 2 {
                     do { try await queue.prepareSelection(independent, captured: f.context); XCTFail("ambiguous reservation allowed fresh admission") }
                     catch { XCTAssertEqual(error as? CloudUploadError, .retryScheduled) }
                 }
                 try await queue.prepareSelection(saved, captured: f.context)
-                let journal = try CloudUploadJournal(directory: layout.uploadDirectory)
+                let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget)
                 try journal.loadSelections(owner: f.context.scope)
                 XCTAssertEqual(journal.continuations[saved.id]?.published, true)
-                XCTAssertEqual(try Data(contentsOf: layout.uploadDirectory.appendingPathComponent(saved.id + ".selection")), try saved.encoded())
+                XCTAssertEqual(try XCTUnwrap(journal.selection(saved.id)).encoded(), try saved.encoded())
                 for job in try journal.load().values { try journal.verifyBody(job); XCTAssertEqual(job.deliveryAdmitted, false) }
                 try await queue.prepareSelection(independent, captured: f.context)
                 try await queue.reconcile()
@@ -352,11 +405,13 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             for position in 1...2 {
                 let fault = PreparedWriteFault(position)
                 let path = f.root.appendingPathComponent("live-quota-\(position)")
-                let journal = try CloudUploadJournal(directory: path, maximumBytes: allocation.total, afterWrite: { try fault.write($0) })
+                let baseline = try CloudUploadJournal(directory: path, resourceBudget: self.resourceBudget)
+                try baseline.loadSelections(owner: f.context.scope)
+                let journal = try CloudUploadJournal(directory: path, maximumBytes: allocation.total + baseline.storageAccounting().used, afterWrite: { try fault.write($0) }, resourceBudget: self.resourceBudget)
                 XCTAssertThrowsError(try journal.reserve(saved, legacyJobs: 0))
-                XCTAssertEqual(journal.selections[saved.id]?.id, saved.id)
+                XCTAssertEqual(journal.selectionIndex[saved.id]?.id, saved.id)
                 let retained = try journal.storageAccounting()
-                XCTAssertEqual(retained.used + retained.reserved, allocation.total)
+                XCTAssertGreaterThanOrEqual(retained.used + retained.reserved, allocation.total)
                 var ordinary = CloudUploadJob(id: AccountScope.digest("pending-ordinary"), owner: f.context.scope,
                     generation: f.context.generation, endpoint: endpoint, deviceID: device, createdAt: Date(), operation: .request,
                     method: "POST", headers: [:])
@@ -365,9 +420,9 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 XCTAssertThrowsError(try journal.reserve(independent, legacyJobs: 0))
                 try journal.reserve(saved, legacyJobs: 0)
                 let repaired = try journal.storageAccounting()
-                XCTAssertEqual(repaired.used + repaired.reserved, allocation.total)
+                XCTAssertGreaterThanOrEqual(repaired.used + repaired.reserved, allocation.total)
                 XCTAssertThrowsError(try journal.reserve(independent, legacyJobs: 0)) { XCTAssertEqual($0 as? CloudUploadError, .storageFull) }
-                XCTAssertEqual(try Data(contentsOf: path.appendingPathComponent(saved.id + ".selection")), try saved.encoded())
+                XCTAssertEqual(try XCTUnwrap(journal.selection(saved.id)).encoded(), try saved.encoded())
             }
         } catch { await close(f); throw error }
         await close(f)
@@ -379,24 +434,24 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let saved = try append(f), independent = try append(f, device: "independent")
             for (position, suffix) in [(1, "selection"), (2, "continuation")] {
                 let path = f.root.appendingPathComponent("unknown-live-\(position)"), fault = PreparedWriteFault(position)
-                let journal = try CloudUploadJournal(directory: path, afterWrite: { try fault.write($0) })
+                let journal = try CloudUploadJournal(directory: path, afterWrite: { try fault.write($0) }, resourceBudget: self.resourceBudget)
                 XCTAssertThrowsError(try journal.reserve(saved, legacyJobs: 0))
                 let unknownPath = path.appendingPathComponent(saved.id + "." + suffix)
-                var unknown = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: unknownPath)) as? [String: Any])
+                var unknown = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(journal.metadata.read(unknownPath.lastPathComponent))) as? [String: Any])
                 unknown["version"] = 3
                 let bytes = try JSONSerialization.data(withJSONObject: unknown, options: [.sortedKeys])
-                try bytes.write(to: unknownPath)
+                try journal.metadata.put(unknownPath.lastPathComponent, data: bytes)
                 for _ in 0..<2 {
                     XCTAssertThrowsError(try journal.reserve(saved, legacyJobs: 0))
                     XCTAssertThrowsError(try journal.reserve(independent, legacyJobs: 0))
-                    XCTAssertEqual(try Data(contentsOf: unknownPath), bytes)
-                    XCTAssertEqual(journal.selections.count, 1)
+                    XCTAssertEqual(try XCTUnwrap(journal.metadata.read(unknownPath.lastPathComponent)), bytes)
+                    XCTAssertEqual(journal.selectionIndex.count, 1)
                     XCTAssertEqual(journal.continuations[saved.id]?.published, false)
                 }
-                let reopened = try CloudUploadJournal(directory: path)
+                let reopened = try CloudUploadJournal(directory: path, resourceBudget: self.resourceBudget)
                 XCTAssertThrowsError(try reopened.loadSelections(owner: f.context.scope))
                 XCTAssertThrowsError(try reopened.reserve(independent, legacyJobs: 0))
-                XCTAssertEqual(try Data(contentsOf: unknownPath), bytes)
+                XCTAssertEqual(try XCTUnwrap(journal.metadata.read(unknownPath.lastPathComponent)), bytes)
             }
         } catch { await close(f); throw error }
         await close(f)
@@ -407,22 +462,22 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
         do {
             let original = try append(f), correction = try append(f, row: 2), independent = try append(f, device: "independent")
             let layout = AccountStorageLayout(baseDirectory: f.root.appendingPathComponent("duplicate-lanes"), scope: f.context.scope)
-            let journal = try CloudUploadJournal(directory: layout.uploadDirectory)
+            let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget)
             let snapshots = try [original, correction].map { ($0.id, try $0.encoded()) }
             for (id, bytes) in snapshots { try journal.durableWrite(bytes, to: layout.uploadDirectory.appendingPathComponent(id + ".selection")) }
             XCTAssertEqual(original.laneID, correction.laneID)
             for _ in 0..<2 {
                 XCTAssertThrowsError(try journal.loadSelections(owner: f.context.scope)) { XCTAssertEqual($0 as? CloudUploadError, .corruptJournal) }
                 XCTAssertThrowsError(try journal.reserve(independent, legacyJobs: 0))
-                XCTAssertTrue(journal.selections.isEmpty, "failed load must not expose a hash-ordered partial queue")
-                XCTAssertThrowsError(try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: PreparedAdapter(),
+                XCTAssertTrue(journal.selectionIndex.isEmpty, "failed load must not expose a hash-ordered partial queue")
+                XCTAssertThrowsError(try CloudUploadQueue(context: f.context, layout: layout, adapter: PreparedAdapter(),
                     authorize: { _ in XCTFail("duplicate lane auth"); throw PreparedStop.crash }, isCurrent: { _ in true },
                     policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) },
-                    control: { _ in XCTFail("duplicate lane request"); throw PreparedStop.crash }))
+                    control: { _ in XCTFail("duplicate lane request"); throw PreparedStop.crash }, resourceBudget: self.resourceBudget))
                 for (id, bytes) in snapshots {
-                    XCTAssertEqual(try Data(contentsOf: layout.uploadDirectory.appendingPathComponent(id + ".selection")), bytes)
+                    XCTAssertEqual(try XCTUnwrap(journal.metadata.read(id + ".selection")), bytes)
                 }
-                XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: layout.uploadDirectory.path).count, 2)
+                XCTAssertEqual(try journal.metadata.names(kind: "selection").count, 2)
             }
         } catch { await close(f); throw error }
         await close(f)
@@ -476,8 +531,8 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             XCTAssertEqual(old?.window.startTsInclusive, -86_300)
             XCTAssertEqual(old?.dayHashes, saved.commit.window?.dayHashes)
             let current = try await progress(f, version: "1.4").window(table: .journal, deviceId: device); XCTAssertNil(current)
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
-            let remaining = try await f.runtime.queue.preparedSelections(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
+            let remaining = try await f.runtime.queue.preparedSelectionIDs(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
             XCTAssertTrue(remaining.isEmpty)
         } catch { await close(f); throw error }
         await close(f)
@@ -501,15 +556,15 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 do { try await c.commit(saved.commit, preparedSelectionID: saved.id); XCTFail("fault absent") } catch {}
                 let debts = await p.pendingCommits(); XCTAssertEqual(debts.count, 1)
                 let reference = await p.preparedReference(saved.commit); XCTAssertEqual(reference, saved.id)
-                if boundary > 0 { XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty) }
+                if boundary > 0 { XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty) }
                 let root = f.root; try await stop(f); f = try await fixture(root: root)
                 PreparedURLProtocol.set { _ in XCTFail("cleanup recovery sent a request"); throw PreparedStop.crash }
                 let recovered = try progress(f, version: "1.2")
                 try await committer(f, recovered).recover(); try await committer(f, recovered).recover()
                 let remaining = await recovered.pendingCommits(); XCTAssertTrue(remaining.isEmpty)
-                let selections = try await f.runtime.queue.preparedSelections(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
+                let selections = try await f.runtime.queue.preparedSelectionIDs(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
                 XCTAssertTrue(selections.isEmpty)
-                XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+                XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
             } catch { await close(f); throw error }
             await close(f)
         }
@@ -521,18 +576,18 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let saved = try append(f)
             for version in [1, 3] {
                 let path = f.root.appendingPathComponent("unknown-\(version)")
-                let journal = try CloudUploadJournal(directory: path)
+                let journal = try CloudUploadJournal(directory: path, resourceBudget: self.resourceBudget)
                 var encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: saved.encoded()) as? [String: Any])
                 encoded["version"] = version
                 let bytes = try JSONSerialization.data(withJSONObject: encoded, options: [.sortedKeys])
                 let file = path.appendingPathComponent(saved.id + ".selection")
                 try journal.durableWrite(bytes, to: file)
                 XCTAssertThrowsError(try journal.loadSelections(owner: f.context.scope))
-                XCTAssertEqual(try Data(contentsOf: file), bytes)
+                XCTAssertEqual(try journal.metadata.read(file.lastPathComponent), bytes)
             }
             try await f.runtime.queue.prepareSelection(saved, captured: f.context)
-            let job = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory).load().values.first)
-            let url = try CloudUploadJournal(directory: f.layout.uploadDirectory).bodyURL(job)
+            let job = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().values.first)
+            let url = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).bodyURL(job)
             try Data("controlled corruption".utf8).write(to: url)
             do { try await f.runtime.queue.prepareSelection(saved, captured: f.context); XCTFail("corrupt body admitted") }
             catch { XCTAssertEqual(error as? CloudUploadError, .changedPayload) }
@@ -558,11 +613,11 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             try await stop(f); f = try await fixture(root: root)
             let repeated = try await f.runtime.queue.resumeManifest(selectionID: saved.id, captured: f.context)
             XCTAssertEqual(repeated, successor)
-            let jobs = try CloudUploadJournal(directory: f.layout.uploadDirectory).load()
+            let jobs = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load()
             XCTAssertEqual(jobs.count, 2)
             for job in jobs.values {
-                XCTAssertEqual(job.payloadSHA256, PushDurabilityReceipt.sha256(batch.payload))
-                XCTAssertEqual(try Data(contentsOf: f.layout.uploadDirectory.appendingPathComponent(job.payloadName!)), batch.payload)
+                XCTAssertEqual(job.payloadSHA256, batch.wireSHA256)
+                XCTAssertEqual(try Data(contentsOf: f.layout.uploadDirectory.appendingPathComponent(job.payloadName!)), (try batch.payload))
             }
             var ack = W5ReceiptFixture.object(batch, owner: f.context.scope.userID)
             ack["objectId"] = successor.objectId
@@ -581,7 +636,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let receiptKey = try await f.store.registryWriter.read { try String.fetchOne($0, sql: "SELECT objectKey FROM rawDurabilityReceipt") }
             XCTAssertEqual(receiptKey, W5ReceiptFixture.objectKey(owner: f.context.scope.userID,
                 device: batch.deviceId, stream: batch.wireName))
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -595,12 +650,12 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let intentData = try W5ReceiptFixture.bytes(["type": "objectIntent", "protocolVersion": "1.2", "objectId": batch.objectId,
                 "objectKey": "staging/expiry", "duplicate": false, "uploadUrl": "https://bucket.example/renewed",
                 "requiredHeaders": [:], "expiresAt": "2030-01-01T00:00:00Z"])
-            let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: adapter, authorize: { _ in "synthetic" },
+            let q = try CloudUploadQueue(context: f.context, layout: layout, adapter: adapter, authorize: { _ in "synthetic" },
                 isCurrent: { _ in true }, policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
                 control: { request in
                     XCTAssertEqual(request.httpBody, saved.selection.objectIntentBytes); renewals.add()
                     return .init(statusCode: 200, body: intentData)
-                })
+                }, resourceBudget: self.resourceBudget)
             try await q.prepareSelection(saved, captured: f.context)
             try await q.admitPreparedIntent(.init(batch: batch), endpoint: endpoint, receiverStateID: receiver, captured: f.context)
             try await q.recordIntent(.init(batch: batch), lane: lane,
@@ -612,22 +667,22 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let task = try XCTUnwrap(adapter.last)
             XCTAssertEqual(task.request.url?.absoluteString, "https://bucket.example/renewed")
             XCTAssertFalse(task.request.allowsCellularAccess)
-            XCTAssertEqual(try Data(contentsOf: task.file), batch.payload)
+            XCTAssertEqual(try Data(contentsOf: task.file), (try batch.payload))
             await q.receive(task.task, status: 403, body: Data(), error: false)
             await q.suspend()
-            let reopened = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: .init(scope: f.context.scope, generation: UUID()), layout: layout, adapter: adapter,
+            let reopened = try CloudUploadQueue(context: .init(scope: f.context.scope, generation: UUID()), layout: layout, adapter: adapter,
                 authorize: { _ in "synthetic" }, isCurrent: { _ in true },
                 policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) }, control: { request in
                     XCTAssertEqual(request.httpBody, saved.selection.objectIntentBytes); renewals.add()
                     return .init(statusCode: 200, body: intentData)
-                }, now: { Date().addingTimeInterval(600) })
+                }, now: { Date().addingTimeInterval(600) }, resourceBudget: self.resourceBudget)
             try await reopened.reconcile()
             XCTAssertEqual(renewals.value, 2); XCTAssertEqual(adapter.count, 2)
             XCTAssertEqual(adapter.last?.file, task.file)
-            let job = try XCTUnwrap(CloudUploadJournal(directory: layout.uploadDirectory).load().values.first)
+            let job = try XCTUnwrap(CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget).load().values.first)
             XCTAssertEqual(job.objectID, batch.objectId)
             XCTAssertEqual(job.objectKey, "staging/expiry")
-            XCTAssertEqual(job.payloadSHA256, PushDurabilityReceipt.sha256(batch.payload))
+            XCTAssertEqual(job.payloadSHA256, batch.wireSHA256)
             await reopened.suspend()
         } catch { await close(f); throw error }
         await close(f)
@@ -638,9 +693,9 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
         do {
             let saved = try append(f)
             try await f.runtime.queue.prepareSelection(saved, captured: f.context)
-            let otherSource = try await f.runtime.queue.preparedSelections(sourceID: UUID().uuidString.lowercased(), endpoint: endpoint,
+            let otherSource = try await f.runtime.queue.preparedSelectionIDs(sourceID: UUID().uuidString.lowercased(), endpoint: endpoint,
                 receiverStateID: receiver, captured: f.context)
-            let otherReceiver = try await f.runtime.queue.preparedSelections(sourceID: source, endpoint: endpoint,
+            let otherReceiver = try await f.runtime.queue.preparedSelectionIDs(sourceID: source, endpoint: endpoint,
                 receiverStateID: "different", captured: f.context)
             XCTAssertTrue(otherSource.isEmpty); XCTAssertTrue(otherReceiver.isEmpty)
             let other = AccountSessionContext(scope: try .init(projectURL: f.context.scope.projectURL,
@@ -652,7 +707,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             do { try await f.runtime.queue.prepareSelection(copied, captured: f.context); XCTFail("owner reassigned") }
             catch { XCTAssertEqual(error as? CloudUploadError, .staleOwner) }
             XCTAssertNotEqual(copied.id, saved.id)
-            XCTAssertEqual(try CloudPushPreparedSelection.decode(Data(contentsOf: f.layout.uploadDirectory.appendingPathComponent(saved.id + ".selection"))).capturedGeneration, f.context.generation)
+            XCTAssertEqual(try preparedSavedSelection(directory: f.layout.uploadDirectory, id: saved.id, owner: f.context.scope, resourceBudget: self.resourceBudget).capturedGeneration, f.context.generation)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -750,7 +805,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             XCTAssertEqual(archiveOrigins, ["session", "continuous"])
             XCTAssertEqual(try imu.readIndex { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM member") }, 0,
                 "rows plus exact archives and completed source cleanup authorize bounded compaction")
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -763,25 +818,25 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             for position in 1...3 {
                 let layout = AccountStorageLayout(baseDirectory: f.root.appendingPathComponent("conflict-\(position)"), scope: f.context.scope)
                 let adapter = PreparedAdapter()
-                let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: adapter, authorize: { _ in throw PreparedStop.crash },
-                    isCurrent: { _ in true }, policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) }, control: { _ in throw PreparedStop.crash })
+                let q = try CloudUploadQueue(context: f.context, layout: layout, adapter: adapter, authorize: { _ in throw PreparedStop.crash },
+                    isCurrent: { _ in true }, policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) }, control: { _ in throw PreparedStop.crash }, resourceBudget: self.resourceBudget)
                 try await q.prepareSelection(saved, captured: f.context)
                 try await q.recordPreparedConflict(.init(batch: batch), endpoint: endpoint, receiverStateID: receiver, captured: f.context)
                 await q.suspend()
                 let fault = PreparedWriteFault(position)
-                let broken = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: adapter, authorize: { _ in throw PreparedStop.crash },
+                let broken = try CloudUploadQueue(context: f.context, layout: layout, adapter: adapter, authorize: { _ in throw PreparedStop.crash },
                     isCurrent: { _ in true }, policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) },
-                    control: { _ in throw PreparedStop.crash }, journalWriteObserver: { try fault.write($0) })
+                    control: { _ in throw PreparedStop.crash }, journalWriteObserver: { try fault.write($0) }, resourceBudget: self.resourceBudget)
                 do { try await broken.admitPreparedIntent(successor, endpoint: endpoint, receiverStateID: receiver, captured: f.context); XCTFail("missing fault") } catch {}
                 await broken.suspend()
-                let recovered = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: adapter, authorize: { _ in throw PreparedStop.crash },
-                    isCurrent: { _ in true }, policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) }, control: { _ in throw PreparedStop.crash })
+                let recovered = try CloudUploadQueue(context: f.context, layout: layout, adapter: adapter, authorize: { _ in throw PreparedStop.crash },
+                    isCurrent: { _ in true }, policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) }, control: { _ in throw PreparedStop.crash }, resourceBudget: self.resourceBudget)
                 try await recovered.prepareSelection(saved, captured: f.context)
                 let identity = try await recovered.resumeManifest(selectionID: saved.id, captured: f.context)
                 XCTAssertEqual(identity, successor)
-                let journal = try CloudUploadJournal(directory: layout.uploadDirectory)
+                let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget)
                 XCTAssertEqual(try journal.load().count, 2)
-                for job in try journal.load().values { try journal.verifyBody(job); XCTAssertEqual(job.payloadSHA256, PushDurabilityReceipt.sha256(batch.payload)) }
+                for job in try journal.load().values { try journal.verifyBody(job); XCTAssertEqual(job.payloadSHA256, batch.wireSHA256) }
                 XCTAssertEqual(adapter.count, 0)
                 await recovered.suspend()
             }
@@ -797,15 +852,16 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let bytes = try W5ReceiptFixture.bytes(W5ReceiptFixture.inline(batch, owner: f.context.scope.userID))
             let receipt = try XCTUnwrap(PushAck.parse(bytes).durabilityReceipt)
             try await p.associateInline(batch: batch, receipt: receipt)
-            let legacy = try FileManager.default.contentsOfDirectory(at: f.runtime.progressDirectory, includingPropertiesForKeys: nil).filter { $0.pathExtension == "receipt" }
+            let progressMetadata = try CloudMetadataStore(directory: f.runtime.progressDirectory)
+            let legacy = try progressMetadata.names(kind: "receipt").filter { $0.contains(".progress.") }
             XCTAssertEqual(legacy.count, 1)
-            let original = try Data(contentsOf: legacy[0])
+            let original = try XCTUnwrap(progressMetadata.read(legacy[0]))
             try await f.runtime.queue.prepareSelection(saved, captured: f.context)
             PreparedURLProtocol.set { _ in (200, bytes) }
             let result = await coordinator(f, p, version: "1.2").resumePrepared(saved.selection)
             guard case .accepted = result else { throw PreparedStop.rejected(String(describing: result)) }
-            XCTAssertEqual(try Data(contentsOf: legacy[0]), original)
-            let after = try FileManager.default.contentsOfDirectory(at: f.runtime.progressDirectory, includingPropertiesForKeys: nil).filter { $0.pathExtension == "receipt" }
+            XCTAssertEqual(try XCTUnwrap(progressMetadata.read(legacy[0])), original)
+            let after = try progressMetadata.names(kind: "receipt").filter { $0.contains(".progress.") }
             XCTAssertEqual(after, legacy)
         } catch { await close(f); throw error }
         await close(f)
@@ -816,22 +872,22 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
         do {
             let saved = try append(f)
             try await f.runtime.queue.prepareSelection(saved, captured: f.context)
-            let markerJournal = try CloudUploadJournal(directory: f.layout.uploadDirectory)
+            let markerJournal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
             try markerJournal.loadSelections(owner: f.context.scope)
             var marker = try XCTUnwrap(markerJournal.continuations[saved.id]); marker.sourceCommitted = true
             try markerJournal.saveContinuation(marker)
             for var job in try markerJournal.load().values { job.acknowledged = true; try markerJournal.save(job) }
             let path = f.layout.uploadDirectory.appendingPathComponent(saved.id + ".selection")
             let heldPath = f.root.appendingPathComponent("retained-selection")
-            try FileManager.default.moveItem(at: path, to: heldPath) // Synthetic missing continuation proof.
-            try FileManager.default.moveItem(at: f.layout.uploadDirectory.appendingPathComponent(saved.id + ".continuation"),
-                to: f.root.appendingPathComponent("retained-continuation"))
-            let jobsBefore = try CloudUploadJournal(directory: f.layout.uploadDirectory).load()
-            let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory)
-            XCTAssertThrowsError(try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: f.layout, adapter: PreparedAdapter(),
+            try saved.encoded().write(to: heldPath) // Synthetic retained evidence of missing continuation proof.
+            try markerJournal.metadata.remove(path.lastPathComponent)
+            try markerJournal.metadata.remove(saved.id + ".continuation")
+            let jobsBefore = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load()
+            let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
+            XCTAssertThrowsError(try CloudUploadQueue(context: f.context, layout: f.layout, adapter: PreparedAdapter(),
                 authorize: { _ in throw PreparedStop.crash }, isCurrent: { _ in true },
-                policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) }, control: { _ in throw PreparedStop.crash }))
-            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().count, jobsBefore.count)
+                policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) }, control: { _ in throw PreparedStop.crash }, resourceBudget: self.resourceBudget))
+            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().count, jobsBefore.count)
             for job in jobsBefore.values { XCTAssertTrue(FileManager.default.fileExists(atPath: try journal.bodyURL(job).path)) }
             XCTAssertEqual(try CloudPushPreparedSelection.decode(Data(contentsOf: heldPath)).id, saved.id)
         } catch { await close(f); throw error }
@@ -842,12 +898,14 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
         let f = try await fixture()
         do {
             let saved = try append(f), batch = try saved.selection.restoredInlineBatches()[0]
-            let capacity = try CloudPreparedQuota().reservation(for: saved).total
             let layout = AccountStorageLayout(baseDirectory: f.root.appendingPathComponent("full-queue"), scope: f.context.scope)
+            let baseline = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget)
+            try baseline.loadSelections(owner: f.context.scope)
+            let capacity = try CloudPreparedQuota().reservation(for: saved).total + baseline.storageAccounting().used
             let adapter = PreparedAdapter()
-            let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: adapter, authorize: { _ in "synthetic" },
+            let q = try CloudUploadQueue(context: f.context, layout: layout, adapter: adapter, authorize: { _ in "synthetic" },
                 isCurrent: { _ in true }, policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
-                control: { _ in throw PreparedStop.crash }, maximumBytes: capacity)
+                control: { _ in throw PreparedStop.crash }, maximumBytes: capacity, resourceBudget: self.resourceBudget)
             try await q.prepareSelection(saved, captured: f.context)
             do { _ = try await q.request(endpoint: endpoint, body: Data([1]), headers: [:], captured: f.context); XCTFail("ordinary admission spent reserve") }
             catch { XCTAssertEqual(error as? CloudUploadError, .storageFull) }
@@ -868,7 +926,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 retirePrepared: { try await q.retireSelection($0, captured: captured) })
             try await c.commit(saved.commit, preparedSelectionID: saved.id)
             let cursor = try await p.cursor(table: .hrSample, deviceId: device); XCTAssertEqual(cursor, batch.endCursor)
-            XCTAssertTrue(try CloudUploadJournal(directory: layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
             let debt = await p.pendingCommits(); XCTAssertTrue(debt.isEmpty)
             await q.suspend()
         } catch { await close(f); throw error }
@@ -879,27 +937,50 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
         let f = try await fixture()
         do {
             for index in 0..<64 { try await f.runtime.queue.prepareSelection(try append(f, device: "group-\(index)"), captured: f.context) }
-            do { try await f.runtime.queue.prepareSelection(try append(f, device: "group-65"), captured: f.context); XCTFail("group count overflow") }
-            catch { XCTAssertEqual(error as? CloudUploadError, .storageFull) }
-            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().count, 128)
-            let groups = try await f.runtime.queue.preparedSelections(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
+            let groupOverflow = try append(f, device: "group-65")
+            do { try await f.runtime.queue.prepareSelection(groupOverflow, captured: f.context); XCTFail("128 queued jobs must stop fresh preparation") }
+            catch { XCTAssertEqual(error as? CloudUploadError, .retryScheduled) }
+            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().count, 128)
+            let groups = try await f.runtime.queue.preparedSelectionIDs(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
             XCTAssertEqual(groups.count, 64)
+            let groupJournal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
+            try groupJournal.loadSelections(owner: f.context.scope)
+            XCTAssertThrowsError(try groupJournal.reserve(groupOverflow, legacyJobs: 0)) {
+                XCTAssertEqual($0 as? CloudUploadError, .storageFull)
+            }
+            XCTAssertNil(try groupJournal.metadata.read(groupOverflow.id + ".selection"))
+            XCTAssertEqual(groupJournal.selectionIndex.count, 64)
+            await f.runtime.queue.suspend() // Independent cap fixture must not inherit this queue's pressure.
             let layout = AccountStorageLayout(baseDirectory: f.root.appendingPathComponent("job-cap"), scope: f.context.scope)
-            let journal = try CloudUploadJournal(directory: layout.uploadDirectory)
+            let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget)
             for index in 0..<254 {
                 var job = CloudUploadJob(id: AccountScope.digest("legacy-\(index)"), owner: f.context.scope, generation: f.context.generation,
                     endpoint: endpoint, deviceID: device, createdAt: Date(), operation: .request, method: "POST", headers: [:])
                 job.phase = .responseSaved; job.responseStatus = 200; job.responseBody = Data("unproven".utf8)
                 try journal.persistBody(Data([1]), job: &job); try journal.save(job)
             }
-            let q = try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: PreparedAdapter(), authorize: { _ in throw PreparedStop.crash },
-                isCurrent: { _ in true }, policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) }, control: { _ in throw PreparedStop.crash })
-            try await q.prepareSelection(try append(f, device: "job-255-256"), captured: f.context)
-            do { try await q.prepareSelection(try append(f, device: "over-job-cap"), captured: f.context); XCTFail("job count overflow") }
-            catch { XCTAssertEqual(error as? CloudUploadError, .storageFull) }
-            XCTAssertEqual(try journal.load().count, 256)
-            XCTAssertEqual(try journal.load().values.filter { $0.preparedSelectionID == nil }.count, 254)
+            let q = try CloudUploadQueue(context: f.context, layout: layout, adapter: PreparedAdapter(), authorize: { _ in throw PreparedStop.crash },
+                isCurrent: { _ in true }, policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) }, control: { _ in throw PreparedStop.crash }, resourceBudget: self.resourceBudget)
+            let finalSlots = try append(f, device: "job-255-256")
+            do { try await q.prepareSelection(finalSlots, captured: f.context); XCTFail("restored legacy debt must stop new preparation") }
+            catch { XCTAssertEqual(error as? CloudUploadError, .retryScheduled) }
+            XCTAssertNil(try journal.metadata.read(finalSlots.id + ".selection"))
             await q.suspend()
+            // Exercise the journal's hard capacity independently from the queue's earlier soft
+            // backpressure threshold. Reserved slots must count before any jobs are published.
+            try journal.loadSelections(owner: f.context.scope)
+            try journal.reserve(finalSlots, legacyJobs: 254)
+            let reservation = try XCTUnwrap(journal.selectionIndex[finalSlots.id]?.reservation)
+            XCTAssertEqual(254 + reservation.jobSlots, 256)
+            let overflow = try append(f, device: "over-job-cap")
+            XCTAssertThrowsError(try journal.reserve(overflow, legacyJobs: 254)) {
+                XCTAssertEqual($0 as? CloudUploadError, .storageFull)
+            }
+            XCTAssertNil(try journal.metadata.read(overflow.id + ".selection"))
+            XCTAssertNil(try journal.metadata.read(overflow.id + ".continuation"))
+            XCTAssertEqual(journal.selectionIndex.count, 1)
+            XCTAssertEqual(try journal.load().count, 254)
+            XCTAssertEqual(try journal.load().values.filter { $0.preparedSelectionID == nil }.count, 254)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -911,9 +992,9 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let layout = AccountStorageLayout(baseDirectory: f.root.appendingPathComponent("disabled"), scope: f.context.scope)
             let adapter = PreparedAdapter()
             func make() throws -> CloudUploadQueue {
-                try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: f.context, layout: layout, adapter: adapter,
+                try CloudUploadQueue(context: f.context, layout: layout, adapter: adapter,
                     authorize: { _ in XCTFail("disabled authorization"); throw PreparedStop.crash }, isCurrent: { _ in true },
-                    policy: { .current(wifiOnly: true, enabled: false) }, control: { _ in XCTFail("disabled renewal"); throw PreparedStop.crash })
+                    policy: { .current(wifiOnly: true, enabled: false) }, control: { _ in XCTFail("disabled renewal"); throw PreparedStop.crash }, resourceBudget: self.resourceBudget)
             }
             let q = try make(); try await q.prepareSelection(saved, captured: f.context)
             do { try await q.checkIntentAdmission(captured: f.context); XCTFail("disabled intent") }
@@ -923,7 +1004,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 captured: f.context, receiverStateID: receiver, batchID: batch.batchId, selectionID: saved.id); XCTFail("disabled request") }
             catch { XCTAssertEqual(error as? CloudUploadError, .retryScheduled) }
             await q.suspend()
-            let journal = try CloudUploadJournal(directory: layout.uploadDirectory); try journal.loadSelections(owner: f.context.scope)
+            let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: self.resourceBudget); try journal.loadSelections(owner: f.context.scope)
             let id = saved.jobID(batchID: batch.batchId, representation: "gzip")
             var job = try XCTUnwrap(journal.load()[id])
             job.phase = .transferring; job.taskIdentifier = 42; job.attempt = UUID(); try journal.save(job)
@@ -948,8 +1029,8 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             guard case .accepted = result else { throw PreparedStop.rejected(String(describing: result)) }
             let synced = try await f.store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rawBatch WHERE syncedAt IS NOT NULL") }
             XCTAssertEqual(synced, 1)
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
-            let remaining = try await f.runtime.queue.preparedSelections(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
+            let remaining = try await f.runtime.queue.preparedSelectionIDs(sourceID: source, endpoint: endpoint, receiverStateID: receiver, captured: f.context)
             XCTAssertTrue(remaining.isEmpty)
             let debt = await p.pendingCommits(); XCTAssertTrue(debt.isEmpty)
         } catch { await close(f); throw error }
@@ -964,10 +1045,10 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
     }
 
     private func assertNoPreparedPublication(_ f: Fixture, file: StaticString = #filePath, line: UInt = #line) async throws {
-        let saved = try await f.runtime.queue.preparedSelections(sourceID: source, endpoint: endpoint,
+        let saved = try await f.runtime.queue.preparedSelectionIDs(sourceID: source, endpoint: endpoint,
             receiverStateID: receiver, captured: f.context)
         XCTAssertTrue(saved.isEmpty, file: file, line: line)
-        XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty, file: file, line: line)
+        XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty, file: file, line: line)
         let files = try FileManager.default.contentsOfDirectory(at: f.layout.uploadDirectory, includingPropertiesForKeys: nil)
         XCTAssertFalse(files.contains { ["selection", "continuation", "body", "json"].contains($0.pathExtension) }, file: file, line: line)
     }
@@ -995,23 +1076,24 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
     }
 
     func testSynchronousPreferenceBoundaryRejectsAfterEncodingBeforeQueueActorEntry() async throws {
-        let fence = PreparedPreferenceFence()
+        let fence = PreparedPreferenceFence(), gate = PreparedValidationGate()
         let validated = expectation(description: "encoded payload's metadata was validated")
         // Keep the async metadata answer true to isolate the independent synchronous fence.
-        let admission = await preferenceAdmission(fence, reportCurrent: true, revalidate: { validated.fulfill(); return true })
+        let admission = await preferenceAdmission(fence, reportCurrent: true, revalidate: { validated.fulfill(); return await gate.value() })
         let f = try await fixture(dependentAdmission: admission)
         let entered = expectation(description: "queue actor held before reservation")
         let barrier = PreparedQueueEntryBarrier(entered: entered)
-        defer { barrier.release() }
+        defer { barrier.release(); Task { await gate.release() } }
         do {
             PreparedURLProtocol.set { _ in XCTFail("stale actor entry issued network work"); throw PreparedStop.crash }
             let saved = try append(f)
-            let holding = Task { await f.runtime.queue.holdPreparedPreferenceTestEntry(barrier) }
-            await fulfillment(of: [entered], timeout: 2)
             let pending = Task { try await f.transport.prepareSelection(saved.selection, progressVersion: saved.progressVersion) }
             defer { pending.cancel() }
             await fulfillment(of: [validated], timeout: 2)
+            let holding = Task { await f.runtime.queue.holdPreparedPreferenceTestEntry(barrier) }
+            await fulfillment(of: [entered], timeout: 2)
             fence.revoke()
+            await gate.release()
             barrier.release()
             await holding.value
             do { try await pending.value; XCTFail("actor hop bypassed the captured boundary fence") }
@@ -1031,11 +1113,11 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             try await f.transport.prepareSelection(saved.selection, progressVersion: saved.progressVersion)
             XCTAssertEqual(fence.boundaryChecks, 1)
             let path = f.layout.uploadDirectory.appendingPathComponent(saved.id + ".selection")
-            let original = try Data(contentsOf: path)
+            let original = try preparedSavedSelection(directory: f.layout.uploadDirectory, id: saved.id, owner: f.context.scope, resourceBudget: self.resourceBudget).encoded()
             fence.revoke()
             try await f.transport.prepareSelection(saved.selection, progressVersion: saved.progressVersion)
             XCTAssertEqual(fence.boundaryChecks, 1, "exact replay must not acquire a replacement admission")
-            XCTAssertEqual(try Data(contentsOf: path), original)
+            XCTAssertEqual(try preparedSavedSelection(directory: f.layout.uploadDirectory, id: saved.id, owner: f.context.scope, resourceBudget: self.resourceBudget).encoded(), original)
             let fresh = try append(f, device: "not-admitted")
             do {
                 try await f.transport.prepareSelection(fresh.selection, progressVersion: fresh.progressVersion)
@@ -1051,12 +1133,12 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
             let received = try await f.transport.post(batch)
             XCTAssertEqual(received.body, response)
             XCTAssertEqual(requests.value, 1)
-            let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory)
+            let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
             let jobs = try journal.load()
             XCTAssertEqual(jobs.count, 2)
             XCTAssertTrue(jobs.values.allSatisfy { $0.preparedSelectionID == saved.id && !$0.acknowledged })
             XCTAssertNotNil(jobs[saved.jobID(batchID: batch.batchId, representation: "gzip")]?.validatedReceipt)
-            XCTAssertEqual(try Data(contentsOf: path), original)
+            XCTAssertEqual(try preparedSavedSelection(directory: f.layout.uploadDirectory, id: saved.id, owner: f.context.scope, resourceBudget: self.resourceBudget).encoded(), original)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -1134,9 +1216,9 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rawBatch WHERE syncedAt IS NOT NULL")
             }
             XCTAssertEqual(synced, 1)
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
             let debt = await p.pendingCommits(); XCTAssertTrue(debt.isEmpty)
-            let selections = try await f.runtime.queue.preparedSelections(sourceID: source, endpoint: endpoint,
+            let selections = try await f.runtime.queue.preparedSelectionIDs(sourceID: source, endpoint: endpoint,
                 receiverStateID: receiver, captured: f.context)
             XCTAssertTrue(selections.isEmpty)
         } catch { await close(f); throw error }
@@ -1164,7 +1246,7 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rawBatch WHERE syncedAt IS NOT NULL")
             }
             XCTAssertEqual(synced, 1)
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -1258,6 +1340,7 @@ private struct PreparedNoSelectionSource: PushSnapshotSource {
 }
 // Mill's two review test bodies are preserved verbatim; only fixture location/cleanup is adapted.
 final class PreparedWriteErrorReviewTests: XCTestCase {
+    private let resourceBudget = ResourceBudget(thermal: { 0 }, lowPower: { false })
     private let source = "3a3486dd-5030-4e17-a00d-a781399890f9"
     private let receiver = "99999999-9999-4999-8999-999999999999"
     private let endpoint = "https://project.example/functions/v1/push"
@@ -1281,11 +1364,11 @@ final class PreparedWriteErrorReviewTests: XCTestCase {
     }
     private func queue(_ layout: AccountStorageLayout, _ context: AccountSessionContext,
                        fault: FailFirstWrite? = nil) throws -> CloudUploadQueue {
-        try CloudUploadQueue(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, adapter: NoNetwork(),
+        try CloudUploadQueue(context: context, layout: layout, adapter: NoNetwork(),
             authorize: { _ in XCTFail("no auth"); throw Stop.writeFailure }, isCurrent: { _ in true },
             policy: { .init(concurrency: 0, allowsCellular: false, allowsConstrained: false) },
             control: { _ in XCTFail("no control request"); throw Stop.writeFailure },
-            journalWriteObserver: { try fault?.observe($0) })
+            journalWriteObserver: { try fault?.observe($0) }, resourceBudget: self.resourceBudget)
     }
     private func selection(_ context: AccountSessionContext, answer: Bool) throws -> CloudPushPreparedSelection {
         let window = PushWindow(fromDay: "2026-09-18", toDay: "2026-09-18", startTsInclusive: 100, endTsExclusive: 86500)
@@ -1319,8 +1402,7 @@ final class PreparedWriteErrorReviewTests: XCTestCase {
         let q = try queue(layout, context, fault: FailFirstWrite())
         do { try await q.prepareSelection(original, captured: context); XCTFail("write fault missing") }
         catch { XCTAssertTrue(error is Stop) }
-        let firstPath = layout.uploadDirectory.appendingPathComponent(original.id + ".selection")
-        XCTAssertEqual(try CloudPushPreparedSelection.decode(Data(contentsOf: firstPath)).id, original.id)
+        XCTAssertEqual(try preparedSavedSelection(directory: layout.uploadDirectory, id: original.id, owner: context.scope, resourceBudget: self.resourceBudget).id, original.id)
 
         var blocked = false
         do { try await q.prepareSelection(correction, captured: context) }
@@ -1328,9 +1410,9 @@ final class PreparedWriteErrorReviewTests: XCTestCase {
         XCTAssertTrue(blocked, "A durable original reservation must block a newer same-lane selection without requiring process death")
         await q.suspend()
         let reopened = try queue(layout, context)
-        let recovered = try await reopened.preparedSelections(sourceID: source, endpoint: endpoint,
+        let recovered = try await reopened.preparedSelectionIDs(sourceID: source, endpoint: endpoint,
             receiverStateID: receiver, captured: context)
-        print("REVIEW durable same-lane selections after live retry: \(recovered.map(\.id))")
+        print("REVIEW durable same-lane selections after live retry: \(recovered)")
         XCTAssertEqual(recovered.count, 1, "Restart must not discover two snapshots for the same reserved lane")
         await reopened.suspend()
     }
@@ -1345,9 +1427,9 @@ final class PreparedWriteErrorReviewTests: XCTestCase {
         do { try await reopened.prepareSelection(correction, captured: context) }
         catch { blocked = true; XCTAssertEqual(error as? CloudUploadError, .retryScheduled) }
         XCTAssertTrue(blocked)
-        let recovered = try await reopened.preparedSelections(sourceID: source, endpoint: endpoint,
+        let recovered = try await reopened.preparedSelectionIDs(sourceID: source, endpoint: endpoint,
             receiverStateID: receiver, captured: context)
-        XCTAssertEqual(recovered.map(\.id), [original.id])
+        XCTAssertEqual(recovered, [original.id])
         await reopened.suspend()
     }
 }

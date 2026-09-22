@@ -78,6 +78,7 @@ extension WhoopStore {
                 guard try rawResourceCanPrune(db, lane: "rawBatch", deviceID: scope.deviceID,
                                               key: identity.batchID, now: Int.max) else { throw DurableIngestError.identityConflict }
             }
+            try cacheQuarantineMembership(db, row: row)
             return false
         }
         let captured: Int = row["capturedAt"]
@@ -92,6 +93,7 @@ extension WhoopStore {
                               captured, captured + 1, frame.count, blob])
         try registerRawResource(db, scope: scope, lane: "rawBatch", key: identity.batchID, bytes: packed)
         try markRawUploadOwed(db)
+        try cacheQuarantineMembership(db, row: row)
         return true
     }
 

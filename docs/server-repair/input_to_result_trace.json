@@ -1,0 +1,324 @@
+{
+  "captured_at": "2026-09-22T23:36:40.655822+00:00",
+  "diagnostics": {
+    "work": [
+      {
+        "status": "done",
+        "dirty_at": "2026-09-22T17:34:54.859271+00:00",
+        "claimed_at": null,
+        "input_revision": 630,
+        "next_attempt_at": "2026-09-22T17:36:11.521823+00:00",
+        "lease_expires_at": null,
+        "algorithm_version": "frwhoop-physiology-2",
+        "consecutive_failures": 0
+      },
+      {
+        "status": "pending",
+        "dirty_at": "2026-09-22T17:34:54.937738+00:00",
+        "claimed_at": null,
+        "input_revision": 612,
+        "next_attempt_at": "2026-09-22T17:34:56.937738+00:00",
+        "lease_expires_at": null,
+        "algorithm_version": "frwhoop-server-1",
+        "consecutive_failures": 0
+      }
+    ],
+    "scope": "enrolled_owner_source_device_day",
+    "stages": {
+      "queued": {
+        "status": "observed"
+      },
+      "claimed": {
+        "status": "not_running"
+      },
+      "decoded": {
+        "reason": "requires_client_decoder_evidence",
+        "status": "not_measured"
+      },
+      "durable": {
+        "reason": "requires_phone_commit_evidence",
+        "status": "not_measured"
+      },
+      "accepted": {
+        "status": "observed",
+        "receipts": 188
+      },
+      "acquired": {
+        "reason": "requires_device_capture_evidence",
+        "status": "not_measured"
+      },
+      "computed": {
+        "status": "published_evidence"
+      },
+      "selected": {
+        "status": "unavailable"
+      },
+      "displayed": {
+        "reason": "requires_client_presentation_evidence",
+        "status": "not_measured"
+      },
+      "projected": {
+        "status": "pending",
+        "pending_objects": 119,
+        "retrying_objects": 0,
+        "oldest_pending_at": "2026-09-22T01:00:02.749962+00:00"
+      },
+      "published": {
+        "status": "observed"
+      }
+    },
+    "read_rpc": "server_scoring_for_device_day",
+    "capabilities": {
+      "hrv_timing": {
+        "reason": "continuity_unverified",
+        "status": "observed_unqualified"
+      },
+      "calibrated_spo2": {
+        "reason": "calibrated_source_unavailable",
+        "status": "unsupported"
+      }
+    },
+    "publications": [
+      {
+        "computed_at": "2026-09-22T17:35:09.929038+00:00",
+        "manifest_hash": "7277a6aa4d061939167e640ba52bd8da64b82fecea6a4e5d0ace155dabb8aa23",
+        "input_revision": 630,
+        "algorithm_version": "frwhoop-physiology-2"
+      }
+    ],
+    "result_window": "measurement_calendar_day",
+    "complete_scope": "server_metadata_only",
+    "correlation_id": "75b1a4f8e104c8cd5dc0bc218586007afbb3ec6337f3f242306a060a43a38a92",
+    "receipt_window": "accepted_on_requested_calendar_day",
+    "schema_version": 1,
+    "counts_truncated": false,
+    "selected_workers": [],
+    "selected_features": {
+      "hrv": {
+        "reason": "awaiting_result",
+        "status": "unavailable",
+        "computed_at": null,
+        "timezone_id": "UTC",
+        "manifest_hash": null,
+        "archive_status": null,
+        "input_revision": null,
+        "computation_mode": null,
+        "observed_through": null,
+        "algorithm_version": "frwhoop-server-1",
+        "processing_status": "pending",
+        "required_revision": 612,
+        "revision_protocol": "legacy_unfenced",
+        "publication_status": null,
+        "feature_manifest_hash": null,
+        "canonical_qualification": "retained_legacy",
+        "supports_boundary_overrides": false
+      },
+      "sleep": {
+        "reason": "awaiting_result",
+        "status": "unavailable",
+        "computed_at": null,
+        "timezone_id": "UTC",
+        "manifest_hash": null,
+        "archive_status": null,
+        "input_revision": null,
+        "computation_mode": null,
+        "observed_through": null,
+        "algorithm_version": "frwhoop-server-1",
+        "processing_status": "pending",
+        "required_revision": 612,
+        "revision_protocol": "legacy_unfenced",
+        "publication_status": null,
+        "feature_manifest_hash": null,
+        "canonical_qualification": "retained_legacy",
+        "supports_boundary_overrides": false
+      },
+      "respiration": {
+        "reason": "awaiting_result",
+        "status": "unavailable",
+        "computed_at": null,
+        "timezone_id": "UTC",
+        "manifest_hash": null,
+        "archive_status": null,
+        "input_revision": null,
+        "computation_mode": null,
+        "observed_through": null,
+        "algorithm_version": "frwhoop-server-1",
+        "processing_status": "pending",
+        "required_revision": 612,
+        "revision_protocol": "legacy_unfenced",
+        "publication_status": null,
+        "feature_manifest_hash": null,
+        "canonical_qualification": "retained_legacy",
+        "supports_boundary_overrides": false
+      }
+    },
+    "observation_is_atomic": true
+  },
+  "requested_day": "2026-09-22",
+  "scope_linkage": "historical_build371_phone_database_identity",
+  "live_phone_observed": false,
+  "latest_scoped_receipt": {
+    "lane": "inline",
+    "stream": "hrSample",
+    "accepted_at": "2026-09-22T17:34:55.394+00:00",
+    "accepted_status": "accepted"
+  },
+  "batch_metadata": {
+    "scope": "same_phone_snapshot_latest_batch",
+    "stream": "hrSample",
+    "accepted_at": "2026-09-22T17:34:55.394+00:00",
+    "ack_present": true,
+    "captured_at": "2026-09-22T23:37:59.095416+00:00",
+    "index_present": true,
+    "manifest_state": "ready",
+    "manifest_present": true,
+    "raw_digest_state": "client_claimed",
+    "ack_receipt_state": "verified_indexed",
+    "manifest_indexed_at": "2026-09-22T17:34:53.875322+00:00",
+    "projection_debt_state": "pending",
+    "projection_completed_at": null,
+    "durability_receipt_state": "verified_indexed",
+    "projection_failure_count": 0,
+    "batch_reservation_present": true,
+    "worker_input_hr_rows_for_batch": 5000,
+    "worker_input_hr_rows_for_device_day": 24811
+  },
+  "runtime_container_metadata": {
+    "captured_at": "2026-09-22T23:34:00.448431+00:00",
+    "scope": "read_only_sanitized_container_metadata",
+    "containers": [
+      {
+        "name": "scoring-physiology-v2",
+        "image_id": "sha256:58a843bcc41531c73daa76c7f541ccc5ed04a6f93393574a75f54cae4e84fb04",
+        "source_revision": "80a7c0771beff46b60e05ba933e78789b11cdc56",
+        "algorithm_version": "frwhoop-physiology-2",
+        "command": null,
+        "running": true,
+        "started_at": "2026-09-22T01:02:27.871013704Z",
+        "restart_count": 0,
+        "hosted_rest_matches_phone": true,
+        "database_target_class": "hosted",
+        "has_replay_selectors": false,
+        "has_process_identity": false
+      },
+      {
+        "name": "supabase-scoring-1",
+        "image_id": "sha256:27041c79f8cb8e7fdab47eda6d32f6ff49a8232600062105c0da4d6102568590",
+        "source_revision": null,
+        "algorithm_version": "frwhoop-server-1",
+        "command": null,
+        "running": true,
+        "started_at": "2026-09-19T23:59:24.26353602Z",
+        "restart_count": 0,
+        "hosted_rest_matches_phone": false,
+        "database_target_class": "local",
+        "has_replay_selectors": false,
+        "has_process_identity": false
+      }
+    ],
+    "configured_files": {
+      "/opt/frwhoop/scoring.env": true,
+      "/opt/frwhoop/scoring-client.env": false,
+      "/opt/frwhoop/secrets.env": true,
+      "/opt/frwhoop/scripts/read-scoring-query.sh": false
+    }
+  },
+  "hosted_runtime_metadata": {
+    "cron": [
+      {
+        "active": true,
+        "jobname": "frwhoop-retention-sweep",
+        "schedule": "0 * * * *"
+      },
+      {
+        "active": true,
+        "jobname": "frwhoop-reconcile",
+        "schedule": "0 */6 * * *"
+      },
+      {
+        "active": true,
+        "jobname": "frwhoop-account-deletion",
+        "schedule": "*/15 * * * *"
+      }
+    ],
+    "scope": "hosted_aggregate_metadata",
+    "v2_pending": 0,
+    "captured_at": "2026-09-22T23:35:30.954665+00:00",
+    "legacy_pending": 101,
+    "selected_defaults": {
+      "hrv": "frwhoop-server-1",
+      "sleep": "frwhoop-server-1",
+      "respiration": "frwhoop-server-1"
+    },
+    "source_identity_count": 117,
+    "latest_source_identity": "20260921104000_server_unrepresentable_clock.sql",
+    "last_any_upload_receipt": "2026-09-22T23:33:52.911+00:00",
+    "fresh_process_heartbeats": 0,
+    "copy_intent_table_present": false,
+    "async_verification_table_present": false
+  },
+  "deployed_edge_metadata": {
+    "captured_at": "2026-09-22T23:38:56.463482+00:00",
+    "scope": "deployed_function_metadata",
+    "functions": [
+      {
+        "slug": "push",
+        "name": "push",
+        "version": 13,
+        "status": "ACTIVE",
+        "verify_jwt": false,
+        "updated_at": 1789971649047
+      },
+      {
+        "slug": "retention-sweep",
+        "name": "retention-sweep",
+        "version": 3,
+        "status": "ACTIVE",
+        "verify_jwt": false,
+        "updated_at": 1789174832211
+      },
+      {
+        "slug": "reconcile",
+        "name": "reconcile",
+        "version": 3,
+        "status": "ACTIVE",
+        "verify_jwt": false,
+        "updated_at": 1789174832211
+      },
+      {
+        "slug": "account-deletion",
+        "name": "account-deletion",
+        "version": 3,
+        "status": "ACTIVE",
+        "verify_jwt": false,
+        "updated_at": 1789174832211
+      },
+      {
+        "slug": "ingest-verify",
+        "name": "ingest-verify",
+        "version": 3,
+        "status": "ACTIVE",
+        "verify_jwt": false,
+        "updated_at": 1789174832211
+      },
+      {
+        "slug": "scores",
+        "name": "scores",
+        "version": 3,
+        "status": "ACTIVE",
+        "verify_jwt": false,
+        "updated_at": 1789889775171
+      }
+    ]
+  },
+  "diagnosis": {
+    "earliest_observed_incomplete_transition": "accepted_indexed_batch_to_atomic_projection_settlement",
+    "supported_input_present": true,
+    "selected_queue_to_matching_worker": "FAILED: selected hosted v1 pending; only v1 process targets another database",
+    "shadow_publication_does_not_satisfy_selected_result": true,
+    "raw_digest_metadata_inconsistent": true,
+    "normal_authenticated_api_readback": "NOT_MEASURED: existing installation bearer/account session unavailable to this inspection",
+    "phone_decoder_cache_ui": "NOT_MEASURED: historical identity snapshot only; physical phone disconnected",
+    "no_production_mutations": true
+  }
+}

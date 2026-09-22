@@ -2,6 +2,59 @@ import Foundation
 import GRDB
 import WhoopProtocol
 
+/// Monotonic wall durations for a successful historical transaction, in milliseconds.
+/// These are execution boundaries, not isolated SQLite fsync or CPU measurements.
+public struct HistoricalChunkDurabilityTiming: Sendable, Equatable {
+    /// GRDB writer queue and BEGIN setup, before writer admission to closure entry.
+    /// SQL lock waits after a DEFERRED BEGIN remain in mutationMs, not this interval.
+    public let queueWaitMs: Double
+    /// Transaction closure entry to body completion; includes cursorMutationMs.
+    public let mutationMs: Double
+    /// Body completion to writer return, including FULL commit, commit lock waits and GRDB handoff.
+    public let commitReturnMs: Double
+    /// Cursor SQL execution within the transaction body, not another durability commit.
+    public let cursorMutationMs: Double
+
+    public init(queueWaitMs: Double, mutationMs: Double, commitReturnMs: Double,
+                cursorMutationMs: Double) {
+        self.queueWaitMs = queueWaitMs
+        self.mutationMs = mutationMs
+        self.commitReturnMs = commitReturnMs
+        self.cursorMutationMs = cursorMutationMs
+    }
+}
+
+/// Used only by the historical path. All observations are synchronous within one writer call.
+private final class HistoricalChunkTimingProbe {
+    private let clock = ContinuousClock()
+    private var waiting: ContinuousClock.Instant?
+    private var entered: ContinuousClock.Instant?
+    private var bodyEnded: ContinuousClock.Instant?
+    private var cursorMs = 0.0
+
+    func beginWaiting() { waiting = clock.now }
+    func enterBody() { entered = clock.now }
+    func endBody() { bodyEnded = clock.now }
+    func cursor<T>(_ body: () throws -> T) rethrows -> T {
+        let started = clock.now
+        defer { cursorMs += Self.milliseconds(started.duration(to: clock.now)) }
+        return try body()
+    }
+    func committed() -> HistoricalChunkDurabilityTiming? {
+        let returned = clock.now
+        guard let waiting, let entered, let bodyEnded else { return nil }
+        return HistoricalChunkDurabilityTiming(
+            queueWaitMs: Self.milliseconds(waiting.duration(to: entered)),
+            mutationMs: Self.milliseconds(entered.duration(to: bodyEnded)),
+            commitReturnMs: Self.milliseconds(bodyEnded.duration(to: returned)),
+            cursorMutationMs: cursorMs)
+    }
+    private static func milliseconds(_ duration: Duration) -> Double {
+        let parts = duration.components
+        return Double(parts.seconds) * 1_000 + Double(parts.attoseconds) / 1_000_000_000_000_000
+    }
+}
+
 /// Result of the Backfiller's atomic insert-and-mark call: the per-stream actual insert counts
 /// (rows that were NOT already present) plus whether durable post-offload jobs were written for
 /// this chunk. `markedJobs` is decided inside the same transaction from the SAME counts, so the
@@ -14,14 +67,19 @@ public struct BackfillInsertOutcome: Sendable {
     /// Events and battery samples do not establish historical-data progress; RR provenance is
     /// not counted separately because it describes an RR observation already counted by `counts.rr`.
     public var insertedHistoricalSensorRows: Int
+    /// Present only after commitHistoricalChunk returns successfully. Failure never yields timing
+    /// or an outcome that could authorize ACK; ordinary/live insert paths leave this nil.
+    public var durabilityTiming: HistoricalChunkDurabilityTiming?
 
     public init(counts: (hr: Int, rr: Int, events: Int, battery: Int,
                          spo2: Int, skinTemp: Int, resp: Int, gravity: Int),
-                markedJobs: Bool, insertedHistoricalSensorRows: Int? = nil) {
+                markedJobs: Bool, insertedHistoricalSensorRows: Int? = nil,
+                durabilityTiming: HistoricalChunkDurabilityTiming? = nil) {
         self.counts = counts
         self.markedJobs = markedJobs
         self.insertedHistoricalSensorRows = insertedHistoricalSensorRows
             ?? (counts.hr + counts.rr + counts.spo2 + counts.skinTemp + counts.resp + counts.gravity)
+        self.durabilityTiming = durabilityTiming
     }
 }
 
@@ -301,26 +359,34 @@ extension WhoopStore {
             v18AuxPruneEveryRows: Self.v18AuxPruneEveryRows, captureScope: captureScope)
     }
 
-    /// Commits an ordinary historical chunk and its exact recovery archive before authorizing ACK.
-    /// External research raw/IMU writers keep their separate flush-before-cursor path.
+    /// Commits historical rows, exact raw evidence, debt and cursor before authorizing ACK.
+    /// The caller flushes any touched external IMU files before entering this transaction.
     @discardableResult
     public func commitHistoricalChunk(_ streams: Streams, scope: DurableIngestScope,
                                       family: String, trim: UInt32, recoveryFrames: [[UInt8]],
                                       clockRef: ClockRef, postOffloadJobKinds: [String],
+                                      rawCapture: HistoricalRawCapture? = nil,
                                       note: String? = nil) async throws -> BackfillInsertOutcome {
         guard !scope.deviceID.isEmpty, !family.isEmpty else { throw DurableIngestError.identityConflict }
+        let preparedRaw = try rawCapture.map { try Self.prepareHistoricalRawCapture($0, scope: scope) }
+        let timing = HistoricalChunkTimingProbe()
         return try await insertAndMarkIfNeeded(streams, deviceId: scope.deviceID,
             postOffloadJobKinds: postOffloadJobKinds, note: note,
             v18AuxRetentionRows: Self.v18AuxRetentionRows,
             v18AuxPruneEveryRows: Self.v18AuxPruneEveryRows, captureScope: scope,
-            performRetention: false, transactionTail: { db in
+            performRetention: false, historicalTiming: timing, transactionTail: { db in
                 _ = try Self.persistSensorQuarantine(db, frames: recoveryFrames, scope: scope,
                     family: family, trim: trim, clockRef: clockRef, preserveOccurrences: true,
                     maxBytes: 64 * 1_048_576, maxRecords: 100_000, allowPruning: false)
-                try db.execute(sql: """
-                    INSERT INTO cursors (name, value) VALUES (?, ?)
-                    ON CONFLICT(name) DO UPDATE SET value = excluded.value
-                    """, arguments: ["strap_trim:\(scope.key)", Int64(trim)])
+                if let preparedRaw {
+                    try Self.insertHistoricalRawCapture(db, capture: preparedRaw, scope: scope)
+                }
+                try timing.cursor {
+                    try db.execute(sql: """
+                        INSERT INTO cursors (name, value) VALUES (?, ?)
+                        ON CONFLICT(name) DO UPDATE SET value = excluded.value
+                        """, arguments: ["strap_trim:\(scope.key)", Int64(trim)])
+                }
             })
     }
 
@@ -345,15 +411,19 @@ extension WhoopStore {
                                        ppgWaveformPruneEveryRows: Int = WhoopStore.ppgWaveformPruneEveryRows,
                                        captureScope: DurableIngestScope? = nil,
                                        performRetention: Bool = true,
+                                       historicalTiming: HistoricalChunkTimingProbe? = nil,
                                        transactionTail: ((Database) throws -> Void)? = nil
     ) async throws -> BackfillInsertOutcome {
         // Banked rows, accumulated across batches so the sweep does not run on every one.
         var v18Written = 0
         var ppgWaveformWritten = 0
         var insertedStepTimestamps: [Int] = []
+        historicalTiming?.beginWaiting()
         let result: (counts: (Int, Int, Int, Int, Int, Int, Int, Int), markedJobs: Bool,
                      insertedHistoricalSensorRows: Int)
             = try syncWrite { db in
+            historicalTiming?.enterBody()
+            defer { historicalTiming?.endBody() }
             if let captureScope,
                try Self.captureScope(db, deviceID: deviceId) != captureScope {
                 throw DurableIngestError.identityConflict
@@ -685,6 +755,7 @@ extension WhoopStore {
             return (counts: (hr, rr, ev, bat, spo2, skin, resp, grav), markedJobs: markedJobs,
                     insertedHistoricalSensorRows: historicalSensorRows)
         }
+        let durabilityTiming = historicalTiming?.committed()
         stepDataRevision.record(deviceId: deviceId, insertedTimestamps: insertedStepTimestamps)
 
         // Rolling retention is amortised. The delete finds the Nth-newest row by rank, so it walks up to
@@ -732,7 +803,8 @@ extension WhoopStore {
             }
         }
         return BackfillInsertOutcome(counts: result.counts, markedJobs: result.markedJobs,
-                                     insertedHistoricalSensorRows: result.insertedHistoricalSensorRows)
+                                     insertedHistoricalSensorRows: result.insertedHistoricalSensorRows,
+                                     durabilityTiming: durabilityTiming)
     }
 
     // MARK: - Raw sensor CSV export (diagnostic)

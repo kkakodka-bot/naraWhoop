@@ -57,10 +57,11 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
     func testPartialOverlayCannotSettleUnportedLocalRescoreDebt() {
         ServerScoringSettings.setEnabled(true)
         CloudScoreIdentity.markOverlayLive(true)
-        _ = RescoreBackgroundScheduler.markRescoreOwed()
+        let token = RescoreBackgroundScheduler.markRescoreOwed()
         XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
         ServerScoringSettings.settleSkippedLocalRescoreDebt()
         XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
+        XCTAssertEqual(RescoreBackgroundScheduler.currentOwedToken, token)
     }
 
     func testShadowServerOverlayPreservesLocalRescoreDebt() {
@@ -73,9 +74,10 @@ final class ServerScoringRescoreSkipTests: XCTestCase {
 
     func testSettleSkippedLocalRescoreDebtNoOpWhenFlagOff() {
         ServerScoringSettings.setEnabled(false)
-        _ = RescoreBackgroundScheduler.markRescoreOwed()
+        let token = RescoreBackgroundScheduler.markRescoreOwed()
         ServerScoringSettings.settleSkippedLocalRescoreDebt()
         XCTAssertTrue(RescoreBackgroundScheduler.isRescoreOwed)
+        XCTAssertEqual(RescoreBackgroundScheduler.currentOwedToken, token)
     }
 
     func testPushIntervalTightensWhenServerScoringOn() {

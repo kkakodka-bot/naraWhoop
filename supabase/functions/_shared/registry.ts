@@ -660,7 +660,7 @@ export function capabilitiesBody({
   userId?: string;
   sourceId?: string | null;
   protocolVersion?: string;
-  objectLane?: { endpoint: string; maxObjectBytes: number; urlTtlSec: number } | null;
+  objectLane?: { endpoint: string; maxObjectBytes: number; urlTtlSec: number; completionModes?: string[] } | null;
 }) {
   const advertised = [...streams].sort();
   const body: any = {

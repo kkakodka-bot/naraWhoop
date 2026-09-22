@@ -104,6 +104,6 @@ final class RawCaptureManifestTests: XCTestCase {
         wall += 10_000
         let retry = try manifest(meta)
         XCTAssertEqual(first.manifestJSON, retry.manifestJSON)
-        XCTAssertEqual(first.payload, retry.payload)
+        XCTAssertEqual(try first.payload, try retry.payload)
     }
 }

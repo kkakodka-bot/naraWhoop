@@ -2884,4 +2884,6 @@
     <string name="terms_attest_cloud">Compreendo que, ao inscrever-me, este telefone fica associado à minha conta para carregar dados do wearable e receber resultados do servidor.</string>
     <string name="terms_point_cloud_head">Inscrição pessoal na cloud</string>
     <string name="terms_point_cloud_body">Esta versão usa a sua inscrição pessoal para carregar dados do wearable para o servidor e devolver resultados à sua conta. Cada telefone tem as suas próprias credenciais de instalação. Dados anteriores sem conta atribuída ficam no telefone e não são carregados automaticamente. Remover a inscrição interrompe o acesso à cloud; não apaga dados já carregados.</string>
+    <string name="update_whats_new_nara_version">Novidades na NARA %1$s</string>
+    <string name="update_nara_version_available">A NARA %1$s chegou — toque para ver as novidades.</string>
 </resources>

@@ -97,8 +97,8 @@ public enum PushBinaryCompression {
         #endif
     }
 
-    /// RFC 8878 raw-block encoding for platforms without libzstd (including iOS).
-    /// Apple's Compression framework has no Zstandard codec. This produces a real
+    /// Legacy RFC 8878 raw-block encoding retained for replay/compatibility tests.
+    /// Package builds on iOS and macOS use the pinned C codec. This helper produces a real
     /// Zstandard frame, but makes no compression-ratio promise. Decoded object identity
     /// is independent of codec output. A fixed 128 KiB window bounds decoder memory.
     /// https://www.rfc-editor.org/rfc/rfc8878.html#section-3.1.1

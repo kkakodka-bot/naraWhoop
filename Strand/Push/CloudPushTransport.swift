@@ -118,36 +118,8 @@ struct CloudPushTransport: PushTransport {
                 if let saved = try await queue.savedPreparedIntent(manifest, endpoint: endpoint.url, receiverStateID: state, captured: captured) { return saved }
                 try await queue.checkIntentAdmission(captured: captured)
             }
-            let body = destination.requiresPrepared
-                ? try await queue.preparedIntentBody(manifest, endpoint: endpoint.url, receiverStateID: state, captured: captured)
-                : try manifest.encode()
-            guard body.count <= 8 * 1024 else {
-                throw PushTransportException(PushFailure(code: .localData))
-            }
-            var request = URLRequest(url: try laneURL(lane.endpoint))
-            request.httpMethod = "POST"
-            request.httpBody = body
-            authorizeReceiverRequest(&request)
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            let (data, response) = try await session.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            guard status >= 200, status <= 299 else {
-                if destination.requiresPrepared, PushError.parseCode(data, expectedVersion: manifest.protocolVersion) == "object_id_conflict" {
-                    try await queue.recordPreparedConflict(manifest, endpoint: endpoint.url, receiverStateID: state, captured: captured)
-                }
-                throw PushTransportException(PushFailure.http(
-                    status: status,
-                    receiverCode: PushError.parseCode(data, expectedVersion: manifest.protocolVersion)
-                ))
-            }
-            let intent: PushObjectIntent
-            do { intent = try PushObjectIntent.parse(data, expectedObjectId: manifest.objectId, expectedVersion: manifest.protocolVersion) }
-            catch {
-                throw PushTransportException(PushFailure(code: .ackInvalid))
-            }
-            try await queue.recordIntent(manifest, lane: lane, intent: intent, endpoint: endpoint.url, captured: captured, receiverStateID: state)
-            return intent
+            return try await queue.initialObjectIntent(manifest, lane: lane, endpoint: endpoint.url,
+                receiverStateID: state, captured: captured)
         }
 
         let body = try manifest.encode()
@@ -283,10 +255,34 @@ struct CloudPushTransport: PushTransport {
 
     func requirePreparedSelections() { destination.requirePrepared() }
 
+    func beginBinaryPreparation(maximumWireBytes: Int) async throws -> PushBinaryPreparation? {
+        let (queue, captured, _) = try durableQueue()
+        return try await queue.beginBinaryPreparation(maximumWireBytes: maximumWireBytes, captured: captured)
+    }
+    func finishBinaryPreparation(_ preparation: PushBinaryPreparation) async throws {
+        let (queue, captured, _) = try durableQueue()
+        try await queue.finishBinaryPreparation(preparation, captured: captured)
+    }
+    func uploadObject(_ intent: PushObjectIntent, file: PushImmutablePayloadFile) async throws {
+        let (queue, captured, state) = try durableQueue()
+        try await queue.uploadObject(endpoint: endpoint.url, objectID: intent.objectId, file: file,
+            captured: captured, receiverStateID: state)
+    }
+
+    func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool {
+        let (queue, captured, state) = try durableQueue()
+        return try await queue.isPreparationPaused(lane, receiverStateID: state, captured: captured)
+    }
+
+    func pausePreparation(_ lane: PushPreparationLane) async throws {
+        let (queue, captured, state) = try durableQueue()
+        try await queue.pausePreparation(lane, receiverStateID: state, captured: captured)
+    }
+
     func prepareSelection(_ selection: PushPreparedSelection, progressVersion: String) async throws {
         requirePreparedSelections()
         let (queue, captured, state) = try durableQueue()
-        guard queue.permitsBulkPreparation() else { throw CloudUploadError.retryScheduled }
+        try await queue.checkSelectionEncodingAdmission(captured: captured)
         let value = try CloudPushPreparedSelection(context: captured, endpoint: endpoint.url,
             receiverStateID: state, progressVersion: progressVersion, selection: selection,
             inlineGzip: selection.restoredInlineBatches().map { try Self.gzip($0.body) })

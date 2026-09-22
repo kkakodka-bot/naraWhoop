@@ -246,7 +246,7 @@ export function makeMemRest() {
       return [];
     },
 
-    async rpc(name: string, args: any = {}) {
+    async rpc(name: string, args: any = {}): Promise<any> {
       if (name === 'noop_register_push_device') {
         const devices = rowsFor('devices');
         const existing = devices.find((r) => r.id === args.p_device_id);
@@ -261,6 +261,31 @@ export function makeMemRest() {
         if (prior && ['sha256', 'object_kind', 'compressed_bytes', 'uncompressed_bytes', 'schema_version', 'start_at', 'end_at', 'sample_count', 'batch_id', 'source_id'].some((key) => prior[key] !== row[key])) throw new Error('object_id_conflict');
         if (!prior) manifests.set(row.id, { ...row, upload_object_key: row.object_key });
         return manifests.get(row.id);
+      }
+      if (name === 'noop_reserve_copy_intent') {
+        const row = manifests.get(args.p_object_id);
+        if (!row || row.user_id !== args.p_user_id) throw new Error('object_owner_conflict');
+        if (row.durability_receipt) return { receipt: row.durability_receipt };
+        const uploadKey = row.upload_object_key || row.object_key;
+        const id = crypto.randomUUID();
+        const intent = { id, object_id: row.id, user_id: row.user_id, upload_key: uploadKey,
+          verified_key: `${uploadKey.slice(0,uploadKey.lastIndexOf('/'))}/verified/${row.id}/${id}/${uploadKey.split('/').pop()}`,
+          lease_token: crypto.randomUUID(), state: 'copying' };
+        rowsFor('noop_object_copy_intents').push(intent);
+        return intent;
+      }
+      if (name === 'noop_commit_copy_receipt') {
+        const intent = rowsFor('noop_object_copy_intents').find((row) => row.id === args.p_intent_id);
+        if (!intent || intent.lease_token !== args.p_lease_token || intent.state !== 'copying') throw new Error('copy_lease_lost');
+        const receipt = await this.rpc('noop_commit_object_receipt', { ...args,
+          p_user_id: intent.user_id, p_object_id: intent.object_id, p_verified_key: intent.verified_key });
+        intent.state = receipt.objectKey === intent.verified_key ? 'published' : 'abandoned';
+        return receipt;
+      }
+      if (name === 'noop_abandon_copy_intent') {
+        const intent = rowsFor('noop_object_copy_intents').find((row) => row.id === args.p_intent_id);
+        if (intent?.state === 'copying' && intent.lease_token === args.p_lease_token) intent.state = 'abandoned';
+        return null;
       }
       if (name === 'noop_commit_object_receipt') {
         const row = manifests.get(args.p_object_id);

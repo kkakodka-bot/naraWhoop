@@ -19,8 +19,8 @@ final class PushBinaryProtocolTests: XCTestCase {
         XCTAssertEqual(first.batchId, "66e88d6c-184b-562d-a049-24e59feaf04a")
         XCTAssertEqual(first.objectId, "4b2e1680-76d5-56bd-89ae-419dae696a57")
         XCTAssertEqual(first.manifestJSON, retry.manifestJSON)
-        XCTAssertEqual(first.payload, retry.payload)
-        XCTAssertEqual(first.payload, try PushBinaryCompression.compressObject(decoded, encoding: "zstd"))
+        XCTAssertEqual(try first.payload, try retry.payload)
+        XCTAssertEqual(try first.payload, try PushBinaryCompression.compressObject(decoded, encoding: "zstd"))
         XCTAssertNil(first.endCursor)
         XCTAssertNil(retry.endCursor)
         let manifest = try JSONSerialization.jsonObject(with: first.manifestJSON) as! [String: Any]
@@ -74,7 +74,7 @@ final class PushBinaryProtocolTests: XCTestCase {
         XCTAssertEqual(first.batchId, retry.batchId)
         XCTAssertEqual(first.objectId, retry.objectId)
         XCTAssertEqual(first.contentSha256, retry.contentSha256)
-        XCTAssertEqual(first.payload, retry.payload)
+        XCTAssertEqual((try first.payload), (try retry.payload))
         XCTAssertEqual("gzip", first.contentEncoding)
         let manifest = try JSONSerialization.jsonObject(with: first.manifestJSON) as! [String: Any]
         XCTAssertEqual("binaryObject", manifest["type"] as? String)

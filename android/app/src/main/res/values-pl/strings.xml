@@ -2896,4 +2896,6 @@
     <string name="terms_attest_cloud">Rozumiem, że rejestracja łączy ten telefon z moim kontem, aby przesyłać dane z opaski i otrzymywać wyniki z serwera.</string>
     <string name="terms_point_cloud_head">Osobista rejestracja w chmurze</string>
     <string name="terms_point_cloud_body">Ta wersja używa Twojej osobistej rejestracji, aby przesyłać dane z opaski na serwer i zwracać wyniki na konto. Każdy telefon ma własne dane logowania instalacji. Wcześniejsze dane bez przypisanego konta zostają na telefonie i nie są automatycznie przesyłane. Usunięcie rejestracji kończy dostęp do chmury; nie usuwa danych już przesłanych.</string>
+    <string name="update_whats_new_nara_version">Nowości w NARA %1$s</string>
+    <string name="update_nara_version_available">NARA %1$s jest już dostępna — dotknij, aby poznać nowości.</string>
 </resources>

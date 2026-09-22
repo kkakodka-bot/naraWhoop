@@ -2923,4 +2923,6 @@
     <string name="widget_open_nara_to_connect">Open NARA to connect</string>
     <string name="whats_new_in_nara">What\'s new in NARA %1$s</string>
     <string name="whats_new_nara_is_here">NARA %1$s is here — tap to read what\'s new.</string>
+    <string name="update_whats_new_nara_version">What\'s new in NARA %1$s</string>
+    <string name="update_nara_version_available">NARA %1$s is here — tap to read what\'s new.</string>
 </resources>

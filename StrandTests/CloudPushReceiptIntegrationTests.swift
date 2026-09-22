@@ -36,8 +36,8 @@ enum W5ReceiptFixture {
          "objectKey": key, "status": "ready", "duplicate": false,
          "durabilityReceipt": receipt(owner: owner, device: batch.deviceId, object: batch.objectId,
             batch: batch.batchId, source: batch.sourceId, stream: batch.wireName, decoded: batch.contentSha256,
-            wire: PushDurabilityReceipt.sha256(batch.payload), decodedBytes: batch.uncompressedBytes,
-            wireBytes: batch.payload.count, key: key,
+            wire: batch.wireSHA256, decodedBytes: batch.uncompressedBytes,
+            wireBytes: batch.wireBytes, key: key,
             schema: PushProtocol.schemaVersion(stream: batch.wireName, protocolVersion: batch.protocolVersion))]
     }
     static func inline(_ batch: PushBatch, owner: String) -> [String: Any] {
@@ -55,6 +55,17 @@ enum W5ReceiptFixture {
 }
 
 final class CloudPushReceiptIntegrationTests: XCTestCase {
+    private let resourceBudget = ResourceBudget(thermal: { 0 }, lowPower: { false })
+    private var fixtureRoots: [URL] = []
+    override func tearDownWithError() throws {
+        // Local progress actors have left scope before their SQLite directory is removed.
+        for root in fixtureRoots where FileManager.default.fileExists(atPath: root.path) {
+            try FileManager.default.removeItem(at: root)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+        }
+        fixtureRoots.removeAll()
+        try super.tearDownWithError()
+    }
     private let device = "opaque-fixture-strap"
     private let endpoint = "https://project.example/functions/v1/push"
     private let lane = PushObjectLane(endpoint: "/functions/v1/push/objects", maxObjectBytes: 8_000_000,
@@ -75,6 +86,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                          progressVersion: String? = nil) async throws -> Fixture {
         let root = (ProcessInfo.processInfo.environment["NARA_TEST_FIXTURE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory).appendingPathComponent("w5-integration-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        fixtureRoots.append(root)
         let context = AccountSessionContext(scope: try .init(projectURL: "https://project.example", userID: W5ReceiptFixture.owner), generation: UUID())
         let layout = AccountStorageLayout(baseDirectory: root, scope: context.scope)
         let store = try await WhoopStore(path: root.appendingPathComponent("source.sqlite").path)
@@ -82,9 +94,9 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
         try await store.upsertDevice(id: device, mac: nil, name: nil)
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [W5IntakeProtocol.self]
         let session = URLSession(configuration: config)
-        let runtime = try CloudPushBackgroundRuntime(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: layout, authorize: { _ in "synthetic" },
+        let runtime = try CloudPushBackgroundRuntime(context: context, layout: layout, authorize: { _ in "synthetic" },
             isCurrent: { _ in true }, policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) },
-            sessionConfiguration: config)
+            sessionConfiguration: config, resourceBudget: self.resourceBudget)
         CloudPushBackgroundRuntime.install(runtime)
         let transport = try CloudAccountPushTransport(endpoint: .init(url: endpoint, host: "project.example"),
             context: context, accessToken: "synthetic", session: session, isCurrent: { _ in true })
@@ -103,10 +115,9 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
         W5IntakeProtocol.set { _ in throw CloudUploadError.unavailable }
         do {
             try f.store.registryWriter.close()
-            if FileManager.default.fileExists(atPath: f.root.path) { try FileManager.default.removeItem(at: f.root) }
         } catch { XCTFail("Receipt fixture cleanup failed; retained directory: \(error)", file: file, line: line) }
     }
-    func testReopenAndCleanupCloseRetainedOriginalAndReplacementStoreHandles() async throws {
+    func testReopenClosesOriginalAndReplacementSourceHandlesBeforeDeferredFixtureRemoval() async throws {
         func assertClosed(_ store: WhoopStore) async {
             do {
                 _ = try await store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT 1") }
@@ -122,7 +133,8 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             let value = try await reopened.store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT 1") }
             XCTAssertEqual(value, 1)
             await close(reopened)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: reopened.root.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: reopened.root.path),
+                "progress actors still retain SQLite handles; directory removal belongs to tearDown")
             await assertClosed(reopened.store)
         } catch { await close(replacement ?? original); throw error }
     }
@@ -199,7 +211,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             guard case .available = try await f.transport.capabilities() else { return XCTFail("capabilities") }
             let result = await coordinator(f).pushObjects(.rawBatch, deviceId: device, lane: lane)
             guard case .accepted = result else { throw TestFailure.rejected(String(describing: result)) }
-            let remaining = try CloudUploadJournal(directory: f.layout.uploadDirectory).load()
+            let remaining = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load()
             XCTAssertTrue(remaining.isEmpty, "no manual sourceCommitted call in this test")
             let row = try await f.store.registryWriter.read { try Row.fetchOne($0, sql: "SELECT * FROM rawDurabilityReceipt") }
             XCTAssertEqual(row?["objectKey"] as String?, W5ReceiptFixture.objectKey(
@@ -219,7 +231,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             _ = try await f.transport.capabilities()
             let result = await coordinator(f).pushObjects(.rawBatch, deviceId: device, lane: lane)
             guard case .accepted = result else { throw TestFailure.rejected(String(describing: result)) }
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -246,8 +258,8 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                      try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM rawBatch WHERE syncedAt IS NULL"))
                 }
                 XCTAssertEqual(state.0, 0, field); XCTAssertEqual(state.1, 1, field)
-                let job = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory).load().values.first)
-                XCTAssertEqual(try Data(contentsOf: CloudUploadJournal(directory: f.layout.uploadDirectory).bodyURL(job)), batch.payload)
+                let job = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().values.first)
+                XCTAssertEqual(try Data(contentsOf: CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).bodyURL(job)), (try batch.payload))
             } catch { await close(f); throw error }
             await close(f)
         }
@@ -259,13 +271,13 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             let result = await coordinator(f, cleanup: { _ in throw TestFailure.crash }).pushObjects(.rawBatch, deviceId: device, lane: lane)
             if case .accepted = result { XCTFail("injected crash") }
             let debt = await f.progress.pendingCommits(); XCTAssertEqual(debt.count, 1)
-            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().count, 1)
+            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().count, 1)
             let reopened = try CloudPushProgressStore(namespace: "test-receiver", directory: f.runtime.progressDirectory)
             let resumed = CloudPushSourceCommitter(progress: reopened, check: {},
                 acknowledge: { try await f.snapshot.acknowledgeCommitted($0, scope: f.context.scope) },
                 cleanup: { try await f.transport.base.sourceCommitted(batchID: $0) })
             try await resumed.recover(); try await resumed.recover()
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
             let remainingDebt = await reopened.pendingCommits(); XCTAssertTrue(remainingDebt.isEmpty)
         } catch { await close(f); throw error }
         await close(f)
@@ -329,11 +341,11 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 XCTAssertTrue(remaining.isEmpty)
                 let preservedAux = try await reopened.binaryCursor(table: .v18AuxSample, deviceId: device)
                 XCTAssertEqual(preservedAux, oldAuxCursor)
-                XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+                XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
                 let foreignDebt = await foreign.pendingCommits()
                 XCTAssertEqual(foreignDebt.count, 1)
-                let associations = try FileManager.default.contentsOfDirectory(at: f.runtime.progressDirectory,
-                    includingPropertiesForKeys: nil).filter { $0.pathExtension == "receipt" }
+                let associations = try CloudMetadataStore(directory: f.runtime.progressDirectory)
+                    .names(kind: "receipt").filter { $0.contains(".progress.") }
                 XCTAssertEqual(associations.count, 1, "only the unrelated receiver association remains")
                 let count = try await f.store.registryWriter.read { try Int.fetchOne($0,
                     sql: "SELECT COUNT(*) FROM rawDurabilityReceipt") }
@@ -362,10 +374,10 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 try await commit.commit(.init(kind: .append, table: "hrSample", deviceID: device,
                     batchIDs: [batch.batchId], cursor: batch.endCursor))
             }
-            let files = try FileManager.default.contentsOfDirectory(at: f.runtime.progressDirectory,
-                includingPropertiesForKeys: nil).filter { $0.pathExtension == "receipt" }
+            let files = try CloudMetadataStore(directory: f.runtime.progressDirectory)
+                .names(kind: "receipt").filter { $0.contains(".progress.") }
             XCTAssertEqual(files.count, 1)
-            XCTAssertTrue(files[0].lastPathComponent.contains(AccountScope.digest(unstaged.batchId)))
+            XCTAssertTrue(files[0].contains(AccountScope.digest(unstaged.batchId)))
             let pending = await f.progress.pendingCommits()
             XCTAssertTrue(pending.isEmpty)
             let reopened = try CloudPushProgressStore(namespace: "test-receiver", directory: f.runtime.progressDirectory)
@@ -375,7 +387,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
         await close(f)
     }
 
-    func testPartialReceiptUnlinkFailureKeepsDebtAndReopensWithoutRestagingMissingReceipt() async throws {
+    func testReceiptSettlementTransactionFailureRetainsEveryAssociationAndDebtUntilRetry() async throws {
         let f = try await fixture()
         do {
             let first = try await associatedInline(f, rowID: 1)
@@ -384,26 +396,41 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 batchIDs: [first.batchId, second.batchId], cursor: second.endCursor)
             try await f.progress.stage(value)
             let prefix = CloudPushProgressStore.stateFile(namespace: "test-receiver", directory: f.runtime.progressDirectory).lastPathComponent
-            let firstURL = f.runtime.progressDirectory.appendingPathComponent(prefix + "." + AccountScope.digest(first.batchId) + ".receipt")
-            let secondURL = f.runtime.progressDirectory.appendingPathComponent(prefix + "." + AccountScope.digest(second.batchId) + ".receipt")
-            let saved = f.root.appendingPathComponent("saved-association")
-            try FileManager.default.moveItem(at: secondURL, to: saved)
-            try FileManager.default.createDirectory(at: secondURL, withIntermediateDirectories: false)
+            let firstName = prefix + "." + AccountScope.digest(first.batchId) + ".receipt"
+            let secondName = prefix + "." + AccountScope.digest(second.batchId) + ".receipt"
+            let metadata = try CloudMetadataStore(directory: f.runtime.progressDirectory)
+            defer { metadata.close() }
+            let firstBytes = try XCTUnwrap(metadata.read(firstName)), secondBytes = try XCTUnwrap(metadata.read(secondName))
+            let faults = try DatabaseQueue(path: f.layout.uploadDirectory.appendingPathComponent("cloud-metadata.sqlite").path)
+            defer { try? faults.close() }
+            // Abort the second association delete after the first has executed. SQLite must roll
+            // both back with pending settlement, rather than exposing partially retired evidence.
+            try await faults.write { db in
+                try db.execute(sql: "CREATE TRIGGER reject_receipt_settlement BEFORE DELETE ON entries WHEN OLD.name = '" +
+                    secondName.replacingOccurrences(of: "'", with: "''") +
+                    "' BEGIN SELECT RAISE(ABORT, 'synthetic settlement fault'); END")
+            }
             let commit = CloudPushSourceCommitter(progress: f.progress, check: {}, acknowledge: { _ in }, cleanup: { _ in })
-            do { try await commit.recover(); XCTFail("unlink of a directory must fail") }
-            catch { XCTAssertTrue(error is POSIXError) }
-            XCTAssertFalse(FileManager.default.fileExists(atPath: firstURL.path))
+            do { try await commit.recover(); XCTFail("injected SQLite settlement must fail") }
+            catch { XCTAssertEqual(error as? CloudUploadError, .corruptJournal) }
+            XCTAssertEqual(try metadata.read(firstName), firstBytes)
+            XCTAssertEqual(try metadata.read(secondName), secondBytes)
             let debt = await f.progress.pendingCommits()
             XCTAssertEqual(debt.count, 1)
-            try FileManager.default.removeItem(at: secondURL)
-            try FileManager.default.moveItem(at: saved, to: secondURL)
             let reopened = try CloudPushProgressStore(namespace: "test-receiver", directory: f.runtime.progressDirectory)
+            let durableDebt = await reopened.pendingCommits()
+            XCTAssertEqual(durableDebt.count, 1)
+            XCTAssertEqual(durableDebt.first?.batchIDs, value.batchIDs)
+            let appliedCursor = try await reopened.cursor(table: .hrSample, deviceId: device)
+            XCTAssertEqual(appliedCursor, second.endCursor)
+            try await faults.write { try $0.execute(sql: "DROP TRIGGER reject_receipt_settlement") }
             let resumed = CloudPushSourceCommitter(progress: reopened, check: {}, acknowledge: { _ in }, cleanup: { _ in })
             try await resumed.recover()
             try await resumed.recover()
             let remaining = await reopened.pendingCommits()
             XCTAssertTrue(remaining.isEmpty)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: secondURL.path))
+            XCTAssertNil(try metadata.read(firstName)); XCTAssertNil(try metadata.read(secondName))
+            XCTAssertEqual(try metadata.integrityCheck(), "ok")
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -432,7 +459,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             let reopened = try CloudPushProgressStore(namespace: namespace, directory: f.runtime.progressDirectory)
             let debt = await reopened.pendingCommits()
             XCTAssertEqual(debt.count, 1)
-            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().count, 1)
+            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().count, 1)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -447,11 +474,11 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 if case .accepted = interrupted { XCTFail("injected pre-stage fault") }
                 let unstaged = await f.progress.pendingCommits()
                 XCTAssertTrue(unstaged.isEmpty, "fault precedes the coordinator's explicit stage")
-                let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory)
+                let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
                 let old = try XCTUnwrap(journal.load().values.first)
                 XCTAssertEqual(old.phase, .receiptSaved)
                 XCTAssertFalse(old.acknowledged)
-                XCTAssertEqual(try Data(contentsOf: journal.bodyURL(old)), batch.payload)
+                XCTAssertEqual(try Data(contentsOf: journal.bodyURL(old)), (try batch.payload))
                 let before = try await f.store.registryWriter.read { try Int.fetchOne($0,
                     sql: "SELECT COUNT(*) FROM rawBatch WHERE syncedAt IS NOT NULL") }
                 XCTAssertEqual(before, 0)
@@ -482,8 +509,8 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 XCTAssertTrue(newPending.isEmpty)
                 let rows = try await f.snapshot.binaryRows(table: .rawBatch, deviceId: device, afterRowId: 0, limit: 1)
                 XCTAssertTrue(rows.isEmpty, "a version change must not upload the same source under a new batch ID")
-                let associations = try FileManager.default.contentsOfDirectory(at: f.runtime.progressDirectory,
-                    includingPropertiesForKeys: nil).filter { $0.pathExtension == "receipt" }
+                let associations = try CloudMetadataStore(directory: f.runtime.progressDirectory)
+                    .names(kind: "receipt").filter { $0.contains(".progress.") }
                 XCTAssertTrue(associations.isEmpty)
             } catch { await close(f); throw error }
             await close(f)
@@ -503,10 +530,10 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                     let result = await coordinator(f, version: version, afterAssociation: { throw TestFailure.crash })
                         .pushObjects(.rawBatch, deviceId: device, lane: lane)
                     if case .accepted = result { XCTFail("pre-stage barrier not reached") }
-                    let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory)
+                    let journal = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget)
                     let old = try XCTUnwrap(journal.load().values.first)
                     XCTAssertEqual(old.phase, .receiptSaved)
-                    XCTAssertEqual(try Data(contentsOf: journal.bodyURL(old)), batch.payload)
+                    XCTAssertEqual(try Data(contentsOf: journal.bodyURL(old)), (try batch.payload))
                     if promoteBeforeRestart {
                         try await f.progress.recoverAssociatedCommits()
                         let pending = await f.progress.pendingCommits()
@@ -572,6 +599,8 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 (f.context, W5ReceiptFixture.source, "https://other.example/functions/v1/push", receiver)
             ]
             var preserved: [URL: Data] = [:]
+            let metadata = try CloudMetadataStore(directory: f.runtime.progressDirectory)
+            defer { metadata.close() }
             for (context, source, foreignEndpoint, foreignReceiver) in variants {
                 let foreignAdmission = try AccountPushAdmission(context: context, captureScope: context.scope,
                     sourceID: source, isCurrent: { _ in true })
@@ -586,8 +615,8 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 let state = CloudPushProgressStore.stateFile(namespace: namespace, directory: f.runtime.progressDirectory)
                 let association = f.runtime.progressDirectory.appendingPathComponent(state.lastPathComponent + "." +
                     AccountScope.digest(foreignBatch.batchId) + ".receipt")
-                preserved[state] = try Data(contentsOf: state)
-                preserved[association] = try Data(contentsOf: association)
+                preserved[state] = try XCTUnwrap(metadata.read(state.lastPathComponent))
+                preserved[association] = try XCTUnwrap(metadata.read(association.lastPathComponent))
             }
             // An association produced by the old Codable shape has no sourceCommit. Preserve
             // that ordinary on-disk upgrade fixture, as well as a valid uncommitted inline part.
@@ -599,13 +628,13 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 protocolVersion: version, receiverStateID: receiver), directory: f.runtime.progressDirectory)
             let legacy = f.runtime.progressDirectory.appendingPathComponent(state.lastPathComponent + "." +
                 AccountScope.digest(batch.batchId) + ".receipt")
-            var legacyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: legacy)) as? [String: Any])
+            var legacyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(metadata.read(legacy.lastPathComponent))) as? [String: Any])
             legacyObject.removeValue(forKey: "sourceCommit")
-            try CloudUploadJournal(directory: f.runtime.progressDirectory).durableWrite(
+            try CloudUploadJournal(directory: f.runtime.progressDirectory, resourceBudget: self.resourceBudget).durableWrite(
                 JSONSerialization.data(withJSONObject: legacyObject, options: [.sortedKeys]), to: legacy)
-            for path in try FileManager.default.contentsOfDirectory(at: f.runtime.progressDirectory,
-                includingPropertiesForKeys: nil) where path.lastPathComponent.hasPrefix(state.lastPathComponent) {
-                preserved[path] = try Data(contentsOf: path)
+            let names = try metadata.names(kind: "progress") + metadata.names(kind: "receipt")
+            for name in names where name.hasPrefix(state.lastPathComponent) {
+                preserved[f.runtime.progressDirectory.appendingPathComponent(name)] = try XCTUnwrap(metadata.read(name))
             }
             W5IntakeProtocol.set { _ in XCTFail("namespace discovery must be offline"); throw TestFailure.crash }
             for _ in 0..<2 {
@@ -617,7 +646,9 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                         cleanup: { _ in XCTFail("unrelated or incomplete association was cleaned") })
                 }
             }
-            for (path, bytes) in preserved { XCTAssertEqual(try Data(contentsOf: path), bytes, path.lastPathComponent) }
+            for (path, bytes) in preserved {
+                XCTAssertEqual(try XCTUnwrap(metadata.read(path.lastPathComponent)), bytes, path.lastPathComponent)
+            }
             let pending = await f.progress.pendingCommits()
             let cursor = try await f.progress.binaryCursor(table: .rawBatch, deviceId: device)
             XCTAssertTrue(pending.isEmpty); XCTAssertNil(cursor)
@@ -670,12 +701,15 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 try serve(batch: batch); _ = try await f.transport.capabilities()
                 let result = await coordinator(f).pushObjects(.rawBatch, deviceId: device, lane: lane)
                 guard case .accepted(_, _, let more, _) = result else { throw TestFailure.rejected(String(describing: result)) }
-                XCTAssertEqual(more, ordinal < 2, "raw lookahead must retain work for the unsent archive")
+                XCTAssertTrue(more, "bounded archive materialization requires one more query to prove the lane is empty")
                 if ordinal == 0 {
                     XCTAssertFalse(imu.continuous.deleteSegment(id: "window-live", bucket: imu.ts))
                     XCTAssertEqual(try imu.readIndex { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM member") }, 3)
                     try await uploadImuRows(f)
                 }
+            }
+            guard case .noData = await coordinator(f).pushObjects(.rawBatch, deviceId: device, lane: lane) else {
+                return XCTFail("all exact archive receipts must eventually drain the lane")
             }
             XCTAssertEqual(try imu.readIndex { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM member") }, 0)
             XCTAssertEqual(try imu.readIndex { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rowReceipt") }, 0)
@@ -687,11 +721,14 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             XCTAssertTrue(imu.sessions.deleteSegment(id: "window-a", bucket: imu.ts))
             XCTAssertTrue(imu.sessions.deleteSegment(id: "window-b", bucket: imu.ts))
             XCTAssertTrue(try imu.source.archiveRows(deviceID: device, limit: 1).isEmpty)
+            // The keyset sweep may have just visited these still-present files before deletion.
+            // One bounded wake reaches/reset its end cursor; the next revisits the missing files.
+            XCTAssertTrue(try imu.source.archiveRows(deviceID: device, limit: 1).isEmpty)
             XCTAssertEqual(try imu.readIndex { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM segmentCheckpoint") }, 0,
-                           "already-pruned file checkpoints are reclaimed in a bounded sweep")
+                           "already-pruned file checkpoints are reclaimed within two bounded sweep wakes")
             let noData = await coordinator(f).pushObjects(.rawImuSession, deviceId: device, lane: lane)
             guard case .noData = noData else { throw TestFailure.rejected(String(describing: noData)) }
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -715,7 +752,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             _ = try await r.transport.capabilities()
             W5IntakeProtocol.set { _ in throw TestFailure.crash }
             try await committer(r).recover(); try await committer(r).recover()
-            XCTAssertTrue(try CloudUploadJournal(directory: r.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: r.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
             let debt = await r.progress.pendingCommits(); XCTAssertTrue(debt.isEmpty)
             XCTAssertEqual(try imu.readIndex { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM archive") }, 0)
             XCTAssertTrue(imu.continuous.deleteSegment(id: "window-live", bucket: imu.ts))
@@ -786,11 +823,11 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             let debt = await f.progress.pendingCommits(); XCTAssertEqual(debt.count, 1)
             XCTAssertEqual(try imu.readIndex { try Int.fetchOne($0, sql: "SELECT sidecarPending FROM segmentCheckpoint") }, 1)
             XCTAssertFalse(imu.continuous.deleteSegment(id: "window-live", bucket: imu.ts))
-            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().count, 1)
+            XCTAssertEqual(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().count, 1)
             imu.continuous.testFailReceiptPersistence = false
             W5IntakeProtocol.set { _ in throw TestFailure.crash }
             try await committer(f).recover(); try await committer(f).recover()
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
             XCTAssertTrue(imu.continuous.deleteSegment(id: "window-live", bucket: imu.ts))
         } catch { await close(f); throw error }
         await close(f)
@@ -845,7 +882,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             XCTAssertEqual(try imu.readIndex { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rowReceipt") }, 3)
             let proofCount = try imu.readIndex { try Int.fetchOne($0, sql: "SELECT COUNT(DISTINCT hex(receipt)) FROM rowReceipt") }
             XCTAssertEqual(proofCount, 1, "one exact object receipt binds all three distinct members")
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
             XCTAssertFalse(imu.continuous.deleteSegment(id: "window-live", bucket: imu.ts))
             XCTAssertFalse(imu.sessions.deleteSegment(id: "window-a", bucket: imu.ts))
             XCTAssertFalse(imu.sessions.deleteSegment(id: "window-b", bucket: imu.ts))
@@ -897,7 +934,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 let prunedChild = try await f.store.pruneSensorQuarantine(now: Int(Date().timeIntervalSince1970))
                 XCTAssertEqual(prunedChild, 1, "the unsent sibling must remain")
             }
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
             let remaining = try await f.store.pendingSensorQuarantine(scope: scope); XCTAssertTrue(remaining.isEmpty)
             let rawPruned = try await f.store.pruneRaw(now: Int(Date().timeIntervalSince1970) + 10, keepWindowSeconds: 0, maxUnsyncedBytes: 0)
             XCTAssertEqual(rawPruned, 2)
@@ -921,10 +958,10 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
         let context = AccountSessionContext(scope: f.context.scope, generation: UUID())
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [W5IntakeProtocol.self]
         let session = URLSession(configuration: config)
-        let runtime = try CloudPushBackgroundRuntime(resourceBudget: W5ReceiptFixture.resourceBudget, context: context, layout: f.layout,
+        let runtime = try CloudPushBackgroundRuntime(context: context, layout: f.layout,
             authorize: { _ in "synthetic-new-generation" }, isCurrent: { _ in true },
             policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) },
-            sessionConfiguration: config, now: { Date().addingTimeInterval(60) })
+            sessionConfiguration: config, now: { Date().addingTimeInterval(60) }, resourceBudget: self.resourceBudget)
         CloudPushBackgroundRuntime.install(runtime)
         let store = try await WhoopStore(path: f.root.appendingPathComponent("source.sqlite").path)
         return Fixture(root: f.root, context: context, layout: f.layout, store: store,
@@ -942,7 +979,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             guard case .accepted = result else { throw TestFailure.rejected(String(describing: result)) }
             let cursor = try await f.progress.cursor(table: .hrSample, deviceId: device)
             XCTAssertEqual(cursor, batch.endCursor)
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
             let reopened = try CloudPushProgressStore(namespace: "test-receiver", directory: f.runtime.progressDirectory)
             let diskCursor = try await reopened.cursor(table: .hrSample, deviceId: device)
             XCTAssertEqual(diskCursor, batch.endCursor)
@@ -961,7 +998,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             }
             XCTAssertEqual(failure?.code, .ackInvalid); XCTAssertFalse(retryable)
             let cursor = try await f.progress.cursor(table: .hrSample, deviceId: device); XCTAssertNil(cursor)
-            let retained = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory).load().values.first)
+            let retained = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().values.first)
             XCTAssertEqual(retained.phase, .pausedTerminal)
             XCTAssertEqual(retained.responseCode, "receipt_mismatch")
             XCTAssertNil(retained.validatedReceipt); XCTAssertFalse(retained.acknowledged)
@@ -977,7 +1014,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
                 throw TestFailure.rejected(String(describing: stillRejected))
             }
             XCTAssertEqual(afterFailure?.code, .ackInvalid); XCTAssertFalse(afterRetryable)
-            let paused = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory).load()[retained.id])
+            let paused = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load()[retained.id])
             XCTAssertEqual(paused.phase, .pausedTerminal)
             XCTAssertEqual(paused.failures, retained.failures)
             XCTAssertEqual(paused.payloadSHA256, retained.payloadSHA256)
@@ -989,7 +1026,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             guard case .accepted = result else { throw TestFailure.rejected(String(describing: result)) }
             let committedCursor = try await f.progress.cursor(table: .hrSample, deviceId: device)
             XCTAssertEqual(committedCursor, batch.endCursor)
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -1000,19 +1037,23 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             _ = try await f.transport.capabilities()
             let result = await coordinator(f).pushObjects(.rawBatch, deviceId: device, lane: lane)
             if case .accepted = result { XCTFail("lost response") }
-            let before = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory).load().values.first)
+            let before = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().values.first)
             XCTAssertEqual(before.objectKey, "staging/write-only"); XCTAssertEqual(before.objectID, batch.objectId)
+            // Expired staging URLs require a new intent. An unexpired saved intent may safely
+            // be reused; this scenario specifically exercises duplicate-intent recovery.
+            var expired = before; expired.signedExpiry = Date(timeIntervalSince1970: 0)
+            try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).save(expired)
             f = try await reopen(f); try serve(batch: batch, duplicate: true)
             _ = try await f.transport.capabilities()
             let intent = try await f.transport.createObjectIntent(.init(batch: batch), lane: lane)
             XCTAssertTrue(intent.duplicate)
             XCTAssertEqual(intent.objectKey, W5ReceiptFixture.objectKey(
                 owner: f.context.scope.userID, device: batch.deviceId, stream: batch.wireName))
-            let after = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory).load()[before.id])
+            let after = try XCTUnwrap(CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load()[before.id])
             XCTAssertEqual(after.payloadSHA256, before.payloadSHA256); XCTAssertEqual(after.objectKey, before.objectKey)
             let accepted = await coordinator(f).pushObjects(.rawBatch, deviceId: device, lane: lane)
             guard case .accepted = accepted else { throw TestFailure.rejected(String(describing: accepted)) }
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -1024,7 +1065,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             let result = await coordinator(f, afterAssociation: { throw TestFailure.crash })
                 .pushObjects(.rawBatch, deviceId: device, lane: lane)
             if case .accepted = result { XCTFail("injected crash") }
-            let before = try CloudUploadJournal(directory: f.layout.uploadDirectory).load()
+            let before = try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load()
             XCTAssertEqual(before.values.first?.phase, .receiptSaved)
             let cursor = try await f.progress.binaryCursor(table: .rawBatch, deviceId: device); XCTAssertNil(cursor)
             f = try await reopen(f)
@@ -1032,7 +1073,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             try serve(); _ = try await f.transport.capabilities()
             let accepted = await coordinator(f).pushObjects(.rawBatch, deviceId: device, lane: lane)
             guard case .accepted = accepted else { throw TestFailure.rejected(String(describing: accepted)) }
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -1073,7 +1114,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             let batch = try await inlineBatch(f)
             do { _ = try await transport.base.post(batch); XCTFail("unbound receiver scheduled payload") }
             catch { XCTAssertEqual(error as? CloudUploadError, .invalidRequest) }
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
     }
@@ -1085,7 +1126,7 @@ final class CloudPushReceiptIntegrationTests: XCTestCase {
             try serve(receiver: "88888888-8888-4888-8888-888888888888")
             do { _ = try await f.transport.capabilities(); XCTFail("receiver changed in place") }
             catch { XCTAssertEqual(error as? CloudUploadError, .invalidReceipt) }
-            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory).load().isEmpty)
+            XCTAssertTrue(try CloudUploadJournal(directory: f.layout.uploadDirectory, resourceBudget: self.resourceBudget).load().isEmpty)
         } catch { await close(f); throw error }
         await close(f)
     }

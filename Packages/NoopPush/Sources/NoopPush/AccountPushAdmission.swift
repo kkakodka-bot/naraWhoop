@@ -54,6 +54,13 @@ public struct AccountFencedSnapshot: PushSnapshotSource {
         try admission.check(); let value = try await source.appendRows(table: table, deviceId: deviceId, afterRowId: afterRowId, limit: limit)
         try admission.check(); return value
     }
+    public func mutableDirtyRanges(table: PushMutableTable, deviceId: String, afterRevision: Int64,
+                                    afterKey: String, limit: Int, calendar: Calendar) async throws -> PushMutableDirtyPage? {
+        try admission.check()
+        let value = try await source.mutableDirtyRanges(table: table, deviceId: deviceId, afterRevision: afterRevision,
+            afterKey: afterKey, limit: limit, calendar: calendar)
+        try admission.check(); return value
+    }
     public func mutableRows(table: PushMutableTable, deviceId: String, window: PushWindow, limit: Int) async throws -> [PushMutableRecord] {
         try admission.check(); let value = try await source.mutableRows(table: table, deviceId: deviceId, window: window, limit: limit)
         try admission.check(); return value
@@ -64,6 +71,29 @@ public struct AccountFencedSnapshot: PushSnapshotSource {
     }
     public func binaryRows(table: PushBinaryTable, deviceId: String, afterRowId: Int64, limit: Int) async throws -> [PushBinaryRow] {
         try admission.check(); let value = try await source.binaryRows(table: table, deviceId: deviceId, afterRowId: afterRowId, limit: limit)
+        try admission.check(); return value
+    }
+    public func appendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64,
+                           limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage {
+        try admission.check(); let value = try await source.appendPage(table: table, deviceId: deviceId,
+            afterRowId: afterRowId, limit: limit, limits: limits)
+        try admission.check(); return value
+    }
+    public func appendFingerprintAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> String? {
+        try admission.check(); let value = try await source.appendFingerprintAt(table: table, deviceId: deviceId, rowId: rowId)
+        try admission.check(); return value
+    }
+    public func binaryFingerprintAt(table: PushBinaryTable, deviceId: String, rowId: Int64,
+                                     protocolVersion: String) async throws -> String? {
+        try admission.check(); let value = try await source.binaryFingerprintAt(table: table, deviceId: deviceId,
+            rowId: rowId, protocolVersion: protocolVersion)
+        try admission.check(); return value
+    }
+    public func binaryPage(table: PushBinaryTable, deviceId: String, afterRowId: Int64,
+                           limit: Int, limits: PushSourceReadLimits) async throws -> PushBinaryPage {
+        try admission.check()
+        let value = try await source.binaryPage(table: table, deviceId: deviceId, afterRowId: afterRowId,
+            limit: limit, limits: limits)
         try admission.check(); return value
     }
     public func acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: [PushBinaryRow]) async throws {
@@ -119,6 +149,25 @@ public struct AccountFencedTransport: PushTransport {
     private let admission: AccountPushAdmission
     public init(transport: any PushTransport, admission: AccountPushAdmission) {
         self.transport = transport; self.admission = admission
+    }
+    public func beginBinaryPreparation(maximumWireBytes: Int) async throws -> PushBinaryPreparation? {
+        try admission.check()
+        let result = try await transport.beginBinaryPreparation(maximumWireBytes: maximumWireBytes)
+        do { try admission.check(); return result }
+        catch { if let result { try? await transport.finishBinaryPreparation(result) }; throw error }
+    }
+    public func finishBinaryPreparation(_ preparation: PushBinaryPreparation) async throws {
+        try await transport.finishBinaryPreparation(preparation)
+    }
+    public func uploadObject(_ intent: PushObjectIntent, file: PushImmutablePayloadFile) async throws {
+        try admission.check(); try await transport.uploadObject(intent, file: file); try admission.check()
+    }
+    public func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool {
+        try admission.check(); let value = try await transport.isPreparationPaused(lane)
+        try admission.check(); return value
+    }
+    public func pausePreparation(_ lane: PushPreparationLane) async throws {
+        try admission.check(); try await transport.pausePreparation(lane); try admission.check()
     }
     public func capabilities() async throws -> PushCapabilitiesResult {
         try admission.check(); let value = try await transport.capabilities(); try admission.check(); return value

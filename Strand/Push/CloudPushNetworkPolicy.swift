@@ -27,12 +27,14 @@ enum CloudPushNetworkPolicy {
     private static let path = CloudPushPathObserver()
     static func isNetworkAvailable(wifiOnly: Bool) -> Bool {
         let snapshot = path.snapshot
-        return isPushNetworkAvailable(
+        let permitted = isPushNetworkAvailable(
             wifiOnly: wifiOnly,
             isConnected: snapshot.connected,
             isWifi: snapshot.wifi,
             isUnmetered: snapshot.unmetered
         )
+        ResourceBudget.shared.network(permitted: permitted)
+        return permitted
     }
     #endif
 }
@@ -52,7 +54,9 @@ private final class CloudPushPathObserver: @unchecked Sendable {
             self.lock.lock()
             self.value = (path.status == .satisfied, path.usesInterfaceType(.wifi), !path.isExpensive && !path.isConstrained)
             self.lock.unlock()
-            NotificationCenter.default.post(name: ResourceBudget.changed, object: nil)
+            ResourceBudget.shared.network(permitted: CloudPushNetworkPolicy.isPushNetworkAvailable(
+                wifiOnly: CloudPushSettings.wifiOnly, isConnected: path.status == .satisfied,
+                isWifi: path.usesInterfaceType(.wifi), isUnmetered: !path.isExpensive && !path.isConstrained))
         }
         monitor.start(queue: DispatchQueue(label: "com.noop.cloudpush.network"))
     }

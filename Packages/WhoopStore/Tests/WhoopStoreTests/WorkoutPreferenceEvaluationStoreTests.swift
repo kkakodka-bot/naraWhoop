@@ -396,7 +396,7 @@ final class WorkoutPreferenceEvaluationStoreTests: XCTestCase {
         let settled = try await f.store.settleWorkoutPreferenceRescoreJob(session: f.session, receipt: receipt,
             request: f.request, capturedToken: XCTUnwrap(receipt.receipt.coreWitness.capturedRescoreJobToken), permit: f.permit)
         XCTAssertFalse(settled)
-        let jobs = try await f.store.owedJobs(); XCTAssertEqual(jobs.count, 1)
+        let jobs = try await f.store.owedJobs().filter { $0.kind == "rescore" }; XCTAssertEqual(jobs.count, 1)
     }
 
     func testPermitRevokedDuringRealTransactionRollsBackAndDoesNotPoisonOtherWrites() async throws {
@@ -432,7 +432,7 @@ final class WorkoutPreferenceEvaluationStoreTests: XCTestCase {
             return try await f.store.inspectWorkoutPreferenceEvaluation(session: fresh, request: f.request, now: 0)
         }
         do { _ = try await task.value; XCTFail("cancelled task returned a view") } catch { XCTAssertTrue(error is CancellationError) }
-        let jobs = try await f.store.owedJobs(); XCTAssertEqual(jobs.count, 1)
+        let jobs = try await f.store.owedJobs().filter { $0.kind == "rescore" }; XCTAssertEqual(jobs.count, 1)
     }
 
     func testRetryAfterIsNotRunnableUntilDeadlineEvenBeforeCorePass() async throws {
@@ -597,7 +597,9 @@ final class WorkoutPreferenceEvaluationStoreTests: XCTestCase {
         let renewed = try await finish(reopened, lease: XCTUnwrap(view.lease))
         XCTAssertEqual(renewed.disposition, .complete)
         XCTAssertEqual(renewed.validatedReceipt?.receipt.digest, receipt.receipt.digest)
-        let jobs = try await reopened.store.owedJobs(); XCTAssertTrue(jobs.isEmpty)
+        let allJobs = try await reopened.store.owedJobs()
+        XCTAssertFalse(allJobs.contains { $0.kind == "rescore" })
+        XCTAssertTrue(allJobs.contains { $0.kind == "cloudPush" }, "Rescore settlement cannot erase source upload debt")
     }
 
     func testEveryOneOfFourteenRowFieldsParticipatesInColdProof() async throws {
@@ -629,7 +631,7 @@ final class WorkoutPreferenceEvaluationStoreTests: XCTestCase {
         let view = try await finish(f, lease: scanLease(f))
         XCTAssertEqual(view.disposition, .held(.malformedRow)); XCTAssertFalse(view.membershipComplete)
         let values = try await f.store.registryWriter.read { db in
-            (try Int.fetchOne(db, sql: "SELECT count(*) FROM syncJob"),
+            (try Int.fetchOne(db, sql: "SELECT count(*) FROM syncJob WHERE kind='rescore'"),
              try Double.fetchOne(db, sql: "SELECT strain FROM workout"))
         }
         XCTAssertEqual(values.0, 1); XCTAssertEqual(values.1, Double.infinity)
@@ -705,7 +707,7 @@ final class WorkoutPreferenceEvaluationStoreTests: XCTestCase {
         }
         let after = try await f.store.inspectWorkoutPreferenceEvaluation(session: f.session, request: f.request, now: Int64.max)
         XCTAssertEqual(after.disposition, .evaluatedPartial); XCTAssertEqual(after.head, partial.head)
-        let jobs = try await f.store.owedJobs(); XCTAssertEqual(jobs.count, 1)
+        let jobs = try await f.store.owedJobs().filter { $0.kind == "rescore" }; XCTAssertEqual(jobs.count, 1)
     }
 
     func testExplicitResourceRetryPreservesPrefixAndDoesNotCertifyOversizeRow() async throws {
@@ -1409,7 +1411,7 @@ final class WorkoutPreferenceEvaluationStoreTests: XCTestCase {
                     receipt: receipt, request: req, capturedToken: token, permit: cold.permit)
                 XCTAssertFalse(settled, "failed cold proof must never authorize job deletion")
             }
-            let jobs = try await cold.store.owedJobs()
+            let jobs = try await cold.store.owedJobs().filter { $0.kind == "rescore" }
             XCTAssertEqual(jobs.count, 1); XCTAssertEqual(jobs.first?.token, token)
             let currentProgress = try await persistedProgress(cold)
             XCTAssertEqual(currentProgress, progress, "a failed proof must retain the original durable prefix")
@@ -1508,7 +1510,8 @@ final class WorkoutPreferenceEvaluationStoreTests: XCTestCase {
                 capturedToken: XCTUnwrap(lease.rescoreJobToken), permit: f.permit)
             XCTAssertEqual(settled, !differentBytes)
             let jobs = try await f.store.owedJobs()
-            XCTAssertEqual(jobs.count, differentBytes ? 1 : 0)
+            XCTAssertEqual(jobs.filter { $0.kind == "rescore" }.count, differentBytes ? 1 : 0)
+            XCTAssertTrue(jobs.contains { $0.kind == "cloudPush" })
         }
     }
 
@@ -1552,7 +1555,7 @@ final class WorkoutPreferenceEvaluationStoreTests: XCTestCase {
         let pending = try await f.store.inspectWorkoutPreferenceEvaluation(session: f.session, request: distinct, now: 0)
         XCTAssertEqual(pending.disposition, .needsCorePass); XCTAssertNil(pending.validatedReceipt)
         await failed(.staleHead) { _ = try await self.recordCore(f, lease: oldLease) }
-        let jobs = try await f.store.owedJobs(); XCTAssertEqual(jobs.count, 1)
+        let jobs = try await f.store.owedJobs().filter { $0.kind == "rescore" }; XCTAssertEqual(jobs.count, 1)
         XCTAssertEqual(jobs.first?.token, oldLease.rescoreJobToken)
     }
 
@@ -1591,13 +1594,15 @@ final class WorkoutPreferenceEvaluationStoreTests: XCTestCase {
             XCTAssertFalse(settled)
         }
         let unchanged = try await workoutBytes(f); XCTAssertEqual(unchanged, originalRows)
-        let jobs = try await f.store.owedJobs(); XCTAssertEqual(jobs.count, 1); XCTAssertEqual(jobs.first?.token, newToken)
+        let jobs = try await f.store.owedJobs().filter { $0.kind == "rescore" }; XCTAssertEqual(jobs.count, 1); XCTAssertEqual(jobs.first?.token, newToken)
         let finished = try await finish(f, lease: recordCore(f, lease: fresh))
         XCTAssertEqual(finished.disposition, .complete); XCTAssertEqual(finished.counts.totalRows, 1)
         let settled = try await f.store.settleWorkoutPreferenceRescoreJob(session: f.session,
             receipt: XCTUnwrap(finished.validatedReceipt), request: f.request, capturedToken: newToken, permit: f.permit)
         XCTAssertTrue(settled)
-        let remaining = try await f.store.owedJobs(); XCTAssertTrue(remaining.isEmpty)
+        let remaining = try await f.store.owedJobs()
+        XCTAssertFalse(remaining.contains { $0.kind == "rescore" })
+        XCTAssertTrue(remaining.contains { $0.kind == "cloudPush" })
     }
 
     func testExplicitRetryAfterRevisionInvalidationRetainsBoundsAndRejectsOldCapabilities() async throws {
@@ -1622,7 +1627,7 @@ final class WorkoutPreferenceEvaluationStoreTests: XCTestCase {
         let unchanged = try await workoutBytes(f); XCTAssertEqual(unchanged, originalRows)
         let done = try await finish(f, lease: recordCore(f, lease: fresh))
         XCTAssertEqual(done.disposition, .complete); XCTAssertEqual(done.counts.totalRows, 1)
-        let jobs = try await f.store.owedJobs(); XCTAssertEqual(jobs.count, 1)
+        let jobs = try await f.store.owedJobs().filter { $0.kind == "rescore" }; XCTAssertEqual(jobs.count, 1)
         XCTAssertEqual(jobs.first?.token, fresh.rescoreJobToken)
     }
 

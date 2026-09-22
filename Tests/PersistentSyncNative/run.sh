@@ -22,9 +22,11 @@ TMPDIR="$syncNativeOutput/tmp/" xcrun swiftc \
   "$syncNativeSourceRoot/Strand/BLE/BLEConnectionOwner.swift" \
   "$syncNativeSourceRoot/Strand/Collect/HistoricalCommitLease.swift" \
   "$syncNativeSourceRoot/Strand/System/ResourceBudget.swift" \
+  "$syncNativeSourceRoot/Strand/BLE/RealtimeIntentController.swift" \
   "$syncNativeSourceRoot/StrandTests/BLEConnectionOwnerTests.swift" \
   "$syncNativeSourceRoot/StrandTests/HistoricalCommitLeaseTests.swift" \
   "$syncNativeSourceRoot/StrandTests/ResourceBudgetTests.swift" \
+  "$syncNativeSourceRoot/StrandTests/RealtimeIntentControllerTests.swift" \
   "$syncNativeScriptDir/main.swift" \
   -o "$syncNativeOutput/PersistentSyncNative"
 

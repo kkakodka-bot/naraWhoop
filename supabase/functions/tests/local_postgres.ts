@@ -10,10 +10,18 @@ export const USER_B = '22222222-2222-4222-8222-222222222222';
 const decoder = new TextDecoder();
 
 export async function startLocalPostgres({ scalarProjections = false, auxiliaryIdentity = false,
-  appendCompatibility = false, installationLifecycle = false }:
-  { scalarProjections?: boolean; auxiliaryIdentity?: boolean; appendCompatibility?: boolean; installationLifecycle?: boolean } = {}) {
+  appendCompatibility = false, installationLifecycle = false, statementTimeoutMs = 0 }:
+  { scalarProjections?: boolean; auxiliaryIdentity?: boolean; appendCompatibility?: boolean; installationLifecycle?: boolean; statementTimeoutMs?: number } = {}) {
+  if (!Number.isInteger(statementTimeoutMs) || statementTimeoutMs < 0 || statementTimeoutMs > 600000) {
+    throw new Error("invalid_fixture_statement_timeout");
+  }
   const artifacts = Deno.env.get('EDGE_TEST_ARTIFACTS');
-  if (!artifacts?.startsWith('/Volumes/')) throw new Error('EDGE_TEST_ARTIFACTS must name an external-volume directory');
+  if (!artifacts?.startsWith('/')) throw new Error('EDGE_TEST_ARTIFACTS must name an absolute directory outside the checkout');
+  const artifactRoot = await Deno.realPath(artifacts);
+  const checkoutRoot = await Deno.realPath(new URL('../../../', import.meta.url));
+  if (artifactRoot === checkoutRoot || artifactRoot.startsWith(`${checkoutRoot}/`)) {
+    throw new Error('EDGE_TEST_ARTIFACTS must remain outside the checkout');
+  }
   const base = await Deno.makeTempDir({ dir: artifacts, prefix: 'edge-pg-' });
   const bin = Deno.env.get('EDGE_TEST_PG_BIN') || '/opt/homebrew/bin';
   const data = `${base}/data`;
@@ -38,7 +46,7 @@ export async function startLocalPostgres({ scalarProjections = false, auxiliaryI
   }
   try {
     await run(`${bin}/initdb`, ['-D', data, '-U', 'edge_test', '--auth-local=trust', '--auth-host=reject', '--no-locale', '--encoding=UTF8']);
-    await run(`${bin}/pg_ctl`, ['-D', data, '-l', `${base}/postgres.log`, '-o', `-k ${base} -c listen_addresses='' -c unix_socket_permissions=0700 -c max_connections=30`, '-w', 'start']);
+    await run(`${bin}/pg_ctl`, ['-D', data, '-l', `${base}/postgres.log`, '-o', `-k ${base} -c listen_addresses='' -c unix_socket_permissions=0700 -c max_connections=30 -c statement_timeout=${statementTimeoutMs}`, '-w', 'start']);
     started = true;
     await sql(`
       create role postgres nologin; create role anon nologin; create role authenticated nologin;
@@ -83,6 +91,8 @@ export async function startLocalPostgres({ scalarProjections = false, auxiliaryI
     if (appendCompatibility) migrations.push('20260921070000_production_append_stream_compatibility.sql');
     if (installationLifecycle) migrations.push('20260919200000_noop_enrollment_identity.sql',
       '20260921110000_installation_retirement.sql');
+    migrations.push('20260922010000_object_copy_intents.sql');
+    migrations.push('20260922020000_async_object_verification.sql');
     for (const migration of migrations) {
       const file = new URL(`../../migrations/${migration}`, import.meta.url);
       await run(`${bin}/psql`, ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-h', base, '-U', 'edge_test', '-d', 'postgres', '-f', decodeURIComponent(file.pathname)]);

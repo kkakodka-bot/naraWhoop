@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public protocol PushTable: Sendable {
     var wireName: String { get }
@@ -159,21 +160,52 @@ public struct PushBinaryBatch: Sendable {
     public let contentEncoding: String
     public let endCursor: PushCursor?
     public let manifestJSON: Data
-    public let payload: Data
+    private let embeddedPayload: Data?
+    public let payloadFile: PushImmutablePayloadFile?
+    public let wireBytes: Int
+    public let wireSHA256: String
+    public var payload: Data {
+        get throws {
+            if let embeddedPayload { return embeddedPayload }
+            guard let payloadFile else { throw PushPreparedSelection.invalid() }
+            return try payloadFile.materialized()
+        }
+    }
+
+    public init(protocolVersion: String, batchId: String, sourceId: String, table: PushBinaryTable,
+                deviceId: String, objectId: String, startTs: Int64, endTs: Int64, sampleCount: Int,
+                uncompressedBytes: Int, contentSha256: String, contentEncoding: String,
+                endCursor: PushCursor?, manifestJSON: Data, payload: Data? = nil,
+                payloadFile: PushImmutablePayloadFile? = nil) {
+        precondition((payload == nil) != (payloadFile == nil))
+        self.protocolVersion = protocolVersion; self.batchId = batchId; self.sourceId = sourceId
+        self.table = table; self.deviceId = deviceId; self.objectId = objectId
+        self.startTs = startTs; self.endTs = endTs; self.sampleCount = sampleCount
+        self.uncompressedBytes = uncompressedBytes; self.contentSha256 = contentSha256
+        self.contentEncoding = contentEncoding; self.endCursor = endCursor; self.manifestJSON = manifestJSON
+        self.embeddedPayload = payload; self.payloadFile = payloadFile
+        wireBytes = payloadFile?.byteCount ?? payload!.count
+        wireSHA256 = payloadFile?.sha256 ?? PushDurabilityReceipt.sha256(payload!)
+    }
 
     public var wireName: String { table.wireName }
 
     /// Restores saved bytes with exact membership checks. Never invokes the compressor or selector.
     public static func restoring(manifest: PushObjectManifest, endCursor: PushCursor?, manifestJSON: Data,
-                                 payload: Data, wireSHA256: String, rows: [PushBinaryRow]) throws -> Self {
+                                 payload: Data? = nil, payloadFile: PushImmutablePayloadFile? = nil,
+                                 wireSHA256: String, rows: [PushBinaryRow]) throws -> Self {
+        guard (payload == nil) != (payloadFile == nil) else { throw PushPreparedSelection.invalid() }
+        let wireBytes = payloadFile?.byteCount ?? payload!.count
+        let wireDigest = payloadFile?.sha256 ?? PushDurabilityReceipt.sha256(payload!)
+        try payloadFile?.verify()
         guard PushProtocol.isObjectVersion(manifest.protocolVersion),
               let table = PushBinaryTable(rawValue: manifest.stream),
               PushPreparedSelection.uuid(manifest.batchId), PushPreparedSelection.uuid(manifest.objectId),
               PushPreparedSelection.uuid(manifest.sourceId), !manifest.deviceId.isEmpty,
               manifest.deviceId.utf8.count <= 1024, manifestJSON.count <= 8192,
-              !payload.isEmpty, payload.count <= PushProtocolLimits.maxObjectWireBytes,
-              Int64(payload.count) == manifest.compressedBytes,
-              PushDurabilityReceipt.sha256(payload) == wireSHA256,
+              wireBytes > 0, wireBytes <= PushProtocolLimits.maxObjectWireBytes,
+              Int64(wireBytes) == manifest.compressedBytes,
+              wireDigest == wireSHA256,
               manifest.contentEncoding == table.contentEncoding,
               !rows.isEmpty, rows.count <= PushProtocolLimits.maxRecords else { throw PushPreparedSelection.invalid() }
         var packedSize = PushBinaryCodec.packedHeaderSize(for: table)
@@ -183,11 +215,15 @@ public struct PushBinaryBatch: Sendable {
             guard n <= PushProtocolLimits.maxObjectDecodedBytes - packedSize else { throw PushPreparedSelection.invalid() }
             packedSize += n
         }
-        let packed = try PushBinaryCodec.pack(table: table, rows: rows,
+        var cursor = 0, digest = SHA256()
+        let verifiedSize = try PushBinaryStreamEncoder.visitDecodedBytes(table: table, rowCount: rows.count,
             ppgIdentityV2: PushProtocol.hasPPGIdentity(manifest.protocolVersion),
-            v18IdentityV2: manifest.protocolVersion == PushProtocol.auxiliaryIdentityVersion)
-        guard Int64(packed.count) == manifest.uncompressedBytes,
-              PushDurabilityReceipt.sha256(packed) == manifest.contentSha256 else { throw PushPreparedSelection.invalid() }
+            v18IdentityV2: manifest.protocolVersion == PushProtocol.auxiliaryIdentityVersion,
+            maxDecodedBytes: PushProtocolLimits.maxObjectDecodedBytes, maxRows: PushProtocolLimits.maxRecords,
+            nextRow: { guard cursor < rows.count else { return nil }; defer { cursor += 1 }; return rows[cursor] },
+            consume: { digest.update(bufferPointer: $0) })
+        guard Int64(verifiedSize) == manifest.uncompressedBytes,
+              digest.finalize().map({ String(format: "%02x", $0) }).joined() == manifest.contentSha256 else { throw PushPreparedSelection.invalid() }
         var positions: [(Int64, Int64)] = []
         for row in rows {
             switch row {
@@ -225,9 +261,9 @@ public struct PushBinaryBatch: Sendable {
               PushPreparedSelection.integer(header["endTs"]) == manifest.endTs else { throw PushPreparedSelection.invalid() }
         return .init(protocolVersion: manifest.protocolVersion, batchId: manifest.batchId, sourceId: manifest.sourceId,
             table: table, deviceId: manifest.deviceId, objectId: manifest.objectId, startTs: manifest.startTs,
-            endTs: manifest.endTs, sampleCount: Int(manifest.sampleCount), uncompressedBytes: packed.count,
+            endTs: manifest.endTs, sampleCount: Int(manifest.sampleCount), uncompressedBytes: verifiedSize,
             contentSha256: manifest.contentSha256, contentEncoding: manifest.contentEncoding, endCursor: endCursor,
-            manifestJSON: manifestJSON, payload: payload)
+            manifestJSON: manifestJSON, payload: payload, payloadFile: payloadFile)
     }
 }
 
@@ -308,11 +344,13 @@ public struct PushWindowProgress: Sendable, Codable {
     public let window: PushWindow
     public let batchId: String
     public let dayHashes: [String: String]
+    public let mutableFrontier: PushMutableFrontier?
 
-    public init(window: PushWindow, batchId: String, dayHashes: [String: String] = [:]) {
+    public init(window: PushWindow, batchId: String, dayHashes: [String: String] = [:], mutableFrontier: PushMutableFrontier? = nil) {
         self.window = window
         self.batchId = batchId
         self.dayHashes = dayHashes
+        self.mutableFrontier = mutableFrontier
     }
 }
 
@@ -379,17 +417,25 @@ public struct PushTransportResponse: Sendable {
 
 /// The `objectLane` block of a 1.2 capabilities response: where object intents go, how large an
 /// object may be, and which binary streams the receiver archives direct-to-bucket.
+public enum PushObjectCompletionMode: String, Codable, Sendable {
+    case asynchronousV1 = "async-v1"
+}
+
 public struct PushObjectLane: Sendable, Equatable {
     public let endpoint: String
     public let maxObjectBytes: Int64
     public let urlTtlSec: Int64?
     public let streams: Set<PushBinaryTable>
+    /// Nil preserves synchronous completion for legacy selections and unnegotiated receivers.
+    public let completionMode: PushObjectCompletionMode?
 
-    public init(endpoint: String, maxObjectBytes: Int64, urlTtlSec: Int64?, streams: Set<PushBinaryTable>) {
+    public init(endpoint: String, maxObjectBytes: Int64, urlTtlSec: Int64?, streams: Set<PushBinaryTable>,
+                completionMode: PushObjectCompletionMode? = nil) {
         self.endpoint = endpoint
         self.maxObjectBytes = maxObjectBytes
         self.urlTtlSec = urlTtlSec
         self.streams = streams
+        self.completionMode = completionMode
     }
 }
 
@@ -421,7 +467,7 @@ public struct PushObjectManifest: Sendable, Equatable, Codable {
         self.endTs = batch.endTs
         self.sampleCount = Int64(batch.sampleCount)
         self.uncompressedBytes = Int64(batch.uncompressedBytes)
-        self.compressedBytes = Int64(batch.payload.count)
+        self.compressedBytes = Int64(batch.wireBytes)
         self.contentSha256 = batch.contentSha256
         self.contentEncoding = batch.contentEncoding
     }
@@ -553,9 +599,11 @@ public struct PushRunResult: Sendable {
     public let rejectedBatches: Int
     public let hasMoreAppendRows: Bool
     public let hasMoreBinaryRows: Bool
+    public let hasMoreMutableRows: Bool
     public let acceptedRecords: Int
     public let hasRetryableFailure: Bool
     public let nextDeviceIndex: Int
+    public let deviceListFingerprint: String?
     public let hasMoreDevices: Bool
     public let failure: PushFailure?
 
@@ -564,9 +612,11 @@ public struct PushRunResult: Sendable {
         rejectedBatches: Int,
         hasMoreAppendRows: Bool,
         hasMoreBinaryRows: Bool = false,
+        hasMoreMutableRows: Bool = false,
         acceptedRecords: Int = 0,
         hasRetryableFailure: Bool = false,
         nextDeviceIndex: Int = 0,
+        deviceListFingerprint: String? = nil,
         hasMoreDevices: Bool = false,
         failure: PushFailure? = nil
     ) {
@@ -574,15 +624,23 @@ public struct PushRunResult: Sendable {
         self.rejectedBatches = rejectedBatches
         self.hasMoreAppendRows = hasMoreAppendRows
         self.hasMoreBinaryRows = hasMoreBinaryRows
+        self.hasMoreMutableRows = hasMoreMutableRows
         self.acceptedRecords = acceptedRecords
         self.hasRetryableFailure = hasRetryableFailure
         self.nextDeviceIndex = nextDeviceIndex
+        self.deviceListFingerprint = deviceListFingerprint
         self.hasMoreDevices = hasMoreDevices
         self.failure = failure
     }
 }
 
 public protocol PushTransport: Sendable {
+    func beginBinaryPreparation(maximumWireBytes: Int) async throws -> PushBinaryPreparation?
+    func finishBinaryPreparation(_ preparation: PushBinaryPreparation) async throws
+    func uploadObject(_ intent: PushObjectIntent, file: PushImmutablePayloadFile) async throws
+
+    func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool
+    func pausePreparation(_ lane: PushPreparationLane) async throws
     func capabilities() async throws -> PushCapabilitiesResult
     func post(_ batch: PushBatch) async throws -> PushTransportResponse
     func postBinary(_ batch: PushBinaryBatch) async throws -> PushTransportResponse
@@ -595,6 +653,8 @@ public protocol PushTransport: Sendable {
 }
 
 public extension PushTransport {
+    func isPreparationPaused(_ lane: PushPreparationLane) async throws -> Bool { false }
+    func pausePreparation(_ lane: PushPreparationLane) async throws {}
     func createObjectIntent(_ manifest: PushObjectManifest, lane: PushObjectLane) async throws -> PushObjectIntent {
         throw PushTransportException(PushFailure(code: .localData))
     }
@@ -630,10 +690,19 @@ public extension PushProgressStore {
 }
 
 public protocol PushSnapshotSource: Sendable {
+    func appendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64,
+                    limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage
+    func appendFingerprintAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> String?
+    func binaryFingerprintAt(table: PushBinaryTable, deviceId: String, rowId: Int64,
+                             protocolVersion: String) async throws -> String?
+    func binaryPage(table: PushBinaryTable, deviceId: String, afterRowId: Int64,
+                    limit: Int, limits: PushSourceReadLimits) async throws -> PushBinaryPage
     func knownDeviceIds(capabilities: PushCapabilities) async throws -> [String]
     func appendRecordAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> PushAppendRecord?
     func appendRows(table: PushAppendTable, deviceId: String, afterRowId: Int64, limit: Int) async throws -> [PushAppendRecord]
     func mutableRows(table: PushMutableTable, deviceId: String, window: PushWindow, limit: Int) async throws -> [PushMutableRecord]
+    func mutableDirtyRanges(table: PushMutableTable, deviceId: String, afterRevision: Int64,
+                            afterKey: String, limit: Int, calendar: Calendar) async throws -> PushMutableDirtyPage?
     func binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Int64) async throws -> PushBinaryRow?
     func binaryRows(table: PushBinaryTable, deviceId: String, afterRowId: Int64, limit: Int) async throws -> [PushBinaryRow]
     func acknowledgeBinary(table: PushBinaryTable, deviceId: String, rows: [PushBinaryRow]) async throws

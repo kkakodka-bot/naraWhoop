@@ -410,6 +410,7 @@ final class SyncEngine {
         guard CloudPushSettings.ready else {
             return await admission.settle()
         }
+        guard await host.prepareCloudCaptureBinding() else { return false }
         guard let writer = await host.repo.registryWriterForPush() else { return false }
         guard await admission.validate() else { return false }
         let outcome = await CloudPushWorker.runOnce(
@@ -539,16 +540,21 @@ enum SyncMaintenanceBackgroundScheduler {
 
     private final class TaskCompletionGuard: @unchecked Sendable {
         private let task: BGTask
+        private let budgetOwner = UUID()
         private let lock = NSLock()
         private var finished = false
 
-        init(task: BGTask) { self.task = task }
+        init(task: BGTask) {
+            self.task = task
+            ResourceBudget.shared.backgroundOpportunity(owner: budgetOwner, active: true)
+        }
 
         func finish(success: Bool) {
             lock.lock()
-            defer { lock.unlock() }
-            guard !finished else { return }
+            guard !finished else { lock.unlock(); return }
             finished = true
+            lock.unlock()
+            ResourceBudget.shared.backgroundOpportunity(owner: budgetOwner, active: false)
             task.setTaskCompleted(success: success)
         }
     }

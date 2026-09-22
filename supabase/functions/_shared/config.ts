@@ -15,6 +15,7 @@ export interface PushFunctionConfig {
   enrollmentPepper: string;
   enrollmentRetryWindowSeconds: number;
   allowLegacyFleetUploads: boolean;
+  asyncObjectVerification?: boolean;
 }
 
 export function pushConfig(env: Record<string, string | undefined> = Deno.env.toObject()): PushFunctionConfig {
@@ -49,6 +50,7 @@ export function pushConfig(env: Record<string, string | undefined> = Deno.env.to
     enrollmentPepper: pick('NOOP_ENROLLMENT_PEPPER'),
     enrollmentRetryWindowSeconds,
     allowLegacyFleetUploads: pick('NOOP_ALLOW_LEGACY_FLEET_UPLOADS').toLowerCase() === 'true',
+    asyncObjectVerification: pick('NOOP_ASYNC_OBJECT_VERIFICATION') === '1',
   };
 }
 

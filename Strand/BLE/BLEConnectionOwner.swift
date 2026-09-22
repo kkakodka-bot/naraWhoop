@@ -74,6 +74,17 @@ final class BLEConnectionOwner {
         return current
     }
 
+    /// Restoration can hand us a link whose OS-owned teardown is already in progress.
+    /// Give that teardown a generation so the driver can fence it and immediately leave
+    /// the replacement standing request, independently of the cancellation callback.
+    func adoptRestoredTeardown(_ id: UUID) -> Token? {
+        guard !intentionallyStopped, phase == .restoring, token == nil else { return nil }
+        let current = nextToken(id)
+        recoveryDisconnectPending = true
+        phase = .reconnecting
+        return current
+    }
+
     /// This is the only connection-request effect. No timers can own reconnect correctness.
     @discardableResult
     func request(_ id: UUID, link: LinkState, startDelay: TimeInterval = 0,
@@ -95,6 +106,7 @@ final class BLEConnectionOwner {
         guard !intentionallyStopped, token?.peripheralID == id,
               [.pendingConnection, .connecting, .reconnecting].contains(phase) else { return false }
         automaticReconnectPending = false
+        recoveryDisconnectPending = false
         submittedAt = nil
         recoveryAttempts.removeAll()
         phase = .discovering
@@ -120,7 +132,19 @@ final class BLEConnectionOwner {
     }
 
     func subscribing() { if phase == .discovering { phase = .subscribing } }
+    func notificationsLost() { if phase == .ready { phase = .subscribing } }
     func ready() { if phase == .subscribing || phase == .discovering { phase = .ready } }
+
+    /// A finite setup opportunity ended. Invalidate all GATT callbacks before cancelling the
+    /// local link; the driver may then leave one OS-owned request without waiting for teardown.
+    func cancelSetup(_ value: Token) -> Bool {
+        guard !intentionallyStopped, token == value,
+              [.discovering, .subscribing, .failed].contains(phase)
+                || (phase == .reconnecting && recoveryDisconnectPending) else { return false }
+        invalidate()
+        phase = .reconnecting
+        return true
+    }
 
     /// Two idempotent retries per stage and generation, then one cancel/reconnect flow.
     func recover(stage: String, retry: () -> Void, reconnect: () -> Void) {

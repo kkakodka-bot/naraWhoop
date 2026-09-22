@@ -46,6 +46,7 @@ import { createNoopDeviceResolver } from '../_shared/devices.ts';
 import { createUploadReceiptStore } from '../_shared/receipts.ts';
 import { projectEnrolledAppend } from '../_shared/appendProjection.ts';
 import { createInstallationLifecycle } from '../_shared/installationLifecycle.ts';
+import { ASYNC_OBJECT_COMPLETION, ASYNC_OBJECT_HEADER, objectCompletionResponse } from '../_shared/objectVerification.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024 + 64 * 1024;
 
@@ -181,6 +182,7 @@ async function handleCapabilities(req: Request): Promise<Response> {
           endpoint: OBJECT_LANE_PATH,
           maxObjectBytes: MAX_OBJECT_LANE_BYTES,
           urlTtlSec: UPLOAD_URL_TTL_SEC,
+          ...(cfg.asyncObjectVerification ? { completionModes: ['sync', ASYNC_OBJECT_COMPLETION] } : {}),
         }
         : null,
     });
@@ -231,16 +233,29 @@ async function handleObjectComplete(req: Request, objectId: string): Promise<Res
     if (!pushObjects.configured) {
       return json({ type: 'error', protocolVersion: '1.2', code: 'object_lane_unavailable' }, 503);
     }
-    const ack = await pushObjects.completeObject({
-      userId: user.id,
-      sourceId: user.sourceId,
-      tokenId: user.tokenId,
-      authMode: user.authMode,
-      objectId,
+    const scope = { userId: user.id, sourceId: user.sourceId, tokenId: user.tokenId,
+      authMode: user.authMode, objectId };
+    // A negotiated pending job keeps its async lease when advertisement is rolled back.
+    // Both completion paths enforce the enrolled installation scope before receipt access.
+    return await objectCompletionResponse({
+      mode: req.headers.get(ASYNC_OBJECT_HEADER),
+      completeSync: async () => {
+        const ack = await pushObjects.completeObject(scope);
+        void enqueueScoringAfterIngest({ rest, userId: user.id, deviceId: ack?.deviceId })
+          .catch(() => console.error('[push] scoring enqueue failed'));
+        return ack;
+      },
+      enqueue: async () => {
+        const result = await pushObjects.requestVerification(scope);
+        if (result.status === 200) {
+          const receipt = result.body.durabilityReceipt;
+          void enqueueScoringAfterIngest({ rest, userId: user.id, deviceId: receipt?.deviceId })
+            .catch(() => console.error('[push] scoring enqueue failed'));
+        }
+        return result;
+      },
+      hasDebt: () => pushObjects.hasVerificationDebt(scope),
     });
-    void enqueueScoringAfterIngest({ rest, userId: user.id, deviceId: ack?.deviceId })
-      .catch(() => console.error('[push] scoring enqueue failed'));
-    return json({ type: 'objectAck', ...ack });
   } catch (err: any) {
     if (err instanceof Response) return err;
     if (err instanceof PushProtocolError) return ingestProtocolErrorResponse(err, '1.2');

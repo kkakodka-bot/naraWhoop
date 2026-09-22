@@ -50,6 +50,15 @@ struct CloudPushPreparedSelection: Codable, Sendable {
         guard data.count <= PushPreparedSelection.maximumEncodedBytes else { throw CloudUploadError.storageFull }
         return data
     }
+    func compactEncoded() throws -> Data {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        encoder.dataEncodingStrategy = .custom { data, encoder in
+            var c = encoder.unkeyedContainer()
+            try c.encode(data.count); try c.encode(PushDurabilityReceipt.sha256(data))
+        }
+        return try encoder.encode(self)
+    }
+
     static func decode(_ bytes: Data) throws -> Self {
         guard bytes.count <= PushPreparedSelection.maximumEncodedBytes else { throw CloudUploadError.corruptJournal }
         return try JSONDecoder().decode(Self.self, from: bytes)
@@ -90,7 +99,7 @@ struct CloudPushPreparedSelection: Codable, Sendable {
         }
     }
     private static func identity(namespace: String, selection: PushPreparedSelection, gzip: [Data]) throws -> String {
-        AccountScope.digest((["prepared-selection-v2", namespace, PushDurabilityReceipt.sha256(try selection.encoded())]
+        AccountScope.digest((["prepared-selection-v2", namespace, PushDurabilityReceipt.sha256(try selection.identityData())]
             + gzip.map(PushDurabilityReceipt.sha256)).joined(separator: "\u{0}"))
     }
     private static func decodedGzip(_ data: Data, maximumBytes: Int) throws -> Data {
@@ -125,7 +134,7 @@ struct CloudPreparedQuota: Sendable {
     var maximumGroups = 64
     var maximumJobs = 256
 
-    struct Reservation: Equatable, Sendable {
+    struct Reservation: Codable, Equatable, Sendable {
         let bodyBytes: Int
         let selectionBytes: Int
         let jobSlots: Int
@@ -138,19 +147,19 @@ struct CloudPreparedQuota: Sendable {
     }
 
     func reservation(for prepared: CloudPushPreparedSelection) throws -> Reservation {
-        let encoded = try prepared.encoded()
+        let encoded = try prepared.selection.objectPayloadFile == nil ? prepared.encoded() : prepared.compactEncoded()
         let inline = prepared.selection.inlineBodies
         let bodyBytes: Int
         let jobs: Int
-        if let payload = prepared.selection.objectPayload {
-            // The one permitted explicit object-ID conflict successor has space BEFORE the first intent.
-            bodyBytes = payload.count * 2; jobs = 2
+        if let count = prepared.selection.objectWireBytes {
+            // Two transfer body links plus the immutable selection's wire file are conservatively charged.
+            bodyBytes = count * (prepared.selection.objectPayloadFile == nil ? 2 : 3); jobs = 2
         } else {
             bodyBytes = inline.reduce(0) { $0 + $1.count } + prepared.inlineGzip.reduce(0) { $0 + $1.count }
             jobs = inline.count * 2
         }
         let completion = jobs * Self.jobMetadataBytes + Self.groupCompletionBytes
-        let result = Reservation(bodyBytes: bodyBytes * 2, selectionBytes: encoded.count * 2, jobSlots: jobs, completionBytes: completion)
+        let result = Reservation(bodyBytes: bodyBytes * 2, selectionBytes: (encoded.count + (prepared.selection.objectPayloadFile == nil ? 0 : prepared.selection.memberByteCount)) * 2, jobSlots: jobs, completionBytes: completion)
         guard jobs > 0, jobs <= maximumJobs, result.total <= maximumBytes else { throw CloudUploadError.storageFull }
         return result
     }
@@ -204,11 +213,12 @@ enum CloudPushPreparedRecovery {
     static func recover(queue: CloudUploadQueue, context: AccountSessionContext, sourceID: String,
                         endpoint: String, receiverStateID: String, directory: URL,
                         coordinator: (CloudPushProgressStore, String) -> PushCoordinator) async throws -> Bool {
-        let selections = try await queue.preparedSelections(sourceID: sourceID, endpoint: endpoint,
+        let selectionIDs = try await queue.preparedSelectionIDs(sourceID: sourceID, endpoint: endpoint,
             receiverStateID: receiverStateID, captured: context)
         var blocked = false
-        for selection in selections {
+        for id in selectionIDs {
             do {
+                let selection = try await queue.preparedSelection(id, captured: context)
                 try await queue.prepareSelection(selection, captured: context)
                 let progress = try CloudPushProgressStore(namespace: selection.progressNamespace, directory: directory,
                     auxiliaryIdentityV2: selection.progressVersion == PushProtocol.auxiliaryIdentityVersion)

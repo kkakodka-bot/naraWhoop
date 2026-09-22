@@ -2891,4 +2891,6 @@
     <string name="terms_attest_cloud">Je comprends qu’en m’inscrivant, ce téléphone est lié à mon compte pour téléverser les données du capteur et recevoir les résultats du serveur.</string>
     <string name="terms_point_cloud_head">Inscription cloud personnelle</string>
     <string name="terms_point_cloud_body">Cette version utilise votre inscription personnelle pour téléverser les données du capteur vers le serveur et renvoyer les résultats à votre compte. Chaque téléphone a ses propres identifiants d’installation. Les données antérieures non associées restent sur le téléphone et ne sont pas téléversées automatiquement. Retirer l’inscription interrompt l’accès cloud ; cela ne supprime pas les données déjà téléversées.</string>
+    <string name="update_whats_new_nara_version">Nouveautés de NARA %1$s</string>
+    <string name="update_nara_version_available">NARA %1$s est disponible — touchez pour découvrir les nouveautés.</string>
 </resources>

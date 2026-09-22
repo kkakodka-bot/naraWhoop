@@ -14,18 +14,21 @@ cloudNativeArtifactParent=${cloudNativeArtifactParent:A}
 cloudNativeOutput=$(mktemp -d "$cloudNativeArtifactParent/cloud-upload-native.XXXXXX")
 cloudNativeDeveloper=${DEVELOPER_DIR:-$(xcode-select -p)}
 cloudNativeSources=(
+  Strand/Push/CloudMetadataStore.swift
+  Strand/Push/CloudSelectionSpool.swift
   Strand/Push/CloudUploadJournal.swift
   Strand/Push/CloudUploadQueue.swift
   Strand/Push/CloudUploadSession.swift
   Strand/Push/CloudPushPreparedSelection.swift
   Strand/Push/CloudPushProgressStore.swift
   Strand/Push/CloudPushTransport.swift
+  Strand/Push/CloudAccountPushTransport.swift
   Strand/Push/CloudPushBackgroundRuntime.swift
   Strand/Push/CloudPushRefreshCompletion.swift
   Strand/System/ResourceBudget.swift
   Strand/System/SyncPipelineTrace.swift
 )
-cloudNativeTests=(StrandTests/CloudUploadQueueTests.swift StrandTests/CloudUploadOutcomeTests.swift)
+cloudNativeTests=(StrandTests/CloudUploadQueueTests.swift StrandTests/CloudUploadOutcomeTests.swift StrandTests/CloudMetadataMigrationTests.swift)
 mkdir -p "$cloudNativeOutput/Sources/CloudUploadHarness" "$cloudNativeOutput/Tests/CloudUploadHarnessTests" "$cloudNativeOutput/fixtures"
 ln -s "$cloudNativeScriptDir/Package.swift" "$cloudNativeOutput/Package.swift"
 ln -s "$cloudNativeScriptDir/BoundaryStubs.swift" "$cloudNativeOutput/Sources/CloudUploadHarness/BoundaryStubs.swift"

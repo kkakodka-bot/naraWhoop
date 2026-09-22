@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Compression
 import GRDB
 import NoopPush
@@ -10,38 +11,235 @@ import WhoopStore
 struct CloudPushSnapshot: PushSnapshotSource {
     private let db: any DatabaseWriter
     private let imuPushSource: (any ImuSessionPushSource)?
+    private let allowsPreparation: @Sendable () -> Bool
 
-    init(db: any DatabaseWriter, imuPushSource: (any ImuSessionPushSource)? = nil) {
+    init(db: any DatabaseWriter, imuPushSource: (any ImuSessionPushSource)? = nil,
+         allowsPreparation: @escaping @Sendable () -> Bool = { true }) {
         self.db = db
         self.imuPushSource = imuPushSource
+        self.allowsPreparation = allowsPreparation
     }
 
     func knownDeviceIds(capabilities: PushCapabilities) async throws -> [String] {
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
+        let tables = Set((capabilities.appendTables.map { sqlTable($0) }
+            + capabilities.mutableTables.map { sqlTable($0) }
+            + capabilities.binaryTables.filter { $0 != .rawImuSession }.map { binarySqlTable($0) })
+            .compactMap(CloudSourceTable.init(rawValue:)))
+        // Commit each bounded bootstrap page before reporting deferred work. Throwing inside
+        // the write transaction would roll back its cursor and repeat the same source page.
+        let membershipReady = try await db.read { try WhoopStore.cloudSourceMembership($0, tables: tables).isComplete }
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
+        if !membershipReady {
+            let bootstrap = try await db.write { db in
+                guard allowsPreparation() else { throw PushSourceReadError.deferred }
+                return try WhoopStore.advanceCloudSourceBootstrap(db, tables: tables, maximumRows: 2_000)
+            }
+            guard bootstrap.isComplete, allowsPreparation() else { throw PushSourceReadError.deferred }
+        }
         var ids = try await db.read { db in
-            var ids = Set<String>()
-            let deviceRows = try String.fetchAll(db, sql: "SELECT id FROM device WHERE id <> ''")
-            deviceRows.forEach { ids.insert($0) }
-            for table in capabilities.appendTables {
-                let sql = "SELECT DISTINCT deviceId FROM \(sqlTable(table)) WHERE deviceId <> ''"
-                try String.fetchAll(db, sql: sql).forEach { ids.insert($0) }
-            }
+            guard allowsPreparation() else { throw PushSourceReadError.deferred }
+            let membership = try WhoopStore.cloudSourceMembership(db, tables: tables)
+            guard membership.isComplete else { throw PushSourceReadError.deferred }
+            var ids = Set(membership.deviceIDs)
+            try String.fetchAll(db, sql: "SELECT id FROM device WHERE id <> ''").forEach { ids.insert($0) }
+            // Revision tombstones preserve devices whose last mutable row was removed/rekeyed.
             for table in capabilities.mutableTables {
-                let sql = "SELECT DISTINCT deviceId FROM \(sqlTable(table)) WHERE deviceId <> ''"
-                try String.fetchAll(db, sql: sql).forEach { ids.insert($0) }
-            }
-            for table in capabilities.binaryTables where table != .rawImuSession {
-                let sql = "SELECT DISTINCT deviceId FROM \(binarySqlTable(table)) WHERE deviceId <> ''"
-                try String.fetchAll(db, sql: sql).forEach { ids.insert($0) }
+                try String.fetchAll(db, sql: "SELECT DISTINCT deviceId FROM cloudMutableRevision WHERE tableName = ? AND deviceId <> ''",
+                    arguments: [table.wireName]).forEach { ids.insert($0) }
             }
             return ids
         }
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
         if !capabilities.binaryTables.isDisjoint(with: [.rawImuSession, .rawBatch]), let imuPushSource {
             ids.formUnion(imuPushSource.pushDeviceIds())
             if let archives = imuPushSource as? any ImuExactArchiveSource {
                 ids.formUnion(try archives.archiveDeviceIDs())
             }
         }
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
         return Array(ids).sorted()
+    }
+
+    func mutableDirtyRanges(table: PushMutableTable, deviceId: String, afterRevision: Int64,
+                            afterKey: String, limit: Int, calendar: Calendar) async throws -> PushMutableDirtyPage? {
+        guard let sourceTable = CloudMutableTable(rawValue: table.wireName) else { throw PushSourceReadError.requiresCompatibleEncoding }
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
+        return try await db.read { db in
+            guard allowsPreparation() else { throw PushSourceReadError.deferred }
+            let page = try WhoopStore.cloudMutableDirtyRanges(db, table: sourceTable, deviceID: deviceId,
+                afterRevision: afterRevision, afterKey: afterKey, limit: limit, calendar: calendar)
+            return .init(ranges: page.ranges.map { .init(revision: $0.revision, key: $0.key, fromDay: $0.fromDay, toDay: $0.toDay) }, hasMore: page.hasMore)
+        }
+    }
+
+    /// Cursor validation reads only natural-key columns, never retained payloads.
+    func appendFingerprintAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> String? {
+        try await db.read { db in
+            let spec = appendSpec(table)
+            guard let row = try Row.fetchOne(db, sql: "SELECT \(spec.keyColumns.joined(separator: ", ")) FROM \(spec.sqlName) WHERE deviceId = ? AND rowid = ?",
+                arguments: [deviceId, rowId]) else { return nil }
+            let key = Dictionary(uniqueKeysWithValues: spec.keyColumns.map { ($0, pushValue(row: row, column: $0, boolean: false)) })
+            return try PushProtocol.keyFingerprint(table: table, deviceId: deviceId, key: key)
+        }
+    }
+
+    func binaryFingerprintAt(table: PushBinaryTable, deviceId: String, rowId: Int64,
+                             protocolVersion: String) async throws -> String? {
+        if table == .rawImuSession {
+            guard let value = try imuPushSource?.indexedPushRecord(deviceId: deviceId, rowId: rowId) else { return nil }
+            return try PushProtocol.binaryKeyFingerprint(table: table, deviceId: deviceId,
+                row: .rawImuSession(.init(rowId: value.rowId, ts: value.ts, columns: Data())))
+        }
+        return try await db.read { db in
+            let columns: String
+            switch table {
+            case .ppgWaveformSample: columns = "ts, recordIndex, burstIndex"
+            case .v18AuxSample: columns = "ts, recordIndex"
+            case .rawBatch: return nil // raw batches have receipt membership instead of cursors
+            case .rawImuSession: return nil
+            }
+            guard let row = try Row.fetchOne(db, sql: "SELECT \(columns) FROM \(binarySqlTable(table)) WHERE deviceId = ? AND rowid = ?",
+                arguments: [deviceId, rowId]) else { return nil }
+            let index: Int64? = (row["recordIndex"] as Int64?).flatMap { $0 >= 0 ? $0 : nil }
+            let value: PushBinaryRow
+            if table == .ppgWaveformSample {
+                value = .ppgWaveform(.init(rowId: rowId, ts: row["ts"],
+                    burstIndex: (row["burstIndex"] as Int64?).map { Int32(clamping: $0) }, samples: Data(), recordIndex: index))
+            } else { value = .v18Aux(.init(rowId: rowId, ts: row["ts"], fields: Data(), recordIndex: index)) }
+            return try PushProtocol.binaryKeyFingerprint(table: table, deviceId: deviceId, row: value,
+                v18IdentityV2: protocolVersion == PushProtocol.auxiliaryIdentityVersion)
+        }
+    }
+
+    /// A keyset/length pass and payload read share one SQLite snapshot. The first unsplittable
+    /// member is never skipped; callers persist an explicit compatible-encoding pause.
+    func appendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64,
+                    limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage {
+        guard limit > 0, limit <= PushProtocolLimits.maxRecords + 1 else { throw PushSourceReadError.requiresCompatibleEncoding }
+        return try await db.read { db in
+            guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+            let spec = appendSpec(table)
+            let columns = spec.columns + (table.isScalarExtension ? ["provenanceJSON"] : [])
+            let metadata = try Row.fetchAll(db, sql: "SELECT rowid AS id, \(lengthExpression(columns)) AS bytes FROM \(spec.sqlName) WHERE deviceId = ? AND rowid > ? ORDER BY rowid LIMIT ?",
+                arguments: [deviceId, afterRowId, limit])
+            var last: Int64?, count = 0, bytes = 0
+            for row in metadata {
+                guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+                let size: Int = row["bytes"]
+                guard size >= 0, size <= limits.maximumDecodedBytes - bytes else {
+                    if count == 0 { throw PushSourceReadError.requiresCompatibleEncoding }; break
+                }
+                bytes += size; count += 1; last = row["id"]
+            }
+            guard let last else { return .init(rows: [], hasMore: false) }
+            let rows = try Row.fetchAll(db, sql: "SELECT rowid AS _pushRowId, \(columns.joined(separator: ", ")) FROM \(spec.sqlName) WHERE deviceId = ? AND rowid > ? AND rowid <= ? ORDER BY rowid LIMIT ?",
+                arguments: [deviceId, afterRowId, last, count]).map { row in
+                    guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+                    return try appendRecord(row: row, spec: spec, includeProvenance: table.isScalarExtension)
+                }
+            return .init(rows: rows, hasMore: count < metadata.count)
+        }
+    }
+
+    private func lengthExpression(_ columns: [String]) -> String {
+        // A small fixed allowance bounds numeric/key bookkeeping as well as variable text.
+        "256 + " + columns.map { "COALESCE(length(CAST(\($0) AS BLOB)), 0)" }.joined(separator: " + ")
+    }
+
+    func binaryPage(table: PushBinaryTable, deviceId: String, afterRowId: Int64,
+                    limit: Int, limits: PushSourceReadLimits) async throws -> PushBinaryPage {
+        guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+        guard limit > 0, limit <= PushProtocolLimits.maxRecords + 1 else { throw PushSourceReadError.requiresCompatibleEncoding }
+        if table == .rawImuSession {
+            guard let imuPushSource else { throw ImuPushSourceError.membershipUnavailable }
+            let count = max(1, min(limit, (max(0, limits.maximumDecodedBytes - 10) / 1220) + 1))
+            let rows = try imuPushSource.indexedPushRows(deviceId: deviceId, afterRowId: afterRowId,
+                limit: count, shouldContinue: limits.shouldContinue).map {
+                    PushBinaryRow.rawImuSession(.init(rowId: $0.rowId, ts: $0.ts, columns: $0.columns))
+                }
+            return try boundedBinaryPage(rows, table: table, limits: limits, hasMore: count < limit && rows.count == count)
+        }
+        let page: PushBinaryPage = try await db.read { db in
+            guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+            let name = binarySqlTable(table)
+            let metadataColumns: String, payloadColumns: String, extra: String
+            switch table {
+            case .ppgWaveformSample:
+                metadataColumns = "length(samples) AS bytes, recordIndex, burstIndex"
+                payloadColumns = "ts, recordIndex, burstIndex, samples"; extra = ""
+            case .v18AuxSample:
+                metadataColumns = "length(fields) AS bytes, recordIndex, length(CAST(resourceKey AS BLOB)) AS keyBytes"
+                payloadColumns = "ts, recordIndex, resourceKey, fields"; extra = ""
+            case .rawBatch:
+                metadataColumns = "length(framesBlob) AS bytes, length(CAST(batchId AS BLOB)) AS keyBytes"
+                payloadColumns = "batchId, capturedAt, deviceClockRef, wallClockRef, startTs, endTs, frameCount, byteSize, framesBlob"
+                extra = "AND syncedAt IS NULL"
+            case .rawImuSession: return .init(rows: [], hasMore: false)
+            }
+            let metadata = try Row.fetchAll(db, sql: "SELECT rowid AS id, \(metadataColumns) FROM \(name) WHERE deviceId = ? AND rowid > ? \(extra) ORDER BY rowid LIMIT ?",
+                arguments: [deviceId, afterRowId, limit])
+            var used = PushBinaryCodec.packedHeaderSize(for: table), count = 0
+            var last: Int64?
+            for row in metadata {
+                guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+                let payload: Int = row["bytes"]
+                let overhead: Int
+                switch table {
+                case .ppgWaveformSample:
+                    overhead = 21 + ((row["burstIndex"] as Int64?) == nil ? 0 : 4)
+                        + (PushProtocol.hasPPGIdentity(limits.protocolVersion) ? ((row["recordIndex"] as Int64? ?? -1) < 0 ? 1 : 9) : 0)
+                case .v18AuxSample:
+                    guard (row["keyBytes"] as Int? ?? 0) <= 1024 else { throw PushSourceReadError.requiresCompatibleEncoding }
+                    overhead = 20 + (limits.protocolVersion == PushProtocol.auxiliaryIdentityVersion ? ((row["recordIndex"] as Int64? ?? -1) < 0 ? 1 : 9) : 0)
+                case .rawBatch:
+                    let keyBytes: Int = row["keyBytes"]
+                    guard keyBytes <= 65535 else { throw PushSourceReadError.requiresCompatibleEncoding }
+                    overhead = 54 + keyBytes
+                case .rawImuSession: overhead = 20
+                }
+                if payload < 0 || overhead > limits.maximumDecodedBytes - used || payload > limits.maximumDecodedBytes - used - overhead {
+                    if count == 0 { throw PushSourceReadError.requiresCompatibleEncoding }; break
+                }
+                used += overhead + payload; count += 1; last = row["id"]
+                if table == .rawBatch { break }
+            }
+            guard let last else { return .init(rows: [], hasMore: false) }
+            let rows = try Row.fetchAll(db, sql: "SELECT rowid AS _pushRowId, \(payloadColumns) FROM \(name) WHERE deviceId = ? AND rowid > ? AND rowid <= ? \(extra) ORDER BY rowid LIMIT ?",
+                arguments: [deviceId, afterRowId, last, count]).map { row -> PushBinaryRow in
+                    guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+                    switch table {
+                    case .ppgWaveformSample: return .ppgWaveform(ppgRecord(row: row))
+                    case .v18AuxSample: return .v18Aux(try v18Record(row: row))
+                    case .rawBatch: return .rawBatch(rawBatchRecord(row: row))
+                    case .rawImuSession: throw ImuPushSourceError.membershipUnavailable
+                    }
+                }
+            return .init(rows: rows, hasMore: count < metadata.count)
+        }
+        if table == .rawBatch, let archives = imuPushSource as? any ImuExactArchiveSource {
+            if !page.rows.isEmpty { return .init(rows: page.rows, hasMore: true) }
+            let rows = try archives.archiveRows(deviceID: deviceId, limit: 1, limits: limits).map(PushBinaryRow.rawBatch)
+            // A further bounded query is required to prove the archive lane is empty.
+            return try boundedBinaryPage(rows, table: table, limits: limits, hasMore: !rows.isEmpty)
+        }
+        return page
+    }
+
+    private func boundedBinaryPage(_ rows: [PushBinaryRow], table: PushBinaryTable,
+                                   limits: PushSourceReadLimits, hasMore: Bool) throws -> PushBinaryPage {
+        var count = 0, used = PushBinaryCodec.packedHeaderSize(for: table)
+        for row in rows {
+            guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+            let bytes = try PushBinaryCodec.packedRowSize(row, ppgIdentityV2: PushProtocol.hasPPGIdentity(limits.protocolVersion),
+                v18IdentityV2: limits.protocolVersion == PushProtocol.auxiliaryIdentityVersion)
+            if bytes > limits.maximumDecodedBytes - used {
+                if count == 0 { throw PushSourceReadError.requiresCompatibleEncoding }; break
+            }
+            used += bytes; count += 1
+            if table == .rawBatch { break }
+        }
+        return .init(rows: Array(rows.prefix(count)), hasMore: hasMore || count < rows.count)
     }
 
     func appendRecordAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> PushAppendRecord? {
@@ -87,7 +285,9 @@ struct CloudPushSnapshot: PushSnapshotSource {
         limit: Int
     ) async throws -> [PushMutableRecord] {
         precondition(limit >= 1 && limit <= PushProtocolLimits.maxMutableSnapshotRecords + 1)
+        guard allowsPreparation() else { throw PushSourceReadError.deferred }
         return try await db.read { db in
+            guard allowsPreparation() else { throw PushSourceReadError.deferred }
             let spec = mutableSpec(table)
             let (predicate, arguments): (String, [DatabaseValueConvertible?])
             switch table {
@@ -116,8 +316,20 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 ORDER BY \(spec.keyColumns.joined(separator: ", ")) ASC
                 LIMIT ?
                 """
+            let sizes = try Int.fetchAll(db, sql: "SELECT \(lengthExpression(spec.columns)) FROM \(spec.sqlName) WHERE \(predicate) ORDER BY \(spec.keyColumns.joined(separator: ", ")) ASC LIMIT ?",
+                arguments: StatementArguments(arguments + [limit]))
+            var remaining = PushProtocolLimits.maxMutableSnapshotEncodedBytes
+            for size in sizes {
+                guard allowsPreparation() else { throw PushSourceReadError.deferred }
+                guard size >= 0, size <= remaining else { throw PushSourceReadError.requiresCompatibleEncoding }
+                remaining -= size
+            }
+            // Replacement windows are all-or-nothing: never return a byte-truncated subset.
+            guard sizes.count <= PushProtocolLimits.maxMutableSnapshotRecords else { throw PushSourceReadError.requiresCompatibleEncoding }
+            guard allowsPreparation() else { throw PushSourceReadError.deferred }
             return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments + [limit])).map {
-                mutableRecord(row: $0, spec: spec)
+                guard allowsPreparation() else { throw PushSourceReadError.deferred }
+                return mutableRecord(row: $0, spec: spec)
             }
         }
     }
@@ -253,15 +465,19 @@ struct CloudPushSnapshot: PushSnapshotSource {
         // Object-ID conflict recovery can change the remote object ID, never its payload identity.
         let manifest = PushObjectManifest(batch: batch).replacingObjectId(receipt.objectId)
         guard receipt.matches(manifest, owner: scope,
-                wireSHA256: PushDurabilityReceipt.sha256(batch.payload), wireBytes: batch.payload.count),
+                wireSHA256: batch.wireSHA256, wireBytes: batch.wireBytes),
               let verified = PushDurabilityReceipt.date(receipt.verifiedAt) else { throw CloudUploadError.invalidReceipt }
         // Bind the supplied membership to the attested bytes at the source mutation boundary too.
         // This is bounded packing, not recompression; no unauthenticated row list can release siblings.
-        let packed = try PushBinaryCodec.pack(table: batch.table, rows: rows,
+        var index = 0, digest = SHA256()
+        let size = try PushBinaryStreamEncoder.visitDecodedBytes(table: batch.table, rowCount: rows.count,
             ppgIdentityV2: PushProtocol.hasPPGIdentity(batch.protocolVersion),
-            v18IdentityV2: batch.protocolVersion == PushProtocol.auxiliaryIdentityVersion)
-        guard packed.count == batch.uncompressedBytes,
-              PushDurabilityReceipt.sha256(packed) == receipt.contentSha256 else { throw CloudUploadError.invalidReceipt }
+            v18IdentityV2: batch.protocolVersion == PushProtocol.auxiliaryIdentityVersion,
+            maxDecodedBytes: PushProtocolLimits.maxObjectDecodedBytes, maxRows: PushProtocolLimits.maxRecords,
+            nextRow: { guard index < rows.count else { return nil }; defer { index += 1 }; return rows[index] },
+            consume: { digest.update(bufferPointer: $0) })
+        guard size == batch.uncompressedBytes,
+              digest.finalize().map({ String(format: "%02x", $0) }).joined() == receipt.contentSha256 else { throw CloudUploadError.invalidReceipt }
         let capture = DurableIngestScope(environment: scope.projectURL, accountID: scope.userID, deviceID: batch.deviceId)
         if batch.table == .rawImuSession {
             guard let imuPushSource else { throw ImuPushSourceError.membershipUnavailable }

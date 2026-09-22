@@ -154,4 +154,75 @@ final class ResourceBudgetTests: XCTestCase {
         XCTAssertEqual(budget.bulkResumeDelay(), 15)
         XCTAssertTrue(budget.permits(.acknowledgement))
     }
+
+    func testFIFOAgeAndIndependentOwnersHoldPreparationThroughDrain() {
+        let environment = Environment(), first = UUID(), second = UUID()
+        let budget = environment.budget()
+        budget.pipeline(owner: first, depth: 3, oldestUptime: 95)
+        budget.pipeline(owner: second, depth: 2, oldestUptime: 98)
+        XCTAssertEqual(budget.snapshot().fifoDepth, 5)
+        XCTAssertEqual(budget.snapshot().oldestFIFOAge, 5)
+        XCTAssertEqual(budget.snapshot().reason, .fifo)
+        budget.pipeline(owner: first, depth: 0, oldestUptime: nil)
+        XCTAssertFalse(budget.permits(.cloudPreparation))
+        budget.pipeline(owner: second, depth: 0, oldestUptime: nil)
+        XCTAssertEqual(budget.snapshot().reason, .cooldown)
+        environment.update(now: 115)
+        XCTAssertTrue(budget.permits(.cloudPreparation))
+    }
+
+    func testBackgroundDeadlineExpiresWithoutAnotherLifecycleCallback() {
+        let environment = Environment(), budget = environment.budget()
+        budget.lifecycle(backgroundRemaining: 10)
+        XCTAssertTrue(budget.permits(.bulk))
+        XCTAssertEqual(budget.snapshot().maximumTransfers, 1)
+        environment.update(now: 106)
+        XCTAssertEqual(budget.snapshot().reason, .backgroundDeadline)
+        XCTAssertTrue(budget.permits(.localCommit))
+        budget.lifecycle(backgroundRemaining: nil)
+        XCTAssertTrue(budget.permits(.bulk))
+    }
+
+    func testStorageAndNetworkPressureNeverBlockDurableCommit() {
+        let environment = Environment(), budget = environment.budget()
+        budget.storage(availableBytes: 1_048_576)
+        XCTAssertEqual(budget.snapshot().reason, .storage)
+        XCTAssertTrue(budget.permits(.acknowledgement))
+        budget.storage(availableBytes: 1_073_741_824)
+        budget.network(permitted: false)
+        XCTAssertEqual(budget.snapshot(for: .cloudTransfer).reason, .network)
+        XCTAssertTrue(budget.permits(.scoring))
+        XCTAssertTrue(budget.permits(.localCommit))
+    }
+
+    func testGrantedBackgroundTaskOverridesExpiredAssertionUntilLastTaskCompletes() {
+        let environment = Environment(), budget = environment.budget()
+        let first = UUID(), second = UUID()
+        budget.lifecycle(backgroundRemaining: 0)
+        XCTAssertFalse(budget.permits(.cloudPreparation))
+        budget.backgroundOpportunity(owner: first, active: true)
+        budget.backgroundOpportunity(owner: second, active: true)
+        XCTAssertTrue(budget.permits(.cloudPreparation))
+        XCTAssertEqual(budget.snapshot().maximumTransfers, 1)
+        environment.update(thermal: .critical)
+        XCTAssertFalse(budget.permits(.cloudPreparation), "A granted task cannot bypass thermal priority")
+        XCTAssertTrue(budget.permits(.localCommit))
+        environment.update(now: 200, thermal: .nominal)
+        _ = budget.permits(.bulk)
+        environment.update(now: 215)
+        budget.backgroundOpportunity(owner: first, active: false)
+        budget.backgroundOpportunity(owner: first, active: false)
+        XCTAssertTrue(budget.permits(.bulk))
+        budget.backgroundOpportunity(owner: second, active: false)
+        XCTAssertEqual(budget.snapshot().reason, .backgroundDeadline)
+    }
+
+    func testCloudPackingQuotaDoesNotPreventDrainingImmutableJobs() {
+        let environment = Environment(), budget = environment.budget(), owner = UUID()
+        budget.queuedCloud(owner: owner, bytes: 300 * 1_048_576, jobs: 130)
+        XCTAssertEqual(budget.snapshot(for: .cloudPreparation).reason, .queuedCloud)
+        XCTAssertTrue(budget.permits(.cloudTransfer))
+        budget.queuedCloud(owner: owner, bytes: 0, jobs: 0)
+        XCTAssertTrue(budget.permits(.cloudPreparation))
+    }
 }

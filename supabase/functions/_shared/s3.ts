@@ -231,15 +231,16 @@ export function createS3({
     presignGet(key: string, expiresSec: number, now?: Date) {
       return presign({ method: 'GET', ...base, key, expiresSec, now });
     },
-    async head(key: string) {
+    async head(key: string): Promise<{ exists: boolean; contentLength: number | null; versionId?: string | null } | null> {
       const { url, headers } = signedRequest({
         method: 'HEAD', ...base, key, now: new Date(),
       });
-      const res = await fetchImpl(url, { method: 'HEAD', headers });
+      const res = await fetchImpl(url, { method: 'HEAD', headers, signal: AbortSignal.timeout(30_000) });
       if (res.status === 404) return null;
       if (!res.ok) throw new Error('object head failed');
       const len = res.headers.get('content-length');
-      return { exists: true, contentLength: len == null ? null : Number(len) };
+      return { exists: true, contentLength: len == null ? null : Number(len),
+        versionId: res.headers.get('x-amz-version-id') };
     },
     async getObject(key: string) {
       const { url, headers } = signedRequest({
@@ -294,11 +295,12 @@ export function createS3({
       return { etag: res.headers.get('etag'), bytes: buf.length };
     },
 
-    async deleteObject(key: string) {
+    async deleteObject(key: string, { versionId }: { versionId?: string | null } = {}) {
       const { url, headers } = signedRequest({
         method: 'DELETE', ...base, key, now: new Date(),
+        query: versionId ? { versionId } : {},
       });
-      const res = await fetchImpl(url, { method: 'DELETE', headers });
+      const res = await fetchImpl(url, { method: 'DELETE', headers, signal: AbortSignal.timeout(30_000) });
       await res.body?.cancel();
       if (res.status === 404) return { deleted: true, missing: true };
       if (!res.ok) throw new Error('object delete failed');

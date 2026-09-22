@@ -13,6 +13,8 @@ final class W1AccountIsolationTests: XCTestCase {
         let directory: URL
         let defaults: UserDefaults
         let suite: String
+        let budget = ResourceBudget(cooldown: 0,
+            thermal: { ProcessInfo.ThermalState.nominal.rawValue }, lowPower: { false })
         var managers: [BLEManager] = []
         var stores: [WhoopStore] = []
         var collectors: [Collector] = []
@@ -30,6 +32,7 @@ final class W1AccountIsolationTests: XCTestCase {
             collectors.forEach { $0.shutdownForAccountChange() }
             for manager in managers {
                 guard await manager.drainCaptureAfterAccountChange() else { throw CleanupFailure.pendingCapture }
+                await manager.waitForCaptureMaintenance()
             }
             for collector in collectors {
                 guard await collector.drainForShutdown() else { throw CleanupFailure.pendingCapture }
@@ -62,7 +65,7 @@ final class W1AccountIsolationTests: XCTestCase {
         let path = directory.appendingPathComponent("captured.sqlite").path
         let scope = try AccountScope(projectURL: "https://fixture.invalid", userID: "11111111-1111-4111-8111-111111111111")
         let manager = BLEManager(state: LiveState(), startCentral: false, databasePath: path,
-            storageDirectory: directory, accountScope: scope, defaults: defaults)
+            storageDirectory: directory, accountScope: scope, defaults: defaults, resourceBudget: fixture.budget)
         fixture.managers.append(manager)
         XCTAssertTrue(manager.isWhoop5)
         XCTAssertEqual(manager.databasePath, path)
@@ -106,11 +109,12 @@ final class W1AccountIsolationTests: XCTestCase {
         let scope = try AccountScope(projectURL: "https://fixture.invalid", userID: "11111111-1111-4111-8111-111111111111")
         let manager = BLEManager(state: LiveState(), startCentral: false,
             databasePath: directory.appendingPathComponent("capture.sqlite").path,
-            storageDirectory: directory, accountScope: scope, defaults: defaults)
+            storageDirectory: directory, accountScope: scope, defaults: defaults, resourceBudget: fixture.budget)
         fixture.managers.append(manager)
         XCTAssertNil(manager.imuPushSource)
         let prepared = try await manager.prepareImuPushSource()
         await manager.bootstrapStore()
+        await manager.waitForCaptureMaintenance()
         let store = try XCTUnwrap(manager.ingestStore)
         let binding = try XCTUnwrap(CloudPushCaptureBindings.binding(for: store.registryWriter))
         let bound = try XCTUnwrap(binding.imuSource as? CloudImuPushSource)
@@ -132,21 +136,102 @@ final class W1AccountIsolationTests: XCTestCase {
         _ = try await seed.markJobsOwed(kinds: ["cloudPush"], note: "fixture IMU debt")
         let index = directory.appendingPathComponent("RawImuUploadIndex")
         try Data([1]).write(to: index)
-        let state = LiveState()
+        let state = LiveState(defaults: defaults, logNamespace: fixture.suite)
         let manager = BLEManager(state: state, startCentral: false, databasePath: path,
-            storageDirectory: directory, accountScope: scope, defaults: defaults)
+            storageDirectory: directory, accountScope: scope, defaults: defaults, resourceBudget: fixture.budget)
         fixture.managers.append(manager)
         await manager.bootstrapStore()
+        await manager.waitForCaptureMaintenance()
+        let deferredMessage = "Capture archive preparation deferred; durable local debt retained."
+        XCTAssertEqual(state.log.filter { $0.contains(deferredMessage) }.count, 1,
+            "the blocked index path must exercise the actual maintenance failure, not merely skip preparation")
         XCTAssertNil(manager.imuPushSource)
-        XCTAssertNil(manager.ingestStore)
-        XCTAssertNotNil(state.lastSyncError)
+        let ingest = try XCTUnwrap(manager.ingestStore, "cloud-index failure must not block durable local capture")
+        XCTAssertNil(CloudPushCaptureBindings.binding(for: ingest.registryWriter),
+            "failed archive preparation cannot bind an empty replacement source")
+        XCTAssertNil(state.lastSyncError, "the local capture store opened successfully")
+        XCTAssertTrue(manager.test_captureCollectorReady, "IMU upload-index failure must leave scalar capture available")
+        let receivedAt = Int(Date().timeIntervalSince1970)
+        manager.test_receiveStandardHR([0, 73])
+        await manager.flushStandardHRForLifecycle(reason: .explicit)
+        let samples = try await ingest.hrSamples(deviceId: manager.deviceId,
+            from: receivedAt - 1, to: Int(Date().timeIntervalSince1970) + 1, limit: 10)
+        XCTAssertEqual(samples.map(\.bpm), [73], "new direct wearable data must persist while upload preparation is deferred")
+        let storedOwner = try await ingest.registryWriter.read { db in
+            try String.fetchOne(db, sql: "SELECT userID FROM localAccountOwner WHERE singleton=1")
+        }
+        XCTAssertEqual(storedOwner, scope.userID)
         let jobs = try await seed.owedJobs()
         XCTAssertTrue(jobs.contains { $0.kind == "cloudPush" })
         try FileManager.default.removeItem(at: index)
-        await manager.bootstrapStore()
-        XCTAssertNotNil(manager.imuPushSource as? CloudImuPushSource)
-        XCTAssertNotNil(manager.ingestStore)
+        manager.resumeCaptureMaintenance()
+        await manager.waitForCaptureMaintenance()
+        let source = try XCTUnwrap(manager.imuPushSource as? CloudImuPushSource)
+        XCTAssertTrue(manager.ingestStore === ingest)
+        XCTAssertTrue((CloudPushCaptureBindings.binding(for: ingest.registryWriter)?.imuSource as? CloudImuPushSource) === source)
+        let retainedJobs = try await seed.owedJobs()
+        XCTAssertTrue(retainedJobs.contains { $0.kind == "cloudPush" }, "preparation is not a verified cloud receipt")
+        XCTAssertEqual(state.log.filter { $0.contains(deferredMessage) }.count, 1,
+            "the repaired index must finish without another deferred-preparation failure")
         XCTAssertNil(state.lastSyncError)
+    }
+
+    func testWrongOwnerCannotCreateCollectorWhileCloudPreparationIsDeferred() async throws {
+        let fixture = try fixture()
+        let path = fixture.directory.appendingPathComponent("capture.sqlite").path
+        let seed = try await WhoopStore(path: path)
+        fixture.stores.append(seed)
+        let owner = try AccountScope(projectURL: "https://fixture.invalid",
+            userID: "11111111-1111-4111-8111-111111111111")
+        let other = try AccountScope(projectURL: owner.projectURL,
+            userID: "22222222-2222-4222-8222-222222222222")
+        try await seed.bindAccountOwner(projectURL: owner.projectURL, userID: owner.userID)
+        let manager = BLEManager(state: LiveState(defaults: fixture.defaults, logNamespace: fixture.suite),
+            startCentral: false, databasePath: path, storageDirectory: fixture.directory,
+            accountScope: other, defaults: fixture.defaults, resourceBudget: fixture.budget)
+        fixture.managers.append(manager)
+        await manager.bootstrapStore()
+        await manager.waitForCaptureMaintenance()
+        XCTAssertFalse(manager.test_captureCollectorReady)
+        XCTAssertNil(manager.ingestStore)
+        XCTAssertNil(manager.imuPushSource)
+        XCTAssertNil(CloudPushCaptureBindings.binding(for: seed.registryWriter))
+        let storedOwner = try await seed.registryWriter.read { db in
+            try String.fetchOne(db, sql: "SELECT userID FROM localAccountOwner WHERE singleton=1")
+        }
+        XCTAssertEqual(storedOwner, owner.userID, "deferred cloud work must never weaken local capture authorization")
+    }
+
+    func testPressureDefersCloudIndexAndRetirementPreventsLaterBinding() async throws {
+        let fixture = try fixture()
+        let scope = try AccountScope(projectURL: "https://fixture.invalid", userID: "11111111-1111-4111-8111-111111111111")
+        let historyOwner = UUID()
+        fixture.budget.history(owner: historyOwner, active: true)
+        let manager = BLEManager(state: LiveState(), startCentral: false,
+            databasePath: fixture.directory.appendingPathComponent("capture.sqlite").path,
+            storageDirectory: fixture.directory, accountScope: scope, defaults: fixture.defaults,
+            resourceBudget: fixture.budget)
+        fixture.managers.append(manager)
+        await manager.bootstrapStore()
+        await manager.waitForCaptureMaintenance()
+        let store = try XCTUnwrap(manager.ingestStore)
+        _ = try await store.markJobsOwed(kinds: ["cloudPush"], note: "fixture deferred IMU debt")
+        XCTAssertNil(manager.imuPushSource)
+        XCTAssertNil(CloudPushCaptureBindings.binding(for: store.registryWriter))
+        XCTAssertFalse(FileManager.default.fileExists(atPath:
+            fixture.directory.appendingPathComponent("RawImuUploadIndex").path))
+
+        manager.shutdownForAccountChange()
+        fixture.budget.history(owner: historyOwner, active: false)
+        XCTAssertTrue(fixture.budget.permits(.rawBulk))
+        manager.resumeCaptureMaintenance()
+        await manager.waitForCaptureMaintenance()
+        XCTAssertNil(manager.imuPushSource)
+        XCTAssertNil(CloudPushCaptureBindings.binding(for: store.registryWriter))
+        XCTAssertFalse(FileManager.default.fileExists(atPath:
+            fixture.directory.appendingPathComponent("RawImuUploadIndex").path))
+        let jobs = try await store.owedJobs()
+        XCTAssertTrue(jobs.contains { $0.kind == "cloudPush" })
     }
 
     func testImuRetentionRequiresOwnReceiptAndSurvivesStoreReopen() throws {

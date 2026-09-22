@@ -884,10 +884,17 @@ final class ScoringPreferenceContainmentTests: XCTestCase {
         XCTAssertEqual(widgetJob.token, try XCTUnwrap(tokens["widgetPublish"]))
         XCTAssertEqual(widgetJob.attempts, 0)
         XCTAssertFalse(pendingJobs.contains { $0.kind == "rescore" })
-        XCTAssertEqual(pendingJobs.count, 1)
+        let cloudJob = try XCTUnwrap(pendingJobs.first { $0.kind == "cloudPush" })
+        XCTAssertEqual(cloudJob.attempts, 0)
+        XCTAssertEqual(Set(pendingJobs.map(\.kind)), ["cloudPush", "widgetPublish"],
+                       "The retained workouts also owe a separate, receipt-gated cloud export")
         var exports = 0
-        reopened.syncEngine.dependentStageDriver = .init(perform: { _, admission in
+        reopened.syncEngine.dependentStageDriver = .init(perform: { stage, admission in
             guard await admission.validate() else { return false }
+            guard stage == .widgetPublish else {
+                XCTAssertEqual(stage, .cloudPush)
+                return false // This synthetic widget sink cannot supply a verified cloud receipt.
+            }
             exports += 1; return true
         })
         let runnable = await reopened.syncEngine.hasRunnableWork()
@@ -903,7 +910,9 @@ final class ScoringPreferenceContainmentTests: XCTestCase {
         XCTAssertEqual(f.starts, starts)
         XCTAssertEqual(reopened.intelligence.preferenceWorkDisposition, .complete)
         let jobs = try await f.store.owedJobs()
-        XCTAssertTrue(jobs.isEmpty)
+        XCTAssertEqual(jobs.map(\.kind), ["cloudPush"])
+        XCTAssertEqual(jobs.first?.token, cloudJob.token)
+        XCTAssertEqual(jobs.first?.attempts, 1)
         let kept = try await f.store.workouts(deviceId: "my-whoop-noop", from: start, to: start + 513, limit: 600)
         XCTAssertEqual(kept, originals)
         XCTAssertEqual(try f.inputCounts().position, 0)

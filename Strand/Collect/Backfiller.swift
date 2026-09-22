@@ -74,7 +74,7 @@ extension WhoopStore: BackfillStoreWriting {}
 // MARK: - Offload chunk phase timing (T2-0)
 
 /// One HISTORY_END handler sample, including time awaiting main-actor callbacks.
-/// Excludes time queued before the handler and the subsequent BLE write confirmation.
+/// FIFO delay is measured from frame handoff; ATT completion has a separate transport interval.
 struct BackfillChunkPhaseSample: Sendable {
     let frameCount: Int
     let gapMs: Int?
@@ -90,6 +90,11 @@ struct BackfillChunkPhaseSample: Sendable {
     /// END-handler entry to the transport's writeValue submission; nil if no write was submitted.
     var ackSubmissionMs: Int?
     var postAckPresentationMs: Int = 0
+    var fifoWaitMs: Int = 0
+    var receivedToACKMs: Int?
+    /// Present only after a successful production historical transaction. Nested cursor SQL is
+    /// part of mutation time; commitReturn includes FULL commit and GRDB return, not isolated fsync.
+    var durabilityTiming: HistoricalChunkDurabilityTiming?
 }
 
 /// Ordered observations for one chunk. They do not control durability or BLE acknowledgements.
@@ -119,6 +124,7 @@ enum BackfillChunkInfo: Sendable {
 ///
 /// Runs on `BackfillActor` (off the main actor). BLE writes and UI tallies hop to the main actor via injected async closures.
 final class Backfiller {
+    private enum HistoricalChunkFailure: Error { case imuFlush }
     /// (parsed frames, deviceClockRef, wallClockRef, sessionOldestUnix?, sessionNewestUnix?) → Streams.
     /// The trailing session-range markers are the strap's GET_DATA_RANGE oldest/newest for THIS sync
     /// (#547 session-relative gate); nil when the range isn't known yet (the absolute-only floor applies).
@@ -136,9 +142,8 @@ final class Backfiller {
     /// of end_data, used for the `strap_trim` cursor) and the 8-byte `end_data` (= the raw
     /// HISTORY_END metadata.data[10:18]) that the high-freq-sync ack form requires verbatim.
     private let ackTrim: (_ trim: UInt32, _ endData: [UInt8]) async -> Void
-    /// #1635: one offload chunk's accepted-row counts, handed up so `BLEManager` can tally them per LINK.
-    /// The offload is the only path that banks gravity/resp/skinTemp/SpO2/steps, so a link summary
-    /// without it cannot tell an unbonded strap — which defers backfill — from a healthy one.
+    /// Legacy injected-test observer. Production delivers tallies through `chunkInfo`; this hook
+    /// must not schedule scoring, cloud preparation or other workers after an arbitrary delay.
     private let onBankedOffload: (_ counts: (hr: Int, rr: Int, events: Int, battery: Int,
                                              spo2: Int, skinTemp: Int, resp: Int, gravity: Int)) async -> Void
     private let extract: Extractor
@@ -464,7 +469,7 @@ final class Backfiller {
     }
 
     /// Feed one raw BLE frame into the state machine. May trigger async store operations.
-    func ingest(_ frame: [UInt8]) async {
+    func ingest(_ frame: [UInt8], receivedAt: TimeInterval? = nil) async {
         guard !persistStalled else { return }
         guard frame.count <= maximumChunkBytes - chunkBytes, chunk.count < 16_384 else {
             persistStalled = true
@@ -488,7 +493,7 @@ final class Backfiller {
             chunkBytes = 0
             chunkOpen = true
         case .end(let unix, let trim):
-            await finishChunk(unix: unix, trim: trim, endFrame: frame)
+            await finishChunk(unix: unix, trim: trim, endFrame: frame, receivedAt: receivedAt)
         case .complete:
             isBackfilling = false
             chunk.removeAll(keepingCapacity: true)
@@ -559,10 +564,22 @@ final class Backfiller {
         line += " archive p50/p99=\(p(samples.map(\.archiveMs), 50))/\(p(samples.map(\.archiveMs), 99))ms"
         line += " decode p50/p99=\(p(decode, 50))/\(p(decode, 99))ms"
         line += " (parseFrame+extractHistoricalStreams+reject scan, Task.detached)"
-        line += " insert p50/p99=\(p(insert, 50))/\(p(insert, 99))ms (store.insertAndMarkJobsOwed)"
-        line += " raw p50/p99=\(p(raw, 50))/\(p(raw, 99))ms (enqueueRawBatch when enabled, else 0)"
+        line += " insert p50/p99=\(p(insert, 50))/\(p(insert, 99))ms (complete local persistence path, including applicable IMU flush and raw preparation)"
+        let durability = samples.compactMap(\.durabilityTiming)
+        if !durability.isEmpty {
+            line += " durable-store n=\(durability.count)"
+            let timingFields: [(String, KeyPath<HistoricalChunkDurabilityTiming, Double>)] = [
+                ("writer-wait", \.queueWaitMs), ("mutation", \.mutationMs),
+                ("commit-return", \.commitReturnMs), ("cursor-SQL", \.cursorMutationMs)]
+            for (name, key) in timingFields {
+                let values = durability.map { Int($0[keyPath: key]) }
+                line += " \(name) p50/p99=\(p(values, 50))/\(p(values, 99))ms"
+            }
+            line += " (writer-wait covers queue and BEGIN setup; later SQL lock waits and cursor-SQL are within mutation; commit-return includes FULL commit and GRDB return)"
+        }
+        line += " raw p50/p99=\(p(raw, 50))/\(p(raw, 99))ms (legacy enqueueRawBatch path; historical raw preparation is within insert)"
         line += " imu p50/p99=\(p(imu, 50))/\(p(imu, 99))ms (persistHistoricalImu flush when routed)"
-        line += " cursor p50/p99=\(p(samples.map(\.cursorMs), 50))/\(p(samples.map(\.cursorMs), 99))ms (setCursor strap_trim)"
+        line += " cursor p50/p99=\(p(samples.map(\.cursorMs), 50))/\(p(samples.map(\.cursorMs), 99))ms (cursor fallback path; historical cursor-SQL is within mutation)"
         line += " ack p50/p99=\(p(ack, 50))/\(p(ack, 99))ms (ackTrim callback, including main-actor wait; excludes ATT confirmation)"
         line += " frames/chunk p50/p99=\(p(frames, 50))/\(p(frames, 99))"
         if !gaps.isEmpty {
@@ -579,6 +596,12 @@ final class Backfiller {
         line += " rawMs=\(sample.rawMs) imuMs=\(sample.imuMs) cursorMs=\(sample.cursorMs) ackMs=\(sample.ackMs)"
         line += " totalMs=\(sample.totalMs) diagnosticsMs=\(sample.diagnosticsMs) archiveMs=\(sample.archiveMs)"
         line += " ackSubmissionMs=\(sample.ackSubmissionMs.map(String.init) ?? "none") postAckPresentationMs=\(sample.postAckPresentationMs)"
+        line += " fifoWaitMs=\(sample.fifoWaitMs) receivedToACKMs=\(sample.receivedToACKMs.map(String.init) ?? "none")"
+        if let timing = sample.durabilityTiming {
+            line += " writerWaitMs=\(timing.queueWaitMs) mutationMs=\(timing.mutationMs) commitReturnMs=\(timing.commitReturnMs) cursorSQLMs=\(timing.cursorMutationMs)"
+        } else {
+            line += " durableStoreTiming=unavailable"
+        }
         return line
     }
 
@@ -752,7 +775,7 @@ final class Backfiller {
         let imuRecords: [(baseTs: Int, columns: [Int16])]
     }
 
-    private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8]) async {
+    private func finishChunk(unix: UInt32, trim: UInt32, endFrame: [UInt8], receivedAt: TimeInterval?) async {
         guard let endData = Backfiller.endData(from: endFrame, family: family) else { return }
         let deviceId = sessionDeviceID ?? self.deviceId
         let scope = (captureScope ?? .unassigned(deviceID: deviceId)).forDevice(deviceId)
@@ -769,12 +792,14 @@ final class Backfiller {
         }
 
         let chunkArrival = monotonic()
+        let fifoWaitMs = receivedAt.map { Int(max(0, chunkArrival - $0) * 1_000) } ?? 0
         let gapMs = lastChunkArrival.map { Int((chunkArrival - $0) * 1000) }
         lastChunkArrival = chunkArrival
         var decodeMs = 0, insertMs = 0, rawMs = 0, imuMs = 0, ackMs = 0
         var diagnosticsMs = 0, archiveMs = 0, cursorMs = 0
         var ackSubmissionMs: Int?
         var postAckPresentationMs = 0
+        var durabilityTiming: HistoricalChunkDurabilityTiming?
         var ordinaryQuarantinedCount = 0
         var cursorCommittedWithChunk = false
         var pendingInfo: [BackfillChunkInfo] = []
@@ -830,7 +855,10 @@ final class Backfiller {
                                           totalMs: Int((monotonic() - chunkArrival) * 1000),
                                           diagnosticsMs: diagnosticsMs, archiveMs: archiveMs,
                                           cursorMs: cursorMs, ackSubmissionMs: ackSubmissionMs,
-                                          postAckPresentationMs: postAckPresentationMs)
+                                          postAckPresentationMs: postAckPresentationMs,
+                                          fifoWaitMs: fifoWaitMs,
+                                          receivedToACKMs: ackSubmissionMs.map { $0 + fifoWaitMs },
+                                          durabilityTiming: durabilityTiming)
             chunkPhaseSamples.append(sample)
             await emitConnection(Backfiller.chunkPhaseDetailLine(trim: trim, sample: sample))
         }
@@ -1031,19 +1059,30 @@ final class Backfiller {
                 // The durable debt is part of the SAME transaction as the decoded rows (safe trim): if the
                 // job upsert fails, the insert rolls back too and this chunk stays on the strap for replay.
                 if let durableStore = store as? WhoopStore {
-                    let touchesIMU = !d.imuRecords.isEmpty
-                    if !enableRawCapture && !touchesIMU && !persistStalled {
-                        outcome = try await durableStore.commitHistoricalChunk(decoded, scope: scope,
-                            family: String(describing: family), trim: trim, recoveryFrames: rejected,
-                            clockRef: ref, postOffloadJobKinds: postOffloadJobKinds,
-                            note: "historical chunk committed")
-                        cursorCommittedWithChunk = true
-                    } else {
-                        // External raw/IMU writers retain their existing flush-before-cursor boundary.
-                        outcome = try await durableStore.insertAndMarkJobsOwed(
-                            decoded, deviceId: deviceId, postOffloadJobKinds: postOffloadJobKinds,
-                            note: "historical rows committed", captureScope: scope)
+                    // External files must be durable before the one SQLite authorization commit.
+                    if !d.imuRecords.isEmpty {
+                        guard let imuSessionSink else { throw HistoricalChunkFailure.imuFlush }
+                        let start = monotonic()
+                        let saved = imuSessionSink(deviceId, d.imuRecords)
+                        imuMs = Int((monotonic() - start) * 1_000)
+                        guard saved else { throw HistoricalChunkFailure.imuFlush }
                     }
+                    var rawCapture: HistoricalRawCapture?
+                    if enableRawCapture {
+                        let bounds = try RawBatchMeta.captureBounds(streams: decoded, fallbackTimestamp: Int(unix))
+                        let meta = RawBatchMeta(
+                            batchId: "hist-\(scope.key)-\(trim)-\(DurableIngestScope.sha256(Data(frames.flatMap { $0 })))",
+                            deviceId: deviceId, clockRef: ref, capturedAt: Int(Date().timeIntervalSince1970),
+                            startTs: bounds.startTs, endTs: bounds.endTs, frameCount: frames.count,
+                            byteSize: frames.reduce(0) { $0 + $1.count }, captureScope: scope)
+                        rawCapture = HistoricalRawCapture(meta: meta, frames: frames)
+                    }
+                    outcome = try await durableStore.commitHistoricalChunk(decoded, scope: scope,
+                        family: String(describing: family), trim: trim, recoveryFrames: rejected,
+                        clockRef: ref, postOffloadJobKinds: postOffloadJobKinds, rawCapture: rawCapture,
+                        note: "historical chunk committed")
+                    durabilityTiming = outcome.durabilityTiming
+                    cursorCommittedWithChunk = true
                 } else {
                     outcome = try await store.insertAndMarkJobsOwed(
                         decoded, deviceId: deviceId, postOffloadJobKinds: postOffloadJobKinds,
@@ -1129,7 +1168,7 @@ final class Backfiller {
             if cursorCommittedWithChunk { ordinaryQuarantinedCount = rejected.count }
 
             // Optional research capture is additional to the unconditional recovery archive.
-            if enableRawCapture {
+            if enableRawCapture && !cursorCommittedWithChunk {
                 let rawStart = monotonic()
                 do {
                     // Prefer decoded capture times; decoded-empty history retains the END timestamp
@@ -1167,7 +1206,7 @@ final class Backfiller {
             // safe-trim invariant as the decoded rows above. Only CRC-valid IMU-shaped frames are
             // offered; a flush failure holds the ack so the strap re-sends the chunk next session
             // rather than trimming past session data we never durably stored.
-            if let imuSessionSink {
+            if !cursorCommittedWithChunk, let imuSessionSink {
                 let imuRecords = d.imuRecords
                 if !imuRecords.isEmpty {
                     let imuStart = monotonic()
@@ -1220,7 +1259,16 @@ final class Backfiller {
 
         let cursorStart = monotonic()
         do {
-            if !cursorCommittedWithChunk { try await store.setCursor("strap_trim:\(scope.key)", Int(trim)) }
+            if !cursorCommittedWithChunk {
+                if let durableStore = store as? WhoopStore {
+                    // Empty END packets still validate the captured owner at the commit boundary.
+                    let ref = clockRef ?? ClockRef(device: Int(unix), wall: Int(unix))
+                    let outcome = try await durableStore.commitHistoricalChunk(Streams(), scope: scope,
+                        family: String(describing: family), trim: trim, recoveryFrames: [], clockRef: ref,
+                        postOffloadJobKinds: postOffloadJobKinds, note: "empty historical chunk committed")
+                    durabilityTiming = outcome.durabilityTiming
+                } else { try await store.setCursor("strap_trim:\(scope.key)", Int(trim)) }
+            }
         } catch {
             await flushInfo()
             cursorMs = Int((monotonic() - cursorStart) * 1000)

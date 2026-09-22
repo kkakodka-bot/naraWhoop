@@ -1,0 +1,25 @@
+name: Scoring deployment contract
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'infra/vps/**'
+      - 'scoring-service/service/src/main/resources/scoring-migration-catalog.json'
+      - 'Tools/release/**'
+      - '.github/workflows/scoring-deployment-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify full migration filenames, hashes and deployment bindings
+        run: node --test infra/vps/scripts/sync-deployment-contract.test.mjs

@@ -142,6 +142,69 @@ final class BackfillManagerLifecycleTests: XCTestCase {
         manager.test_invalidateHistoryLink()
     }
 
+    func testLeaseExpirationBeforeAuthorizationFencesDelayedAckAndEndsOnce() {
+        let manager = BLEManager(state: LiveState(), startCentral: false)
+        var expire: (() -> Void)?, ended = 0, submissions = 0
+        manager.historicalCommitLeaseFactoryForTesting = { expired in
+            HistoricalCommitLease(begin: { expire = $0; return 41 },
+                                  end: { _ in ended += 1 }, expired: expired)
+        }
+        manager.test_configureHistoryTransport { _, _ in submissions += 1; return true }
+        manager.test_simulateActiveBackfillSessionForWatchdog()
+        manager.pauseBackfillIdleWatchdogForCommit()
+        XCTAssertEqual(manager.test_activeCommitLeaseCount, 1)
+        expire?()
+        manager.ackHistoricalChunk(trim: 1, endData: [UInt8](repeating: 0, count: 8))
+        expire?()
+        manager.test_invalidateHistoryLink()
+        XCTAssertEqual(ended, 1)
+        XCTAssertEqual(submissions, 0)
+        XCTAssertFalse(manager.chunkCommitInFlight)
+        XCTAssertEqual(manager.test_activeCommitLeaseCount, 0)
+    }
+
+    func testLeaseExpirationAfterSubmissionCannotCreditLateATTCompletion() {
+        let state = LiveState()
+        let manager = BLEManager(state: state, startCentral: false)
+        var expire: (() -> Void)?, ended = 0
+        manager.historicalCommitLeaseFactoryForTesting = { expired in
+            HistoricalCommitLease(begin: { expire = $0; return 42 },
+                                  end: { _ in ended += 1 }, expired: expired)
+        }
+        manager.test_configureHistoryTransport { _, _ in true }
+        manager.test_simulateActiveBackfillSessionForWatchdog()
+        manager.pauseBackfillIdleWatchdogForCommit()
+        manager.ackHistoricalChunk(trim: 1, endData: [UInt8](repeating: 0, count: 8))
+        expire?()
+        XCTAssertFalse(state.backfilling)
+        XCTAssertFalse(state.postOffloadBurstInProgress)
+        manager.test_completeNextHistoryWrite()
+        XCTAssertEqual(manager.test_confirmedHistoryChunks, 0)
+        XCTAssertEqual(ended, 1)
+        XCTAssertNil(state.lastSyncedAt)
+        manager.test_invalidateHistoryLink()
+    }
+
+    func testDisconnectReleasesOverlappingChunkLeasesExactlyOnce() {
+        let manager = BLEManager(state: LiveState(), startCentral: false)
+        var expirations: [() -> Void] = [], ended: [Int] = []
+        manager.historicalCommitLeaseFactoryForTesting = { expired in
+            HistoricalCommitLease(begin: { expirations.append($0); return expirations.count },
+                                  end: { ended.append($0) }, expired: expired)
+        }
+        manager.test_configureHistoryTransport { _, _ in true }
+        manager.test_simulateActiveBackfillSessionForWatchdog()
+        manager.pauseBackfillIdleWatchdogForCommit()
+        manager.ackHistoricalChunk(trim: 1, endData: [UInt8](repeating: 0, count: 8))
+        manager.pauseBackfillIdleWatchdogForCommit()
+        XCTAssertEqual(manager.test_activeCommitLeaseCount, 2)
+        manager.test_invalidateHistoryLink()
+        for expire in expirations { expire() }
+        manager.test_completeNextHistoryWrite()
+        XCTAssertEqual(ended.sorted(), [1, 2])
+        XCTAssertEqual(manager.test_activeCommitLeaseCount, 0)
+    }
+
     func testFailedAckDoesNotCountOrLeaveSyncRunning() {
         let state = LiveState()
         let manager = BLEManager(state: state, startCentral: false)

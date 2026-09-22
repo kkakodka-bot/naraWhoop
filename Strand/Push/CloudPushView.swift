@@ -9,6 +9,10 @@ struct CloudPushView: View {
     @EnvironmentObject private var model: AppModel
 
     @State private var snapshot = CloudPushSettings.snapshot()
+    @State private var cloudPaused = false
+    @State private var lastVerifiedReceipt: Date?
+    @State private var resolvingPause = false
+    @State private var resolutionError: String?
 
     var body: some View {
         ScreenScaffold(
@@ -23,6 +27,18 @@ struct CloudPushView: View {
         .task {
             while !Task.isCancelled {
                 snapshot = CloudPushSettings.snapshot()
+                if let context = CloudAuthClient.currentContext(),
+                   let runtime = try? CloudPushBackgroundRuntime.current(for: context) {
+                    let paused = (try? await runtime.queue.pausedMessage(captured: context)) != nil
+                    let receipt = try? await runtime.queue.lastVerifiedReceiptDate(captured: context)
+                    if CloudAuthClient.isCurrent(context) {
+                        cloudPaused = paused
+                        lastVerifiedReceipt = receipt
+                    }
+                } else {
+                    cloudPaused = false
+                    lastVerifiedReceipt = nil
+                }
                 try? await Task.sleep(for: .milliseconds(750))
             }
         }
@@ -120,6 +136,40 @@ struct CloudPushView: View {
                     Text("Last error: \(lastError)")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.statusWarning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("Last verified cloud receipt: \(formattedDate(lastVerifiedReceipt) ?? "—")")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                if cloudPaused {
+                    NoopButton("Retry after resolution", kind: .secondary, fullWidth: true) {
+                        resolvingPause = true
+                        resolutionError = nil
+                        Task {
+                            defer { resolvingPause = false }
+                            guard let context = CloudAuthClient.currentContext(),
+                                  let runtime = try? CloudPushBackgroundRuntime.current(for: context) else { return }
+                            do {
+                                try await runtime.queue.resumePaused(captured: context)
+                                guard CloudAuthClient.isCurrent(context),
+                                      let writer = await model.repo.registryWriterForPush() else { return }
+                                CloudPushScheduler.enqueueManualCatchUp(db: writer)
+                            } catch {
+                                if CloudAuthClient.isCurrent(context) {
+                                    resolutionError = String(localized: "Cloud sync could not resume. Saved data is retained.")
+                                }
+                            }
+                        }
+                    }
+                    .disabled(resolvingPause || !snapshot.ready)
+                    if let resolutionError {
+                        Text(resolutionError)
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.statusWarning)
+                    }
+                    Text("Use after signing in again, updating the app, or resolving the reported server error. Saved data is retained.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

@@ -44,7 +44,8 @@ import WhoopStore
 
     static func recover(candidates: [(owner: String, priority: Int)], reader: BoundaryRecoveryReader,
                                 claimedDays: Set<String>, windowStart: Int, now: Int,
-                                offsetSec: Int, habitualMidsleepSec: Int?) async throws -> [PersistedBoundary] {
+                                offsetSec: Int, habitualMidsleepSec: Int?,
+                                allowsWork: @Sendable () -> Bool = { true }) async throws -> [PersistedBoundary] {
         var claimed = claimedDays, output: [PersistedBoundary] = []
         let fromDay = AnalyticsEngine.dayString(windowStart, offsetSec: offsetSec)
         let toDay = AnalyticsEngine.dayString(now, offsetSec: offsetSec)
@@ -52,8 +53,11 @@ import WhoopStore
             $0.priority == $1.priority ? $0.owner < $1.owner : $0.priority < $1.priority
         }) {
             let source = computedId(candidate.owner)
+            guard allowsWork(), !Task.isCancelled else { throw CancellationError() }
             let sessions = try await reader.sleepSessions(source, windowStart, now)
+            guard allowsWork(), !Task.isCancelled else { throw CancellationError() }
             let points = try await reader.markers(source, fromDay, toDay)
+            guard allowsWork(), !Task.isCancelled else { throw CancellationError() }
             let markers = Dictionary(points.compactMap { point -> (String, Int)? in
                 let value = Int(point.value)
                 return point.value == Double(value) ? (point.day, value) : nil
@@ -94,7 +98,18 @@ import WhoopStore
                         recoveryReader: BoundaryRecoveryReader? = nil,
                         motionCountReader: MotionCountReader? = nil,
                         trace: ((String) -> Void)? = nil,
+                        allowsWork: @Sendable () -> Bool = { true },
                         onFailure: @Sendable () -> Void = {}) async -> Result {
+        func preserved() -> Result {
+            onFailure()
+            return Result(stepsByWakeDay: [:], strainByWakeDay: [:], caloriesByWakeDay: [:],
+                workoutCountByWakeDay: [:], onsetByWakeDay: [:], firstWakeDay: nil, markerUpdate: .preserve)
+        }
+        func checkWork() throws {
+            guard allowsWork(), !Task.isCancelled else { throw CancellationError() }
+        }
+        guard allowsWork(), !Task.isCancelled else { return preserved() }
+
         guard mode == .sleepOnset else {
             return Result(stepsByWakeDay: [:], strainByWakeDay: [:], caloriesByWakeDay: [:],
                           workoutCountByWakeDay: [:], onsetByWakeDay: [:], firstWakeDay: nil,
@@ -108,6 +123,7 @@ import WhoopStore
         var wakeDayById: [String: String] = [:], ownerById: [String: String] = [:]
         var sleepContexts: [SleepSession] = []
         for night in nights {
+            guard allowsWork(), !Task.isCancelled else { return preserved() }
             let dayEdits = editsByDay[night.daily.day] ?? []
             let edits = Dictionary(dayEdits.map { ($0.startTs, $0) }, uniquingKeysWith: { first, _ in first })
             let detectedStarts = Set(night.sleeps.map(\.startTs))
@@ -148,7 +164,7 @@ import WhoopStore
             recovered = try await recover(candidates: candidates,
                 reader: recoveryReader ?? productionReader,
                 claimedDays: Set(wakeDayById.values), windowStart: windowStart, now: now,
-                offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec)
+                offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec, allowsWork: allowsWork)
         } catch {
             onFailure()
             // Fail closed: an unread namespace is unknown, not empty. Returning no replacement source IDs
@@ -187,6 +203,7 @@ import WhoopStore
         var strains: [String: Double] = [:], calories: [String: Double] = [:]
         var workoutCounts: [String: Int] = [:]
         windowLoop: for window in windows {
+            guard allowsWork(), !Task.isCancelled else { return preserved() }
             guard let day = wakeDayById[window.sleepId], let fallback = ownerById[window.sleepId] else { continue }
             do {
             onsets[day] = window.onset
@@ -199,6 +216,7 @@ import WhoopStore
             var hrByTimestamp: [Int: HRSample] = [:]
             if hrEndInclusive >= window.onset {
                 for owner in owners {
+                    try checkWork()
                     let rows: [HRSample]
                     do {
                         rows = try await store.hrSamples(
@@ -207,9 +225,11 @@ import WhoopStore
                         onFailure()
                         rows = []
                     }
+                    try checkWork()
                     for row in rows where hrByTimestamp[row.ts] == nil { hrByTimestamp[row.ts] = row }
                 }
             }
+            try checkWork()
             let cycleHR = hrByTimestamp.values.sorted { $0.ts < $1.ts }
             let restingHR = nights.first(where: { $0.daily.day == day })?.daily.restingHr.map(Double.init)
                 ?? StrainScorer.defaultRestingHR
@@ -236,6 +256,7 @@ import WhoopStore
             var ranked = priorities; ranked[fallback] = ranked[fallback] ?? ranked.values.min() ?? 0
             var coverage: [PhysiologicalSteps.OwnerCoverage] = []
             for (owner, priority) in ranked {
+                try checkWork()
                 let span = try await store.stepTimestampCoverage(
                     deviceId: owner, from: window.onset, to: window.endExclusive)
                 if let first = span.first, let last = span.last {
@@ -252,6 +273,7 @@ import WhoopStore
             }.joined(separator: ",")
             var revisions: [String] = []
             for segment in segments {
+                try checkWork()
                 let revision = await store.stepDataRevisionSignature(
                     deviceId: segment.owner, from: segment.onset, to: segment.endExclusive)
                 revisions.append("\(segment.owner)=\(revision)")
@@ -274,25 +296,30 @@ import WhoopStore
                 var count = SleepAwareStepCounter.Count.empty, pages = 0, samples = 0, evaluated = false
                 var motionReadsSucceeded = true
                 for (index, segment) in segments.enumerated() {
+                    try checkWork()
                     let hasClasses = try await store.hasStepActivityClasses(
                         deviceId: segment.owner, from: segment.onset, to: segment.endExclusive)
                     let accumulator = SleepAwareStepCounter.Accumulator(
                         sleepSessions: sleepContexts, hasActivityClasses: hasClasses)
                     var segmentSamples = 0
+                    try checkWork()
                     if index == 0, let predecessor = try await store.stepSampleBefore(
                         deviceId: segment.owner, before: segment.onset) {
                         accumulator.acceptPage([predecessor]); samples += 1; segmentSamples += 1
                     }
                     var cursor = segment.onset - 1
                     while cursor < segment.endExclusive {
+                        try checkWork()
                         let page = try await store.stepSamplesPage(deviceId: segment.owner,
                             afterExclusive: cursor, endExclusive: segment.endExclusive, limit: pageSize)
+                        try checkWork()
                         guard !page.isEmpty else { break }
                         accumulator.acceptPage(page); pages += 1; samples += page.count; segmentSamples += page.count
                         guard let last = page.last, last.ts >= cursor else { break }
                         cursor = last.ts
                         if page.count < pageSize { break }
                     }
+                    try checkWork()
                     let motion: (gravity: Int, aux: Int)?
                     do {
                         if let motionCountReader {
@@ -306,6 +333,7 @@ import WhoopStore
                         motionReadsSucceeded = false
                         motion = nil
                     }
+                    try checkWork()
                     accumulator.observeMotion(gravityCount: motion?.gravity ?? 0, auxCount: motion?.aux ?? 0)
                     if segmentSamples >= 2 { evaluated = true }
                     count = count.adding(accumulator.finish())
@@ -326,12 +354,15 @@ import WhoopStore
                 + "rejectedImplausible=\(result.count.rejectedImplausibleTicks) "
                 + "gravitySamples=\(result.count.gravitySamplesAvailable) auxSamples=\(result.count.auxSamplesAvailable) "
                 + "ticksPerStep=\(ticksPerStep) scaledSteps=\(scaled)")
+            } catch is CancellationError {
+                return preserved()
             } catch {
                 onFailure()
                 trace?("stepsCycle wakeDay=\(day) status=error error=databaseRead")
                 continue windowLoop
             }
         }
+        guard allowsWork(), !Task.isCancelled else { return preserved() }
         let recoveredMarkers = recovered.map { SourcedMarker(deviceId: computedId($0.owner),
             point: MetricPoint(day: $0.wakeDay, key: onsetKey, value: Double($0.boundary.onset))) }
         return Result(stepsByWakeDay: steps, strainByWakeDay: strains, caloriesByWakeDay: calories,

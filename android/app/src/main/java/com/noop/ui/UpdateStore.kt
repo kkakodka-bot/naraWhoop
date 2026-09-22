@@ -278,8 +278,8 @@ class UpdateStore private constructor(private val prefs: SharedPreferences) {
         post(
             UpdateItem(
                 kind = UpdateKind.WHATS_NEW,
-                title = if (title.isEmpty()) uiString(R.string.whats_new_in_nara, version) else title,
-                message = uiString(R.string.whats_new_nara_is_here, version),
+                title = if (title.isEmpty()) uiString(R.string.update_whats_new_nara_version, version) else title,
+                message = uiString(R.string.update_nara_version_available, version),
                 // #984: this row promised "tap to read what's new" while carrying NO deep link, so the
                 // tap resolved to nothing and only marked it read. Every release since the inbox shipped
                 // has posted an entry that could not be opened.

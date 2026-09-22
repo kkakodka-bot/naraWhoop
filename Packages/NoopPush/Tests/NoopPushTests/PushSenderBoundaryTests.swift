@@ -142,7 +142,7 @@ final class PushSenderBoundaryTests: XCTestCase {
                     try PushBinaryCodec.pack(table: .rawBatch, rows: rows)))
                 XCTAssertEqual(first.objectId, retry.objectId)
                 XCTAssertEqual(first.manifestJSON, retry.manifestJSON)
-                XCTAssertEqual(first.payload, retry.payload)
+                XCTAssertEqual((try first.payload), (try retry.payload))
             }
         }
     }

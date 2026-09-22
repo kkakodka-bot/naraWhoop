@@ -20,6 +20,7 @@ import type { PushFunctionConfig } from './config.ts';
 import { ingestStep } from './pushDiagnostics.ts';
 import type { UploadReceiptStore } from './receipts.ts';
 import type { UploadAuthMode } from './tokens.ts';
+import { requestObjectVerification } from './objectVerification.ts';
 
 /** Presigned PUT lifetime. Long enough for a large object on a slow link, short enough to expire. */
 export const UPLOAD_URL_TTL_SEC = 15 * 60;
@@ -200,6 +201,22 @@ export function createPushObjects({
     return writeSignalWindow({ userId: row.user_id, deviceId: row.device_id, row,
       stream: row.object_kind, startTs: Math.floor(Date.parse(row.start_at) / 1000),
       endTs: Math.floor(Date.parse(row.end_at) / 1000), sampleCount: Number(row.sample_count ?? 0) });
+  }
+
+  type CompletionScope = {
+    userId: string; objectId: string; sourceId?: string | null;
+    tokenId?: string | null; authMode?: UploadAuthMode;
+  };
+
+  async function scopedCompletionManifest({ userId, objectId, sourceId, authMode }: CompletionScope) {
+    if (!isUuid(userId)) throw fail('unauthorized', 401);
+    if (!isUuid(objectId)) throw fail('invalid_object_id', 400);
+    if (!manifests) throw fail('archive_not_configured', 503);
+    const row = await ingestStep('receipt_lookup', '', () => manifests.get(objectId));
+    if (!row) throw fail('missing_manifest', 404);
+    if (row.user_id !== userId || (sourceId && String(row.source_id || '').toLowerCase() !== sourceId.toLowerCase()) ||
+        (row.auth_mode && row.auth_mode !== (authMode || 'legacy_fleet'))) throw fail('forbidden', 403);
+    return row;
   }
 
   return {
@@ -404,6 +421,9 @@ export function createPushObjects({
       }
       const effectiveAuthMode = authMode || 'legacy_fleet';
       if (row.auth_mode && row.auth_mode !== effectiveAuthMode) throw fail('forbidden', 403);
+      if ((await rest.select('noop_object_verification_debt', `object_id=eq.${objectId}&user_id=eq.${userId}&select=object_id&limit=1`)).length) {
+        throw fail('async_verification_required', 503);
+      }
       const duplicate = Boolean(row.durability_receipt);
       const durabilityReceipt = await ingestStep('archive_verify', row.object_kind, () => completeDurableObject({ rest, raw, row }));
       if (receiptStore) {
@@ -432,6 +452,29 @@ export function createPushObjects({
         durabilityReceipt,
         duplicate,
       };
+    },
+
+    /** Explicitly negotiated mode: enqueue/poll only, with no storage reads or verification work. */
+    async requestVerification(scope: CompletionScope) {
+      if (!raw) throw fail('archive_not_configured', 503);
+      const row = await scopedCompletionManifest(scope);
+      const result = await requestObjectVerification(rest, scope.userId, scope.objectId);
+      if (result.status === 200 && receiptStore) {
+        await receiptStore.recordAccepted({
+          userId: scope.userId, sourceId: row.source_id || scope.sourceId,
+          deviceId: row.device_id, tokenId: scope.tokenId || null,
+          authMode: scope.authMode || 'legacy_fleet', lane: 'object', stream: row.object_kind,
+          batchId: row.batch_id, objectId: row.id, bodySha256: row.sha256,
+          acceptedStatus: 'ready', acceptedRows: Number(row.sample_count ?? 0),
+        });
+      }
+      return result;
+    },
+
+    async hasVerificationDebt(scope: CompletionScope) {
+      await scopedCompletionManifest(scope);
+      return (await rest.select('noop_object_verification_debt',
+        `object_id=eq.${scope.objectId}&user_id=eq.${scope.userId}&select=object_id&limit=1`)).length > 0;
     },
   };
 }

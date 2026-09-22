@@ -1975,37 +1975,38 @@ final class Repository: ObservableObject {
     private func restageFromRaw(start: Int, end: Int, preferences: ScoringReaderInputs? = nil,
                                 source suppliedSource: ReaderSource? = nil,
                                 rawDeviceId suppliedRawDeviceId: String? = nil,
+                                allowsWork: @escaping @Sendable () -> Bool = { true },
                                 onFailure: @Sendable () -> Void = {}) async -> String? {
         guard PhoneComputeRuntime.permitsLocal("sleep_restage_edit") else { return nil }
         PhoneComputeRuntime.entered("sleep_restage_edit")
         let source = suppliedSource ?? readerSource()
         let rawDeviceId = suppliedRawDeviceId ?? source.raw
-        guard readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         guard let preferences = preferences ?? captureScoringReaderInputs() else { onFailure(); return nil }
         guard let store = await ensureStore() else { onFailure(); return nil }
-        guard readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         let lo = start - 3_600, hi = end + 3_600
         let grav = await requiredRead({ try await store.gravitySamples(deviceId: rawDeviceId, from: lo, to: hi,
                                                                        limit: 200_000) }, onFailure: onFailure) ?? []
         #if DEBUG
         await preferenceRecoveryCheckpoint?(.sleepGravityRead)
         #endif
-        guard readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         let inWindowGravity = grav.lazy.filter { $0.ts >= start && $0.ts <= end }.count
         let windowSeconds = max(1, end - start)
         guard inWindowGravity >= max(20, windowSeconds / 120) else { return nil }
         let hr = await requiredRead({ try await store.hrSamples(deviceId: rawDeviceId, from: lo, to: hi,
                                                                limit: 200_000) }, onFailure: onFailure) ?? []
-        guard readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         let rr = await requiredRead({ try await store.rrIntervals(deviceId: rawDeviceId, from: lo, to: hi,
                                                                  limit: 200_000) }, onFailure: onFailure) ?? []
-        guard readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         // Same provenance refusal as the nightly scan (`IntelligenceEngine`): an Oura ring's respiration
         // rows are its own per-window RATE stored as instrumentation, not the ~1 Hz raw ADC waveform this
         // stager reads, so they never reach a re-stage either. See `OuraRespScale.forScoring`.
         let rawResp = await requiredRead({ try await store.respSamples(deviceId: rawDeviceId, from: lo, to: hi,
                                                                       limit: 200_000) }, onFailure: onFailure) ?? []
-        guard readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         let resp = OuraRespScale.forScoring(rawResp, deviceId: rawDeviceId)
         // Read only when the refinement below might actually use it (see `useMotionAwareWake`) — a plain
         // read cost, but no point paying it on the (default) off path.
@@ -2014,7 +2015,7 @@ final class Repository: ObservableObject {
             ? (await requiredRead({ try await store.stepSamples(deviceId: rawDeviceId, from: lo, to: hi,
                                                                 limit: 200_000) }, onFailure: onFailure) ?? [])
             : []
-        guard readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         // Which staging engine re-stages this window (Settings → Experimental · Sleep staging). The flag is
         // **default ON** (#277 promoted V2 over V1; #351 extended it to every strap family), so unless the
         // user has explicitly turned it OFF this re-stages with the cardiorespiratory recipe `SleepStagerV2`;
@@ -2023,6 +2024,7 @@ final class Repository: ObservableObject {
         // (V7 Pillar 3b)
         let useV2 = preferences.algorithms.useSleepStagerV2
         let segs = await Task.detached(priority: .utility) {
+            guard allowsWork(), !Task.isCancelled else { return [StageSegment]() }
             let staged = useV2
                 ? SleepStagerV2.stageSession(start: start, end: end, grav: grav, hr: hr, rr: rr, resp: resp)
                 : SleepStager.stageSession(start: start, end: end, grav: grav, hr: hr, rr: rr, resp: resp)
@@ -2033,7 +2035,7 @@ final class Repository: ObservableObject {
         #if DEBUG
         await preferenceRecoveryCheckpoint?(.sleepStaged)
         #endif
-        guard readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         return AnalyticsEngine.encodeStages(segs)
     }
 
@@ -2050,9 +2052,10 @@ final class Repository: ObservableObject {
     func selfHealEditedStages(from windowStart: Int, to windowEnd: Int,
                               preferences: ScoringReaderInputs? = nil,
                               selection: EditedSleepSourceSelection? = nil,
+                              allowsWork: @escaping @Sendable () -> Bool = { true },
                               onFailure: @Sendable () -> Void = {}) async -> [CachedSleepSession] {
         let source = readerSource()
-        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         guard let preferences = preferences ?? captureScoringReaderInputs() else { onFailure(); return [] }
         let computedRowOwner = selection?.computedRowOwner ?? source.computed
         guard !computedRowOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -2060,7 +2063,7 @@ final class Repository: ObservableObject {
             return []
         }
         guard let store = await ensureStore() else { onFailure(); return [] }
-        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         func editedRows() async -> [CachedSleepSession] {
             (await requiredRead({ try await store.sleepSessions(deviceId: computedRowOwner, from: windowStart,
                                              to: windowEnd, limit: 100_000) }, onFailure: onFailure) ?? [])
@@ -2070,7 +2073,7 @@ final class Repository: ObservableObject {
         #if DEBUG
         await preferenceRecoveryCheckpoint?(.sleepRowsRead)
         #endif
-        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         guard !edited.isEmpty else { return [] }
         // Validate every selected row before staging any: a missing historical owner is not active raw.
         var selectedRows: [(row: CachedSleepSession, rawDeviceId: String)] = []
@@ -2089,20 +2092,21 @@ final class Repository: ObservableObject {
         }
         var healed = false
         for (row, rawDeviceId) in selectedRows {
+            guard allowsWork(), !Task.isCancelled else { onFailure(); return edited }
             // Re-derive over the LOCKED corrected window (effective onset → wake). Skip when the raw
             // isn't dense yet, or when the result already matches what's stored (steady state , no write).
             guard let newJSON = await restageFromRaw(start: row.effectiveStartTs, end: row.endTs,
                                                    preferences: preferences, source: source,
-                                                   rawDeviceId: rawDeviceId, onFailure: onFailure),
+                                                   rawDeviceId: rawDeviceId, allowsWork: allowsWork, onFailure: onFailure),
                   newJSON != row.stagesJSON else { continue }
-            guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
             let n = await requiredRead({ try await store.updateSleepStages(deviceId: computedRowOwner,
                                                         detectedStartTs: row.startTs,
                                                         stagesJSON: newJSON) }, onFailure: onFailure) ?? 0
-            guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
             if n > 0 { healed = true }
         }
-        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         let result = healed ? await editedRows() : edited
         return readerIsCurrent(source, onFailure: onFailure) ? result : []
     }
@@ -3121,14 +3125,15 @@ final class Repository: ObservableObject {
     /// span list is the durable "not a workout" record.
     func workoutRows(days: Int = 4000, preferences suppliedPreferences: ScoringReaderInputs? = nil,
                      strainProfile suppliedProfile: StrainProfile? = nil,
+                     allowsWork: @escaping @Sendable () -> Bool = { true },
                      onFailure: @escaping @Sendable () -> Void = {}) async -> [WorkoutRow] {
         let source = readerSource()
-        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         let preferences = suppliedPreferences ?? captureScoringReaderInputs()
         let strainProfile = suppliedPreferences != nil ? suppliedProfile : (preferences == nil ? nil : self.strainProfile)
         if preferences == nil { onFailure() }
         guard let store = await ensureStore() else { onFailure(); return [] }
-        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         let now = Int(Date().timeIntervalSince1970)
         let lo = now - days * 86_400, hi = now + 86_400
         // UNION every registered WHOOP + canonical (and computed siblings) so workouts banked before a
@@ -3140,20 +3145,20 @@ final class Repository: ObservableObject {
         for id in rawIds {
             rows += await requiredRead({ try await store.workouts(deviceId: id, from: lo, to: hi, limit: 5000) },
                                        onFailure: onFailure) ?? []
-            guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         }
         for id in rawIds.map({ $0.hasSuffix("-noop") ? $0 : $0 + "-noop" }) {
             rows += await requiredRead({ try await store.workouts(deviceId: id, from: lo, to: hi, limit: 5000) },
                                        onFailure: onFailure) ?? []
-            guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         }
         rows += await requiredRead({ try await store.workouts(deviceId: "apple-health", from: lo, to: hi, limit: 5000) },
                                    onFailure: onFailure) ?? []
-        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         // Imported lifting sessions (Hevy / Liftosaur) live under their own "lifting" source.
         rows += await requiredRead({ try await store.workouts(deviceId: "lifting", from: lo, to: hi, limit: 5000) },
                                    onFailure: onFailure) ?? []
-        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         // #29: imported activity FILES (FIT / GPX / TCX) live under their own "activity-file" source — read
         // them too, or a successful file import never appears in the Workouts list (Data Sources counts it,
         // the load didn't). HR is reconciled from the strap trace at the end like every other row.
@@ -3162,7 +3167,7 @@ final class Repository: ObservableObject {
         #if DEBUG
         await preferenceRecoveryCheckpoint?(.workoutRowsRead)
         #endif
-        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         rows = Self.dedupWorkoutsByNaturalKey(rows)
         let spans = WorkoutSource.parseDismissedSpans(dismissedDetectedSpans)
         // #687: collapse the SAME activity tracked live under the strap AND imported from Health Connect /
@@ -3184,7 +3189,7 @@ final class Repository: ObservableObject {
         let visible = deduped.sorted { $0.startTs > $1.startTs }
         let result = await reconcileWorkoutHrWithTrace(visible, store: store,
             strainProfile: strainProfile, effortMethod: preferences?.effortMethod,
-            source: source, onFailure: onFailure)
+            source: source, allowsWork: allowsWork, onFailure: onFailure)
         return readerIsCurrent(source, onFailure: onFailure) ? result : []
     }
 
@@ -3208,6 +3213,7 @@ final class Repository: ObservableObject {
     private func reconcileWorkoutHrWithTrace(_ rows: [WorkoutRow], store: WhoopStore,
                                              strainProfile: StrainProfile?, effortMethod: StrainScorer.Method?,
                                              source: ReaderSource,
+                                             allowsWork: @escaping @Sendable () -> Bool = { true },
                                              onFailure: @escaping @Sendable () -> Void = {},
                                              minSamples: Int = 60, cap: Int = 300) async -> [WorkoutRow] {
         guard PhoneComputeRuntime.permitsLocal("workout_trace_reconstruction") else {
@@ -3259,7 +3265,7 @@ final class Repository: ObservableObject {
         // backfill strain off the main actor. nil ⇒ no fill, and the strain slot always comes back nil.
         var reduced: [Int: (avg: Int, peak: Int, strain: Double?)] = [:]
         for chunkStart in stride(from: 0, to: eligibleIndices.count, by: readChunk) {
-            guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
             let chunk = eligibleIndices[chunkStart..<min(chunkStart + readChunk, eligibleIndices.count)]
             await withTaskGroup(of: (index: Int, avg: Int, peak: Int, strain: Double?)?.self) { group in
                 for idx in chunk {
@@ -3285,10 +3291,12 @@ final class Repository: ObservableObject {
                         // makes the common path (no strain fill) read no rows at all, which is strictly
                         // better for the #833 freeze this function exists to avoid.
                         do {
+                        guard allowsWork(), !Task.isCancelled else { onFailure(); return nil }
                         let stats = try await store.hrWindowStats(
                                   primaryId: hrIds[0],
                                   secondaryId: hrIds.count > 1 ? hrIds[1] : hrIds[0],
                                   from: startTs, to: endTs)
+                        guard allowsWork(), !Task.isCancelled else { onFailure(); return nil }
                         guard stats.n >= minSamples,
                               let mean = stats.avg, let peak = stats.max else { return nil }
                         let avg = Int(mean.rounded())
@@ -3304,6 +3312,7 @@ final class Repository: ObservableObject {
                                                                       from: startTs, to: endTs,
                                                                       limit: 8000) }
                             catch { onFailure(); samples = [] }
+                            guard allowsWork(), !Task.isCancelled else { onFailure(); return nil }
                             strain = StrainScorer.strain(samples, maxHR: p.hrMax,
                                                 method: effortMethod, sex: p.sex)
                         } else {
@@ -3317,7 +3326,7 @@ final class Repository: ObservableObject {
                     if let r = result { reduced[r.index] = (avg: r.avg, peak: r.peak, strain: r.strain) }
                 }
             }
-            guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         }
 
         // Phase 3 , reassemble in ORIGINAL order. For an eligible row that cleared `minSamples` apply the

@@ -48,7 +48,12 @@ final class HistoricalChunkCommitTests: XCTestCase {
         let current = try await store(path: path)
         let observer = HistoricalCommitObserver()
         current.registryWriter.add(transactionObserver: observer)
-        try await commit(current)
+        let outcome = try await commit(current)
+        let timing = try XCTUnwrap(outcome.durabilityTiming)
+        XCTAssertGreaterThanOrEqual(timing.queueWaitMs, 0)
+        XCTAssertGreaterThanOrEqual(timing.mutationMs, timing.cursorMutationMs)
+        XCTAssertGreaterThanOrEqual(timing.commitReturnMs, 0)
+        XCTAssertGreaterThanOrEqual(timing.cursorMutationMs, 0)
         XCTAssertEqual(observer.commits, 1)
         XCTAssertEqual(observer.rollbacks, 0)
         current.registryWriter.remove(transactionObserver: observer)
@@ -73,12 +78,85 @@ final class HistoricalChunkCommitTests: XCTestCase {
         let legacy = try await store()
         let baseline = HistoricalCommitObserver()
         legacy.registryWriter.add(transactionObserver: baseline)
-        _ = try await legacy.insertAndMarkJobsOwed(streams, deviceId: scope.deviceID,
+        let legacyOutcome = try await legacy.insertAndMarkJobsOwed(streams, deviceId: scope.deviceID,
             postOffloadJobKinds: ["rescore", "cloudPush"], note: nil, captureScope: scope)
+        XCTAssertNil(legacyOutcome.durabilityTiming, "Non-historical entry points must not emit historical timing")
         _ = try await legacy.persistSensorQuarantine(frames, scope: scope, family: "whoop5",
             trim: 42, clockRef: ref, preserveOccurrences: true)
         try await legacy.setCursor("strap_trim:\(scope.key)", 42)
         XCTAssertEqual(baseline.commits, 3)
+    }
+
+    func testTimingSeparatesWriterQueueCursorMutationAndCommitReturnWithoutAnotherTransaction() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let path = directory.appendingPathComponent("timing.sqlite").path
+        let current = try await store(path: path)
+        let writerEntered = expectation(description: "GRDB writer queue is occupied")
+        let commitStarted = expectation(description: "store actor starts historical call")
+        let releaseExternal = DispatchSemaphore(value: 0)
+        let delays = HistoricalTimingDelays()
+        addTeardownBlock {
+            releaseExternal.signal()
+            try current.registryWriter.close()
+            try FileManager.default.removeItem(at: directory)
+        }
+        try await current.registryWriter.writeWithoutTransaction { db in
+            db.add(function: DatabaseFunction("historical_cursor_delay", argumentCount: 0, pure: false) { _ in
+                delays.delayCursor()
+                return 0
+            })
+            try db.execute(sql: """
+                CREATE TEMP TRIGGER time_historical_cursor BEFORE INSERT ON cursors
+                BEGIN SELECT historical_cursor_delay(); END
+                """)
+
+        }
+        current.registryWriter.add(transactionObserver: delays)
+        let holdingWriter = Task.detached {
+            try current.registryWriter.writeWithoutTransaction { _ in
+                writerEntered.fulfill()
+                guard releaseExternal.wait(timeout: .now() + 5) == .success else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+            }
+        }
+        await fulfillment(of: [writerEntered], timeout: 5)
+        let started = ContinuousClock.now
+        let chunk = Task {
+            try await current.historicalTestTimedCommit(scope: scope, streams: streams,
+                frames: frames, ref: ref, started: commitStarted)
+        }
+        addTeardownBlock {
+            releaseExternal.signal()
+            _ = try? await holdingWriter.value
+            _ = try? await chunk.value
+        }
+        await fulfillment(of: [commitStarted], timeout: 5)
+        // The actor has begun the historical call while its actual GRDB writer is held.
+        // This blocks queue admission without changing production DEFERRED transaction mode.
+        try await Task.sleep(nanoseconds: 100_000_000)
+        releaseExternal.signal()
+        try await holdingWriter.value
+        let outcome = try await chunk.value
+        let elapsed = HistoricalTimingDelays.milliseconds(started.duration(to: .now))
+        let timing = try XCTUnwrap(outcome.durabilityTiming)
+        XCTAssertGreaterThanOrEqual(timing.queueWaitMs, 25, "Writer contention must precede the mutation interval")
+        XCTAssertGreaterThanOrEqual(timing.cursorMutationMs, delays.cursorMs)
+        XCTAssertGreaterThanOrEqual(timing.mutationMs, timing.cursorMutationMs)
+        XCTAssertGreaterThanOrEqual(timing.commitReturnMs, delays.commitMs)
+        XCTAssertLessThanOrEqual(timing.queueWaitMs + timing.mutationMs + timing.commitReturnMs, elapsed)
+        XCTAssertEqual(delays.commits, 1, "Instrumentation must not create another durability transaction")
+        current.registryWriter.remove(transactionObserver: delays)
+        let rows = try await counts(current)
+        XCTAssertEqual(rows["hrSample"], 1)
+        XCTAssertEqual(rows["sensorQuarantine"], 3)
+        let savedCursor = try await current.cursor("strap_trim:\(scope.key)")
+        XCTAssertEqual(savedCursor, 42)
+        let check = try await current.registryWriter.read { db in
+            try String.fetchOne(db, sql: "PRAGMA integrity_check")
+        }
+        XCTAssertEqual(check, "ok")
     }
 
     func testEveryRequiredWriteFailureRollsBackRowsArchiveDebtFrontiersAndCursor() async throws {
@@ -227,6 +305,186 @@ final class HistoricalChunkCommitTests: XCTestCase {
         XCTAssertEqual(retained.map(\.id), [key])
         XCTAssertEqual(retained.map(\.frame), [Data([1, 2])])
     }
+
+    private func researchCapture(frames: [[UInt8]] = [[9, 8], [7, 6]],
+                                 scope: DurableIngestScope? = nil) -> HistoricalRawCapture {
+        let owner = scope ?? self.scope
+        return HistoricalRawCapture(meta: RawBatchMeta(batchId: "research-chunk", deviceId: owner.deviceID,
+            clockRef: ref, capturedAt: 101, startTs: 100, endTs: 101,
+            frameCount: frames.count, byteSize: frames.reduce(0) { $0 + $1.count },
+            captureScope: owner), frames: frames)
+    }
+
+    @discardableResult
+    private func commitResearch(_ store: WhoopStore, capture: HistoricalRawCapture? = nil) async throws -> BackfillInsertOutcome {
+        try await store.commitHistoricalChunk(streams, scope: scope, family: "whoop5", trim: 42,
+            recoveryFrames: frames, clockRef: ref, postOffloadJobKinds: ["rescore", "cloudPush"],
+            rawCapture: capture ?? researchCapture())
+    }
+
+    func testResearchRawRowsArchiveDebtAndCursorShareOneCommitAndReplayIdentity() async throws {
+        let current = try await store()
+        let observer = HistoricalCommitObserver()
+        current.registryWriter.add(transactionObserver: observer)
+        try await commitResearch(current)
+        XCTAssertEqual(observer.commits, 1)
+        let original = try await counts(current)
+        let jobs = try await current.owedJobs()
+        XCTAssertEqual(original["rawBatch"], 4)
+        let raw = try await current.rawFrames(batchId: "research-chunk")
+        XCTAssertEqual(raw, researchCapture().frames)
+        let replay = try await commitResearch(current)
+        XCTAssertEqual(replay.insertedHistoricalSensorRows, 0)
+        let replayed = try await counts(current)
+        let replayJobs = try await current.owedJobs()
+        XCTAssertEqual(original, replayed)
+        XCTAssertEqual(jobs.map(\.token), replayJobs.map(\.token))
+    }
+
+    func testResearchRawFailureRollsBackDecodedRecoveryDebtAndCursor() async throws {
+        let current = try await store()
+        let before = try await counts(current)
+        try await current.registryWriter.write { db in
+            try db.execute(sql: """
+                CREATE TEMP TRIGGER reject_research BEFORE INSERT ON rawBatch
+                WHEN NEW.batchId = 'research-chunk'
+                BEGIN SELECT RAISE(ABORT, 'synthetic raw write failure'); END
+                """)
+        }
+        do { try await commitResearch(current); XCTFail("Raw failure authorized ACK") }
+        catch {}
+        let after = try await counts(current)
+        XCTAssertEqual(after, before)
+    }
+
+    func testResearchReplayPreservesFirstClockObservationAfterReconnect() async throws {
+        let current = try await store()
+        try await commitResearch(current)
+        let capture = researchCapture()
+        let later = HistoricalRawCapture(meta: RawBatchMeta(batchId: capture.meta.batchId,
+            deviceId: scope.deviceID, clockRef: ClockRef(device: 999, wall: 999), capturedAt: 999,
+            startTs: 998, endTs: 999, frameCount: capture.frames.count, byteSize: capture.meta.byteSize,
+            captureScope: scope), frames: capture.frames)
+        try await commitResearch(current, capture: later)
+        let stored = try await current.registryWriter.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM rawBatch WHERE batchId = 'research-chunk'")
+        }
+        let row = try XCTUnwrap(stored)
+        XCTAssertEqual(row["deviceClockRef"] as Int, ref.device)
+        XCTAssertEqual(row["wallClockRef"] as Int, ref.wall)
+        XCTAssertEqual(row["capturedAt"] as Int, capture.meta.capturedAt)
+        XCTAssertEqual(row["startTs"] as Int, capture.meta.startTs)
+        XCTAssertEqual(row["endTs"] as Int, capture.meta.endTs)
+    }
+
+    func testResearchRawConflictOrWrongOwnerCannotAdvanceCursor() async throws {
+        let current = try await store()
+        try await commitResearch(current)
+        let before = try await counts(current)
+        let wrong = DurableIngestScope(environment: scope.environment, accountID: "other-owner", deviceID: scope.deviceID)
+        for capture in [researchCapture(frames: [[9, 8], [5, 4]]), researchCapture(scope: wrong)] {
+            do {
+                _ = try await current.commitHistoricalChunk(Streams(hr: [HRSample(ts: 101, bpm: 61)]),
+                    scope: scope, family: "whoop5", trim: 43, recoveryFrames: [[5, 4]], clockRef: ref,
+                    postOffloadJobKinds: ["cloudPush"], rawCapture: capture)
+                XCTFail("Conflicting raw identity authorized ACK")
+            } catch { XCTAssertEqual(error as? DurableIngestError, .identityConflict) }
+            let after = try await counts(current)
+            let cursor = try await current.cursor("strap_trim:\(scope.key)")
+            XCTAssertEqual(after, before)
+            XCTAssertEqual(cursor, 42)
+        }
+    }
+
+    func testRevocationInsideHistoricalRowWriteRollsBackRawDebtAndCursor() async throws {
+        let current = try await store()
+        let before = try await counts(current)
+        let fence = StoreWriteFence()
+        try await current.registryWriter.write { db in
+            db.add(function: DatabaseFunction("revoke_historical_owner", argumentCount: 0) { _ in
+                fence.invalidate()
+                return 0
+            })
+            try db.execute(sql: """
+                CREATE TEMP TRIGGER revoke_historical AFTER INSERT ON hrSample
+                BEGIN SELECT revoke_historical_owner(); END
+                """)
+        }
+        try await current.fenceWrites(untilRevoked: fence)
+        do { try await commitResearch(current); XCTFail("Revoked historical transaction committed") }
+        catch { XCTAssertEqual(error as? StoreWriteFence.Failure, .revoked) }
+        let after = try await counts(current)
+        XCTAssertEqual(after, before)
+    }
+
+    func testExistingLegacyResearchBytesCreateOwnershipAndDebtInSameCommit() async throws {
+        let current = try await store()
+        let capture = researchCapture()
+        try await current.enqueueRawBatch(capture.meta, frames: capture.frames)
+        try await current.registryWriter.write { db in
+            // Synthetic legacy state before durable ownership/debt was introduced.
+            try db.execute(sql: "DELETE FROM ingestRawResource WHERE resourceKey = 'research-chunk'")
+            try db.execute(sql: "DELETE FROM syncJob")
+        }
+        _ = try await current.commitHistoricalChunk(Streams(), scope: scope, family: "whoop5",
+            trim: 42, recoveryFrames: [], clockRef: ref, postOffloadJobKinds: [], rawCapture: capture)
+        let jobs = try await current.owedJobs()
+        let identity = try await current.rawResourceIdentity(scope: scope, lane: "rawBatch", resourceKey: "research-chunk")
+        XCTAssertEqual(jobs.map(\.kind), ["cloudPush"])
+        XCTAssertNotNil(identity)
+    }
+
+    func testPrunedResearchReplayNeedsExactReceiptAndDoesNotRecreateUploadDebt() async throws {
+        let current = try await store()
+        try await commitResearch(current)
+        let saved = try await current.rawResourceIdentity(scope: scope, lane: "rawBatch", resourceKey: "research-chunk")
+        let identity = try XCTUnwrap(saved)
+        // Direct deletion simulates a damaged/dangling ledger, never a production recovery strategy.
+        try await current.registryWriter.write { db in
+            try db.execute(sql: "DELETE FROM rawBatch WHERE batchId = 'research-chunk'")
+        }
+        do { try await commitResearch(current); XCTFail("A dangling ledger is not raw durability") }
+        catch { XCTAssertEqual(error as? DurableIngestError, .identityConflict) }
+        try await current.recordRawDurabilityReceipt(RawDurabilityReceipt(scope: scope, lane: "rawBatch",
+            resourceKey: "research-chunk", contentSHA256: identity.contentSHA256,
+            objectKey: "synthetic/object", receiptID: "synthetic-receipt", verifiedAt: 1, retainUntil: 2))
+        let jobs = try await current.owedJobs()
+        try await commitResearch(current)
+        let replayJobs = try await current.owedJobs()
+        let raw = try await current.rawFrames(batchId: "research-chunk")
+        XCTAssertTrue(raw.isEmpty)
+        XCTAssertEqual(jobs.map(\.token), replayJobs.map(\.token))
+    }
+}
+
+private final class HistoricalTimingDelays: TransactionObserver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var cursorDuration = 0.0
+    private var commitDuration = 0.0
+    private var committed = 0
+    var cursorMs: Double { lock.lock(); defer { lock.unlock() }; return cursorDuration }
+    var commitMs: Double { lock.lock(); defer { lock.unlock() }; return commitDuration }
+    var commits: Int { lock.lock(); defer { lock.unlock() }; return committed }
+    func delayCursor() {
+        let started = ContinuousClock.now
+        Thread.sleep(forTimeInterval: 0.025)
+        let elapsed = Self.milliseconds(started.duration(to: .now))
+        lock.lock(); cursorDuration = elapsed; lock.unlock()
+    }
+    func observes(eventsOfKind eventKind: DatabaseEventKind) -> Bool { true }
+    func databaseDidChange(with event: DatabaseEvent) {}
+    func databaseWillCommit() {
+        let started = ContinuousClock.now
+        Thread.sleep(forTimeInterval: 0.025)
+        let elapsed = Self.milliseconds(started.duration(to: .now))
+        lock.lock(); commitDuration = elapsed; lock.unlock()
+    }
+    func databaseDidCommit(_ db: Database) { lock.lock(); committed += 1; lock.unlock() }
+    func databaseDidRollback(_ db: Database) {}
+    static func milliseconds(_ duration: Duration) -> Double {
+        let parts = duration.components
+        return Double(parts.seconds) * 1_000 + Double(parts.attoseconds) / 1_000_000_000_000_000
+    }
 }
 
 private final class HistoricalCommitObserver: TransactionObserver, @unchecked Sendable {
@@ -247,6 +505,14 @@ private final class HistoricalCommitObserver: TransactionObserver, @unchecked Se
 }
 
 private extension WhoopStore {
+    func historicalTestTimedCommit(scope: DurableIngestScope, streams: Streams,
+                                   frames: [[UInt8]], ref: ClockRef,
+                                   started: XCTestExpectation) async throws -> BackfillInsertOutcome {
+        started.fulfill()
+        return try await commitHistoricalChunk(streams, scope: scope, family: "whoop5",
+            trim: 42, recoveryFrames: frames, clockRef: ref,
+            postOffloadJobKinds: ["rescore", "cloudPush"])
+    }
     func historicalTestStepRevision(_ device: String) -> String {
         stepDataRevision.signature(deviceId: device, from: 0, to: 200)
     }

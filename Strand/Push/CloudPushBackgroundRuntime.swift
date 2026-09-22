@@ -21,14 +21,14 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
         (Bundle.main.bundleIdentifier ?? "com.frwhoop.strand") + ".cloud-upload.v1." + scope.namespace
     }
 
-    init(resourceBudget: ResourceBudget = .shared,
-         context: AccountSessionContext, layout: AccountStorageLayout,
+    init(context: AccountSessionContext, layout: AccountStorageLayout,
          authorize: @escaping CloudUploadQueue.Authorize,
          isCurrent: @escaping CloudUploadQueue.Current,
          policy: @escaping @Sendable () -> CloudUploadPolicy,
          backgroundEventsCompletion: (() -> Void)? = nil,
          sessionConfiguration: URLSessionConfiguration? = nil,
-         now: @escaping @Sendable () -> Date = { Date() }) throws {
+         now: @escaping @Sendable () -> Date = { Date() },
+         resourceBudget: ResourceBudget = .shared) throws {
         guard layout.scope == context.scope else { throw CloudUploadError.staleOwner }
         self.context = context
         progressDirectory = layout.uploadDirectory.appendingPathComponent("source-progress", isDirectory: true)
@@ -37,10 +37,9 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
         if let backgroundEventsCompletion { completion.store(backgroundEventsCompletion) }
         adapter = CloudUploadURLSession(identifier: identifier, configuration: sessionConfiguration)
         let adapter = self.adapter
-        let controlSession = CloudPushTransport.makeSession()
+        let controlSession = sessionConfiguration.map { URLSession(configuration: $0) } ?? CloudPushTransport.makeSession()
         self.controlSession = controlSession
-        do { queue = try CloudUploadQueue(resourceBudget: resourceBudget,
-            context: context, layout: layout, adapter: adapter,
+        do { queue = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
             authorize: authorize, isCurrent: isCurrent, policy: policy, control: { request in
                 let (data, response) = try await controlSession.data(for: request)
                 guard data.count <= PushProtocolLimits.maxAckBytes else { throw CloudUploadError.responseTooLarge }
@@ -49,7 +48,7 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
             }, now: now, refreshCredentials: {
                 guard !CloudRuntimeIdentity.isEnrollment($0) else { throw AccountAuthError.sessionRevoked }
                 try await CloudAuthClient.refreshRejectedCredentials($0)
-            }, fleetToken: { CloudPushSettings.resolvedFleetToken() })
+            }, fleetToken: { CloudPushSettings.resolvedFleetToken() }, resourceBudget: resourceBudget)
         } catch {
             let identifier = self.identifier
             let completion = self.completion
@@ -132,6 +131,14 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
     static func reconcileActive() async {
         let runtime = snapshot()
         try? await runtime?.reconcile()
+    }
+
+    static func nextWake() async -> (AccountSessionContext, Date?)? {
+        guard let runtime = snapshot(), !runtime.isRetired else { return nil }
+        guard let date = try? await runtime.queue.nextWakeDate(captured: runtime.context) else {
+            return (runtime.context, nil)
+        }
+        return (runtime.context, date)
     }
 
     private static func snapshot() -> CloudPushBackgroundRuntime? {

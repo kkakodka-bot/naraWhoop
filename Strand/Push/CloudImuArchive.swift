@@ -7,10 +7,18 @@ import WhoopStore
 protocol ImuExactArchiveSource: ImuSessionPushSource {
     func archiveDeviceIDs() throws -> Set<String>
     func archiveRows(deviceID: String, limit: Int) throws -> [PushRawBatchRecord]
+    func archiveRows(deviceID: String, limit: Int, limits: PushSourceReadLimits) throws -> [PushRawBatchRecord]
     func associateArchive(_ row: PushRawBatchRecord, receipt: PushDurabilityReceipt, scope: AccountScope) throws
     func checkArchiveCommit(_ commit: PushSourceCommit, scope: AccountScope) throws
     func sourceProgressApplied(_ commit: PushSourceCommit, scope: AccountScope) throws
     func sourceCleanupCompleted(_ commit: PushSourceCommit, scope: AccountScope) throws
+}
+
+extension ImuExactArchiveSource {
+    func archiveRows(deviceID: String, limit: Int, limits: PushSourceReadLimits) throws -> [PushRawBatchRecord] {
+        guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+        return try archiveRows(deviceID: deviceID, limit: limit)
+    }
 }
 
 /// Existing rawBatch framing, explicitly tagged as a file archive, never a synthetic BLE packet.
@@ -148,13 +156,31 @@ extension CloudImuPushSource: ImuExactArchiveSource {
     }
 
     func archiveRows(deviceID: String, limit: Int) throws -> [PushRawBatchRecord] {
+        try archiveRows(deviceID: deviceID, limit: limit, limits: .init(maximumDecodedBytes: PushProtocolLimits.maxObjectDecodedBytes,
+            protocolVersion: PushProtocol.objectVersion, shouldContinue: { true }))
+    }
+    func archiveRows(deviceID: String, limit: Int, limits: PushSourceReadLimits) throws -> [PushRawBatchRecord] {
+        guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
         isolation.lock(); defer { isolation.unlock() }
         guard limit > 0, limit <= 2 else { throw ImuPushSourceError.membershipUnavailable }
         // Production source selection follows committer.recover(), so no unsettled source debt
         // can still depend on a removed checkpoint. Never run this sweep inside a commit hook.
         try reclaimMissingCheckpoints()
         try maintainArchives()
-        func pending() throws -> [Row] { try index.read { try Row.fetchAll($0, sql: "SELECT * FROM archive WHERE device = ? AND committed = 0 ORDER BY id LIMIT ?", arguments: [deviceID, limit]) } }
+        func pending() throws -> [Row] {
+            try index.read { db in
+                guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+                let sizes = try Row.fetchAll(db, sql: "SELECT length(bytes) AS fileBytes, length(descriptor) AS metadataBytes FROM archive WHERE device = ? AND committed = 0 ORDER BY id LIMIT ?", arguments: [deviceID, limit])
+                for row in sizes {
+                    let file: Int = row["fileBytes"], descriptor: Int = row["metadataBytes"]
+                    // Includes framing, content IDs, and worst-case compression expansion.
+                    guard file >= 0, descriptor >= 0, file <= limits.maximumDecodedBytes - descriptor - 64 * 1024 else {
+                        throw PushSourceReadError.requiresCompatibleEncoding
+                    }
+                }
+                return try Row.fetchAll(db, sql: "SELECT * FROM archive WHERE device = ? AND committed = 0 ORDER BY id LIMIT ?", arguments: [deviceID, limit])
+            }
+        }
         var rows = try pending()
         if rows.count < limit {
             let all = try stores.sorted { $0.key < $1.key }.flatMap { origin, store in
@@ -164,22 +190,27 @@ extension CloudImuPushSource: ImuExactArchiveSource {
             let tail = all.filter { "\($0.0)/\($0.1.windowID)/\($0.1.bucket)" > last }
             let remaining = tail.isEmpty ? all : tail
             for (origin, segment) in remaining.prefix(segmentBudget) {
-                try prepareArchive(origin: origin, segment: segment)
+                guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+                try prepareArchive(origin: origin, segment: segment,
+                    maximumSnapshotBytes: max(0, limits.maximumDecodedBytes - 512 * 1024 - 64 * 1024))
                 try index.write { try $0.execute(sql: "INSERT INTO archiveScan VALUES(?, ?) ON CONFLICT(device) DO UPDATE SET lastKey = excluded.lastKey",
                     arguments: [deviceID, "\(origin)/\(segment.windowID)/\(segment.bucket)"]) }
             }
             rows = try pending()
             if rows.count < limit && remaining.count > segmentBudget { throw ImuPushSourceError.scanPending }
         }
-        return try rows.map(archiveRecord)
+        return try rows.map { row in
+            guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
+            return try archiveRecord(row)
+        }
     }
 
-    private func prepareArchive(origin: String, segment: ImuPushSegment) throws {
+    private func prepareArchive(origin: String, segment: ImuPushSegment, maximumSnapshotBytes: Int = 8 * 1_048_576) throws {
         let occupied = try index.read { try Bool.fetchOne($0, sql: "SELECT EXISTS(SELECT 1 FROM archive WHERE device = ? AND origin = ? AND window = ? AND bucket = ?)",
             arguments: [segment.deviceID, origin, segment.windowID, segment.bucket]) } ?? false
         guard !occupied else { return }
         guard let store = stores[origin] else { throw ImuPushSourceError.membershipUnavailable }
-        let snapshot = try store.pushSegmentSnapshot(segment)
+        let snapshot = try store.pushSegmentSnapshot(segment, maximumBytes: maximumSnapshotBytes)
         try index.write { db in
             try indexSegment(db, origin: origin, segment: segment, snapshot: snapshot)
             let prefix = try Row.fetchOne(db, sql: "SELECT * FROM segmentCheckpoint WHERE device = ? AND origin = ? AND window = ? AND bucket = ?",
