@@ -136,6 +136,9 @@ final class FinalHostedRuntimeTests: XCTestCase {
             LiveWorkoutView(onClose: {})
             HRVSnapshotView()
             CoachView().environmentObject(model.coach)
+            AppleHealthView()
+            XiaomiBandView()
+            MedicationsView()
         }.environmentObject(model).environmentObject(model.repo).environmentObject(model.live)
             .environmentObject(model.profile).frame(width: 600, height: 1200)
         // Native text inputs are AppKit views and cannot be flattened by SwiftUI ImageRenderer.
