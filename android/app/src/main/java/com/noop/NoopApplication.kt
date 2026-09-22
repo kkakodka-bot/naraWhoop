@@ -34,6 +34,7 @@ class NoopApplication : Application() {
     fun onActiveDeviceAdopted(newId: String) = accountRuntime.onActiveDeviceAdopted(newId)
 
     override fun attachBaseContext(base: Context) {
+        if (BuildConfig.FINAL_HOSTED_COMPUTE) com.noop.analytics.PhoneComputeRuntime.installFinalHosted()
         super.attachBaseContext(AppLanguagePrefs.wrap(base))
         instance = this
     }
