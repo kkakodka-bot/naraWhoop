@@ -11,7 +11,7 @@ export const requiredAndroidReports = [
   { name: 'com.noop.push.FinalHostedRawUploadNativeTest', minimum: 1,
     markers: ['FINAL_HOSTED_DURABLE_RAW_UPLOAD admitted=0 forbidden=0'] },
   { name: 'com.noop.push.ServerComputeContractTest', minimum: 7, markers: [] },
-  { name: 'com.noop.push.CanonicalConsumersNativeTest', minimum: 5,
+  { name: 'com.noop.push.CanonicalConsumersNativeTest', minimum: 7,
     markers: ['FINAL_HOSTED_CONSUMER_REVISIONS same_revision=true widget_save_load=true export_zip=true health_adapter=true valid_zero=true health_zero_unsupported_without_coercion=true admitted=0 forbidden=0'] },
 ];
 const digest = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
