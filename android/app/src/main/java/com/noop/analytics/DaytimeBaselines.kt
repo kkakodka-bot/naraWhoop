@@ -2,6 +2,7 @@ package com.noop.analytics
 
 import com.noop.data.HrSample
 import com.noop.data.RrInterval
+import java.time.ZoneId
 
 /*
  * DaytimeBaselines.kt — the CALLER-side folding path that turns a person's past DAYTIME history
@@ -60,6 +61,7 @@ object DaytimeBaselines {
         val hr: List<HrSample>,
         val rr: List<RrInterval>,
         val tzOffsetSeconds: Long,
+        val timezone: ZoneId? = null,
     )
 
     /** One day's daytime aggregates. Either field is null independently. */
@@ -81,20 +83,19 @@ object DaytimeBaselines {
      * Bucketing keys off the HR buckets (like the scorer), so an hour with R-R but no HR contributes
      * neither.
      */
-    fun dayDaytimeAggregate(hr: List<HrSample>, rr: List<RrInterval>, tzOffsetSeconds: Long): DayAggregate {
+    fun dayDaytimeAggregate(hr: List<HrSample>, rr: List<RrInterval>, tzOffsetSeconds: Long,
+                           timezone: ZoneId? = null): DayAggregate {
         if (hr.isEmpty()) return DayAggregate(null, null)
 
         // Bucket HR + R-R into LOCAL hour-of-day buckets, byte-for-byte the scorer's step 1.
         val hrByBucket = HashMap<Long, MutableList<Double>>()
         for (s in hr) {
-            val local = s.ts + tzOffsetSeconds
-            val bucket = DaytimeStress.floorDiv(local, DaytimeStress.bucketSeconds) * DaytimeStress.bucketSeconds
+            val bucket = DaytimeStress.hourBucket(s.ts, tzOffsetSeconds, timezone)
             hrByBucket.getOrPut(bucket) { ArrayList() }.add(s.bpm.toDouble())
         }
         val rrByBucket = HashMap<Long, MutableList<Double>>()
         for (s in rr) {
-            val local = s.ts + tzOffsetSeconds
-            val bucket = DaytimeStress.floorDiv(local, DaytimeStress.bucketSeconds) * DaytimeStress.bucketSeconds
+            val bucket = DaytimeStress.hourBucket(s.ts, tzOffsetSeconds, timezone)
             rrByBucket.getOrPut(bucket) { ArrayList() }.add(s.rrMs.toDouble())
         }
 
@@ -104,7 +105,7 @@ object DaytimeBaselines {
         val wakingMeanHRs = ArrayList<Double>()
         val wakingRMSSDs = ArrayList<Double>()
         for ((bucket, hrs) in hrByBucket) {
-            if (!DaytimeStress.isWakingHour(bucket)) continue
+            if (!DaytimeStress.isWakingHour(bucket, timezone)) continue
             if (hrs.size >= DaytimeStress.minHourHrSamples) {
                 DaytimeStress.mean(hrs)?.let { wakingMeanHRs.add(it) }
             }
@@ -140,7 +141,7 @@ object DaytimeBaselines {
         val hrAggs = ArrayList<Double?>(days.size)
         val rmssdAggs = ArrayList<Double?>(days.size)
         for (d in days) {
-            val agg = dayDaytimeAggregate(d.hr, d.rr, d.tzOffsetSeconds)
+            val agg = dayDaytimeAggregate(d.hr, d.rr, d.tzOffsetSeconds, d.timezone)
             hrAggs.add(agg.hr)
             rmssdAggs.add(agg.rmssd)
         }

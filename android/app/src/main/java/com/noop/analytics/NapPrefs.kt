@@ -19,7 +19,7 @@ object NapPrefs {
     private const val KEY_HIGH_WATER = "noop.napHighWaterTs"
 
     private fun prefs(context: Context) =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** Feature toggle (default OFF — opt-in, manual-first). */
     fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)

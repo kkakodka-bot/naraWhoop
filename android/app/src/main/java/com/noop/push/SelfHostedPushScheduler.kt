@@ -9,8 +9,9 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import androidx.work.await
 import com.noop.R
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,17 +57,52 @@ object SelfHostedPushScheduler {
     internal val EXISTING_WORK_POLICY = ExistingWorkPolicy.REPLACE
     internal val CONTINUATION_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
 
+    private val throttle = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+
+    internal fun workName(context: AccountSessionContext) = "$UNIQUE_WORK.${context.scope.namespace}.${context.generation}"
+
+    fun cancelSession(context: Context, captured: AccountSessionContext) {
+        WorkManager.getInstance(com.noop.account.AccountStorageContext.platform(context)).cancelUniqueWork(workName(captured))
+    }
+
     fun enqueueAfterSuccessfulOffload(context: Context) = enqueueExternal(context)
 
     fun enqueueLaunchCatchUp(context: Context) = enqueueExternal(context)
 
     fun enqueueManualCatchUp(context: Context) = enqueueExternal(context)
 
+    /** Foreground idle cadence when server scoring is on (spec: 30–60 s). No-op when flag is off. */
+    fun enqueueIfDue(context: Context, minIntervalMs: Long) {
+        if (!ServerScoringSettings.isEnabled(context)) return
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        val captured = account.identity.context ?: return
+        if (!account.isCurrent()) return
+        val lastThrottledEnqueueAt = throttle.getOrPut(workName(captured)) { AtomicLong(0) }
+        val now = System.currentTimeMillis()
+        val last = lastThrottledEnqueueAt.get()
+        if (now - last < minIntervalMs) return
+        if (!lastThrottledEnqueueAt.compareAndSet(last, now)) return
+        enqueueExternal(account)
+    }
+
+    /** During offload: flush push on chunk commit, throttled to [ServerScoringSettings.SYNC_PUSH_INTERVAL_MS]. */
+    fun enqueueOnChunkCommitted(context: Context) {
+        if (!ServerScoringSettings.isEnabled(context)) return
+        enqueueIfDue(context, ServerScoringSettings.SYNC_PUSH_INTERVAL_MS)
+    }
+
+    /** One flush when the app backgrounds (server scoring on). */
+    fun flushOnBackground(context: Context) {
+        if (!ServerScoringSettings.isEnabled(context)) return
+        com.noop.account.AccountStorageContext.capture(context).identity.context?.let { throttle.remove(workName(it)) }
+        enqueueExternal(context)
+    }
+
     /** Replace queued work so a changed network policy takes effect immediately. */
     fun networkPolicyChanged(context: Context) {
-        val app = context.applicationContext
+        val app = com.noop.account.AccountStorageContext.capture(context)
         PushRunSignal.clear(app)
-        WorkManager.getInstance(app).cancelUniqueWork(UNIQUE_WORK)
+        WorkManager.getInstance(com.noop.account.AccountStorageContext.platform(app)).cancelUniqueWork(workName(app.identity.context ?: return))
         enqueueExternal(app)
     }
 
@@ -75,10 +111,12 @@ object SelfHostedPushScheduler {
         context: Context,
         preserveTriggerOnFailure: Boolean = false,
     ): Boolean {
-        val app = context.applicationContext
+        val app = com.noop.account.AccountStorageContext.capture(context)
         val settings = SelfHostedPushSettings.from(app)
         if (settings.enabledEndpoint() == null) return true
-        val request = request(settings.wifiOnly())
+        val captured = app.identity.context ?: return true
+        if (!app.isCurrent()) return true
+        val request = request(settings.wifiOnly(), captured)
         // Another real trigger won the release/enqueue race and now owns a queued request.
         if (!PushRunSignal.reserve(app, request.id.toString())) return true
         val completion = continuationEnqueueCompletion(
@@ -90,8 +128,8 @@ object SelfHostedPushScheduler {
             requeuePending = { enqueueExternal(app) },
         )
         return try {
-            val operation = WorkManager.getInstance(app).enqueueUniqueWork(
-                UNIQUE_WORK, CONTINUATION_WORK_POLICY, request,
+            val operation = WorkManager.getInstance(com.noop.account.AccountStorageContext.platform(app)).enqueueUniqueWork(
+                workName(captured), CONTINUATION_WORK_POLICY, request,
             )
             operation.await()
             completion.success()
@@ -106,19 +144,21 @@ object SelfHostedPushScheduler {
     }
 
     fun cancel(context: Context) {
-        val app = context.applicationContext
+        val app = com.noop.account.AccountStorageContext.capture(context)
         // This is the immediate correctness boundary; WorkManager cancellation itself is async.
         // Disabled settings make the UI idle now and cause all late worker status writes to no-op.
         SelfHostedPushSettings.from(app).setEnabled(false)
         PushRunSignal.clear(app)
-        WorkManager.getInstance(app).cancelUniqueWork(UNIQUE_WORK)
+        WorkManager.getInstance(com.noop.account.AccountStorageContext.platform(app)).cancelUniqueWork(workName(app.identity.context ?: return))
     }
 
     private fun enqueueExternal(context: Context) {
-        val app = context.applicationContext
+        val app = com.noop.account.AccountStorageContext.capture(context)
         val settings = SelfHostedPushSettings.from(app)
         if (settings.enabledEndpoint() == null) return
-        val request = request(settings.wifiOnly())
+        val captured = app.identity.context ?: return
+        if (!app.isCurrent()) return
+        val request = request(settings.wifiOnly(), captured)
         if (!PushRunSignal.reserve(app, request.id.toString())) return
         val completion = PushEnqueueCompletion(
             settleFailure = {
@@ -132,7 +172,7 @@ object SelfHostedPushScheduler {
         )
         try {
             settings.recordPushStarted()
-            val operation = WorkManager.getInstance(app).enqueueUniqueWork(UNIQUE_WORK, EXISTING_WORK_POLICY, request)
+            val operation = WorkManager.getInstance(com.noop.account.AccountStorageContext.platform(app)).enqueueUniqueWork(workName(captured), EXISTING_WORK_POLICY, request)
             enqueueObserverScope.launch {
                 try {
                     operation.await()
@@ -146,12 +186,13 @@ object SelfHostedPushScheduler {
         }
     }
 
-    private fun request(wifiOnly: Boolean) = OneTimeWorkRequest.Builder(SelfHostedPushWorker::class.java)
+    internal fun request(wifiOnly: Boolean, captured: AccountSessionContext) = OneTimeWorkRequest.Builder(SelfHostedPushWorker::class.java)
+        .setInputData(SelfHostedPushWorker.accountInput(captured))
         .setConstraints(
             Constraints.Builder().setRequiredNetworkType(requiredPushNetworkType(wifiOnly)).build(),
         )
         .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
-        .build() // Deliberately no input Data: credentials and endpoint never enter Worker metadata.
+        .build() // Only opaque owner namespace and generation; never credentials or payloads.
 
     private val enqueueObserverScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 }

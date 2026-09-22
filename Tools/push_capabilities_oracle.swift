@@ -90,7 +90,7 @@ func fixtureBytes(_ label: String) -> Data {
     case "allKnownV10": return document(version: "1.0", streams: ["hrSample", "journal", "dailyMetric"])
     case "allKnownV11": return document(version: "1.1", streams: ["hrSample", "journal", "dailyMetric"])
     case "someUnknown": return document(version: "1.0", streams: ["hrSample", "stepSample", "futureStream"])
-    case "allUnknown": return document(version: "1.1", streams: ["stepSample", "futureStream"])
+    case "allUnknown": return document(version: "1.1", streams: ["futureScalarStream", "futureStream"])
     case "emptyStreams": return document(version: "1.0", streams: [])
     case "duplicate": return document(version: "1.0", streams: ["hrSample", "hrSample"])
     case "nonString":

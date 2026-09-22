@@ -46,7 +46,7 @@ data class PushCapabilities(
             }
             val version = obj.opt("protocolVersion") as? String ?: ""
             if (obj.opt("type") != "capabilities" ||
-                (version != PushProtocol.VERSION && version != "1.1" && version != PushProtocol.OBJECT_VERSION)
+                version !in setOf(PushProtocol.VERSION, "1.1", PushProtocol.OBJECT_VERSION, "1.3", "1.4")
             ) {
                 throw PushProtocolException("unsupported capability document")
             }
@@ -65,11 +65,11 @@ data class PushCapabilities(
                 val name = array.opt(index) as? String
                     ?: throw PushProtocolException("capability stream names must be strings")
                 if (!seen.add(name)) throw PushProtocolException("duplicate capability stream")
-                appendByName[name]?.let { append += it }
+                appendByName[name]?.let { if (!it.isScalarExtension || version != PushProtocol.VERSION) append += it }
                     ?: mutableByName[name]?.let { mutable += it }
                     ?: binaryByName[name]?.let { binary += it }
             }
-            val objectLane = if (version == PushProtocol.OBJECT_VERSION && obj.opt("objectLane") is JSONObject) {
+            val objectLane = if (version in setOf(PushProtocol.OBJECT_VERSION, "1.3", "1.4") && obj.opt("objectLane") is JSONObject) {
                 parseObjectLane(obj.getJSONObject("objectLane"), binaryByName)
             } else {
                 null

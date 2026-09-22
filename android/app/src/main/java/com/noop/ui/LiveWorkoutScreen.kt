@@ -71,7 +71,7 @@ fun LiveWorkoutScreen(vm: AppViewModel, onClose: () -> Unit) {
     // sensor is feeding, so the readout below hides entirely — a plain HR-only workout looks unchanged. HR
     // / zone / effort above are untouched.
     val sensor by remember(context) {
-        (context.applicationContext as com.noop.NoopApplication).sourceCoordinator.sensorMetrics
+        requireNotNull(com.noop.account.AccountStorageContext.runtime(context)).sourceCoordinator.sensorMetrics
     }.collectAsStateWithLifecycle()
 
     // Keep the live HR stream on for the duration of the workout screen (ref-counted with Live/Health).

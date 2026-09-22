@@ -90,7 +90,7 @@ class DeepCaptureMigrationTest {
      * semantics are proved end-to-end there (no SQLite driver on this classpath).
      */
     @Test
-    fun repositoryInsertV18Aux_insertsThenPrunes() = runBlocking {
+    fun repositoryInsertV18Aux_keepsUnreceiptedRowsEvenAboveCap() = runBlocking {
         var inserted: List<V18AuxSampleEntity>? = null
         var prunedDevice: String? = null
         var prunedKeep = -1
@@ -99,6 +99,7 @@ class DeepCaptureMigrationTest {
             arrayOf(WhoopDao::class.java),
         ) { _, method, args ->
             when (method.name) {
+                "v18AuxIdentity" -> { assertEquals(-1L, args[2]); null }
                 "insertV18Aux" -> {
                     @Suppress("UNCHECKED_CAST")
                     inserted = args[0] as List<V18AuxSampleEntity>
@@ -121,8 +122,10 @@ class DeepCaptureMigrationTest {
         )
 
         assertEquals(1, inserted!!.size)
-        assertEquals("my-whoop", prunedDevice)
-        assertEquals(WhoopRepository.V18_AUX_RETENTION_ROWS, prunedKeep)
+        assertEquals(-1L, inserted!!.single().recordIndex)
+        assertEquals("1780916150:-1", inserted!!.single().resourceKey)
+        assertEquals(null, prunedDevice)
+        assertEquals(-1, prunedKeep)
     }
 
     /**
@@ -136,8 +139,9 @@ class DeepCaptureMigrationTest {
         val dao = Proxy.newProxyInstance(
             WhoopDao::class.java.classLoader,
             arrayOf(WhoopDao::class.java),
-        ) { _, method, _ ->
+        ) { _, method, args ->
             when (method.name) {
+                "v18AuxIdentity" -> { assertEquals(-1L, args[2]); null }
                 "insertV18Aux" -> listOf(1L)
                 "pruneV18Aux" -> { pruneCalls++; Unit }
                 else -> throw UnsupportedOperationException("v18-aux insert must not call ${method.name}")
@@ -161,13 +165,14 @@ class DeepCaptureMigrationTest {
      * and `testTheAmortisationCounterResetsAfterEachSweep`.
      */
     @Test
-    fun repositoryInsertV18Aux_sweepsOnThresholdThenResets(): Unit = runBlocking {
+    fun repositoryInsertV18Aux_repeatedThresholdsCannotAuthorizeDeletion(): Unit = runBlocking {
         var pruneCalls = 0
         val dao = Proxy.newProxyInstance(
             WhoopDao::class.java.classLoader,
             arrayOf(WhoopDao::class.java),
-        ) { _, method, _ ->
+        ) { _, method, args ->
             when (method.name) {
+                "v18AuxIdentity" -> { assertEquals(-1L, args[2]); null }
                 "insertV18Aux" -> listOf(1L)
                 "pruneV18Aux" -> { pruneCalls++; Unit }
                 else -> throw UnsupportedOperationException("v18-aux insert must not call ${method.name}")
@@ -189,7 +194,7 @@ class DeepCaptureMigrationTest {
                 v18AuxPruneEveryRows = 3,
             )
         }
-        assertEquals("exactly one sweep — the counter must reset after it", 1, pruneCalls)
+        assertEquals("row-count thresholds are not durability receipts", 0, pruneCalls)
     }
 
     /** A batch whose aux rows all pack to nothing writes no row, so it must not sweep either. */

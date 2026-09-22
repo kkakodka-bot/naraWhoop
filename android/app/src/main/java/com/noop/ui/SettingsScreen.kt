@@ -177,7 +177,36 @@ import com.noop.analytics.ClockFormatPreference
  * Mirrors the macOS `ProfileStore` fields and ranges exactly. `hrMaxOverride == 0`
  * means "auto" — fall back to the Tanaka estimate from [age].
  */
-class ProfileStore(private val prefs: SharedPreferences) {
+class ProfileStore(private val prefs: SharedPreferences,
+                   private val onScoringChange: ((ProfileStore, Boolean) -> Unit)? = null,
+                   private val canWrite: () -> Boolean = { true },
+                   private val commitMutation: ((() -> Boolean) -> Boolean) = { it() }) {
+    private fun mutate(field: String? = null, edit: SharedPreferences.Editor.() -> Unit) {
+        if (!canWrite()) return
+        val committed = commitMutation {
+            if (!canWrite()) return@commitMutation false
+            val editor = prefs.edit().also(edit)
+            if (field != null) {
+                val explicit = prefs.getStringSet("server_explicit_fields", emptySet()).orEmpty() + field
+                editor.putStringSet("server_explicit_fields", explicit)
+            }
+            // Preparation/listeners may reenter account retirement on this thread.
+            canWrite() && editor.commit()
+        }
+        if (committed && field != null && canWrite()) onScoringChange?.invoke(this, field == "maxHR")
+    }
+
+    fun scoringProfile(timezone: String): com.noop.push.ScoringProfileInput {
+        val explicit = prefs.getStringSet("server_explicit_fields", emptySet()).orEmpty()
+        return com.noop.push.ScoringProfileInput(
+            if ("age" in explicit) age.toDouble() else null, if ("sex" in explicit) sex else null,
+            if ("weight" in explicit) weightKg else null, if ("height" in explicit) heightCm else null,
+            if ("waist" in explicit) waistCm.takeIf { it > 0 } else null,
+            if ("steps" in explicit) stepTicksPerStep else null, timezone)
+    }
+
+    fun scoringMaxHR(): Double? = if ("maxHR" in prefs.getStringSet("server_explicit_fields", emptySet()).orEmpty())
+        hrMaxOverride.takeIf { it > 0 }?.toDouble() else null
 
     /**
      * Current age in whole years (#146), DERIVED from [dateOfBirthMillis] so it advances on its own
@@ -201,13 +230,12 @@ class ProfileStore(private val prefs: SharedPreferences) {
             val legacyAge = (if (prefs.contains(KEY_AGE)) prefs.getInt(KEY_AGE, 30) else 30)
                 .coerceIn(AGE_MIN, AGE_MAX)
             val dob = dobForAge(legacyAge)
-            prefs.edit().putLong(KEY_DOB, dob).putInt(KEY_AGE, legacyAge).apply()
+            mutate { putLong(KEY_DOB, dob).putInt(KEY_AGE, legacyAge) }
             return dob
         }
-        set(v) = prefs.edit()
-            .putLong(KEY_DOB, v)
-            .putInt(KEY_AGE, yearsFromDob(v).coerceIn(AGE_MIN, AGE_MAX))
-            .apply()
+        set(v) {
+            mutate("age") { putLong(KEY_DOB, v).putInt(KEY_AGE, yearsFromDob(v).coerceIn(AGE_MIN, AGE_MAX)) }
+        }
 
     /** Set age by anchoring a date of birth `years` before today (the +/- stepper and backup restore
      *  both go through here, so age always flows from a DOB). Clamped to [AGE_MIN]..[AGE_MAX]. */
@@ -216,15 +244,15 @@ class ProfileStore(private val prefs: SharedPreferences) {
     /** "male" | "female" | "nonbinary" — matches the macOS tag values. */
     var sex: String
         get() = prefs.getString(KEY_SEX, "male") ?: "male"
-        set(v) = prefs.edit().putString(KEY_SEX, v).apply()
+        set(v) { mutate("sex") { putString(KEY_SEX, v) } }
 
     var weightKg: Double
         get() = prefs.getFloat(KEY_WEIGHT, 75f).toDouble().coerceIn(WEIGHT_MIN, WEIGHT_MAX)
-        set(v) = prefs.edit().putFloat(KEY_WEIGHT, v.coerceIn(WEIGHT_MIN, WEIGHT_MAX).toFloat()).apply()
+        set(v) { mutate("weight") { putFloat(KEY_WEIGHT, v.coerceIn(WEIGHT_MIN, WEIGHT_MAX).toFloat()) } }
 
     var heightCm: Double
         get() = prefs.getFloat(KEY_HEIGHT, 178f).toDouble().coerceIn(HEIGHT_MIN, HEIGHT_MAX)
-        set(v) = prefs.edit().putFloat(KEY_HEIGHT, v.coerceIn(HEIGHT_MIN, HEIGHT_MAX).toFloat()).apply()
+        set(v) { mutate("height") { putFloat(KEY_HEIGHT, v.coerceIn(HEIGHT_MIN, HEIGHT_MAX).toFloat()) } }
 
     /**
      * Waist circumference in cm; 0 = unset (the Fitness Age VO₂max estimate is hidden until a waist
@@ -234,12 +262,12 @@ class ProfileStore(private val prefs: SharedPreferences) {
      */
     var waistCm: Double
         get() = prefs.getFloat(KEY_WAIST, 0f).toDouble().coerceIn(0.0, WAIST_MAX)
-        set(v) = prefs.edit().putFloat(KEY_WAIST, v.coerceIn(0.0, WAIST_MAX).toFloat()).apply()
+        set(v) { mutate("waist") { putFloat(KEY_WAIST, v.coerceIn(0.0, WAIST_MAX).toFloat()) } }
 
     /** Manual max-heart-rate override in bpm; 0 = automatic (Tanaka). */
     var hrMaxOverride: Int
         get() = prefs.getInt(KEY_HRMAX, 0).coerceIn(0, 230)
-        set(v) = prefs.edit().putInt(KEY_HRMAX, v.coerceIn(0, 230)).apply()
+        set(v) { mutate("maxHR") { putInt(KEY_HRMAX, v.coerceIn(0, 230)) } }
 
     /**
      * Step-calibration divisor (#139/#132): counter ticks per real step for the @57 motion
@@ -248,9 +276,9 @@ class ProfileStore(private val prefs: SharedPreferences) {
      */
     var stepTicksPerStep: Double
         get() = prefs.getFloat(KEY_STEP_SCALE, 1f).toDouble().coerceIn(STEP_SCALE_MIN, STEP_SCALE_MAX)
-        set(v) = prefs.edit()
-            .putFloat(KEY_STEP_SCALE, v.coerceIn(STEP_SCALE_MIN, STEP_SCALE_MAX).toFloat())
-            .apply()
+        set(v) {
+            mutate("steps") { putFloat(KEY_STEP_SCALE, v.coerceIn(STEP_SCALE_MIN, STEP_SCALE_MAX).toFloat()) }
+        }
 
     /**
      * The analytics [UserProfile] for this store — the ONE place the mapping lives.
@@ -280,27 +308,27 @@ class ProfileStore(private val prefs: SharedPreferences) {
     /** Fitted (or manually-set) steps-per-unit-of-motion coefficient last persisted by the engine. */
     var stepsCalibrationCoefficient: Double
         get() = prefs.getFloat(KEY_STEPS_COEFF, 0f).toDouble()
-        set(v) = prefs.edit().putFloat(KEY_STEPS_COEFF, v.toFloat()).apply()
+        set(v) { mutate { putFloat(KEY_STEPS_COEFF, v.toFloat()) } }
 
     /** How many calibration days fed the last auto-fit (0 when purely manual / not yet fit). */
     var stepsCalibrationSampleDays: Int
         get() = prefs.getInt(KEY_STEPS_SAMPLE_DAYS, 0)
-        set(v) = prefs.edit().putInt(KEY_STEPS_SAMPLE_DAYS, v).apply()
+        set(v) { mutate { putInt(KEY_STEPS_SAMPLE_DAYS, v) } }
 
     /** 0–1 trust in the last fit (1.0 for a manual coefficient). */
     var stepsCalibrationConfidence: Double
         get() = prefs.getFloat(KEY_STEPS_CONFIDENCE, 0f).toDouble()
-        set(v) = prefs.edit().putFloat(KEY_STEPS_CONFIDENCE, v.toFloat()).apply()
+        set(v) { mutate { putFloat(KEY_STEPS_CONFIDENCE, v.toFloat()) } }
 
     /** True when the persisted coefficient came from the user's manual override, not an auto-fit. */
     var stepsCalibrationManual: Boolean
         get() = prefs.getBoolean(KEY_STEPS_MANUAL_FLAG, false)
-        set(v) = prefs.edit().putBoolean(KEY_STEPS_MANUAL_FLAG, v).apply()
+        set(v) { mutate { putBoolean(KEY_STEPS_MANUAL_FLAG, v) } }
 
     /** User-set manual coefficient. 0 = auto-fit (null to the engine); > 0 = manual override. */
     var stepsManualCoefficient: Double
         get() = prefs.getFloat(KEY_STEPS_MANUAL_COEFF, 0f).toDouble().coerceAtLeast(0.0)
-        set(v) = prefs.edit().putFloat(KEY_STEPS_MANUAL_COEFF, v.coerceAtLeast(0.0).toFloat()).apply()
+        set(v) { mutate { putFloat(KEY_STEPS_MANUAL_COEFF, v.coerceAtLeast(0.0).toFloat()) } }
 
     /** The manual override to feed into `StepsEstimateEngine.calibrate(points, manualOverride)`:
      *  null when 0 (auto-fit), the positive value otherwise. */
@@ -317,7 +345,7 @@ class ProfileStore(private val prefs: SharedPreferences) {
      */
     var stepsHasBankedMotion: Boolean
         get() = prefs.getBoolean(KEY_STEPS_HAS_MOTION, false)
-        set(v) = prefs.edit().putBoolean(KEY_STEPS_HAS_MOTION, v).apply()
+        set(v) { mutate { putBoolean(KEY_STEPS_HAS_MOTION, v) } }
 
     /** The auto (Tanaka) HR-max for the current age. */
     val hrMaxAuto: Int get() = Zones.hrMaxTanaka(age)
@@ -337,10 +365,9 @@ class ProfileStore(private val prefs: SharedPreferences) {
             return values.takeIf { validZoneThresholds(it) }
         }
         set(values) {
-            if (values == null || !validZoneThresholds(values)) {
-                prefs.edit().remove(KEY_HR_ZONE_THRESHOLDS).apply()
-            } else {
-                prefs.edit().putString(KEY_HR_ZONE_THRESHOLDS, values.joinToString(",")).apply()
+            mutate {
+                if (values == null || !validZoneThresholds(values)) remove(KEY_HR_ZONE_THRESHOLDS)
+                else putString(KEY_HR_ZONE_THRESHOLDS, values.joinToString(","))
             }
         }
 
@@ -492,8 +519,17 @@ class ProfileStore(private val prefs: SharedPreferences) {
             return next.coerceIn(STEP_SCALE_MIN, STEP_SCALE_MAX)
         }
 
-        fun from(context: Context): ProfileStore =
-            ProfileStore(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
+        fun from(context: Context): ProfileStore {
+            val account = com.noop.account.AccountStorageContext.capture(context)
+            val lease = com.noop.account.AccountStorageMutationLease.capture(account)
+            return ProfileStore(account.getSharedPreferences(PREFS, Context.MODE_PRIVATE),
+                onScoringChange = { store, configuration -> account.runtime?.scoringSettings?.changed(store, configuration) },
+                canWrite = { lease.admitsWrites() && account.runtime?.closed != true },
+                commitMutation = { mutation ->
+                    try { lease.commit(mutation) }
+                    catch (_: com.noop.account.AccountWriteRevokedException) { false }
+                })
+        }
     }
 }
 

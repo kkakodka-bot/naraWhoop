@@ -62,6 +62,62 @@ Deno.test('sweep deletes expired manifests and marks them deleted; failure marks
   assertEquals(byId.b.status, 'failed');
 });
 
+Deno.test('reconcile marks derived ready row corrupt when B2 HEAD is missing', async () => {
+  const derivedKey = `v3/derived/users/${USER}/days/2026-06-15/frwhoop-server-1.json.zst`;
+  const rest = await memRest([
+    { id: 'd1', object_key: derivedKey, status: 'ready', user_id: USER, compressed_bytes: 100 },
+  ]);
+  const report = await reconcileObjects({
+    rest: rest as any,
+    objectStore: { head: async () => null } as any,
+    userId: USER,
+    listPrefix: async () => [],
+  });
+  assertEquals(report.ready_missing_object, 1);
+  const row = [...rest.manifests.values()].find((r: any) => r.id === 'd1');
+  assertEquals(row?.status, 'corrupt');
+});
+
+Deno.test('reconcile counts derived prefix orphans', async () => {
+  const orphanKey = `v3/derived/users/${USER}/days/2026-06-15/frwhoop-server-1.json.zst`;
+  const prefixes: string[] = [];
+  const report = await reconcileObjects({
+    rest: await memRest([]) as any,
+    objectStore: { head: async () => null } as any,
+    userId: USER,
+    listPrefix: async (p) => {
+      prefixes.push(p);
+      return p.startsWith('v3/derived/') ? [orphanKey] : [];
+    },
+  });
+  assert(prefixes.some((p) => p.startsWith('v3/derived/')));
+  assertEquals(report.orphan_objects, 1);
+});
+
+Deno.test('sweep deletes expired derived manifest', async () => {
+  const derivedKey = `v3/derived/users/${USER}/days/2026-06-15/frwhoop-server-1.json.zst`;
+  const rest = makeMemRest();
+  await rest.upsert('object_manifests', {
+    id: 'd-exp',
+    object_key: derivedKey,
+    status: 'ready',
+    expires_at: '2020-01-01T00:00:00Z',
+    user_id: USER,
+    object_kind: 'derived_scores',
+  });
+  const deleted: string[] = [];
+  const objectStore = {
+    async deleteObject(key: string) { deleted.push(key); return {}; },
+  } as any;
+  const report = await sweepExpiredManifests({
+    rest: rest as any,
+    objectStore,
+    now: () => new Date('2021-01-01T00:00:00Z'),
+  });
+  assertEquals(report.deleted, 1);
+  assertEquals(deleted[0], derivedKey);
+});
+
 Deno.test('deletion is resumable and deletes b2 before auth', async () => {
   const order: string[] = [];
   const rest = {

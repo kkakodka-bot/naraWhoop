@@ -188,19 +188,12 @@ public struct CaffeineActiveEstimate: Equatable, Sendable {
 @MainActor
 public final class CaffeineLogStore: ObservableObject {
 
-    /// The process-wide store (#949).
-    ///
-    /// The card used to own its own instance, which was fine while every write came from the card
-    /// itself. The Apple Health import writes from outside it, and two instances over one UserDefaults
-    /// key would mean the card kept publishing its stale in-memory array until it was rebuilt — the
-    /// imported intakes would be on disk and invisible. One instance, one source of truth.
-    public static let shared = CaffeineLogStore()
-
     /// Logged intakes, newest first. Persisted as JSON under one UserDefaults key.
     @Published public private(set) var intakes: [CaffeineIntake] { didSet { save() } }
 
     private let d: UserDefaults
     private let now: () -> Date
+    private var active = true
     private static let key = "caffeine.intakes"
     /// Drop intakes older than this many hours on load — well past the decay horizon, so the estimate is
     /// unchanged but the stored array can't grow without bound.
@@ -219,6 +212,7 @@ public final class CaffeineLogStore: ObservableObject {
 
     /// Log a new intake. `mg` is optional — pass nil when the user only logged "I had caffeine".
     public func log(at date: Date, mg: Double? = nil) {
+        guard active else { return }
         // Guard a non-finite / negative mg so a fat-fingered field can't poison the estimate; nil it out
         // rather than store garbage (honest: unknown amount > wrong amount).
         let cleanMg: Double? = {
@@ -235,6 +229,7 @@ public final class CaffeineLogStore: ObservableObject {
     /// it whole makes a re-import idempotent, and a drink deleted in the source app disappears here on
     /// the next sync instead of being stranded. Retention pruning still happens on load.
     public func replaceImported(_ imported: [CaffeineIntake]) {
+        guard active else { return }
         let manual = intakes.filter { !$0.isImported }
         let next = (manual + imported).sorted { $0.at > $1.at }
         // Skip the write when nothing actually changed — `intakes` has a didSet that persists, and this
@@ -250,6 +245,7 @@ public final class CaffeineLogStore: ObservableObject {
     /// not offer the control; this guard means a caller that tries anyway gets a no-op rather than an
     /// entry that silently reappears.
     public func remove(_ id: UUID) {
+        guard active else { return }
         guard let hit = intakes.first(where: { $0.id == id }), !hit.isImported else { return }
         intakes = intakes.filter { $0.id != id }
     }
@@ -260,6 +256,7 @@ public final class CaffeineLogStore: ObservableObject {
     /// only last until the next sync re-read the window, so the list would silently repopulate and the
     /// button would look broken.
     public func clearAll() {
+        guard active else { return }
         intakes = intakes.filter { $0.isImported }
     }
 
@@ -270,6 +267,13 @@ public final class CaffeineLogStore: ObservableObject {
     }
 
     private func save() {
+        guard active else { return }
         if let data = try? JSONEncoder().encode(intakes) { d.set(data, forKey: Self.key) }
+    }
+
+    /// Hide retired presentation and fence delayed health callbacks without erasing retained data.
+    public func invalidate() {
+        active = false
+        intakes = []
     }
 }

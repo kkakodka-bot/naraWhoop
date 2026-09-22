@@ -197,7 +197,10 @@ class ImuContinuousRecorder internal constructor(
 
     /** Cancel the tick timer. The recorder is a process-lifetime object in production; tests and
      * teardown paths use this to avoid leaking the daemon thread. */
-    fun shutdown() { timer?.cancel(); timer = null }
+    fun shutdown() = synchronized(stateLock) {
+        timer?.cancel(); timer = null
+        store.flushAll()
+    }
 
     // MARK: - The switch
 
@@ -422,29 +425,12 @@ class ImuContinuousRecorder internal constructor(
         _coverage.value = Coverage(covered, expected, gaps, firstGap, store.totalBytes(), windows.size)
     }
 
-    /** Evict oldest segments first while over the cap — never the segment currently being written —
-     * and raise the per-device eviction floor so evicted seconds cannot regrow from late history. */
+    /** Unreceipted IMU is retained. Reaching the cap pauses optional capture. */
     private fun enforceRetention() {
-        val cap = retentionCapBytes
-        val inventory = store.segmentInventory()
-        var total = inventory.sumOf { it.bytes }
-        if (total <= cap) return
-        val nowBucket = ImuSessionFileStore.bucketStart(nowMs() / 1_000L)
-        val deviceByWindow = store.registeredWindows().associate { it.id to it.deviceId }
-        for (segment in inventory) {
-            if (total <= cap) break
-            if (segment.id == openWindowId && segment.bucket == nowBucket) continue
-            if (!store.deleteSegment(segment.id, segment.bucket)) break
-            total -= segment.bytes
-            counters.evictedSegments += 1
-            val floor = segment.bucket + ImuSessionFileStore.SEGMENT_SECONDS - 1
-            val device = deviceByWindow[segment.id].orEmpty()
-            if (floor > (evictedThrough[device] ?: Long.MIN_VALUE)) evictedThrough[device] = floor
-            transport.log("IMU recorder: retention evicted segment ${segment.id}/${segment.bucket} (cap $cap bytes)")
+        if (store.totalBytes() >= retentionCapBytes && enabled) {
+            transport.log("IMU recorder: account storage cap reached; retained pending files and paused capture")
+            setEnabled(false)
         }
-        persistCounters()
-        persistEvictedThrough()
-        publish()
     }
 
     private fun checkDisk() {
@@ -723,7 +709,7 @@ class ImuContinuousRecorder internal constructor(
         fun create(context: Context, nowMs: () -> Long = System::currentTimeMillis): ImuContinuousRecorder =
             ImuContinuousRecorder(
                 ImuSessionFileStore(context, ImuSessionFileStore.NAMESPACE_CONTINUOUS),
-                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+                com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
                 nowMs,
             )
 

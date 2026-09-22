@@ -26,7 +26,8 @@ public enum PushBinaryCodec {
         }
     }
 
-    public static func pack(table: PushBinaryTable, rows: [PushBinaryRow]) throws -> Data {
+    public static func pack(table: PushBinaryTable, rows: [PushBinaryRow], ppgIdentityV2: Bool = false,
+                            v18IdentityV2: Bool = false) throws -> Data {
         guard !rows.isEmpty else { throw PushProtocolException("binary object must contain a row") }
         switch table {
         case .ppgWaveformSample:
@@ -36,7 +37,7 @@ public enum PushBinaryCodec {
                 }
                 return record
             }
-            return try packPpgRecords(records)
+            return try packPpgRecords(records, identityV2: ppgIdentityV2)
         case .v18AuxSample:
             let records = try rows.map { row -> PushV18AuxRecord in
                 guard case .v18Aux(let record) = row else {
@@ -44,7 +45,7 @@ public enum PushBinaryCodec {
                 }
                 return record
             }
-            return try packV18Records(records)
+            return try packV18Records(records, identityV2: v18IdentityV2)
         case .rawBatch:
             guard rows.count == 1, case .rawBatch(let record) = rows[0] else {
                 throw PushProtocolException("rawBatch upload must contain exactly one batch row")
@@ -72,12 +73,14 @@ public enum PushBinaryCodec {
 
     /// Exact packed size of one row, without packing. Lets batch selection run O(n) instead of
     /// re-packing the growing candidate set per row.
-    public static func packedRowSize(_ row: PushBinaryRow) throws -> Int {
+    public static func packedRowSize(_ row: PushBinaryRow, ppgIdentityV2: Bool = false,
+                                      v18IdentityV2: Bool = false) throws -> Int {
         switch row {
         case .ppgWaveform(let record):
             return 8 + 8 + 1 + (record.burstIndex != nil ? 4 : 0) + 4 + record.samples.count
+                + (ppgIdentityV2 ? (record.recordIndex == nil ? 1 : 9) : 0)
         case .v18Aux(let record):
-            return 8 + 8 + 4 + record.fields.count
+            return 8 + 8 + 4 + record.fields.count + (v18IdentityV2 ? (record.recordIndex == nil ? 1 : 9) : 0)
         case .rawImuSession(let record):
             guard record.columns.count == imuRecordPayloadBytes else {
                 throw PushProtocolException("rawImuSession record must carry \(imuColumnsPerRecord) i16 columns")
@@ -88,12 +91,23 @@ public enum PushBinaryCodec {
         }
     }
 
-    private static func packPpgRecords(_ records: [PushPpgWaveformRecord]) throws -> Data {
+    private static func packPpgRecords(_ records: [PushPpgWaveformRecord], identityV2: Bool) throws -> Data {
+        guard identityV2 || records.allSatisfy({ $0.recordIndex == nil }) else {
+            throw PushProtocolException("PPG record identity requires negotiated protocol 1.3")
+        }
         var out = header(kind: .ppgWaveformSample)
+        if identityV2 { out[4] = 2 }
         appendU32(Int32(records.count), to: &out)
         for record in records {
             appendI64(record.rowId, to: &out)
             appendI64(record.ts, to: &out)
+            if identityV2 {
+                if let index = record.recordIndex {
+                    guard index >= 0 else { throw PushProtocolException("invalid PPG record index") }
+                    out.append(1)
+                    appendI64(index, to: &out)
+                } else { out.append(0) }
+            }
             if let burstIndex = record.burstIndex {
                 out.append(1)
                 appendI32(burstIndex, to: &out)
@@ -105,12 +119,22 @@ public enum PushBinaryCodec {
         return out
     }
 
-    private static func packV18Records(_ records: [PushV18AuxRecord]) throws -> Data {
+    private static func packV18Records(_ records: [PushV18AuxRecord], identityV2: Bool) throws -> Data {
+        guard identityV2 || records.allSatisfy({ $0.recordIndex == nil }) else {
+            throw PushProtocolException("auxiliary record identity requires negotiated protocol 1.4")
+        }
         var out = header(kind: .v18AuxSample)
+        if identityV2 { out[4] = 2 }
         appendU32(Int32(records.count), to: &out)
         for record in records {
             appendI64(record.rowId, to: &out)
             appendI64(record.ts, to: &out)
+            if identityV2 {
+                if let index = record.recordIndex {
+                    guard (0...Int64(UInt32.max)).contains(index) else { throw PushProtocolException("invalid auxiliary record index") }
+                    out.append(1); appendI64(index, to: &out)
+                } else { out.append(0) }
+            }
             try appendBlob(record.fields, to: &out)
         }
         return out

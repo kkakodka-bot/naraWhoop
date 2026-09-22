@@ -1,11 +1,6 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-let homebrewInclude = "/opt/homebrew/include"
-let homebrewLib = "/opt/homebrew/lib"
-let localInclude = "/usr/local/include"
-let localLib = "/usr/local/lib"
-
 let package = Package(
     name: "NoopPush",
     platforms: [.iOS(.v16), .macOS(.v13)],
@@ -13,20 +8,21 @@ let package = Package(
     targets: [
         .target(
             name: "CNoopZstd",
+            exclude: ["vendor/zstd/LICENSE", "vendor/zstd/provenance.json"],
             publicHeadersPath: "include",
             cSettings: [
-                .unsafeFlags(["-I\(homebrewInclude)", "-I\(localInclude)"], .when(platforms: [.macOS])),
-            ],
-            linkerSettings: [
-                .linkedLibrary("zstd", .when(platforms: [.macOS])),
-                .unsafeFlags(["-L\(homebrewLib)", "-L\(localLib)"], .when(platforms: [.macOS])),
+                .headerSearchPath("vendor/zstd/lib"),
+                .define("ZSTD_DISABLE_ASM", to: "1"),
+                .define("ZSTD_LEGACY_SUPPORT", to: "0"),
+                .define("ZSTD_TRACE", to: "0"),
             ]
         ),
         .target(
             name: "NoopPush",
             dependencies: [
-                .target(name: "CNoopZstd", condition: .when(platforms: [.macOS])),
-            ]
+                .target(name: "CNoopZstd"),
+            ],
+            resources: [.copy("Resources/Zstandard-LICENSE.txt")]
         ),
         .testTarget(
             name: "NoopPushTests",

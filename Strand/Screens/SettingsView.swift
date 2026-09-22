@@ -1,4 +1,6 @@
 import SwiftUI
+import Combine
+import NoopPush
 #if os(macOS)
 import AppKit
 #endif
@@ -20,6 +22,7 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var live: LiveState
     @EnvironmentObject var profile: ProfileStore
+    @StateObject private var preferenceActions = ScoringPreferenceActions()
 
     /// Profile-photo picker selection (PhotosUI). Cleared back to nil once the bytes are loaded.
     @State private var avatarPickerItem: PhotosPickerItem?
@@ -65,21 +68,6 @@ struct SettingsView: View {
     /// persistent strap write, so it gets its own deliberate switch like #174 and #181.
     /// See [PuffinExperiment.ecgRawDataKey].
     @AppStorage(PuffinExperiment.ecgRawDataKey) private var ecgRawDataEnabled = false
-
-    /// #103 opt-in: surfaces the WHOOP 5/MG `spo2_candidate_82` nightly mean in the Blood Oxygen tile
-    /// as a "strap estimate (unverified)" fallback when no calibrated `spo2Pct` exists. Display-only —
-    /// writes nothing to the strap. See [PuffinExperiment.spo2CandidateDisplayKey].
-    @AppStorage(PuffinExperiment.spo2CandidateDisplayKey) private var spo2CandidateDisplayEnabled = true
-
-    /// #463 opt-in: score the intraday stress timeline against a PERSONAL cross-day baseline
-    /// (`.baselineRelative`) instead of the day's own calm hours. Default off — the r≈0.6 margin is
-    /// single-subject so far. Display-only; never feeds recovery/illness. See
-    /// [PuffinExperiment.stressPersonalBaselineKey].
-    @AppStorage(PuffinExperiment.stressPersonalBaselineKey) private var stressPersonalBaselineEnabled = false
-    /// #1545 opt-in: score Effort with Banister's exponential TRIMP instead of Edwards' heart-rate zones.
-    /// Default OFF — it re-scores the whole window against a different recipe. See
-    /// [PuffinExperiment.banisterEffortKey].
-    @AppStorage(PuffinExperiment.banisterEffortKey) private var banisterEffortEnabled = false
 
     /// True when the connected strap has positively attested itself a WHOOP MG. The variant is published as
     /// its label string (`LiveState.whoop5Variant`); "MG" is `Whoop5Variant.mg.label`. nil / not-yet-
@@ -157,19 +145,6 @@ struct SettingsView: View {
     // iPhone (between Test Centre and Settings) and its own sidebar item on macOS. Its `@AppStorage`
     // keys live there now; nothing here reads them.
 
-    /// "Experimental sleep staging (V2)" (ON by default, promoted after the 44-subject cross-subject
-    /// benchmark). When on, detected nights are re-staged with `SleepStagerV2` (the transparent
-    /// cardiorespiratory recipe) instead of the older V1 stager. Read at the staging call site in
-    /// `Repository`. See [PuffinExperiment.experimentalSleepV2Key].
-    @AppStorage(PuffinExperiment.experimentalSleepV2Key) private var experimentalSleepV2Enabled = true
-
-    /// "Motion-aware wake refinement" (#364 follow-up, OFF by default). A post-pass over the already-staged
-    /// hypnogram: reclassifies a scored WAKE segment to `light` when its per-minute step-tick cadence shows
-    /// no locomotion and its per-minute gravity posture is stable outside a minority of isolated burst
-    /// minutes. Self-gates on OBSERVED gravity + step density (#345) — a no-op on a sparse night (e.g.
-    /// WHOOP 4.0) regardless of this switch. See [PuffinExperiment.motionAwareWakeKey].
-    @AppStorage(PuffinExperiment.motionAwareWakeKey) private var motionAwareWakeEnabled = false
-
     // Display preferences. `units.system` remains the body-measurement choice for compatibility;
     // exercise distance/pace can override it independently. Stored data is always SI.
     /// #1821: Clock format. Defaults to `.system`, so upgrading changes nobody's displayed times.
@@ -187,7 +162,6 @@ struct SettingsView: View {
     // it's shown on NARA's 0–100 axis or WHOOP's 0–21 Day Strain axis.
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.hundred.rawValue
     @AppStorage(UnitPrefs.trendChartStyleKey) private var trendChartStyleRaw = TrendChartStyle.line.rawValue
-    @AppStorage(UnitPrefs.hrvWindowKey) private var hrvWindowRaw = HrvWindow.whole.rawValue
     // Live-HR Live Activity (Lock Screen + Dynamic Island), iOS only (#336). Default on.
     @AppStorage(UnitPrefs.liveActivityKey) private var liveActivityEnabled = true
     @AppStorage(DayCycleMode.storageKey) private var dayCycleModeRaw = DayCycleMode.sleepOnset.rawValue
@@ -420,12 +394,14 @@ struct SettingsView: View {
         .sheet(isPresented: $showStepsCalibration) {
             StepsCalibrationSheet(repo: model.repo, onClose: { showStepsCalibration = false })
                 .environmentObject(profile)
+                .environmentObject(model)
         }
         #if os(iOS)
         .sheet(isPresented: $showDiagnostics) {
             DiagnosticsSheet(onClose: { showDiagnostics = false })
         }
         #endif
+        .onDisappear { preferenceActions.suspendPresentation() }
     }
 
     // MARK: - Profile
@@ -437,6 +413,7 @@ struct SettingsView: View {
             blurb: "These power your heart-rate zones, calorie estimates and recovery baselines. Keep them accurate."
         ) {
             VStack(spacing: 0) {
+                ScoringPreferenceActionStatus(actions: preferenceActions)
                 profilePhotoRow
                 rowDivider
                 FormRow(label: "Date of birth") {
@@ -447,17 +424,19 @@ struct SettingsView: View {
                             .frame(minWidth: 28, alignment: .trailing)
                         // #146: age is derived from the date of birth, so it advances on its own.
                         DatePicker("Date of birth",
-                                   selection: $profile.dateOfBirth,
+                                   selection: Binding(get: { profile.dateOfBirth }, set: { preferenceActions.changeDateOfBirth($0, model: model) }),
                                    in: ProfileStore.dateOfBirthRange,
                                    displayedComponents: .date)
                             .labelsHidden()
                             .tint(StrandPalette.accent)
                             .accessibilityLabel("Date of birth, age \(profile.age) years")
+                            .disabled(preferenceActions.disabled(model))
+                            .frame(minHeight: 44)
                     }
                 }
                 rowDivider
                 FormRow(label: "Sex") {
-                    Picker("Sex", selection: $profile.sex) {
+                    Picker("Sex", selection: Binding(get: { profile.sex }, set: { preferenceActions.change(.sex, value: .text($0), model: model) })) {
                         Text("Male").tag("male")
                         Text("Female").tag("female")
                         Text("Non-binary").tag("nonbinary")
@@ -470,14 +449,16 @@ struct SettingsView: View {
                     .pickerStyle(.menu)
                     .tint(StrandPalette.accent)
                     .accessibilityLabel("Sex")
+                    .disabled(preferenceActions.disabled(model))
+                    .frame(minHeight: 44)
                 }
                 rowDivider
                 FormRow(label: "Weight") {
                     // Imperial mode steps in pounds and stores the kg equivalent; metric steps in kg.
                     if unitSystem == .imperial {
-                        poundsField(weightKg: $profile.weightKg)
+                        poundsField(weightKg: profileNumber(.weightKg, value: profile.weightKg))
                     } else {
-                        measureField(value: $profile.weightKg, unit: "kg",
+                        measureField(value: profileNumber(.weightKg, value: profile.weightKg), unit: "kg",
                                      range: 30...250, step: 0.5, format: "%.1f",
                                      accessibility: String(localized: "Weight in kilograms"))
                     }
@@ -486,9 +467,9 @@ struct SettingsView: View {
                 FormRow(label: "Height") {
                     // Imperial mode steps in whole inches and stores the cm equivalent; metric steps in cm.
                     if unitSystem == .imperial {
-                        feetInchesField(heightCm: $profile.heightCm)
+                        feetInchesField(heightCm: profileNumber(.heightCm, value: profile.heightCm))
                     } else {
-                        measureField(value: $profile.heightCm, unit: "cm",
+                        measureField(value: profileNumber(.heightCm, value: profile.heightCm), unit: "cm",
                                      range: 120...230, step: 1, format: "%.0f",
                                      accessibility: String(localized: "Height in centimetres"))
                     }
@@ -502,9 +483,9 @@ struct SettingsView: View {
                 FormRow(label: "Waist (optional)") {
                     // Imperial mode steps in whole inches and stores the cm equivalent; metric steps in cm.
                     if unitSystem == .imperial {
-                        waistInchesField(waistCm: $profile.waistCm)
+                        waistInchesField(waistCm: profileNumber(.waistCm, value: profile.waistCm))
                     } else {
-                        waistCentimetresField(waistCm: $profile.waistCm)
+                        waistCentimetresField(waistCm: profileNumber(.waistCm, value: profile.waistCm))
                     }
                 }
                 Text("Optional: VO₂max builds from about 4 nights of heart rate; a waist makes it more accurate. The Fitness Age itself doesn't need it. Measure around your middle, at the navel.")
@@ -530,10 +511,12 @@ struct SettingsView: View {
                 FormRow(label: "Custom HR zones") {
                     Toggle("Custom HR zones", isOn: Binding(
                         get: { profile.hasCustomHRZones },
-                        set: { profile.setCustomHRZonesEnabled($0) }
+                        set: { preferenceActions.setZonesEnabled($0, model: model) }
                     ))
                     .labelsHidden()
                     .accessibilityLabel("Custom HR zones")
+                    .disabled(preferenceActions.disabled(model))
+                    .frame(minHeight: 44)
                 }
                 if profile.hasCustomHRZones {
                     Text("Set the BPM where each zone begins. Turn off to restore the default percentage-of-max zones.")
@@ -580,12 +563,14 @@ struct SettingsView: View {
                             .foregroundStyle(StrandPalette.textPrimary)
                             .frame(minWidth: 44, alignment: .trailing)
                         Stepper("Step calibration") {
-                            profile.stepTicksPerStep = ProfileStore.steppedStepScale(profile.stepTicksPerStep, up: true)
+                            preferenceActions.change(.stepTicksPerStep, value: .number(ProfileStore.steppedStepScale(profile.stepTicksPerStep, up: true)), model: model)
                         } onDecrement: {
-                            profile.stepTicksPerStep = ProfileStore.steppedStepScale(profile.stepTicksPerStep, up: false)
+                            preferenceActions.change(.stepTicksPerStep, value: .number(ProfileStore.steppedStepScale(profile.stepTicksPerStep, up: false)), model: model)
                         }
                             .labelsHidden()
                             .accessibilityLabel("Step calibration, \(String(format: "%.1f", profile.stepTicksPerStep)) counter ticks per step")
+                            .disabled(preferenceActions.disabled(model))
+                            .frame(minHeight: 44)
                     }
                 }
                 Text("Counter ticks per step. Leave at 1.0 unless your steps run high. On a WHOOP 5/MG they can run very high (10× or more), so this goes up to 30. Walk a known 1,000 steps and divide NARA's count by the real count to get your value.")
@@ -807,6 +792,17 @@ struct SettingsView: View {
         return String(localized: "Not calibrated")
     }
 
+    private func profileNumber(_ key: ScoringPreferenceKey, value: Double) -> Binding<Double> {
+        Binding(get: { value }, set: {
+            preferenceActions.change(key, value: key == .waistCm && $0 == 0 ? .clear : .number($0), model: model)
+        })
+    }
+
+    private func algorithmBinding(_ key: ScoringPreferenceKey) -> Binding<Bool> {
+        Binding(get: { preferenceActions.algorithm(key, model: model) },
+                set: { preferenceActions.setAlgorithm(key, enabled: $0, model: model) })
+    }
+
     /// Numeric weight/height field: tabular value + small +/- stepper.
     private func measureField(value: Binding<Double>, unit: String,
                               range: ClosedRange<Double>, step: Double,
@@ -826,6 +822,8 @@ struct SettingsView: View {
             Stepper(accessibility, value: value, in: range, step: step)
                 .labelsHidden()
                 .accessibilityLabel(accessibility)
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
         }
         .fixedSize()
     }
@@ -835,7 +833,7 @@ struct SettingsView: View {
     private func poundsField(weightKg: Binding<Double>) -> some View {
         let lb = Binding<Double>(
             get: { UnitFormatter.kgToPounds(weightKg.wrappedValue) },
-            set: { weightKg.wrappedValue = $0 / UnitFormatter.poundsPerKilogram }
+            set: { weightKg.wrappedValue = min(250, max(30, $0 / UnitFormatter.poundsPerKilogram)) }
         )
         return HStack(spacing: NoopMetrics.space2) {
             HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space1) {
@@ -852,6 +850,8 @@ struct SettingsView: View {
             Stepper("Weight in pounds", value: lb, in: 66...551, step: 1)
                 .labelsHidden()
                 .accessibilityLabel("Weight, \(Int(lb.wrappedValue.rounded())) pounds")
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
         }
         .fixedSize()
     }
@@ -861,7 +861,7 @@ struct SettingsView: View {
     private func feetInchesField(heightCm: Binding<Double>) -> some View {
         let inches = Binding<Double>(
             get: { UnitFormatter.cmToInches(heightCm.wrappedValue).rounded() },
-            set: { heightCm.wrappedValue = $0 * UnitFormatter.centimetersPerInch }
+            set: { heightCm.wrappedValue = min(230, max(120, $0 * UnitFormatter.centimetersPerInch)) }
         )
         let parts = UnitFormatter.cmToFeetInches(heightCm.wrappedValue)
         return HStack(spacing: NoopMetrics.space2) {
@@ -872,6 +872,8 @@ struct SettingsView: View {
             Stepper("Height in inches", value: inches, in: 47...91, step: 1)
                 .labelsHidden()
                 .accessibilityLabel("Height, \(parts.feet) feet \(parts.inches) inches")
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
         }
         .fixedSize()
     }
@@ -904,6 +906,8 @@ struct SettingsView: View {
             }
                 .labelsHidden()
                 .accessibilityLabel(set ? "Waist, \(Int(waistCm.wrappedValue.rounded())) centimetres" : "Waist not set")
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
         }
         .fixedSize()
     }
@@ -938,6 +942,8 @@ struct SettingsView: View {
             }
                 .labelsHidden()
                 .accessibilityLabel(set ? "Waist, \(Int(inches)) inches" : "Waist not set")
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
         }
         .fixedSize()
     }
@@ -958,10 +964,12 @@ struct SettingsView: View {
                     .fixedSize()
             }
             .fixedSize()
-            Stepper("Max heart rate override",
-                    value: $profile.hrMaxOverride, in: 0...230, step: 1)
+            Stepper("Max heart rate override", onIncrement: { preferenceActions.stepMaxHR(up: true, model: model) },
+                    onDecrement: { preferenceActions.stepMaxHR(up: false, model: model) })
                 .labelsHidden()
                 .accessibilityLabel("Max heart rate override, \(profile.hrMaxOverride == 0 ? "automatic" : "\(profile.hrMaxOverride) bpm")")
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
         }
         .fixedSize()
     }
@@ -983,10 +991,12 @@ struct SettingsView: View {
             }
             .fixedSize()
             Stepper("",
-                    onIncrement: { profile.stepHRZoneThreshold(at: index, up: true) },
-                    onDecrement: { profile.stepHRZoneThreshold(at: index, up: false) })
+                    onIncrement: { preferenceActions.stepZone(index, up: true, model: model) },
+                    onDecrement: { preferenceActions.stepZone(index, up: false, model: model) })
                 .labelsHidden()
                 .accessibilityLabel("Zone \(index + 1) starts at \(value) beats per minute")
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
         }
         .fixedSize()
     }
@@ -1072,21 +1082,16 @@ struct SettingsView: View {
                 // MARK: #1545 Effort scale — Banister exponential TRIMP instead of Edwards zones.
                 Divider().overlay(StrandPalette.hairline)
 
-                Toggle(isOn: $banisterEffortEnabled) {
+                Toggle(isOn: algorithmBinding(.effortMethod)) {
                     Text("Effort: exponential intensity scale")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.accent)
-                .onChangeCompat(of: banisterEffortEnabled) { _ in
-                    // Re-score immediately on the flip. The recipe changes stored Effort for EVERY day in
-                    // the window, so without this the user waits up to 30 min for the next analyze loop
-                    // while the screen still shows scores from the recipe they just turned off — and the
-                    // toggle's own copy promises the history is re-scored. Same pattern as the SpO2
-                    // candidate and HRV-window toggles (analyzeRecent → refresh).
-                    Task { await model.intelligence.analyzeRecent(); await model.repo.refresh() }
-                }
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
+                ScoringPreferenceActionStatus(actions: preferenceActions)
                 Text("Scores Effort on an exponential intensity curve (Banister TRIMP) instead of the default heart-rate zones (Edwards). The default earns nothing below half of your heart-rate reserve, so an hour of lifting — where hard sets average out against the rests — can score close to zero. The exponential curve has no floor and weights short, hard efforts far more heavily. Re-scores your history, and both scales reach the same maximum. Off by default.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1634,6 +1639,8 @@ struct SettingsView: View {
                 NoopButton("Recalibrate Charge baseline", systemImage: "arrow.triangle.2.circlepath", kind: .secondary) {
                     showRecalibrateConfirm = true
                 }
+                .disabled(preferenceActions.disabled(model))
+                ScoringPreferenceActionStatus(actions: preferenceActions)
 
                 Text("Restarts the roughly 4-night build-up for Charge and your HRV baseline from tonight. Use it if a bad first week set your baseline off. Your history stays.")
                     .font(StrandFont.caption)
@@ -1643,21 +1650,13 @@ struct SettingsView: View {
         }
     }
 
-    /// Write the recalibration anchor and trigger a recompute. Re-anchors EVERY baseline that feeds
-    /// Charge — HRV plus resting HR / respiration / skin temp — by writing now (epoch SECONDS) to both
-    /// `noop.hrvBaselineEpoch` and `noop.recoveryBaselineEpoch` via the single cross-platform source of
-    /// truth (`Baselines.recalibrateRecoveryBaselines`). No stored day is deleted; only the day the
-    /// baselines re-learn from moves. Then re-score + refresh so the change is reflected without a
-    /// relaunch (same path as a sleep edit), and Today honestly shows the building/calibrating state.
+    /// AppModel owns the paired reset and recompute. Present success only after local acceptance.
     private func recalibrateHrvBaseline() {
-        Baselines.recalibrateRecoveryBaselines()
-        Task {
-            await model.intelligence.analyzeRecent()
-            await model.repo.refresh()
+        preferenceActions.recalibrate(model: model) {
+            backupAlertTitle = String(localized: "Baseline reset saved")
+            backupAlertMessage = preferenceActions.resetConfirmation
+            showBackupAlert = true
         }
-        backupAlertTitle = String(localized: "Charge baseline recalibrating")
-        backupAlertMessage = String(localized: "NARA will re-learn your baseline from tonight's data onward. Your history is kept, and it takes a few nights to settle.")
-        showBackupAlert = true
     }
 
     // MARK: - Test Centre (the diagnostic home, #507/#509)
@@ -1685,6 +1684,21 @@ struct SettingsView: View {
             }
             .buttonStyle(LiquidPressStyle())
             .accessibilityLabel("Open Test Centre")
+            #if os(macOS)
+            NavigationLink(destination: ServerScoringView()) {
+                HStack {
+                    Text("Server scoring (HRV / sleep)")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(LiquidPressStyle())
+            #endif
         }
     }
 
@@ -1695,6 +1709,19 @@ struct SettingsView: View {
             title: "Self-hosted push",
             blurb: "Experimental one-way export to an endpoint you control. Off by default."
         ) {
+            NavigationLink(destination: ServerScoringView()) {
+                HStack {
+                    Text("Server scoring (HRV / sleep)")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(LiquidPressStyle())
             NavigationLink(destination: CloudPushView()) {
                 HStack {
                     Text("Configure self-hosted push")
@@ -1838,7 +1865,8 @@ struct SettingsView: View {
                 // (WHOOP-style, reads lower). Unlike the Effort scale this CHANGES the number, so a switch
                 // re-scores + re-baselines (like a sleep edit).
                 FormRow(label: "HRV window") {
-                    Picker("HRV window", selection: $hrvWindowRaw) {
+                    Picker("HRV window", selection: Binding(get: { preferenceActions.hrvWindow(model: model) },
+                                                           set: { preferenceActions.change(.hrvWindow, value: .text($0), model: model) })) {
                         // #153: "Night" (not "Whole night") — a single short word so the two-segment control
                         // doesn't truncate once it sizes to the row.
                         Text("Night").tag(HrvWindow.whole.rawValue)
@@ -1848,13 +1876,10 @@ struct SettingsView: View {
                     .pickerStyle(.menu)
                     .tint(StrandPalette.accent)
                     .accessibilityLabel("HRV window")
-                    .onChangeCompat(of: hrvWindowRaw) { _ in
-                        // #201/#195: analyzeRecent re-scores the recent ~21 nights' avgHrv under the new
-                        // window AND re-folds the HRV baseline in the same pass, so DON'T re-anchor the
-                        // baseline epoch (that reset read as "the setting is broken").
-                        Task { await model.intelligence.analyzeRecent(); await model.repo.refresh() }
-                    }
+                    .disabled(preferenceActions.disabled(model))
+                    .frame(minHeight: 44)
                 }
+                ScoringPreferenceActionStatus(actions: preferenceActions)
                 Text("Whole night is NARA's default measure; Deep sleep pools HRV over slow-wave sleep only, reading lower and matching WHOOP. Switching re-scores your recent nights over the new window and takes effect right away once you have a few nights of data.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1939,13 +1964,15 @@ struct SettingsView: View {
             blurb: "How NARA splits a night into light / deep / REM. The V2 recipe is the default; turn it off to fall back to the older V1 staging."
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
-                Toggle(isOn: $experimentalSleepV2Enabled) {
+                Toggle(isOn: algorithmBinding(.useSleepStagerV2)) {
                     Text("Sleep staging (V2)")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.accent)
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
                 Text("A transparent cardiorespiratory recipe that recovers deep and REM better than the older V1 staging, and is now the default. It only changes how already-detected nights are split into stages (detection and scores are unchanged); turn it off to fall back to V1. Takes effect on the next nights staged.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1954,13 +1981,16 @@ struct SettingsView: View {
                 rowDivider
 
                 // MARK: Motion-aware wake refinement (#364 follow-up) — default OFF.
-                Toggle(isOn: $motionAwareWakeEnabled) {
+                Toggle(isOn: algorithmBinding(.useMotionAwareWake)) {
                     Text("Motion-aware wake refinement")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.accent)
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
+                ScoringPreferenceActionStatus(actions: preferenceActions)
                 Text("Reviews each scored wake block for real evidence of getting up (walking cadence, a change in body position) instead of just a heart-rate rise. A wake block with no locomotion and a stable posture — a hot night, a brief turn-over — is folded back into light sleep; a real get-up is left alone. Self-checks how much motion detail your strap actually recorded and stays off on a night that's too sparse to trust (older WHOOP 4.0 firmware, mainly). Off by default; takes effect on the next nights staged.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -2172,13 +2202,16 @@ struct SettingsView: View {
                 //       cross-day baseline instead of the day's own calm hours. Off by default.
                 Divider().overlay(StrandPalette.hairline)
 
-                Toggle(isOn: $stressPersonalBaselineEnabled) {
+                Toggle(isOn: algorithmBinding(.daytimePersonalBaselineEnabled)) {
                     Text("Stress: personal daytime baseline")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.accent)
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
+                ScoringPreferenceActionStatus(actions: preferenceActions)
                 Text("Scores your hour-by-hour stress timeline against YOUR own cross-day baseline (how your days usually run, Oura-style) instead of the day's own calm hours. Needs a few worn days; until then it stays on the default. The high-stress cutoff is tuned from a single-subject reference so far, so it's an alternative lens rather than the default. HR-only, and it never feeds recovery or illness scoring. Off by default.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -2368,20 +2401,16 @@ struct SettingsView: View {
             blurb: "Surfaces a device-conditional, unverified SpO₂ estimate in the Blood Oxygen tile when no calibrated reading exists."
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.rowSpacing) {
-                Toggle(isOn: $spo2CandidateDisplayEnabled) {
+                Toggle(isOn: algorithmBinding(.spo2CandidateDisplayEnabled)) {
                     Text("Blood Oxygen: strap estimate (WHOOP 5/MG, Oura)")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.accent)
-                .onChangeCompat(of: spo2CandidateDisplayEnabled) { _ in
-                    // Re-score immediately so the candidate is computed and persisted on this
-                    // toggle flip — without this the user waits up to 15 min for the next analyze
-                    // loop, and the Blood Oxygen tile stays blank in the meantime. Same pattern as
-                    // the HRV window toggle above (analyzeRecent → refresh).
-                    Task { await model.intelligence.analyzeRecent(); await model.repo.refresh() }
-                }
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
+                ScoringPreferenceActionStatus(actions: preferenceActions)
                 Text("Your WHOOP 5.0/MG sends a strap-computed SpO₂ percentage (the @82 candidate byte) every second — an 8-night independent validation tracked it at corr +0.99 against the WHOOP app, but two nights on the original test device moved the OPPOSITE direction, so device/firmware variance is unresolved. An Oura ring's own SpO₂ reading runs high on the wire (over 100% on a fifth to a half of samples on a clean night); this instead surfaces the ring's mean with each sample capped at 100% first, which has matched the Oura app's own displayed value on every full night checked against it so far, though only a few nights. Turning this on surfaces whichever applies to your device as \"strap estimate (unverified)\" in the Blood Oxygen tile when no calibrated import exists. It never feeds recovery or illness scoring. WHOOP 4.0 has no @82 stream, so this does nothing there.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -3431,6 +3460,8 @@ struct StepsCalibrationSheet: View {
     let repo: Repository
     let onClose: () -> Void
     @EnvironmentObject var profile: ProfileStore
+    @EnvironmentObject private var model: AppModel
+    @StateObject private var preferenceActions = ScoringPreferenceActions()
 
     /// Recent days that have BOTH an estimate and a real phone step count, newest first — the accuracy table.
     @State private var comparison: [StepsComparisonRow] = []
@@ -3438,8 +3469,11 @@ struct StepsCalibrationSheet: View {
     /// preview reflects a TYPICAL day. nil until loaded / no recent estimated day with a known motion.
     @State private var sampleMotion: Double?
 
-    /// The draft manual coefficient the slider edits, committed to ProfileStore on release. 0 = auto-fit.
-    @State private var draftManual: Double = 0
+    /// A drag previews a value; only release submits an action. Zero removes the manual override.
+    private var draftManual: Double {
+        if case .number(let value) = preferenceActions.draft[.stepsManualCoefficient] { return value }
+        return profile.stepsManualCoefficient
+    }
     @State private var didLoad = false
 
     /// The strap has banked no motion, and we have looked.
@@ -3493,6 +3527,7 @@ struct StepsCalibrationSheet: View {
         #endif
         .background(StrandPalette.surfaceBase)
         .task { await loadIfNeeded() }
+        .onDisappear { preferenceActions.suspendPresentation() }
     }
 
     // MARK: Header / footer
@@ -3738,20 +3773,25 @@ struct StepsCalibrationSheet: View {
                     Spacer()
                 }
 
-                Slider(value: $draftManual, in: 0...sliderMax, step: 0.5) {
+                Slider(value: Binding(get: { draftManual }, set: {
+                    preferenceActions.stage(.stepsManualCoefficient, value: .number($0), model: model)
+                }), in: 0...sliderMax, step: 0.5) {
                     Text("Manual steps coefficient")
                 } minimumValueLabel: {
                     Text("Auto").font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                 } maximumValueLabel: {
                     Text("High").font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                 } onEditingChanged: { editing in
-                    // Commit on release — snap a tiny drag back to 0 (auto) so "auto" is reachable.
-                    if !editing { profile.stepsManualCoefficient = draftManual < 0.5 ? 0 : draftManual }
+                    preferenceActions.finishStepsSlider(editing: editing, model: model)
                 }
                 .tint(StrandPalette.accent)
+                .disabled(preferenceActions.disabled(model))
+                .frame(minHeight: 44)
+                .accessibilityLabel("Manual steps coefficient")
                 .accessibilityValue(draftManual > 0
                                     ? "\(String(format: "%.1f", draftManual)) steps per motion unit"
                                     : "Automatic")
+                ScoringPreferenceActionStatus(actions: preferenceActions)
 
                 // Live preview: a typical recent day re-estimated at the draft coefficient.
                 if let motion = sampleMotion {
@@ -3765,7 +3805,7 @@ struct StepsCalibrationSheet: View {
                     }
                 }
                 if draftManual > 0 {
-                    Text("Takes effect on the next analytics pass (after the next sync).")
+                    Text("Dragging previews a value. Release to save it; estimates change after scoring completes.")
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
@@ -3794,7 +3834,6 @@ struct StepsCalibrationSheet: View {
     private func loadIfNeeded() async {
         guard !didLoad else { return }
         didLoad = true
-        draftManual = profile.stepsManualCoefficient
 
         // Effective calibration in force right now: a manual override wins, else the persisted auto-fit.
         let coeff = profile.stepsManualCoefficient > 0
@@ -3900,6 +3939,407 @@ private struct FormRow<Control: View>: View {
         .preferredColorScheme(.dark)
 }
 #endif
+
+// Shared completed-gesture handlers for Settings, onboarding and Test Centre. The tests call
+// these same methods; only AppModel/runtime owns durable acceptance and post-commit recompute.
+@MainActor
+final class ScoringPreferenceActions: @MainActor ObservableObject {
+    enum Phase: Equatable { case idle, saving, saved, local, held, failed, retired }
+    @Published private var storedPhase: Phase = .idle
+    @Published private var storedMessage = ""
+    @Published private(set) var draft: [ScoringPreferenceKey: ScoringPreferenceValue] = [:]
+    private(set) var ticket: ScoringPreferenceTicket?
+    private weak var owner: AppModel?
+    private var ownerID: ObjectIdentifier?
+    private var context: AccountSessionContext?
+    private var work: Task<Void, Never>?
+    private var recoveringTicket = false
+    private var runtimeObservation: AnyCancellable?
+    private var ticketObservation: AnyCancellable?
+    private weak var observedTicket: ScoringPreferenceTicket?
+    private var recoveryRefresh: Task<Void, Never>?
+    private var presentationRevision = 0
+    private var completion: (() -> Void)?
+    private var actionLabel = String(localized: "Preference change")
+    private let legacyDefaults: UserDefaults
+
+    init(legacyDefaults: UserDefaults = .standard) { self.legacyDefaults = legacyDefaults }
+
+    private var current: Bool {
+        guard let owner else { return ownerID == nil }
+        return owner.isAccountRuntimeActive && owner.accountContext == context
+    }
+    var phase: Phase { current ? storedPhase : .retired }
+    var message: String { current ? storedMessage : String(localized: "Account changed. This change was not confirmed here.") }
+    var isSaving: Bool { phase == .saving }
+    var hasHeldChange: Bool { phase == .held || phase == .failed }
+    var resetConfirmation: String {
+        message + " " + String(localized: "Your history is kept; the baseline needs a few nights of new data.")
+    }
+    func disabled(_ model: AppModel) -> Bool {
+        !model.isAccountRuntimeActive || isSaving || hasHeldChange || !current ||
+            (model.accountContext != nil && model.scoringPreferences?.isReady != true)
+    }
+    var canRetry: Bool {
+        guard current, work == nil, let ticket, owner?.scoringPreferences?.pendingHeadTicket === ticket,
+              case .held(let failure) = ticket.state else { return false }
+        return [.held, .storage, .capacity].contains(failure)
+    }
+
+    private func bind(_ model: AppModel) -> Bool {
+        if ownerID == nil { owner = model; ownerID = ObjectIdentifier(model); context = model.accountContext }
+        guard ownerID == ObjectIdentifier(model), current, model.accountContext == context else { return false }
+        return true
+    }
+
+    /// Reattach presentation only. A reopened view never takes the ticket's sole acceptance waiter,
+    /// rebuilds its action, or resumes persistence without an explicit Retry gesture.
+    func resumePendingChange(model: AppModel) {
+        guard bind(model), let runtime = model.scoringPreferences else { return }
+        if runtimeObservation == nil {
+            runtimeObservation = runtime.objectWillChange.sink { [weak self, weak model] _ in
+                guard let self, let model else { return }
+                self.scheduleRecoveryRefresh(model: model)
+            }
+        }
+        refreshRecoveredTicket(model: model)
+    }
+
+    private func scheduleRecoveryRefresh(model: AppModel) {
+        guard recoveryRefresh == nil else { return }
+        // Combine publishes in willSet. Read the settled head/state on the next MainActor turn;
+        // one coalesced observation task is independent of the initiating acceptance task.
+        recoveryRefresh = Task { [weak self, weak model] in
+            guard let self, let model, !Task.isCancelled else { return }
+            self.recoveryRefresh = nil
+            self.refreshRecoveredTicket(model: model)
+        }
+    }
+
+    private func refreshRecoveredTicket(model: AppModel) {
+        guard bind(model), work == nil, let runtime = model.scoringPreferences else { return }
+        if let head = runtime.pendingHeadTicket {
+            if observedTicket !== head {
+                ticketObservation = head.$state.dropFirst().sink { [weak self, weak model] _ in
+                    guard let self, let model else { return }
+                    self.scheduleRecoveryRefresh(model: model)
+                }
+                observedTicket = head
+            }
+            ticket = head; recoveringTicket = true; completion = nil
+            actionLabel = String(localized: "Earlier preference change")
+        }
+        guard let ticket, recoveringTicket || hasHeldChange else { return }
+        switch ticket.state {
+        case .queued:
+            storedMessage = String(localized: "An earlier preference change is still saving. Saved values remain in use.")
+            storedPhase = .saving
+        case .held(let failure):
+            presentHeld(failure)
+        case .accepted:
+            // The accepted snapshot belongs to AppModel. Do not replay an old alert/navigation
+            // callback or announce a new acceptance from this passive observer.
+            draft = [:]; completion = nil; recoveringTicket = false
+            storedMessage = String(localized: "Showing saved account preferences."); storedPhase = .idle
+            ticketObservation = nil; observedTicket = nil
+        case .discarded:
+            self.ticket = nil; draft = [:]; completion = nil; recoveringTicket = false
+            storedMessage = String(localized: "Unaccepted changes discarded. Saved values are unchanged."); storedPhase = .idle
+            ticketObservation = nil; observedTicket = nil
+        }
+    }
+
+    func stage(_ key: ScoringPreferenceKey, value: ScoringPreferenceValue, model: AppModel) {
+        guard bind(model), !disabled(model) else { return }
+        draft[key] = value
+    }
+    func stageDateOfBirth(_ date: Date, model: AppModel) {
+        guard bind(model), !disabled(model) else { return }
+        draft[.dateOfBirth] = .number(date.timeIntervalSince1970)
+        draft[.ageExplicit] = .boolean(true)
+    }
+
+    func change(_ key: ScoringPreferenceKey, value: ScoringPreferenceValue, model: AppModel,
+                now: Date = Date(), zone: TimeZone = .current) {
+        submit([.init(key: key, value: value)], model: model, now: now, zone: zone)
+    }
+    func changeDateOfBirth(_ date: Date, model: AppModel, now: Date = Date(), zone: TimeZone = .current) {
+        submit([.init(key: .dateOfBirth, value: .number(date.timeIntervalSince1970)),
+                .init(key: .ageExplicit, value: .boolean(true))], model: model, now: now, zone: zone)
+    }
+    func setZonesEnabled(_ enabled: Bool, model: AppModel) {
+        change(.hrZoneThresholds, value: enabled
+            ? .integers(HRZones.defaultLowerBounds(maxHR: Double(model.profile.hrMax))) : .clear, model: model)
+    }
+    func stepZone(_ index: Int, up: Bool, model: AppModel) {
+        var values = model.profile.hrZoneThresholds
+        guard values.indices.contains(index) else { return }
+        let floor = index == 0 ? HRZones.customBPMRange.lowerBound : values[index - 1] + 1
+        let ceiling = index == values.count - 1 ? HRZones.customBPMRange.upperBound : values[index + 1] - 1
+        guard floor <= ceiling else { return }
+        values[index] = min(ceiling, max(floor, values[index] + (up ? 1 : -1)))
+        change(.hrZoneThresholds, value: .integers(values), model: model)
+    }
+    func stepMaxHR(up: Bool, model: AppModel) {
+        let old = model.profile.hrMaxOverride
+        // Config admits 80...240 bpm; preserve this editor's 230 ceiling and explicit Auto state.
+        let next = up ? (old == 0 ? max(80, min(230, model.profile.hrMax)) : min(230, max(80, old + 1)))
+            : (old <= 80 ? 0 : old - 1)
+        change(.hrMaxOverride, value: next == 0 ? .clear : .number(Double(next)), model: model)
+    }
+    func finishStepsSlider(editing: Bool, model: AppModel, now: Date = Date(), zone: TimeZone = .current) {
+        guard !editing, case .number(let value) = draft[.stepsManualCoefficient] else { return }
+        submit([.init(key: .stepsManualCoefficient, value: value < 0.5 ? .clear : .number(value))],
+               model: model, now: now, zone: zone)
+    }
+    func saveOnboarding(model: AppModel, now: Date = Date(), zone: TimeZone = .current,
+                        afterAccepted: @escaping () -> Void) {
+        guard bind(model), !disabled(model) else { return }
+        if draft.isEmpty { afterAccepted(); return } // Continue without inventing confirmation of defaults.
+        submit(draft.map { .init(key: $0.key, value: $0.value) }, model: model, now: now,
+               zone: zone, afterAccepted: afterAccepted)
+    }
+
+    func recalibrate(model: AppModel, now: Double = Date().timeIntervalSince1970,
+                     afterAccepted: (() -> Void)? = nil) {
+        guard begin(model, label: String(localized: "Baseline reset"), afterAccepted: afterAccepted) else { return }
+        let submitted = model.recalibrateChargeBaseline(now: now)
+        guard current else { return }
+        if let submitted { ticket = submitted; observe(submitted, model: model) }
+        else if model.accountContext == nil { finishLocal() }
+        else { fail("The baseline reset was not saved. Try again after account preferences are ready.") }
+    }
+
+    private func begin(_ model: AppModel, label: String, afterAccepted: (() -> Void)?) -> Bool {
+        guard bind(model), work == nil, !isSaving, !hasHeldChange else { return false }
+        guard model.accountContext == nil || model.scoringPreferences?.isReady == true else {
+            fail("Account preferences are loading. Wait for them to load before changing a value."); return false
+        }
+        guard (model.scoringPreferences?.pendingCount ?? 0) == 0 else {
+            fail("Another preference change is waiting. Resolve that change before saving another."); return false
+        }
+        completion = afterAccepted; ticket = nil; actionLabel = label
+        recoveringTicket = false; ticketObservation = nil; observedTicket = nil
+        storedMessage = String(localized: "\(label): saving on this device…")
+        storedPhase = .saving
+        return current
+    }
+
+    private func submit(_ patch: [ScoringPreferenceIntent.Patch], model: AppModel,
+                        now: Date = Date(), zone: TimeZone = .current, afterAccepted: (() -> Void)? = nil) {
+        guard begin(model, label: label(for: patch), afterAccepted: afterAccepted) else { return }
+        do {
+            guard !patch.isEmpty else { throw ScoringInputJournal.Failure.invalidInput }
+            for part in patch { try part.value.validate(for: part.key) }
+            if model.accountContext == nil {
+                for part in patch { guard current else { return }; try applyLegacy(part, model: model) }
+                finishLocal()
+                // Preserve the guest's existing completed-toggle refresh, never run it for a
+                // draft, hydration or account action (AppModel handles accepted account actions).
+                if patch.contains(where: { [.effortMethod, .hrvWindow, .spo2CandidateDisplayEnabled].contains($0.key) }),
+                   !AppRuntimeMode.isUnitTesting {
+                    Task { [weak model] in
+                        guard let model, model.isAccountRuntimeActive, model.accountContext == nil else { return }
+                        await model.intelligence.analyzeRecent()
+                        guard model.isAccountRuntimeActive, model.accountContext == nil else { return }
+                        await model.repo.refresh()
+                    }
+                }
+            } else {
+                let submitted = try model.completePreferenceAction(patch, now: now, zone: zone)
+                ticket = submitted
+                observe(submitted, model: model)
+            }
+        } catch { fail("This change was not saved. Check the value and try again.") }
+    }
+
+    private func observe(_ ticket: ScoringPreferenceTicket, model: AppModel) {
+        let revision = presentationRevision
+        work = Task { [weak self, weak model] in
+            guard let self, let model else { return }
+            defer { self.work = nil }
+            do {
+                let receipt = try await ticket.acceptance()
+                guard self.current, self.ownerID == ObjectIdentifier(model), model.accountContext == self.context else { return }
+                self.draft = [:]
+                self.storedMessage = receipt.profileMutationID == nil
+                    ? String(localized: "\(self.actionLabel): saved for this account on this device. No server change was queued.")
+                    : String(localized: "\(self.actionLabel): saved on this device. Server sync may still be pending.")
+                guard self.current else { return }
+                self.storedPhase = .saved
+                if self.current, self.presentationRevision == revision { self.completion?() }
+                self.completion = nil
+            } catch {
+                guard self.current else { return }
+                if case .held(let failure) = ticket.state { self.presentHeld(failure) }
+                else { self.presentHeld(.retired) }
+            }
+        }
+    }
+
+    private func presentHeld(_ failure: ScoringPreferenceTicket.Failure) {
+        guard current else { return }
+        storedPhase = .held
+        switch failure {
+        case .missingSource:
+            storedMessage = String(localized: "Not saved: the source device was unavailable when you made this change. Discard it, then make the change again after the device is ready.")
+        case .missingPermit:
+            storedMessage = String(localized: "Not saved: admission permission was unavailable when you made this change. Discard it, then make a new change when account preferences are ready.")
+        case .held:
+            storedMessage = String(localized: "Not saved: sharing or admission is paused. Retry keeps the original change; it cannot use a newer permission.")
+        case .capacity:
+            storedMessage = String(localized: "Not saved: the pending-change limit was reached. Resolve pending work before retrying.")
+        case .storage:
+            storedMessage = String(localized: "Not saved: storage could not accept this change. Retry the original change or discard it.")
+        case .loading:
+            storedMessage = String(localized: "Not saved: account preferences were not ready. Discard this change before making a new one.")
+        case .dependent:
+            storedMessage = String(localized: "Not saved: this change depends on an earlier unaccepted change. Resolve the earlier change first.")
+        case .invalid:
+            storedMessage = String(localized: "Not saved: this change contains an unsupported value. Discard it before editing again.")
+        case .retired:
+            storedMessage = String(localized: "This change belongs to an inactive account session. It cannot be retried here.")
+        case .alreadyWaiting:
+            storedMessage = String(localized: "This change is already being monitored. Its saved result is not confirmed here.")
+        }
+    }
+
+    func retry(model: AppModel) {
+        guard bind(model), canRetry, let ticket, let runtime = model.scoringPreferences else { return }
+        storedMessage = String(localized: "Retrying the original change…"); storedPhase = .saving
+        guard current else { return }
+        runtime.retry(ticket)
+        if recoveringTicket { refreshRecoveredTicket(model: model) }
+        else { observe(ticket, model: model) }
+    }
+    func discard(model: AppModel) {
+        guard bind(model), work == nil, !isSaving else { return }
+        if let ticket, let runtime = model.scoringPreferences,
+           !runtime.discardUnacceptedChain(from: ticket), runtime.pendingHeadTicket === ticket { return }
+        recoveringTicket = false; ticketObservation = nil; observedTicket = nil
+        ticket = nil; completion = nil; draft = [:]
+        storedPhase = .idle; storedMessage = String(localized: "Unaccepted changes discarded. Saved values are unchanged.")
+    }
+    func suspendPresentation() {
+        presentationRevision &+= 1; completion = nil
+        runtimeObservation = nil; ticketObservation = nil; observedTicket = nil
+        recoveryRefresh?.cancel(); recoveryRefresh = nil
+    }
+    func waitForCompletion() async { await work?.value }
+    func waitForRecoveryObservation() async {
+        while let refresh = recoveryRefresh { await refresh.value }
+    }
+
+    private func fail(_ text: String.LocalizationValue) {
+        storedPhase = .failed; storedMessage = String(localized: text); completion = nil
+    }
+    private func finishLocal() {
+        guard current else { return }
+        draft = [:]; storedMessage = String(localized: "\(actionLabel): updated locally. No server change was queued."); storedPhase = .local
+        if current { completion?() }; completion = nil
+    }
+    private func label(for patch: [ScoringPreferenceIntent.Patch]) -> String {
+        guard patch.count == 1, let key = patch.first?.key else { return String(localized: "Profile") }
+        switch key {
+        case .sex: return String(localized: "Sex")
+        case .weightKg: return String(localized: "Weight")
+        case .heightCm: return String(localized: "Height")
+        case .waistCm: return String(localized: "Waist")
+        case .hrMaxOverride: return String(localized: "Max heart rate")
+        case .hrZoneThresholds: return String(localized: "Heart-rate zones")
+        case .stepTicksPerStep: return String(localized: "Step calibration")
+        case .stepsManualCoefficient: return String(localized: "Manual steps coefficient")
+        case .hrvWindow: return String(localized: "HRV window")
+        case .effortMethod: return String(localized: "Effort recipe")
+        case .useSleepStagerV2: return String(localized: "Sleep staging")
+        case .useMotionAwareWake: return String(localized: "Motion-aware wake")
+        case .daytimePersonalBaselineEnabled: return String(localized: "Daytime stress baseline")
+        case .spo2CandidateDisplayEnabled: return String(localized: "Blood Oxygen estimate")
+        default: return String(localized: "Profile")
+        }
+    }
+    private func applyLegacy(_ part: ScoringPreferenceIntent.Patch, model: AppModel) throws {
+        let profile = model.profile
+        switch (part.key, part.value) {
+        case (.dateOfBirth, .number(let value)): profile.dateOfBirth = Date(timeIntervalSince1970: value)
+        case (.ageExplicit, .boolean(true)): break // The legacy DOB setter records this explicit choice.
+        case (.sex, .text(let value)): profile.sex = value
+        case (.weightKg, .number(let value)): profile.weightKg = value
+        case (.heightCm, .number(let value)): profile.heightCm = value
+        case (.waistCm, .number(let value)): profile.waistCm = value
+        case (.waistCm, .clear): profile.waistCm = 0
+        case (.hrMaxOverride, .number(let value)): profile.hrMaxOverride = Int(value)
+        case (.hrMaxOverride, .clear): profile.hrMaxOverride = 0
+        case (.hrZoneThresholds, .integers(let value)): profile.hrZoneThresholds = value
+        case (.hrZoneThresholds, .clear): profile.hrZoneThresholds = []
+        case (.stepTicksPerStep, .number(let value)): profile.stepTicksPerStep = value
+        case (.stepsManualCoefficient, .number(let value)): profile.stepsManualCoefficient = value
+        case (.stepsManualCoefficient, .clear): profile.stepsManualCoefficient = 0
+        case (.hrvWindow, .text(let value)): legacyDefaults.set(value, forKey: UnitPrefs.hrvWindowKey)
+        case (.effortMethod, .text(let value)): legacyDefaults.set(value == "BANISTER", forKey: PuffinExperiment.banisterEffortKey)
+        case (.useSleepStagerV2, .boolean(let value)), (.useMotionAwareWake, .boolean(let value)),
+             (.daytimePersonalBaselineEnabled, .boolean(let value)), (.spo2CandidateDisplayEnabled, .boolean(let value)):
+            legacyDefaults.set(value, forKey: ScoringPreferenceSnapshot.defaultsKey(part.key))
+        default: throw ScoringInputJournal.Failure.invalidInput
+        }
+    }
+    func algorithm(_ key: ScoringPreferenceKey, model: AppModel) -> Bool {
+        if model.accountContext != nil {
+            let value = model.scoringAlgorithmChoices
+            switch key {
+            case .effortMethod: return value.banisterEffortEnabled
+            case .useSleepStagerV2: return value.useSleepStagerV2
+            case .useMotionAwareWake: return value.useMotionAwareWake
+            case .daytimePersonalBaselineEnabled: return value.daytimePersonalBaselineEnabled
+            default: return value.spo2CandidateDisplayEnabled
+            }
+        }
+        return legacyDefaults.object(forKey: ScoringPreferenceSnapshot.defaultsKey(key)) as? Bool
+            ?? [.useSleepStagerV2, .spo2CandidateDisplayEnabled].contains(key)
+    }
+    func setAlgorithm(_ key: ScoringPreferenceKey, enabled: Bool, model: AppModel) {
+        change(key, value: key == .effortMethod ? .text(enabled ? "BANISTER" : "EDWARDS") : .boolean(enabled), model: model)
+    }
+    func hrvWindow(model: AppModel) -> String {
+        model.accountContext == nil ? legacyDefaults.string(forKey: UnitPrefs.hrvWindowKey) ?? "whole" : model.hrvWindowRaw
+    }
+}
+
+struct ScoringPreferenceActionStatus: View {
+    @ObservedObject var actions: ScoringPreferenceActions
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !model.isAccountRuntimeActive {
+                Text("This account is no longer active. Reopen settings for the current account.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let error = model.preferenceActionError, model.scoringPreferences?.isReady != true {
+                Text(error).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if model.accountContext != nil && model.scoringPreferences?.isReady != true {
+                Text("Account preferences are loading. Editing will be available when they are ready.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !actions.message.isEmpty {
+                Text(actions.message).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if actions.hasHeldChange {
+                HStack {
+                    if actions.canRetry {
+                        Button("Retry original change") { actions.retry(model: model) }.frame(minHeight: 44)
+                    }
+                    Button(actions.ticket == nil ? "Dismiss unsaved change" : "Discard unaccepted changes") { actions.discard(model: model) }.frame(minHeight: 44)
+                        .accessibilityHint("Discards this change and any later unaccepted changes that depend on it. Saved values stay unchanged.")
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .onAppear { actions.resumePendingChange(model: model) }
+    }
+}
 
 // MARK: - Custom accent colour bridge
 

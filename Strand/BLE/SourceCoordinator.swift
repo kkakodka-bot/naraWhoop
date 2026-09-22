@@ -35,9 +35,11 @@ final class SourceCoordinator: ObservableObject {
 
     private let registry: DeviceRegistry
     private let live: LiveState
-    /// Resolves the shared on-device store for the strap persist closure (opened lazily by the app's
-    /// `Repository`, matching the existing async store lifecycle — we never force it open early).
+    /// Legacy experimental-source writer. Standard HR uses the captured account writer below;
+    /// it must never resolve this presentation-store closure during retirement or retry.
     private let storeHandle: () async -> WhoopStore?
+    private let genericCapture: GenericCaptureJournal?
+    private let standardSourceFactory: ((String) -> StandardHRSource)?
     /// Re-trigger WHOOP's EXISTING scan/connect entry point (e.g. `AppModel.scan()` → `BLEManager.connect`).
     private let startWhoop: () -> Void
     /// Pause WHOOP via its EXISTING teardown (e.g. `AppModel.disconnect()` → `BLEManager.disconnect`).
@@ -93,6 +95,39 @@ final class SourceCoordinator: ObservableObject {
     private var connectedWhoopUuid: String?
 
     private var cancellables = Set<AnyCancellable>()
+    private var accountShutdown = false
+    private var whoopPausedForCapture = false
+
+    func shutdownForAccountChange() {
+        _ = captureDrainForAccountChange()
+    }
+
+    /// Root captures this before AppModel retires Repository, then retains/joins it alongside BLE.
+    /// Source stop fences new intake before offering its already-accepted final buffer.
+    func captureDrainForAccountChange() -> GenericCaptureJournal? {
+        guard !accountShutdown else { return genericCapture }
+        accountShutdown = true
+        cancellables.removeAll()
+        pendingAdoptDeviceId = nil
+        tearDownNonWhoopSource()
+        stopWhoop()
+        genericCapture?.sealCapture()
+        return genericCapture
+    }
+
+    func retryCapturePersistence() async -> Bool {
+        guard let genericCapture else { return true }
+        let succeeded = await genericCapture.drain()
+        if succeeded, !accountShutdown { activeDeviceChanged(to: registry.activeDeviceId) }
+        return succeeded
+    }
+
+    private func holdGenericCapture() {
+        tearDownNonWhoopSource()
+        activeStrapId = nil
+        whoopPausedForCapture = true
+        stopWhoop()
+    }
 
     // MARK: - Init
 
@@ -115,16 +150,21 @@ final class SourceCoordinator: ObservableObject {
          setWhoopPreferredPeripheral: @escaping (String?) -> Void,
          setWhoopActiveDeviceId: @escaping (String) -> Void,
          connectedPeripheralUUID: AnyPublisher<String?, Never>,
-         straplog: @escaping (String) -> Void = { _ in }) {
+         straplog: @escaping (String) -> Void = { _ in },
+         genericCapture: GenericCaptureJournal? = nil,
+         standardSourceFactory: ((String) -> StandardHRSource)? = nil) {
         self.registry = registry
         self.live = live
         self.storeHandle = storeHandle
+        self.genericCapture = genericCapture
+        self.standardSourceFactory = standardSourceFactory
         self.startWhoop = startWhoop
         self.stopWhoop = stopWhoop
         self.setWhoopPreferredPeripheral = setWhoopPreferredPeripheral
         self.setWhoopActiveDeviceId = setWhoopActiveDeviceId
         self.connectedPeripheralUUID = connectedPeripheralUUID
         self.straplog = straplog
+        genericCapture?.didHoldCapture = { [weak self] in self?.holdGenericCapture() }
     }
 
     // MARK: - Wiring
@@ -135,6 +175,7 @@ final class SourceCoordinator: ObservableObject {
     /// default preferred peripheral (nil) — no scan/disconnect churn. The connected-uuid sink drives
     /// first-connect identity adoption.
     func start() {
+        guard !accountShutdown, cancellables.isEmpty else { return }
         registry.$activeDeviceId
             .removeDuplicates()
             .sink { [weak self] id in self?.activeDeviceChanged(to: id) }
@@ -158,6 +199,7 @@ final class SourceCoordinator: ObservableObject {
     ///   • WHOOP active after a strap → stop the strap source + resume WHOOP.
     ///   • A generic strap → pause WHOOP + (re)start `StandardHRSource` for that strap's id.
     func activeDeviceChanged(to id: String) {
+        guard !accountShutdown, genericCapture?.isHeld != true else { return }
         // The Apple Watch is a HealthKit source with `peripheralId: nil` (see `AppleWatchDevice`): there is
         // no BLE peripheral to connect, and the M1 live read happens entirely in `HealthKitBridge`'s
         // observers + sync, off this BLE coordinator. Short-circuit BEFORE the WHOOP branch so we never
@@ -199,15 +241,23 @@ final class SourceCoordinator: ObservableObject {
     ///   • We were on a DIFFERENT WHOOP → drop that WHOOP link and reconnect to this one.
     private func switchToWhoop(id: String) {
         // Already streaming this exact WHOOP with no strap in between → nothing to do.
-        if !onStrap, activeWhoopId == id { return }
+        if !onStrap, activeWhoopId == id, !whoopPausedForCapture { return }
 
         let peripheralId = peripheralId(for: id)
 
         if onStrap {
             // Coming back from a generic strap / FTMS machine: tear that source down first.
             tearDownNonWhoopSource()
+            guard genericCapture?.isHeld != true else { return }
             activeStrapId = nil
             onStrap = false
+            whoopPausedForCapture = false
+            pointWhoop(at: id, peripheralId: peripheralId)
+            startWhoop()
+        } else if whoopPausedForCapture {
+            // A final generic write can fail after WHOOP resumed. The remembered device id is
+            // not evidence that its transport is still running after the persistence hold.
+            whoopPausedForCapture = false
             pointWhoop(at: id, peripheralId: peripheralId)
             startWhoop()
         } else if activeWhoopId == nil {
@@ -260,10 +310,20 @@ final class SourceCoordinator: ObservableObject {
         // Switching source→source: stop the previous non-WHOOP source before starting the new one.
         tearDownNonWhoopSource()
 
+        guard genericCapture?.isHeld != true else { return }
+        switch sourceKind(for: id) {
+        case .ftms, .huami, .oura: break
+        default:
+            guard genericCapture != nil else {
+                straplog("HR-strap: capture held because its account writer is unavailable")
+                return
+            }
+        }
+
         // Build the isolated source for this device's registered kind (the ONE place that maps a kind to a
         // concrete driver), then bring it up. `.liveAppleWatch` never reaches here — it's short-circuited
         // above — so `makeSource` only ever sees a real BLE source kind.
-        let source = makeSource(for: id)
+        guard let source = makeSource(for: id) else { return }
         // CONNECT to the active strap's known peripheral, don't just scan. scan() only discovered + listed
         // it but never connected, so a Polar etc. showed as "found" yet never streamed (#421). connect()
         // reaches the cached peripheral by identifier (or scans-then-connects if not yet cached); a bare
@@ -283,7 +343,7 @@ final class SourceCoordinator: ObservableObject {
     /// nothing else in the coordinator changes. Each arm keeps its own bespoke construction (persist / log /
     /// onBattery closures, plus Oura's ringGen / authKey / adoptIntent). Returns the source WITHOUT
     /// connecting — the caller (`switchToStrap`) does the connect-by-identifier-else-scan bring-up.
-    private func makeSource(for id: String) -> any LiveHRSource {
+    private func makeSource(for id: String) -> (any LiveHRSource)? {
         switch sourceKind(for: id) {
         case .ftms:  return makeFTMSSource(id: id)
         case .huami: return makeHuamiSource(id: id)
@@ -293,13 +353,15 @@ final class SourceCoordinator: ObservableObject {
     }
 
     /// Build the isolated `StandardHRSource` for a generic HR strap `id`.
-    private func makeStandardSource(id: String) -> any LiveHRSource {
-        StandardHRSource(
+    private func makeStandardSource(id: String) -> (any LiveHRSource)? {
+        if let standardSourceFactory { return standardSourceFactory(id) }
+        guard let genericCapture else { return nil }
+        do {
+            let sink = try genericCapture.standardHRSink(deviceID: id)
+            return try StandardHRSource(
             live: live,
             deviceId: id,
-            persist: { [storeHandle] streams in
-                Task { if let store = await storeHandle() { _ = try? await store.insert(streams, deviceId: id) } }
-            },
+            durableCapture: sink,
             log: straplog,   // generic-HR lifecycle → the SAME exported strap log (issue #421)
             // Surface the generic strap's standard Battery Service (0x180F) charge the SAME place the
             // WHOOP strap battery shows (the Live/device status), via the shared LiveState funnel.
@@ -307,6 +369,10 @@ final class SourceCoordinator: ObservableObject {
             // #polar-debug: read the toggle live at connect so a Polar strap logs its identified model
             // (default off; the Test Centre only exposes the toggle when a Polar strap is paired).
             polarDebug: { UserDefaults.standard.bool(forKey: AppModel.polarDebugLoggingKey) })
+        } catch {
+            straplog("HR-strap: capture held because its durable account journal is unavailable")
+            return nil
+        }
     }
 
     /// Build the isolated `FTMSSource` for a gym machine `id`. HR (when the machine reports it) rides the
@@ -474,6 +540,7 @@ final class SourceCoordinator: ObservableObject {
     /// irreversible-consent gate + "Take over this ring?" confirm, immediately before the ring is registered
     /// active. Per OURA_PROTOCOL.md s3.2 the install is a one-time, consent-gated provisioning write.
     func requestOuraAdopt(deviceId: String) {
+        guard !accountShutdown else { return }
         pendingAdoptDeviceId = deviceId
     }
 
@@ -483,6 +550,9 @@ final class SourceCoordinator: ObservableObject {
     /// `activeSource`; otherwise it is already nil and this is a no-op).
     private func tearDownNonWhoopSource() {
         activeSource?.stop()
+        if let source = activeSource as? StandardHRSource, source.pendingCaptureCount > 0 {
+            genericCapture?.retainFinalBuffer(owner: source) { [source] in source.retryBufferedPersistence() }
+        }
         activeSource = nil
         ouraSource = nil
     }
@@ -515,6 +585,7 @@ final class SourceCoordinator: ObservableObject {
     ///       RE-ADOPT the working strap so we stop looping on the strap that won't bond. See #52.
     ///   • it already matches → nothing to write.
     private func connectedPeripheralChanged(to uuid: String?) {
+        guard !accountShutdown else { return }
         // Track the live strap's uuid for the WHOOP->WHOOP adopt-in-place skip (#74). nil is a
         // disconnect/never-connected republish: clear it so a later make-active can't wrongly match a stale
         // link, then fall through to the existing ignore.

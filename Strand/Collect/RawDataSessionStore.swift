@@ -39,10 +39,13 @@ final class RawDataSessionStore: ObservableObject {
     var active: Session? { sessions.first(where: \.active) }
 
     private let directory: URL
+    private let imuStore: ImuSessionFileStore
     private let encoder: JSONEncoder
     private let decoder = JSONDecoder()
 
-    init(directory override: URL? = nil, fileManager: FileManager = .default) {
+    init(directory override: URL? = nil, fileManager: FileManager = .default,
+         imuStore: ImuSessionFileStore = .shared) {
+        self.imuStore = imuStore
         let base = (try? fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                          appropriateFor: nil, create: true)) ?? fileManager.temporaryDirectory
         directory = override ?? base.appendingPathComponent("OpenWhoop/RawDataSessions", isDirectory: true)
@@ -75,7 +78,7 @@ final class RawDataSessionStore: ObservableObject {
             sessions.removeAll { $0.id == session.id }
             return nil
         }
-        ImuSessionFileStore.shared.start(id: session.id, deviceId: deviceId, fromMs: millis)
+        imuStore.start(id: session.id, deviceId: deviceId, fromMs: millis)
         return session
     }
 
@@ -98,7 +101,7 @@ final class RawDataSessionStore: ObservableObject {
         let active = sessions[index]
         // Flush the final high-rate block before publishing the terminal metadata. If it cannot be made
         // durable, leave the session active so the BLE lifecycle retains debt and a later Stop can retry.
-        guard ImuSessionFileStore.shared.complete(id: active.id, toMs: millis) else { return false }
+        guard imuStore.complete(id: active.id, toMs: millis) else { return false }
         sessions[index].endedAtMs = millis
         sessions[index].capturedEndedAtMs = millis
         sessions[index].events.append(Event(atMs: millis, kind: "stop"))
@@ -128,7 +131,7 @@ final class RawDataSessionStore: ObservableObject {
                   let endedAtMs = session.endedAtMs else { return false }
             // Also repairs a process that reached the older metadata-first close path: do not clear BLE
             // cleanup debt until any still-pending final IMU block has been flushed successfully.
-            return ImuSessionFileStore.shared.complete(id: session.id, toMs: endedAtMs)
+            return imuStore.complete(id: session.id, toMs: endedAtMs)
         }
         // A peripheral-only recovery may legitimately have no UI session (for example, after a process
         // interruption left producer cleanup debt). It may
@@ -148,7 +151,7 @@ final class RawDataSessionStore: ObservableObject {
                               capturedStartedAtMs: nil, capturedEndedAtMs: nil, comment: "",
                               exported: false, lastExportedAtMs: nil, events: events)
         sessions.insert(session, at: 0); persist(session)
-        ImuSessionFileStore.shared.register(id: id, deviceId: deviceId, fromMs: fromMs, toMs: toMs)
+        imuStore.register(id: id, deviceId: deviceId, fromMs: fromMs, toMs: toMs)
         return session
     }
 
@@ -165,7 +168,7 @@ final class RawDataSessionStore: ObservableObject {
                               exported: false, lastExportedAtMs: nil, events: session.events)
         }
         if let session = sessions.first(where: { $0.id == sessionId }) {
-            ImuSessionFileStore.shared.register(id: sessionId, deviceId: session.deviceId, fromMs: fromMs, toMs: toMs)
+            imuStore.register(id: sessionId, deviceId: session.deviceId, fromMs: fromMs, toMs: toMs)
         }
     }
 
@@ -212,8 +215,8 @@ final class RawDataSessionStore: ObservableObject {
     func removeMetadata(_ sessionId: String,
                         removeItem: (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }) -> Bool {
         guard sessions.first(where: { $0.id == sessionId })?.active == false else { return false }
-        guard ImuSessionFileStore.shared.deleteFiles(sessionId, removeItem: removeItem) else { return false }
-        ImuSessionFileStore.shared.remove(id: sessionId)
+        guard imuStore.deleteFiles(sessionId, removeItem: removeItem) else { return false }
+        imuStore.remove(id: sessionId)
         do {
             let metadata = file(sessionId)
             if FileManager.default.fileExists(atPath: metadata.path) { try removeItem(metadata) }

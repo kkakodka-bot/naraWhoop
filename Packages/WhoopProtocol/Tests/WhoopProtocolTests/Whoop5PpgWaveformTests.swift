@@ -101,7 +101,8 @@ final class Whoop5PpgWaveformTests: XCTestCase {
         let f = parseFrame(bytes(v26Hex), family: .whoop5)
         let streams = extractHistoricalStreams([f], deviceClockRef: 1_780_917_232, wallClockRef: 1_780_917_232)
         XCTAssertEqual(streams.ppgWaveform,
-                       [PpgWaveformSample(ts: 1_780_917_232, samples: expectedWaveform, burstIndex: 1)])
+                       [PpgWaveformSample(ts: 1_780_917_232, samples: expectedWaveform, burstIndex: 1,
+                                          recordIndex: 25_444_781)])
         XCTAssertTrue(streams.ppgHr.isEmpty, "a lone 1 s record is too short for a confident HR estimate")
         // Not "no rows at all" — the Backfiller's silent-data-loss diagnostic must see this as decoded.
         XCTAssertFalse(streams.isEmpty)
@@ -113,6 +114,7 @@ final class Whoop5PpgWaveformTests: XCTestCase {
                                                deviceClockRef: 1_780_917_232,
                                                wallClockRef: 1_780_917_232)
         XCTAssertEqual(streams.ppgWaveform.map(\.burstIndex), [1, 2])
+        XCTAssertEqual(streams.ppgWaveform.map(\.recordIndex), parsed.map { $0.parsed["record_index"]?.intValue })
     }
 
     /// `Streams.isEmpty` must count a waveform-only decode as non-empty even when `ppgHr` (derived FROM
@@ -138,10 +140,11 @@ final class Whoop5PpgWaveformTests: XCTestCase {
         let s2 = try dec.decode(Streams.self, from: Data(json.utf8))
         XCTAssertEqual(s2.ppgWaveform, [PpgWaveformSample(ts: 1_780_917_232, samples: [-1432, -1332, 12])])
         XCTAssertNil(s2.ppgWaveform.first?.burstIndex, "legacy JSON has no burst index")
+        XCTAssertNil(s2.ppgWaveform.first?.recordIndex, "legacy JSON has no record identity")
         // Round-trip encode → decode is identity.
         let withBurst = Streams(ppgWaveform: [PpgWaveformSample(ts: 1_780_917_232,
                                                                 samples: [-1432, -1332, 12],
-                                                                burstIndex: 4)])
+                                                                burstIndex: 4, recordIndex: 25_444_781)])
         let round = try dec.decode(Streams.self, from: JSONEncoder().encode(withBurst))
         XCTAssertEqual(round.ppgWaveform, withBurst.ppgWaveform)
     }

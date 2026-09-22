@@ -411,6 +411,13 @@ object AnalyticsEngine {
         // Threaded rather than read from a global so this stays a pure function, and defaulted so every
         // existing caller and test is byte-identical.
         effortMethod: StrainScorer.Method = StrainScorer.Method.EDWARDS,
+        // Server/user-edit orchestration supplies an exact replacement set. Null preserves every
+        // existing caller; an explicit empty list suppresses detection after dismissing all sessions.
+        resolvedSleep: List<DetectedSleep>? = null,
+        excludedMainSleepStarts: Set<Long> = emptySet(),
+        // Real zone-derived [start,end) bounds, including 23/25-hour DST days.
+        localDayBounds: Pair<Long, Long>? = null,
+        timezone: java.time.ZoneId? = null,
     ): DayResult {
 
         // Precompute the day's UTC bounds ONCE (#996). isoDay is a FIXED-UTC formatter, so
@@ -421,14 +428,16 @@ object AnalyticsEngine {
         // incl. fractional offsets), matching the Swift twin.
         val dayStartUtc = dayStartUtcSeconds(day)
         val dayEndUtc = dayStartUtc + 86_400
-        fun tsInDay(ts: Long): Boolean = (ts + tzOffsetSeconds) >= dayStartUtc && (ts + tzOffsetSeconds) < dayEndUtc
+        fun tsInDay(ts: Long): Boolean = localDayBounds?.let { ts >= it.first && ts < it.second }
+            ?: ((ts + tzOffsetSeconds) >= dayStartUtc && (ts + tzOffsetSeconds) < dayEndUtc)
 
         // ── Sleep detection + staging ─────────────────────────────────────────
-        val detectedSessions = SleepStager.detectSleep(
+        val detectedSessions = if (resolvedSleep != null) emptyList() else SleepStager.detectSleep(
             hr = hr, rr = rr, resp = resp, gravity = gravity, tzOffsetSeconds = tzOffsetSeconds,
             wristOff = wristOff, bandSleepState = bandSleepState,
             useSleepStagerV2 = useSleepStagerV2,
             traceSink = traceSink,
+            timezone = timezone,
         )
         // Motion-aware wake refinement (#364 follow-up) runs AFTER V1/V2 staging, over every detected
         // session (naps included — the same eligibility gates apply). `steps` is the SAME calendar-day/
@@ -445,11 +454,12 @@ object AnalyticsEngine {
         // from THIS day's hr/rr over its window (the stored ring row carries neither), using the SAME helpers
         // detectSleep populates a session with, then keep only the detected sessions that DON'T overlap a
         // provided one (provided is authoritative where they collide; a separate nap survives).
-        val allSessions: List<DetectedSleep> = if (providedSleep.isEmpty()) {
+        val supplied = resolvedSleep ?: providedSleep
+        val allSessions: List<DetectedSleep> = if (supplied.isEmpty()) {
             refinedSessions
         } else {
             val rrSorted = rr.sortedBy { it.ts }
-            val enrichedProvided = providedSleep.map { s ->
+            val enrichedProvided = supplied.map { s ->
                 // #1884: no HR-only special case any more. This used to short-circuit on `s.hrOnly` to
                 // preserve #1801's display-only guarantee, which withheld both values. Now that an HR-only
                 // session reports what it measured, that clause is not merely redundant — an HR-only night
@@ -492,10 +502,11 @@ object AnalyticsEngine {
         // single block the bare [mainNightIndex] would pick. Intelligence and the Sleep headline read this
         // SAME group; the debt ledger starts with it and separately credits naps, so #525 does not regress.
         // Mirrors Swift. (#525 / #561)
+        val mainCandidates = matched.withIndex().filter { it.value.start !in excludedMainSleepStarts }
         val mainGroupIdx = SleepStageTotals.mainNightGroupIndices(
-            matched.map { SleepStageTotals.NightBlock(it.start, it.end) },
-            tzOffsetSeconds, habitualMidsleepSec,
-        ) ?: emptyList()
+            mainCandidates.map { SleepStageTotals.NightBlock(it.value.start, it.value.end) },
+            tzOffsetSeconds, habitualMidsleepSec, timezone,
+        )?.map { mainCandidates[it].index } ?: emptyList()
         val mainGroup: List<DetectedSleep> = mainGroupIdx.map { matched[it] }
 
         // ── Daily sleep aggregates (AASM) SUMMED over the main-night GROUP (#525 / #561) ──
@@ -874,15 +885,16 @@ object AnalyticsEngine {
         // deviceId is stamped by the caller (IntelligenceEngine persists under
         // "<deviceId>-noop"); use the imported source id as a placeholder here so
         // the value type is complete. The caller copies with its computed id.
+        val sleepEvidence = matched.isNotEmpty() && (resolvedSleep == null || mainGroup.any { it.stages.isNotEmpty() })
         val daily = DailyMetric(
             deviceId = "",
             day = day,
-            totalSleepMin = if (matched.isEmpty()) null else tstS / 60.0,
-            efficiency = if (matched.isEmpty()) null else efficiency,
-            deepMin = if (matched.isEmpty()) null else deepS / 60.0,
-            remMin = if (matched.isEmpty()) null else remS / 60.0,
-            lightMin = if (matched.isEmpty()) null else lightS / 60.0,
-            disturbances = if (matched.isEmpty()) null else disturbances,
+            totalSleepMin = if (!sleepEvidence) null else tstS / 60.0,
+            efficiency = if (!sleepEvidence) null else efficiency,
+            deepMin = if (!sleepEvidence) null else deepS / 60.0,
+            remMin = if (!sleepEvidence) null else remS / 60.0,
+            lightMin = if (!sleepEvidence) null else lightS / 60.0,
+            disturbances = if (!sleepEvidence) null else disturbances,
             restingHr = restingHRDaily,
             avgHrv = avgHRVDaily,
             // "Every session this day was staged from heart rate alone."
@@ -1066,7 +1078,7 @@ object AnalyticsEngine {
      * (70..100), so the rounding-rule choice (half-up vs half-away-from-zero) is inert. Byte-parity
      * twin of the Swift `nightlySpo2CandidateMean`.
      */
-    internal fun nightlySpo2CandidateMean(
+    fun nightlySpo2CandidateMean(
         sessions: List<DetectedSleep>,
         aux: List<V18AuxRow>,
     ): Pair<Int, Int>? {
@@ -1117,7 +1129,7 @@ object AnalyticsEngine {
      * shipped `sum / kept` integer division floored it to 97, a spurious miss). Byte-parity twin of the
      * Swift `nightlySpo2CeilingMean`.
      */
-    internal fun nightlySpo2CeilingMean(
+    fun nightlySpo2CeilingMean(
         sessions: List<DetectedSleep>,
         spo2: List<Spo2Sample>,
     ): Pair<Int, Int>? {
@@ -1193,6 +1205,21 @@ object AnalyticsEngine {
      *  excluded; the strap's own decode gate is the looser 20–45. (PR #85) */
     private const val SKIN_TEMP_MIN_C: Double = 28.0
     private const val SKIN_TEMP_MAX_C: Double = 42.0
+
+    /** Histogram of already wear/window-gated samples, evaluated on ONE common anchor scale.
+     * Historical orchestration uses this to refold prior thermal observations without re-reading HR.
+     * Gates, conversion and minimum count are the same as skinTempFunnel, not a new temperature model. */
+    fun skinTempHistogramMean(rawCounts: Map<Int,Int>, family: DeviceFamily, anchorRaw: Double?): Double? {
+        var sum=0.0; var count=0L
+        for((raw,n) in rawCounts.toSortedMap()) {
+            require(n>=0)
+            if(family==DeviceFamily.WHOOP4 && raw !in Whoop4SkinTemp.WORN_MIN_RAW..Whoop4SkinTemp.WORN_MAX_RAW) continue
+            val c=skinTempCelsius(raw,family,anchorRaw ?: Whoop4SkinTemp.ANCHOR_RAW)
+            if(c<SKIN_TEMP_MIN_C || c>SKIN_TEMP_MAX_C) continue
+            sum+=c*n; count+=n
+        }
+        return if(count>=MIN_SKIN_TEMP_SAMPLES_INLINE) sum/count else null
+    }
 
     // ── Skin-temp funnel diagnostic (#752) ──────────────────────────────────────────────────────────
 

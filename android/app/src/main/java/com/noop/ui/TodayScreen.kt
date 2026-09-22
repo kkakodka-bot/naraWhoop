@@ -395,6 +395,16 @@ fun TodayScreen(
     val selectedDayKey = remember(selectedDay, today, selectedDayOffset) {
         if (selectedDayOffset == 0) today?.day ?: selectedDay.toString() else selectedDay.toString()
     }
+    val context = LocalContext.current
+    val serverDays by viewModel.serverScores.days.collectAsStateWithLifecycle()
+    val serverOverlay = remember(selectedDayKey, serverDays) {
+        viewModel.serverScores.overlay(selectedDayKey)
+    }
+    LaunchedEffect(selectedDayKey) {
+        if (com.noop.push.ServerScoringSettings.isEnabled(context)) {
+            viewModel.serverScores.refreshDay(selectedDayKey)
+        }
+    }
     val historicalMetric = remember(days, selectedDayKey) { days.lastOrNull { it.day == selectedDayKey } }
     val displayMetric = remember(today, historicalMetric, selectedDayOffset) {
         if (selectedDayOffset == 0) today ?: historicalMetric else historicalMetric
@@ -429,7 +439,6 @@ fun TodayScreen(
     }
     // Display-only unit system + the SI profile weight, read once like every other Settings-backed
     // preference (SharedPreferences isn't reactive, a Settings write triggers recomposition).
-    val context = LocalContext.current
     val unitSystem = UnitPrefs.system(context)
     // Effort display scale (#268), drives the Effort tile's value + caption. Display-only.
     val effortScale = UnitPrefs.effortScale(context)
@@ -1690,6 +1699,7 @@ fun TodayScreen(
                             onOpenCoach = onOpenCoach,
                             onCustomise = { showDashboardEditor = true },
                             spo2CandidateByDay = spo2CandidateByDay,
+                            serverOverlay = serverOverlay,
                         )
                         TodaySection.MENSTRUAL_CYCLE -> MenstrualCycleHomeCard(
                             enabled = cycleEnabled,
@@ -3498,6 +3508,7 @@ private fun YourCardsSection(
     onOpenCoach: (String?) -> Unit,
     onCustomise: () -> Unit,
     spo2CandidateByDay: Map<String, Double> = emptyMap(),
+    serverOverlay: com.noop.push.ServerScoreDayCache? = null,
 ) {
     // #1331 parity: honor the °C/°F preference on the Skin Temp card, the way Health / Compare (and the
     // Swift twin) do. The classic dashboard hardcoded Celsius here alone, so a °F user saw °C on this
@@ -3556,6 +3567,7 @@ private fun YourCardsSection(
                         hydrationTotalMl = hydrationTotalMl,
                         hydrationGoalMl = hydrationGoalMl,
                         spo2CandidateByDay = spo2CandidateByDay,
+                        serverOverlay = serverOverlay,
                     ),
                     // The mini liquid vessel's fill — the SAME per-card fraction iOS `liquidCard` uses.
                     fraction = dashboardCardFraction(
@@ -3775,6 +3787,7 @@ private fun dashboardCardValue(
     fahrenheit: Boolean = false,
     skinTempPreferred: com.noop.analytics.SkinTempDisplay.Kind =
         com.noop.analytics.SkinTempDisplay.Kind.ABSOLUTE,
+    serverOverlay: com.noop.push.ServerScoreDayCache? = null,
 ): String {
     fun withUnit(s: String): String =
         if (s == NO_DATA) NO_DATA else if (card.unit.isEmpty()) s else "$s ${card.unit}"
@@ -3792,10 +3805,16 @@ private fun dashboardCardValue(
         //
         // Deliberately NOT the recovery-scored carry: the comment on `lastVitalsDay` is explicit that
         // vitals must not fall back to an older recovery-scored day.
-        DashboardCard.HRV ->
-            withUnit((day?.avgHrv ?: hrvDay?.avgHrv)?.let { it.roundToInt().toString() } ?: NO_DATA)
-        DashboardCard.RESTING_HR ->
-            withUnit((day?.restingHr ?: rhrDay?.restingHr)?.toString() ?: NO_DATA)
+        DashboardCard.HRV -> {
+            val server = serverOverlay?.daily?.hrvRmssdMs
+            if (server != null) withUnit(server.roundToInt().toString())
+            else withUnit((day?.avgHrv ?: hrvDay?.avgHrv)?.let { it.roundToInt().toString() } ?: NO_DATA)
+        }
+        DashboardCard.RESTING_HR -> {
+            val server = serverOverlay?.daily?.restingHrBpm
+            if (server != null) withUnit(server.toString())
+            else withUnit((day?.restingHr ?: rhrDay?.restingHr)?.toString() ?: NO_DATA)
+        }
         DashboardCard.RESPIRATORY ->
             // PER-FIELD carry: today → the STALENESS-BOUNDED `respDay` (lastRespRow). The unbounded
             // `vitalsDay?.respRateBpm` is dropped on purpose (see the gauge site + Swift `lastRespDay`):

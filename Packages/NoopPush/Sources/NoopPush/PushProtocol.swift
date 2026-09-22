@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import CoreFoundation
 
 public struct PushProtocolException: Error, LocalizedError, Sendable {
     public let message: String
@@ -10,10 +11,26 @@ public struct PushProtocolException: Error, LocalizedError, Sendable {
 public enum PushProtocol {
     public static let version = "1.0"
     public static let binaryVersion = "1.1"
-    /// Object-lane manifests are built at this version; inline binary posts stay at `binaryVersion`.
+    /// Legacy object lane; retain this version when the receiver negotiates 1.2.
     public static let objectVersion = "1.2"
+    public static let identityObjectVersion = "1.3"
+    public static let auxiliaryIdentityVersion = "1.4"
+    public static func isObjectVersion(_ version: String) -> Bool {
+        version == objectVersion || version == identityObjectVersion || version == auxiliaryIdentityVersion
+    }
+    public static func hasPPGIdentity(_ version: String) -> Bool {
+        version == identityObjectVersion || version == auxiliaryIdentityVersion
+    }
+    public static func schemaVersion(stream: String, protocolVersion: String) -> Int {
+        if stream == "ppgWaveformSample", hasPPGIdentity(protocolVersion) { return 2 }
+        if protocolVersion == auxiliaryIdentityVersion,
+           ["v18AuxSample", "stepSample", "sleepStateSample", "ppgHrSample"].contains(stream) { return 2 }
+        return 1
+    }
+    /// Receiver manifest ceiling, including the exclusive final second.
+    public static let maxObjectWindowSeconds: Int64 = 48 * 60 * 60
     /// Sender-preferred list for capability negotiation (`GET`); see PUSH_PROTOCOL.md.
-    public static let capabilitiesAcceptVersions = "1.2,1.1,1.0"
+    public static let capabilitiesAcceptVersions = "1.4,1.3,1.2,1.1,1.0"
     public static let forbiddenRemoteControlMembers: Set<String> = [
         "command", "commands", "endpoint", "url", "cadence", "schema", "fields",
     ]
@@ -29,6 +46,9 @@ public enum PushProtocol {
         "skinTempSample": (["ts"], ["raw", "aux1Raw", "aux2Raw"]),
         "respSample": (["ts"], ["raw"]),
         "gravitySample": (["ts"], ["x", "y", "z", "dynAccel"]),
+        "stepSample": (["ts"], ["counter", "activityClass", "provenance"]),
+        "sleepStateSample": (["ts"], ["state", "rawByte", "provenance"]),
+        "ppgHrSample": (["ts"], ["bpm", "conf", "provenance"]),
         "dailyMetric": (
             ["day"],
             [
@@ -59,14 +79,25 @@ public enum PushProtocol {
         sourceId: String,
         deviceId: String,
         startCursor: PushCursor?,
-        records: [PushAppendRecord]
+        records: [PushAppendRecord],
+        protocolVersion: String = version
     ) throws -> PushBatch {
         try validateUUID(sourceId, name: "sourceId")
+        guard [version, binaryVersion, objectVersion, identityObjectVersion, auxiliaryIdentityVersion].contains(protocolVersion),
+              !table.isScalarExtension || protocolVersion != version else {
+            throw PushProtocolException("scalar stream requires negotiated protocol 1.1 or later")
+        }
+        let wireVersion = table.isScalarExtension ? protocolVersion : version
         guard !records.isEmpty else { throw PushProtocolException("append batch must contain a record") }
         guard records.count == 1 || zip(records, records.dropFirst()).allSatisfy({ $0.0.rowId < $0.1.rowId }) else {
             throw PushProtocolException("append records must be strictly ordered by rowid")
         }
-        for record in records { try validateRecord(table: table, key: record.key, data: record.data) }
+        for record in records {
+            try validateRecord(table: table, key: record.key, data: record.data)
+            if table.isScalarExtension {
+                try validateScalar(table, record: record, protocolVersion: wireVersion)
+            }
+        }
 
         let candidates = Array(records.prefix(PushProtocolLimits.maxRecords))
         var selectedRows: [PushAppendRecord] = []
@@ -79,7 +110,7 @@ public enum PushProtocol {
             let candidateCount = selectedRows.count + 1
             let headerSize = try appendHeader(
                 sourceId: sourceId, table: table, deviceId: deviceId,
-                start: startCursor, end: end, count: candidateCount, batchId: uuidPlaceholder
+                start: startCursor, end: end, count: candidateCount, batchId: uuidPlaceholder, protocolVersion: wireVersion
             ).count
             if headerSize + rowBytes + encodedRow.count > PushProtocolLimits.maxBodyBytes { break }
             selectedRows.append(candidate)
@@ -94,17 +125,17 @@ public enum PushProtocol {
         let endCursor = try cursorFor(table: table, deviceId: deviceId, record: selectedRows.last!)
         let identity = appendIdentity(
             sourceId: sourceId, table: table, deviceId: deviceId,
-            start: startCursor, end: endCursor, count: selectedRows.count
+            start: startCursor, end: endCursor, count: selectedRows.count, protocolVersion: wireVersion
         )
         let batchId = stableUuid(header: identity, lines: selectedLines)
         let header = try appendHeader(
             sourceId: sourceId, table: table, deviceId: deviceId,
-            start: startCursor, end: endCursor, count: selectedRows.count, batchId: batchId
+            start: startCursor, end: endCursor, count: selectedRows.count, batchId: batchId, protocolVersion: wireVersion
         )
         let body = concatenate(header: header, lines: selectedLines)
         precondition(body.count <= PushProtocolLimits.maxBodyBytes)
         return PushBatch(
-            protocolVersion: version,
+            protocolVersion: wireVersion,
             batchId: batchId,
             sourceId: sourceId,
             table: table,
@@ -119,12 +150,15 @@ public enum PushProtocol {
     }
 
     /// Builds every bounded part of one authoritative replacement. Empty snapshots produce one part.
+    /// Fresh durable mutations supply a generation so A -> B -> A cannot reuse A's cached receipt
+    /// without applying its replacement again. Saved selections replay their original bytes/IDs.
     public static func mutableBatches(
         table: PushMutableTable,
         sourceId: String,
         deviceId: String,
         window: PushWindow,
-        records: [PushMutableRecord]
+        records: [PushMutableRecord],
+        replacementGeneration: String? = nil
     ) throws -> [PushBatch] {
         try validateUUID(sourceId, name: "sourceId")
         for record in records { try validateRecord(table: table, key: record.key, data: record.data) }
@@ -134,7 +168,7 @@ public enum PushProtocol {
             throw PushProtocolException("replace_window contains a duplicate key")
         }
         let lines = try records.map { try encodeMutableRecordLine(table: table, record: $0) }
-        let replacementIdentity: [String: PushJSONValue] = [
+        var replacementIdentity: [String: PushJSONValue] = [
             "deviceId": .string(deviceId),
             "delivery": .string("replace_window"),
             "protocolVersion": .string(version),
@@ -142,6 +176,15 @@ public enum PushProtocol {
             "stream": .string(table.wireName),
             "window": .map(try selectorBounds(table: table, window: window)),
         ]
+        if let replacementGeneration {
+            guard !replacementGeneration.isEmpty, replacementGeneration.utf8.count <= 4096 else {
+                throw PushProtocolException("invalid mutable replacement generation")
+            }
+            // This local identity domain changes only UUID values accepted by the existing wire
+            // schema. Source rows, selectors, receipt fields and legacy nil-generation IDs stay exact.
+            replacementIdentity["identityVersion"] = .string("mutable-generation-v1")
+            replacementIdentity["replacementGeneration"] = .string(replacementGeneration)
+        }
         let replacementId = stableUuid(header: replacementIdentity, lines: lines)
 
         var chunks: [[Data]] = []
@@ -248,12 +291,16 @@ public enum PushProtocol {
         return sha256Hex(Data(payload.utf8))
     }
 
-    public static func binaryKeyFingerprint(table: PushBinaryTable, deviceId: String, row: PushBinaryRow) throws -> String {
+    public static func binaryKeyFingerprint(table: PushBinaryTable, deviceId: String, row: PushBinaryRow,
+                                             v18IdentityV2: Bool = false) throws -> String {
         let payload: String = switch (table, row) {
         case (.ppgWaveformSample, .ppgWaveform(let record)):
-            "ppgWaveformSample\n\(deviceId)\n\(record.ts)\n\(record.burstIndex.map(String.init) ?? "")"
+            record.recordIndex.map { "ppgWaveformSample-v2\n\(deviceId)\n\(record.ts)\n\($0)" }
+                ?? "ppgWaveformSample\n\(deviceId)\n\(record.ts)\n\(record.burstIndex.map(String.init) ?? "")"
         case (.v18AuxSample, .v18Aux(let record)):
-            "v18AuxSample\n\(deviceId)\n\(record.ts)"
+            (v18IdentityV2 || record.recordIndex != nil)
+                ? "v18AuxSample-v2\n\(deviceId)\n\(record.ts)\n\(record.recordIndex.map(String.init) ?? "unknown")"
+                : "v18AuxSample\n\(deviceId)\n\(record.ts)"
         case (.rawBatch, .rawBatch(let record)):
             "rawBatch\n\(deviceId)\n\(record.batchId)"
         case (.rawImuSession, .rawImuSession(let record)):
@@ -271,10 +318,15 @@ public enum PushProtocol {
         startCursor: PushCursor?,
         rows: [PushBinaryRow],
         protocolVersion: String = binaryVersion,
-        decodedLimit: Int = PushProtocolLimits.maxBodyBytes
+        decodedLimit: Int = PushProtocolLimits.maxBodyBytes,
+        payloadDirectory: URL? = nil,
+        allowsWork: @escaping () -> Bool = { true }
     ) throws -> PushBinaryBatch {
         try validateUUID(sourceId, name: "sourceId")
         guard !rows.isEmpty else { throw PushProtocolException("binary object must contain a row") }
+        guard protocolVersion == binaryVersion || isObjectVersion(protocolVersion) else {
+            throw PushProtocolException("unsupported binary protocol version")
+        }
 
         let selected: [PushBinaryRow]
         switch table {
@@ -282,20 +334,43 @@ public enum PushProtocol {
             guard rows.count == 1 else { throw PushProtocolException("rawBatch upload must contain exactly one row") }
             selected = rows
         case .ppgWaveformSample, .v18AuxSample, .rawImuSession:
-            selected = try selectBinaryRows(table: table, rows: rows, decodedLimit: decodedLimit)
+            selected = try selectBinaryRows(table: table, rows: rows, decodedLimit: decodedLimit,
+                                            ppgIdentityV2: hasPPGIdentity(protocolVersion),
+                                            v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
         }
 
-        let decoded = try PushBinaryCodec.pack(table: table, rows: selected)
-        guard decoded.count <= decodedLimit else {
-            throw PushProtocolException("binary object exceeds the decoded limit")
-        }
-        let contentSha256 = PushBinaryCodec.sha256Hex(decoded)
         let contentEncoding = table.contentEncoding
-        let payload = protocolVersion == objectVersion
-            ? try PushBinaryCompression.compressObject(decoded, encoding: contentEncoding)
-            : try PushBinaryCompression.compress(decoded, encoding: contentEncoding)
+        let decodedBytes: Int, contentSha256: String
+        let decoded: Data?, payload: Data?, payloadFile: PushImmutablePayloadFile?
+        if let payloadDirectory {
+            guard isObjectVersion(protocolVersion) else { throw PushProtocolException("streaming requires object protocol") }
+            var index = 0
+            let expected = try selected.reduce(PushBinaryCodec.packedHeaderSize(for: table)) {
+                $0 + (try PushBinaryCodec.packedRowSize($1, ppgIdentityV2: hasPPGIdentity(protocolVersion),
+                    v18IdentityV2: protocolVersion == auxiliaryIdentityVersion))
+            }
+            let artifact = try PushBinaryStreamEncoder.encode(table: table, rowCount: selected.count,
+                encoding: contentEncoding, ppgIdentityV2: hasPPGIdentity(protocolVersion),
+                v18IdentityV2: protocolVersion == auxiliaryIdentityVersion, directory: payloadDirectory, requireExistingDirectory: true,
+                maxDecodedBytes: decodedLimit, maxWireBytes: decodedLimit + 64 * 1024,
+                expectedDecodedBytes: expected, allowsWork: allowsWork,
+                nextRow: { guard index < selected.count else { return nil }; defer { index += 1 }; return selected[index] })
+            decodedBytes = artifact.uncompressedBytes; contentSha256 = artifact.contentSha256
+            decoded = nil; payload = nil
+            payloadFile = try .init(url: artifact.fileURL, byteCount: artifact.wireBytes, sha256: artifact.wireSha256)
+        } else {
+            let bytes = try PushBinaryCodec.pack(table: table, rows: selected,
+                ppgIdentityV2: hasPPGIdentity(protocolVersion), v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
+            guard bytes.count <= decodedLimit else { throw PushProtocolException("binary object exceeds the decoded limit") }
+            decodedBytes = bytes.count; contentSha256 = PushBinaryCodec.sha256Hex(bytes); decoded = bytes
+            payload = isObjectVersion(protocolVersion)
+                ? try PushBinaryCompression.compressObject(bytes, encoding: contentEncoding)
+                : try PushBinaryCompression.compress(bytes, encoding: contentEncoding)
+            payloadFile = nil
+        }
         let (startTs, endTs, sampleCount) = try binaryBounds(table: table, rows: selected)
-        let endCursor = try binaryEndCursor(table: table, deviceId: deviceId, rows: selected)
+        let endCursor = try binaryEndCursor(table: table, deviceId: deviceId, rows: selected,
+                                           v18IdentityV2: protocolVersion == auxiliaryIdentityVersion)
         let identity: [String: PushJSONValue] = [
             "contentSha256": .string(contentSha256),
             "deviceId": .string(deviceId),
@@ -307,15 +382,29 @@ public enum PushProtocol {
             "stream": .string(table.wireName),
             "type": .string("binaryObject"),
         ]
-        let batchId = stableUuid(header: identity, lines: [decoded])
-        let objectId = stableUuid(
-            header: identity.merging(["batchId": .string(batchId)]) { $1 },
-            lines: [decoded]
-        )
+        func identityID(_ header: [String: PushJSONValue]) throws -> String {
+            if let decoded { return stableUuid(header: header, lines: [decoded]) }
+            var hasher = SHA256(), index = 0
+            hasher.update(data: Data(try canonicalJsonMap(header).utf8)); hasher.update(data: Data([0x0A]))
+            try PushBinaryStreamEncoder.visitDecodedBytes(table: table, rowCount: selected.count,
+                ppgIdentityV2: hasPPGIdentity(protocolVersion), v18IdentityV2: protocolVersion == auxiliaryIdentityVersion,
+                maxDecodedBytes: decodedLimit, allowsWork: allowsWork,
+                nextRow: { guard index < selected.count else { return nil }; defer { index += 1 }; return selected[index] },
+                consume: { hasher.update(bufferPointer: $0) })
+            return uuidFromDigest(Array(hasher.finalize()))
+        }
+        let batchId = try identityID(identity)
+        // Fresh immutable files have a representation identity as well as a decoded batch
+        // identity. Codec upgrades can emit different valid bytes of the same length; a
+        // legacy object's receipt must never authorize those new bytes.
+        let objectId = try payloadFile.map {
+            try immutableObjectID(batchId: batchId, contentEncoding: contentEncoding,
+                wireSHA256: $0.sha256, wireBytes: $0.byteCount)
+        } ?? identityID(identity.merging(["batchId": .string(batchId)]) { $1 })
         var manifest = identity
         manifest["batchId"] = .string(batchId)
         manifest["objectId"] = .string(objectId)
-        manifest["uncompressedBytes"] = .int(Int64(decoded.count))
+        manifest["uncompressedBytes"] = .int(Int64(decodedBytes))
         manifest["contentEncoding"] = .string(contentEncoding)
         let manifestJSON = Data(try canonicalJsonMap(manifest).utf8)
         return PushBinaryBatch(
@@ -328,13 +417,27 @@ public enum PushProtocol {
             startTs: startTs,
             endTs: endTs,
             sampleCount: sampleCount,
-            uncompressedBytes: decoded.count,
+            uncompressedBytes: decodedBytes,
             contentSha256: contentSha256,
             contentEncoding: contentEncoding,
             endCursor: endCursor,
             manifestJSON: manifestJSON,
-            payload: payload
+            payload: payload,
+            payloadFile: payloadFile
         )
+    }
+
+    /// Local v3 selection identity; the receiver still receives the existing versioned UUID
+    /// manifest. Saved v1/v2 object IDs and compressed bodies are replayed unchanged.
+    static func immutableObjectID(batchId: String, contentEncoding: String, wireSHA256: String, wireBytes: Int) throws -> String {
+        guard UUID(uuidString: batchId)?.uuidString.lowercased() == batchId,
+              ["gzip", "zstd"].contains(contentEncoding), PushPreparedSelection.digest(wireSHA256),
+              wireBytes > 0, wireBytes <= PushProtocolLimits.maxObjectWireBytes else {
+            throw PushProtocolException("invalid immutable representation identity")
+        }
+        return stableUuid(header: ["type": .string("immutable-wire-v1"), "batchId": .string(batchId),
+            "contentEncoding": .string(contentEncoding), "wireSha256": .string(wireSHA256),
+            "compressedBytes": .int(Int64(wireBytes))], lines: [])
     }
 
     /// Fresh random object id for the `object_id_conflict` escape: the burned id can never be
@@ -343,31 +446,56 @@ public enum PushProtocol {
         UUID().uuidString.lowercased()
     }
 
-    private static func selectBinaryRows(table: PushBinaryTable, rows: [PushBinaryRow], decodedLimit: Int) throws -> [PushBinaryRow] {
+    private static func selectBinaryRows(table: PushBinaryTable, rows: [PushBinaryRow], decodedLimit: Int,
+                                         ppgIdentityV2: Bool = false, v18IdentityV2: Bool = false) throws -> [PushBinaryRow] {
         var selected: [PushBinaryRow] = []
         var decodedBytes = PushBinaryCodec.packedHeaderSize(for: table)
-        var windowStartTs: Int64? = nil
-        for row in rows.prefix(PushProtocolLimits.maxRecords) {
-            if table == .rawImuSession {
-                guard case .rawImuSession(let record) = row else {
-                    throw PushProtocolException("binary row kind mismatch")
-                }
-                if let start = windowStartTs, record.ts - start >= PushProtocolLimits.maxImuObjectWindowSeconds {
-                    break
-                }
+        guard decodedLimit >= decodedBytes else {
+            throw PushProtocolException("first binary row exceeds the decoded batch limit")
+        }
+        var windowStartTs: Int64?
+        var windowLastTs: Int64?
+        var previousRowID: Int64?
+        let maxWindow = table == .rawImuSession
+            ? PushProtocolLimits.maxImuObjectWindowSeconds : maxObjectWindowSeconds
+        // Validate source order without sorting: the returned cursor may cover only a source prefix.
+        for row in rows {
+            let (rowID, _) = try binaryRowPosition(table: table, row: row)
+            if let previousRowID, rowID <= previousRowID {
+                throw PushProtocolException("binary records must be strictly ordered by rowid")
             }
-            let rowSize = try PushBinaryCodec.packedRowSize(row)
-            if decodedBytes + rowSize > decodedLimit { break }
+            previousRowID = rowID
+        }
+        for row in rows.prefix(PushProtocolLimits.maxRecords) {
+            // A later known-identity row must not invalidate or be skipped by a legacy prefix.
+            if case .v18Aux(let record) = row, record.recordIndex != nil, !v18IdentityV2 { break }
+            let (_, ts) = try binaryRowPosition(table: table, row: row)
+            guard ts < Int64.max else { throw PushProtocolException("binary timestamp has no exclusive end") }
+            let first = min(windowStartTs ?? ts, ts)
+            let last = max(windowLastTs ?? ts, ts)
+            let (span, overflow) = last.subtractingReportingOverflow(first)
+            // Include maxTs + 1, and stop at the FIRST non-fitting row even if later rows fit.
+            if overflow || span >= maxWindow { break }
+            let rowSize = try PushBinaryCodec.packedRowSize(row, ppgIdentityV2: ppgIdentityV2, v18IdentityV2: v18IdentityV2)
+            if rowSize > decodedLimit - decodedBytes { break }
             selected.append(row)
             decodedBytes += rowSize
-            if table == .rawImuSession, windowStartTs == nil, case .rawImuSession(let record) = row {
-                windowStartTs = record.ts
-            }
+            windowStartTs = first
+            windowLastTs = last
         }
         guard !selected.isEmpty else {
             throw PushProtocolException("first binary row exceeds the decoded batch limit")
         }
         return selected
+    }
+
+    private static func binaryRowPosition(table: PushBinaryTable, row: PushBinaryRow) throws -> (Int64, Int64) {
+        switch (table, row) {
+        case (.ppgWaveformSample, .ppgWaveform(let record)): return (record.rowId, record.ts)
+        case (.v18AuxSample, .v18Aux(let record)): return (record.rowId, record.ts)
+        case (.rawImuSession, .rawImuSession(let record)): return (record.rowId, record.ts)
+        default: throw PushProtocolException("binary row kind mismatch")
+        }
     }
 
     private static func binaryBounds(table: PushBinaryTable, rows: [PushBinaryRow]) throws -> (Int64, Int64, Int) {
@@ -376,7 +504,17 @@ public enum PushProtocol {
             guard case .rawBatch(let record) = rows[0] else {
                 throw PushProtocolException("binary row kind mismatch")
             }
-            return (record.startTs, record.endTs, Int(record.frameCount))
+            guard record.endTs >= record.startTs, record.startTs < Int64.max else {
+                throw PushProtocolException("raw batch bounds are invalid")
+            }
+            // Legacy producers stored equal bounds for a single second or decoded-empty chunk.
+            // Normalize only the manifest; the persisted payload and its content digest stay intact.
+            let end = record.endTs == record.startTs ? record.startTs + 1 : record.endTs
+            let (span, overflow) = end.subtractingReportingOverflow(record.startTs)
+            guard !overflow, span <= maxObjectWindowSeconds else {
+                throw PushProtocolException("raw batch exceeds the object window limit")
+            }
+            return (record.startTs, end, Int(record.frameCount))
         case .ppgWaveformSample, .v18AuxSample, .rawImuSession:
             let timestamps: [Int64] = try rows.map { row in
                 switch row {
@@ -396,7 +534,8 @@ public enum PushProtocol {
     private static func binaryEndCursor(
         table: PushBinaryTable,
         deviceId: String,
-        rows: [PushBinaryRow]
+        rows: [PushBinaryRow],
+        v18IdentityV2: Bool = false
     ) throws -> PushCursor? {
         switch table {
         case .rawBatch:
@@ -412,7 +551,7 @@ public enum PushProtocol {
             }
             return PushCursor(
                 rowId: rowId,
-                naturalKeyFingerprint: try binaryKeyFingerprint(table: table, deviceId: deviceId, row: last)
+                naturalKeyFingerprint: try binaryKeyFingerprint(table: table, deviceId: deviceId, row: last, v18IdentityV2: v18IdentityV2)
             )
         }
     }
@@ -533,13 +672,13 @@ public enum PushProtocol {
 
     private static func appendIdentity(
         sourceId: String, table: PushAppendTable, deviceId: String,
-        start: PushCursor?, end: PushCursor, count: Int
+        start: PushCursor?, end: PushCursor, count: Int, protocolVersion: String = version
     ) -> [String: PushJSONValue] {
         [
             "delivery": .string("append"),
             "deviceId": .string(deviceId),
             "endCursor": .map(cursorJson(end)),
-            "protocolVersion": .string(version),
+            "protocolVersion": .string(protocolVersion),
             "recordCount": .int(Int64(count)),
             "sourceId": .string(sourceId),
             "startCursor": start.map { .map(cursorJson($0)) } ?? .null,
@@ -550,9 +689,10 @@ public enum PushProtocol {
 
     private static func appendHeader(
         sourceId: String, table: PushAppendTable, deviceId: String,
-        start: PushCursor?, end: PushCursor, count: Int, batchId: String
+        start: PushCursor?, end: PushCursor, count: Int, batchId: String, protocolVersion: String = version
     ) throws -> Data {
-        var header = appendIdentity(sourceId: sourceId, table: table, deviceId: deviceId, start: start, end: end, count: count)
+        var header = appendIdentity(sourceId: sourceId, table: table, deviceId: deviceId, start: start, end: end,
+                                    count: count, protocolVersion: protocolVersion)
         header["batchId"] = .string(batchId)
         return try encodeLine(header)
     }
@@ -617,7 +757,9 @@ public enum PushProtocol {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         guard let date = formatter.date(from: day) else { return nil }
-        guard let next = Calendar(identifier: .gregorian).date(byAdding: .day, value: 1, to: date) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let next = calendar.date(byAdding: .day, value: 1, to: date) else { return nil }
         return formatter.string(from: next)
     }
 
@@ -645,7 +787,11 @@ public enum PushProtocol {
         }
         hasher.update(data: Data([0x0A]))
         for line in lines { hasher.update(data: line) }
-        var bytes = Array(hasher.finalize())
+        return uuidFromDigest(Array(hasher.finalize()))
+    }
+
+    private static func uuidFromDigest(_ digest: [UInt8]) -> String {
+        var bytes = digest
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80
         let uuid = uuid_t(
@@ -671,11 +817,116 @@ public enum PushProtocol {
         guard spec.keys.allSatisfy({ key[$0] != nil }), key.count == spec.keys.count else {
             throw PushProtocolException("\(table.wireName) key does not match registry")
         }
-        guard Set(data.keys) == Set(spec.data), data.count == spec.data.count else {
+        let scalar = (table as? PushAppendTable)?.isScalarExtension == true
+        let requiredData = Set(spec.data.filter { !scalar || $0 != "provenance" })
+        guard requiredData.isSubset(of: Set(data.keys)), Set(data.keys).isSubset(of: Set(spec.data)) else {
             throw PushProtocolException("\(table.wireName) data does not match registry")
         }
         if key.keys.contains("deviceId") || data.keys.contains("deviceId") || data.keys.contains("synced") {
             throw PushProtocolException("batch-scoped or local-only column in record")
+        }
+    }
+
+    private static func validateScalar(_ table: PushAppendTable, record: PushAppendRecord, protocolVersion: String) throws {
+        func integer(_ value: PushJSONValue?, in range: ClosedRange<Int64>) throws -> Int64 {
+            guard case .int(let number) = value, range.contains(number) else { throw PushProtocolException("invalid scalar integer") }
+            return number
+        }
+        _ = try integer(record.key["ts"], in: 0...Int64.max - 1)
+        func optionalInteger(_ key: String, in range: ClosedRange<Int64>) throws -> Int64? {
+            if record.data[key] == .null { return nil }
+            return try integer(record.data[key], in: range)
+        }
+        switch table {
+        case .stepSample:
+            _ = try integer(record.data["counter"], in: 0...65535)
+            _ = try optionalInteger("activityClass", in: 0...2)
+        case .sleepStateSample:
+            let state = try integer(record.data["state"], in: 0...3)
+            if let raw = try optionalInteger("rawByte", in: 0...255), (raw >> 4) & 3 != state {
+                throw PushProtocolException("band state disagrees with its raw byte")
+            }
+        case .ppgHrSample:
+            _ = try integer(record.data["bpm"], in: 1...Int64(Int32.max))
+            switch record.data["conf"] {
+            case .null: break
+            case .int(let value) where (0...1).contains(value): break
+            case .double(let value) where value.isFinite && (0...1).contains(value): break
+            default: throw PushProtocolException("invalid PPG confidence")
+            }
+        default: break
+        }
+        if let provenance = record.data["provenance"], provenance != .null {
+            guard protocolVersion == auxiliaryIdentityVersion else {
+                throw PushProtocolException("scalar provenance requires negotiated protocol 1.4")
+            }
+            try validateScalarProvenance(provenance)
+        }
+    }
+
+    /// The optional provenance object is bounded and versioned independently of scalar values.
+    /// Absence never acquires metadata from today's settings or a receiver's defaults.
+    public static func scalarProvenanceJSON(_ data: Data) throws -> PushJSONValue {
+        guard data.count <= 1024,
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw PushProtocolException("invalid scalar provenance")
+        }
+        var fields: [String: PushJSONValue] = [:]
+        for (key, value) in object {
+            if let number = value as? NSNumber {
+                guard CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite,
+                      abs(number.doubleValue) <= 9_007_199_254_740_991,
+                      number.doubleValue.rounded() == number.doubleValue else {
+                    throw PushProtocolException("invalid scalar provenance number")
+                }
+                fields[key] = .int(number.int64Value)
+            } else if let string = value as? String {
+                fields[key] = .string(string)
+            } else {
+                throw PushProtocolException("invalid scalar provenance member")
+            }
+        }
+        let value = PushJSONValue.map(fields)
+        try validateScalarProvenance(value)
+        return value
+    }
+
+    private static func validateScalarProvenance(_ value: PushJSONValue) throws {
+        let invalid = PushProtocolException("invalid scalar provenance")
+        guard case .map(let fields) = value, fields["v"] == .int(1),
+              case .string(let origin) = fields["origin"],
+              ["whoop-v18", "whoop-v26-ppg-derived", "legacy-unknown"].contains(origin),
+              try canonicalJson(value).utf8.count <= 1024 else { throw invalid }
+        let derivation: Set<String> = ["algorithm", "sampleRateHz", "windowSettingSeconds",
+            "inputStartTs", "inputEndTs", "inputSHA256"]
+        let direct: Set<String> = ["recordIndex", "frameSHA256"]
+        let allowed = Set(["v", "origin"]).union(direct).union(derivation)
+        guard Set(fields.keys).isSubset(of: allowed) else { throw invalid }
+        let safeInteger: Int64 = 9_007_199_254_740_991
+        for (key, field) in fields {
+            switch key {
+            case "v", "origin": break // Exact type and value checked above.
+            case "recordIndex", "sampleRateHz", "windowSettingSeconds", "inputStartTs", "inputEndTs":
+                guard case .int(let number) = field, (-safeInteger...safeInteger).contains(number) else { throw invalid }
+                if key == "recordIndex", !(0...Int64(UInt32.max)).contains(number) { throw invalid }
+                if ["sampleRateHz", "windowSettingSeconds"].contains(key), number <= 0 { throw invalid }
+            case "frameSHA256", "inputSHA256":
+                guard case .string(let hash) = field, hash.utf8.count == 64,
+                      hash.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw invalid }
+            case "algorithm":
+                guard case .string(let algorithm) = field,
+                      ["ppg-acf-v1", "ppg-acf-sublag-v1"].contains(algorithm) else { throw invalid }
+            default: throw invalid
+            }
+        }
+        let present = Set(fields.keys)
+        if origin == "whoop-v26-ppg-derived" {
+            guard derivation.isSubset(of: present), direct.isDisjoint(with: present),
+                  case .int(let start) = fields["inputStartTs"], case .int(let end) = fields["inputEndTs"],
+                  end > start else { throw invalid }
+        } else {
+            guard derivation.isDisjoint(with: present),
+                  origin != "legacy-unknown" || direct.isDisjoint(with: present) else { throw invalid }
         }
     }
 

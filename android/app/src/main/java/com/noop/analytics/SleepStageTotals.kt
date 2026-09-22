@@ -260,7 +260,7 @@ object SleepStageTotals {
      *  (a block starting inside the previous span) does not bridge — pinned legacy semantics, `gap >= 0` —
      *  and never fabricates a seam. Groups ordered by start; pure and deterministic. Mirrors Swift
      *  `bridgedNightGroups`. (#364) */
-    fun bridgedNightGroups(blocks: List<NightBlock>, offsetSec: Long): List<BridgedNightGroup> {
+    fun bridgedNightGroups(blocks: List<NightBlock>, offsetSec: Long, timezone: java.time.ZoneId? = null): List<BridgedNightGroup> {
         if (blocks.isEmpty()) return emptyList()
         // Sort indices by onset so bridging sees neighbours, exactly as `bridgeAdjacent` sorts the blocks.
         val order = blocks.indices.sortedBy { blocks[it].start }
@@ -283,7 +283,7 @@ object SleepStageTotals {
                 // onset, or a gap >= NIGHT_TAIL_BRIDGE_MAX_MIN) still stands as its own block.
                 val bridges = gap >= 0 &&
                     (gap < bridgeS ||
-                        (gap < nightTailBridgeS && isOvernightOnset(b.start, offsetSec)))
+                        (gap < nightTailBridgeS && isOvernightOnset(b.start, timezone?.rules?.getOffset(java.time.Instant.ofEpochSecond(b.start))?.totalSeconds?.toLong() ?: offsetSec)))
                 if (bridges) {
                     if (gap > 0) gaps[gaps.size - 1].add(last.end to b.start)
                     bridged[bridged.size - 1] = NightBlock(last.start, maxOf(last.end, b.end))
@@ -315,15 +315,16 @@ object SleepStageTotals {
      *  [mainNightIndex] would pick — byte-identical to the old behaviour for the common case. Pure +
      *  deterministic; shares the [bridgedNightGroups] pass + [mainNightIndex] so the pick stays
      *  cross-platform stable. Mirrors Swift `mainNightGroupIndices`. (#561) */
-    fun mainNightGroupIndices(blocks: List<NightBlock>, offsetSec: Long, habitualMidsleepSec: Long? = null): List<Int>? {
+    fun mainNightGroupIndices(blocks: List<NightBlock>, offsetSec: Long, habitualMidsleepSec: Long? = null,
+                              timezone: java.time.ZoneId? = null): List<Int>? {
         if (blocks.isEmpty()) return null
-        val all = bridgedNightGroups(blocks, offsetSec)
+        val all = bridgedNightGroups(blocks, offsetSec,timezone)
         // Rebuild each group's bridged span for scoring: sorted-ascending fragments make the span
         // (first start, running-max end) — identical to the span the one-pass loop accumulated.
         val bridgedSpans = all.map { g ->
             NightBlock(g.indices.minOf { blocks[it].start }, g.indices.maxOf { blocks[it].end })
         }
-        val winner = mainNightIndex(bridgedSpans, offsetSec, habitualMidsleepSec) ?: return null
+        val winner = mainNightIndex(bridgedSpans, offsetSec, habitualMidsleepSec,timezone) ?: return null
         return all[winner].indices
     }
 
@@ -335,12 +336,13 @@ object SleepStageTotals {
      *  (stable across platforms). Null only for an empty list. This `NightBlock` overload has no decoded
      *  stages, so "asleep minutes" is the clock span — preserving the prior duration semantics for callers
      *  that rank by span (`analyzeDay`). Mirrors Swift `mainNightIndex`. (#525 / #547) */
-    fun mainNightIndex(blocks: List<NightBlock>, offsetSec: Long, habitualMidsleepSec: Long? = null): Int? {
+    fun mainNightIndex(blocks: List<NightBlock>, offsetSec: Long, habitualMidsleepSec: Long? = null,
+                       timezone: java.time.ZoneId? = null): Int? {
         if (blocks.isEmpty()) return null
         val target = targetMidsleepSec(habitualMidsleepSec)
         fun score(b: NightBlock): Double {
             val asleepMin = b.durationS.toDouble() / 60.0
-            val midSec = localSecOfDay(b.midpointSec, offsetSec)
+            val midSec = localSecOfDay(b.midpointSec, timezone?.rules?.getOffset(java.time.Instant.ofEpochSecond(b.midpointSec))?.totalSeconds?.toLong() ?: offsetSec)
             return asleepMin + alignmentBonusMinutes(midSec, target)
         }
         var bestIdx = 0

@@ -1,7 +1,30 @@
 import Foundation
+import NoopPush
 enum StorePaths {
-    /// `<AppSupport>/OpenWhoop/whoop.sqlite`, creating the directory if needed.
+    static func accountLayout(scope: AccountScope?) throws -> AccountStorageLayout {
+        if AppRuntimeMode.isUnitTesting {
+            let base = FileManager.default.temporaryDirectory
+                .appendingPathComponent("nara-unit-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+            return AccountStorageLayout(baseDirectory: base, scope: scope)
+        }
+        let support = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: false
+        )
+        let base = macOSProductionContainerAppSupport(defaultingTo: support)
+            .appendingPathComponent("OpenWhoop", isDirectory: true)
+        return AccountStorageLayout(baseDirectory: base, scope: scope)
+    }
+
+    /// Callers doing sustained work must capture the layout before their first suspension.
     static func defaultDatabasePath() throws -> String {
+        let layout = try accountLayout(scope: CloudAuthClient.currentContext()?.scope)
+        try layout.prepare()
+        return layout.databaseURL.path
+    }
+
+    /// Explicit recovery only. Signing in must never adopt unverified legacy health records.
+    static func legacyDatabasePath() throws -> String {
         let fm = FileManager.default
         let appSupport = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                     appropriateFor: nil, create: true)

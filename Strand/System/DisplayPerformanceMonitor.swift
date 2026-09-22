@@ -31,8 +31,8 @@ final class DisplayPerformanceMonitor {
     static let shared = DisplayPerformanceMonitor()
     private init() {}
 
-    /// A frame is a "hitch" when its duration exceeds this (ms). 16.7 ms is a 60 Hz frame; 33 ms is a
-    /// dropped frame at 60 Hz / a slow frame at 120 Hz, a sensible "the user felt that" threshold.
+    /// Legacy approximate callback telemetry only. This is neither a render deadline measurement nor
+    /// Apple's aggregate Hitches metric and must never be used as a release acceptance gate.
     static let hitchThresholdMs: Double = 33
 
     /// Emit one rolling summary per this many frames (~1 s at 60 Hz). Per-window, never per-frame, so the
@@ -83,6 +83,7 @@ final class DisplayPerformanceMonitor {
         memoryPeakMB = 0
         sampleMemory()
         emitDeviceMetrics()
+        emit?("Approximate display-callback telemetry; fixed 33 ms counter is not aggregate Hitches or a 60/120 Hz acceptance gate.")
         emitDataVolume()
 
         #if os(iOS)

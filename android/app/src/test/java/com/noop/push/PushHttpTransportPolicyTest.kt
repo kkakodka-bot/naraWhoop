@@ -90,7 +90,7 @@ class PushHttpTransportPolicyTest {
 
         assertEquals("GET", method)
         assertEquals("Bearer secret", authorization)
-        assertEquals("1.2,1.1,1.0", acceptedVersions)
+        assertEquals("1.4,1.3,1.2,1.1,1.0", acceptedVersions)
         assertEquals(
             PushCapabilitiesResult.Available(
                 PushCapabilities(
@@ -124,7 +124,7 @@ class PushHttpTransportPolicyTest {
                 .code(200)
                 .message("ok")
                 .body(
-                    """{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"00000000-0000-4000-8000-000000000099","streams":["stepSample","futureStream"]}"""
+                    """{"type":"capabilities","protocolVersion":"1.1","receiverStateId":"00000000-0000-4000-8000-000000000099","streams":["futureScalarStream","futureStream"]}"""
                         .toResponseBody(),
                 )
                 .build()

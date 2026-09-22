@@ -57,6 +57,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  * dark-only, so we draw edge-to-edge over the near-black [Palette.surfaceBase].
  */
 class MainActivity : ComponentActivity() {
+    private var runtimeObserver: AutoCloseable? = null
+    private var runtimeEpoch by mutableStateOf(0L)
 
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLanguagePrefs.wrap(newBase))
@@ -152,10 +154,31 @@ class MainActivity : ComponentActivity() {
         BottomBarStyleStore.load(this)   // #1836: bottom-bar layout choice, default the shipped slot
 
         setContent {
-            NoopTheme {
-                NoopRoot()
+            androidx.compose.runtime.key(runtimeEpoch) {
+                val runtime = (application as NoopApplication).accountRuntime
+                val scopedContext = androidx.compose.runtime.remember(runtime) {
+                    com.noop.account.AccountStorageContext(this, runtime.identity).also { it.runtime = runtime }
+                }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.ui.platform.LocalContext provides scopedContext,
+                ) {
+                    NoopTheme {
+                        NoopRoot()
+                    }
+                }
             }
         }
+        runtimeObserver = (application as NoopApplication).observeRuntime {
+            viewModelStore.clear()
+            runtimeEpoch++
+            ProfileAvatarStore.load(com.noop.account.AccountStorageContext.capture(this))
+            BackgroundImageStore.load(com.noop.account.AccountStorageContext.capture(this))
+        }
+    }
+
+    override fun onDestroy() {
+        runtimeObserver?.close()
+        super.onDestroy()
     }
 
     /** Request the BLE permissions appropriate to the running OS version. */
@@ -385,7 +408,7 @@ object NoopPrefs {
     const val KEY_PAUSE_HRV_ON_POWER_SAVE = "noop.pauseHrvOnPowerSave"
 
     fun of(context: Context): SharedPreferences =
-        context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+        com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(NAME, Context.MODE_PRIVATE)
 
     /** "Power saving" master (battery-adaptive sync cadence). Default off. */
     fun powerSaving(context: Context): Boolean =

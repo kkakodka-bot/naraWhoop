@@ -24,28 +24,41 @@ enum CloudPushNetworkPolicy {
     }
 
     #if os(iOS)
+    private static let path = CloudPushPathObserver()
     static func isNetworkAvailable(wifiOnly: Bool) -> Bool {
-        let monitor = NWPathMonitor()
-        let semaphore = DispatchSemaphore(value: 0)
-        var snapshot = (connected: false, wifi: false, unmetered: false)
-        monitor.pathUpdateHandler = { path in
-            snapshot = (
-                connected: path.status == .satisfied,
-                wifi: path.usesInterfaceType(.wifi),
-                unmetered: !path.isExpensive
-            )
-            semaphore.signal()
-        }
-        let queue = DispatchQueue(label: "com.noop.cloudpush.network")
-        monitor.start(queue: queue)
-        _ = semaphore.wait(timeout: .now() + 0.5)
-        monitor.cancel()
-        return isPushNetworkAvailable(
+        let snapshot = path.snapshot
+        let permitted = isPushNetworkAvailable(
             wifiOnly: wifiOnly,
             isConnected: snapshot.connected,
             isWifi: snapshot.wifi,
             isUnmetered: snapshot.unmetered
         )
+        ResourceBudget.shared.network(permitted: permitted)
+        return permitted
     }
     #endif
 }
+
+#if os(iOS)
+private final class CloudPushPathObserver: @unchecked Sendable {
+    private let monitor = NWPathMonitor()
+    private let lock = NSLock()
+    private var value = (connected: false, wifi: false, unmetered: false)
+    var snapshot: (connected: Bool, wifi: Bool, unmetered: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+    init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            self.lock.lock()
+            self.value = (path.status == .satisfied, path.usesInterfaceType(.wifi), !path.isExpensive && !path.isConstrained)
+            self.lock.unlock()
+            ResourceBudget.shared.network(permitted: CloudPushNetworkPolicy.isPushNetworkAvailable(
+                wifiOnly: CloudPushSettings.wifiOnly, isConnected: path.status == .satisfied,
+                isWifi: path.usesInterfaceType(.wifi), isUnmetered: !path.isExpensive && !path.isConstrained))
+        }
+        monitor.start(queue: DispatchQueue(label: "com.noop.cloudpush.network"))
+    }
+}
+#endif

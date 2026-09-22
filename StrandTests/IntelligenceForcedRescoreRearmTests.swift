@@ -1,4 +1,6 @@
 import XCTest
+import Combine
+import WhoopStore
 @testable import Strand
 
 /// Pins the #899-A forced-rescore re-arm contract in `IntelligenceEngine.analyzeRecent`.
@@ -14,14 +16,151 @@ import XCTest
 /// so a quiet pass cannot recurse and a forced call landing DURING the re-invoke re-arms it again , exactly
 /// once per genuinely-dropped force.
 ///
-/// The engine's re-arm is a tiny `(computing, force) → drop | rearm` state machine plus a "rerun once when
-/// the flag is set at defer time" rule. `IntelligenceEngine` is `@MainActor` and needs a live store/repo to
-/// run a real pass (not constructible in a unit context), so this models the SAME decision rules the engine
-/// implements and pins the contract: a forced call during an in-flight pass schedules EXACTLY ONE rerun, a
-/// non-forced one schedules NONE, and the re-arm can never loop. Mirrors the Android no-op rationale: Android
-/// has no shared `computing` lock (the forced post-backfill rescore runs on its own ioScope coroutine and is
-/// never dropped), so there is nothing to re-arm there.
+/// The async cases exercise the real analyzer with a suspended store provider, including the preflight
+/// await and queued-task handoff that the original synchronous state-machine tests could not cover.
 final class IntelligenceForcedRescoreRearmTests: XCTestCase {
+
+    @MainActor
+    private final class StoreGate {
+        let entered: XCTestExpectation
+        var calls = 0
+        var continuation: CheckedContinuation<WhoopStore?, Never>?
+
+        init(entered: XCTestExpectation) { self.entered = entered }
+
+        func load() async -> WhoopStore? {
+            calls += 1
+            guard calls == 1 else { return nil }
+            return await withCheckedContinuation {
+                continuation = $0
+                entered.fulfill()
+            }
+        }
+
+        func release(_ store: WhoopStore? = nil) {
+            continuation?.resume(returning: store)
+            continuation = nil
+        }
+    }
+
+    @MainActor
+    private func engine(using gate: StoreGate) -> IntelligenceEngine {
+        IntelligenceEngine(repo: Repository(deviceId: "rescore-admission-test"),
+                           profile: ProfileStore(), deviceId: "rescore-admission-test",
+                           analysisStoreProvider: { await gate.load() })
+    }
+
+    @MainActor
+    func testActualPreflightReservesAdmissionAndCoalescesForcedCalls() async {
+        let gate = StoreGate(entered: expectation(description: "first preflight suspended"))
+        let engine = engine(using: gate)
+        let rearmedFinished = expectation(description: "one forced follow-up returned")
+        var releases = 0
+        let observation = engine.$computing.dropFirst().filter { !$0 }.sink { _ in
+            releases += 1
+            if releases == 2 { rearmedFinished.fulfill() }
+        }
+        let first = Task { await engine.analyzeRecent(maxDays: 0, force: false) }
+        await fulfillment(of: [gate.entered], timeout: 2)
+
+        XCTAssertTrue(engine.computing, "admission must precede the first await")
+        for _ in 0..<5 { await engine.analyzeRecent(maxDays: 0) }
+        XCTAssertEqual(gate.calls, 1, "busy callers must not enter store preflight")
+
+        gate.release()
+        await first.value
+        await fulfillment(of: [rearmedFinished], timeout: 2)
+        XCTAssertEqual(gate.calls, 2, "five forced calls should produce only one follow-up")
+        XCTAssertFalse(engine.rescoreInProgress)
+        withExtendedLifetime(observation) {}
+    }
+
+    @MainActor
+    func testActualNonForcedPreflightCallDoesNotRearmAndNilStoreReleasesAdmission() async {
+        let gate = StoreGate(entered: expectation(description: "preflight suspended"))
+        let engine = engine(using: gate)
+        let first = Task { await engine.analyzeRecent(maxDays: 0, force: false) }
+        await fulfillment(of: [gate.entered], timeout: 2)
+        await engine.analyzeRecent(maxDays: 0, force: false)
+        XCTAssertEqual(gate.calls, 1)
+        gate.release()
+        await first.value
+        XCTAssertFalse(engine.rescoreInProgress)
+        XCTAssertNotNil(engine.note, "the missing-store failure remains visible")
+        await engine.analyzeRecent(maxDays: 0, force: false)
+        XCTAssertEqual(gate.calls, 2, "early return must release admission for a later caller")
+        XCTAssertFalse(engine.rescoreInProgress)
+    }
+
+    @MainActor
+    func testActualUnchangedFingerprintReleasesAdmissionWithoutStartingDebt() async throws {
+        let defaults = UserDefaults.standard
+        let keys = ["noop.analyzeWatermark", RescoreBackgroundScheduler.owedKey]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) } }
+        let store = try await WhoopStore.inMemory()
+        defaults.set(try await store.analysisFingerprint(), forKey: keys[0])
+        defaults.set(false, forKey: keys[1])
+        let engine = IntelligenceEngine(repo: Repository(deviceId: "unchanged-test"),
+                                        profile: ProfileStore(), deviceId: "unchanged-test",
+                                        analysisStoreProvider: { store })
+        await engine.analyzeRecent(maxDays: 0, force: false)
+        XCTAssertFalse(engine.rescoreInProgress)
+        await engine.analyzeRecent(maxDays: 0, skipIfUnchanged: true)
+        XCTAssertFalse(engine.rescoreInProgress)
+        XCTAssertFalse(RescoreBackgroundScheduler.isRescoreOwed)
+    }
+
+    @MainActor
+    func testActualPreflightAndQueuedHandoffRetainJobAndBlockExports() async throws {
+        let defaults = UserDefaults.standard
+        let keys = [RescoreBackgroundScheduler.owedKey, IntelligenceEngine.effortRescoreFlagKey]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) } }
+        keys.forEach { defaults.set(false, forKey: $0) }
+        let store = try await WhoopStore.inMemory()
+        let token = try await store.markJobOwed(kind: SyncJobKind.rescore.rawValue)
+        let gate = StoreGate(entered: expectation(description: "preflight suspended"))
+        let engine = engine(using: gate)
+        let rearmedFinished = expectation(description: "queued follow-up returned")
+        var releases = 0
+        let observation = engine.$computing.dropFirst().filter { !$0 }.sink { _ in
+            releases += 1
+            if releases == 2 { rearmedFinished.fulfill() }
+        }
+        var settleCalls = 0
+        let settle: @MainActor () async -> Bool = {
+            settleCalls += 1
+            return (try? await store.settleJob(kind: SyncJobKind.rescore.rawValue, token: token)) ?? false
+        }
+        let first = Task {
+            await engine.analyzeRecent(maxDays: 0, force: false)
+            // Same-actor continuation runs before the follow-up Task can enter. Exercise the gap itself.
+            XCTAssertFalse(engine.computing)
+            XCTAssertTrue(engine.rescoreInProgress)
+            let queuedResult = await SyncEngine.settleRescoreWhenReady(intelligence: engine, settle: settle)
+            XCTAssertFalse(queuedResult)
+            await engine.runEffortRescoreIfNeeded(historyDays: 0)
+            XCTAssertFalse(defaults.bool(forKey: IntelligenceEngine.effortRescoreFlagKey))
+            XCTAssertEqual(gate.calls, 1, "queued-gap ingress must not launch a second preflight")
+        }
+        await fulfillment(of: [gate.entered], timeout: 2)
+        await engine.analyzeRecent(maxDays: 0)
+        XCTAssertFalse(RescoreBackgroundScheduler.isRescoreOwed, "preflight has not stamped legacy debt")
+        let admittedResult = await SyncEngine.settleRescoreWhenReady(intelligence: engine, settle: settle)
+        XCTAssertFalse(admittedResult)
+        XCTAssertFalse(SyncDrainPolicy.shouldContinue(after: .rescore, succeeded: admittedResult,
+                                                      rescoreStillOwed: true))
+        gate.release()
+        await first.value
+        await fulfillment(of: [rearmedFinished], timeout: 2)
+        XCTAssertEqual(settleCalls, 0)
+        XCTAssertEqual(gate.calls, 2)
+        let owed = try await store.owedJobs()
+        XCTAssertEqual(owed.map(\.token), [token])
+        XCTAssertFalse(engine.rescoreInProgress)
+        withExtendedLifetime(observation) {}
+    }
 
     /// A faithful model of the engine's re-arm state machine. Each method mirrors one decision in
     /// `analyzeRecent`: the entry guard and the `defer`. `reruns` counts how many times the `defer` would

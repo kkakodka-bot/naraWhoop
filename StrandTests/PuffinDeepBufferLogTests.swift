@@ -1,5 +1,6 @@
 import XCTest
 @testable import Strand
+import WhoopProtocol
 
 /// Pins `PuffinDeepBufferLog.isDeepBuffer` — the pure predicate behind the durable high-rate deep-buffer
 /// log (#423). A reassembled WHOOP 5/MG frame carries its inner-record type at offset 8; the R22 deep
@@ -50,7 +51,13 @@ final class PuffinDeepBufferLogTests: XCTestCase {
     /// (A ±X swing would not: squaring cancels the sign, leaving magnitude constant.)
     private func imuBuffer() -> [UInt8] {
         var f = [UInt8](repeating: 0, count: 1244)
+        f[0] = 0xAA; f[1] = 0x01
+        let declaredLength = f.count - 8
+        f[2] = UInt8(truncatingIfNeeded: declaredLength)
+        f[3] = UInt8(truncatingIfNeeded: declaredLength >> 8)
+        f[4] = 0x01
         f[8] = 0x2F
+        f[9] = 21
         f[24] = 100          // countA (u16 LE) — Whoop5RawImu.decode requires == 100
         f[630] = 100         // countB (u16 LE)
         func put(_ off: Int, _ i: Int, _ v: Int16) {
@@ -61,11 +68,24 @@ final class PuffinDeepBufferLogTests: XCTestCase {
             put(28,  i, i % 2 == 0 ? 800 : 0)   // ax @28  — magnitude actually varies
             put(428, i, 4096)                    // az @428 — ~1 g
         }
+        return sealingChecksums(f)
+    }
+
+    private func sealingChecksums(_ frame: [UInt8]) -> [UInt8] {
+        var f = frame
+        let header = crc16Modbus(Array(f[0..<6]))
+        f[6] = UInt8(truncatingIfNeeded: header)
+        f[7] = UInt8(truncatingIfNeeded: header >> 8)
+        let payloadEnd = f.count - 4
+        let payload = crc32(Array(f[8..<payloadEnd]))
+        for byte in 0..<4 { f[payloadEnd + byte] = UInt8(truncatingIfNeeded: payload >> (8 * byte)) }
         return f
     }
 
     func testEmitsInlineDecodedImuFieldForImuBuffer() {
-        let field = PuffinDeepBufferLog.decodedImuField(imuBuffer())
+        let frame = imuBuffer()
+        XCTAssertTrue(verifyFrame(frame, family: .whoop5).ok)
+        let field = PuffinDeepBufferLog.decodedImuField(frame)
         XCTAssertTrue(field.hasPrefix(",\"imu\":{"), "a 1244-B IMU buffer must emit an inline summary")
         XCTAssertTrue(field.contains("\"sampleCount\":100"), "summary carries the 100 decoded samples")
         XCTAssertTrue(field.contains("accelEnergyG"), "summary carries the activity features")
@@ -76,8 +96,23 @@ final class PuffinDeepBufferLogTests: XCTestCase {
         var optical = [UInt8](repeating: 0, count: 2140); optical[8] = 0x2F
         XCTAssertEqual(PuffinDeepBufferLog.decodedImuField(optical), "")
         // A 1244-length frame whose count fields aren't 100 fails decode → field omitted, never a throw.
-        var bogus = [UInt8](repeating: 0, count: 1244); bogus[8] = 0x2F
+        var bogus = imuBuffer(); bogus[24] = 0
+        bogus = sealingChecksums(bogus)
+        XCTAssertTrue(verifyFrame(bogus, family: .whoop5).ok)
         XCTAssertEqual(PuffinDeepBufferLog.decodedImuField(bogus), "")
+    }
+
+    func testNoImuSummaryForCorruptOrUnrecognizedEnvelope() {
+        for offset in [6, 100] {
+            var corrupt = imuBuffer(); corrupt[offset] ^= 1
+            XCTAssertFalse(verifyFrame(corrupt, family: .whoop5).ok)
+            XCTAssertEqual(PuffinDeepBufferLog.decodedImuField(corrupt), "",
+                           "A plausible IMU shape must not bypass either checksum in diagnostic summaries")
+        }
+        var unknown = imuBuffer(); unknown[9] = 22
+        unknown = sealingChecksums(unknown)
+        XCTAssertTrue(verifyFrame(unknown, family: .whoop5).ok)
+        XCTAssertEqual(PuffinDeepBufferLog.decodedImuField(unknown), "")
     }
 
     /// The optical phase marker is a stable machine schema the offline analyzer depends on.

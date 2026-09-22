@@ -74,6 +74,7 @@ data class PpgHrSample(
     val bpm: Int,
     val conf: Double,
     val synced: Int = 0,
+    val provenanceJSON: String? = null,
 )
 
 /** One downsampled HR point, the bucket's start (unix seconds) + the mean bpm over it. Query
@@ -140,7 +141,8 @@ data class HrWindowStats(
  * as `v30-rr-ord`, and `srcChannel` as `v32-rr-src-channel`. (An earlier revision of this note said the
  * Swift widening was still pending; it had already shipped.)
  */
-@Entity(tableName = "rrInterval", primaryKeys = ["deviceId", "ts", "rrMs", "seq"])
+@Entity(tableName = "rrInterval", primaryKeys = ["deviceId", "ts", "rrMs", "seq"],
+    indices = [Index(value = ["srcChannel", "tsSuspect"], name = "rrInterval_source_suspect")])
 data class RrInterval(
     val deviceId: String,
     val ts: Long,
@@ -231,6 +233,7 @@ data class StepSample(
     // absent class stays absent, never a fabricated 0/"still".
     val activityClass: Int? = null,
     val synced: Int = 0,
+    val provenanceJSON: String? = null,
 )
 
 /**
@@ -251,6 +254,7 @@ data class SleepStateSampleEntity(
     // the bits the mask throws away — b0-1 `onwrist`, b2-3 `wake_quality`, and b6-7, which have no
     // interpretation at all yet. Nullable, no DEFAULT: null on every pre-migration row.
     val rawByte: Int? = null,
+    val provenanceJSON: String? = null,
 )
 
 /** Respiration raw-ADC sample (type-47). Swift `respSample` (v3). PK (deviceId, ts). */
@@ -707,19 +711,20 @@ data class SyncJournalEntryEntity(
  * and a waveform has no aggregate that survives it. Bounding the bytes while always leaving a full working
  * set is the whole point. Swift twin: `WhoopStore.ppgWaveformRetentionRows`.
  */
-@Entity(tableName = "ppgWaveformSample", primaryKeys = ["deviceId", "ts"])
+@Entity(tableName = "ppgWaveformSample", primaryKeys = ["deviceId", "ts", "recordIndex"])
 data class PpgWaveformSampleEntity(
     val deviceId: String,
     val ts: Long,
     val samples: ByteArray,
     val burstIndex: Int? = null,
+    @androidx.room.ColumnInfo(defaultValue = "-1") val recordIndex: Long = -1,
 ) {
     // ByteArray needs structural equals/hashCode (the generated identity ones break round-trip asserts).
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is PpgWaveformSampleEntity) return false
         return deviceId == other.deviceId && ts == other.ts && samples.contentEquals(other.samples) &&
-            burstIndex == other.burstIndex
+            burstIndex == other.burstIndex && recordIndex == other.recordIndex
     }
 
     override fun hashCode(): Int {
@@ -727,6 +732,7 @@ data class PpgWaveformSampleEntity(
         result = 31 * result + ts.hashCode()
         result = 31 * result + samples.contentHashCode()
         result = 31 * result + (burstIndex ?: 0)
+        result = 31 * result + recordIndex.hashCode()
         return result
     }
 }
@@ -769,12 +775,9 @@ data class LiveSessionRow(
  * gated out. [fields] is NOT NULL because a row is only written when at least one slot is present:
  * absence is "no row", and within a row a clear bitmap bit, never a fabricated 0.
  *
- * The BLOB format is byte-identical to the Swift GRDB `V18AuxCodec` so a `.noopbak` round-trips. PK
- * (deviceId, ts) and field order (deviceId, ts, fields) mirror the GRDB schema.
- *
- * CAPPED, not unbounded: [WhoopRepository.V18_AUX_RETENTION_ROWS] rolling rows per device, the same shape
- * `rawImuSample` uses. This is the only NEW row growth v31 introduces — the columns added to the three
- * existing per-second tables widen rows that were already being written.
+ * Room41 identity is (deviceId, ts, recordIndex); -1 means unknown. Migrated rows keep their timestamp
+ * resourceKey and byte-exact fields; new siblings have distinct timestamp:index resource keys.
+ * Automatic eviction is disabled until verified record-level durability receipts exist on Android.
  *
  * INSTRUMENTATION ONLY: nothing reads these rows.
  *
@@ -793,23 +796,31 @@ data class LiveSessionRow(
  * a census would be exactly the overclaiming this project has already had to retract. The capture IS the
  * deliverable. Twin of the Swift `v31-deep-capture-channels` migration note in `Database.swift`.
  */
-@Entity(tableName = "v18AuxSample", primaryKeys = ["deviceId", "ts"])
+@Entity(tableName = "v18AuxSample", primaryKeys = ["deviceId", "ts", "recordIndex"],
+    indices = [androidx.room.Index(value = ["deviceId", "resourceKey"], unique = true)])
 data class V18AuxSampleEntity(
     val deviceId: String,
     val ts: Long,
+    val recordIndex: Long = -1,
     val fields: ByteArray,
+    val resourceKey: String = "$ts:$recordIndex",
 ) {
+    @androidx.room.Ignore constructor(deviceId: String, ts: Long, fields: ByteArray) : this(deviceId, ts, -1, fields)
+    init { require(recordIndex in -1L..4294967295L && resourceKey.isNotEmpty()) }
     // ByteArray needs structural equals/hashCode (the generated identity ones break round-trip asserts).
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is V18AuxSampleEntity) return false
-        return deviceId == other.deviceId && ts == other.ts && fields.contentEquals(other.fields)
+        return deviceId == other.deviceId && ts == other.ts && recordIndex == other.recordIndex &&
+            resourceKey == other.resourceKey && fields.contentEquals(other.fields)
     }
 
     override fun hashCode(): Int {
         var result = deviceId.hashCode()
         result = 31 * result + ts.hashCode()
         result = 31 * result + fields.contentHashCode()
+        result = 31 * result + recordIndex.hashCode()
+        result = 31 * result + resourceKey.hashCode()
         return result
     }
 }

@@ -26,7 +26,7 @@ object PushBinaryCodec {
         PushBinaryTable.RAW_IMU_SESSION -> Kind.RAW_IMU_SESSION
     }
 
-    fun pack(table: PushBinaryTable, rows: List<PushBinaryRow>): ByteArray {
+    fun pack(table: PushBinaryTable, rows: List<PushBinaryRow>, ppgIdentityV2: Boolean = false, auxIdentityV2: Boolean = false): ByteArray {
         if (rows.isEmpty()) throw PushProtocolException("binary object must contain a row")
         return when (table) {
             PushBinaryTable.PPG_WAVEFORM_SAMPLE -> {
@@ -36,7 +36,7 @@ object PushBinaryCodec {
                         else -> throw PushProtocolException("binary row kind mismatch")
                     }
                 }
-                packPpgRecords(records)
+                packPpgRecords(records, ppgIdentityV2)
             }
             PushBinaryTable.V18_AUX_SAMPLE -> {
                 val records = rows.map { row ->
@@ -45,7 +45,7 @@ object PushBinaryCodec {
                         else -> throw PushProtocolException("binary row kind mismatch")
                     }
                 }
-                packV18Records(records)
+                packV18Records(records, auxIdentityV2)
             }
             PushBinaryTable.RAW_BATCH -> {
                 if (rows.size != 1) throw PushProtocolException("rawBatch upload must contain exactly one batch row")
@@ -71,12 +71,12 @@ object PushBinaryCodec {
         PushBinaryTable.PPG_WAVEFORM_SAMPLE, PushBinaryTable.V18_AUX_SAMPLE, PushBinaryTable.RAW_IMU_SESSION -> 10
     }
 
-    fun packedRowSize(row: PushBinaryRow): Int = when (row) {
+    fun packedRowSize(row: PushBinaryRow, ppgIdentityV2: Boolean = false, auxIdentityV2: Boolean = false): Int = when (row) {
         is PushBinaryRow.PpgWaveform -> {
             val record = row.record
-            8 + 8 + 1 + (if (record.burstIndex != null) 4 else 0) + 4 + record.samples.size
+            8 + 8 + (if (ppgIdentityV2) (if (record.recordIndex == null) 1 else 9) else 0) + 1 + (if (record.burstIndex != null) 4 else 0) + 4 + record.samples.size
         }
-        is PushBinaryRow.V18Aux -> 8 + 8 + 4 + row.record.fields.size
+        is PushBinaryRow.V18Aux -> 8 + 8 + (if (auxIdentityV2) (if (row.record.recordIndex == null) 1 else 9) else 0) + 4 + row.record.fields.size
         is PushBinaryRow.RawImuSession -> {
             if (row.record.columns.size != IMU_RECORD_PAYLOAD_BYTES) {
                 throw PushProtocolException("rawImuSession record must carry $IMU_COLUMNS_PER_RECORD i16 columns")
@@ -89,13 +89,21 @@ object PushBinaryCodec {
         }
     }
 
-    private fun packPpgRecords(records: List<PushPpgWaveformRecord>): ByteArray {
+    private fun packPpgRecords(records: List<PushPpgWaveformRecord>, identityV2: Boolean): ByteArray {
+        if (!identityV2 && records.any { it.recordIndex != null }) throw PushProtocolException("PPG identity requires negotiated protocol 1.3")
         val out = ByteArrayOutputStream(records.size * 32 + 8)
-        header(Kind.PPG_WAVEFORM_SAMPLE, out)
+        out.write(MAGIC); out.write(if (identityV2) 2 else 1); out.write(Kind.PPG_WAVEFORM_SAMPLE.raw.toInt())
         appendU32(records.size, out)
         for (record in records) {
             appendI64(record.rowId, out)
             appendI64(record.ts, out)
+            if (identityV2) {
+                val index = record.recordIndex
+                if (index == null) out.write(0) else {
+                    if (index !in 0..4294967295L) throw PushProtocolException("invalid PPG record index")
+                    out.write(1); appendI64(index, out)
+                }
+            }
             if (record.burstIndex != null) {
                 out.write(1)
                 appendI32(record.burstIndex, out)
@@ -107,13 +115,24 @@ object PushBinaryCodec {
         return out.toByteArray()
     }
 
-    private fun packV18Records(records: List<PushV18AuxRecord>): ByteArray {
+    private fun packV18Records(records: List<PushV18AuxRecord>, identityV2: Boolean): ByteArray {
+        if (!identityV2 && records.any { it.recordIndex != null || com.noop.data.V18AuxIdentity.complete(it.fields)?.recordIndex != null })
+            throw PushProtocolException("Auxiliary identity requires negotiated protocol 1.4")
         val out = ByteArrayOutputStream(records.size * 32 + 8)
-        header(Kind.V18_AUX_SAMPLE, out)
+        out.write(MAGIC); out.write(if (identityV2) 2 else 1); out.write(Kind.V18_AUX_SAMPLE.raw.toInt())
         appendU32(records.size, out)
         for (record in records) {
             appendI64(record.rowId, out)
             appendI64(record.ts, out)
+            if (identityV2) {
+                val complete = com.noop.data.V18AuxIdentity.complete(record.fields)
+                    ?: throw PushProtocolException("Auxiliary fields require raw-archive validation")
+                if (complete.recordIndex != record.recordIndex) throw PushProtocolException("Auxiliary envelope identity mismatch")
+                if (record.recordIndex == null) out.write(0) else {
+                    if (record.recordIndex !in 0..4294967295L) throw PushProtocolException("Invalid auxiliary index")
+                    out.write(1); appendI64(record.recordIndex, out)
+                }
+            }
             appendBlob(record.fields, out)
         }
         return out.toByteArray()

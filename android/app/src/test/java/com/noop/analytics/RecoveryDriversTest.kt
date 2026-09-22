@@ -14,6 +14,15 @@ import org.junit.Test
  */
 class RecoveryDriversTest {
 
+    @Test fun exactPositiveAndNegativeTiesRoundAwayFromZero() {
+        assertEquals(-1,RecoveryDrivers.roundedDeltaPoints(-0.5))
+        assertEquals(1,RecoveryDrivers.roundedDeltaPoints(0.5))
+        assertEquals(0,RecoveryDrivers.roundedDeltaPoints(Math.nextUp(-0.5)))
+        assertEquals(0,RecoveryDrivers.roundedDeltaPoints(Math.nextDown(0.5)))
+        assertEquals(-1,RecoveryDrivers.roundedDeltaPoints(Math.nextDown(-0.5)))
+        assertEquals(1,RecoveryDrivers.roundedDeltaPoints(Math.nextUp(0.5)))
+    }
+
     /** A usable baseline with a given mean and Gaussian sigma (spread is internal abs-dev units). */
     private fun baseline(mean: Double, sigma: Double, nValid: Int = 14): BaselineState =
         BaselineState(
@@ -55,8 +64,10 @@ class RecoveryDriversTest {
         val negativeBeyondTie = hrvMarginal(29.991177240671185, 60.0, negativeBaseline)
         assertTrue(negativeBelowTie.first > -0.5)
         assertEquals(0, negativeBelowTie.second)
-        assertEquals(-0.5, negativeTie.first, 0.0)
-        assertEquals(-1, negativeTie.second)
+        // exp() differs by an ULP across native JVMs; the fixture is near a tie, not necessarily
+        // exactly one. The independent exact-tie test above protects the actual rounding contract.
+        assertEquals(-0.5, negativeTie.first, 1e-12)
+        assertEquals(if(negativeTie.first<=-0.5) -1 else 0, negativeTie.second)
         assertTrue(negativeBeyondTie.first < -0.5)
         assertEquals(-1, negativeBeyondTie.second)
 
@@ -79,8 +90,8 @@ class RecoveryDriversTest {
         )
         assertTrue(positiveBelowTie.first < 0.5)
         assertEquals(0, positiveBelowTie.second)
-        assertEquals(0.5, positiveTie.first, 0.0)
-        assertEquals(1, positiveTie.second)
+        assertEquals(0.5, positiveTie.first, 1e-12)
+        assertEquals(if(positiveTie.first>=0.5) 1 else 0, positiveTie.second)
         assertTrue(positiveBeyondTie.first > 0.5)
         assertEquals(1, positiveBeyondTie.second)
     }
@@ -113,13 +124,13 @@ class RecoveryDriversTest {
             respBaseline = null, sleepPerf = null,
         )
 
-        assertEquals(-0.5, scoreBefore!! - neutralScore!!, 0.0)
+        assertEquals(-0.5, scoreBefore!! - neutralScore!!, 1e-12)
         assertEquals(scoreBefore, scoreAfter)
         assertEquals(
             listOf(
                 ChargeDriver(
                     label = ChargeDriverLabel.HEART_RATE_VARIABILITY,
-                    deltaPoints = -1,
+                    deltaPoints = if(scoreBefore-neutralScore<=-0.5) -1 else 0,
                     value = 29.99117725828923,
                     baseline = 30.0,
                     unit = ChargeDriverUnit.MILLISECONDS,

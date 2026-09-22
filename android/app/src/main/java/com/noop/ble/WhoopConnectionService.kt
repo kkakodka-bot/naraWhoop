@@ -214,8 +214,9 @@ class WhoopConnectionService : Service() {
     /** The smart-alarm HR collector, alive for the life of the service. */
     private var alarmJob: Job? = null
 
-    private val ble get() = (application as NoopApplication).ble
-    private val repo get() = (application as NoopApplication).repository
+    private val accountRuntime by lazy { (application as NoopApplication).accountRuntime }
+    private val ble get() = accountRuntime.ble
+    private val repo get() = accountRuntime.repository
 
     /**
      * Watches the OS PAIRING flow (#1635). NOOP has never observed ACTION_BOND_STATE_CHANGED, so whether a
@@ -269,6 +270,10 @@ class WhoopConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (accountRuntime.closed || !accountRuntime.context.isCurrent() || accountRuntime.identity.scope == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // The notification "Disconnect" action routes back here as a self-intent.
         if (intent?.action == ACTION_STOP) {
             runCatching { ble.disconnect() }
@@ -325,7 +330,7 @@ class WhoopConnectionService : Service() {
                 // today's row; this stops a years-deep import re-merging the whole history on every change.
                 // #1304/#512: the active strap's live day is under its own id ("whoop-<uuid>"); a raw
                 // "my-whoop" read (which the union method collapses to) misses it. Same accessor as :606.
-                repo.recentDaysMergedFlow((application as NoopApplication).activeDeviceId).catch { emit(emptyList()) },
+                repo.recentDaysMergedFlow(accountRuntime.activeDeviceId).catch { emit(emptyList()) },
             ) { state, days ->
                 // #911: resolve the day the way the dashboard does, via the LOGICAL local day (rolls at
                 // 04:00, with the #304 pre-04:00 carve-out), NOT a naive LocalDate.now() that rolls at
@@ -351,7 +356,7 @@ class WhoopConnectionService : Service() {
                         // The preference remains part of the per-tick cache key, so toggling the opt-out
                         // still takes effect on the next live-state emission without re-running the
                         // evaluation while the value is unchanged.
-                        illnessEnabled = NoopPrefs.illnessWatch(this@WhoopConnectionService),
+                        illnessEnabled = NoopPrefs.illnessWatch(accountRuntime.context),
                     ),
                 )
             }.catch { /* belt-and-braces: a frozen notification beats a dead process */ }
@@ -361,13 +366,14 @@ class WhoopConnectionService : Service() {
                 // streaming. Conflation still processes only the latest value — just without the axe.
                 .conflate()
                 .collect { (state, dayState) ->
+                    if (accountRuntime.closed || !accountRuntime.context.isCurrent()) return@collect
                 // Honest-null: the notification's Recovery line reads the NAIVE today row, never the
                 // carried anchor, so it stays blank until tonight's recovery actually lands (#911).
                 postNotification(state, dayState.todayRecovery)
                 // Banner transition (clear → raised) → real system notification; the notifier's
                 // persisted day gate dedupes against the app-open (AppViewModel) call site.
                 if (lastIllnessAlert == null && dayState.illness != null) {
-                    IllnessAlertNotifier.onEvaluated(this@WhoopConnectionService, dayState.illness)
+                    IllnessAlertNotifier.onEvaluated(accountRuntime.context, dayState.illness)
                 }
                 lastIllnessAlert = dayState.illness
                 // Evaluated only when (SoC, charging) actually MOVES — see [lastBatteryAlertKey]. Both policies
@@ -378,7 +384,7 @@ class WhoopConnectionService : Service() {
                     // Battery alerts — low (≤15%) and charge-complete (100%). The once-per-crossing
                     // dedupe is persisted in NoopPrefs (BatteryAlertPolicy), so no in-memory pct tracking.
                     BatteryAlertNotifier.onBatteryUpdate(
-                        this@WhoopConnectionService,
+                        accountRuntime.context,
                         currPct = state.batteryPct?.roundToInt(),
                         charging = state.charging,
                     )
@@ -389,7 +395,7 @@ class WhoopConnectionService : Service() {
                     // night. Sits beside onBatteryUpdate rather than in the estimator block below because it
                     // is the same kind of pure SoC policy — no Room read, no slope fit.
                     BatteryAlertNotifier.onCriticalBattery(
-                        this@WhoopConnectionService,
+                        accountRuntime.context,
                         currPct = state.batteryPct?.roundToInt(),
                         charging = state.charging,
                     )
@@ -408,13 +414,13 @@ class WhoopConnectionService : Service() {
                         val nowS = System.currentTimeMillis() / 1000
                         // #1304/#512: read the active strap's own SoC (banked under "whoop-<uuid>" for a
                         // 2nd strap), not the hardcoded canonical id. Same accessor as :606.
-                        val samples = repo.batterySamples((application as NoopApplication).activeDeviceId, nowS - 14L * 86_400, nowS, limit = 2_000)
+                        val samples = repo.batterySamples(accountRuntime.activeDeviceId, nowS - 14L * 86_400, nowS, limit = 2_000)
                             .mapNotNull { s -> s.soc?.let { s.ts to it } }
                         val rated = if (state.whoop5Detected) BatteryEstimator.ratedLifeHoursWhoop5
                                     else BatteryEstimator.ratedLifeHoursWhoop4
                         val estimate = BatteryEstimator.estimate(samples, rated)
                         BatteryAlertNotifier.onRuntimeEstimate(
-                            this@WhoopConnectionService,
+                            accountRuntime.context,
                             remainingHours = estimate?.hoursRemaining,
                             charging = state.charging,
                         )
@@ -429,7 +435,7 @@ class WhoopConnectionService : Service() {
                         // runtime alert, so it never adds work to the live-HR path.
                         refreshHabitualMidsleep()
                         BatteryAlertNotifier.onBedtimeRunway(
-                            this@WhoopConnectionService,
+                            accountRuntime.context,
                             nowSecOfDay = localSecOfDayNow(),
                             habitualMidsleepSec = habitualMidsleepCache,
                             typicalSleepHours = BatteryEstimator.typicalSleepHours(
@@ -445,7 +451,7 @@ class WhoopConnectionService : Service() {
                 // checks both); runCatching so a Glance hiccup never tears down the connection.
                 runCatching {
                     WidgetSnapshotStore.push(
-                        this@WhoopConnectionService,
+                        accountRuntime.context,
                         WidgetSnapshot(
                             recoveryPct = dayState.widgetRecovery,
                             // Rest = the sleep_performance composite from the anchor row's banked stage
@@ -470,13 +476,14 @@ class WhoopConnectionService : Service() {
         // cancel + relaunch the gate, never stack collectors.
         gpsGateJob?.cancel()
         gpsGateJob = scope.launch {
-            GpsSession.state
-                .map { it.active }
+            accountRuntime.gpsSession.state
+                .map { if (it.active) it.sessionId else null }
                 .distinctUntilChanged()
-                .collect { active ->
+                .collect { gpsSessionId ->
+                    if (accountRuntime.closed || !accountRuntime.context.isCurrent()) return@collect
                     gpsJob?.cancel()
                     gpsJob = null
-                    if (active) {
+                    if (gpsSessionId != null) {
                         // Re-post with the location service type added so background location is
                         // permitted while tracking; on Android 14+ a service that reads location in the
                         // background must declare the location FGS type. Reverted to connectedDevice-only
@@ -485,7 +492,7 @@ class WhoopConnectionService : Service() {
                         // Workouts & GPS test mode (Test Centre): wire the GpsSession fix-progress sink to the
                         // .workouts-tagged strap log ONLY when the WORKOUTS mode is on (one SharedPreferences
                         // bool read here). When off, the sink stays null and the route fold is byte-identical.
-                        GpsSession.workoutsLog =
+                        accountRuntime.gpsSession.workoutsLog =
                             if (com.noop.testcentre.TestCentre.from(applicationContext)
                                     .active(com.noop.testcentre.TestDomain.WORKOUTS)
                             ) {
@@ -497,11 +504,11 @@ class WhoopConnectionService : Service() {
                             // LocationTracker fails SAFE (no permission / no provider just ends the
                             // stream); runCatching guards an OEM throw so it can't tear down the FGS.
                             runCatching {
-                                locationTracker.stream().collect { pt -> GpsSession.append(pt) }
+                                locationTracker.stream().collect { pt -> accountRuntime.gpsSession.appendDurable(pt, gpsSessionId) }
                             }
                         }
                     } else {
-                        GpsSession.workoutsLog = null   // route finished: drop the test-mode sink
+                        accountRuntime.gpsSession.workoutsLog = null   // route finished: drop the test-mode sink
                         startForegroundCompat(buildNotification(ble.state.value, null), tracking = false)
                     }
                 }
@@ -516,11 +523,12 @@ class WhoopConnectionService : Service() {
         // still fires — that's the point of the fallback.
         alarmJob?.cancel()
         alarmJob = scope.launch {
-            val store = SmartAlarmStore.from(this@WhoopConnectionService)
+            val store = SmartAlarmStore.from(accountRuntime.context)
             ble.state
                 .map { it.heartRate ?: 0 }
                 .conflate()
                 .collect { hr ->
+                    if (accountRuntime.closed || !accountRuntime.context.isCurrent()) return@collect
                     if (!store.enabled || store.scheduledDeadlineMs <= 0L) {
                         // Disarmed while we were inside the window. SmartAlarmReceiver zeroes the
                         // edges before re-arming, and an explicit disable zeroes them for good, so
@@ -581,13 +589,13 @@ class WhoopConnectionService : Service() {
                         // deadline that can never be moved). Claiming "advancing" would then assert
                         // something this line cannot attribute - and that is precisely the case someone
                         // reading the log would be hunting. State the request and the permission apart.
-                        val permitted = SmartAlarmScheduler.canScheduleExact(this@WhoopConnectionService)
+                        val permitted = SmartAlarmScheduler.canScheduleExact(accountRuntime.context)
                         ble.externalLog(
                             "Smart alarm: detector fired, asking to advance the wake - HR $hr bpm vs " +
                                 "trough ${sleepWatcher.trough} after ${sleepWatcher.samples} readings" +
                                 if (permitted) "" else " - IGNORED, exact alarms are not permitted",
                         )
-                        SmartAlarmScheduler.advanceTo(this@WhoopConnectionService, store, now)
+                        SmartAlarmScheduler.advanceTo(accountRuntime.context, store, now)
                     }
                 }
         }
@@ -702,7 +710,7 @@ class WhoopConnectionService : Service() {
         // Thread the ACTIVE strap id so the learner unions active + canonical nights (#814/#1008),
         // exactly as SleepScreen does; the repository resolves the canonical sibling internally.
         habitualMidsleepCache = runCatching {
-            repo.habitualMidsleepSec((application as NoopApplication).activeDeviceId)?.toInt()
+            repo.habitualMidsleepSec(accountRuntime.activeDeviceId)?.toInt()
         }.getOrNull()
     }
 

@@ -87,17 +87,20 @@ public func isPlausibleHistoricalUnix(_ ts: Int, wallNow: Int,
 ///
 /// Used by the Backfiller/BLEManager to archive undecodable history BEFORE acking the trim. Mirrors
 /// the Android rejectedHistoricalRecords so one mapping toolchain re-ingests both archives.
-public func rejectedHistoricalRecords(_ rawFrames: [[UInt8]], family: DeviceFamily) -> [[UInt8]] {
+/// `parsedFrames`, when supplied, must come from these exact frames in the same order and family.
+/// A count mismatch falls back to parsing so an incomplete cache cannot omit a record from archival.
+public func rejectedHistoricalRecords(_ rawFrames: [[UInt8]], family: DeviceFamily,
+                                      parsedFrames: [ParsedFrame]? = nil) -> [[UInt8]] {
     // The type byte sits at the inner-record start: frame[4] on WHOOP 4.0, frame[8] on WHOOP 5/MG
     // (the puffin envelope is 4 bytes longer). hist_version sits one byte past the type+seq+cmd
     // header — frame[5] (4.0) / frame[9] (5/MG) — same shift.
     let typeIndex = family == .whoop5 ? 8 : 4
     let versionIndex = family == .whoop5 ? 9 : 5
-    return rawFrames.filter { f in
+    let matchingParsedFrames = parsedFrames?.count == rawFrames.count ? parsedFrames : nil
+    return rawFrames.enumerated().filter { index, f in
         // Only genuine HISTORICAL_DATA records (47). Console (50) and METADATA frames have a
         // different type byte, so they never pass this gate — they are excluded by construction.
         guard f.count > typeIndex, Int(f[typeIndex]) == 47 else { return false }
-        if family == .whoop5, f.count > versionIndex, Int(f[versionIndex]) == 26 { return false }  // v26 PPG: has its own durable stream (ppgWaveform), not this reject archive
         // UNMAPPED LAYOUT (5/MG) — archive UNCONDITIONALLY, whatever it decoded.
         //
         // The decode-outcome test below is the wrong question for a layout NOOP has no field map for.
@@ -112,15 +115,34 @@ public func rejectedHistoricalRecords(_ rawFrames: [[UInt8]], family: DeviceFami
         // (`RawHistoryArchive.evictLines`) evicts entirely-zero-payload frames first, so a firmware that
         // banks empty placeholder records at 1 Hz cannot push out the one informative frame either.
         if family == .whoop5, isUnmappedWhoop5HistoricalRecord(f) { return true }
-        let p = parseFrame(f, family: family)
+        let p = matchingParsedFrames?[index] ?? parseFrame(f, family: family)
         // Envelope/CRC reject: parse failed outright or the CRC32 trailer mismatched.
         if !p.ok || p.crcOK == false { return true }
+        if family == .whoop5, f.count > versionIndex, Int(f[versionIndex]) == 26 {
+            return p.parsed["unix"]?.intValue == nil || (p.parsed["ppg_waveform"]?.intArrayValue?.isEmpty ?? true)
+        }
         // Unmapped layout: the envelope parsed but no usable biometrics decoded. A record is genuinely
         // undecodable only if it has no timestamp, or NEITHER heart rate NOR motion. v25 (issue #30)
         // carries gravity but no per-second HR (PPG-derived), so a gravity-bearing record is real data
         // the sleep stager uses — keep it. Only HR-less AND gravity-less type-47 records are rejected.
         return p.parsed["unix"]?.intValue == nil
             || (p.parsed["heart_rate"]?.intValue == nil && p.parsed["gravity_x"]?.doubleValue == nil)
+    }.map(\.element)
+}
+
+/// Lossless recovery is independent of successful field extraction. Even mapped records can
+/// contain deep channels, unknown fields, duplicate slots, or timestamps rejected by plausibility
+/// filters. Preserve every history payload except positively identified, CRC-valid console output.
+/// Historical START/END/COMPLETE controls are consumed by the offload state machine before this call.
+/// Malformed apparent-console bytes are not trusted enough to discard.
+public func historicalRecoveryRecords(_ rawFrames: [[UInt8]], family: DeviceFamily,
+                                      parsedFrames: [ParsedFrame]? = nil) -> [[UInt8]] {
+    let parsed = parsedFrames?.count == rawFrames.count ? parsedFrames : nil
+    return rawFrames.enumerated().compactMap { index, frame in
+        let p = parsed?[index] ?? parseFrame(frame, family: family)
+        let type = frameTypeName(frame, family: family)
+        if (type == "CONSOLE_LOGS" || type == "RELATIVE_BATTERY_PACK_CONSOLE_LOGS"), p.ok, p.crcOK == true { return nil }
+        return frame
     }
 }
 
@@ -238,7 +260,6 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     // so the timeline stays continuous through the v26-heavy stretches that have no v18 HR summary.
     // The SAME (ts, samples) are also appended to `out.ppgWaveform` below (issue #156 follow-up) so the
     // raw waveform is durable too, not just the derived estimate this local buffer exists to produce.
-    var ppgRecords: [(ts: Int, samples: [Int])] = []
     // #891: packet types that reach `default:` and are dropped. See `Streams.unhandledPacketTypes`.
     var unhandledTypes: [String: Int] = [:]
     for r in parsed {
@@ -256,15 +277,16 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             // the waveform that produced it was discarded here). A v26 record carries no
             // heart_rate/spo2/gravity, so it adds nothing to the branches below — handled here only.
             if let samples = p["ppg_waveform"]?.intArrayValue, !samples.isEmpty {
-                ppgRecords.append((ts: ts, samples: samples))
                 out.ppgWaveform.append(PpgWaveformSample(ts: ts, samples: samples,
-                                                         burstIndex: p["burst_index"]?.intValue))
+                                                         burstIndex: p["burst_index"]?.intValue,
+                                                         recordIndex: p["record_index"]?.intValue))
             }
             if let bpm = p["heart_rate"]?.intValue, bpm != 0 {  // skip startup hr=0
                 out.hr.append(HRSample(ts: ts, bpm: bpm))
             }
             if let rrs = p["rr_intervals"]?.intArrayValue {
-                for rr in rrs { out.rr.append(RRInterval(ts: ts, rrMs: rr)) }
+                let source = p["rr_source_channel"]?.intValue.flatMap(RRSourceChannel.init(rawValue:))
+                for rr in rrs { out.rr.append(RRInterval(ts: ts, rrMs: rr, srcChannel: source)) }
             }
             if let red = p["spo2_red"]?.intValue {
                 out.spo2.append(SpO2Sample(ts: ts, red: red, ir: p["spo2_ir"]?.intValue ?? 0))
@@ -284,7 +306,8 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             // dropped on macOS (Android persists it). APPROXIMATE; semantics unverified vs the app (#78).
             if let c = p["step_motion_counter"]?.intValue {
                 // activity_class@63 (0=still/1=walk/2=run) rides on the same record — nil when invalid/absent.
-                out.steps.append(StepSample(ts: ts, counter: c, activityClass: p["activity_class"]?.intValue))
+                out.steps.append(StepSample(ts: ts, counter: c, activityClass: p["activity_class"]?.intValue,
+                    provenance: ScalarProvenance.observedV18(r)))
             }
             // Band sleep_state (#175): the strap's OWN @81 high-nibble state (0 wake/1 still/2 asleep/3 up),
             // decoded but DROPPED here until now, so the whole band-state chain (persist → the H7 re-onset
@@ -297,7 +320,7 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             // bit-identical.
             if let st = p["sleep_state"]?.intValue {
                 out.sleepState.append(SleepStateSample(ts: ts, state: st,
-                                                       rawByte: p["sleep_state_byte"]?.intValue))
+                    rawByte: p["sleep_state_byte"]?.intValue, provenance: ScalarProvenance.observedV18(r)))
             }
             if let raw = p["resp_rate_raw"]?.intValue {
                 out.resp.append(RespSample(ts: ts, raw: raw))
@@ -426,7 +449,7 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
     }
     // Derive per-second HR from the collected v26 PPG bursts (issue #156). Empty when there were no v26
     // records (the WHOOP 4 / v18-only common case), so this is a no-op cost there.
-    out.ppgHr = PpgHr.derivePpgHr(records: ppgRecords, subLagInterp: subLagInterp)
+    out.ppgHr = PpgHr.derivePpgHr(waveforms: out.ppgWaveform, subLagInterp: subLagInterp)
     out.unhandledPacketTypes = unhandledTypes     // #891 diag census (not persisted, not encoded)
     out.droppedImplausible = droppedImplausible   // #547 diag count (not persisted, not encoded)
     out.droppedImplausibleOldestTs = droppedOldest   // #324 poisoned-range epoch span (diag only)

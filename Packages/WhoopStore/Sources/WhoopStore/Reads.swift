@@ -124,8 +124,9 @@ extension WhoopStore {
     /// changed. Fingerprint the complete scoring input instead. HR keeps its established count+timestamp
     /// fingerprint; the other streams use SQLite's monotonic rowid frontier, which catches old backfills
     /// without full-table COUNT scans over millions of dense motion/R-R rows.
-    /// `v2` intentionally changes the persisted watermark once on upgrade so every install gets one clean
-    /// rescore under the complete contract.
+    /// `v3` also witnesses authoritative WHOOP 5 RR promotions and registry-only source-policy changes.
+    /// The version changes the persisted watermark once so the normal recent window is recomputed.
+    /// Older persisted scores remain until explicitly rescored; raw legacy intervals stay on disk.
     public func analysisFingerprint() async throws -> String {
         try syncRead { db in
             guard let row = try Row.fetchOne(db, sql: """
@@ -134,6 +135,14 @@ extension WhoopStore {
                   (SELECT COALESCE(MAX(ts), 0) FROM hrSample) AS hm,
                   (SELECT COALESCE(MAX(rowid), 0) FROM ppgHrSample) AS p,
                   (SELECT COALESCE(MAX(rowid), 0) FROM rrInterval) AS r,
+                  (SELECT COUNT(*) FROM rrInterval WHERE srcChannel = 5
+                     AND (tsSuspect IS NULL OR tsSuspect <> 1)) AS w5,
+                  (SELECT COUNT(*) FROM rrInterval WHERE srcChannel = 7
+                     AND (tsSuspect IS NULL OR tsSuspect <> 1)) AS w7,
+                  (SELECT COUNT(*) FROM rrInterval WHERE srcChannel IN (5, 6, 7)) AS w5tagged,
+                  (SELECT COALESCE(GROUP_CONCAT(identity, ';'), '') FROM
+                    (SELECT QUOTE(id) || ':' || QUOTE(brand) || ':' || QUOTE(model) || ':' || QUOTE(status) AS identity
+                     FROM pairedDevice ORDER BY id)) AS registry,
                   (SELECT COALESCE(MAX(rowid), 0) FROM respSample) AS x,
                   (SELECT COALESCE(MAX(rowid), 0) FROM gravitySample) AS g,
                   (SELECT COALESCE(MAX(rowid), 0) FROM sleepStateSample) AS s,
@@ -148,7 +157,10 @@ extension WhoopStore {
                 let frontier: Int = row[key]
                 return key + String(frontier)
             }
-            return "v2|h\(hc):\(hm)|" + tails.joined(separator: "|")
+            let historyCount: Int = row["w5"]
+            let registry: String = row["registry"]
+            return "v3|h\(hc):\(hm)|" + tails.joined(separator: "|")
+                + "|w5\(historyCount)|w7\(row["w7"] as Int)|tagged\(row["w5tagged"] as Int)|registry\(registry)"
         }
     }
 
@@ -172,7 +184,7 @@ extension WhoopStore {
     ///   future-stamped beats are excluded), so the witness counts the beats that are actually scored.
     /// - `sleepStateSample`: appended from the SAME v18 record at the same `ts` as HR, so a re-offloaded
     ///   record whose HR row is dropped on conflict still lands a new band row that `analyzeDay` scores.
-    ///   Its letter is `b` (band), not `s` — `s1|` is the version prefix.
+    ///   Its letter is `b` (band), not `s`, which is reserved for the version prefix.
     /// - `respSample`, `spo2Sample`, `gravitySample`, `stepSample`, `skinTempSample`, `event`.
     ///
     /// Returned as an opaque string: it is only ever compared to itself in memory, so no cross-platform or
@@ -191,6 +203,13 @@ extension WhoopStore {
                   (SELECT COALESCE(MAX(ts), 0) FROM rrInterval WHERE deviceId = :d AND ts >= :f AND ts <= :t
                      AND (srcChannel IS NULL OR srcChannel <> :rrx)
                      AND (tsSuspect IS NULL OR tsSuspect <> 1)) AS rm,
+                  (SELECT COUNT(*) FROM rrInterval WHERE deviceId = :d AND ts >= :f AND ts <= :t
+                     AND srcChannel = 5 AND (tsSuspect IS NULL OR tsSuspect <> 1)) AS w5,
+                  (SELECT COUNT(*) FROM rrInterval WHERE deviceId = :d AND ts >= :f AND ts <= :t
+                     AND srcChannel = 7 AND (tsSuspect IS NULL OR tsSuspect <> 1)) AS w7,
+                  EXISTS(SELECT 1 FROM rrInterval WHERE deviceId = :d AND srcChannel IN (5, 6, 7)) AS w5owner,
+                  COALESCE((SELECT QUOTE(brand) || ':' || QUOTE(model) FROM pairedDevice
+                            WHERE id = :d), 'absent') AS registry,
                   (SELECT COUNT(*) FROM respSample WHERE deviceId = :d AND ts >= :f AND ts <= :t) AS xc,
                   (SELECT COALESCE(MAX(ts), 0) FROM respSample WHERE deviceId = :d AND ts >= :f AND ts <= :t) AS xm,
                   (SELECT COUNT(*) FROM spo2Sample WHERE deviceId = :d AND ts >= :f AND ts <= :t) AS oc,
@@ -212,7 +231,10 @@ extension WhoopStore {
                 let count: Int = row[key + "c"], maxTs: Int = row[key + "m"]
                 return "\(key)\(count):\(maxTs)"
             }
-            return "s1|" + parts.joined(separator: "|")
+            let historyCount: Int = row["w5"]
+            let registry: String = row["registry"]
+            let strictRR = try Self.isWhoop5RRSource(db: db, deviceId: deviceId)
+            return "s2|" + parts.joined(separator: "|") + "|w5\(historyCount)|w7\(row["w7"] as Int)|ownerTagged\(row["w5owner"] as Int)|registry\(registry)|rr5=\(strictRR)"
         }
     }
 
@@ -307,7 +329,8 @@ extension WhoopStore {
     /// second's beats sorted by VALUE, which makes successive beats similar by construction and biases
     /// RMSSD — all successive differences — downward. Pre-v30 rows have `ord` NULL and SQLite sorts NULL
     /// first in ASC, so an all-NULL second ties and falls through to the old (rrMs, seq) order unchanged.
-    /// Byte-parity twin of Kotlin `WhoopDao.rrIntervals`; both are SQLite, so NULL ordering matches.
+    /// WHOOP 5 reads one verified transport; its unlabelled legacy rows remain stored but unscored.
+    /// Kotlin's repository routes to equivalent SQLite queries, including the same NULL ordering.
     ///
     /// ONE optical channel (#1071). An Oura ring measures the same heartbeats on more than one tag, and
     /// every one of them is stored, so an unfiltered read returned roughly TWO complete copies of a night
@@ -317,8 +340,7 @@ extension WhoopStore {
     ///
     /// The predicate EXCLUDES the one channel proven redundant (`spo2Ibi`, 0x6E) rather than whitelisting
     /// the one preferred (`greenQuality`, 0x80), which matters for what it does NOT drop:
-    ///   - NULL is kept. Every WHOOP row is NULL by construction (one beat source), as is every row
-    ///     written before v32. A whitelist would delete every WHOOP night from scoring.
+    ///   - Outside strict WHOOP 5 policy, NULL is kept for WHOOP 4 and unlabelled legacy rows.
     ///   - `ibiAmplitude` (0x60/0x44) is kept. It does not fire on the Gen-3 hardware this was measured
     ///     on, so there is no evidence it duplicates green — and dropping a ring's ONLY beat source on an
     ///     untested assumption is the more expensive mistake. If a capture ever shows 0x60 and 0x80 firing
@@ -331,14 +353,34 @@ extension WhoopStore {
     /// Every R-R consumer reads through this one function, so the `hrv diag` trace moves with the scores
     /// rather than reporting a coverage nobody can reproduce.
     public func rrIntervals(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [RRInterval] {
+        try await rrIntervals(deviceId: deviceId, from: from, to: to, limit: limit,
+                              unlabelledAliasOfWhoop5: false)
+    }
+
+    /// A canonical alias of a WHOOP 5 may hold old mixed-unit rows. Apply its unit guard when the
+    /// alias has no confirmed identity; a known WHOOP 4 or another brand retains its own read policy.
+    public func rrIntervals(deviceId: String, from: Int, to: Int, limit: Int,
+                            unlabelledAliasOfWhoop5: Bool) async throws -> [RRInterval] {
         try syncRead { db in
-            try Row.fetchAll(db, sql: """
+            let strictWhoop5 = try Self.isWhoop5RRSource(db: db, deviceId: deviceId,
+                unlabelledAliasOfWhoop5: unlabelledAliasOfWhoop5)
+            // One transport for the complete requested interval. Legacy WHOOP 5 rows mix units and
+            // origins, so they remain stored but cannot be converted or spliced into a scored beat train.
+            // This subquery uses the SAME time/suspect predicates as the outer read, before LIMIT.
+            let sourcePredicate = strictWhoop5 ? """
+                srcChannel = (SELECT MIN(srcChannel) FROM rrInterval
+                    WHERE deviceId = :d AND ts >= :f AND ts <= :t AND srcChannel IN (5, 7)
+                    AND (tsSuspect IS NULL OR tsSuspect <> 1))
+                """ : "1"
+            return try Row.fetchAll(db, sql: """
                 SELECT ts, rrMs, srcChannel, ord, seq FROM rrInterval
-                WHERE deviceId = ? AND ts >= ? AND ts <= ?
-                AND (srcChannel IS NULL OR srcChannel <> ?)
+                WHERE deviceId = :d AND ts >= :f AND ts <= :t
+                AND (srcChannel IS NULL OR srcChannel <> :rrx)
+                AND \(sourcePredicate)
                 AND (tsSuspect IS NULL OR tsSuspect <> 1)   -- #1073: exclude future-stamped beats
-                ORDER BY ts ASC, ord ASC, rrMs ASC, seq ASC LIMIT ?
-                """, arguments: [deviceId, from, to, RRSourceChannel.spo2Ibi.rawValue, limit])
+                ORDER BY ts ASC, ord ASC, rrMs ASC, seq ASC LIMIT :lim
+                """, arguments: ["d": deviceId, "f": from, "t": to,
+                                 "rrx": RRSourceChannel.spo2Ibi.rawValue, "lim": limit])
                 .map { row in
                     RRInterval(ts: row["ts"], rrMs: row["rrMs"],
                                srcChannel: (row["srcChannel"] as Int?).flatMap(RRSourceChannel.init(rawValue:)),
@@ -404,13 +446,14 @@ extension WhoopStore {
     public func stepSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [StepSample] {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
-                SELECT ts, counter, activityClass FROM stepSample
+                SELECT ts, counter, activityClass, provenanceJSON FROM stepSample
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
                 ORDER BY ts ASC LIMIT ?
                 """, arguments: [deviceId, from, to, limit])
                 // activityClass (#316, v19) reads back nil for any pre-v19 row (the column defaulted null) and
                 // for any record whose @63 byte was 0xFF/invalid/absent, an absent class stays absent.
-                .map { StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"]) }
+                .map { try StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"],
+                    provenance: ScalarProvenance.decodeJSON($0["provenanceJSON"])) }
         }
     }
 
@@ -419,11 +462,12 @@ extension WhoopStore {
                                 limit: Int) async throws -> [StepSample] {
         try syncRead { db in
             try Row.fetchAll(db, sql: """
-                SELECT ts, counter, activityClass FROM stepSample
+                SELECT ts, counter, activityClass, provenanceJSON FROM stepSample
                 WHERE deviceId = ? AND ts > ? AND ts < ?
                 ORDER BY ts ASC LIMIT ?
                 """, arguments: [deviceId, afterExclusive, endExclusive, limit]).map {
-                    StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"])
+                    try StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"],
+                        provenance: ScalarProvenance.decodeJSON($0["provenanceJSON"]))
                 }
         }
     }
@@ -433,10 +477,11 @@ extension WhoopStore {
     public func stepSampleBefore(deviceId: String, before: Int) async throws -> StepSample? {
         try syncRead { db in
             try Row.fetchOne(db, sql: """
-                SELECT ts, counter, activityClass FROM stepSample
+                SELECT ts, counter, activityClass, provenanceJSON FROM stepSample
                 WHERE deviceId = ? AND ts < ? ORDER BY ts DESC LIMIT 1
                 """, arguments: [deviceId, before]).map {
-                    StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"])
+                    try StepSample(ts: $0["ts"], counter: $0["counter"], activityClass: $0["activityClass"],
+                        provenance: ScalarProvenance.decodeJSON($0["provenanceJSON"]))
                 }
         }
     }

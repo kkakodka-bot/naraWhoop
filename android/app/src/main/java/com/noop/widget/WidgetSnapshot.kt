@@ -42,7 +42,8 @@ object WidgetSnapshotStore {
     private const val FILE = "noop_widget"
 
     suspend fun push(context: Context, snap: WidgetSnapshot) {
-        val app = context.applicationContext
+        val app = com.noop.account.AccountStorageContext.capture(context)
+        if (!app.isCurrent()) return
         // Cheap, non-suspending gate FIRST — at live-HR cadence (~1/s) almost every call ends here.
         if (!PushGate.admit(snap)) return
 
@@ -64,7 +65,7 @@ object WidgetSnapshotStore {
     }
 
     fun save(context: Context, snap: WidgetSnapshot) {
-        val e = context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+        val e = com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
             .putInt("recovery", snap.recoveryPct ?: -1)
             .putInt("rest", snap.restPct ?: -1)
             .putInt("effort", snap.effortPct ?: -1)
@@ -81,7 +82,7 @@ object WidgetSnapshotStore {
     }
 
     fun load(context: Context): WidgetSnapshot {
-        val p = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        val p = com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(FILE, Context.MODE_PRIVATE)
         val (hr, hrStale) = HrDisplay.resolve(
             lastHr = p.getInt("hr", -1).takeIf { it > 0 },
             lastHrAtMs = p.getLong("hrAt", 0L),

@@ -29,6 +29,7 @@ import WhoopStore
 
 struct StressView: View {
     @EnvironmentObject var repo: Repository
+    @EnvironmentObject var app: AppModel
 
     /// The stored 0–3 stress series ("my-whoop"), oldest→newest. Empty → derive.
     @State private var storedSeries: [(day: String, value: Double)] = []
@@ -87,16 +88,21 @@ struct StressView: View {
     }
 
     private func load() async {
-        storedSeries = await repo.series(key: "stress", source: "my-whoop")
+        let load = ScoringPreferenceViewLoad(app: app, repo: repo)
+        guard load.isCurrent(app: app, repo: repo) else { return }
+        let stored = await repo.series(key: "stress", source: "my-whoop")
+        guard load.isCurrent(app: app, repo: repo) else { return }
+        storedSeries = stored
         loaded = true
         rebuildModelIfNeeded()
-        await loadDaytime()
+        await loadDaytime(load: load)
     }
 
     /// Read TODAY's banked HR + R-R and build the intraday stress timeline. Local-day
     /// window [midnight, now]; the helper buckets it into waking hours and reuses the
     /// daily score's math, so this is the same proxy at a finer grain — never a new score.
-    private func loadDaytime() async {
+    private func loadDaytime(load: ScoringPreferenceViewLoad) async {
+        guard load.isCurrent(app: app, repo: repo) else { return }
         let cal = Calendar.current
         let startOfDay = cal.startOfDay(for: Date())
         let from = Int(startOfDay.timeIntervalSince1970)
@@ -104,6 +110,7 @@ struct StressView: View {
         let tz = TimeZone.current.secondsFromGMT(for: Date())
 
         let hr = await repo.hrSamples(from: from, to: to, limit: 200_000)
+        guard load.isCurrent(app: app, repo: repo) else { return }
         // Too few HR samples: empty the timeline AND clear the advanced readouts in lockstep. Without this
         // reset a later refresh that hits this path would leave the Advanced HRV card showing stale values
         // next to an empty timeline (the readouts are only recomputed past this guard).
@@ -114,10 +121,12 @@ struct StressView: View {
             return
         }
         let rr = await repo.rrIntervals(from: from, to: to, limit: 200_000)
+        guard load.isCurrent(app: app, repo: repo) else { return }
         // Wrist accelerometer for the motion gate: an ambulatory hour is EXERTION, not stress, so it
         // is masked rather than scored (DaytimeStress). Same store read as R-R; empty on hardware or
         // imports with no gravity, which is exactly the "no masking, prior behaviour" degradation.
         let gravity = await repo.gravitySamplesUnion(from: from, to: to, limit: 200_000)
+        guard load.isCurrent(app: app, repo: repo) else { return }
 
         // Score today's hours against the PERSONAL cross-day daytime baseline ONLY when the user has
         // opted in (Settings → Experimental) AND enough worn history exists (Oura-style
@@ -126,9 +135,10 @@ struct StressView: View {
         // chooseable lens, not a silent default. The mode is resolved only AFTER the HR-count guard above,
         // so the trailing-history reads are never paid on a day with no scorable timeline — and are never
         // paid at all while the toggle is OFF (the default), keeping the read byte-identical to before.
-        let mode = PuffinExperiment.stressPersonalBaselineEnabled
-            ? await daytimeScoringMode(startOfToday: startOfDay)
+        let mode = load.algorithms.daytimePersonalBaselineEnabled
+            ? await daytimeScoringMode(startOfToday: startOfDay, load: load)
             : .dayRelative
+        guard load.isCurrent(app: app, repo: repo) else { return }
         if case .baselineRelative = mode { daytimeUsesPersonalBaseline = true }
         else { daytimeUsesPersonalBaseline = false }
         daytime = DaytimeStress.analyze(hr: hr, rr: rr, gravity: gravity, tzOffsetSeconds: tz, mode: mode)
@@ -158,7 +168,7 @@ struct StressView: View {
     /// off the main actor via `repo` — riding the same async `load()` the today-timeline already runs on.
     /// Unworn days are skipped without an R-R read. The `DaytimeStress` analyze memo is untouched; the
     /// fold itself is O(days).
-    private func daytimeScoringMode(startOfToday: Date) async -> DaytimeStress.ScoringMode {
+    private func daytimeScoringMode(startOfToday: Date, load: ScoringPreferenceViewLoad) async -> DaytimeStress.ScoringMode {
         let cal = Calendar.current
         var days: [DaytimeStress.DaytimeDayStreams] = []
         days.reserveCapacity(Self.baselineHistoryDays)
@@ -170,8 +180,10 @@ struct StressView: View {
             let to = Int(dayEnd.timeIntervalSince1970) - 1
             let dayTz = TimeZone.current.secondsFromGMT(for: dayStart)
             let dayHR = await repo.hrSamples(from: from, to: to, limit: 200_000)
+            guard load.isCurrent(app: app, repo: repo) else { return .dayRelative }
             guard !dayHR.isEmpty else { continue }   // unworn day — no floor to learn, skip the R-R read
             let dayRR = await repo.rrIntervals(from: from, to: to, limit: 200_000)
+            guard load.isCurrent(app: app, repo: repo) else { return .dayRelative }
             days.append(.init(hr: dayHR, rr: dayRR, tzOffsetSeconds: dayTz))
         }
         return DaytimeStress.scoringMode(history: days)
@@ -881,15 +893,12 @@ struct StressModel {
 
 enum StressMath {
     static func mean(_ xs: [Double]) -> Double? {
-        guard !xs.isEmpty else { return nil }
-        return xs.reduce(0, +) / Double(xs.count)
+        DailyPresentationMath.mean(xs)
     }
 
     /// Population standard deviation; 0 when there's no spread.
     static func std(_ xs: [Double], mean m: Double?) -> Double {
-        guard let m, xs.count > 1 else { return 0 }
-        let v = xs.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(xs.count)
-        return v.squareRoot()
+        DailyPresentationMath.populationSD(xs, mean: m)
     }
 
     /// Combined autonomic z-score. RHR-up and HRV-down both push it positive.
@@ -897,20 +906,14 @@ enum StressMath {
         rhrToday: Double?, meanRHR: Double?, sdRHR: Double,
         hrvToday: Double?, meanHRV: Double?, sdHRV: Double
     ) -> Double {
-        var sum = 0.0
-        if let r = rhrToday, let m = meanRHR, sdRHR > 0.0001 {
-            sum += (r - m) / sdRHR            // up = stress
-        }
-        if let h = hrvToday, let m = meanHRV, sdHRV > 0.0001 {
-            sum += (m - h) / sdHRV            // down = stress
-        }
-        return sum
+        DailyPresentationMath.dailyStressRaw(
+            rhrToday: rhrToday, meanRHR: meanRHR, sdRHR: sdRHR,
+            hrvToday: hrvToday, meanHRV: meanHRV, sdHRV: sdHRV)
     }
 
     /// Logistic squash of the raw z-sum onto 0–3 (baseline 0 → 1.5).
     static func squash(_ raw: Double) -> Double {
-        let s = 3.0 / (1.0 + exp(-raw))
-        return min(max(s, 0), 3)
+        DailyPresentationMath.dailyStressSquash(raw)
     }
 
     static func explanation(band: StressBand, rhrDelta: Double?, hrvDelta: Double?, usingStored: Bool) -> String {

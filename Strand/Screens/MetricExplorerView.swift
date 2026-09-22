@@ -238,7 +238,7 @@ func vitalReadingRows(readings: [VitalReading], unit: String, strapDeviceId: Str
         return VitalReadingRow(
             time: vitalReadingDateLabel(reading.day, now: now),
             value: unit.isEmpty ? value : "\(value) \(unit)",
-            source: TodayView.provenanceDisplayLabel(rawSource: reading.source, deviceId: strapDeviceId)
+            source: reading.source == "server" ? "Server" : TodayView.provenanceDisplayLabel(rawSource: reading.source, deviceId: strapDeviceId)
         )
     }
 }
@@ -541,6 +541,7 @@ private struct MetricRow: View {
 struct MetricDetailView: View {
     let metric: MetricDescriptor
     @EnvironmentObject var repo: Repository
+    @EnvironmentObject private var serverScores: ServerScoreRepository
     /// Trailing-window HRV from the last sync — merged into today's chart point so the detail screen
     /// matches the Today tile's "Current HRV" readout.
     @EnvironmentObject var app: AppModel
@@ -580,7 +581,11 @@ struct MetricDetailView: View {
         SkinTempDisplay.Kind(rawValue: skinTempDisplayRaw) ?? .absolute
     }
     private func fmt(_ v: Double) -> String {
-        metric.format(v, system: unitSystem, temperature: temperatureUnit, effortScale: effortScale)
+        if metric.key == "skin_temp", serverOwned, let serverMetric {
+            return SkinTempDisplay.formatReading(.init(value: v, kind: serverMetric == .skinTemperature ? .absolute : .deviation),
+                                                  fahrenheit: temperatureUnit == .fahrenheit, decimals: metric.decimals)
+        }
+        return metric.format(v, system: unitSystem, temperature: temperatureUnit, effortScale: effortScale)
     }
 
     @State private var range: ExploreRange = .month
@@ -588,7 +593,22 @@ struct MetricDetailView: View {
     /// in `.onAppear` with a soft ease, exactly as TodayView animates its rings.
     @State private var heroAnimatedFraction: Double = 0
     /// Full ascending series for this metric — ALL history.
-    @State private var series: [(day: String, value: Double)] = []
+    @State private var localSeries: [(day: String, value: Double)] = []
+    private var serverMetric: ServerScoreMetric? {
+        guard metric.source == "my-whoop" else { return nil }
+        if metric.key == "skin_temp" {
+            return ServerScoreDisplay.temperatureMetric(prefersAbsolute: skinTempPreferred == .absolute, state: serverScores.state)
+        }
+        return metric.key == "in_bed_min" ? .sleepInBed : RepositoryServerScores.metric(key: metric.key)
+    }
+    private var serverOwned: Bool { serverMetric.map { serverScores.state.owns($0) } ?? false }
+    private var series: [(day: String, value: Double)] {
+        get {
+            guard serverOwned, let serverMetric else { return localSeries }
+            return ServerScoreDisplay.series(serverMetric, through: serverScores.currentDay, state: serverScores.state)
+        }
+        nonmutating set { localSeries = newValue }
+    }
     /// day → the RAW source id that supplied that day's value (task #8). Loaded from `resolvedSeries`
     /// alongside `series` and used ONLY for the readings-table provenance column, so the plotted line
     /// (which rides `series`/`exploreSeries`) is never changed by adding source labels.
@@ -619,7 +639,7 @@ struct MetricDetailView: View {
     @State private var correlationCache: [CorrRow] = []
     /// The (metricID, range) the cache was built for; nil means "not yet computed".
     @State private var correlationKey: String? = nil
-    private var loadTaskID: String { "\(metric.id)|\(repo.refreshSeq)|\(skinTempDisplayRaw)" }
+    private var loadTaskID: String { "\(metric.id)|\(repo.refreshSeq)|\(skinTempDisplayRaw)|\(serverOwned)" }
 
     // MARK: Derived
 
@@ -627,7 +647,7 @@ struct MetricDetailView: View {
     /// a current readout. Nightly `avgHrv` stays in `series` for provenance/correlations; only the
     /// chart + headline swap today's point to the fresher trailing-window RMSSD.
     private var chartSeries: [(day: String, value: Double)] {
-        guard metric.key == "hrv", let current = app.currentHrv else { return series }
+        guard !serverOwned, metric.key == "hrv", let current = app.currentHrv else { return series }
         let todayKey = Repository.localDayKey(Date())
         var out = series.filter { $0.day != todayKey }
         out.append((day: todayKey, value: current.rmssdMs))
@@ -763,6 +783,11 @@ struct MetricDetailView: View {
         let fellBack = effRange != range
         return ScrollView {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                if serverOwned {
+                    ServerScoreStatusNote(state: serverScores.state, day: serverScores.currentDay)
+                    Text("Showing cached server results and the bounded history supplied with them. Cross-metric correlations are not available yet.")
+                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                }
                 if loaded && chartSeries.isEmpty {
                     // No data in the entire history — keep the range bar for context, then the
                     // honest empty state (no scenic hero floating over nothing). Deliberately
@@ -830,7 +855,7 @@ struct MetricDetailView: View {
                     }
                     statRow(effectiveRange: effRange, windowed: win)
                     readingsTable(windowed: win)
-                    correlationCard
+                    if !serverOwned { correlationCard }
                 }
             }
             .padding(NoopMetrics.screenPadding)
@@ -866,6 +891,9 @@ struct MetricDetailView: View {
         }
         .navigationTitle(metric.title)
         .task(id: loadTaskID) { await load() }
+        .task(id: "\(metric.id)|\(serverOwned)") {
+            if serverOwned { await serverScores.refreshRecentDays() }
+        }
         // Range changes the window, hence the correlation inputs — recompute the
         // cached scan rather than letting `correlationCard` run it inside body.
         .onChangeCompat(of: range) { _ in recomputeCorrelations() }
@@ -884,17 +912,37 @@ struct MetricDetailView: View {
     /// flips there. Phase 2 is the catalog scan, awaited afterwards, and only the correlation card waits
     /// on it. Same reads, same results, same order; only the gate moved.
     private func load() async {
+        let load = ScoringPreferenceViewLoad(app: app, repo: repo)
+        let taskID = loadTaskID
+        let skinTempPreference = skinTempPreferred
+        func isCurrent() -> Bool { load.isCurrent(app: app, repo: repo) && taskID == loadTaskID }
+        if serverOwned {
+            guard load.isCurrent(app: app, repo: repo, requiringAcceptedPreferences: false),
+                  taskID == loadTaskID else { return }
+            skinTempNote = nil
+            loaded = true
+            correlationsLoaded = true
+            others = []
+            correlationCache = []
+            return
+        }
+        guard isCurrent() else { return }
+        let spo2CandidateDisplayEnabled = load.algorithms.spo2CandidateDisplayEnabled
         // Phase 1 — what the screen actually draws.
-        series = await repo.exploreSeries(key: metric.key, source: metric.source)
+        let loadedSeries = await repo.exploreSeries(key: metric.key, source: metric.source)
+        guard isCurrent() else { return }
+        series = loadedSeries
         // Per-day provenance for the readings table (task #8). resolvedSeries names the source that
         // actually supplied each day (imported strap / on-device / Apple Health / Health Connect); the
         // chart still rides `series` above, so this only ADDS the source column, never moves the line.
         let resolution = await repo.resolvedSeries(key: metric.key, source: metric.source)
+        guard isCurrent() else { return }
         if metric.key == "vo2max_est" {
             var attributed: [String: String] = [:]
             for point in resolution.points {
                 let tag = await repo.scoreProvenanceTag(
                     resolvedSource: point.source, day: point.day, metricKey: metric.key)
+                guard isCurrent() else { return }
                 attributed[point.day] = vo2MaxAttributionSource(tag.flatMap { Vo2MaxEstimator(rawValue: $0) })
             }
             sourceByDay = attributed
@@ -915,8 +963,9 @@ struct MetricDetailView: View {
         // different metrics that happen to share a key. Only the WHOOP/Oura partition has a candidate
         // series behind it; without this a Xiaomi Band's Blood Oxygen card would be asking for a strap
         // estimate that is not its own.
-        if metric.key == "spo2", metric.source == "my-whoop", PuffinExperiment.spo2CandidateDisplayEnabled {
+        if metric.key == "spo2", metric.source == "my-whoop", spo2CandidateDisplayEnabled {
             let candidateSeries = await repo.exploreSeries(key: "spo2_candidate", source: metric.source)
+            guard isCurrent() else { return }
             if !candidateSeries.isEmpty {
                 // `uniquingKeysWith`, matching the `sourceByDay` build above — NOT
                 // `uniqueKeysWithValues`, which TRAPS on a duplicate day. `exploreSeries` collapses by day
@@ -963,7 +1012,7 @@ struct MetricDetailView: View {
             }
             if anyAbsolute || anyDeviation {
                 let leadsAbsolute: Bool
-                switch skinTempPreferred {
+                switch skinTempPreference {
                 case .absolute:   leadsAbsolute = anyAbsolute
                 case .deviation:  leadsAbsolute = !anyDeviation && anyAbsolute
                 }
@@ -999,7 +1048,7 @@ struct MetricDetailView: View {
                 //     absolute-led only — see `shouldExplainShortenedSkinTempSeries`.)
                 let shownReadings = series.count
                 let rowsWithEither = days.count { $0.skinTempC != nil || $0.skinTempDevC != nil }
-                if shouldExplainSkinTempFallback(prefer: skinTempPreferred, leadsAbsolute: leadsAbsolute,
+                if shouldExplainSkinTempFallback(prefer: skinTempPreference, leadsAbsolute: leadsAbsolute,
                                                  anyAbsoluteInWindow: anyAbsolute) {
                     skinTempNote = String(localized: "No measured temperature for these nights — showing the difference from your baseline instead. A re-score refills temperatures for nights that have one.")
                 } else if shouldExplainShortenedSkinTempSeries(leadsAbsolute: leadsAbsolute,
@@ -1026,12 +1075,13 @@ struct MetricDetailView: View {
         // returns nil rather than caching a partial scan, so a quick in-and-out still stops the work and
         // cannot leave a half-filled catalog frozen in for the rest of the generation.
         guard let allSeries = await repo.exploreAllSeries() else { return }
+        guard isCurrent() else { return }
         var loadedOthers: [(metric: MetricDescriptor, series: [(day: String, value: Double)])] = []
         for other in MetricCatalog.all where other.id != metric.id {
-            guard !Task.isCancelled else { return }
+            guard isCurrent() else { return }
             if let s = allSeries[other.id], !s.isEmpty { loadedOthers.append((other, s)) }
         }
-        guard !Task.isCancelled else { return }
+        guard isCurrent() else { return }
         others = loadedOthers
         correlationsLoaded = true
         // First correlation build, now that `series`/`others` exist.
@@ -1367,7 +1417,7 @@ struct MetricDetailView: View {
     @ViewBuilder
     private func readingsTable(windowed: [(day: String, value: Double)]) -> some View {
         let readings = windowed.map {
-            VitalReading(day: $0.day, value: $0.value, source: sourceByDay[$0.day] ?? metric.source)
+            VitalReading(day: $0.day, value: $0.value, source: serverOwned ? "server" : (sourceByDay[$0.day] ?? metric.source))
         }
         // The unit is passed EMPTY on purpose (#1942). `vitalReadingRows` appends its `unit` to whatever
         // the formatter returns, and every `MetricDescriptor.format` overload already ends in the unit —

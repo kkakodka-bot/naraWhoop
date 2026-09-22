@@ -1,0 +1,8 @@
+{
+  "origin": "Actual Swift PushAuxiliaryIdentityTests.testExactAuxiliaryFormatTwoGoldenPreservesSameSecondAndUnknownIndex, 2026-09-18",
+  "hex": "4e50423102020300000001000000000000006400000000000000010000000000000000090000000201000000000000000200000000000000640000000000000001ffffffff00000000090000000201000000ffffffff030000000000000064000000000000000006000000020200000001",
+  "gzipBase64": "H4sIAAAAAAAAE/MLcDJkYmJmYGBgZICAFCgN4zNwAjETjMeEruo/EKCoAgkwo6liYAPJgvQyAgAwXsWwcQAAAA==",
+  "wireSha256": "8a9b82cf4c7c3c1c2ad7d2c922d9632a27152dc3778c9ba24cf639fdf1accebb",
+  "manifest": {"batchId":"acd9cf97-7ebd-5286-a4eb-96c347224ea0","compressedBytes":64,"contentEncoding":"gzip","contentSha256":"bc0f818227ef1c3ed66b6596dbeb4e533d4f632994ac5728c4ac4701a3ee523a","deviceId":"fixture-device","endTs":101,"objectId":"3ae2c9e6-b7f9-5c44-8292-73920eb88b74","protocolVersion":"1.4","sampleCount":3,"sourceId":"3a3486dd-5030-4e17-a00d-a781399890f9","startTs":100,"stream":"v18AuxSample","type":"binaryObject","uncompressedBytes":113},
+  "fingerprints": ["af4a73756a88246ff46f49a667eb32d4917de6468ac189d4b8ccb4b308f1ecaa","7ad1d842f0a57254542785cb45fb33dd4162c7b45a12db7af8a5469ce5c85d82","39ad74746342bc4d30c7086d6a66db64d7f2ed52d55c95bf1e83bb8ac405bb59"]
+}

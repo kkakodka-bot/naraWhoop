@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import com.noop.account.AccountStorageContext
+import com.noop.account.AccountWorkContext
 import android.content.SharedPreferences
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -49,30 +51,38 @@ object CoachBriefScheduler {
      * the schedule self-heals after a reboot/relaunch.
      */
     fun reschedule(context: Context, settings: CoachBriefSettings = CoachBriefSettings.from(context)) {
-        val wm = WorkManager.getInstance(context.applicationContext)
+        val account = AccountStorageContext.capture(context)
+        val wm = WorkManager.getInstance(AccountStorageContext.platform(account))
+        wm.cancelUniqueWork(WORK_NAME) // Legacy jobs carry no owner and are never adopted.
+        if (account.identity.scope == null || !account.isCurrent()) return
+        val workName = AccountWorkContext.name(WORK_NAME, account)
         if (!settings.enabled) {
-            wm.cancelUniqueWork(WORK_NAME)
+            wm.cancelUniqueWork(workName)
             publishToWidgetSync(context, null)  // K10: clear the widget when the feature is turned off
             return
         }
         val initialDelayMs = delayToNextOccurrenceMs(settings.timeMinutes)
         val request = PeriodicWorkRequestBuilder<CoachBriefWorker>(1, TimeUnit.DAYS)
             .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
+            .setInputData(AccountWorkContext.input(account))
+            .addTag(AccountWorkContext.tag(account))
             .build()
         // KEEP: an already-scheduled daily brief keeps its existing period anchor rather than being
         // reset every app-start. A time-of-day CHANGE goes through [applyTimeChange] instead.
-        wm.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+        wm.enqueueUniquePeriodicWork(workName, ExistingPeriodicWorkPolicy.KEEP, request)
     }
 
     /** Force a fresh schedule (cancel then enqueue) so a changed time-of-day takes effect immediately. */
     fun applyTimeChange(context: Context, settings: CoachBriefSettings = CoachBriefSettings.from(context)) {
-        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WORK_NAME)
+        cancel(context)
         reschedule(context, settings)
     }
 
     /** Cancel the daily brief entirely. */
     fun cancel(context: Context) {
-        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WORK_NAME)
+        val account = AccountStorageContext.capture(context)
+        WorkManager.getInstance(AccountStorageContext.platform(account))
+            .cancelUniqueWork(AccountWorkContext.name(WORK_NAME, account))
     }
 
     /**
@@ -99,7 +109,8 @@ object CoachBriefScheduler {
      * null on failure (no key/consent/network) — the caller surfaces that.
      */
     suspend fun generateNow(context: Context): String? {
-        val ctx = context.applicationContext
+        val ctx = AccountStorageContext.capture(context)
+        if (ctx.identity.scope == null || !ctx.isCurrent()) return null
         val provider = AiKeyStore.readProvider(ctx)
         val model = AiKeyStore.readModel(ctx, provider)
         val consent = AiKeyStore.readConsent(ctx)
@@ -110,9 +121,10 @@ object CoachBriefScheduler {
         // reasons off the same strap the user sees in the app, not a hardcoded canonical fallback.
         val aiCoach = AiCoach(
             WhoopRepository(WhoopDatabase.get(ctx)),
-            activeStrapId = { (ctx as? com.noop.NoopApplication)?.activeDeviceId ?: WhoopRepository.WHOOP_SOURCE },
+            activeStrapId = { ctx.runtime?.activeDeviceId ?: WhoopRepository.WHOOP_SOURCE },
         )
-        return aiCoach.generateBrief(ctx, provider, model, consent, customUrl, customHeader, includeSignals)
+        val result = aiCoach.generateBrief(ctx, provider, model, consent, customUrl, customHeader, includeSignals)
+        return result.takeIf { ctx.isCurrent() }
     }
 
     /** yyyy-MM-dd local-day key for the once-per-day dedup. Locale-fixed so the key is stable. */
@@ -154,7 +166,9 @@ object CoachBriefScheduler {
     }
 
     private fun writeBriefToWidgetPrefs(context: Context, text: String?) {
-        val prefs = context.getSharedPreferences("noop_widget", Context.MODE_PRIVATE)
+        val account = AccountStorageContext.capture(context)
+        if (!account.isCurrent()) return
+        val prefs = account.getSharedPreferences("noop_widget", Context.MODE_PRIVATE)
         val e = prefs.edit()
         if (text != null) {
             e.putString(WIDGET_BRIEF_KEY, text)
@@ -242,12 +256,13 @@ object CoachBriefScheduler {
         params: WorkerParameters,
     ) : CoroutineWorker(context, params) {
         override suspend fun doWork(): Result {
-            val ctx = applicationContext
+            val ctx = AccountWorkContext.resolve(applicationContext, inputData) ?: return Result.success()
             val settings = CoachBriefSettings.from(ctx)
             if (!settings.enabled) return Result.success()
             if (settings.lastRunDayKey == dayKey()) return Result.success() // already ran today
 
             val text = generateNow(ctx)
+            if (!ctx.isCurrent()) return Result.success()
             if (text == null) {
                 postUnavailable(ctx)
                 return Result.success()
@@ -315,6 +330,6 @@ class CoachBriefSettings(private val prefs: SharedPreferences) {
         const val DEFAULT_TIME = 7 * 60 // 07:00 — a brief waiting when you check your phone.
 
         fun from(context: Context): CoachBriefSettings =
-            CoachBriefSettings(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
+            CoachBriefSettings(AccountStorageContext.capture(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE))
     }
 }

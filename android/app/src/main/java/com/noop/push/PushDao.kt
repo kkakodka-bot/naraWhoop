@@ -216,10 +216,16 @@ class PushDao internal constructor(
     private fun Cursor.appendRecord(spec: TableSpec): PushAppendRecord {
         val values = values(spec)
         val rowId = getLong(getColumnIndexOrThrow("_pushRowId"))
+        val data = spec.dataColumns.associateTo(linkedMapOf()) { name ->
+            if (name == "provenanceJSON") "provenance" to values[name]?.let {
+                try { com.noop.data.ScalarProvenance.validated(it as String) }
+                catch (_: Exception) { throw PushProtocolException("Invalid scalar provenance") }
+            } else name to values[name]
+        }
         return PushAppendRecord(
             rowId,
             spec.keyColumns.associateWith(values::get),
-            spec.dataColumns.associateWith(values::get),
+            data,
         )
     }
 
@@ -243,12 +249,19 @@ class PushDao internal constructor(
                 }
                 val samples = getBlob(getColumnIndexOrThrow("samples"))
                     ?: throw PushProtocolException("ppgWaveformSample.samples must not be null")
-                PushBinaryRow.PpgWaveform(PushPpgWaveformRecord(rowId, ts, burstIndex, samples))
+                val recordIndex = getLong(getColumnIndexOrThrow("recordIndex")).takeIf { it >= 0 }
+                PushBinaryRow.PpgWaveform(PushPpgWaveformRecord(rowId, ts, burstIndex, samples, recordIndex))
             }
             PushBinaryTable.V18_AUX_SAMPLE -> {
                 val fields = getBlob(getColumnIndexOrThrow("fields"))
                     ?: throw PushProtocolException("v18AuxSample.fields must not be null")
-                PushBinaryRow.V18Aux(PushV18AuxRecord(rowId, ts, fields))
+                val index = getLong(getColumnIndexOrThrow("recordIndex"))
+                if (index !in -1L..4294967295L) throw PushProtocolException("Invalid auxiliary identity")
+                val complete = com.noop.data.V18AuxIdentity.complete(fields)
+                    ?: throw PushProtocolException("Auxiliary fields require raw-archive validation")
+                if (complete.recordIndex != index.takeIf { it >= 0 }) throw PushProtocolException("Auxiliary identity mismatch")
+                PushBinaryRow.V18Aux(PushV18AuxRecord(rowId, ts, fields, index.takeIf { it >= 0 },
+                    getString(getColumnIndexOrThrow("resourceKey"))))
             }
             PushBinaryTable.RAW_BATCH -> throw PushProtocolException("rawBatch is not available on Android")
             PushBinaryTable.RAW_IMU_SESSION -> throw PushProtocolException("rawImuSession is file-backed")
@@ -289,6 +302,9 @@ class PushDao internal constructor(
         PushAppendTable.SKIN_TEMP_SAMPLE -> SKIN_TEMP
         PushAppendTable.RESP_SAMPLE -> RESP
         PushAppendTable.GRAVITY_SAMPLE -> GRAVITY
+        PushAppendTable.STEP_SAMPLE -> STEP
+        PushAppendTable.SLEEP_STATE_SAMPLE -> SLEEP_STATE
+        PushAppendTable.PPG_HR_SAMPLE -> PPG_HR
     }
 
     private fun mutableSpec(table: PushMutableTable): TableSpec = when (table) {
@@ -328,6 +344,9 @@ class PushDao internal constructor(
         val GRAVITY = TableSpec(
             "gravitySample", listOf("ts"), listOf("x", "y", "z", "dynAccel"),
         )
+        val STEP = TableSpec("stepSample", listOf("ts"), listOf("counter", "activityClass", "provenanceJSON"))
+        val SLEEP_STATE = TableSpec("sleepStateSample", listOf("ts"), listOf("state", "rawByte", "provenanceJSON"))
+        val PPG_HR = TableSpec("ppgHrSample", listOf("ts"), listOf("bpm", "conf", "provenanceJSON"))
         val DAILY = TableSpec(
             "dailyMetric",
             listOf("day"),
@@ -361,12 +380,12 @@ class PushDao internal constructor(
         val PPG_WAVEFORM = TableSpec(
             "ppgWaveformSample",
             keyColumns = emptyList(),
-            dataColumns = listOf("ts", "burstIndex", "samples"),
+            dataColumns = listOf("ts", "burstIndex", "samples", "recordIndex"),
         )
         val V18_AUX = TableSpec(
             "v18AuxSample",
             keyColumns = emptyList(),
-            dataColumns = listOf("ts", "fields"),
+            dataColumns = listOf("ts", "fields", "recordIndex", "resourceKey"),
         )
     }
 }

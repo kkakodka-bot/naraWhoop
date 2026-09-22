@@ -118,6 +118,8 @@ internal object PushRunSignal {
     fun clear(context: Context) = clear(prefs(context))
     internal fun clear(prefs: SharedPreferences) = synchronized(lock) { prefs.edit().clear().apply() }
 
-    private fun prefs(context: Context) =
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private fun prefs(context: Context): SharedPreferences {
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        return account.getSharedPreferences("$PREFS.${account.identity.generation}", Context.MODE_PRIVATE)
+    }
 }

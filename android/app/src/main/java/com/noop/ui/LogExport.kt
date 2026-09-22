@@ -110,8 +110,9 @@ object LogExport {
      * worker can't reach the live BLE client. REPLACE semantics: `logText` is the client's authoritative
      * recent window, so we overwrite rather than append (no overlap duplication).
      */
-    fun mirrorToRollingBuffer(logText: String) {
-        StrapLogBuffer.replaceWith(logText)
+    fun mirrorToRollingBuffer(context: Context, logText: String) {
+        val account = com.noop.account.AccountStorageContext.capture(context)
+        StrapLogBuffer.replaceWith(logText, namespace = account.namespace)
     }
 
     /**
@@ -128,8 +129,10 @@ object LogExport {
      */
     suspend fun writeScheduledExport(context: Context, logText: String, nowMs: Long = System.currentTimeMillis()): List<File> =
         runCatching {
-            if (logText.isNotBlank()) StrapLogBuffer.replaceWith(logText, nowMs)
-            val body = StrapLogBuffer.snapshot(nowMs)
+            val account = com.noop.account.AccountStorageContext.capture(context)
+            if (!account.isCurrent()) return@runCatching emptyList()
+            if (logText.isNotBlank()) StrapLogBuffer.replaceWith(logText, nowMs, account.namespace)
+            val body = StrapLogBuffer.snapshot(nowMs, account.namespace)
 
             val dir = exportDir(context)
             val out = arrayListOf<File>()
@@ -248,7 +251,7 @@ object LogExport {
     private suspend fun writeStrapLogFile(context: Context, logText: String): File {
         // Mirror every interactively-shared tail into the durable rolling buffer (#510) so the scheduled
         // background export has a current source even when the live BLE client is gone.
-        mirrorToRollingBuffer(logText)
+        mirrorToRollingBuffer(context, logText)
         val dynamic = com.noop.testcentre.AndroidDiagnostics.dynamicLines(context)
         val header = buildString {
             appendLine("NARA strap log")

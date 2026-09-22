@@ -18,7 +18,7 @@ final class PushBinaryProtocolTests: XCTestCase {
         XCTAssertEqual(first.batchId, retry.batchId)
         XCTAssertEqual(first.objectId, retry.objectId)
         XCTAssertEqual(first.contentSha256, retry.contentSha256)
-        XCTAssertEqual(first.payload, retry.payload)
+        XCTAssertEqual((try first.payload), (try retry.payload))
         XCTAssertEqual("gzip", first.contentEncoding)
         let manifest = try JSONSerialization.jsonObject(with: first.manifestJSON) as! [String: Any]
         XCTAssertEqual("binaryObject", manifest["type"] as? String)

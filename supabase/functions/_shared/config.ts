@@ -12,6 +12,7 @@ export interface PushFunctionConfig {
   b2S3Endpoint: string;
   b2Region: string;
   rawStore: string;
+  asyncObjectVerification?: boolean;
 }
 
 export function pushConfig(env: Record<string, string | undefined> = Deno.env.toObject()): PushFunctionConfig {
@@ -39,6 +40,7 @@ export function pushConfig(env: Record<string, string | undefined> = Deno.env.to
     b2S3Endpoint: withHttps(pick('B2_S3_ENDPOINT')),
     b2Region: pick('B2_REGION', 'B2_S3_REGION') || 'us-west-004',
     rawStore: (pick('RAW_STORE') || (b2Ready ? 'b2' : 'none')).toLowerCase(),
+    asyncObjectVerification: pick('NOOP_ASYNC_OBJECT_VERIFICATION') === '1',
   };
 }
 

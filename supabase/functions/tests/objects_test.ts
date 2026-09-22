@@ -107,7 +107,9 @@ Deno.test('housing: a PPG object round-trips through a presigned PUT byte-for-by
 
   const row = h.rest.manifests.get(objectId);
   assert.equal(row.status, 'ready');
-  assert.equal(row.sha256_source, 'client_claimed');
+  assert.equal(row.sha256_source, 'server_verified');
+  assert.equal(ack.durabilityReceipt.state, 'verified_indexed');
+  assert.equal(ack.durabilityReceipt.contentSha256, sha256Hex(payload));
   assert.equal(row.compressed_bytes, wire.length);
   assert.equal(h.rest.rowCount('noop_signal_windows'), 1);
 });

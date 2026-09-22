@@ -1,11 +1,18 @@
 import Compression
+import Darwin
 import Foundation
 import WhoopProtocol
+import WhoopStore
+import NoopPush
 
 /// One push-ready second of 100 Hz IMU: 600 axis-major i16 columns serialized little-endian.
 struct ImuPushRecord: Sendable {
+    let rowId: Int64
     let ts: Int64
     let columns: Data
+    init(ts: Int64, columns: Data, rowId: Int64? = nil) {
+        self.rowId = rowId ?? ts; self.ts = ts; self.columns = columns
+    }
 }
 
 /// The slice of the IMU store the cloud-push object lane reads. A protocol so push tests can
@@ -16,6 +23,40 @@ protocol ImuSessionPushSource: Sendable {
     /// Up to `limit` one-second records with ts > `afterTs`, strictly ascending by ts. Records
     /// with a malformed column count are skipped: a gap stays legible as absence on the receiver.
     func pushRecords(deviceId: String, afterTs: Int64, limit: Int) -> [ImuPushRecord]
+    func indexedPushRecord(deviceId: String, rowId: Int64) throws -> ImuPushRecord?
+    func indexedPushRows(deviceId: String, afterRowId: Int64, limit: Int) throws -> [ImuPushRecord]
+    func indexedPushRows(deviceId: String, afterRowId: Int64, limit: Int,
+                         shouldContinue: @Sendable () -> Bool) throws -> [ImuPushRecord]
+    func associatePushReceipt(rows: [PushRawImuRecord], receipt: PushDurabilityReceipt, scope: AccountScope) throws
+}
+
+extension ImuSessionPushSource {
+    func indexedPushRows(deviceId: String, afterRowId: Int64, limit: Int,
+                         shouldContinue: @Sendable () -> Bool) throws -> [ImuPushRecord] {
+        guard shouldContinue() else { throw PushSourceReadError.deferred }
+        return try indexedPushRows(deviceId: deviceId, afterRowId: afterRowId, limit: limit)
+    }
+
+    // Timestamp-only adapters cannot prove window membership. Production uses CloudImuPushSource.
+    func indexedPushRecord(deviceId: String, rowId: Int64) throws -> ImuPushRecord? { throw ImuPushSourceError.membershipUnavailable }
+    func indexedPushRows(deviceId: String, afterRowId: Int64, limit: Int) throws -> [ImuPushRecord] { throw ImuPushSourceError.membershipUnavailable }
+    func associatePushReceipt(rows: [PushRawImuRecord], receipt: PushDurabilityReceipt, scope: AccountScope) throws { throw ImuPushSourceError.membershipUnavailable }
+}
+
+enum ImuPushSourceError: Error { case membershipUnavailable, corruptSegment, staleOwner, scanPending }
+
+struct ImuPushSegment: Sendable {
+    let windowID: String
+    let deviceID: String
+    let bucket: Int64
+}
+
+struct ImuPushSegmentSnapshot: Sendable {
+    let resource: RawResourceIdentity
+    let records: [ImuPushRecord]
+    let archiveBytes: Data
+    let windowFrom: Int64
+    let windowTo: Int64?
 }
 
 /// Canonical decoded 100 Hz IMU storage: UTC half-hour files with appendable 30-second zlib blocks.
@@ -37,9 +78,9 @@ final class ImuSessionFileStore: @unchecked Sendable {
         let complete: Bool
     }
     static let shared = ImuSessionFileStore()
-    /// The continuous recorder's store (Developer Options → Record 100 Hz IMU locally). A SEPARATE
-    /// directory + window registry from `shared` on purpose: the rawImuSession cloud-push lane reads
-    /// `shared` only, so this mode's 100 Hz data stays local unless the user explicitly exports it.
+    /// Legacy/unassigned continuous store. Account runtimes construct separate captured instances
+    /// and bind both session and continuous stores through CloudImuPushSource; these globals are
+    /// never adopted into a subsequent login.
     static let continuous = ImuSessionFileStore(directoryComponent: "OpenWhoop/RawImuContinuous",
                                                 defaultsKey: "imu-continuous-windows-v1")
     static let sampleRate = 100, axes = 6, blockSeconds = 30
@@ -53,15 +94,107 @@ final class ImuSessionFileStore: @unchecked Sendable {
     private let defaults: UserDefaults
     private let key: String
     private let directory: URL
+    private let captureScope: DurableIngestScope?
+
+    func pushOwnerMatches(_ scope: AccountScope) -> Bool {
+        captureScope?.environment == scope.projectURL && captureScope?.accountID == scope.userID
+    }
+
+    /// Flush precedes inventory so pending-only segments cannot disappear as an empty upload source.
+    func pushSegmentInventory(deviceID: String) throws -> [ImuPushSegment] {
+        try isolation.sync {
+            var result: [ImuPushSegment] = []
+            for window in windows() where window.deviceId == deviceID {
+                guard flushSession(window.id) else { throw ImuPushSourceError.corruptSegment }
+                for file in segmentFiles(window.id) {
+                    guard let bucket = segmentBucket(file) else { throw ImuPushSourceError.corruptSegment }
+                    result.append(.init(windowID: window.id, deviceID: deviceID, bucket: bucket))
+                }
+            }
+            return result.sorted { ($0.windowID, $0.bucket) < ($1.windowID, $1.bucket) }
+        }
+    }
+
+    /// Reads one complete canonical file under the same serialization as its writer. Row receipts
+    /// may refer to its membership, but never claim to archive this file's framing/receivedAt bytes.
+    func pushSegmentSnapshot(_ segment: ImuPushSegment, maximumBytes: Int = 8 * 1_048_576) throws -> ImuPushSegmentSnapshot {
+        try isolation.sync {
+            guard let captureScope, captureScope.isAssigned,
+                  let window = windows().first(where: { $0.id == segment.windowID && $0.deviceId == segment.deviceID }),
+                  flushSession(segment.windowID) else { throw ImuPushSourceError.membershipUnavailable }
+            let file = segmentFile(segment.windowID, segment.bucket)
+            let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size > 0, size <= 8 * 1_048_576 else { throw ImuPushSourceError.corruptSegment }
+            guard size <= maximumBytes else { throw PushSourceReadError.requiresCompatibleEncoding }
+            let data = try Data(contentsOf: file)
+            let decoded = decodeFile(data, maximumRecords: Int(Self.segmentSeconds))
+            guard segment.bucket >= 0, segment.bucket <= Int64.max - Self.segmentSeconds,
+                  decoded.complete, decoded.records.count <= Self.segmentSeconds,
+                  Set(decoded.records.map(\.ts)).count == decoded.records.count else { throw ImuPushSourceError.corruptSegment }
+            let rows = try decoded.records.map { record -> ImuPushRecord in
+                guard record.ts >= segment.bucket, record.ts < segment.bucket + Self.segmentSeconds,
+                      record.columns.count == Self.sampleRate * Self.axes else { throw ImuPushSourceError.corruptSegment }
+                var bytes = Data(capacity: Self.payloadBytes)
+                for value in record.columns { bytes.append(UInt8(truncatingIfNeeded: value)); bytes.append(UInt8(truncatingIfNeeded: value >> 8)) }
+                return ImuPushRecord(ts: record.ts, columns: bytes)
+            }
+            return ImuPushSegmentSnapshot(resource: .init(scope: captureScope.forDevice(segment.deviceID),
+                lane: "rawImuSession", resourceKey: "\(segment.windowID)/\(segment.bucket)",
+                contentSHA256: DurableIngestScope.sha256(data), byteCount: data.count), records: rows,
+                archiveBytes: data, windowFrom: window.from, windowTo: window.to)
+        }
+    }
+
+    /// A later append invalidates the old file receipt, but not the successful archival of its
+    /// immutable prefix. Returning false leaves the current file ineligible for retention.
+    func recordArchiveReceiptIfCurrent(_ receipt: RawDurabilityReceipt, id: String, bucket: Int64) throws -> Bool {
+        try isolation.sync {
+            guard let window = windows().first(where: { $0.id == id }),
+                  captureScope?.forDevice(window.deviceId) == receipt.scope else { throw DurableIngestError.invalidReceipt }
+            let file = segmentFile(id, bucket)
+            guard FileManager.default.fileExists(atPath: file.path) else { return false }
+            guard pending["\(id)/\(bucket)"]?.isEmpty ?? true, segmentReceiptMatches(receipt, id: id, bucket: bucket) else { return false }
+            try writeSegmentReceipt(receipt, id: id, bucket: bucket)
+            return true
+        }
+    }
+
+    func hasSegment(id: String, bucket: Int64) -> Bool {
+        isolation.sync { FileManager.default.fileExists(atPath: segmentFile(id, bucket).path) || !(pending["\(id)/\(bucket)"]?.isEmpty ?? true) }
+    }
+
+    func removeArchivedSidecarIfFileAbsent(id: String, bucket: Int64) throws -> Bool {
+        try isolation.sync {
+            let file = segmentFile(id, bucket)
+            guard !FileManager.default.fileExists(atPath: file.path), pending["\(id)/\(bucket)"]?.isEmpty ?? true else { return false }
+            let sidecar = file.appendingPathExtension("receipt")
+            if Darwin.unlink(sidecar.path) != 0, errno != ENOENT { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            let parent = Darwin.open(file.deletingLastPathComponent().path, O_RDONLY)
+            if parent < 0 {
+                guard errno == ENOENT else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            } else {
+                defer { Darwin.close(parent) }
+                guard Darwin.fsync(parent) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            }
+            return true
+        }
+    }
     /// Segment path → (strap ts → digest of its stored columns). The digest distinguishes an exact
     /// re-delivery (discard silently) from a conflicting payload (keep first, record evidence).
     private var seen: [String: [Int64: UInt64]] = [:]
     private var pending: [String: [Record]] = [:]
+    private var rollbackOffsets: [String: UInt64] = [:]
+    private var unreadableSegments: Set<String> = []
+    private var durableSegmentEntries: Set<String> = []
     /// Session id → conflicted strap timestamps (mirror of `imu-conflicts.json`; loaded lazily).
     private var conflicts: [String: Set<Int64>] = [:]
 
     /// Test-only: when true, appended-block verification always fails (exercises rollback).
     var testFailAppendVerification = false
+    var testFailReceiptPersistence = false
+    var testFailSegmentSynchronization = false
+    var testFailDirectorySynchronization = false
+    var testSynchronization: ((String) -> Void)?
 
     /// `directory` overrides the whole directory (tests); `directoryComponent` + `defaultsKey` pick
     /// the namespace (bounded sessions vs the continuous recorder). Not private so tests can build
@@ -69,13 +202,14 @@ final class ImuSessionFileStore: @unchecked Sendable {
     init(directory override: URL? = nil,
          directoryComponent: String = "OpenWhoop/RawImuSessions",
          defaultsKey: String = "imu-session-windows-v1",
-         defaults: UserDefaults = .standard) {
+         defaults: UserDefaults = .standard, captureScope: DurableIngestScope? = nil) {
         let fm = FileManager.default
         let base = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                 appropriateFor: nil, create: true)) ?? fm.temporaryDirectory
         directory = override ?? base.appendingPathComponent(directoryComponent, isDirectory: true)
         key = defaultsKey
         self.defaults = defaults
+        self.captureScope = captureScope
         try? fm.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
@@ -118,10 +252,25 @@ final class ImuSessionFileStore: @unchecked Sendable {
     func remove(id: String) {
         pending.keys.filter { $0.hasPrefix("\(id)/") }.forEach { pending[$0] = nil }
         seen.keys.filter { $0.hasPrefix(sessionDirectory(id).path) }.forEach { seen[$0] = nil }
+        rollbackOffsets.keys.filter { $0.hasPrefix(sessionDirectory(id).path) }.forEach { rollbackOffsets[$0] = nil }
+        unreadableSegments = unreadableSegments.filter { !$0.hasPrefix(sessionDirectory(id).path) }
+        durableSegmentEntries = durableSegmentEntries.filter { !$0.hasPrefix(sessionDirectory(id).path) }
         conflicts[id] = nil
         save(windows().filter { $0.id != id })
     }
     func prepareForRead(_ id: String) { _ = flushSession(id) }
+
+    /// Account retirement owns the captured store, not only the currently selected device.
+    /// Keep all uncommitted tails pending on any failure; the owner must retain this writer.
+    func flushPendingForShutdown() -> Bool {
+        isolation.sync {
+            var succeeded = true
+            for key in pending.keys.sorted() {
+                if !flushKey(key) { succeeded = false }
+            }
+            return succeeded && pending.isEmpty
+        }
+    }
 
     func deleteFiles(_ id: String, removeItem: (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }) -> Bool {
         guard flushSession(id) else { return false }
@@ -149,7 +298,9 @@ final class ImuSessionFileStore: @unchecked Sendable {
 
     @discardableResult
     func append(deviceId: String, ts: Int64, columns: [Int16], receivedAtMs: Int64) -> Int {
-        appendRouting(deviceId: deviceId, sourceTs: ts, columns: columns, receivedAtMs: receivedAtMs).count
+        isolation.sync {
+            appendRouting(deviceId: deviceId, sourceTs: ts, columns: columns, receivedAtMs: receivedAtMs).count
+        }
     }
 
     /// Backfiller commit seam (FRWHOOP issue #1): append historical IMU buffers to every matching
@@ -163,7 +314,8 @@ final class ImuSessionFileStore: @unchecked Sendable {
             var touched: Set<String> = []
             for record in records {
                 touched.formUnion(appendRouting(deviceId: deviceId, sourceTs: Int64(record.baseTs),
-                                                columns: record.columns, receivedAtMs: receivedAtMs))
+                                                columns: record.columns, receivedAtMs: receivedAtMs,
+                                                flushWhenFull: false))
             }
             let toFlush = touched.union(pendingSessionIds(deviceId: deviceId))
             guard !toFlush.isEmpty else { return true }
@@ -185,7 +337,8 @@ final class ImuSessionFileStore: @unchecked Sendable {
             var touched: Set<String> = []
             for record in records {
                 touched.formUnion(appendRouting(deviceId: deviceId, sourceTs: Int64(record.baseTs),
-                                                columns: record.columns, receivedAtMs: receivedAtMs))
+                                                columns: record.columns, receivedAtMs: receivedAtMs,
+                                                flushWhenFull: false))
             }
             let toFlush = touched.union(pendingSessionIds(deviceId: deviceId))
             guard !toFlush.isEmpty else { return true }
@@ -202,7 +355,7 @@ final class ImuSessionFileStore: @unchecked Sendable {
     /// Open live windows match by receipt time so the first complete one-second buffer after START
     /// is kept even when its source ts slightly predates the session wall clock.
     private func appendRouting(deviceId: String, sourceTs: Int64, columns: [Int16],
-                               receivedAtMs: Int64) -> Set<String> {
+                               receivedAtMs: Int64, flushWhenFull: Bool = true) -> Set<String> {
         let receivedTs = receivedAtMs / 1_000
         var queued: Set<String> = []
         for window in windows() where window.deviceId == deviceId {
@@ -225,7 +378,7 @@ final class ImuSessionFileStore: @unchecked Sendable {
             seen[url.path] = timestamps
             let pendingKey = "\(window.id)/\(bucket)"
             pending[pendingKey, default: []].append(Record(ts: sourceTs, receivedAtMs: receivedAtMs, columns: columns))
-            if pending[pendingKey]!.count >= Self.blockSeconds { flushKey(pendingKey) }
+            if flushWhenFull && pending[pendingKey]!.count >= Self.blockSeconds { flushKey(pendingKey) }
             queued.insert(window.id)
         }
         return queued
@@ -348,16 +501,68 @@ final class ImuSessionFileStore: @unchecked Sendable {
     /// coverage read cannot report the evicted seconds. Callers must record their own eviction
     /// floor and refuse late frames at/below it, or an evicted second would silently regrow.
     @discardableResult
-    func deleteSegment(id: String, bucket: Int64,
+    func deleteSegment(id: String, bucket: Int64, now: Int = Int(Date().timeIntervalSince1970),
                        removeItem: (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }) -> Bool {
+        isolation.sync {
         let url = segmentFile(id, bucket)
         guard FileManager.default.fileExists(atPath: url.path) else { return true }
+        guard pending["\(id)/\(bucket)"]?.isEmpty ?? true,
+              let encoded = try? Data(contentsOf: url.appendingPathExtension("receipt")),
+              let receipt = try? JSONDecoder().decode(RawDurabilityReceipt.self, from: encoded),
+              receipt.retainUntil <= now,
+              segmentReceiptMatches(receipt, id: id, bucket: bucket) else { return false }
         do {
             try removeItem(url)
             seen[url.path] = nil
             pending["\(id)/\(bucket)"] = nil
             return true
         } catch { return false }
+        }
+    }
+
+    /// Transport supplies a verified object+manifest receipt for these exact immutable segment bytes.
+    func segmentResourceIdentity(id: String, bucket: Int64) -> RawResourceIdentity? {
+        isolation.sync {
+            guard let captureScope, captureScope.isAssigned,
+                  let window = windows().first(where: { $0.id == id }),
+                  pending["\(id)/\(bucket)"]?.isEmpty ?? true,
+                  let data = try? Data(contentsOf: segmentFile(id, bucket)) else { return nil }
+            return RawResourceIdentity(scope: captureScope.forDevice(window.deviceId), lane: "rawImuSession",
+                resourceKey: "\(id)/\(bucket)", contentSHA256: DurableIngestScope.sha256(data), byteCount: data.count)
+        }
+    }
+
+    func recordSegmentReceipt(_ receipt: RawDurabilityReceipt, id: String, bucket: Int64) throws {
+        try isolation.sync {
+            guard segmentReceiptMatches(receipt, id: id, bucket: bucket),
+                  pending["\(id)/\(bucket)"]?.isEmpty ?? true else { throw DurableIngestError.invalidReceipt }
+            try writeSegmentReceipt(receipt, id: id, bucket: bucket)
+        }
+    }
+
+    private func writeSegmentReceipt(_ receipt: RawDurabilityReceipt, id: String, bucket: Int64) throws {
+            if testFailReceiptPersistence { throw CocoaError(.fileWriteUnknown) }
+            let url = segmentFile(id, bucket).appendingPathExtension("receipt")
+            if let data = try? Data(contentsOf: url),
+               let existing = try? JSONDecoder().decode(RawDurabilityReceipt.self, from: data),
+               segmentReceiptMatches(existing, id: id, bucket: bucket),
+               existing.retainUntil > receipt.retainUntil { return }
+            try JSONEncoder().encode(receipt).write(to: url, options: .atomic)
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.synchronize()
+            let parent = Darwin.open(url.deletingLastPathComponent().path, O_RDONLY)
+            guard parent >= 0 else { throw CocoaError(.fileWriteUnknown) }
+            defer { Darwin.close(parent) }
+            guard Darwin.fsync(parent) == 0 else { throw CocoaError(.fileWriteUnknown) }
+    }
+
+    private func segmentReceiptMatches(_ receipt: RawDurabilityReceipt, id: String, bucket: Int64) -> Bool {
+        guard receipt.isValid, receipt.lane == "rawImuSession", receipt.resourceKey == "\(id)/\(bucket)",
+              let window = windows().first(where: { $0.id == id }),
+              captureScope?.forDevice(window.deviceId) == receipt.scope,
+              let data = try? Data(contentsOf: segmentFile(id, bucket)) else { return false }
+        return DurableIngestScope.sha256(data) == receipt.contentSHA256
     }
 
     func exportSegments(_ id: String, from: Int, to: Int) -> [ExportSegment] {
@@ -391,7 +596,7 @@ final class ImuSessionFileStore: @unchecked Sendable {
         }
         return result
     }
-    private func decodeFile(_ data: Data) -> DecodedFile {
+    private func decodeFile(_ data: Data, maximumRecords: Int? = nil) -> DecodedFile {
         guard data.count >= 24, data.prefix(8) == Self.magic else {
             return DecodedFile(records: [], validEnd: 0, complete: false)
         }
@@ -411,6 +616,7 @@ final class ImuSessionFileStore: @unchecked Sendable {
             offset += 12
             let expectedRawSize = count * (20 + Self.payloadBytes)
             guard count > 0, count <= Self.blockSeconds, rawSize == expectedRawSize, compressedSize > 0,
+                  maximumRecords.map({ result.count + count <= $0 }) ?? true,
                   offset + compressedSize <= bytes.count,
                   let raw = inflate(Data(bytes[offset..<offset + compressedSize]), size: rawSize) else {
                 return DecodedFile(records: result, validEnd: blockStart, complete: false)
@@ -466,45 +672,67 @@ final class ImuSessionFileStore: @unchecked Sendable {
         guard let tail = key.split(separator: "/").last,
               let bucket = Int64(String(tail)) else { return false }
         let id = String(key.split(separator: "/")[0]), url = segmentFile(id, bucket)
-        while let records = pending[key], !records.isEmpty {
-            // A transient failure leaves the complete batch pending. Later appends may grow that queue
-            // beyond blockSeconds, but the on-disk decoder deliberately rejects blocks >30. Drain only
-            // durable prefixes so one failed 30-row write cannot make every future retry unencodable.
-            let batch = Array(records.prefix(Self.blockSeconds))
-            guard let encoded = block(batch) else { return false }
-            do {
-                try FileManager.default.createDirectory(at: sessionDirectory(id), withIntermediateDirectories: true)
-                if !FileManager.default.fileExists(atPath: url.path) {
-                    try header(bucket).write(to: url, options: .atomic)
-                }
-                let handle = try FileHandle(forWritingTo: url)
-                let originalOffset = try handle.seekToEnd()
-                do {
-                    try handle.write(contentsOf: encoded)
-                    try handle.synchronize()
-                    try handle.close()
-                    guard verifyAppendedBlock(in: url, at: originalOffset, expected: encoded) else {
-                        rollbackSegment(url, to: originalOffset)
-                        return false
-                    }
-                    if records.count == batch.count {
-                        pending.removeValue(forKey: key)
-                    } else {
-                        pending[key] = Array(records.dropFirst(batch.count))
-                    }
-                } catch {
-                    try? handle.truncate(atOffset: originalOffset)
-                    try? handle.synchronize()
-                    try? handle.close()
-                    return false
-                }
-            } catch {
-                // Leave this batch and every later record pending. A later flush retries without
-                // converting an encode/open/write failure into a successful empty block.
-                return false
+        guard !unreadableSegments.contains(url.path) else { return false }
+        guard let records = pending[key], !records.isEmpty else { return true }
+        do {
+            if let offset = rollbackOffsets[url.path] {
+                try rollbackSegment(url, to: offset)
+                rollbackOffsets[url.path] = nil
             }
+            try FileManager.default.createDirectory(at: sessionDirectory(id), withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try header(bucket).write(to: url, options: .atomic)
+                durableSegmentEntries.remove(url.path)
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            let originalOffset = try handle.seekToEnd()
+            rollbackOffsets[url.path] = originalOffset
+            var written: [(offset: UInt64, bytes: Data)] = []
+            var offset = originalOffset
+            // Preserve the existing <=30-record framing, but synchronize a touched spool once.
+            for start in stride(from: 0, to: records.count, by: Self.blockSeconds) {
+                guard let bytes = block(Array(records[start..<min(start + Self.blockSeconds, records.count)])) else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+                try handle.write(contentsOf: bytes)
+                written.append((offset, bytes))
+                offset += UInt64(bytes.count)
+            }
+            if testFailSegmentSynchronization { throw CocoaError(.fileWriteOutOfSpace) }
+            try handle.synchronize()
+            testSynchronization?("segment")
+            for appended in written {
+                guard verifyAppendedBlock(in: url, at: appended.offset, expected: appended.bytes) else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+            }
+            if !durableSegmentEntries.contains(url.path) {
+                try synchronizeDirectory(sessionDirectory(id))
+                try synchronizeDirectory(directory)
+                try synchronizeDirectory(directory.deletingLastPathComponent())
+                durableSegmentEntries.insert(url.path)
+            }
+            rollbackOffsets[url.path] = nil
+            pending.removeValue(forKey: key)
+            return true
+        } catch {
+            // Only this failed append's uncommitted tail is rolled back. Older bytes stay intact.
+            // If rollback fails, its offset remains a prerequisite for every subsequent retry.
+            if let offset = rollbackOffsets[url.path], (try? rollbackSegment(url, to: offset)) != nil {
+                rollbackOffsets[url.path] = nil
+            }
+            return false
         }
-        return true
+    }
+
+    private func synchronizeDirectory(_ url: URL) throws {
+        if testFailDirectorySynchronization { throw CocoaError(.fileWriteUnknown) }
+        let descriptor = Darwin.open(url.path, O_RDONLY)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fsync(descriptor) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        testSynchronization?("directory")
     }
 
     /// Verifies ONLY the block just appended at `offset`. Whole-file revalidation on every flush was
@@ -557,11 +785,12 @@ final class ImuSessionFileStore: @unchecked Sendable {
         return blockRecords
     }
 
-    private func rollbackSegment(_ url: URL, to offset: UInt64) {
-        guard let handle = try? FileHandle(forWritingTo: url) else { return }
+    private func rollbackSegment(_ url: URL, to offset: UInt64) throws {
+        let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
-        try? handle.truncate(atOffset: offset)
-        try? handle.synchronize()
+        try handle.truncate(atOffset: offset)
+        try handle.synchronize()
+        testSynchronization?("rollback")
     }
     private func header(_ bucket: Int64) -> Data {
         var data = Self.magic; data.appendBigEndian(bucket); data.appendBigEndian(Int32(Self.sampleRate)); data.appendBigEndian(Int32(Self.axes)); return data
@@ -586,8 +815,12 @@ final class ImuSessionFileStore: @unchecked Sendable {
     private func scan(_ url: URL) -> [Int64: UInt64] {
         // Fully decodes every complete block on first touch per launch — sufficient validation for
         // pre-existing segment bytes; appended blocks are verified separately in flushKey.
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        guard let data = try? Data(contentsOf: url) else { unreadableSegments.insert(url.path); return [:] }
+        let decoded = decodeFile(data)
+        guard decoded.complete else { unreadableSegments.insert(url.path); return [:] }
         var map: [Int64: UInt64] = [:]
-        for record in decode((try? Data(contentsOf: url)) ?? Data()) {
+        for record in decoded.records {
             map[record.ts] = Self.columnsDigest(record.columns)
         }
         return map

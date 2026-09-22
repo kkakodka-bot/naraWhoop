@@ -55,7 +55,7 @@ object HealthConnectLedger {
     }
 
     private fun prefs(context: Context) =
-        context.getSharedPreferences(com.noop.ui.NoopPrefs.NAME, Context.MODE_PRIVATE)
+        com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(com.noop.ui.NoopPrefs.NAME, Context.MODE_PRIVATE)
 
     /**
      * What the ledger should carry into the NEXT export.

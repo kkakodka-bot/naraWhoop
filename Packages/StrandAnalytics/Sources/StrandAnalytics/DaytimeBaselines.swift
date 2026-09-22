@@ -50,8 +50,10 @@ public extension DaytimeStress {
         public let hr: [HRSample]
         public let rr: [RRInterval]
         public let tzOffsetSeconds: Int
-        public init(hr: [HRSample], rr: [RRInterval], tzOffsetSeconds: Int) {
+        public let timezone: TimeZone?
+        public init(hr: [HRSample], rr: [RRInterval], tzOffsetSeconds: Int, timezone: TimeZone? = nil) {
             self.hr = hr; self.rr = rr; self.tzOffsetSeconds = tzOffsetSeconds
+            self.timezone = timezone
         }
     }
 
@@ -66,20 +68,18 @@ public extension DaytimeStress {
     /// Either field is `nil` independently. Bucketing keys off the HR buckets (like the scorer), so an
     /// hour with R-R but no HR contributes neither.
     static func dayDaytimeAggregate(hr: [HRSample], rr: [RRInterval],
-                                    tzOffsetSeconds: Int) -> (hr: Double?, rmssd: Double?) {
+                                    tzOffsetSeconds: Int, timezone: TimeZone? = nil) -> (hr: Double?, rmssd: Double?) {
         guard !hr.isEmpty else { return (nil, nil) }
 
         // Bucket HR + R-R into LOCAL hour-of-day buckets, byte-for-byte the scorer's step 1.
         var hrByBucket: [Int: [Double]] = [:]
         for s in hr {
-            let local = s.ts + tzOffsetSeconds
-            let bucket = floorDiv(local, bucketSeconds) * bucketSeconds
+            let bucket = hourBucket(s.ts, offsetSeconds: tzOffsetSeconds, timezone: timezone)
             hrByBucket[bucket, default: []].append(Double(s.bpm))
         }
         var rrByBucket: [Int: [Double]] = [:]
         for s in rr {
-            let local = s.ts + tzOffsetSeconds
-            let bucket = floorDiv(local, bucketSeconds) * bucketSeconds
+            let bucket = hourBucket(s.ts, offsetSeconds: tzOffsetSeconds, timezone: timezone)
             rrByBucket[bucket, default: []].append(Double(s.rrMs))
         }
 
@@ -87,7 +87,7 @@ public extension DaytimeStress {
         // filter. Keyed off HR buckets so an R-R-only hour is ignored exactly as the scorer ignores it.
         var wakingMeanHRs: [Double] = []
         var wakingRMSSDs: [Double] = []
-        for (bucket, hrs) in hrByBucket where isWakingHour(bucket) {
+        for (bucket, hrs) in hrByBucket where isWakingHour(bucket, timezone: timezone) {
             if hrs.count >= minHourHRSamples, let m = mean(hrs) { wakingMeanHRs.append(m) }
             if let rmssd = HRVAnalyzer.analyze(rawRR: rrByBucket[bucket] ?? []).rmssd {
                 wakingRMSSDs.append(rmssd)
@@ -123,7 +123,7 @@ public extension DaytimeStress {
         hrAggs.reserveCapacity(days.count)
         rmssdAggs.reserveCapacity(days.count)
         for d in days {
-            let agg = dayDaytimeAggregate(hr: d.hr, rr: d.rr, tzOffsetSeconds: d.tzOffsetSeconds)
+            let agg = dayDaytimeAggregate(hr: d.hr, rr: d.rr, tzOffsetSeconds: d.tzOffsetSeconds, timezone: d.timezone)
             hrAggs.append(agg.hr)
             rmssdAggs.append(agg.rmssd)
         }

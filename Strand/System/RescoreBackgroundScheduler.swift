@@ -106,6 +106,16 @@ enum RescoreBackgroundScheduler {
         return settled
     }
 
+    /// Release only this runnable attempt after durable held/validated state. This is not
+    /// full-score completion and does not update completed-pass duration or SQLite job rows.
+    @discardableResult
+    static func parkRescoreAttempt(owedToken: String?, defaults: UserDefaults = .standard) -> Bool {
+        guard let owedToken, !owedToken.isEmpty else { return false }
+        guard maySettleDebt(capturedToken: owedToken, currentToken: defaults.string(forKey: owedTokenKey)) else { return false }
+        defaults.set(false, forKey: owedKey)
+        return true
+    }
+
     /// Whether the app is somewhere a long pass might not survive. Always false on macOS — see the type doc.
     ///
     /// Anything that is not `.active` counts, `.inactive` included, which is the conservative direction on
@@ -138,10 +148,25 @@ enum RescoreBackgroundScheduler {
     ///   untouched either way.
     static func run(isBackground: Bool? = nil,
                     owesOnDefer: Bool = true,
+                    projection suppliedProjection: IntelligenceEngine.PreferenceWorkDisposition? = nil,
                     log: @escaping (String) -> Void,
                     work: () async -> Void) async {
+        let projection: IntelligenceEngine.PreferenceWorkDisposition?
+        if let suppliedProjection { projection = suppliedProjection }
+        else if !AppRuntimeMode.isUnitTesting, let host = AppModel.shared, host.accountContext != nil {
+            projection = await host.intelligence.preparePreferenceProjection()
+            guard host.isAccountRuntimeActive else { return }
+        } else { projection = nil }
+        if let projection, !projection.hasRunnableWork(at: Int64(Date().timeIntervalSince1970)) {
+            log("re-score: no runnable projection work; retained holds are not completion")
+            return
+        }
+        guard isBackground ?? isBackgrounded else {
+            await withAssertion(log: log, work: work)
+            return
+        }
         let decision = RescoreBackgroundPolicy.decide(
-            isBackground: isBackground ?? isBackgrounded,
+            isBackground: true,
             rescoreAlreadyOwed: isRescoreOwed,
             lastCompletedPassSeconds: lastCompletedPassSeconds)
 
@@ -210,8 +235,20 @@ enum RescoreBackgroundScheduler {
                 // Re-arm only while work remains. A processing task is single-shot, and re-submitting
                 // unconditionally would ask iOS for a wake on every install forever, including the ones
                 // that never have anything to do.
-                if isRescoreOwed { schedule() }
-                completion.finish(success: !isRescoreOwed)
+                guard let host = AppModel.shared, host.isAccountRuntimeActive else {
+                    completion.finish(success: false)
+                    return
+                }
+                if host.accountContext == nil {
+                    let owed = isRescoreOwed
+                    if owed { schedule() }
+                    completion.finish(success: !owed)
+                    return
+                }
+                let state = await host.intelligence.preparePreferenceProjection()
+                guard host.isAccountRuntimeActive else { completion.finish(success: false); return }
+                if state.hasRunnableWork(at: Int64(Date().timeIntervalSince1970)) { schedule() }
+                completion.finish(success: state == .complete)
             }
             task.expirationHandler = {
                 worker.cancel()
@@ -227,6 +264,20 @@ enum RescoreBackgroundScheduler {
     /// Keep exactly one pending request, so calling this from several places is idempotent and also
     /// repairs a request the system discarded.
     static func schedule() {
+        Task { @MainActor in
+            guard let host = AppModel.shared, host.isAccountRuntimeActive else { return }
+            if host.accountContext == nil {
+                if isRescoreOwed { submit() }
+                return
+            }
+            let state = await host.intelligence.preparePreferenceProjection()
+            guard host.isAccountRuntimeActive,
+                  state.hasRunnableWork(at: Int64(Date().timeIntervalSince1970)) else { return }
+            submit()
+        }
+    }
+
+    private static func submit() {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskIdentifier)
         let request = BGProcessingTaskRequest(identifier: taskIdentifier)
         // Neither is required. Network is irrelevant to an offline app, and demanding external power

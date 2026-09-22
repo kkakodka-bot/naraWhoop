@@ -7,8 +7,9 @@ package com.noop.protocol
  * summary like v18: **24 little-endian i16 samples at frame bytes [27:75]**, one record per second,
  * with the record's own unix u32 LE @15 (the same slot v18 uses). WHOOP does NOT store a per-second
  * HR in v26 — HR is PPG-derived on-device — so to recover HR we re-derive it here from the waveform,
- * **byte-for-byte mirroring the Swift estimator** (WhoopProtocol/PpgHr.swift) so macOS, iOS and
- * Android produce the SAME per-second HR from the same offload. (Provenance: the concatenated
+ * using the same signal-processing operations as the Swift estimator (WhoopProtocol/PpgHr.swift).
+ * Input selection differs: Android concatenates same-second records; Swift keeps the last record.
+ * Equal offloads therefore do not necessarily produce equal inputs or estimates. (The concatenated
  * waveform's autocorrelation peaks at the heart rate; verified against measured HR as internal
  * ground truth — lag 14 ≈ 102.9 bpm vs a measured 101.7 bpm.)
  *
@@ -50,17 +51,37 @@ object PpgHr {
     /** A derived HR estimate: [ts] = window-centre second, [bpm], [conf] in 0…1. */
     data class Estimate(val ts: Long, val bpm: Int, val conf: Double)
 
+    /** Original record boundaries and indices, before any signal preprocessing. */
+    data class Record(val ts: Long, val recordIndex: Long?, val samples: List<Int>)
+    data class SelectedEstimate(val estimate: Estimate, val records: List<Record>)
+
+    /** Observe the existing selection without deduplicating records or changing any sample math. */
+    fun estimateRecords(records: List<Record>, subLagInterp: Boolean = false): List<SelectedEstimate> {
+        // Copy before estimation: later caller mutations cannot rewrite an estimate's provenance.
+        val frozen = records.filter { it.samples.isNotEmpty() }.map { it.copy(samples = it.samples.toList()) }
+        val bySecond = frozen.groupBy { it.ts }
+        val selected = ArrayList<SelectedEstimate>()
+        estimateSelected(frozen.flatMap { r -> r.samples.map { Sample(r.ts, it) } }, subLagInterp) { estimate, window ->
+            selected.add(SelectedEstimate(estimate, window.flatMap { bySecond.getValue(it) }))
+        }
+        return selected.sortedBy { it.estimate.ts }
+    }
+
     /**
      * Per-second PPG-HR over the concatenated [samples] (mirror of Swift `derivePpgHr`).
      *
      * [samples] carry one [ts] per strap-second (all 24 samples of a record share it). They may be
-     * unsorted or contain gaps: records are grouped by second (last write wins on a duplicate ts),
+     * unsorted or contain gaps: samples are grouped by second, preserving all same-second samples,
      * split into consecutive-second runs, and a centred window is autocorrelated for each second.
      * Returns one [Estimate] per second that yielded a confident estimate, ascending by ts.
      */
-    fun estimate(samples: List<Sample>, subLagInterp: Boolean = false): List<Estimate> {
+    fun estimate(samples: List<Sample>, subLagInterp: Boolean = false): List<Estimate> =
+        estimateSelected(samples, subLagInterp) { _, _ -> }
+
+    private fun estimateSelected(samples: List<Sample>, subLagInterp: Boolean,
+                                 selected: (Estimate, List<Long>) -> Unit): List<Estimate> {
         if (samples.isEmpty()) return emptyList()
-        // One waveform per second, in first-seen sample order (last record wins on a duplicate ts).
+        // Every sample contributes, in encounter order within each second. Do not deduplicate.
         val secs = LinkedHashMap<Long, ArrayList<Int>>()
         for (s in samples) {
             val list = secs.getOrPut(s.ts) { ArrayList() }
@@ -101,7 +122,7 @@ object PpgHr {
                 val sig = DoubleArray(total)
                 var idx = 0
                 for (w in win) for (v in secs[w]!!) sig[idx++] = v.toDouble()
-                estimateWindow(sig, t, subLagInterp)?.let { out.add(it) }
+                estimateWindow(sig, t, subLagInterp)?.let { out.add(it); selected(it, win) }
             }
         }
         out.sortBy { it.ts }

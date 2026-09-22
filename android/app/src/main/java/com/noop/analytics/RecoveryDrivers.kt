@@ -76,6 +76,10 @@ data class ChargeDriver(
 
 object RecoveryDrivers {
 
+    /** Test exact ties independently of platform exp() rounding in a generated score fixture. */
+    internal fun roundedDeltaPoints(delta: Double): Int =
+        if (delta < 0.0) -Math.round(-delta).toInt() else Math.round(delta).toInt()
+
     /**
      * The ordered "What shaped it" driver rows for one night's Charge score, or an EMPTY list when the
      * score itself can't compute (cold-start HRV baseline not usable, or a missing hard input) - the same
@@ -125,7 +129,7 @@ object RecoveryDrivers {
         fun points(neutralised: Double?): Int {
             val delta = full - (neutralised ?: full)
             // Shared Swift/Kotlin rule: nearest integer, with exact half-ties away from zero.
-            return if (delta < 0.0) -Math.round(-delta).toInt() else Math.round(delta).toInt()
+            return roundedDeltaPoints(delta)
         }
 
         // Did the parasympathetic-saturation signature fire on THIS night (low HRV corroborated by a low,

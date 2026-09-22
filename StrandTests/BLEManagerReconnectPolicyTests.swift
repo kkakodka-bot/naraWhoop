@@ -1,4 +1,5 @@
 import XCTest
+import CoreBluetooth
 @testable import Strand
 
 /// The WHOOP reconnect policy after an involuntary drop or a failed connect — twin of
@@ -28,9 +29,7 @@ final class BLEManagerReconnectPolicyTests: XCTestCase {
         XCTAssertEqual(BLEManager.reconnectStep(secondsSinceStandingConnect: 8), .standingConnect)
     }
 
-    /// Only a near-instant failure — which proves the app is awake and could hot-loop — gets a timer, floored
-    /// so it can't hammer the radio while awake.
-    func testInstantStandingFailureIsFlooredWithATimer() {
+    func testInstantStandingFailureKeepsTheRetryFloor() {
         XCTAssertEqual(BLEManager.reconnectStep(secondsSinceStandingConnect: 1),
                        .standingConnectAfter(delay: BLEManager.standingConnectRetryFloor - 1))
     }
@@ -42,17 +41,119 @@ final class BLEManagerReconnectPolicyTests: XCTestCase {
             secondsSinceStandingConnect: BLEManager.standingConnectFastFailureS), .standingConnect)
     }
 
-    /// No path returns a bare timer any more. The only timer left is floored and reachable only while awake,
-    /// so there is no arrangement of inputs that leaves CoreBluetooth holding nothing.
-    func testNoInputProducesAnUnbackedTimer() {
-        for since in [nil, 0, 0.5, 1.9, 2, 8, 60, 3600] as [TimeInterval?] {
-            switch BLEManager.reconnectStep(secondsSinceStandingConnect: since) {
-            case .standingConnect:
-                continue                                   // something is outstanding
-            case .standingConnectAfter(let d):
-                XCTAssertLessThanOrEqual(d, BLEManager.standingConnectRetryFloor, "since=\(String(describing: since))")
-                XCTAssertGreaterThan(d, 0, "since=\(String(describing: since))")
+    /// No run loop or timer is advanced. Every plan must hand a request to the transport in this call.
+    func testEveryReconnectHandsOffBeforeTheCallbackReturns() {
+        for since in [nil, -29, 0, 0.5, 1.9, 2, 8, 60, 3600] as [TimeInterval?] {
+            let step = BLEManager.reconnectStep(secondsSinceStandingConnect: since)
+            var submitted = 0
+            var systemDelay: Double?
+            step.handOff { options in
+                submitted += 1
+                systemDelay = (options?[CBConnectPeripheralOptionStartDelayKey] as? NSNumber)?.doubleValue
+            }
+            XCTAssertEqual(submitted, 1, "since=\(String(describing: since))")
+            XCTAssertEqual(systemDelay ?? 0, step.startDelay)
+            XCTAssertLessThanOrEqual(systemDelay ?? 0, BLEManager.standingConnectRetryFloor)
+        }
+    }
+
+    func testFastFailureUsesCoreBluetoothDelayInsteadOfWaitingForAnAppTimer() {
+        var options: [String: Any]?
+        BLEManager.reconnectStep(secondsSinceStandingConnect: 1).handOff { options = $0 }
+        XCTAssertEqual((options?[CBConnectPeripheralOptionStartDelayKey] as? NSNumber)?.doubleValue, 29)
+        XCTAssertEqual(options?.count, 1)
+    }
+
+    func testPostBondTimeoutTripParksAfterDisconnectedStateIsPublished() throws {
+        var detector = PostBondTimeoutLoopDetector()
+        XCTAssertFalse(detector.connectionEnded(wasBonded: true, secondsSinceBond: 1, timedOut: true))
+        let justTripped = detector.connectionEnded(wasBonded: true, secondsSinceBond: 1, timedOut: true)
+        XCTAssertTrue(justTripped)
+        XCTAssertNil(BLEManager.pausedStandingConnectDelay(
+            pausedForBondLoop: true, connected: true, intentionalDisconnect: false,
+            secondsSincePauseTripped: nil))
+
+        let delay = try XCTUnwrap(BLEManager.pausedStandingConnectDelay(
+            pausedForBondLoop: true, connected: false, intentionalDisconnect: false,
+            secondsSincePauseTripped: justTripped ? nil : 0))
+        var requests = 0
+        BLEManager.ReconnectStep.standingConnectAfter(delay: delay).handOff { options in
+            requests += 1
+            XCTAssertNil(options)
+        }
+        XCTAssertEqual(requests, 1)
+    }
+
+    func testConsumedPausedAttemptsStayPendingWithoutSkippingTheirCooldown() throws {
+        let epoch = Date(timeIntervalSince1970: 0)
+        var scheduledAttemptAt = epoch
+        var requests = 0
+        // Initial parked attempt fails at t=1; the retry starts at 600 and fails at 601.
+        for failureTime in [1.0, 601.0] {
+            let now = epoch.addingTimeInterval(failureTime)
+            let delay = try XCTUnwrap(BLEManager.pausedStandingConnectDelay(
+                pausedForBondLoop: true, connected: false, intentionalDisconnect: false,
+                secondsSincePauseTripped: now.timeIntervalSince(scheduledAttemptAt)))
+            BLEManager.ReconnectStep.standingConnectAfter(delay: delay).handOff { options in
+                requests += 1
+                XCTAssertEqual((options?[CBConnectPeripheralOptionStartDelayKey] as? NSNumber)?.doubleValue, 599)
+            }
+            scheduledAttemptAt = now.addingTimeInterval(delay)
+        }
+        XCTAssertEqual(requests, 2)
+        XCTAssertEqual(scheduledAttemptAt.timeIntervalSince1970, 1200)
+    }
+
+    func testPausedRetryNeverOverridesUserTeardownOrAnExistingLink() {
+        for elapsed in [nil, 0, 599, 600, 3600] as [TimeInterval?] {
+            XCTAssertNil(BLEManager.pausedStandingConnectDelay(
+                pausedForBondLoop: true, connected: false, intentionalDisconnect: true,
+                secondsSincePauseTripped: elapsed))
+            XCTAssertNil(BLEManager.pausedStandingConnectDelay(
+                pausedForBondLoop: true, connected: true, intentionalDisconnect: false,
+                secondsSincePauseTripped: elapsed))
+            XCTAssertNil(BLEManager.pausedStandingConnectDelay(
+                pausedForBondLoop: false, connected: false, intentionalDisconnect: false,
+                secondsSincePauseTripped: elapsed))
+        }
+    }
+
+    func testFailedWhoop5NotificationCanRecoverOnAStillConnectedLink() {
+        XCTAssertTrue(BLEManager.shouldRepairWhoop5Notification(
+            isCurrentConnection: true, encryptedBond: true, isNotifying: false,
+            restoring: false, sinceLastAttempt: .seconds(30)))
+    }
+
+    func testWhoop5NotificationRepairCannotUseUnbondedOrStaleConnection() {
+        for current in [false, true] {
+            for bonded in [false, true] where !current || !bonded {
+                XCTAssertFalse(BLEManager.shouldRepairWhoop5Notification(
+                    isCurrentConnection: current, encryptedBond: bonded, isNotifying: false,
+                    restoring: true, sinceLastAttempt: nil))
             }
         }
+    }
+
+    func testWhoop5NotificationRepairIsRateLimitedAcrossReconciliationTriggers() {
+        XCTAssertTrue(BLEManager.shouldRepairWhoop5Notification(
+            isCurrentConnection: true, encryptedBond: true, isNotifying: false,
+            restoring: false, sinceLastAttempt: nil))
+        for elapsed in [Duration.zero, .seconds(1), .seconds(29)] {
+            XCTAssertFalse(BLEManager.shouldRepairWhoop5Notification(
+                isCurrentConnection: true, encryptedBond: true, isNotifying: false,
+                restoring: false, sinceLastAttempt: elapsed))
+        }
+    }
+
+    func testActiveWhoop5NotificationsAreUntouchedExceptForRestoration() {
+        XCTAssertFalse(BLEManager.shouldRepairWhoop5Notification(
+            isCurrentConnection: true, encryptedBond: true, isNotifying: true,
+            restoring: false, sinceLastAttempt: .seconds(300)))
+        XCTAssertTrue(BLEManager.shouldRepairWhoop5Notification(
+            isCurrentConnection: true, encryptedBond: true, isNotifying: true,
+            restoring: true, sinceLastAttempt: nil))
+        XCTAssertFalse(BLEManager.shouldRepairWhoop5Notification(
+            isCurrentConnection: true, encryptedBond: true, isNotifying: true,
+            restoring: true, sinceLastAttempt: .seconds(1)))
     }
 }

@@ -92,7 +92,7 @@ struct IntelligenceView: View {
                 }
             }
         }
-        .task { if intelligence.results.isEmpty { await intelligence.analyzeRecent() } }
+        .task { if intelligence.results.isEmpty { await intelligence.analyzeRecent(force: false) } }
         .toolbar {
             ToolbarItem {
                 Button { Task { await intelligence.analyzeRecent() } } label: {

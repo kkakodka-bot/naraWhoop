@@ -1,6 +1,8 @@
 package com.noop.ui
 
 import android.content.Context
+import com.noop.account.AccountStorageContext
+import com.noop.account.AccountWorkContext
 import android.content.SharedPreferences
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -40,30 +42,38 @@ object DebugExportScheduler {
      * change and from app start / boot so the schedule self-heals.
      */
     fun reschedule(context: Context, settings: DebugExportSettings = DebugExportSettings.from(context)) {
-        val wm = WorkManager.getInstance(context.applicationContext)
+        val account = AccountStorageContext.capture(context)
+        val wm = WorkManager.getInstance(AccountStorageContext.platform(account))
+        wm.cancelUniqueWork(WORK_NAME) // Legacy jobs carry no owner and are never adopted.
+        if (account.identity.scope == null || !account.isCurrent()) return
+        val workName = AccountWorkContext.name(WORK_NAME, account)
         if (!settings.enabled) {
-            wm.cancelUniqueWork(WORK_NAME)
+            wm.cancelUniqueWork(workName)
             return
         }
         val initialDelayMs = delayToNextOccurrenceMs(settings.timeMinutes)
         val request = PeriodicWorkRequestBuilder<DebugExportWorker>(1, TimeUnit.DAYS)
             .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
+            .setInputData(AccountWorkContext.input(account))
+            .addTag(AccountWorkContext.tag(account))
             .build()
         // KEEP: an already-scheduled daily export keeps its existing period anchor rather than being reset
         // every app-start. A time-of-day CHANGE goes through [cancel]+[reschedule] in the Settings handler.
-        wm.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+        wm.enqueueUniquePeriodicWork(workName, ExistingPeriodicWorkPolicy.KEEP, request)
     }
 
     /** Force a fresh schedule (cancel then enqueue) — used when the chosen time-of-day changes so the new
      *  time takes effect immediately rather than waiting out the old period. */
     fun applyTimeChange(context: Context, settings: DebugExportSettings = DebugExportSettings.from(context)) {
-        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WORK_NAME)
+        cancel(context)
         reschedule(context, settings)
     }
 
     /** Cancel the daily export entirely. */
     fun cancel(context: Context) {
-        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WORK_NAME)
+        val account = AccountStorageContext.capture(context)
+        WorkManager.getInstance(AccountStorageContext.platform(account))
+            .cancelUniqueWork(AccountWorkContext.name(WORK_NAME, account))
     }
 
     /**
@@ -95,7 +105,8 @@ class DebugExportWorker(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         // No live log text reachable from here — pass empty and let the rolling buffer supply the body.
-        LogExport.writeScheduledExport(applicationContext, logText = "")
+        val account = AccountWorkContext.resolve(applicationContext, inputData) ?: return Result.success()
+        LogExport.writeScheduledExport(account, logText = "")
         return Result.success()
     }
 }
@@ -141,6 +152,6 @@ class DebugExportSettings(private val prefs: SharedPreferences) {
         const val DEFAULT_KEEP = 14       // ~2 weeks of daily drops.
 
         fun from(context: Context): DebugExportSettings =
-            DebugExportSettings(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
+            DebugExportSettings(AccountStorageContext.capture(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE))
     }
 }

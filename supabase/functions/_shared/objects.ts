@@ -1,6 +1,4 @@
-// Port of the retired Node receiver — the direct-to-bucket lane: intent, completion, and the
-// coverage index. `verifyObjectDigest` deliberately stays in the Node backend (out-of-band job);
-// it is the only piece that needs zstd decompression, which keeps it out of the edge runtime.
+// Authenticated direct-to-bucket intake. Upload targets are not durability receipts.
 import {
   OBJECT_LANE_RECORD_HZ,
   OBJECT_LANE_STREAMS,
@@ -11,11 +9,13 @@ import {
   rawObjectKeyV3,
 } from './keys.ts';
 import { MAX_OBJECT_LANE_BYTES, MAX_RANGE_MS, expiresAt } from './retention.ts';
-import { createManifestStore, READY_STATUSES, type ManifestStore } from './manifests.ts';
-import { PushProtocolError } from './registry.ts';
+import { createManifestStore, type ManifestStore } from './manifests.ts';
+import { completeDurableObject, registerDevice, reserveManifest, MAX_DECODED_OBJECT_BYTES } from './durability.ts';
+import { PushProtocolError, schemaVersionFor } from './registry.ts';
 import type { SupabaseRest } from './rest.ts';
 import type { S3Store } from './s3.ts';
 import type { PushFunctionConfig } from './config.ts';
+import { requestObjectVerification } from './objectVerification.ts';
 
 /** Presigned PUT lifetime. Long enough for a large object on a slow link, short enough to expire. */
 export const UPLOAD_URL_TTL_SEC = 15 * 60;
@@ -23,12 +23,7 @@ export const UPLOAD_URL_TTL_SEC = 15 * 60;
 const SHA_RE = /^[0-9a-f]{64}$/i;
 const MIN_PLAUSIBLE_UNIX = 1_400_000_000;
 
-/**
- * The digest a manifest carries is whatever the device claimed at intent time. This lane never
- * routes the bytes through this server, so at completion we can only attest the byte COUNT, which
- * came from HEAD. `verifyObjectDigest` is what earns `verified` by reading the object back and
- * hashing it. Keeping the two apart stops a `ready` row from implying a check nobody ran.
- */
+/** Only stored-byte verification plus the index transaction earns server_verified. */
 export const SHA_SOURCE = Object.freeze({ claimed: 'client_claimed', verified: 'server_verified' });
 
 function fail(code: string, status = 400): PushProtocolError {
@@ -43,6 +38,9 @@ function fail(code: string, status = 400): PushProtocolError {
 export function validateObjectIntent(manifest: any) {
   const errors: string[] = [];
   const m = manifest || {};
+  const protocolVersion = m.protocolVersion ?? '1.2';
+  const schemaVersion = m.schemaVersion ?? schemaVersionFor(m.stream, protocolVersion);
+  if (!['1.2', '1.3', '1.4'].includes(protocolVersion)) errors.push('protocolVersion');
   if (m.type !== 'binaryObject') errors.push('type');
   if (!OBJECT_LANE_STREAMS.has(m.stream)) errors.push('stream');
   if (!isUuid(m.objectId)) errors.push('objectId');
@@ -61,7 +59,8 @@ export function validateObjectIntent(manifest: any) {
   const sampleCount = Number(m.sampleCount);
   if (!Number.isInteger(sampleCount) || sampleCount < 0) errors.push('sampleCount');
   const uncompressedBytes = Number(m.uncompressedBytes);
-  if (!Number.isInteger(uncompressedBytes) || uncompressedBytes <= 0) errors.push('uncompressedBytes');
+  if (!Number.isSafeInteger(uncompressedBytes) || uncompressedBytes <= 0 || uncompressedBytes > MAX_DECODED_OBJECT_BYTES) errors.push('uncompressedBytes');
+  if (schemaVersion !== schemaVersionFor(m.stream, protocolVersion)) errors.push('schemaVersion');
   const compressedBytes = Number(m.compressedBytes);
   if (!Number.isInteger(compressedBytes) || compressedBytes <= 0 || compressedBytes > MAX_OBJECT_LANE_BYTES) {
     errors.push('compressedBytes');
@@ -85,6 +84,8 @@ export function validateObjectIntent(manifest: any) {
     sampleCount,
     uncompressedBytes,
     compressedBytes,
+    protocolVersion,
+    schemaVersion,
   };
 }
 
@@ -117,9 +118,8 @@ export function windowCoverage({ stream, startTs, endTs, sampleCount }: {
 /**
  * Direct-to-bucket lane for the high-rate raw streams.
  *
- * `createIntent` mints a manifest row plus a presigned PUT; the device writes the bytes straight to
- * the bucket; `completeObject` verifies the byte count and releases the device's local rows. The
- * payload never transits this process, which is the point — it is a URL broker and a ledger.
+ * Completion reads a server-only snapshot, checks both digests and sizes, and atomically
+ * publishes the coverage index and durability receipt. A bare ready flag is insufficient.
  */
 export function createPushObjects({
   cfg,
@@ -139,42 +139,6 @@ export function createPushObjects({
   urlTtlSec?: number;
 }) {
   const manifests: ManifestStore | null = rest?.configured ? createManifestStore({ rest, now }) : null;
-
-  async function writeSignalWindow({ userId, deviceId, row, stream, startTs, endTs, sampleCount }: {
-    userId: string;
-    deviceId: string;
-    row: any;
-    stream: string;
-    startTs: number;
-    endTs: number;
-    sampleCount: number;
-  }) {
-    if (typeof upsertRows !== 'function') return null;
-    const cover = windowCoverage({ stream, startTs, endTs, sampleCount });
-    const hourStart = Math.floor(startTs / 3600) * 3600;
-    const window = {
-      user_id: userId,
-      device_id: deviceId,
-      stream,
-      hour_start: hourStart,
-      start_ts: startTs,
-      end_ts: endTs,
-      object_id: row.id,
-      object_key: row.object_key,
-      expected_records: cover.expectedRecords,
-      received_records: cover.receivedRecords,
-      missing_records: cover.missingRecords,
-      coverage: cover.coverage,
-      interpolated_records: 0,
-      compressed_bytes: row.compressed_bytes ?? null,
-      uncompressed_bytes: row.uncompressed_bytes ?? null,
-      updated_at: now().toISOString(),
-    };
-    await upsertRows('noop_signal_windows', [window], {
-      onConflict: 'user_id,device_id,stream,hour_start,object_id',
-    });
-    return window;
-  }
 
   return {
     get configured() {
@@ -204,46 +168,16 @@ export function createPushObjects({
         objectId: manifest.objectId,
       });
 
-      const prior = await manifests.get(manifest.objectId);
-      if (prior) {
-        if (prior.user_id !== userId) throw fail('forbidden', 403);
-        // A retry must reuse the same bytes. A different digest under a committed objectId is a
-        // distinct object wearing a used id, and silently re-signing would overwrite the original.
-        if (prior.sha256 && prior.sha256 !== manifest.contentSha256) {
-          throw fail('object_id_conflict', 409);
-        }
-        if (READY_STATUSES.has(prior.status)) {
-          return {
-            objectId: prior.id,
-            status: prior.status,
-            objectKey: prior.object_key,
-            duplicate: true,
-          };
-        }
-        const resumed = raw.presignPut(prior.object_key, urlTtlSec, now());
-        return {
-          objectId: prior.id,
-          status: prior.status,
-          objectKey: prior.object_key,
-          uploadUrl: resumed.url,
-          requiredHeaders: { 'content-type': prior.content_type || 'application/octet-stream' },
-          expiresAt: resumed.expiresAt,
-          duplicate: false,
-        };
-      }
-
-      if (typeof ensureDevice === 'function') {
-        await ensureDevice({
+      await registerDevice(rest, {
           id: deviceId,
           user_id: userId,
           source_kind: 'noop_push',
           external_device_id: String(manifest.deviceId || ''),
           last_seen_at: now().toISOString(),
-        });
-      }
+      });
 
       const spec = pushArchiveSpecForStream(manifest.stream);
-      await manifests.insertPending({
+      const row = await reserveManifest(rest, {
         id: manifest.objectId,
         user_id: userId,
         device_id: deviceId,
@@ -261,8 +195,10 @@ export function createPushObjects({
         content_type: spec.contentType,
         format: spec.format,
         compression: spec.compression,
-        schema_version: Number(manifest.schemaVersion ?? 1),
-        sha256: manifest.contentSha256,
+        schema_version: v.schemaVersion,
+        push_protocol_version: v.protocolVersion,
+        sha256: manifest.contentSha256.toLowerCase(),
+        digest_scope: 'decoded',
         sha256_source: SHA_SOURCE.claimed,
         retention_class: spec.retentionClass,
         expires_at: expiresAt(manifest.stream, now(), cfg as unknown as Record<string, unknown>),
@@ -271,11 +207,20 @@ export function createPushObjects({
         status: 'pending',
       });
 
-      const signed = raw.presignPut(key, urlTtlSec, now());
+      if (row.durability_receipt) {
+        const durabilityReceipt = await completeDurableObject({ rest, raw, row });
+        return { protocolVersion: row.push_protocol_version ?? '1.2', objectId: row.id, status: 'ready', objectKey: durabilityReceipt.objectKey, duplicate: true, durabilityReceipt };
+      }
+      if (['deleted', 'deleting', 'expired'].includes(row.status)) throw fail('object_unavailable', 409);
+      const uploadKey = row.upload_object_key || row.object_key;
+      // Never issue a presigned write to a verified key, including on legacy retries.
+      if (uploadKey.includes('/verified/')) throw fail('object_unavailable', 409);
+      const signed = raw.presignPut(uploadKey, urlTtlSec, now());
       return {
+        protocolVersion: v.protocolVersion,
         objectId: manifest.objectId,
         status: 'pending',
-        objectKey: key,
+        objectKey: uploadKey,
         uploadUrl: signed.url,
         requiredHeaders: { 'content-type': spec.contentType },
         expiresAt: signed.expiresAt,
@@ -283,10 +228,7 @@ export function createPushObjects({
       };
     },
 
-    /**
-     * Releases the device's local rows. Verifies the byte count against the value committed at
-     * intent; the digest is recorded as claimed and upgraded by `verifyObjectDigest`.
-     */
+    /** Only a verified_indexed receipt permits local pruning. */
     async completeObject({ userId, objectId }: { userId: string; objectId: string }) {
       if (!isUuid(userId)) throw fail('unauthorized', 401);
       if (!isUuid(objectId)) throw fail('invalid_object_id', 400);
@@ -296,41 +238,29 @@ export function createPushObjects({
       const row = await manifests.get(objectId);
       if (!row) throw fail('missing_manifest', 404);
       if (row.user_id !== userId) throw fail('forbidden', 403);
-      if (READY_STATUSES.has(row.status)) {
-        return { objectId: row.id, status: row.status, objectKey: row.object_key, duplicate: true };
+      if ((await rest.select('noop_object_verification_debt', `object_id=eq.${objectId}&user_id=eq.${userId}&select=object_id&limit=1`)).length) {
+        throw fail('async_verification_required', 503);
       }
+      const duplicate = Boolean(row.durability_receipt);
+      const durabilityReceipt = await completeDurableObject({ rest, raw, row });
+      return { protocolVersion: row.push_protocol_version ?? '1.2', objectId: row.id, status: 'ready', objectKey: durabilityReceipt.objectKey,
+        durabilityReceipt, duplicate };
+    },
 
-      await manifests.mark(objectId, { status: 'uploading' });
-      const head = await raw.head(row.object_key);
-      if (!head?.exists) {
-        await manifests.mark(objectId, { status: 'failed' });
-        throw fail('object_missing', 409);
-      }
-      if (row.compressed_bytes != null && head.contentLength != null
-          && Number(head.contentLength) !== Number(row.compressed_bytes)) {
-        await manifests.mark(objectId, { status: 'failed' });
-        throw fail('size_mismatch', 409);
-      }
+    /** Explicitly negotiated mode: enqueue/poll only, with no storage reads or verification work. */
+    async requestVerification({ userId, objectId }: { userId: string; objectId: string }) {
+      if (!isUuid(userId)) throw fail('unauthorized', 401);
+      if (!isUuid(objectId)) throw fail('invalid_object_id', 400);
+      if (!manifests || !raw) throw fail('archive_not_configured', 503);
+      return await requestObjectVerification(rest, userId, objectId);
+    },
 
-      const at = now().toISOString();
-      const updated = await manifests.mark(objectId, {
-        status: 'ready',
-        compressed_bytes: head.contentLength ?? row.compressed_bytes,
-        uploaded_at: at,
-      });
-      const next = (Array.isArray(updated) ? updated[0] : updated) || row;
-
-      const window = await writeSignalWindow({
-        userId,
-        deviceId: row.device_id,
-        row: next,
-        stream: row.object_kind,
-        startTs: Math.floor(Date.parse(row.start_at) / 1000),
-        endTs: Math.floor(Date.parse(row.end_at) / 1000),
-        sampleCount: Number(row.sample_count ?? 0),
-      });
-
-      return { objectId: next.id, status: 'ready', objectKey: next.object_key, window, duplicate: false };
+    async hasVerificationDebt({ userId, objectId }: { userId: string; objectId: string }) {
+      if (!isUuid(userId)) throw fail('unauthorized', 401);
+      if (!isUuid(objectId)) throw fail('invalid_object_id', 400);
+      if (!manifests) throw fail('archive_not_configured', 503);
+      return (await rest.select('noop_object_verification_debt',
+        `object_id=eq.${objectId}&user_id=eq.${userId}&select=object_id&limit=1`)).length > 0;
     },
   };
 }

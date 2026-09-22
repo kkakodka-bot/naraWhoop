@@ -1,10 +1,56 @@
 import Foundation
 import Combine
 import GRDB
+import NoopPush
 import WhoopStore
 import WhoopProtocol
 import StrandAnalytics
 import StrandDesign   // TrendPoint , the shared chart point type the Deep Timeline series uses
+
+/// One value captured before an asynchronous scoring/read operation. Account readers never
+/// substitute process-global choices when their accepted projection is unavailable.
+struct ScoringReaderInputs: Sendable, Equatable {
+    let accepted: ScoringPreferenceSnapshot?
+    let algorithms: ScoringAlgorithmChoices
+    let hrvWindow: HrvWindow
+    let hrvBaselineEpoch: Double
+    let recoveryBaselineEpoch: Double
+    var effortMethod: StrainScorer.Method { algorithms.banisterEffortEnabled ? .banister : .edwards }
+
+    init(accepted: ScoringPreferenceSnapshot) {
+        self.accepted = accepted
+        algorithms = accepted.algorithmChoices
+        hrvWindow = HrvWindow(rawValue: accepted.hrvWindowRaw) ?? .whole
+        hrvBaselineEpoch = accepted.hrvBaselineEpoch
+        recoveryBaselineEpoch = accepted.recoveryBaselineEpoch
+    }
+
+    private init(algorithms: ScoringAlgorithmChoices, hrvWindow: HrvWindow,
+                 hrvBaselineEpoch: Double, recoveryBaselineEpoch: Double) {
+        accepted = nil
+        self.algorithms = algorithms
+        self.hrvWindow = hrvWindow
+        self.hrvBaselineEpoch = hrvBaselineEpoch
+        self.recoveryBaselineEpoch = recoveryBaselineEpoch
+    }
+
+    @MainActor static func legacy(hrvWindow: HrvWindow = .whole) -> Self {
+        .init(algorithms: .init(banisterEffortEnabled: PuffinExperiment.effortMethod == .banister,
+            useSleepStagerV2: PuffinExperiment.experimentalSleepV2Enabled,
+            useMotionAwareWake: PuffinExperiment.motionAwareWakeEnabled,
+            daytimePersonalBaselineEnabled: PuffinExperiment.stressPersonalBaselineEnabled,
+            spo2CandidateDisplayEnabled: PuffinExperiment.spo2CandidateDisplayEnabled),
+            hrvWindow: hrvWindow, hrvBaselineEpoch: Baselines.hrvBaselineEpoch(),
+            recoveryBaselineEpoch: Baselines.recoveryBaselineEpoch())
+    }
+}
+
+/// The engine's computed namespace and current-pass raw selection are independent identities.
+struct EditedSleepSourceSelection: Sendable {
+    let computedRowOwner: String
+    let rawOwnerByWakeDay: [String: String]
+    let offsetSeconds: Int
+}
 
 /// Per-day sleep figures the WHOOP export carried verbatim (metricSeries rows written by
 /// WhoopImporter under the imported deviceId). SleepView prefers these over its on-device
@@ -71,6 +117,7 @@ struct ScoreInputProvider: Equatable, Sendable {
 /// Source provenance for daily rows before product surfaces merge them. The UI uses this to say
 /// where a vital came from without changing the stored data.
 enum DailyMetricSource: Equatable {
+    case serverSnapshot
     case whoopImport
     case noopComputed
     case appleHealth
@@ -78,6 +125,7 @@ enum DailyMetricSource: Equatable {
 
     var vitalPriority: Int {
         switch self {
+        case .serverSnapshot: return -1
         case .whoopImport:  return 0
         case .noopComputed: return 1
         case .appleHealth:  return 2
@@ -125,6 +173,8 @@ struct SleepDeletionSnapshot: Equatable {
     /// The per-epoch banked band sleep-state series (`sleepStateJSON`), captured at delete time. Same
     /// reason as `motion`: undo re-persists it so a `userEdited` night keeps its Band Sleep State track.
     var sleepState: [Int]?
+    /// Server-owned undo is another durable input; it must never reinsert local score rows.
+    var serverUndoChange: ScoringInputChange? = nil
 }
 
 /// Read model over the on-device WhoopStore. Opens its own handle (WAL + busy-timeout makes the
@@ -185,6 +235,23 @@ final class Repository: ObservableObject {
 
     /// Daily metrics (recovery/strain/sleep/HRV/RHR…) over the recent window, oldest→newest.
     @Published var days: [DailyMetric] = []
+    private var localPresentationDays: [DailyMetric] = []
+    private var localPresentationSleeps: [CachedSleepSession] = []
+    private var localPresentationVitals: [SourcedDailyMetric] = []
+    private var hasLocalPresentation = false
+    /// Unmigrated builders must not consume server-overlaid values as local inputs.
+    var localSleepModelDays: [DailyMetric] {
+        guard accountRuntimeActive else { return [] }
+        return hasLocalPresentation ? localPresentationDays : days
+    }
+    var localSleepModelSleeps: [CachedSleepSession] {
+        guard accountRuntimeActive else { return [] }
+        return hasLocalPresentation ? localPresentationSleeps : sleeps
+    }
+    private(set) var serverPresentation = ServerScoreViewState.empty
+    @Published var serverInputPending = 0
+    @Published var serverInputError: String?
+    var scoringInputWriter: ((ScoringInputChange) async throws -> Void)?
     /// Cached sleep sessions over the recent window, oldest→newest.
     @Published var sleeps: [CachedSleepSession] = []
     /// Imported (export-verbatim) sleep figures by day. Empty until a WHOOP import lands.
@@ -240,7 +307,110 @@ final class Repository: ObservableObject {
         workoutsLog(build())
     }
 
-    init(deviceId: String) { self.deviceId = deviceId }
+    private let storageLayout: AccountStorageLayout?
+    private let accountDefaults: UserDefaults
+    private let presentationAllowed: Bool
+    private let openStore: (@Sendable () async throws -> WhoopStore)?
+    private let scoringPreferenceProvider: (() -> ScoringPreferenceSnapshot?)?
+    private var accountRuntimeActive = true
+    let writeFence = StoreWriteFence()
+    private var sourceGeneration: UInt64 = 0
+
+    private struct ReaderSource {
+        let raw: String
+        let computed: String
+        let imported: [String]
+        let generation: UInt64
+    }
+
+    private func readerSource() -> ReaderSource {
+        .init(raw: deviceId, computed: computedDeviceId, imported: importedReadIds,
+              generation: sourceGeneration)
+    }
+
+    private func readerIsCurrent(_ source: ReaderSource,
+                                 onFailure: @Sendable () -> Void = {}) -> Bool {
+        guard accountRuntimeActive, writeFence.isValid, !Task.isCancelled,
+              source.generation == sourceGeneration, source.raw == deviceId else {
+            onFailure()
+            return false
+        }
+        return true
+    }
+
+    private func requiredRead<Value>(_ read: () async throws -> Value,
+                                     onFailure: @Sendable () -> Void) async -> Value? {
+        do { return try await read() }
+        catch { onFailure(); return nil }
+    }
+    var requiresAcceptedScoringPreferences: Bool {
+        storageLayout?.scope != nil || scoringPreferenceProvider != nil
+    }
+
+    func captureScoringReaderInputs() -> ScoringReaderInputs? {
+        guard accountRuntimeActive, writeFence.isValid else { return nil }
+        if requiresAcceptedScoringPreferences {
+            guard let accepted = scoringPreferenceProvider?() else { return nil }
+            return .init(accepted: accepted)
+        }
+        return .legacy()
+    }
+
+    /// Accepted preferences also key derived displays, even when stored rows are unchanged.
+    /// Queued drafts must never cross this cache/task publication boundary.
+    func noteScoringPreferencesChanged() {
+        guard accountRuntimeActive, writeFence.isValid else { return }
+        exploreAllCache = nil
+        refreshSeq &+= 1
+    }
+
+    init(deviceId: String, storageLayout: AccountStorageLayout? = nil,
+         presentationAllowed: Bool = true,
+         openStore: (@Sendable () async throws -> WhoopStore)? = nil,
+         scoringPreferences: (() -> ScoringPreferenceSnapshot?)? = nil) {
+        self.deviceId = deviceId
+        self.storageLayout = storageLayout
+        self.accountDefaults = storageLayout.flatMap { UserDefaults(suiteName: $0.preferencesSuite) } ?? .standard
+        self.presentationAllowed = presentationAllowed
+        self.openStore = openStore
+        self.scoringPreferenceProvider = scoringPreferences
+    }
+
+    /// One immutable server revision feeds every existing repository consumer, including extensions.
+    /// Raw/source rows stay in their original tables; switching ownership does not rewrite them.
+    @discardableResult
+    func applyServerScores(_ state: ServerScoreViewState) -> Bool {
+        guard accountRuntimeActive, state != serverPresentation else { return false }
+        let contentChanged = state.revision != serverPresentation.revision
+            || state.generation != serverPresentation.generation
+            || state.currentDay != serverPresentation.currentDay
+            || state.timezone != serverPresentation.timezone
+            || state.configured != serverPresentation.configured
+            || state.authenticated != serverPresentation.authenticated
+            || state.capabilities != serverPresentation.capabilities
+            || state.activated != serverPresentation.activated
+            || state.days.compactMapValues(\.snapshot) != serverPresentation.days.compactMapValues(\.snapshot)
+        if !hasLocalPresentation {
+            localPresentationDays = days
+            localPresentationSleeps = sleeps
+            localPresentationVitals = vitalRows
+            hasLocalPresentation = true
+        }
+        serverPresentation = state
+        // Loading/offline/freshness remain observable without invalidating every derived series.
+        guard contentChanged else { return false }
+        publishServerPresentation()
+        exploreAllCache = nil
+        refreshSeq &+= 1
+        return true
+    }
+
+    private func publishServerPresentation() {
+        days = RepositoryServerScores.daily(localPresentationDays, state: serverPresentation)
+        sleeps = serverPresentation.owns(.sleepSessions)
+            ? RepositoryServerScores.sleep(state: serverPresentation) : localPresentationSleeps
+        vitalRows = RepositoryServerScores.vitals(localPresentationVitals, state: serverPresentation)
+    }
 
     /// Re-point the read model's ACTIVE-strap id at the device registry's active device, so a re-added
     /// strap's LIVE raw (written under its fresh "whoop-<uuid>" id) surfaces on the dashboard (#814).
@@ -254,8 +424,11 @@ final class Repository: ObservableObject {
     @discardableResult
     func adoptActiveDeviceId(_ id: String) -> Bool {
         let trimmed = id.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, trimmed != deviceId else { return false }
+        guard accountRuntimeActive, !trimmed.isEmpty, trimmed != deviceId else { return false }
+        sourceGeneration &+= 1
+        refreshGen &+= 1
         deviceId = trimmed
+        clearReaderCaches()
         return true
     }
 
@@ -263,6 +436,11 @@ final class Repository: ObservableObject {
     /// Inject a pre-opened store so unit tests can exercise the read facades (e.g. `timelineSeries`)
     /// against an in-memory `WhoopStore` without touching the on-disk path. DEBUG-only test seam.
     func setStoreForTesting(_ s: WhoopStore) { self.store = s }
+
+    enum PreferenceRecoveryPoint {
+        case sleepRowsRead, sleepGravityRead, sleepStaged, workoutRowsRead, appleReadComplete
+    }
+    var preferenceRecoveryCheckpoint: ((PreferenceRecoveryPoint) async -> Void)?
     #endif
 
     /// Shared GRDB writer for the opt-in cloud push worker.
@@ -277,12 +455,15 @@ final class Repository: ObservableObject {
     /// the final fallback. Archived devices intentionally remain: archive means "stop connecting, keep
     /// data", and historical timelines must not orphan their retained samples. The active id remains first
     /// even for a non-WHOOP provider, preserving the pre-multi-strap cross-provider path.
-    private func rawPhysiologyReadIds(store: WhoopStore) -> [String] {
-        let paired = (try? DeviceRegistryStore(dbQueue: store.registryWriter).all()) ?? []
+    private func rawPhysiologyReadIds(store: WhoopStore, activeDeviceId: String? = nil,
+                                     onFailure: @Sendable () -> Void = {}) -> [String] {
+        let paired: [PairedDevice]
+        do { paired = try DeviceRegistryStore(dbQueue: store.registryWriter).all() }
+        catch { onFailure(); paired = [] }
         let registeredWhoops = paired.filter {
             $0.brand.caseInsensitiveCompare("WHOOP") == .orderedSame
         }.map(\.id)
-        return Self.rawWhoopSourceIds(activeDeviceId: deviceId, registeredWhoopIds: registeredWhoops)
+        return Self.rawWhoopSourceIds(activeDeviceId: activeDeviceId ?? deviceId, registeredWhoopIds: registeredWhoops)
     }
 
     /// Pure ordering contract shared with Android's parity guard: current active source first, every other
@@ -309,10 +490,17 @@ final class Repository: ObservableObject {
     /// Daily-metric rows across the imported union for a day range, DEDUPED per day with the ACTIVE STRAP
     /// winning over the canonical import (a live/measured row beats an imported one for the same day). The
     /// single returned row per day feeds the existing imported-vs-computed `mergeDaily` unchanged.
-    private func unionDailyMetrics(store: WhoopStore, from: String, to: String) async -> [DailyMetric] {
+    private func unionDailyMetrics(store: WhoopStore, from: String, to: String,
+                                   source suppliedSource: ReaderSource? = nil,
+                                   onFailure: @Sendable () -> Void = {}) async -> [DailyMetric] {
+        let source = suppliedSource ?? readerSource()
+        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
         var byDay: [String: DailyMetric] = [:]
-        for id in importedReadIds {   // active strap FIRST → it claims each column, canonical fills its gaps
-            for m in (try? await store.dailyMetrics(deviceId: id, from: from, to: to)) ?? [] {
+        for id in source.imported {   // active strap FIRST → it claims each column, canonical fills its gaps
+            let rows = await requiredRead({ try await store.dailyMetrics(deviceId: id, from: from, to: to) },
+                                          onFailure: onFailure) ?? []
+            guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+            for m in rows {
                 byDay[m.day] = byDay[m.day].map { Self.coalesceDay($0, m) } ?? m
             }
         }
@@ -365,6 +553,13 @@ final class Repository: ObservableObject {
             for beat in list where seen.insert(BeatKey(ts: beat.ts, rrMs: beat.rrMs, seq: beat.seq)).inserted {
                 out.append(beat)
             }
+        }
+        if out.contains(where: { $0.srcChannel?.isWhoop5Transport == true }) {
+            // Retain the selected stream's emission order within a second. Value sorting corrupts
+            // successive differences; original offsets also keep owner precedence deterministic.
+            return out.enumerated().sorted {
+                $0.element.ts != $1.element.ts ? $0.element.ts < $1.element.ts : $0.offset < $1.offset
+            }.map(\.element)
         }
         return out.sorted {
             if $0.ts != $1.ts { return $0.ts < $1.ts }
@@ -573,7 +768,11 @@ final class Repository: ObservableObject {
     /// live-HR tick. Recomputes only when `days` changes (`refreshSeq`) or the day rolls — byte-identical to
     /// the static overload. Call THIS from the per-tick live surfaces; tests use the pure 3-arg overload.
     func cachedWidgetAnchor(now: Date = Date()) -> DailyMetric? {
-        widgetAnchorMemo.resolve(
+        guard accountRuntimeActive, writeFence.isValid else { return nil }
+        if serverPresentation.hasServerOwnership {
+            return days.first { $0.day == serverPresentation.currentDay }
+        }
+        return widgetAnchorMemo.resolve(
             days: days,
             seq: refreshSeq,
             logicalKey: Self.logicalDayKey(now),
@@ -708,28 +907,43 @@ final class Repository: ObservableObject {
     private var storeOpenTask: Task<WhoopStore?, Never>?
 
     private func ensureStore() async -> WhoopStore? {
+        guard presentationAllowed, accountRuntimeActive else { return nil }
         if let store { return store }
         // SINGLE-FLIGHT (measured 2026-07-01 on a 5M-row DB): several screens ask for the store at once
         // on launch (RootView refresh, AppModel init, exploreSeries). ensureStore is async and `store`
         // is not set until after the `await WhoopStore(path:)` below, so without this guard every caller
         // races past the `if let store` check while the others are awaiting the open, and they ALL open a
-        // fresh connection and re-run quarantineIncompatibleDatabase (a thundering herd of DB opens on a
+        // fresh connection and re-run the origin check (a thundering herd of DB opens on a
         // large library at the worst moment). Cache the in-flight open Task so concurrent callers join it.
-        if let storeOpenTask { return await storeOpenTask.value }
-        let task = Task { [deviceId] () -> WhoopStore? in
+        if let storeOpenTask {
+            let opened = await storeOpenTask.value
+            guard accountRuntimeActive, !Task.isCancelled else { return nil }
+            return opened
+        }
+        let task = Task.detached(priority: .utility) { [deviceId, storageLayout, writeFence, openStore] () -> WhoopStore? in
             // Don't swallow the open failure with `try?` (#222): an import-time open failure (e.g. the iOS
             // data-protected store while the device is locked) was previously invisible, surfacing only as
             // a generic "Couldn't open the local store." Log the real error so the cause is diagnosable.
             let path: String
             do {
-                path = try StorePaths.defaultDatabasePath()
+                if let storageLayout {
+                    try storageLayout.prepare()
+                    path = storageLayout.databaseURL.path
+                } else {
+                    path = try StorePaths.defaultDatabasePath()
+                }
             } catch {
                 NSLog("WhoopStore: ensureStore FAILED resolving DB path: \(error)")
                 return nil
             }
             let s: WhoopStore
             do {
-                s = try await WhoopStore(path: path)
+                if let openStore { s = try await openStore() }
+                else { s = try await WhoopStore(path: path) }
+                try await s.fenceWrites(untilRevoked: writeFence)
+                if let scope = storageLayout?.scope {
+                    try await s.bindAccountOwner(projectURL: scope.projectURL, userID: scope.userID)
+                }
             } catch {
                 let ns = error as NSError
                 NSLog("WhoopStore: ensureStore FAILED opening store: \(ns.domain) code=\(ns.code): \(ns.localizedDescription)")
@@ -740,6 +954,7 @@ final class Repository: ObservableObject {
         }
         storeOpenTask = task
         let opened = await task.value
+        guard accountRuntimeActive, !Task.isCancelled else { return nil }
         if let opened { store = opened }
         storeOpenTask = nil
         return opened
@@ -747,6 +962,47 @@ final class Repository: ObservableObject {
 
     /// Expose the shared store handle (used by the importer to persist mapped rows).
     func storeHandle() async -> WhoopStore? { await ensureStore() }
+
+    func shutdownForAccountChange() {
+        accountRuntimeActive = false
+        writeFence.invalidate()
+        storeOpenTask?.cancel()
+        storeOpenTask = nil
+        store = nil
+        refreshGen &+= 1
+        clearReaderCaches()
+        days = []
+        localPresentationDays = []
+        localPresentationSleeps = []
+        localPresentationVitals = []
+        hasLocalPresentation = false
+        serverPresentation = .empty
+        scoringInputWriter = nil
+        serverInputPending = 0
+        serverInputError = nil
+        sleeps = []
+        importedSleep = [:]
+        vitalRows = []
+        freshness = .empty
+        loaded = false
+    }
+
+    private func clearReaderCaches() {
+        exploreAllCache = nil
+        widgetAnchorMemo = WidgetAnchorMemo()
+        todayHistoryWideCache = nil
+        todayHistoryWideLoadedSeq = -1
+        todayDayScopedCache = nil
+        todayDayScopedLoadedSeq = -1
+        todayDayScopedLoadedDayKey = ""
+        insightsCache = nil
+        insightsLoadedSeq = -1
+        insightsLoadedDayKey = ""
+        appleHealthCache = nil
+        appleHealthLoadedSeq = -1
+        appleHealthLoadedDayKey = ""
+        appleHealthLoadGeneration &+= 1
+    }
 
     /// CAPTURE-D (#797): the on-device DATA VOLUME read FRESH from the STORE (never the `@Published`
     /// dashboard caches), for the Display & Performance test mode's `dataVolume` line. dbRows is the raw
@@ -860,6 +1116,7 @@ final class Repository: ObservableObject {
     /// #833/v7.7.2: the snapshot AppleHealthView.load() last built, so a same-seq re-mount RESTORES it
     /// in-memory (no store queries) instead of re-running the heavy load. Not @Published.
     var appleHealthCache: AppleHealthLoadCache?
+    private var appleHealthLoadGeneration: UInt64 = 0
 
     /// #849/#932 (Today day-scoped freeze): macOS cold-mounts the NavigationSplitView detail on every sidebar
     /// switch, so `TodayView.loadDayScoped()` re-ran its full-day heavy read (the selected day's 5-minute
@@ -886,7 +1143,8 @@ final class Repository: ObservableObject {
     #endif
 
     func refresh(days nDays: Int = 4000) async {
-        guard let store = await ensureStore() else { return }
+        let source = readerSource()
+        guard let store = await ensureStore(), readerIsCurrent(source) else { return }
         refreshGen &+= 1
         let myGen = refreshGen
         let now = Date()
@@ -940,26 +1198,28 @@ final class Repository: ObservableObject {
 
         // Generation guard (#review): if a newer refresh() started while this one merged off-actor, drop
         // this now-stale result so it can't clobber the newer caches or re-fire loadAll out of order.
-        guard myGen == refreshGen else { return }
+        guard readerIsCurrent(source), myGen == refreshGen else { return }
 
         // DIFF before publishing (FIX 3): if this refresh produced byte-identical caches AND we've already
         // loaded once, skip the re-publish and the `refreshSeq` bump entirely , assigning an equal value to
         // an @Published prop still fires objectWillChange, so the skip must cover the assignments too. This
         // is what stops the analyze-tail's burst of refresh() calls each re-firing TodayView.loadAll().
         let unchanged = loaded
-            && merged.days == days
-            && merged.sleeps == sleeps
+            && merged.days == localPresentationDays
+            && merged.sleeps == localPresentationSleeps
             && merged.importedSleep == importedSleep
-            && merged.vitalRows == vitalRows
+            && merged.vitalRows == localPresentationVitals
             && merged.freshness == freshness
         guard !unchanged else { return }
 
         // One consistent publish per refresh: assign every cache, flip `loaded`, then bump `refreshSeq` so
         // the intraday-updating views reload exactly once for this real change.
         self.importedSleep = merged.importedSleep
-        self.days = merged.days
-        self.sleeps = merged.sleeps
-        self.vitalRows = merged.vitalRows
+        self.localPresentationDays = merged.days
+        self.localPresentationSleeps = merged.sleeps
+        self.localPresentationVitals = merged.vitalRows
+        self.hasLocalPresentation = true
+        publishServerPresentation()
         self.freshness = merged.freshness
         self.loaded = true
         // Drop the Explorer's cross-catalog memo rather than leaving it to be evicted lazily by a key
@@ -1109,8 +1369,22 @@ final class Repository: ObservableObject {
     // MARK: - Detail passthroughs
 
     func dailyMetrics(fromDay: String, toDay: String) async -> [DailyMetric] {
-        guard let store = await ensureStore() else { return [] }
-        return await unionDailyMetrics(store: store, from: fromDay, to: toDay)
+        let local = await localDailyMetrics(fromDay: fromDay, toDay: toDay)
+        guard accountRuntimeActive else { return [] }
+        return RepositoryServerScores.daily(local, state: serverPresentation)
+            .filter { $0.day >= fromDay && $0.day <= toDay }
+    }
+
+    /// Analytics input only: a server presentation overlay must not feed the local producer itself.
+    func localDailyMetrics(fromDay: String, toDay: String,
+                           onFailure: @Sendable () -> Void = {}) async -> [DailyMetric] {
+        let source = readerSource()
+        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard let store = await ensureStore() else { onFailure(); return [] }
+        guard readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        let rows = await unionDailyMetrics(store: store, from: fromDay, to: toDay,
+                                          source: source, onFailure: onFailure)
+        return readerIsCurrent(source, onFailure: onFailure) ? rows : []
     }
 
     /// #856: the same dedup over an EXPLICIT id list, so a workout's zone minutes bin the rows its own
@@ -1153,13 +1427,17 @@ final class Repository: ObservableObject {
     /// active-first, while same-timestamp distinct beats remain intact.
     func rrIntervals(from: Int, to: Int, limit: Int = 8000) async -> [RRInterval] {
         guard let store = await ensureStore() else { return [] }
+        // Keep each physical strap's independently filtered history after a device switch. Only the
+        // ambiguous canonical alias inherits WHOOP 5's unit guard; a confirmed WHOOP 4 keeps its policy.
+        let activeWhoop5 = (try? await store.isWhoop5RRSource(deviceId: deviceId)) == true
         let ids = rawPhysiologyReadIds(store: store)
         guard ids.count != 1 else {
             return (try? await store.rrIntervals(deviceId: deviceId, from: from, to: to, limit: limit)) ?? []
         }
         var lists: [[RRInterval]] = []
         for id in ids {
-            lists.append((try? await store.rrIntervals(deviceId: id, from: from, to: to, limit: limit)) ?? [])
+            lists.append((try? await store.rrIntervals(deviceId: id, from: from, to: to, limit: limit,
+                unlabelledAliasOfWhoop5: activeWhoop5 && id == Self.whoopSource)) ?? [])
         }
         return Self.mergeRRByIdentity(lists)
     }
@@ -1251,6 +1529,10 @@ final class Repository: ObservableObject {
     }
 
     func sleepSessions(from: Int, to: Int, limit: Int = 100) async -> [CachedSleepSession] {
+        if serverPresentation.owns(.sleepSessions) {
+            return Array(RepositoryServerScores.sleep(state: serverPresentation)
+                .filter { $0.endTs >= from && $0.startTs <= to }.prefix(max(0, limit)))
+        }
         guard let store = await ensureStore() else { return [] }
         return await unionSleepSessions(store: store, from: from, to: to, limit: limit)
     }
@@ -1263,6 +1545,7 @@ final class Repository: ObservableObject {
     /// use this ONLY when the imported read is empty ⇒ a mixed/imported install's read is byte-unchanged.
     /// Mirrors Android `WhoopRepository.computedSleepSessionsUnion`.
     func computedSleepSessions(from: Int, to: Int, limit: Int = 100) async -> [CachedSleepSession] {
+        if serverPresentation.owns(.sleepSessions) { return [] }
         guard let store = await ensureStore() else { return [] }
         return (await unionComputedSleepSessions(store: store, from: from, to: to, limit: limit))
             .sorted { $0.startTs < $1.startTs }
@@ -1280,6 +1563,17 @@ final class Repository: ObservableObject {
     /// the dashboard's imported-wins merge); computed blocks fill days with no import.
     /// Oldest→newest by onset.
     func allSleepSessions(days: Int = 4000) async -> [CachedSleepSession] {
+        if serverPresentation.owns(.sleepSessions) {
+            let from = Int(Date().timeIntervalSince1970) - days * 86400
+            return RepositoryServerScores.sleep(state: serverPresentation).filter { $0.endTs >= from }
+        }
+        return await localAllSleepSessions(days: days)
+    }
+
+    /// Original local blocks for an explicitly local-owned auxiliary output. Callers must gate
+    /// that output before reading; this is not a fallback for a missing server-owned result.
+    func localAllSleepSessions(days: Int = 4000) async -> [CachedSleepSession] {
+        guard days > 0, days <= 4000 else { return [] }
         guard let store = await ensureStore() else { return [] }
         let now = Int(Date().timeIntervalSince1970)
         let lo = now - days * 86_400, hi = now + 86_400
@@ -1383,6 +1677,16 @@ final class Repository: ObservableObject {
     /// hero re-reads the corrected night immediately.
     func editSleepTimes(detectedStartTs: Int, oldEndTs: Int, storedStagesJSON: String?,
                         newStartTs: Int, newEndTs: Int) async {
+        if serverPresentation.owns(.sleepSessions) {
+            guard accountRuntimeActive else { return }
+            do {
+                guard let window = SleepEditGuard.clampedEditWindow(start: newStartTs, end: newEndTs,
+                    now: Int(Date().timeIntervalSince1970)) else { throw ServerSleepInput.Failure.invalidWindow }
+                let input = try ServerSleepInput.resolve(start: detectedStartTs, end: oldEndTs, state: serverPresentation)
+                try await queueServerSleepInput(input.change(start: window.0, end: window.1))
+            } catch { reportServerSleepInputFailure() }
+            return
+        }
         guard let store = await ensureStore() else { return }
         // #940 belt-and-braces: never persist a future-ending or inverted corrected window, whatever
         // the UI sent. The editor's own guards (past-bounded bed picker + cross-midnight auto-correct
@@ -1434,6 +1738,19 @@ final class Repository: ObservableObject {
     /// ORIGINAL namespace and lifts the tombstone.
     @discardableResult
     func deleteSleepSession(detectedStartTs: Int, endTs: Int) async -> SleepDeletionSnapshot? {
+        if serverPresentation.owns(.sleepSessions) {
+            guard accountRuntimeActive else { return nil }
+            do {
+                let input = try ServerSleepInput.resolve(start: detectedStartTs, end: endTs, state: serverPresentation)
+                let row = sleeps.first { $0.startTs == detectedStartTs && $0.endTs == endTs }
+                    ?? CachedSleepSession(startTs: detectedStartTs, endTs: endTs, efficiency: nil,
+                                          restingHr: nil, avgHrv: nil, stagesJSON: nil)
+                try await queueServerSleepInput(input.change(dismissed: true))
+                guard accountRuntimeActive else { return nil }
+                return SleepDeletionSnapshot(session: row, ownerDeviceId: input.device, endTs: endTs,
+                    motion: nil, sleepState: nil, serverUndoChange: try input.change())
+            } catch { reportServerSleepInputFailure(); return nil }
+        }
         guard let store = await ensureStore() else { return nil }
         // Snapshot the owning row BEFORE deleting, resolving the owner exactly as the delete does below:
         // computed source first, imported deviceId as the fallback. A one-second-wide window around the
@@ -1463,6 +1780,13 @@ final class Repository: ObservableObject {
     /// screen's undo banner calls this within a few seconds. Idempotent: a snapshot with no tombstone
     /// (a `userEdited` delete) still restores the row.
     func undoDeleteSleepSession(_ snapshot: SleepDeletionSnapshot) async {
+        if let change = snapshot.serverUndoChange {
+            do { try await queueServerSleepInput(change) }
+            catch { reportServerSleepInputFailure() }
+            return
+        }
+        // An old local undo cannot mutate a metric after ownership moved to the server.
+        guard !serverPresentation.owns(.sleepSessions) else { return }
         guard let store = await ensureStore() else { return }
         // Lift the tombstone so the restored night is not immediately re-suppressed on the next pass.
         dismissedSleepSpans = DismissedSleepSpans.removing(startTs: snapshot.session.startTs,
@@ -1520,8 +1844,8 @@ final class Repository: ObservableObject {
     /// swift-test-reachable twin of Android's `DismissedSleepGuard`). (#65/#68; Android twin: the
     /// `dismissedSleep` Room table.)
     private var dismissedSleepSpans: [String] {
-        get { UserDefaults.standard.stringArray(forKey: Repository.dismissedSleepDefaultsKey) ?? [] }
-        set { UserDefaults.standard.set(newValue, forKey: Repository.dismissedSleepDefaultsKey) }
+        get { accountDefaults.stringArray(forKey: Repository.dismissedSleepDefaultsKey) ?? [] }
+        set { guard accountRuntimeActive else { return }; accountDefaults.set(newValue, forKey: Repository.dismissedSleepDefaultsKey) }
     }
 
     /// UserDefaults key holding the dismissed-sleep spans (see `dismissedSleepSpans`).
@@ -1556,6 +1880,23 @@ final class Repository: ObservableObject {
     /// NEVER folded into the night's main sleep (which would mislabel awake daytime as light sleep). Purely
     /// additive , `insertManualSleepSession` no-ops if a session already exists at that exact onset.
     func addManualNap(startTs: Int, endTs: Int) async {
+        if serverPresentation.owns(.sleepSessions) {
+            guard accountRuntimeActive else { return }
+            do {
+                guard let window = SleepEditGuard.clampedEditWindow(start: startTs, end: endTs,
+                    now: Int(Date().timeIntervalSince1970)) else { throw ServerSleepInput.Failure.invalidWindow }
+                let zone = TimeZone(identifier: serverPresentation.timezone) ?? .current
+                let day = ServerScoreDate.day(Date(timeIntervalSince1970: Double(window.1)), timeZone: zone)
+                guard let snapshot = serverPresentation.days[day]?.snapshot,
+                      snapshot.dependency != nil else { throw ServerSleepInput.Failure.unavailableContract }
+                let input = ServerSleepInput(device: snapshot.sourceDeviceId, day: day,
+                    entity: "sleep:" + UUID().uuidString.lowercased(), originalStart: window.0,
+                    originalEnd: window.1, start: window.0, end: window.1, isNap: true,
+                    timezone: snapshot.timezone)
+                try await queueServerSleepInput(input.change())
+            } catch { reportServerSleepInputFailure() }
+            return
+        }
         // #940 belt-and-braces (same rule as editSleepTimes): a manually-added session can't end in
         // the future or invert; a future nap would otherwise own the tab's newest day as an
         // all-awake phantom exactly like the bad edit did. The clamped end is used verbatim.
@@ -1573,6 +1914,19 @@ final class Repository: ObservableObject {
             deviceId: computedDeviceId, startTs: safeStartTs, endTs: safeEndTs,
             efficiency: efficiency, stagesJSON: stagesJSON)
         await refresh()
+    }
+
+    private func queueServerSleepInput(_ change: ScoringInputChange) async throws {
+        guard accountRuntimeActive, serverPresentation.owns(.sleepSessions),
+              let writer = scoringInputWriter else { throw ServerSleepInput.Failure.unavailableContract }
+        try await writer(change)
+        guard accountRuntimeActive else { return }
+        serverInputError = nil
+    }
+
+    private func reportServerSleepInputFailure() {
+        guard accountRuntimeActive else { return }
+        serverInputError = "The sleep edit was not saved. Check account and scoring input availability, then retry."
     }
 
     /// Asleep fraction (light+deep+rem ÷ total in-bed) of a segment-array `stagesJSON`, or nil when the
@@ -1600,35 +1954,57 @@ final class Repository: ObservableObject {
     /// Extracted from `editSleepTimes` so the post-sync self-heal reuses the exact density gate +
     /// staging. Stages OFF the main actor , Repository is `@MainActor` and a multi-hour window is tens of
     /// thousands of samples, which would otherwise freeze the UI.
-    private func restageFromRaw(start: Int, end: Int) async -> String? {
-        guard let store = await ensureStore() else { return nil }
+    private func restageFromRaw(start: Int, end: Int, preferences: ScoringReaderInputs? = nil,
+                                source suppliedSource: ReaderSource? = nil,
+                                rawDeviceId suppliedRawDeviceId: String? = nil,
+                                allowsWork: @escaping @Sendable () -> Bool = { true },
+                                onFailure: @Sendable () -> Void = {}) async -> String? {
+        let source = suppliedSource ?? readerSource()
+        let rawDeviceId = suppliedRawDeviceId ?? source.raw
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        guard let preferences = preferences ?? captureScoringReaderInputs() else { onFailure(); return nil }
+        guard let store = await ensureStore() else { onFailure(); return nil }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         let lo = start - 3_600, hi = end + 3_600
-        let grav = (try? await store.gravitySamples(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? []
+        let grav = await requiredRead({ try await store.gravitySamples(deviceId: rawDeviceId, from: lo, to: hi,
+                                                                       limit: 200_000) }, onFailure: onFailure) ?? []
+        #if DEBUG
+        await preferenceRecoveryCheckpoint?(.sleepGravityRead)
+        #endif
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         let inWindowGravity = grav.lazy.filter { $0.ts >= start && $0.ts <= end }.count
         let windowSeconds = max(1, end - start)
         guard inWindowGravity >= max(20, windowSeconds / 120) else { return nil }
-        let hr = (try? await store.hrSamples(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? []
-        let rr = (try? await store.rrIntervals(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? []
+        let hr = await requiredRead({ try await store.hrSamples(deviceId: rawDeviceId, from: lo, to: hi,
+                                                               limit: 200_000) }, onFailure: onFailure) ?? []
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        let rr = await requiredRead({ try await store.rrIntervals(deviceId: rawDeviceId, from: lo, to: hi,
+                                                                 limit: 200_000) }, onFailure: onFailure) ?? []
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         // Same provenance refusal as the nightly scan (`IntelligenceEngine`): an Oura ring's respiration
         // rows are its own per-window RATE stored as instrumentation, not the ~1 Hz raw ADC waveform this
         // stager reads, so they never reach a re-stage either. See `OuraRespScale.forScoring`.
-        let resp = OuraRespScale.forScoring(
-            (try? await store.respSamples(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? [],
-            deviceId: deviceId)
+        let rawResp = await requiredRead({ try await store.respSamples(deviceId: rawDeviceId, from: lo, to: hi,
+                                                                      limit: 200_000) }, onFailure: onFailure) ?? []
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
+        let resp = OuraRespScale.forScoring(rawResp, deviceId: rawDeviceId)
         // Read only when the refinement below might actually use it (see `useMotionAwareWake`) — a plain
         // read cost, but no point paying it on the (default) off path.
-        let useMotionAwareWake = PuffinExperiment.motionAwareWakeEnabled
+        let useMotionAwareWake = preferences.algorithms.useMotionAwareWake
         let steps = useMotionAwareWake
-            ? ((try? await store.stepSamples(deviceId: deviceId, from: lo, to: hi, limit: 200_000)) ?? [])
+            ? (await requiredRead({ try await store.stepSamples(deviceId: rawDeviceId, from: lo, to: hi,
+                                                                limit: 200_000) }, onFailure: onFailure) ?? [])
             : []
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         // Which staging engine re-stages this window (Settings → Experimental · Sleep staging). The flag is
         // **default ON** (#277 promoted V2 over V1; #351 extended it to every strap family), so unless the
         // user has explicitly turned it OFF this re-stages with the cardiorespiratory recipe `SleepStagerV2`;
         // turning it off falls back to V1 `SleepStager`. Read once here off the actor; the switch is purely
         // which engine runs over the already-detected window — detection is identical either way.
         // (V7 Pillar 3b)
-        let useV2 = PuffinExperiment.experimentalSleepV2Enabled
+        let useV2 = preferences.algorithms.useSleepStagerV2
         let segs = await Task.detached(priority: .utility) {
+            guard allowsWork(), !Task.isCancelled else { return [StageSegment]() }
             let staged = useV2
                 ? SleepStagerV2.stageSession(start: start, end: end, grav: grav, hr: hr, rr: rr, resp: resp)
                 : SleepStager.stageSession(start: start, end: end, grav: grav, hr: hr, rr: rr, resp: resp)
@@ -1636,6 +2012,10 @@ final class Repository: ObservableObject {
             // as every other Experimental switch here.
             return WakeMotionRefinement.apply(staged, grav: grav, steps: steps, enabled: useMotionAwareWake)
         }.value
+        #if DEBUG
+        await preferenceRecoveryCheckpoint?(.sleepStaged)
+        #endif
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return nil }
         return AnalyticsEngine.encodeStages(segs)
     }
 
@@ -1649,27 +2029,66 @@ final class Repository: ObservableObject {
     /// imported night (raw never dense) is left untouched (`restageFromRaw` returns nil). Reads/writes the
     /// COMPUTED source , the same one `analyzeRecent` reads edited rows from. Returns the (possibly
     /// refreshed) edited rows so the caller recomputes daily aggregates from the corrected stages.
-    func selfHealEditedStages(from windowStart: Int, to windowEnd: Int) async -> [CachedSleepSession] {
-        guard let store = await ensureStore() else { return [] }
+    func selfHealEditedStages(from windowStart: Int, to windowEnd: Int,
+                              preferences: ScoringReaderInputs? = nil,
+                              selection: EditedSleepSourceSelection? = nil,
+                              allowsWork: @escaping @Sendable () -> Bool = { true },
+                              onFailure: @Sendable () -> Void = {}) async -> [CachedSleepSession] {
+        let source = readerSource()
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        guard let preferences = preferences ?? captureScoringReaderInputs() else { onFailure(); return [] }
+        let computedRowOwner = selection?.computedRowOwner ?? source.computed
+        guard !computedRowOwner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            onFailure()
+            return []
+        }
+        guard let store = await ensureStore() else { onFailure(); return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         func editedRows() async -> [CachedSleepSession] {
-            ((try? await store.sleepSessions(deviceId: computedDeviceId, from: windowStart,
-                                             to: windowEnd, limit: 100_000)) ?? [])
+            (await requiredRead({ try await store.sleepSessions(deviceId: computedRowOwner, from: windowStart,
+                                             to: windowEnd, limit: 100_000) }, onFailure: onFailure) ?? [])
                 .filter { $0.userEdited }
         }
         let edited = await editedRows()
+        #if DEBUG
+        await preferenceRecoveryCheckpoint?(.sleepRowsRead)
+        #endif
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         guard !edited.isEmpty else { return [] }
-        var healed = false
+        // Validate every selected row before staging any: a missing historical owner is not active raw.
+        var selectedRows: [(row: CachedSleepSession, rawDeviceId: String)] = []
         for row in edited {
+            if let selection {
+                let day = AnalyticsEngine.dayString(row.endTs, offsetSec: selection.offsetSeconds)
+                guard let owner = selection.rawOwnerByWakeDay[day],
+                      !owner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    onFailure()
+                    return edited
+                }
+                selectedRows.append((row, owner))
+            } else {
+                selectedRows.append((row, source.raw))
+            }
+        }
+        var healed = false
+        for (row, rawDeviceId) in selectedRows {
+            guard allowsWork(), !Task.isCancelled else { onFailure(); return edited }
             // Re-derive over the LOCKED corrected window (effective onset → wake). Skip when the raw
             // isn't dense yet, or when the result already matches what's stored (steady state , no write).
-            guard let newJSON = await restageFromRaw(start: row.effectiveStartTs, end: row.endTs),
+            guard let newJSON = await restageFromRaw(start: row.effectiveStartTs, end: row.endTs,
+                                                   preferences: preferences, source: source,
+                                                   rawDeviceId: rawDeviceId, allowsWork: allowsWork, onFailure: onFailure),
                   newJSON != row.stagesJSON else { continue }
-            let n = (try? await store.updateSleepStages(deviceId: computedDeviceId,
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
+            let n = await requiredRead({ try await store.updateSleepStages(deviceId: computedRowOwner,
                                                         detectedStartTs: row.startTs,
-                                                        stagesJSON: newJSON)) ?? 0
+                                                        stagesJSON: newJSON) }, onFailure: onFailure) ?? 0
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
             if n > 0 { healed = true }
         }
-        return healed ? await editedRows() : edited
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        let result = healed ? await editedRows() : edited
+        return readerIsCurrent(source, onFailure: onFailure) ? result : []
     }
 
     // MARK: - Metric explorer reads (generic substrate)
@@ -1685,6 +2104,7 @@ final class Repository: ObservableObject {
     /// default `fullHistory: false`, keep `days: 4000`) is byte-identical. The per-source pages window their
     /// genuine reloads with `days` and force full range only for their ALL view via this flag.
     func series(key: String, source: String, days: Int = 4000, fullHistory: Bool = false) async -> [(day: String, value: Double)] {
+        if let values = authoritativeSeries(key: key, source: source, days: days, fullHistory: fullHistory) { return values }
         guard let store = await ensureStore() else { return [] }
         let now = Date()
         let from = fullHistory ? "0000-01-01" : Self.dayString(now.addingTimeInterval(-Double(days) * 86_400))
@@ -1950,7 +2370,9 @@ final class Repository: ObservableObject {
             // rather than a noisy spike. The `to - from` span chooses the window width: a 2-min rMSSD for a
             // zoomed-in look, widening with the visible span so a day-scale view stays readable. The thinning
             // stride keeps a 1 Hz R-R stream from emitting a point per beat.
-            let rr = (try? await store.rrIntervals(deviceId: source, from: from, to: to, limit: 200_000)) ?? []
+            let activeWhoop5 = (try? await store.isWhoop5RRSource(deviceId: deviceId)) ?? true
+            let rr = (try? await store.rrIntervals(deviceId: source, from: from, to: to, limit: 200_000,
+                unlabelledAliasOfWhoop5: activeWhoop5 && source == Self.whoopSource)) ?? []
             let window = Self.hrvRollingWindowSec(spanSeconds: to - from)
             // rollingRmssd + the map over its output run OFF the main actor (mirrors the HR branch's
             // Task.detached in `timelineSeries`): only the already-read Sendable `rr` rows cross in.
@@ -2100,6 +2522,13 @@ final class Repository: ObservableObject {
         from: String,
         to: String
     ) async -> MetricSeriesResolution {
+        if RepositoryServerScores.shouldOwn(key: key, source: preferredSource, deviceId: deviceId, state: serverPresentation) {
+            let values = RepositoryServerScores.series(key: key, from: from, to: to, state: serverPresentation)
+            let candidate = MetricSourceCandidate(source: "server-snapshot", key: key)
+            return MetricSeriesResolution(requestedSource: preferredSource, candidates: [candidate],
+                points: values.map { ResolvedMetricPoint(day: $0.day, value: $0.value,
+                                                        source: candidate.source, sourceKey: key) })
+        }
         let candidates = Self.sourceCandidates(forKey: key, preferredSource: preferredSource,
                                                actualWhoopSource: deviceId)
         guard let store = await ensureStore() else {
@@ -2270,6 +2699,7 @@ final class Repository: ObservableObject {
     /// byte-identical. The flag is forwarded to the non-strap `series(...)` delegation below so every source
     /// path honours it.
     func exploreSeries(key: String, source: String, days: Int = 4000, fullHistory: Bool = false) async -> [(day: String, value: Double)] {
+        if let values = authoritativeSeries(key: key, source: source, days: days, fullHistory: fullHistory) { return values }
         guard source == "my-whoop" else {
             return Self.oneSkinTempScale(key: key, await series(key: key, source: source, days: days, fullHistory: fullHistory))
         }
@@ -2300,6 +2730,53 @@ final class Repository: ObservableObject {
         }
 
         return Self.oneSkinTempScale(key: key, byDay.sorted { $0.key < $1.key }.map { (day: $0.key, value: $0.value) })
+    }
+
+    enum ExportSeriesReadError: Error {
+        case storeUnavailable
+    }
+
+    /// Export completion requires successful reads from every contributing source. The UI reader
+    /// above deliberately keeps its best-effort policy; an empty successful series is valid here too.
+    func exploreSeriesForExport(key: String, source: String, days: Int = 4000,
+                                fullHistory: Bool = false) async throws -> [(day: String, value: Double)] {
+        let capturedSource = readerSource()
+        let capturedRevision = serverPresentation.revision
+        let capturedRefresh = refreshSeq
+        func requireCurrent() throws {
+            guard readerIsCurrent(capturedSource), serverPresentation.revision == capturedRevision,
+                  refreshSeq == capturedRefresh else { throw CancellationError() }
+        }
+        try requireCurrent()
+        // Owned null/empty server output is authoritative, not a request for local fallback reads.
+        if let values = authoritativeSeries(key: key, source: source, days: days, fullHistory: fullHistory) {
+            return values
+        }
+        let computed = computedReadIds
+        let imported = importedReadIds
+        let fallback = self.days
+        guard let store = await ensureStore() else { throw ExportSeriesReadError.storeUnavailable }
+        try requireCurrent()
+        let now = Date()
+        let from = fullHistory ? "0000-01-01" : Self.dayString(now.addingTimeInterval(-Double(days) * 86_400))
+        let to = fullHistory ? "9999-12-31" : Self.dayString(now.addingTimeInterval(86_400))
+        guard source == "my-whoop" else {
+            let points = try await store.metricSeries(deviceId: source, key: key, from: from, to: to)
+            try requireCurrent()
+            return Self.oneSkinTempScale(key: key, points.map { (day: $0.day, value: $0.value) })
+        }
+        var byDay: [String: Double] = [:]
+        for row in fallback where byDay[row.day] == nil {
+            if let value = Self.dailyColumn(key: key, day: row) { byDay[row.day] = value }
+        }
+        // Preserve exploreSeries precedence: daily, computed canonical/active, imported canonical/active.
+        for id in Array(computed.reversed()) + Array(imported.reversed()) {
+            let points = try await store.metricSeries(deviceId: id, key: key, from: from, to: to)
+            try requireCurrent()
+            for point in points { byDay[point.day] = point.value }
+        }
+        return Self.oneSkinTempScale(key: key, byDay.sorted { $0.key < $1.key }
+            .map { (day: $0.key, value: $0.value) })
     }
 
     /// #1705: reduce a `skin_temp` window to a single scale; every other key passes through untouched.
@@ -2348,12 +2825,15 @@ final class Repository: ObservableObject {
     /// caller and uses the defaults; anything needing `fullHistory` must call `exploreSeries` directly or
     /// this must gain a window-aware key.
     func exploreAllSeries() async -> [String: [(day: String, value: Double)]]? {
+        let source = readerSource()
+        guard readerIsCurrent(source) else { return nil }
         let key = "\(deviceId)|\(refreshSeq)"
         if let cached = exploreAllCache, cached.key == key { return cached.byMetricID }
         var byMetricID: [String: [(day: String, value: Double)]] = [:]
         for descriptor in MetricCatalog.all {
             if Task.isCancelled { return nil }
             byMetricID[descriptor.id] = await exploreSeries(key: descriptor.key, source: descriptor.source)
+            guard readerIsCurrent(source), key == "\(deviceId)|\(refreshSeq)" else { return nil }
         }
         exploreAllCache = (key, byMetricID)
         return byMetricID
@@ -2596,8 +3076,17 @@ final class Repository: ObservableObject {
     /// are filtered HERE so every consumer (Workouts screen, Today, Coach context) agrees: the engine
     /// re-derives the detected rows each run, so a plain delete would resurrect them; the dismissed
     /// span list is the durable "not a workout" record.
-    func workoutRows(days: Int = 4000) async -> [WorkoutRow] {
-        guard let store = await ensureStore() else { return [] }
+    func workoutRows(days: Int = 4000, preferences suppliedPreferences: ScoringReaderInputs? = nil,
+                     strainProfile suppliedProfile: StrainProfile? = nil,
+                     allowsWork: @escaping @Sendable () -> Bool = { true },
+                     onFailure: @escaping @Sendable () -> Void = {}) async -> [WorkoutRow] {
+        let source = readerSource()
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        let preferences = suppliedPreferences ?? captureScoringReaderInputs()
+        let strainProfile = suppliedPreferences != nil ? suppliedProfile : (preferences == nil ? nil : self.strainProfile)
+        if preferences == nil { onFailure() }
+        guard let store = await ensureStore() else { onFailure(); return [] }
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         let now = Int(Date().timeIntervalSince1970)
         let lo = now - days * 86_400, hi = now + 86_400
         // UNION every registered WHOOP + canonical (and computed siblings) so workouts banked before a
@@ -2605,18 +3094,33 @@ final class Repository: ObservableObject {
         // De-dup identical same-source rows that appear under both union ids by natural key (the cross-SOURCE
         // dedup below only collapses strap-vs-Apple twins, not a row present in two strap namespaces).
         var rows: [WorkoutRow] = []
-        let rawIds = rawPhysiologyReadIds(store: store)
-        for id in rawIds { rows += (try? await store.workouts(deviceId: id, from: lo, to: hi, limit: 5000)) ?? [] }
-        for id in rawIds.map({ $0.hasSuffix("-noop") ? $0 : $0 + "-noop" }) {
-            rows += (try? await store.workouts(deviceId: id, from: lo, to: hi, limit: 5000)) ?? []
+        let rawIds = rawPhysiologyReadIds(store: store, activeDeviceId: source.raw, onFailure: onFailure)
+        for id in rawIds {
+            rows += await requiredRead({ try await store.workouts(deviceId: id, from: lo, to: hi, limit: 5000) },
+                                       onFailure: onFailure) ?? []
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         }
-        rows += (try? await store.workouts(deviceId: "apple-health", from: lo, to: hi, limit: 5000)) ?? []
+        for id in rawIds.map({ $0.hasSuffix("-noop") ? $0 : $0 + "-noop" }) {
+            rows += await requiredRead({ try await store.workouts(deviceId: id, from: lo, to: hi, limit: 5000) },
+                                       onFailure: onFailure) ?? []
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
+        }
+        rows += await requiredRead({ try await store.workouts(deviceId: "apple-health", from: lo, to: hi, limit: 5000) },
+                                   onFailure: onFailure) ?? []
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         // Imported lifting sessions (Hevy / Liftosaur) live under their own "lifting" source.
-        rows += (try? await store.workouts(deviceId: "lifting", from: lo, to: hi, limit: 5000)) ?? []
+        rows += await requiredRead({ try await store.workouts(deviceId: "lifting", from: lo, to: hi, limit: 5000) },
+                                   onFailure: onFailure) ?? []
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         // #29: imported activity FILES (FIT / GPX / TCX) live under their own "activity-file" source — read
         // them too, or a successful file import never appears in the Workouts list (Data Sources counts it,
         // the load didn't). HR is reconciled from the strap trace at the end like every other row.
-        rows += (try? await store.workouts(deviceId: "activity-file", from: lo, to: hi, limit: 5000)) ?? []
+        rows += await requiredRead({ try await store.workouts(deviceId: "activity-file", from: lo, to: hi, limit: 5000) },
+                                   onFailure: onFailure) ?? []
+        #if DEBUG
+        await preferenceRecoveryCheckpoint?(.workoutRowsRead)
+        #endif
+        guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         rows = Self.dedupWorkoutsByNaturalKey(rows)
         let spans = WorkoutSource.parseDismissedSpans(dismissedDetectedSpans)
         // #687: collapse the SAME activity tracked live under the strap AND imported from Health Connect /
@@ -2636,7 +3140,10 @@ final class Repository: ObservableObject {
             deduped = WorkoutSource.dedupCrossSource(filtered)
         }
         let visible = deduped.sorted { $0.startTs > $1.startTs }
-        return await reconcileWorkoutHrWithTrace(visible, store: store)
+        let result = await reconcileWorkoutHrWithTrace(visible, store: store,
+            strainProfile: strainProfile, effortMethod: preferences?.effortMethod,
+            source: source, allowsWork: allowsWork, onFailure: onFailure)
+        return readerIsCurrent(source, onFailure: onFailure) ? result : []
     }
 
     /// DISPLAY-ONLY: reconcile each workout's shown Avg/Max HR with the strap trace that actually drives
@@ -2657,6 +3164,10 @@ final class Repository: ObservableObject {
     /// trace (the workout PK upsert would wipe it anyway), recomputed on every load so display == graph
     /// == zones == effort by construction. Kotlin twin: `WhoopRepository.fillWorkoutHrFromStrap`.
     private func reconcileWorkoutHrWithTrace(_ rows: [WorkoutRow], store: WhoopStore,
+                                             strainProfile: StrainProfile?, effortMethod: StrainScorer.Method?,
+                                             source: ReaderSource,
+                                             allowsWork: @escaping @Sendable () -> Bool = { true },
+                                             onFailure: @escaping @Sendable () -> Void = {},
                                              minSamples: Int = 60, cap: Int = 300) async -> [WorkoutRow] {
         // #833 (on-open freeze): this used to run a SEQUENTIAL per-row loop, each awaiting one
         // `store.hrSamples(.., limit: 8000)` then reducing up to 8000 ints SYNCHRONOUSLY on the @MainActor
@@ -2697,9 +3208,9 @@ final class Repository: ObservableObject {
         // (strap deviceId, COALESCEd PPG fallback). Keyed by row index so reassembly stays in original order.
         // #961: capture the injected profile ONCE (a Sendable scalar pair) so each child task can compute a
         // backfill strain off the main actor. nil ⇒ no fill, and the strain slot always comes back nil.
-        let strainProfile = self.strainProfile
         var reduced: [Int: (avg: Int, peak: Int, strain: Double?)] = [:]
         for chunkStart in stride(from: 0, to: eligibleIndices.count, by: readChunk) {
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
             let chunk = eligibleIndices[chunkStart..<min(chunkStart + readChunk, eligibleIndices.count)]
             await withTaskGroup(of: (index: Int, avg: Int, peak: Int, strain: Double?)?.self) { group in
                 for idx in chunk {
@@ -2715,8 +3226,8 @@ final class Repository: ObservableObject {
                     // row's `source` IS its computed strap id ("<base>-noop"), so a bout auto-detected on a 2nd
                     // WHOOP reads "<base>" instead of the active strap's empty window. Resolved on the main actor;
                     // only the resulting Sendable String crosses into the task.
-                    let hrIds = Self.workoutHrDeviceIds(source: rows[idx].source, activeStrapId: deviceId,
-                                                        importedIds: importedReadIds)
+                    let hrIds = Self.workoutHrDeviceIds(source: rows[idx].source, activeStrapId: source.raw,
+                                                        importedIds: source.imported)
                     group.addTask { [hrIds] in
                         // #836: aggregate in SQLite over the WHOLE window instead of reducing up to 8000
                         // materialised rows. The old read capped at 8000, so a workout longer than ~2h13m
@@ -2724,11 +3235,14 @@ final class Repository: ObservableObject {
                         // on its own terms, and divergent from Kotlin, which aggregates the lot. This also
                         // makes the common path (no strain fill) read no rows at all, which is strictly
                         // better for the #833 freeze this function exists to avoid.
-                        guard let stats = try? await store.hrWindowStats(
+                        do {
+                        guard allowsWork(), !Task.isCancelled else { onFailure(); return nil }
+                        let stats = try await store.hrWindowStats(
                                   primaryId: hrIds[0],
                                   secondaryId: hrIds.count > 1 ? hrIds[1] : hrIds[0],
-                                  from: startTs, to: endTs),
-                              stats.n >= minSamples,
+                                  from: startTs, to: endTs)
+                        guard allowsWork(), !Task.isCancelled else { onFailure(); return nil }
+                        guard stats.n >= minSamples,
                               let mean = stats.avg, let peak = stats.max else { return nil }
                         let avg = Int(mean.rounded())
                         // #961: recompute Effort from the SAME samples the graph/zones use, off-main. Uses the
@@ -2737,22 +3251,27 @@ final class Repository: ObservableObject {
                         // Reads rows ONLY for this — StrainScorer needs the series, not an aggregate. The 8000
                         // cap stays here: it bounds the strain window, not the average. (Kotlin does the same.)
                         let strain: Double?
-                        if wantStrain, let p = strainProfile {
-                            let samples = (try? await store.hrSamples(deviceId: hrIds[0],
+                        if wantStrain, let p = strainProfile, let effortMethod {
+                            let samples: [HRSample]
+                            do { samples = try await store.hrSamples(deviceId: hrIds[0],
                                                                       from: startTs, to: endTs,
-                                                                      limit: 8000)) ?? []
+                                                                      limit: 8000) }
+                            catch { onFailure(); samples = [] }
+                            guard allowsWork(), !Task.isCancelled else { onFailure(); return nil }
                             strain = StrainScorer.strain(samples, maxHR: p.hrMax,
-                                                method: PuffinExperiment.effortMethod, sex: p.sex)
+                                                method: effortMethod, sex: p.sex)
                         } else {
                             strain = nil
                         }
                         return (index: idx, avg: avg, peak: peak, strain: strain)
+                        } catch { onFailure(); return nil }
                     }
                 }
                 for await result in group {
                     if let r = result { reduced[r.index] = (avg: r.avg, peak: r.peak, strain: r.strain) }
                 }
             }
+            guard allowsWork(), readerIsCurrent(source, onFailure: onFailure) else { return [] }
         }
 
         // Phase 3 , reassemble in ORIGINAL order. For an eligible row that cleared `minSamples` apply the
@@ -2811,8 +3330,8 @@ final class Repository: ObservableObject {
     /// read path and the write path share one source of truth (the engine never sees this , it always
     /// re-derives; only the read filter and these mutators consult it).
     private var dismissedDetectedSpans: [String] {
-        get { UserDefaults.standard.stringArray(forKey: WorkoutSource.dismissedDefaultsKey) ?? [] }
-        set { UserDefaults.standard.set(newValue, forKey: WorkoutSource.dismissedDefaultsKey) }
+        get { accountDefaults.stringArray(forKey: WorkoutSource.dismissedDefaultsKey) ?? [] }
+        set { guard accountRuntimeActive else { return }; accountDefaults.set(newValue, forKey: WorkoutSource.dismissedDefaultsKey) }
     }
 
     /// Persist a retroactive / edited manual workout under the strap source. `replacing` is the row the
@@ -2959,8 +3478,8 @@ final class Repository: ObservableObject {
     /// `dismissedDetected` list so the two features never cross-suppress each other.
     private static let autoDetectDismissedKey = "workouts.autoDetectDismissed"
     private var autoDetectDismissedSpans: [String] {
-        get { UserDefaults.standard.stringArray(forKey: Self.autoDetectDismissedKey) ?? [] }
-        set { UserDefaults.standard.set(newValue, forKey: Self.autoDetectDismissedKey) }
+        get { accountDefaults.stringArray(forKey: Self.autoDetectDismissedKey) ?? [] }
+        set { guard accountRuntimeActive else { return }; accountDefaults.set(newValue, forKey: Self.autoDetectDismissedKey) }
     }
 
     /// Token for one auto-detect span (matches the detector's integer seconds).
@@ -3134,12 +3653,14 @@ final class Repository: ObservableObject {
 
     /// Apple Health daily aggregates (steps/energy/vo2/hr).
     func appleDailyRows(days: Int = 4000) async -> [AppleDaily] {
-        guard let store = await ensureStore() else { return [] }
+        let source = readerSource()
+        guard let store = await ensureStore(), readerIsCurrent(source) else { return [] }
         let now = Date()
-        return (try? await store.appleDaily(
+        let rows = (try? await store.appleDaily(
             deviceId: "apple-health",
             from: Self.dayString(now.addingTimeInterval(-Double(days) * 86_400)),
             to: Self.dayString(now.addingTimeInterval(86_400)))) ?? []
+        return readerIsCurrent(source) ? rows : []
     }
 
     /// #833/v7.7.2 (Apple Health per-source freeze): the SHARED heavy-load seam behind `AppleHealthView.load()`.
@@ -3155,14 +3676,22 @@ final class Repository: ObservableObject {
     /// long-lived repo keyed by the seq + dayKey it loaded for, and returns it. (The whole class is `@MainActor`,
     /// so this seam is main-actor isolated like every other read facade here.)
     func performAppleHealthLoad(seriesKeys: [String], allowCache: Bool) async -> AppleHealthLoadCache {
+        let empty = AppleHealthLoadCache(appleRows: [], workoutCount: 0, series: [:])
+        let source = readerSource()
+        let entrySeq = refreshSeq
+        let entryDay = Repository.localDayKey(Date())
+        guard readerIsCurrent(source) else { return empty }
         // #833/v7.7.2: same-state re-mount → restore the prior snapshot (no store queries), which is the freeze
         // fix. The dayKey guard mirrors the `.task(id:)` key so a day rollover still re-loads at an unchanged seq.
         if allowCache,
-           appleHealthLoadedSeq == refreshSeq,
-           appleHealthLoadedDayKey == Repository.localDayKey(Date()),
+           appleHealthLoadedSeq == entrySeq,
+           appleHealthLoadedDayKey == entryDay,
            let cached = appleHealthCache {
             return cached
         }
+
+        appleHealthLoadGeneration &+= 1
+        let loadGeneration = appleHealthLoadGeneration
 
         #if DEBUG
         // v7.7.2 regression guard: count only genuine heavy loads (the cache restore above returned BEFORE this
@@ -3189,11 +3718,17 @@ final class Repository: ObservableObject {
         let snapshot = AppleHealthLoadCache(appleRows: loadedRows.sorted { $0.day < $1.day },
                                             workoutCount: appleWorkouts.count,
                                             series: fetched)
+        #if DEBUG
+        await preferenceRecoveryCheckpoint?(.appleReadComplete)
+        #endif
+        guard readerIsCurrent(source), entrySeq == refreshSeq,
+              entryDay == Repository.localDayKey(Date()),
+              loadGeneration == appleHealthLoadGeneration else { return empty }
         // #833/v7.7.2: snapshot what we just read onto the long-lived repo, keyed by the seq + dayKey we loaded
         // for, so a later same-state re-mount restores it in-memory instead of re-querying.
         appleHealthCache = snapshot
-        appleHealthLoadedSeq = refreshSeq
-        appleHealthLoadedDayKey = Repository.localDayKey(Date())
+        appleHealthLoadedSeq = entrySeq
+        appleHealthLoadedDayKey = entryDay
         return snapshot
     }
 

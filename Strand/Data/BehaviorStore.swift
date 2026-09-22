@@ -57,7 +57,16 @@ final class BehaviorStore: ObservableObject {
     /// recovery-derived optimal band. Default OFF like every other automation.
     @Published var strainTargetNudge: Bool { didSet { d.set(strainTargetNudge, forKey: K.strainTargetNudge) } }
 
-    private let d = UserDefaults.standard
+    private let d: UserDefaults
+    private weak var scoringPreferences: ScoringPreferenceRuntime?
+    private var scoringBound = false
+    private var scoringSubscription: AnyCancellable?
+
+    func bindScoringPreferences(_ runtime: ScoringPreferenceRuntime) {
+        guard !scoringBound else { return }
+        scoringBound = true; scoringPreferences = runtime
+        scoringSubscription = runtime.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+    }
     private enum K {
         static let dtAction = "behavior.doubleTapAction"
         static let dtShortcut = "behavior.doubleTapShortcut"
@@ -82,7 +91,8 @@ final class BehaviorStore: ObservableObject {
         static let strainTargetNudge = "behavior.strainTargetNudge"
     }
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.d = defaults
         doubleTapAction = MacActionKind(rawValue: d.string(forKey: K.dtAction) ?? "") ?? .none
         doubleTapShortcut = d.string(forKey: K.dtShortcut) ?? ""
         autoLockOnWristOff = d.object(forKey: K.autoLock) as? Bool ?? false
@@ -110,7 +120,9 @@ final class BehaviorStore: ObservableObject {
     /// canonical key the analytics engine folds against (`Baselines.recoveryBaselineEpochKey`) — no
     /// second source of truth. The "Recalibrate Charge baseline" Settings button writes it (and the
     /// sibling HRV epoch) via `recalibrateChargeBaseline()`.
-    var chargeBaselineEpoch: Double { Baselines.recoveryBaselineEpoch(d) }
+    var chargeBaselineEpoch: Double {
+        scoringBound ? scoringPreferences?.accepted?.recoveryBaselineEpoch ?? 0 : Baselines.recoveryBaselineEpoch(d)
+    }
 
     /// True once the user has manually recalibrated their Charge baseline. Lets a surface (e.g. the
     /// Today "building" hint) explain WHY the score is calibrating again — an honest "you reset it",
@@ -123,6 +135,7 @@ final class BehaviorStore: ObservableObject {
     /// After calling this the next baseline computation re-seeds from tonight, so Today honestly shows
     /// the calibrating/building state again. The caller is responsible for kicking a recompute + refresh.
     func recalibrateChargeBaseline(now: Double = Date().timeIntervalSince1970) {
+        guard !scoringBound else { return }
         Baselines.recalibrateRecoveryBaselines(now: now, defaults: d)
     }
 }

@@ -90,8 +90,27 @@ object CyclePhaseEngine {
         nights: List<Night>,
         baselineUsable: Boolean,
         loggedPeriodStarts: List<String> = emptyList(),
-    ): Result {
-        if (!baselineUsable || nights.size < minNightsToClassify) {
+    ): Result = classifyInputs(nights, baselineUsable, loggedPeriodStarts, false)
+
+    /** Server-only calendar admission. Unknown nights cannot establish a negative phase or a new rise. */
+    fun classifyCalendar(nights: List<Night>, baselineUsable: Boolean, through: String,
+                         loggedPeriodStarts: List<String> = emptyList()): Result {
+        val end = LocalDate.parse(through)
+        val rows = nights.filter { it.day <= through }.sortedBy { it.day }
+        require(rows.map { it.day }.distinct().size == rows.size) { "duplicate_cycle_day" }
+        val byDay = rows.associateBy { it.day }
+        val start = rows.firstOrNull()?.day?.let(LocalDate::parse) ?: end
+        val calendar = generateSequence(start) { it.plusDays(1) }.takeWhile { it <= end }.map {
+            val day = it.toString()
+            byDay[day] ?: Night(day, null, null, null)
+        }.toList()
+        return classifyInputs(calendar, baselineUsable, loggedPeriodStarts, true)
+    }
+
+    private fun classifyInputs(nights: List<Night>, baselineUsable: Boolean,
+                               loggedPeriodStarts: List<String>, preserveUnknown: Boolean): Result {
+        val missingCurrent = preserveUnknown && nights.lastOrNull()?.let { fusedIndex(it.tempZ, it.rhrZ, it.hrvZ) } == null
+        if (!baselineUsable || missingCurrent || nights.size < minNightsToClassify) {
             return Result(Phase.LEARNING, Confidence.LEARNING, null, null, null, null, emptyList(),
                 "Learning your pattern from your nightly temperature - keep wearing it overnight.")
         }
@@ -108,14 +127,14 @@ object CyclePhaseEngine {
         val center = median(values)
         val spread = maxOf(1e-9, medianAbsoluteDeviation(values, center))
 
-        val elevated: List<Boolean> = fused.map { row ->
-            val v = row.second ?: return@map false
+        val elevated: List<Boolean?> = fused.map { row ->
+            val v = row.second ?: return@map if (preserveUnknown) null else false
             (v - center) >= elevationK * spread
         }
 
         val onsets = mutableListOf<Int>()
         for (i in fused.indices) {
-            if (elevated[i] && (i == 0 || !elevated[i - 1])) onsets.add(i)
+            if (elevated[i] == true && (i == 0 || elevated[i - 1] == false)) onsets.add(i)
         }
         val shiftMarkers = onsets.map { ShiftMarker(fused[it].first) }
 
@@ -164,7 +183,7 @@ object CyclePhaseEngine {
         }
 
         val daysSinceOnset = daysBetween(fused[lastOnsetIdx].first, lastNightDay) ?: 0
-        val phase: Phase = if (elevated[fused.size - 1]) {
+        val phase: Phase = if (elevated[fused.size - 1] == true) {
             if (daysSinceOnset <= periOvulatoryHalfWidth) Phase.PERI_OVULATORY else Phase.LUTEAL
         } else {
             if (daysSinceOnset <= periOvulatoryHalfWidth) Phase.PERI_OVULATORY else Phase.FOLLICULAR

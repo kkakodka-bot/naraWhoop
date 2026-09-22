@@ -3,6 +3,54 @@ import Charts
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import NoopPush
+
+/// Immutable inputs and publication fence shared by the preference-sensitive view loads.
+@MainActor
+struct ScoringPreferenceViewLoad {
+    let context: AccountSessionContext?
+    let revision: Int
+    let algorithms: ScoringAlgorithmChoices
+    let profileAge: Int
+    let profileSex: String
+    var effortMethod: StrainScorer.Method { algorithms.banisterEffortEnabled ? .banister : .edwards }
+    private let modelID: ObjectIdentifier
+    private let repositoryID: ObjectIdentifier
+    private let scope: AccountScope?
+    private let accepted: ScoringPreferenceSnapshot?
+    private let deviceID: String
+
+    init(app: AppModel, repo: Repository) {
+        context = app.scoringPreferences?.context
+        revision = repo.refreshSeq
+        algorithms = app.scoringAlgorithmChoices
+        profileAge = app.profile.age
+        profileSex = app.profile.sex
+        modelID = ObjectIdentifier(app)
+        repositoryID = ObjectIdentifier(repo)
+        scope = app.accountStorage?.scope
+        accepted = app.acceptedScoringPreferences
+        deviceID = repo.deviceId
+    }
+
+    /// Call on the main actor after suspension, before publishing any state or cache entry.
+    /// Only presentation of already-computed server results may opt out of local recipe readiness.
+    func isCurrent(app: AppModel, repo: Repository, requiringAcceptedPreferences: Bool = true) -> Bool {
+        !Task.isCancelled && app.isAccountRuntimeActive && repo.writeFence.isValid
+            && app.repo === repo && modelID == ObjectIdentifier(app) && repositoryID == ObjectIdentifier(repo)
+            && context == app.scoringPreferences?.context && scope == app.accountStorage?.scope
+            && scope == context?.scope
+            && (!requiringAcceptedPreferences || scope == nil || accepted != nil)
+            && revision == repo.refreshSeq && deviceID == repo.deviceId
+            && accepted == app.acceptedScoringPreferences && algorithms == app.scoringAlgorithmChoices
+            && profileAge == app.profile.age && profileSex == app.profile.sex
+    }
+}
+
+struct ScoringPreferenceVitalsLoadKey: Equatable {
+    let revision: Int
+    let candidateDisplayEnabled: Bool
+}
 
 /// NARA — Health Monitor.
 /// Live heart rate hero (ChartCard with a streaming sparkline + HR-zone footer),
@@ -1228,10 +1276,10 @@ private struct VitalitySection: View {
 
 // MARK: - Vitals grid (uniform StatTiles)
 
-/// Static vitals grid, split into its own view so it depends only on `repo` and is
-/// not re-rendered by the ~1Hz live HR stream.
+/// Static vitals grid with repository data and accepted scoring preferences.
 private struct VitalsSection: View {
     @EnvironmentObject var repo: Repository
+    @EnvironmentObject var app: AppModel
 
     // Temperature display preference (D#103). Skin temp is stored in °C (absolute or a ±deviation); the
     // toggle re-labels it to °F. Display-only — banding still runs on the stored °C value.
@@ -1250,10 +1298,12 @@ private struct VitalsSection: View {
     @State private var hrvOverCountByDay: [String: Double] = [:]   // #1118
 
     var body: some View {
+        let spo2CandidateDisplayEnabled = app.scoringAlgorithmChoices.spo2CandidateDisplayEnabled
         let readings = BodyVitalSigns.readings(
             sourceRows: repo.vitalMetricRows,
             temperatureUnit: temperatureUnit,
             spo2CandidateByDay: spo2CandidateByDay,
+            spo2CandidateDisplayEnabled: spo2CandidateDisplayEnabled,
             hrvOverCountByDay: hrvOverCountByDay,
             skinTempPreferred: SkinTempDisplay.Kind(rawValue: skinTempDisplayRaw) ?? .absolute   // #1846
         )
@@ -1279,12 +1329,16 @@ private struct VitalsSection: View {
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .task(id: PuffinExperiment.spo2CandidateDisplayEnabled) {
+        .task(id: ScoringPreferenceVitalsLoadKey(revision: repo.refreshSeq,
+                                               candidateDisplayEnabled: spo2CandidateDisplayEnabled)) {
+            let load = ScoringPreferenceViewLoad(app: app, repo: repo)
+            guard load.isCurrent(app: app, repo: repo) else { return }
             // #1118: load the per-night HRV over-count flags (always — no toggle) so the HRV tile can
             // caption an over-counted 4.0 night's reading "unverified". The engine writes "hrv_rr_overcount"
             // (1/0) under the "-noop" computed device ID; `exploreSeries` with source "my-whoop" reads it
             // from the computed metricSeries. Absent/0 on a clean or imported night → no caveat.
             let ocPts = await repo.exploreSeries(key: "hrv_rr_overcount", source: "my-whoop", days: 14)
+            guard load.isCurrent(app: app, repo: repo) else { return }
             hrvOverCountByDay = Dictionary(ocPts.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
             // #103/queue-11a: load the SpO₂ candidate nightly means from metricSeries when the toggle is
             // ON. The engine writes "spo2_candidate" under the "-noop" computed device ID; `exploreSeries`
@@ -1292,11 +1346,12 @@ private struct VitalsSection: View {
             // generic active-strap sentinel, resolved through `computedReadIds`, so this already covers
             // an Oura ring's own computed id. Empty when the toggle is OFF (the engine writes nothing) or
             // the owner has no in-band reading for its device.
-            guard PuffinExperiment.spo2CandidateDisplayEnabled else {
+            guard load.algorithms.spo2CandidateDisplayEnabled else {
                 spo2CandidateByDay = [:]
                 return
             }
             let pts = await repo.exploreSeries(key: "spo2_candidate", source: "my-whoop", days: 14)
+            guard load.isCurrent(app: app, repo: repo) else { return }
             spo2CandidateByDay = Dictionary(pts.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
         }
     }
@@ -1387,10 +1442,10 @@ private struct SkinTempSection: View {
     @EnvironmentObject var repo: Repository
 
     /// The cycle-awareness opt-in (default OFF). The same key AppModel reads, so a flip is consistent.
-    @AppStorage(AppModel.cycleAwarenessKey) private var cycleEnabled = false
+    private var cycleEnabled: Bool { model.cycleAwarenessEnabled }
     /// #hide-cycle: the user's "not for me" opt-out. When set, the cycle opt-in invitation is suppressed
     /// here (the section falls back to the generic skin-temp state); reversible from Automations.
-    @AppStorage(AppModel.cycleAwarenessHiddenKey) private var cycleHidden = false
+    private var cycleHidden: Bool { model.cycleAwarenessHidden }
     @State private var cycleTrackerPresented = false
 
     /// Whether the cycle-awareness opt-in is offered for this profile (#801). Delegates to the shared
@@ -1429,13 +1484,11 @@ private struct SkinTempSection: View {
                                    // Symmetric off (#801): turn it off in-place, here in Health, where
                                    // it was turned on, not only from Automations.
                                    onTurnOff: {
-                                       cycleEnabled = false
                                        model.cycleAwarenessEnabled = false
                                        Task { await model.refreshV5Signals() }
                                    })
             } else if !cycleEnabled && cycleOptInApplies {
                 CycleAwarenessOptInCard(onEnable: {
-                    cycleEnabled = true
                     model.cycleAwarenessEnabled = true
                     Task { await model.refreshV5Signals() }
                 })

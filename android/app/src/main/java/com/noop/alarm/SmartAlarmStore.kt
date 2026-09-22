@@ -124,6 +124,6 @@ class SmartAlarmStore(private val prefs: SharedPreferences) {
         const val WINDOW_MAX = 60
 
         fun from(context: Context): SmartAlarmStore =
-            SmartAlarmStore(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE))
+            SmartAlarmStore(com.noop.account.AccountStorageContext.capture(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE))
     }
 }

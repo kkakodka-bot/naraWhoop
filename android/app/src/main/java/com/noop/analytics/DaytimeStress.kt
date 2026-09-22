@@ -3,6 +3,9 @@ package com.noop.analytics
 import com.noop.data.GravitySample
 import com.noop.data.HrSample
 import com.noop.data.RrInterval
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
@@ -320,6 +323,7 @@ object DaytimeStress {
         gravity: List<GravitySample> = emptyList(),
         tzOffsetSeconds: Long = 0L,
         mode: ScoringMode = ScoringMode.DayRelative,
+        timezone: ZoneId? = null,
     ): Result {
         if (hr.isEmpty()) return Result.EMPTY
 
@@ -327,14 +331,12 @@ object DaytimeStress {
         //    (floored to the hour on the local clock).
         val hrByBucket = HashMap<Long, MutableList<Double>>()
         for (s in hr) {
-            val localTs = s.ts + tzOffsetSeconds
-            val bucket = floorDiv(localTs, bucketSeconds) * bucketSeconds
+            val bucket = hourBucket(s.ts, tzOffsetSeconds, timezone)
             hrByBucket.getOrPut(bucket) { ArrayList() }.add(s.bpm.toDouble())
         }
         val rrByBucket = HashMap<Long, MutableList<Double>>()
         for (s in rr) {
-            val localTs = s.ts + tzOffsetSeconds
-            val bucket = floorDiv(localTs, bucketSeconds) * bucketSeconds
+            val bucket = hourBucket(s.ts, tzOffsetSeconds, timezone)
             rrByBucket.getOrPut(bucket) { ArrayList() }.add(s.rrMs.toDouble())
         }
 
@@ -361,8 +363,7 @@ object DaytimeStress {
             val activeCounts = HashMap<Long, Int>()
             val totalCounts = HashMap<Long, Int>()
             for (p in WorkoutDetector.activitySeries(gravity)) {
-                val localTs = p.ts + tzOffsetSeconds
-                val bucket = floorDiv(localTs, bucketSeconds) * bucketSeconds
+                val bucket = hourBucket(p.ts, tzOffsetSeconds, timezone)
                 totalCounts[bucket] = (totalCounts[bucket] ?: 0) + 1
                 if (p.intensity > WorkoutDetector.motionThreshold) {
                     activeCounts[bucket] = (activeCounts[bucket] ?: 0) + 1
@@ -401,7 +402,7 @@ object DaytimeStress {
                 // Ambulatory hours are excluded from the day's OWN calm reference too (the motion
                 // gate): an exertion hour's elevated HR / suppressed HRV must not pull the calm
                 // anchor up or inflate the across-hour spread the z-scores divide by.
-                val referenceAggs = aggs.filter { isWakingHour(it.bucket) && !isAmbulatory(it.bucket) }
+                val referenceAggs = aggs.filter { isWakingHour(it.bucket, timezone) && !isAmbulatory(it.bucket) }
                 val hrMeans = referenceAggs.mapNotNull { it.meanHr }
                 val rmssdVals = referenceAggs.mapNotNull { it.rmssd }
                 refHr = calmReference(hrMeans, calmIsLow = true)         // calm HR is LOW
@@ -445,10 +446,10 @@ object DaytimeStress {
         // 4) Score each waking-hour bucket on the shared 0–3 curve.
         val points = ArrayList<HourPoint>(aggs.size)
         for (a in aggs) {
-            if (!isWakingHour(a.bucket)) continue
-            val hourOfDay = (floorDiv(a.bucket, bucketSeconds) % 24).toInt()
+            if (!isWakingHour(a.bucket, timezone)) continue
+            val hourOfDay = localHour(a.bucket, timezone)
             // The wall-clock bucket start (undo the local shift applied above).
-            val wallStart = a.bucket - tzOffsetSeconds
+            val wallStart = if (timezone == null) a.bucket - tzOffsetSeconds else a.bucket
             // Motion gate: an AMBULATORY hour — or the post-exercise shadow hour whose HR has not
             // yet recovered to the calm reference — is EXERTION, so its elevated HR is masked out of
             // the score instead of read as stress. The shadow is gated on refHr so it self-limits to
@@ -518,10 +519,19 @@ object DaytimeStress {
      * (06:00–22:00). The single source of truth for "waking" — used both to build the calm
      * reference and to pick the hours to score, so the two can never drift apart.
      */
-    internal fun isWakingHour(bucket: Long): Boolean {
-        val hourOfDay = (floorDiv(bucket, bucketSeconds) % 24).toInt()
+    internal fun isWakingHour(bucket: Long, timezone: ZoneId? = null): Boolean {
+        val hourOfDay = localHour(bucket, timezone)
         return hourOfDay >= wakingStartHour && hourOfDay < wakingEndHour
     }
+
+    /** With an IANA zone the key is an actual instant, so repeated local hours never collapse. */
+    internal fun hourBucket(ts: Long, offsetSeconds: Long, timezone: ZoneId?): Long =
+        if (timezone == null) floorDiv(ts + offsetSeconds, bucketSeconds) * bucketSeconds
+        else Instant.ofEpochSecond(ts).atZone(timezone).truncatedTo(ChronoUnit.HOURS).toEpochSecond()
+
+    internal fun localHour(bucket: Long, timezone: ZoneId?): Int =
+        if (timezone == null) (floorDiv(bucket, bucketSeconds) % 24).toInt()
+        else Instant.ofEpochSecond(bucket).atZone(timezone).hour
 
     /**
      * The day's "calm" reference for a signal: the quartile toward the calm end (lower

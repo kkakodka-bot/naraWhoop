@@ -36,19 +36,20 @@ import java.util.Locale
  * the device. Errors never crash, they surface in [error].
  */
 class CoachViewModel(app: Application) : AndroidViewModel(app) {
+    private val account = (app as NoopApplication).accountRuntime
 
     // The networked coach, over the local store. No key is held here; the engine reads it from
     // the encrypted store at call time.
     private val aiCoach = AiCoach(
-        WhoopRepository(WhoopDatabase.get(app.applicationContext)),
+        WhoopRepository(WhoopDatabase.get(account.context)),
         // #1304/#512: thread the active strap id (resolved lazily by NoopApplication) so the coach reasons
         // off the active strap's data — daysMerged/R-R/Lab markers union active ∪ canonical — instead of a
         // hardcoded "my-whoop" that misses a strap banked under "whoop-<uuid>".
-        activeStrapId = { (app as NoopApplication).activeDeviceId },
+        activeStrapId = { account.activeDeviceId },
     )
 
     // PRD-K2: persisted conversation history (Room `coachMessage` table).
-    private val coachDao = WhoopDatabase.get(app.applicationContext).whoopDao()
+    private val coachDao = WhoopDatabase.get(account.context).whoopDao()
     private var didLoadPersistedMessages = false
 
     // MARK: - Transcript
@@ -67,12 +68,12 @@ class CoachViewModel(app: Application) : AndroidViewModel(app) {
 
     // MARK: - Provider / model selection (persisted via AiKeyStore)
 
-    private val _provider = MutableStateFlow(AiKeyStore.readProvider(app.applicationContext))
+    private val _provider = MutableStateFlow(AiKeyStore.readProvider(account.context))
     /** The currently selected provider. Persisted across launches. */
     val provider: StateFlow<AiProvider> = _provider.asStateFlow()
 
     private val _model = MutableStateFlow(
-        AiKeyStore.readModel(app.applicationContext, _provider.value)
+        AiKeyStore.readModel(account.context, _provider.value)
     )
     /** The currently selected model id. Persisted per provider. May be a custom/live id. */
     val model: StateFlow<String> = _model.asStateFlow()
@@ -89,21 +90,21 @@ class CoachViewModel(app: Application) : AndroidViewModel(app) {
     /** True while a live model-list fetch is in flight; the UI disables the Refresh action. */
     val refreshingModels: StateFlow<Boolean> = _refreshingModels.asStateFlow()
 
-    private val _consent = MutableStateFlow(AiKeyStore.readConsent(app.applicationContext))
+    private val _consent = MutableStateFlow(AiKeyStore.readConsent(account.context))
     /** Explicit permission for the coach to read & send the user's data. Off by default. */
     val consent: StateFlow<Boolean> = _consent.asStateFlow()
 
     // MARK: - Custom (local LLM) provider settings
 
-    private val _customBaseUrl = MutableStateFlow(AiKeyStore.readCustomBaseUrl(app.applicationContext))
+    private val _customBaseUrl = MutableStateFlow(AiKeyStore.readCustomBaseUrl(account.context))
     /** Base URL for the Custom (OpenAI-compatible) provider, e.g. http://localhost:11434/v1. */
     val customBaseUrl: StateFlow<String> = _customBaseUrl.asStateFlow()
 
-    private val _customAuthHeader = MutableStateFlow(AiKeyStore.readCustomAuthHeader(app.applicationContext))
+    private val _customAuthHeader = MutableStateFlow(AiKeyStore.readCustomAuthHeader(account.context))
     /** Header used by the Custom provider when an API key is present. */
     val customAuthHeader: StateFlow<CustomAiAuthHeader> = _customAuthHeader.asStateFlow()
 
-    private val _customConnected = MutableStateFlow(AiKeyStore.readCustomConnected(app.applicationContext))
+    private val _customConnected = MutableStateFlow(AiKeyStore.readCustomConnected(account.context))
     /** True once the user has committed the Custom provider (entered a URL and tapped Connect). */
     val customConnected: StateFlow<Boolean> = _customConnected.asStateFlow()
 
@@ -127,8 +128,8 @@ class CoachViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun estimatedTokens(draft: String): Int? {
         val app = getApplication<Application>()
-        if (!isConfigured(app.applicationContext)) return null
-        val systemPrompt = AiCoach.resolveSystemPrompt(app.applicationContext)
+        if (!isConfigured(account.context)) return null
+        val systemPrompt = AiCoach.resolveSystemPrompt(account.context)
         val systemPromptTokens = systemPrompt.length / 4
         val contextTokens = if (consent.value) 750 else 50
         val historyTokens = messages.value.sumOf { it.text.length / 4 }
@@ -164,7 +165,7 @@ class CoachViewModel(app: Application) : AndroidViewModel(app) {
     // MARK: - Editable system prompt
 
     private val _systemPrompt = MutableStateFlow(
-        AiCoach.resolveSystemPrompt(app.applicationContext)
+        AiCoach.resolveSystemPrompt(account.context)
     )
     /**
      * The Coach's system prompt as currently shown in the editor: the user's stored override, or the
@@ -174,7 +175,7 @@ class CoachViewModel(app: Application) : AndroidViewModel(app) {
     val systemPrompt: StateFlow<String> = _systemPrompt.asStateFlow()
 
     private val _hasCustomPrompt = MutableStateFlow(
-        NoopPrefs.coachSystemPrompt(app.applicationContext).isNotBlank()
+        NoopPrefs.coachSystemPrompt(account.context).isNotBlank()
     )
     /** True when an edited prompt differs from the default, gates the "Reset to default" control. */
     val hasCustomPrompt: StateFlow<Boolean> = _hasCustomPrompt.asStateFlow()
@@ -483,10 +484,10 @@ class CoachViewModel(app: Application) : AndroidViewModel(app) {
         val day = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
         viewModelScope.launch {
             runCatching {
-                WhoopRepository(WhoopDatabase.get(app.applicationContext)).upsertJournal(
+                WhoopRepository(WhoopDatabase.get(account.context)).upsertJournal(
                     listOf(
                         JournalEntry(
-                            deviceId = (app as NoopApplication).activeDeviceId,
+                            deviceId = account.activeDeviceId,
                             day = day,
                             question = "Coach advice",
                             answeredYes = true,

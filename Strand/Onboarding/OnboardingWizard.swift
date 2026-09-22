@@ -45,6 +45,7 @@ public struct OnboardingWizard: View {
     }
 
     @State private var step: Step = .welcome
+    @StateObject private var profileActions = ScoringPreferenceActions()
     @State private var glow = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Low Power Mode / "Reduce motion in NARA" pose these looping glows still too. Onboarding is
@@ -72,7 +73,7 @@ public struct OnboardingWizard: View {
                     case .wear:       WearStep()
                     case .scan:       ScanStep(advance: advance)
                     case .bonded:     BondedStep()
-                    case .profile:    ProfileStep()
+                    case .profile:    ProfileStep(actions: profileActions)
                     case .importData: ImportStep()
                     case .notifications: NotificationsStep()
                     case .appearance: AppearanceStep()
@@ -170,8 +171,12 @@ public struct OnboardingWizard: View {
                 .frame(maxWidth: 620)
 
             HStack(spacing: 14) {
-                PrimaryButton(title: ctaTitle, systemImage: ctaIcon, action: primaryAction)
-                    .frame(maxWidth: .infinity)
+                if step == .profile {
+                    ProfileContinueButton(actions: profileActions, advance: advance)
+                } else {
+                    PrimaryButton(title: ctaTitle, systemImage: ctaIcon, action: primaryAction)
+                        .frame(maxWidth: .infinity)
+                }
             }
             .frame(maxWidth: 620)
         }
@@ -726,6 +731,23 @@ private struct BondedStep: View {
 
 private struct ProfileStep: View {
     @EnvironmentObject private var profile: ProfileStore
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var actions: ScoringPreferenceActions
+
+    private var birthDate: Date {
+        if case .number(let value) = actions.draft[.dateOfBirth] { return Date(timeIntervalSince1970: value) }
+        return profile.dateOfBirth
+    }
+    private var sex: String {
+        if case .text(let value) = actions.draft[.sex] { return value }
+        return profile.sex
+    }
+    private func number(_ key: ScoringPreferenceKey, saved: Double) -> Binding<Double> {
+        Binding(get: {
+            if case .number(let value) = actions.draft[key] { return value }
+            return saved
+        }, set: { actions.stage(key, value: .number($0), model: model) })
+    }
 
     // The stored profile is always SI. Body measurements and exercise distance can follow the regional
     // conventions independently; an unset distance choice follows the body choice for compatibility.
@@ -751,25 +773,31 @@ private struct ProfileStep: View {
                 StrandCard {
                     VStack(spacing: 18) {
                         // #146: capture a date of birth so age advances on its own instead of going stale.
-                        DatePicker(selection: $profile.dateOfBirth,
+                        DatePicker(selection: Binding(get: { birthDate }, set: { actions.stageDateOfBirth($0, model: model) }),
                                    in: ProfileStore.dateOfBirthRange,
                                    displayedComponents: .date) {
                             FieldRow(label: String(localized: "Date of birth"),
-                                     value: String(localized: "\(profile.age) yrs"))
+                                     value: String(localized: "\(ProfileStore.years(from: birthDate, to: Date())) yrs"))
                         }
                         .tint(StrandPalette.accent)
+                        .disabled(actions.disabled(model))
+                        .frame(minHeight: 44)
+                        .accessibilityLabel("Date of birth")
 
                         Divider().overlay(StrandPalette.hairline)
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Sex").strandOverline()
-                            Picker("Sex", selection: $profile.sex) {
+                            Picker("Sex", selection: Binding(get: { sex }, set: { actions.stage(.sex, value: .text($0), model: model) })) {
                                 ForEach(sexes, id: \.0) { key, label in
                                     Text(label).tag(key)
                                 }
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
+                            .disabled(actions.disabled(model))
+                            .frame(minHeight: 44)
+                            .accessibilityLabel("Sex")
                         }
 
                         Divider().overlay(StrandPalette.hairline)
@@ -803,17 +831,27 @@ private struct ProfileStep: View {
                         // Steppers, not sliders — matches the Age row above and the macOS Settings
                         // profile editor (same ranges/steps), so every numeric profile field is
                         // consistent across onboarding and Settings on both platforms.
-                        Stepper(value: $profile.weightKg, in: 30...250, step: 0.5) {
+                        Stepper(value: number(.weightKg, saved: profile.weightKg), in: 30...250, step: 0.5) {
                             FieldRow(label: String(localized: "Weight"),
-                                     value: UnitFormatter.massFromKilograms(profile.weightKg, system: unitSystem))
+                                     value: UnitFormatter.massFromKilograms(number(.weightKg, saved: profile.weightKg).wrappedValue, system: unitSystem))
                         }
+                        .disabled(actions.disabled(model))
+                        .frame(minHeight: 44)
 
                         Divider().overlay(StrandPalette.hairline)
 
-                        Stepper(value: $profile.heightCm, in: 120...230, step: 1) {
+                        Stepper(value: number(.heightCm, saved: profile.heightCm), in: 120...230, step: 1) {
                             FieldRow(label: String(localized: "Height"),
-                                     value: UnitFormatter.heightFromCentimeters(profile.heightCm, system: unitSystem))
+                                     value: UnitFormatter.heightFromCentimeters(number(.heightCm, saved: profile.heightCm).wrappedValue, system: unitSystem))
                         }
+                        .disabled(actions.disabled(model))
+                        .frame(minHeight: 44)
+                        if !actions.draft.isEmpty {
+                            Text("Unsaved profile changes. Save below to use them for scoring.")
+                                .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        ScoringPreferenceActionStatus(actions: actions)
                     }
                 }
 
@@ -826,6 +864,22 @@ private struct ProfileStep: View {
                 }
             }
         }
+        .onDisappear { actions.suspendPresentation() }
+    }
+}
+
+private struct ProfileContinueButton: View {
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var actions: ScoringPreferenceActions
+    let advance: () -> Void
+
+    var body: some View {
+        PrimaryButton(title: actions.draft.isEmpty ? String(localized: "Continue") : String(localized: "Save profile and continue"),
+                      systemImage: nil) {
+            actions.saveOnboarding(model: model, afterAccepted: advance)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .disabled(actions.disabled(model))
     }
 }
 

@@ -39,6 +39,7 @@ final class WatchSessionBridge: NSObject, ObservableObject {
     @Published private(set) var isWatchReachable = false
 
     private let session: WCSession?
+    private var contextOutbox = WatchContextOutbox()
 
     override init() {
         // WCSession is only meaningful where the framework is supported (a real device, not every
@@ -60,6 +61,20 @@ final class WatchSessionBridge: NSObject, ObservableObject {
 
     // MARK: - Sending
 
+    /// Supersede the previous owner's latest-state context even when the next account has no data.
+    /// Delivery to a disconnected watch remains OS-managed, not an immediate remote erasure guarantee.
+    func activateAccount(namespace: String?) {
+        if let retained = WatchScoreSnapshot.load(), retained.accountNamespace == namespace, namespace != nil {
+            // Cold launch may follow a crash before the previous context reached the watch.
+            send(retained)
+            return
+        }
+        lastPushedAt = nil
+        send(WatchScoreSnapshot(charge: nil, chargeCalibrating: false,
+             effort: nil, effortCalibrating: false, rest: nil, restCalibrating: false,
+             hr: nil, sleepSummary: "", asOf: Date(), accountNamespace: namespace))
+    }
+
     /// Build a snapshot from the latest computed scores + their confidence and push it to the watch.
     /// Call this whenever the dashboard refreshes (the same trigger that republishes the Home-screen
     /// widget). It reads the SAME most-recent scored day the widget anchors on, so the wrist, the widget
@@ -73,7 +88,10 @@ final class WatchSessionBridge: NSObject, ObservableObject {
     /// `async` because Rest (sleep_performance) lives in a computed metric series rather than a
     /// `DailyMetric` column, so it needs an `exploreSeries` read (mirrors `WidgetSnapshot.publish`).
     func sendLatest(from model: AppModel) async {
+        guard model.isAccountRuntimeActive, model.accountStorage?.scope != nil else { return }
+        let snapshotRevision = model.repo.serverPresentation.revision
         let snap = await Self.buildSnapshot(from: model)
+        guard model.isAccountRuntimeActive, model.repo.serverPresentation.revision == snapshotRevision else { return }
         // A contentless snapshot (a cold launch races the first repo refresh, so `days` is still empty)
         // must NOT push: it would stomp the watch's last REAL data with the empty state AND burn the
         // 30-minute spacing gate, locking out the genuine snapshot that lands seconds later. Skip
@@ -113,6 +131,7 @@ final class WatchSessionBridge: NSObject, ObservableObject {
     static func headlineChanged(from last: WatchScoreSnapshot?, to next: WatchScoreSnapshot) -> Bool {
         guard let last else { return true }
         return last.charge != next.charge
+            || last.accountNamespace != next.accountNamespace
             || last.chargeCalibrating != next.chargeCalibrating
             || last.effort != next.effort
             || last.effortCalibrating != next.effortCalibrating
@@ -132,9 +151,8 @@ final class WatchSessionBridge: NSObject, ObservableObject {
         // anchors on today's row (not "the most recent day with any recovery score") so it can't drift
         // around the rollover. When today isn't scored yet it carries over the last STRICTLY-PRIOR scored
         // day for the recovery side.
-        let days = model.repo.days
         let now = Date()
-        let day = Repository.widgetAnchor(days: days, now: now)
+        let day = model.repo.cachedWidgetAnchor(now: now)
 
         // Rest (sleep_performance) for that same anchor day. exploreSeries merges imported + on-device,
         // exactly like the Today Rest tile and the widget. The tail fallback (restSeries.last) is ONLY
@@ -150,7 +168,9 @@ final class WatchSessionBridge: NSObject, ObservableObject {
             let restSeries = await model.repo.exploreSeries(key: "sleep_performance", source: model.deviceId)
             let restByDay = Dictionary(restSeries.map { ($0.day, $0.value) }, uniquingKeysWith: { _, last in last })
             let anchorIsToday = day.day == Repository.localDayKey(now)
-            restScore = TodayView.freshRestScore(
+            let restOwned = RepositoryServerScores.metric(key: "sleep_performance")
+                .map { model.repo.serverPresentation.owns($0) } ?? false
+            restScore = restOwned ? restByDay[day.day] : TodayView.freshRestScore(
                 todayValue: restByDay[day.day], lastDay: restSeries.last?.day,
                 lastValue: restSeries.last?.value, isTodaySelected: anchorIsToday, todayKey: day.day)
         }
@@ -174,10 +194,12 @@ final class WatchSessionBridge: NSObject, ObservableObject {
             restCalibrating: hasAnyDay && rest == nil,
             hr: model.bpm ?? model.live.heartRate,
             sleepSummary: sleepSummary(for: day),
-            asOf: Date(),
+            asOf: model.repo.serverPresentation.days[day?.day ?? ""]?.snapshot
+                .flatMap { ServerScoreDate.parse($0.computedAt) } ?? Date(),
             // The day the scores are ABOUT (not when we built this), so the watch can label recency
             // honestly ("Yesterday") even when the build is fresh. nil when there's no anchor day at all.
-            scoreDay: day?.day
+            scoreDay: day?.day,
+            accountNamespace: model.accountStorage?.scope?.namespace
         )
         return snap
     }
@@ -214,16 +236,16 @@ final class WatchSessionBridge: NSObject, ObservableObject {
         // the live context has not been delivered yet.
         snap.save()
 
-        guard let session, session.activationState == .activated else { return }
+        guard let data = try? JSONEncoder().encode(snap) else { return }
+        contextOutbox.enqueue(data)
+        flushPendingContext()
+    }
+
+    private func flushPendingContext() {
+        guard let session else { return }
         isWatchReachable = session.isReachable
-        do {
-            let data = try JSONEncoder().encode(snap)
-            // updateApplicationContext replaces any previous context, so the watch always gets exactly
-            // the latest snapshot and never a queued backlog.
+        contextOutbox.flush(activated: session.activationState == .activated) { data in
             try session.updateApplicationContext([Self.contextKey: data])
-        } catch {
-            // A failed context update is non-fatal: the app-group mirror above still carries the latest
-            // value, and the next dashboard refresh will try again.
         }
     }
 
@@ -241,6 +263,7 @@ extension WatchSessionBridge: WCSessionDelegate {
                              error: Error?) {
         Task { @MainActor in
             self.isWatchReachable = session.isReachable
+            self.flushPendingContext()
         }
     }
 
@@ -254,6 +277,7 @@ extension WatchSessionBridge: WCSessionDelegate {
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         Task { @MainActor in
             self.isWatchReachable = session.isReachable
+            self.flushPendingContext()
         }
     }
 

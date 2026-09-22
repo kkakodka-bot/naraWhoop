@@ -292,12 +292,21 @@ export function userPrefixV2(userId: string): string {
  * retention class that is not listed here leaves objects behind that no delete request can reach.
  * RETENTION_CLASS is the source of truth; v3 entries are derived from it.
  */
+/** Canonical B2 key for one JVM-scored day archive (json.zst). */
+export function derivedScoresObjectKey(userId: string, day: string, algorithmVersion: string): string {
+  if (!isUuid(userId)) throw new Error('user id must be a uuid');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day))) throw new Error('day must be YYYY-MM-DD');
+  const ver = String(algorithmVersion || 'frwhoop-server-1');
+  return `v3/derived/users/${userId}/days/${day}/${ver}.json.zst`;
+}
+
 export function allUserPrefixes(userId: string): string[] {
   if (!isUuid(userId)) throw new Error('user id must be a uuid');
   const classes = [...new Set(Object.values(RETENTION_CLASS))].sort();
   return [
     userPrefix(userId),
     userPrefixV2(userId),
+    `v3/derived/users/${userId}/`,
     ...classes.map((cls) => `v3/${cls}/users/${userId}/`),
   ];
 }

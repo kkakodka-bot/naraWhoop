@@ -12,7 +12,7 @@ object PushProtocol {
     const val BINARY_VERSION = "1.1"
     const val OBJECT_VERSION = "1.2"
     /** Sender-preferred list for capability negotiation (`GET`); see PUSH_PROTOCOL.md. */
-    const val CAPABILITIES_ACCEPT_VERSIONS = "1.2,1.1,1.0"
+    const val CAPABILITIES_ACCEPT_VERSIONS = "1.4,1.3,1.2,1.1,1.0"
     const val MAX_RECORDS = 5_000
     /** Hard limit for the decoded UTF-8 NDJSON entity, before optional content coding. */
     const val MAX_BODY_BYTES = 4 * 1024 * 1024
@@ -35,26 +35,30 @@ object PushProtocol {
         deviceId: String,
         startCursor: PushCursor?,
         records: List<PushAppendRecord>,
+        protocolVersion: String = VERSION,
     ): PushBatch {
         validateUuid(sourceId, "sourceId")
+        val selectedVersion = if (table.isScalarExtension) protocolVersion else VERSION
+        if (table.isScalarExtension && selectedVersion !in setOf("1.1", "1.2", "1.3", "1.4"))
+            throw PushProtocolException("Scalar stream requires negotiated protocol 1.1 or later")
         if (records.isEmpty()) throw PushProtocolException("append batch must contain a record")
         require(records.zipWithNext().all { (a, b) -> a.rowId < b.rowId }) {
             "append records must be strictly ordered by rowid"
         }
-        records.forEach { validateRecord(table, it.key, it.data) }
+        if (!table.isScalarExtension) records.forEach { validateRecord(table, it.key, it.data) }
         val candidates = records.take(MAX_RECORDS)
         val selectedRows = ArrayList<PushAppendRecord>(candidates.size)
         val selectedLines = ArrayList<ByteArray>(candidates.size)
         var rowBytes = 0
         for (i in candidates.indices) {
-            val candidate = candidates[i]
+            val candidate = if (table.isScalarExtension) scalarRecord(table, candidates[i], selectedVersion) ?: break else candidates[i]
             // Encode one row at a time so rows beyond the decoded entity bound never create a
             // second page-sized collection of byte arrays in memory.
             val encodedRow = encodeRecordLine(candidate)
             val end = cursorFor(table, deviceId, candidate)
             val candidateCount = selectedRows.size + 1
             val headerSize = appendHeader(
-                sourceId, table, deviceId, startCursor, end, candidateCount, UUID_PLACEHOLDER,
+                sourceId, table, deviceId, startCursor, end, candidateCount, UUID_PLACEHOLDER, selectedVersion,
             ).size
             if (headerSize + rowBytes + encodedRow.size > MAX_BODY_BYTES) break
             selectedRows += candidate
@@ -64,13 +68,13 @@ object PushProtocol {
         if (selectedRows.isEmpty()) throw PushProtocolException("first append record exceeds the 4 MiB decoded batch limit")
 
         val endCursor = cursorFor(table, deviceId, selectedRows.last())
-        val identity = appendIdentity(sourceId, table, deviceId, startCursor, endCursor, selectedRows.size)
+        val identity = appendIdentity(sourceId, table, deviceId, startCursor, endCursor, selectedRows.size, selectedVersion)
         val batchId = stableUuid(identity, selectedLines)
-        val header = appendHeader(sourceId, table, deviceId, startCursor, endCursor, selectedRows.size, batchId)
+        val header = appendHeader(sourceId, table, deviceId, startCursor, endCursor, selectedRows.size, batchId, selectedVersion)
         val body = concatenate(header, selectedLines)
         check(body.size <= MAX_BODY_BYTES)
         return PushBatch(
-            protocolVersion = VERSION,
+            protocolVersion = selectedVersion,
             batchId = batchId,
             sourceId = sourceId,
             table = table,
@@ -187,12 +191,14 @@ object PushProtocol {
         return sha256Hex("${table.wireName}\n$deviceId\n${orderedObjectJson(key)}".toByteArray(Charsets.UTF_8))
     }
 
-    fun binaryKeyFingerprint(table: PushBinaryTable, deviceId: String, row: PushBinaryRow): String {
+    fun binaryKeyFingerprint(table: PushBinaryTable, deviceId: String, row: PushBinaryRow, auxIdentityV2: Boolean = false): String {
         val payload = when {
             table == PushBinaryTable.PPG_WAVEFORM_SAMPLE && row is PushBinaryRow.PpgWaveform ->
-                "ppgWaveformSample\n$deviceId\n${row.record.ts}\n${row.record.burstIndex ?: ""}"
+                row.record.recordIndex?.let { "ppgWaveformSample-v2\n$deviceId\n${row.record.ts}\n$it" }
+                    ?: "ppgWaveformSample\n$deviceId\n${row.record.ts}\n${row.record.burstIndex ?: ""}"
             table == PushBinaryTable.V18_AUX_SAMPLE && row is PushBinaryRow.V18Aux ->
-                "v18AuxSample\n$deviceId\n${row.record.ts}"
+                if (auxIdentityV2) "v18AuxSample-v2\n$deviceId\n${row.record.ts}\n${row.record.recordIndex ?: "unknown"}"
+                else "v18AuxSample\n$deviceId\n${row.record.ts}"
             table == PushBinaryTable.RAW_BATCH && row is PushBinaryRow.RawBatch ->
                 "rawBatch\n$deviceId\n${row.record.batchId}"
             table == PushBinaryTable.RAW_IMU_SESSION && row is PushBinaryRow.RawImuSession ->
@@ -220,22 +226,22 @@ object PushProtocol {
                 rows
             }
             PushBinaryTable.PPG_WAVEFORM_SAMPLE, PushBinaryTable.V18_AUX_SAMPLE, PushBinaryTable.RAW_IMU_SESSION ->
-                selectBinaryRows(table, rows, decodedLimit)
+                selectBinaryRows(table, rows, decodedLimit, protocolVersion in setOf("1.3", "1.4"), protocolVersion == "1.4")
         }
 
-        val decoded = PushBinaryCodec.pack(table, selected)
+        val decoded = PushBinaryCodec.pack(table, selected, protocolVersion in setOf("1.3", "1.4"), protocolVersion == "1.4")
         if (decoded.size > decodedLimit) {
             throw PushProtocolException("binary object exceeds the decoded limit")
         }
         val contentSha256 = PushBinaryCodec.sha256Hex(decoded)
         val contentEncoding = table.contentEncoding
-        val payload = if (protocolVersion == OBJECT_VERSION) {
+        val payload = if (protocolVersion in setOf(OBJECT_VERSION, "1.3", "1.4")) {
             PushBinaryCompression.compressObject(decoded, contentEncoding)
         } else {
             PushBinaryCompression.compress(decoded, contentEncoding)
         }
         val (startTs, endTs, sampleCount) = binaryBounds(table, selected)
-        val endCursor = binaryEndCursor(table, deviceId, selected)
+        val endCursor = binaryEndCursor(table, deviceId, selected, protocolVersion == "1.4")
         val identity = linkedMapOf<String, Any?>(
             "contentSha256" to contentSha256,
             "deviceId" to deviceId,
@@ -280,17 +286,30 @@ object PushProtocol {
         table: PushBinaryTable,
         rows: List<PushBinaryRow>,
         decodedLimit: Int,
+        ppgIdentityV2: Boolean = false,
+        auxIdentityV2: Boolean = false,
     ): List<PushBinaryRow> {
         val selected = ArrayList<PushBinaryRow>()
         var decodedBytes = PushBinaryCodec.packedHeaderSize(table)
         var windowStartTs: Long? = null
+        var auxMin: Long? = null
+        var auxMax: Long? = null
+        var previousRowId: Long? = null
         for (row in rows.take(MAX_RECORDS)) {
+            if (row is PushBinaryRow.V18Aux) {
+                if (!auxIdentityV2 && row.record.recordIndex != null) break
+                val ts = row.record.ts
+                val min = minOf(auxMin ?: ts, ts); val max = maxOf(auxMax ?: ts, ts)
+                if (ts <= 0 || ts == Long.MAX_VALUE || max - min >= 48 * 3600) break
+                if (previousRowId != null && row.record.rowId <= previousRowId) throw PushProtocolException("Auxiliary rows must be a contiguous ordered prefix")
+                auxMin = min; auxMax = max; previousRowId = row.record.rowId
+            }
             if (table == PushBinaryTable.RAW_IMU_SESSION) {
                 val record = (row as? PushBinaryRow.RawImuSession)?.record
                     ?: throw PushProtocolException("binary row kind mismatch")
                 if (windowStartTs != null && record.ts - windowStartTs >= MAX_IMU_OBJECT_WINDOW_SECONDS) break
             }
-            val rowSize = PushBinaryCodec.packedRowSize(row)
+            val rowSize = PushBinaryCodec.packedRowSize(row, ppgIdentityV2, auxIdentityV2)
             if (decodedBytes + rowSize > decodedLimit) break
             selected += row
             decodedBytes += rowSize
@@ -320,7 +339,7 @@ object PushProtocol {
         }
     }
 
-    private fun binaryEndCursor(table: PushBinaryTable, deviceId: String, rows: List<PushBinaryRow>): PushCursor? {
+    private fun binaryEndCursor(table: PushBinaryTable, deviceId: String, rows: List<PushBinaryRow>, auxIdentityV2: Boolean = false): PushCursor? {
         when (table) {
             PushBinaryTable.RAW_BATCH -> return null
             PushBinaryTable.PPG_WAVEFORM_SAMPLE, PushBinaryTable.V18_AUX_SAMPLE, PushBinaryTable.RAW_IMU_SESSION -> {
@@ -331,7 +350,7 @@ object PushProtocol {
                     is PushBinaryRow.RawImuSession -> last.record.rowId
                     else -> throw PushProtocolException("binary row kind mismatch")
                 }
-                return PushCursor(rowId, binaryKeyFingerprint(table, deviceId, last))
+                return PushCursor(rowId, binaryKeyFingerprint(table, deviceId, last, auxIdentityV2))
             }
         }
     }
@@ -436,11 +455,12 @@ object PushProtocol {
         start: PushCursor?,
         end: PushCursor,
         count: Int,
+        protocolVersion: String = VERSION,
     ): Map<String, Any?> = mapOf(
         "delivery" to "append",
         "deviceId" to deviceId,
         "endCursor" to cursorJson(end),
-        "protocolVersion" to VERSION,
+        "protocolVersion" to protocolVersion,
         "recordCount" to count,
         "sourceId" to sourceId,
         "startCursor" to start?.let(::cursorJson),
@@ -456,7 +476,8 @@ object PushProtocol {
         end: PushCursor,
         count: Int,
         batchId: String,
-    ): ByteArray = encodeLine(appendIdentity(sourceId, table, deviceId, start, end, count) + ("batchId" to batchId))
+        protocolVersion: String = VERSION,
+    ): ByteArray = encodeLine(appendIdentity(sourceId, table, deviceId, start, end, count, protocolVersion) + ("batchId" to batchId))
 
     private fun mutableIdentity(
         sourceId: String,
@@ -570,6 +591,52 @@ object PushProtocol {
         }
     }
 
+    private fun scalarRecord(table: PushAppendTable, row: PushAppendRecord, version: String): PushAppendRecord? {
+        validateRecordKeys(table, row.key)
+        fun integer(value: Any?): Long {
+            if (value !is Int && value !is Long && value !is Short && value !is Byte)
+                throw PushProtocolException("Scalar integer has invalid type")
+            return (value as Number).toLong()
+        }
+        if (integer(row.key["ts"]) <= 0) throw PushProtocolException("Invalid scalar timestamp")
+        val columns = REGISTRY.getValue(table.wireName).second
+        if (row.data.keys.any { it !in columns && it != "provenance" } || !row.data.keys.contains(columns.first()))
+            throw PushProtocolException("Scalar data does not match registry")
+        val data = columns.associateTo(linkedMapOf()) { it to row.data[it] }
+        when (table) {
+            PushAppendTable.STEP_SAMPLE -> {
+                if (integer(data["counter"]) !in 0..65535L || data["activityClass"]?.let { integer(it) !in 0..2 } == true)
+                    throw PushProtocolException("Invalid step scalar")
+            }
+            PushAppendTable.SLEEP_STATE_SAMPLE -> {
+                val state = integer(data["state"])
+                val raw = data["rawByte"]?.let(::integer)
+                if (state !in 0..3 || raw?.let { it !in 0..255 || (it shr 4) and 3 != state } == true)
+                    throw PushProtocolException("Invalid sleep-state scalar")
+            }
+            PushAppendTable.PPG_HR_SAMPLE -> {
+                val conf = data["conf"]
+                if (integer(data["bpm"]) <= 0 || conf != null && (conf !is Number || !conf.toDouble().isFinite() || conf.toDouble() !in 0.0..1.0))
+                    throw PushProtocolException("Invalid derived-HR scalar")
+            }
+            else -> throw PushProtocolException("Not a scalar extension")
+        }
+        val provenance = row.data["provenance"]
+        if (provenance != null && provenance !is Map<*, *>) throw PushProtocolException("Provenance must be an object")
+        if (provenance != null && version != "1.4") return null
+        if (version == "1.4") data["provenance"] = provenance?.let {
+            try { com.noop.data.ScalarProvenance.validated(it as Map<*, *>) }
+            catch (_: Exception) { throw PushProtocolException("Invalid scalar provenance") }
+        }
+        return PushAppendRecord(row.rowId, row.key, data)
+    }
+
+    fun schemaVersion(stream: String, version: String): Int = when {
+        stream == "ppgWaveformSample" && version in setOf("1.3", "1.4") -> 2
+        version == "1.4" && stream in setOf("v18AuxSample", "stepSample", "sleepStateSample", "ppgHrSample") -> 2
+        else -> 1
+    }
+
     private fun validateUuid(value: String, name: String) {
         if (runCatching { UUID.fromString(value).toString() }.getOrNull() != value) {
             throw PushProtocolException("$name must be a lowercase canonical UUID")
@@ -590,6 +657,9 @@ object PushProtocol {
         "skinTempSample" to (listOf("ts") to listOf("raw", "aux1Raw", "aux2Raw")),
         "respSample" to (listOf("ts") to listOf("raw")),
         "gravitySample" to (listOf("ts") to listOf("x", "y", "z", "dynAccel")),
+        "stepSample" to (listOf("ts") to listOf("counter", "activityClass")),
+        "sleepStateSample" to (listOf("ts") to listOf("state", "rawByte")),
+        "ppgHrSample" to (listOf("ts") to listOf("bpm", "conf")),
         "dailyMetric" to (listOf("day") to listOf(
             "totalSleepMin", "efficiency", "deepMin", "remMin", "lightMin", "disturbances",
             "restingHr", "avgHrv", "recovery", "strain", "exerciseCount", "spo2Pct",
@@ -666,13 +736,11 @@ data class PushAck(
             }
             fun string(name: String): String = (obj.opt(name) as? String)?.takeIf { it.isNotEmpty() }
                 ?: throw PushProtocolException("ack.$name must be a non-empty string")
-            fun int(name: String): Int {
-                val number = obj.opt(name) as? Number ?: throw PushProtocolException("ack.$name must be an integer")
-                val long = number.toLong()
-                if (number.toDouble() != long.toDouble() || long !in Int.MIN_VALUE..Int.MAX_VALUE) {
-                    throw PushProtocolException("ack.$name must be an integer")
-                }
-                return long.toInt()
+            fun integer(value: Any?, name: String): Long {
+                // JSONObject retains integer tokens as Int/Long. Never coerce floating point:
+                // Double(2^63).toLong() saturates and round-trips through Double as Long.MAX_VALUE.
+                if (value !is Int && value !is Long) throw PushProtocolException("ack.$name must be an integer")
+                return (value as Number).toLong()
             }
             val cursor = when (val raw = obj.opt("endCursor")) {
                 null, JSONObject.NULL -> null
@@ -680,25 +748,24 @@ data class PushAck(
                     if (!raw.keys().asSequence().toSet().containsAll(setOf("rowId", "keySha256"))) {
                         throw PushProtocolException("ack.endCursor is missing required protocol 1.0 members")
                     }
-                    val row = raw.opt("rowId") as? Number
-                        ?: throw PushProtocolException("ack.endCursor.rowId must be an integer")
-                    val rowId = row.toLong()
-                    if (row.toDouble() != rowId.toDouble()) {
-                        throw PushProtocolException("ack.endCursor.rowId must be an integer")
-                    }
+                    val rowId = integer(raw.opt("rowId"), "endCursor.rowId")
+                    if (rowId < 0) throw PushProtocolException("ack.endCursor.rowId must be nonnegative")
                     val sha = (raw.opt("keySha256") as? String)?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
                         ?: throw PushProtocolException("ack.endCursor.keySha256 must be lowercase SHA-256")
                     PushCursor(rowId, sha)
                 }
                 else -> throw PushProtocolException("ack.endCursor must be an object or null")
             }
+            val acceptedRows = integer(obj.opt("acceptedRows"), "acceptedRows")
+            if (acceptedRows !in 0..PushProtocol.MAX_RECORDS.toLong())
+                throw PushProtocolException("ack.acceptedRows exceeds the batch bound")
             return PushAck(
                 protocolVersion = string("protocolVersion"),
                 batchId = string("batchId"),
                 stream = string("stream"),
                 deviceId = string("deviceId"),
                 endCursor = cursor,
-                acceptedRows = int("acceptedRows"),
+                acceptedRows = acceptedRows.toInt(),
                 status = string("status"),
             )
         }

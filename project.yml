@@ -50,6 +50,9 @@ packages:
     path: Packages/WhoopProtocol
   WhoopStore:
     path: Packages/WhoopStore
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    exactVersion: 6.29.3
   StrandAnalytics:
     path: Packages/StrandAnalytics
   StrandImport:
@@ -123,7 +126,7 @@ targets:
         # project-wide via Config/BundleId.xcconfig); read at runtime via CloudPushSettings.
         # Absent/blank values leave push manual-configure, exactly as before.
         NOOPPushEndpoint: $(NOOP_PUSH_ENDPOINT)
-        NOOPPushToken: $(NOOP_PUSH_TOKEN)
+        NOOPSupabaseAnonKey: $(NOOP_SUPABASE_ANON_KEY)
         # Registers the noop:// URL scheme so ASWebAuthenticationSession's OAuth redirect
         # (noop://oura/callback) reaches OuraOAuthProvider instead of bouncing off the OS.
         CFBundleURLTypes:
@@ -169,9 +172,15 @@ targets:
     deploymentTarget: "13.0"
     sources:
       - StrandTests
+      - path: Tests/Fixtures/context-metrics-swift-v1.json
+        buildPhase: resources
       # Compile the exact cross-target snapshot source into the test bundle so the AltStore App Group
       # resolver is covered without adding this iOS/widget-only type to the macOS application module.
       - StrandiOSShared/WidgetSnapshot.swift
+      # Test the exact live adapters' platform-neutral admission sequences. Their HealthKit and
+      # WidgetKit operations remain iOS-only and require a separate iOS integration gate.
+      - StrandiOS/Health/HealthKitBridge.swift
+      - StrandiOS/Widgets/WidgetPublish.swift
     # Same wrapper as the app target, so the OURA_CLOUD_IMPORT-gated Oura tests compile exactly
     # when the app's Oura lane does (flag + creds both come from the untracked OuraSecrets.xcconfig).
     configFiles:
@@ -181,6 +190,7 @@ targets:
       - target: Strand
       - package: WhoopProtocol
       - package: WhoopStore
+      - package: GRDB
       - package: OuraProtocol
     settings:
       base:
@@ -326,7 +336,7 @@ targets:
         # project-wide via Config/BundleId.xcconfig); read at runtime via CloudPushSettings.
         # Absent/blank values leave push manual-configure, exactly as before.
         NOOPPushEndpoint: $(NOOP_PUSH_ENDPOINT)
-        NOOPPushToken: $(NOOP_PUSH_TOKEN)
+        NOOPSupabaseAnonKey: $(NOOP_SUPABASE_ANON_KEY)
         # Registers the noop:// URL scheme so ASWebAuthenticationSession's OAuth redirect
         # (noop://oura/callback) reaches OuraOAuthProvider instead of bouncing off the OS.
         CFBundleURLTypes:
@@ -529,6 +539,8 @@ schemes:
       config: Debug
     test:
       config: Debug
+      environmentVariables:
+        NOOP_HERMETIC_TESTING: "1"
       targets:
         - StrandTests
   NOOPiOS:

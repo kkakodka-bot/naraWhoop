@@ -59,8 +59,17 @@ final class HomeScreenQuickActionAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        _ = AccountAppRuntime.shared
+        SyncMetricKitCollector.shared.start()
         HomeScreenQuickAction.install(in: application)
         return true
+    }
+
+    func application(_ application: UIApplication,
+                     handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        AccountAppRuntime.shared.handleBackgroundEvents(identifier: identifier,
+                                                        completion: completionHandler)
     }
 
     func application(

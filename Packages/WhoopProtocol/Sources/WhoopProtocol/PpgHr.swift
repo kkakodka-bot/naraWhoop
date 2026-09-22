@@ -19,8 +19,10 @@ public struct PpgHrSample: Equatable, Codable, Sendable {
                                 // measured HRSample.bpm and the Android PpgHr.Estimate.bpm, so the
                                 // stored value and type match across platforms (#219).
     public let conf: Double     // normalised autocorrelation peak behind `bpm` (0…1)
-    public init(ts: Int, bpm: Int, conf: Double) {
+    public let provenance: ScalarProvenance?
+    public init(ts: Int, bpm: Int, conf: Double, provenance: ScalarProvenance? = nil) {
         self.ts = ts; self.bpm = bpm; self.conf = conf
+        self.provenance = provenance
     }
 }
 
@@ -164,10 +166,18 @@ public enum PpgHr {
                                    fs: Int = sampleRateHz,
                                    windowSeconds: Int = windowSeconds,
                                    subLagInterp: Bool = false) -> [PpgHrSample] {
-        guard !records.isEmpty else { return [] }
+        derivePpgHr(waveforms: records.map { PpgWaveformSample(ts: $0.ts, samples: $0.samples) },
+                    fs: fs, windowSeconds: windowSeconds, subLagInterp: subLagInterp)
+    }
+
+    public static func derivePpgHr(waveforms: [PpgWaveformSample],
+                                   fs: Int = sampleRateHz,
+                                   windowSeconds: Int = windowSeconds,
+                                   subLagInterp: Bool = false) -> [PpgHrSample] {
+        guard !waveforms.isEmpty, fs > 0, windowSeconds > 0 else { return [] }
         // One waveform per second (last write wins on a duplicate ts).
-        var secs = [Int: [Int]]()
-        for r in records { secs[r.ts] = r.samples }
+        var secs = [Int: PpgWaveformSample]()
+        for r in waveforms { secs[r.ts] = r }
         let order = secs.keys.sorted()
         // Split into consecutive-second runs.
         var runs = [[Int]]()
@@ -188,9 +198,11 @@ public enum PpgHr {
                 for u in (t - half)...(t + half) where runSet.contains(u) { win.append(u) }
                 guard win.count >= 3 else { continue }
                 var sig = [Int]()
-                for u in win { sig.append(contentsOf: secs[u]!) }
+                for u in win { sig.append(contentsOf: secs[u]!.samples) }
                 if let est = estimate(sig, fs: fs, subLagInterp: subLagInterp) {
-                    out.append(PpgHrSample(ts: t, bpm: Int(est.bpm), conf: est.conf))
+                    let provenance = ScalarProvenance.derivedPPG(win.map { secs[$0]! }, fs: fs,
+                        windowSeconds: windowSeconds, subLagInterp: subLagInterp)
+                    out.append(PpgHrSample(ts: t, bpm: Int(est.bpm), conf: est.conf, provenance: provenance))
                 }
             }
         }

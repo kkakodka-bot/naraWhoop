@@ -6,15 +6,15 @@ import com.noop.BuildConfig
 import java.security.MessageDigest
 import java.util.UUID
 
-/**
- * Push configuration. The destination and bearer token are baked into BuildConfig from
- * Config/CloudPushSecrets.properties — one fleet destination for every install, with no
- * per-user endpoint or token override. Only toggles and run-state persist in preferences.
- */
+/** Account-scoped state; installation-wide toggles remain policy only. */
 class SelfHostedPushSettings private constructor(
     private val prefs: SharedPreferences,
     private val bundleEndpoint: String,
-    private val bundleToken: String,
+    private val tokenProvider: () -> String?,
+    private val policyPrefs: SharedPreferences = prefs,
+    val capturedContext: AccountSessionContext? = null,
+    private val stillCurrent: () -> Boolean = { true },
+    private val consentCurrent: () -> Boolean = { true },
 ) {
     enum class RunState { IDLE, QUEUED, RUNNING, CONTINUING, RETRYING, COMPLETE, FAILED }
 
@@ -37,7 +37,7 @@ class SelfHostedPushSettings private constructor(
     }
 
     fun snapshot(): Snapshot {
-        val enabled = prefs.getBoolean(KEY_ENABLED, DEFAULT_ENABLED)
+        val enabled = prefs.getBoolean(KEY_ENABLED, DEFAULT_ENABLED) && consentCurrent()
         val endpoint = (PushEndpointPolicy.validate(endpointText()) as? PushEndpointPolicy.Result.Valid)?.endpoint
         val capabilities = capabilitiesFor(endpoint)
         return Snapshot(
@@ -61,33 +61,33 @@ class SelfHostedPushSettings private constructor(
     }
 
     fun endpointText(): String = bundleEndpoint
-    fun wifiOnly(): Boolean = prefs.getBoolean(KEY_WIFI_ONLY, true)
-    fun binaryObjectsEnabled(): Boolean = prefs.getBoolean(KEY_BINARY_OBJECTS, DEFAULT_BINARY_OBJECTS)
+    fun wifiOnly(): Boolean = policyPrefs.getBoolean(KEY_WIFI_ONLY, true)
+    fun binaryObjectsEnabled(): Boolean = policyPrefs.getBoolean(KEY_BINARY_OBJECTS, DEFAULT_BINARY_OBJECTS)
 
     fun setWifiOnly(wifiOnly: Boolean) {
-        check(prefs.edit().putBoolean(KEY_WIFI_ONLY, wifiOnly).commit()) {
+        check(policyPrefs.edit().putBoolean(KEY_WIFI_ONLY, wifiOnly).commit()) {
             "Could not persist push network policy"
         }
     }
 
     fun setBinaryObjectsEnabled(enabled: Boolean) {
-        check(prefs.edit().putBoolean(KEY_BINARY_OBJECTS, enabled).commit()) {
+        check(policyPrefs.edit().putBoolean(KEY_BINARY_OBJECTS, enabled).commit()) {
             "Could not persist push binary export setting"
         }
     }
 
     /** Plain-pref gate used by stale workers before opening Room or Android Keystore. */
     fun enabledEndpoint(): PushEndpointPolicy.ValidEndpoint? {
-        if (!prefs.getBoolean(KEY_ENABLED, DEFAULT_ENABLED)) return null
+        if (!prefs.getBoolean(KEY_ENABLED, DEFAULT_ENABLED) || !consentCurrent() || !stillCurrent()) return null
         return (PushEndpointPolicy.validate(endpointText()) as? PushEndpointPolicy.Result.Valid)?.endpoint
     }
 
-    /** The bearer the worker sends: the fleet token baked into BuildConfig. Never persisted. */
-    fun token(): String? = bundleToken.takeIf { it.isNotBlank() }
+    fun token(): String? = if (stillCurrent()) tokenProvider()?.takeIf { it.isNotBlank() } else null
+    fun isCurrent(): Boolean = stillCurrent()
 
     /** Stable, non-secret receiver namespace. Generated only after the worker's stale-work gates pass. */
     @Synchronized
-    fun sourceId(): String {
+    fun sourceId(): String = synchronized(statusLock) {
         prefs.getString(KEY_SOURCE_ID, null)?.let { existing ->
             runCatching { UUID.fromString(existing) }.getOrNull()?.let { return it.toString() }
         }
@@ -98,7 +98,8 @@ class SelfHostedPushSettings private constructor(
 
     fun setEnabled(enabled: Boolean): Boolean = synchronized(statusLock) {
         if (enabled && !snapshot().copy(enabled = true).ready) return@synchronized false
-        val edit = prefs.edit().putBoolean(KEY_ENABLED, enabled)
+        check(prefs.edit().putBoolean(KEY_ENABLED, enabled).commit()) { "Could not persist push policy" }
+        val edit = prefs.edit()
         if (!enabled) edit.putString(KEY_RUN_STATE, RunState.IDLE.name)
             .remove(KEY_LAST_ERROR).remove(KEY_CURRENT_STREAM)
         check(edit.commit()) { "Could not persist push enabled state" }
@@ -112,9 +113,10 @@ class SelfHostedPushSettings private constructor(
         receiverStateId: String = PushCapabilities.UNSCOPED_RECEIVER_STATE_ID,
     ): String =
         MessageDigest.getInstance("SHA-256").digest(
-            "$sourceId\u0000${endpoint.url}\u0000$protocolVersion\u0000$receiverStateId".toByteArray(),
+            ("push-v2\u0000" + (capturedContext?.scope?.namespace ?: "unassigned") + "\u0000" +
+                sourceId + "\u0000" + endpoint.url + "\u0000" + (if (protocolVersion == "1.4") "1.3" else protocolVersion) + "\u0000" + receiverStateId).toByteArray(Charsets.UTF_8),
         )
-            .take(12).joinToString("") { "%02x".format(it) }
+            .joinToString("") { "%02x".format(it) }
 
     fun recordSuccess(atMillis: Long = System.currentTimeMillis()) = updateWhileEnabled {
         it.putLong(KEY_LAST_SUCCESS, atMillis).remove(KEY_LAST_ERROR)
@@ -158,7 +160,7 @@ class SelfHostedPushSettings private constructor(
     @Synchronized
     fun recordAcceptedBatches(batches: Int, records: Long = 0L) = synchronized(statusLock) {
         if (batches <= 0 && records <= 0) return
-        if (!prefs.getBoolean(KEY_ENABLED, DEFAULT_ENABLED)) return
+        if (!stillCurrent() || !consentCurrent() || !prefs.getBoolean(KEY_ENABLED, DEFAULT_ENABLED)) return
         check(prefs.edit()
             .putInt(
                 KEY_ACCEPTED_BATCHES,
@@ -184,7 +186,7 @@ class SelfHostedPushSettings private constructor(
 
     private inline fun updateWhileEnabled(change: (SharedPreferences.Editor) -> SharedPreferences.Editor) =
         synchronized(statusLock) {
-            if (!prefs.getBoolean(KEY_ENABLED, DEFAULT_ENABLED)) return@synchronized
+            if (!stillCurrent() || !consentCurrent() || !prefs.getBoolean(KEY_ENABLED, DEFAULT_ENABLED)) return@synchronized
             check(change(prefs.edit()).commit()) { "Could not persist push status" }
         }
 
@@ -274,16 +276,32 @@ class SelfHostedPushSettings private constructor(
         private const val MAX_STATUS_CHARS = 300
         private val statusLock = Any()
 
-        fun from(context: Context) = SelfHostedPushSettings(
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE),
-            BuildConfig.NOOP_PUSH_ENDPOINT.trim(),
-            BuildConfig.NOOP_PUSH_TOKEN.trim(),
-        )
+        fun endpointText(): String = BuildConfig.NOOP_PUSH_ENDPOINT.trim()
+
+        fun from(context: Context): SelfHostedPushSettings {
+            val app = com.noop.account.AccountStorageContext.platform(context)
+            val captured = (context as? com.noop.account.AccountStorageContext)?.identity?.context
+                ?: if (context is com.noop.account.AccountStorageContext) null else CloudAuthClient.identitySnapshot(app).context
+            return SelfHostedPushSettings(
+                app.getSharedPreferences(PREFS + ".account." + (captured?.scope?.namespace ?: "unassigned"), Context.MODE_PRIVATE),
+                captured?.scope?.projectURL?.plus("/functions/v1/push") ?: endpointText(),
+                tokenProvider = { CloudAuthClient.storedSession(app)?.takeIf { it.scope == captured?.scope }?.accessToken },
+                policyPrefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE),
+                capturedContext = captured,
+                stillCurrent = { captured != null && CloudAuthClient.isCurrent(app, captured) },
+                consentCurrent = {
+                    captured != null && com.noop.ui.NoopPrefs.of(
+                        com.noop.account.AccountStorageContext(app,
+                            AccountIdentitySnapshot(captured.scope.projectURL, captured.scope, captured.generation)))
+                        .getString(com.noop.ui.NoopPrefs.KEY_ACCEPTED_TERMS_VERSION, "") == com.noop.ui.Terms.CURRENT_VERSION
+                },
+            )
+        }
 
         internal fun forTest(
             prefs: SharedPreferences,
             bundleEndpoint: String = "",
             bundleToken: String = "",
-        ) = SelfHostedPushSettings(prefs, bundleEndpoint, bundleToken)
+        ) = SelfHostedPushSettings(prefs, bundleEndpoint, { bundleToken })
     }
 }

@@ -1,5 +1,5 @@
 // Port of the retired Node receiver + pushArchive.js + pushDelete.js.
-// acceptBatch: WAL commit → B2 archive → Supabase projection → ack. Scoring and frame decode are
+// acceptBatch: WAL reservation → verified archive → atomic projection/debt/ACK settlement. Scoring and frame decode are
 // intentionally absent, same as the Node push path. The observability counters (metrics.inc) are
 // a Node-process facility and are not ported.
 import { gzipSync } from 'node:zlib';
@@ -16,140 +16,21 @@ import {
   REPLACE_STREAM_PROJECTIONS,
   INGEST_ENABLED_STREAMS,
   PushProtocolError,
-  ackMatchesBatch,
-  buildAck,
   parseNdjsonEntity,
   archiveWindowFromRecords,
-  replacementKeys,
-  windowBounds,
+  scalarAppendFields,
+  schemaVersionFor,
+  streamsForVersion,
 } from './registry.ts';
 import { expiresAt } from './retention.ts';
-import { createManifestStore, completeUpload } from './manifests.ts';
+import { createManifestStore } from './manifests.ts';
+import { reserveManifest, completeDurableObject, type DurabilityReceipt } from './durability.ts';
 import { sha256Hex, type S3Store } from './s3.ts';
 import { createPushIngestQuota, createPushWal, type PushWalStore } from './wal.ts';
-import { createPushReplacementStaging, type PushReplacementStaging } from './staging.ts';
 import type { SupabaseRest } from './rest.ts';
 import type { PushFunctionConfig } from './config.ts';
 
-async function applyReplacement({
-  header,
-  records,
-  userId,
-  deviceId,
-  upsertRows,
-  deleteRows,
-}: {
-  header: any;
-  records: any[];
-  userId: string;
-  deviceId: string;
-  upsertRows?: (table: string, rows: unknown[], opts: { onConflict: string }) => Promise<unknown>;
-  deleteRows?: (table: string, filter: any) => Promise<void>;
-}) {
-  const projection = REPLACE_STREAM_PROJECTIONS[header.stream];
-  if (!projection || typeof upsertRows !== 'function') return;
-
-  const replacementId = header.window?.replacementId || header.batchId;
-  const rows = records
-    .map((record) => projection.mapRow({
-      userId,
-      deviceId,
-      headerDeviceId: header.deviceId,
-      sourceId: header.sourceId,
-      batchId: header.batchId,
-      replacementId,
-      record,
-      protocolVersion: header.protocolVersion,
-    }))
-    .filter(Boolean);
-
-  if (rows.length) {
-    await upsertRows(projection.table, rows, { onConflict: projection.onConflict });
-  }
-
-  if (typeof deleteRows !== 'function') return;
-  const keys = replacementKeys(header.stream, records, header.deviceId);
-  const bounds = windowBounds(header);
-  if (!bounds) return;
-
-  if (projection.windowSelector === 'day') {
-    await deleteRows(projection.table, {
-      userId,
-      deviceId,
-      dayGte: bounds.startInclusive,
-      dayLt: bounds.endExclusive,
-      keepKeys: keys,
-      stream: header.stream,
-    });
-    return;
-  }
-
-  if (projection.windowSelector === 'startTs') {
-    await deleteRows(projection.table, {
-      userId,
-      deviceId,
-      startTsGte: Number(bounds.startInclusive),
-      startTsLt: Number(bounds.endExclusive),
-      keepKeys: keys,
-      stream: header.stream,
-      kind: header.stream === 'sleepSession' ? 'sleep' : 'workout',
-    });
-  }
-}
-
-/** Apply replace-window absence deletes for NOOP push projections. */
-export async function deleteReplacementRows(rest: SupabaseRest, table: string, filter: any) {
-  if (!rest?.configured) return;
-
-  if (table === 'daily_metrics') {
-    const rows = await rest.select(
-      'daily_metrics',
-      `user_id=eq.${filter.userId}&day=gte.${filter.dayGte}&day=lt.${filter.dayLt}&select=day`,
-    );
-    for (const row of rows) {
-      if (!filter.keepKeys.has(String(row.day))) {
-        await rest.delete('daily_metrics', `user_id=eq.${filter.userId}&day=eq.${row.day}`);
-      }
-    }
-    return;
-  }
-
-  if (table === 'noop_journal_entries') {
-    const rows = await rest.select(
-      'noop_journal_entries',
-      `user_id=eq.${filter.userId}&device_id=eq.${filter.deviceId}&day=gte.${filter.dayGte}&day=lt.${filter.dayLt}&select=day,question`,
-    );
-    for (const row of rows) {
-      const key = `${row.day}|${row.question}`;
-      if (!filter.keepKeys.has(key)) {
-        await rest.delete(
-          'noop_journal_entries',
-          `user_id=eq.${filter.userId}&device_id=eq.${filter.deviceId}&day=eq.${row.day}&question=eq.${encodeURIComponent(row.question)}`,
-        );
-      }
-    }
-    return;
-  }
-
-  if (table === 'sessions') {
-    const kinds = filter.kind === 'workout' ? ['workout', 'manual_workout'] : [filter.kind];
-    const startIso = new Date(filter.startTsGte * 1000).toISOString();
-    const endIso = new Date(filter.startTsLt * 1000).toISOString();
-    for (const kind of kinds) {
-      const rows = await rest.select(
-        'sessions',
-        `user_id=eq.${filter.userId}&kind=eq.${kind}&start_at=gte.${startIso}&start_at=lt.${endIso}&select=id,external_id`,
-      );
-      for (const row of rows) {
-        if (!filter.keepKeys.has(row.external_id)) {
-          await rest.delete('sessions', `id=eq.${row.id}`);
-        }
-      }
-    }
-  }
-}
-
-/** Archives one inline batch: manifest row → B2 PUT → byte-count completion. */
+/** Archives one inline batch: manifest row → B2 PUT → verified immutable receipt. */
 export function createPushArchive({ cfg, rest, raw }: {
   cfg: PushFunctionConfig;
   rest: SupabaseRest;
@@ -182,53 +63,46 @@ export function createPushArchive({ cfg, rest, raw }: {
         period_day: periodDay,
         sample_count: sampleCount,
         compressed_bytes: body.length,
+        uncompressed_bytes: args.uncompressedBytes,
         content_type: spec.contentType,
         format: spec.format,
         compression: spec.compression,
         schema_version: schemaVersion,
+        push_protocol_version: args.protocolVersion,
         sha256,
+        digest_scope: 'wire',
+        batch_id: args.batchId,
+        source_id: args.sourceId,
         retention_class: spec.retentionClass,
         expires_at: expiresAt(stream, new Date(), cfg as unknown as Record<string, unknown>),
         status: 'pending',
       };
-      await manifests.insertPending(row);
-      const put = await raw.putObject(key, body, { contentType: spec.contentType });
-      const digest = sha256 || sha256Hex(body);
-      const done = await completeUpload({
-        manifests,
-        objectStore: raw,
-        objectId,
-        expectedBytes: body.length,
-        expectedSha256: digest,
-      });
-      if (!done.ok) {
-        throw new Error(done.error || 'archive_verify_failed');
+      const reserved = await reserveManifest(rest, row);
+      if (!reserved.durability_receipt) {
+        await raw.putObject(reserved.upload_object_key || reserved.object_key, body, { contentType: spec.contentType });
       }
-      return { ready: true, objectKey: key, manifest: done.row, etag: put?.etag || null };
+      const durabilityReceipt = await completeDurableObject({ rest, raw, row: reserved });
+      return { ready: true, objectKey: durabilityReceipt.objectKey, durabilityReceipt };
     },
   };
 }
 
 /**
- * Accept one NOOP push NDJSON batch: WAL commit → B2 archive → Supabase upsert → ack.
+ * Accept one NOOP push NDJSON batch: WAL reservation → B2 archive → atomic projection/ACK.
  * Scoring and frame decode are intentionally absent.
  */
 export function createPushIngest({
   walStore,
   archiveObject,
-  upsertRows,
-  deleteRows,
   ensureDevice,
-  replacementStaging,
+  commitProjection,
   quotaConfig,
   now = () => new Date(),
 }: {
   walStore: PushWalStore;
-  archiveObject: (args: any) => Promise<{ ready: boolean }>;
-  upsertRows?: (table: string, rows: unknown[], opts: { onConflict: string }) => Promise<unknown>;
-  deleteRows?: (table: string, filter: any) => Promise<void>;
-  ensureDevice?: (row: Record<string, unknown>) => Promise<unknown>;
-  replacementStaging?: PushReplacementStaging;
+  archiveObject: (args: any) => Promise<{ ready: boolean; durabilityReceipt?: DurabilityReceipt }>;
+  ensureDevice: (row: Record<string, unknown>) => Promise<unknown>;
+  commitProjection: (receipt: DurabilityReceipt, decodedBody: Uint8Array) => Promise<any>;
   quotaConfig?: { maxBatches: number; maxBytes: number; windowSec: number };
   now?: () => Date;
 }) {
@@ -237,6 +111,7 @@ export function createPushIngest({
 
   return {
     async acceptBatch({ userId, decodedBody }: { userId: string; decodedBody: Uint8Array }) {
+      if (!isUuid(userId)) throw new PushProtocolError('unauthorized', 401);
       const bodySha256 = sha256Hex(decodedBody);
       const { header, records } = parseNdjsonEntity(decodedBody);
       const wal = createPushWal({ userId, store: walStore });
@@ -253,9 +128,34 @@ export function createPushIngest({
       if (OBJECT_LANE_STREAMS.has(header.stream)) {
         throw new PushProtocolError('use_object_lane', 422);
       }
+      if ((header.delivery === 'append' && !APPEND_STREAM_PROJECTIONS[header.stream]) ||
+          (header.delivery === 'replace_window' && !REPLACE_STREAM_PROJECTIONS[header.stream]) ||
+          (header.delivery !== 'append' && header.delivery !== 'replace_window')) {
+        throw new PushProtocolError('unsupported_delivery', 422);
+      }
+      const deviceId = noopDeviceId(userId, header.deviceId);
+      // Reject malformed scalar rows before reservation/archive; ACK must cover every row.
+      if (!streamsForVersion(header.protocolVersion).has(header.stream)) throw new PushProtocolError('unsupported_version', 422);
+      const schemaVersion = schemaVersionFor(header.stream, header.protocolVersion);
+      if (header.schemaVersion != null && header.schemaVersion !== schemaVersion) throw new PushProtocolError('invalid_schema_version', 422);
+      for (const record of records) scalarAppendFields(header.stream, record, header.protocolVersion);
+      await ensureDevice({
+          id: deviceId, user_id: userId, source_kind: 'noop_push',
+          external_device_id: String(header.deviceId || ''), last_seen_at: now().toISOString(),
+      });
+
+      // Reserve before archive, projection, quota, or ACK. A reservation survives WAL trimming
+      // and a crash before ACK, so a changed body cannot reuse the batch identity.
+      const reservedAt = await wal.appendWal({
+        batchId: header.batchId, stream: header.stream, deviceId: header.deviceId,
+        canonicalDeviceId: deviceId, sourceId: header.sourceId, recordCount: header.recordCount,
+        bodySha256, receivedAt: now().toISOString(),
+      });
 
       const prior = await wal.getAck(header.batchId);
-      if (prior?.bodySha256 === bodySha256 && prior?.ack) {
+      if (prior?.bodySha256 === bodySha256 && prior?.ack?.durabilityReceipt?.version === 1 &&
+          prior?.ack?.durabilityReceipt?.state === 'verified_indexed') {
+        await wal.trimWal(header.batchId);
         return prior.ack;
       }
       if (prior && prior.bodySha256 !== bodySha256) {
@@ -264,30 +164,11 @@ export function createPushIngest({
 
       await quota.reserve(userId, decodedBody.length);
 
-      await wal.appendWal({
-        batchId: header.batchId,
-        stream: header.stream,
-        deviceId: header.deviceId,
-        sourceId: header.sourceId,
-        recordCount: header.recordCount,
-        bodySha256,
-        receivedAt: now().toISOString(),
-      });
-
-      const deviceId = noopDeviceId(userId, header.deviceId);
-      if (typeof ensureDevice === 'function') {
-        await ensureDevice({
-          id: deviceId,
-          user_id: userId,
-          source_kind: 'noop_push',
-          external_device_id: String(header.deviceId || ''),
-          last_seen_at: now().toISOString(),
-        });
-      }
-
       const objectId = header.batchId && isUuid(header.batchId) ? header.batchId : crypto.randomUUID();
       const archiveRecords = records;
-      const { startAt, endAt } = archiveWindowFromRecords(header.stream, archiveRecords, now(), header);
+      const fallbackAt = new Date(reservedAt);
+      if (!Number.isFinite(fallbackAt.getTime())) throw new Error('reservation_timestamp_missing');
+      const { startAt, endAt } = archiveWindowFromRecords(header.stream, archiveRecords, fallbackAt, header);
       const archiveBytes = gzipSync(decodedBody);
       const archiveSha256 = sha256Hex(archiveBytes);
       const key = rawObjectKeyV3({
@@ -308,64 +189,24 @@ export function createPushIngest({
         contentType: 'application/x-ndjson',
         format: 'ndjson_gzip_noop_push_v1',
         compression: 'gzip',
-        schemaVersion: 1,
+        schemaVersion,
+        protocolVersion: header.protocolVersion,
         sha256: archiveSha256,
+        uncompressedBytes: decodedBody.length,
+        batchId: header.batchId,
+        sourceId: header.sourceId,
         sampleCount: header.recordCount,
         startAt,
         endAt,
         periodDay: startAt.slice(0, 10),
       });
 
-      if (header.delivery === 'append') {
-        const projection = APPEND_STREAM_PROJECTIONS[header.stream];
-        if (projection && typeof upsertRows === 'function') {
-          const rows = records
-            .map((record) => projection.mapRow({
-              userId,
-              deviceId,
-              sourceId: header.sourceId,
-              batchId: header.batchId,
-              record,
-            }))
-            .filter(Boolean);
-          if (rows.length) {
-            await upsertRows(projection.table, rows, { onConflict: projection.onConflict });
-          }
-        }
-      } else if (header.delivery === 'replace_window') {
-        if (!REPLACE_STREAM_PROJECTIONS[header.stream]) {
-          throw new PushProtocolError('unsupported_delivery', 422);
-        }
-        if (!replacementStaging) {
-          throw new PushProtocolError('replacement_staging_unavailable', 503);
-        }
-        const staged = await replacementStaging.stagePart({ userId, header, records, bodySha256 });
-        if (staged.isCompletingPart) {
-          await applyReplacement({
-            header,
-            records: staged.records,
-            userId,
-            deviceId,
-            upsertRows,
-            deleteRows,
-          });
-          await replacementStaging.clearGeneration({ userId, header });
-        }
-      } else {
-        throw new PushProtocolError('unsupported_delivery', 422);
-      }
-
-      if (!manifest?.ready) {
+      if (!manifest?.ready || !manifest.durabilityReceipt) {
         throw new PushProtocolError('archive_not_ready', 503);
       }
 
-      const ack = buildAck(header);
-      if (!ackMatchesBatch(ack, header)) {
-        throw new PushProtocolError('ack_internal_mismatch', 500);
-      }
-      await wal.saveAck(header.batchId, ack, bodySha256);
-      await wal.trimWal(header.batchId);
-      return ack;
+      // Projection writes, scoring invalidation, ACK and debt settle in one SQL transaction.
+      return await commitProjection(manifest.durabilityReceipt, decodedBody);
     },
   };
 }

@@ -1,6 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "NARA": {"shouldTranslate":false,"comment":"NARA is the product brand and is not translated."},
     "%@ %lld": {
       "localizations": {
         "de": {

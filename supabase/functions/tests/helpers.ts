@@ -4,9 +4,8 @@
 // `putViaPresignedUrl` is the device's leg: it accepts ONLY a URL carrying a valid unexpired
 // signature, which is what makes "the app uploads straight to the bucket" an assertion.
 //
-// One deliberate divergence: 'zstd' compression is the identity transform here. The lane never
-// decompresses on the write path (digest verification stays in the Node backend), and the edge
-// runtime has no zstd codec — what is under test is the housing, not the compressor.
+// Unit doubles only. SQL atomicity and authorization are proved separately by native Postgres
+// and PostgREST in intake_integration_test.ts, not by the RPC responses below.
 import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { createS3 } from '../_shared/s3.ts';
@@ -21,7 +20,20 @@ export function sha256Hex(buf: Uint8Array): string {
 
 export function compressFor(compression: string, buf: Uint8Array): Uint8Array {
   if (compression === 'gzip') return gzipSync(buf);
-  return buf; // 'zstd' and 'none' pass through — see header note
+  if (compression !== 'zstd') return buf;
+  // Valid Zstandard frame with raw blocks (not the old identity-transform pseudo-zstd fixture).
+  const blocks = Math.max(1, Math.ceil(buf.length / 131072));
+  const out = new Uint8Array(9 + blocks * 3 + buf.length);
+  out.set([0x28, 0xb5, 0x2f, 0xfd, 0xa0]);
+  new DataView(out.buffer).setUint32(5, buf.length, true);
+  let offset = 9;
+  for (let block = 0; block < blocks; block++) {
+    const bytes = buf.subarray(block * 131072, (block + 1) * 131072);
+    const header = (bytes.length << 3) | (block === blocks - 1 ? 1 : 0);
+    out.set([header & 255, (header >> 8) & 255, (header >> 16) & 255], offset);
+    offset += 3; out.set(bytes, offset); offset += bytes.length;
+  }
+  return out;
 }
 
 export function makeFakeB2({ now = () => new Date() } = {}) {
@@ -53,6 +65,7 @@ export function makeFakeB2({ now = () => new Date() } = {}) {
       return {
         ok: true,
         status: 200,
+        body: new ReadableStream({ start(controller) { controller.enqueue(hit.body); controller.close(); } }),
         headers: { get: (h: string) => headers.get(String(h).toLowerCase()) ?? null },
         arrayBuffer: async () => hit.body.buffer.slice(
           hit.body.byteOffset,
@@ -66,6 +79,12 @@ export function makeFakeB2({ now = () => new Date() } = {}) {
       return { ok: true, status: 204, headers: { get: () => null }, text: async () => '' };
     }
     if (method === 'PUT') {
+      if (init.headers?.['x-amz-copy-source']) {
+        const source = objects.get(decodeURIComponent(init.headers['x-amz-copy-source'].slice(`/${B2_BUCKET}/`.length)));
+        if (!source) return new Response('<Error/>', { status: 404 });
+        objects.set(key, { ...source, body: source.body.slice() });
+        return new Response('<CopyObjectResult><ETag>fixture</ETag></CopyObjectResult>');
+      }
       const body = init.body instanceof Uint8Array ? init.body : new Uint8Array(init.body || []);
       objects.set(key, { body, contentType: 'application/octet-stream', etag: `"${sha256Hex(body).slice(0, 32)}"` });
       return { ok: true, status: 200, headers: { get: () => `"${sha256Hex(body).slice(0, 32)}"` }, text: async () => '' };
@@ -197,7 +216,70 @@ export function makeMemRest() {
       return [];
     },
 
-    async rpc(name: string, args: unknown = {}) {
+    async rpc(name: string, args: any = {}): Promise<any> {
+      if (name === 'noop_register_push_device') {
+        const devices = rowsFor('devices');
+        const existing = devices.find((r) => r.id === args.p_device_id);
+        if (existing && existing.user_id !== args.p_user_id) throw new Error('device_owner_conflict');
+        if (!existing) devices.push({ id: args.p_device_id, user_id: args.p_user_id });
+        return args.p_device_id;
+      }
+      if (name === 'noop_reserve_object_manifest') {
+        const row = args.p_manifest;
+        const prior = manifests.get(row.id);
+        if (prior && (prior.user_id !== row.user_id || prior.device_id !== row.device_id)) throw new Error('object_owner_conflict');
+        if (prior && ['sha256', 'object_kind', 'compressed_bytes', 'uncompressed_bytes', 'schema_version', 'start_at', 'end_at', 'sample_count', 'batch_id', 'source_id'].some((key) => prior[key] !== row[key])) throw new Error('object_id_conflict');
+        if (!prior) manifests.set(row.id, { ...row, upload_object_key: row.object_key });
+        return manifests.get(row.id);
+      }
+      if (name === 'noop_reserve_copy_intent') {
+        const row = manifests.get(args.p_object_id);
+        if (!row || row.user_id !== args.p_user_id) throw new Error('object_owner_conflict');
+        if (row.durability_receipt) return { receipt: row.durability_receipt };
+        const uploadKey = row.upload_object_key || row.object_key;
+        const id = crypto.randomUUID();
+        const intent = { id, object_id: row.id, user_id: row.user_id, upload_key: uploadKey,
+          verified_key: `${uploadKey.slice(0,uploadKey.lastIndexOf('/'))}/verified/${row.id}/${id}/${uploadKey.split('/').pop()}`,
+          lease_token: crypto.randomUUID(), state: 'copying' };
+        rowsFor('noop_object_copy_intents').push(intent);
+        return intent;
+      }
+      if (name === 'noop_commit_copy_receipt') {
+        const intent = rowsFor('noop_object_copy_intents').find((row) => row.id === args.p_intent_id);
+        if (!intent || intent.lease_token !== args.p_lease_token || intent.state !== 'copying') throw new Error('copy_lease_lost');
+        const receipt = await this.rpc('noop_commit_object_receipt', { ...args,
+          p_user_id: intent.user_id, p_object_id: intent.object_id, p_verified_key: intent.verified_key });
+        intent.state = receipt.objectKey === intent.verified_key ? 'published' : 'abandoned';
+        return receipt;
+      }
+      if (name === 'noop_abandon_copy_intent') {
+        const intent = rowsFor('noop_object_copy_intents').find((row) => row.id === args.p_intent_id);
+        if (intent?.state === 'copying' && intent.lease_token === args.p_lease_token) intent.state = 'abandoned';
+        return null;
+      }
+      if (name === 'noop_commit_object_receipt') {
+        const row = manifests.get(args.p_object_id);
+        const stamp = new Date().toISOString();
+        const receipt = row.durability_receipt ?? {
+          version: 1, state: 'verified_indexed', receiptId: crypto.randomUUID(),
+          ownerUserId: row.user_id, deviceId: row.device_id, objectId: row.id,
+          batchId: row.batch_id, sourceId: row.source_id, stream: row.object_kind,
+          schemaVersion: row.schema_version, objectKey: args.p_verified_key,
+          contentSha256: args.p_content_sha256, wireSha256: args.p_wire_sha256,
+          compressedBytes: args.p_compressed_bytes, uncompressedBytes: args.p_uncompressed_bytes,
+          verifiedAt: stamp, indexedAt: stamp,
+        };
+        row.durability_receipt = receipt; row.object_key = receipt.objectKey;
+        row.status = 'ready'; row.sha256_source = 'server_verified';
+        const windows = rowsFor('noop_signal_windows');
+        const seconds = (Date.parse(row.end_at) - Date.parse(row.start_at)) / 1000;
+        if (!windows.some((r) => r.object_id === row.id)) windows.push({
+          object_id: row.id, expected_records: seconds, received_records: row.sample_count,
+          missing_records: Math.max(0,seconds-row.sample_count), coverage: Math.min(1,row.sample_count/seconds),
+          interpolated_records: 0,
+        });
+        return receipt;
+      }
       return [];
     },
 

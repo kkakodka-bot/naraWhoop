@@ -326,7 +326,8 @@ public enum SleepStageTotals {
     /// negative gap (a block starting inside the previous span) does not bridge — pinned legacy
     /// semantics, `gap >= 0` — and never fabricates a seam. Groups ordered by start; pure and
     /// deterministic; Kotlin twin `bridgedNightGroups`. (#364)
-    public static func bridgedNightGroups(_ blocks: [NightBlock], offsetSec: Int) -> [BridgedNightGroup] {
+    public static func bridgedNightGroups(_ blocks: [NightBlock], offsetSec: Int,
+                                          timezone: TimeZone? = nil) -> [BridgedNightGroup] {
         guard !blocks.isEmpty else { return [] }
         // Sort indices by onset so bridging sees neighbours, exactly as `bridgeAdjacent` sorts the blocks.
         let order = blocks.indices.sorted { blocks[$0].start < blocks[$1].start }
@@ -348,7 +349,8 @@ public enum SleepStageTotals {
                 // (daytime onset, or a gap at/over nightTailBridgeMaxMin) still stands as its own block.
                 let bridges = gap >= 0
                     && (gap < bridgeS
-                        || (gap < nightTailBridgeS && isOvernightOnset(b.start, offsetSec: offsetSec)))
+                        || (gap < nightTailBridgeS && isOvernightOnset(b.start, offsetSec:
+                            timezone?.secondsFromGMT(for: Date(timeIntervalSince1970: Double(b.start))) ?? offsetSec)))
                 if bridges {
                     if gap > 0 {
                         gaps[gaps.count - 1].append(.init(start: last.end, end: b.start))
@@ -383,9 +385,10 @@ public enum SleepStageTotals {
     /// deterministic; shares the `bridgedNightGroups` pass + `mainNightIndex` so the bridged pick stays
     /// cross-platform stable. (#561)
     public static func mainNightGroupIndices(_ blocks: [NightBlock], offsetSec: Int,
-                                             habitualMidsleepSec: Int? = nil) -> [Int]? {
+                                             habitualMidsleepSec: Int? = nil,
+                                             timezone: TimeZone? = nil) -> [Int]? {
         guard !blocks.isEmpty else { return nil }
-        let all = bridgedNightGroups(blocks, offsetSec: offsetSec)
+        let all = bridgedNightGroups(blocks, offsetSec: offsetSec, timezone: timezone)
         // Rebuild each group's bridged span for scoring: sorted-ascending fragments make the span
         // (first start, running-max end) — identical to the span the one-pass loop accumulated.
         let bridgedSpans = all.map { g -> NightBlock in
@@ -393,7 +396,8 @@ public enum SleepStageTotals {
                        end: g.indices.map { blocks[$0].end }.max() ?? 0)
         }
         guard let winner = mainNightIndex(bridgedSpans, offsetSec: offsetSec,
-                                          habitualMidsleepSec: habitualMidsleepSec) else { return nil }
+                                          habitualMidsleepSec: habitualMidsleepSec,
+                                          timezone: timezone) else { return nil }
         return all[winner].indices
     }
 
@@ -408,12 +412,14 @@ public enum SleepStageTotals {
     /// that rank by span (`analyzeDay`). Pass `habitualMidsleepSec` from `habitualMidsleepSec(...)` once
     /// enough history exists; leave nil for the cold-start band. (#525 / #547)
     public static func mainNightIndex(_ blocks: [NightBlock], offsetSec: Int,
-                                      habitualMidsleepSec: Int? = nil) -> Int? {
+                                      habitualMidsleepSec: Int? = nil,
+                                      timezone: TimeZone? = nil) -> Int? {
         guard !blocks.isEmpty else { return nil }
         let target = targetMidsleepSec(habitualMidsleepSec)
         func score(_ b: NightBlock) -> Double {
             let asleepMin = Double(b.durationS) / 60.0
-            let midSec = localSecOfDay(b.midpointSec, offsetSec: offsetSec)
+            let midSec = localSecOfDay(b.midpointSec, offsetSec:
+                timezone?.secondsFromGMT(for: Date(timeIntervalSince1970: Double(b.midpointSec))) ?? offsetSec)
             return asleepMin + alignmentBonusMinutes(blockMidSec: midSec, targetMidSec: target)
         }
         var bestIdx = 0

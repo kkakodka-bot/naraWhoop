@@ -2664,4 +2664,7 @@
     <string name="imu_recorder_delete_message">Все непрерывно записанные данные 100 Гц на этом устройстве будут удалены безвозвратно.</string>
     <string name="imu_recorder_delete_confirm">Удалить</string>
     <string name="imu_recorder_cancel">Отмена</string>
+    <string name="update_whats_new_nara_version">Что нового в NARA %1$s</string>
+    <string name="update_nara_version_available">Вышла NARA %1$s — нажмите, чтобы узнать о нововведениях.</string>
+    <string name="widget_open_nara_to_connect">Откройте NARA для подключения</string>
 </resources>

@@ -709,7 +709,7 @@ object SleepStager {
      *
      * The flag travels on instead, so a consumer that wants to weigh an HR-only night down still can.
      */
-    internal fun hrOnlySessions(
+    fun hrOnlySessions(
         hr: List<HrSample>,
         rr: List<RrInterval>,
         resp: List<RespSample>,
@@ -1490,14 +1490,15 @@ object SleepStager {
         // and the sparse-gravity bridge records its result. Side-effect-only; the returned list is
         // byte-identical to the untraced call. Default null = no work, byte-identical. Mirrors Swift.
         traceSink: ((String) -> Unit)? = null,
+        timezone: java.time.ZoneId? = null,
     ): List<DetectedSleep> {
         // Test mode ONLY: a requested trace MUST run the live gate ladder so every verdict emits for THIS
         // night — never a silent memo replay. The trace is side-effect-only (the returned list is
         // byte-identical to the untraced call), so every real call still memoizes below. Mirrors the
         // Swift detectSleep traceSink bypass (#707).
-        if (traceSink != null) {
+        if (traceSink != null || timezone != null) {
             return detectSleepUncached(hr, rr, resp, gravity, tzOffsetSeconds, wristOff,
-                bandSleepState, useSleepStagerV2, sleepHRBaseline, traceSink)
+                bandSleepState, useSleepStagerV2, sleepHRBaseline, traceSink,timezone)
         }
         val key = DetectKey(
             // Fold the three gravity axes SEPARATELY (raw IEEE-754 bits, like StagerCache.fingerprint)
@@ -1543,6 +1544,7 @@ object SleepStager {
         useSleepStagerV2: Boolean,
         sleepHRBaseline: Double?,
         traceSink: ((String) -> Unit)?,
+        timezone: java.time.ZoneId? = null,
     ): List<DetectedSleep> {
         val grav = gravity.sortedBy { it.ts }
         if (grav.size < 2) return emptyList()
@@ -1674,7 +1676,8 @@ object SleepStager {
             // clear the STRONGER re-onset bar — killing the 9 am phantom nap of residual post-wake stillness
             // while keeping a genuine second sleep. Outside the window the guard is the ordinary daytime bar.
             val morningWakeEnd = if (chainFromOvernight) chainPrevEnd else null
-            val isDaytime = isDaytimeCenter(p, tzOffsetSeconds)
+            val center=p.start+(p.end-p.start)/2
+            val isDaytime = isDaytimeCenter(p, timezone?.rules?.getOffset(java.time.Instant.ofEpochSecond(center))?.totalSeconds?.toLong() ?: tzOffsetSeconds)
             // Evaluate the morning-stillness guard ONLY when the run is daytime-centered, preserving the
             // original short-circuit (overnight runs never call it). The boolean used to drop below is
             // identical to the original combined condition.
@@ -1731,7 +1734,8 @@ object SleepStager {
                 }
             }
             // A run that does NOT continue the chain re-anchors it on this run's onset.
-            if (!continuesChain) chainFromOvernight = isOvernightOnset(p.start, tzOffsetSeconds)
+            if (!continuesChain) chainFromOvernight = isOvernightOnset(p.start,
+                timezone?.rules?.getOffset(java.time.Instant.ofEpochSecond(p.start))?.totalSeconds?.toLong() ?: tzOffsetSeconds)
             chainPrevEnd = p.end
         }
         sessions.sortBy { it.start }
@@ -1801,7 +1805,7 @@ object SleepStager {
      * invalidate naturally — a moved bed/wake time changes start/end → new key; newly-banked samples change
      * the per-stream count/edge-ts/checksum → new key (see [StagerCache.fingerprint]).
      */
-    internal fun stageSession(
+    fun stageSession(
         start: Long, end: Long, grav: List<GravitySample>,
         hr: List<HrSample>, rr: List<RrInterval>, resp: List<RespSample>,
     ): List<StageSegment> {
@@ -3230,7 +3234,7 @@ object SleepStager {
      * being admitted by the prefilter and then dropped. Window stage tagging and [HrvWindow.startTs] are
      * unchanged — the final window keeps its half-open center `t + windowS / 2`.
      */
-    internal fun sessionHrvWindows(
+    fun sessionHrvWindows(
         start: Long, end: Long, rr: List<RrInterval>, stages: List<StageSegment>,
     ): List<HrvWindow> {
         // CONTRACT: `rr` MUST already be ts-sorted (RMSSD is built from SUCCESSIVE differences, so a bucket

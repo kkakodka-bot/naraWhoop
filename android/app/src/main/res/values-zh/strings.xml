@@ -2694,4 +2694,7 @@
     <string name="imu_recorder_delete_message">此设备上所有连续记录的 100 Hz 数据将被永久删除。</string>
     <string name="imu_recorder_delete_confirm">删除</string>
     <string name="imu_recorder_cancel">取消</string>
+    <string name="update_whats_new_nara_version">NARA %1$s 新功能</string>
+    <string name="update_nara_version_available">NARA %1$s 已推出，点按查看新功能。</string>
+    <string name="widget_open_nara_to_connect">打开 NARA 以连接</string>
 </resources>

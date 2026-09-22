@@ -40,6 +40,8 @@ import com.noop.protocol.Whoop5RawImu
 import com.noop.testcentre.ImuContinuousRecorder
 import com.noop.testcentre.ImuSessionFileStore
 import com.noop.data.WhoopRepository
+import com.noop.push.SelfHostedPushScheduler
+import com.noop.push.ServerScoringSettings
 import com.noop.protocol.AlarmPayload
 import com.noop.protocol.DYN_ACCEL_STILL_THRESHOLD_G
 import com.noop.protocol.BackfillCaptureJsonl
@@ -3041,7 +3043,7 @@ class WhoopBleClient(
      * one having never synced — this correctly leaves the display empty and the 5/MG reads "never".
      */
     private fun seedLastSyncFromActiveStrap() {
-        val registry = (context.applicationContext as? com.noop.NoopApplication)?.deviceRegistry ?: return
+        val registry = com.noop.account.AccountStorageContext.runtime(context)?.deviceRegistry ?: return
         ioScope.launch {
             val rows = runCatching { registry.all() }.getOrDefault(emptyList())
             val activeId = runCatching { registry.activeDeviceId() }.getOrNull()
@@ -3090,6 +3092,8 @@ class WhoopBleClient(
         ackTrim = { trim, endData -> ackHistoricalChunk(trim, endData) },
         onBankedOffload = { counts -> addBankedOffload(counts) },
         onChunkCommitted = { batch -> onBackfillChunkCommitted(batch) },
+        onChunkCommitBegin = { pauseBackfillIdleWatchdogForCommit() },
+        onChunkCommitAborted = { resumeBackfillIdleWatchdogAfterAbortedCommit() },
         onConsoleChunk = { consoleChunksThisSession += 1 },
         // #77/#91: archive undecodable frames before the ack. append() returns ok=true (written, or
         // archive-full → still safe to ack) and THROWS only on a genuine write failure → return false
@@ -3126,6 +3130,7 @@ class WhoopBleClient(
     @Suppress("UNUSED_PARAMETER")
     private fun onBackfillChunkCommitted(batch: StreamBatch) {
         decodedChunksThisSession += 1   // invoked once per non-empty decoded chunk (#77 family tally)
+        SelfHostedPushScheduler.enqueueOnChunkCommitted(context)
         // No scoring here. The productive insert atomically marked durable syncJob debt before ACK;
         // the terminal BackfillContinuation decision drains it once for the whole oldest-first burst.
     }
@@ -3156,6 +3161,13 @@ class WhoopBleClient(
                         analyzeAfterBackfillPending.set(true)
                         return@launch
                     }
+                if (ServerScoringSettings.skipsSyncCoupledRescore(context)) {
+                    log("re-score: skipped (serverScoring on — VPS scores HRV/sleep)")
+                    if (!repository.settleSyncJob(rescoreJob)) {
+                        analyzeAfterBackfillPending.set(true)
+                        return@launch
+                    }
+                } else {
                 val profileStore = ProfileStore.from(context)
                 // #1493: was built longhand here and silently omitted waistCm, so this pass scored VO₂max
                 // with the Uth fallback while the 15-minute pass used the waist-based Nes estimate — the
@@ -3209,7 +3221,7 @@ class WhoopBleClient(
                         // WHOOP 4.0's raw ADC (~772) is read as centidegrees (7.7 C), missing the 28-42 C
                         // worn gate entirely. The sync pass would persist that, and the next UI pass would
                         // silently correct it — so the stored value depended on which pass wrote last.
-                        ownerSource = (context.applicationContext as? NoopApplication)
+                        ownerSource = com.noop.account.AccountStorageContext.runtime(context)
                             ?.deviceRegistry?.let { RegistryDayOwnerSource(it) },
                         maxHROverride = profileStore.hrMaxOverride.takeIf { it > 0 }?.toDouble(),
                         // Steps-estimate calibration: honor the user's manual override and persist the fit
@@ -3320,6 +3332,7 @@ class WhoopBleClient(
                 if (!repository.settleSyncJob(rescoreJob)) {
                     analyzeAfterBackfillPending.set(true)
                     return@launch
+                }
                 }
                 }
 
@@ -3649,7 +3662,14 @@ class WhoopBleClient(
     // --- Offload frame drain (preserves START/data/END arrival order; port of routeBackfillFrame) ---
 
     /** Ordered queue + generation-safe owner for the serial Backfiller drain. */
-    private val backfillDrain = BackfillDrainGate<ByteArray>()
+    private val backfillDrain = BackfillDrainGate<BackfillPipelineItem>()
+    /** False after timeout until the next pipeline begin; stray frames are dropped. */
+    @Volatile private var acceptingPipelineFrames = false
+    /** True from chunk-commit start until ack or an aborted commit (persist held). */
+    @Volatile private var chunkCommitInFlight = false
+    /** T2-2: coalesce idle-watchdog re-arms to at most once per second. */
+    private var lastBackfillTimeoutArmMs = 0L
+    private val backfillCommitTimeoutRunnable = Runnable { onBackfillCommitTimeout() }
 
     /** Periodic re-offload + idle-watchdog tokens (handler-posted; cancelled on disconnect). */
     private val periodicBackfillRunnable = Runnable { triggerPeriodicBackfill() }
@@ -3809,6 +3829,8 @@ class WhoopBleClient(
 
     @SuppressLint("MissingPermission")
     private fun connectInternal(model: WhoopModel, userInitiated: Boolean) {
+        val account = context as? com.noop.account.AccountStorageContext
+        if (account != null && (account.identity.scope == null || !account.isCurrent())) return
         // #1881: only the SYSTEM path is gated. This class already draws that line — `connect()` is the
         // user's explicit Connect button, `connectFromSystem()` is every automatic path — and the report's
         // complaint is only ever about NOOP acting on its own. Gating both would have made the Connect
@@ -4289,7 +4311,7 @@ class WhoopBleClient(
 
     /** Re-read whether a WHOOP is active and un-block the gate if it is. See [whoopConnectAllowed]. */
     private fun revalidateWhoopIsActive() {
-        val registry = (context.applicationContext as? com.noop.NoopApplication)?.deviceRegistry ?: return
+        val registry = com.noop.account.AccountStorageContext.runtime(context)?.deviceRegistry ?: return
         ioScope.launch {
             val activeId = runCatching { registry.activeDeviceId() }.getOrNull() ?: return@launch
             val rows = runCatching { registry.all() }.getOrNull() ?: return@launch
@@ -4321,7 +4343,7 @@ class WhoopBleClient(
      */
     private fun adoptSourceIdentity(address: String?) {
         val addr = address ?: return
-        val registry = (context.applicationContext as? com.noop.NoopApplication)?.deviceRegistry ?: return
+        val registry = com.noop.account.AccountStorageContext.runtime(context)?.deviceRegistry ?: return
         ioScope.launch {
             val rows = runCatching { registry.all() }.getOrNull() ?: return@launch
             val resolved = SourceIdentity.resolve(addr, rows, deviceId) ?: return@launch
@@ -8359,7 +8381,7 @@ class WhoopBleClient(
 
         // Record it continuously — independent of the realtime stream or which screen is open.
         // Port of BLEManager.parseStandardHR -> collector.ingestStandardHR(hr:rr:at:).
-        ingestStandardHr(hr, rr, contact, (System.currentTimeMillis() / 1000L))
+        ingestStandardHr(hr, rr, contact, (System.currentTimeMillis() / 1000L), connectedFamily)
     }
 
     /** The Test Centre gate, bound once to the app's single "noop_testcentre" prefs file. Lazily built so
@@ -9856,10 +9878,13 @@ class WhoopBleClient(
      * Buffer one standard 0x2A37 reading (carries a wall-clock ts directly, no clock ref needed).
      * Auto-flushes ~every 30 readings. Port of `Collector.ingestStandardHR`.
      */
-    private fun ingestStandardHr(hr: Int, rr: List<Int>, contact: StandardHrContact, ts: Long) {
+    private fun ingestStandardHr(hr: Int, rr: List<Int>, contact: StandardHrContact, ts: Long,
+                                 family: DeviceFamily) {
         val shouldFlush = synchronized(collectorLock) {
             if (hr in 30..220) stdHr.add(HrRow(ts, hr))
-            for (r in rr) if (r in 250..3000) stdRr.add(RrRow(ts, r))
+            val source = if (family == DeviceFamily.WHOOP5)
+                com.noop.protocol.RrSourceChannel.WHOOP5_STANDARD else null
+            for (r in rr) if (r in 250..3000) stdRr.add(RrRow(ts, r, source))
             stdContact.add(StandardHrMapping.contactEvent(ts, contact))
             standardHrBufferReachedFlushThreshold(stdHr.size, stdRr.size, stdContact.size)
         }
@@ -9966,7 +9991,6 @@ class WhoopBleClient(
         // #42/#364: consecutiveAutoContinues > 0 means this offload is re-kicked after an EARLIER session
         // in the same burst banked rows — tell the backfiller so its no-cursor END reads as "caught up",
         // not "no banked history / charge to 100%". A fresh offload (count 0) keeps the honest guidance.
-        backfiller.begin(connectedFamily, continuedAfterRows = consecutiveAutoContinues > 0)   // family drives the +4 puffin offset for 5/MG (#78)
         backfilling = true
         lastBackfillAtMs = System.currentTimeMillis()   // the BackfillPolicy floor is measured from the last KICK
         ackedChunksThisSession = 0
@@ -9977,41 +10001,38 @@ class WhoopBleClient(
         // reusing lastBackfillAtMs, which is the BackfillPolicy floor and measures from the last KICK.
         backfillStartedAtMs = System.currentTimeMillis()
         historicalKickSent = false
+        lastBackfillTimeoutArmMs = 0L
+        chunkCommitInFlight = false
         _state.update { it.copy(backfilling = true, syncChunksThisSession = 0) }
         refreshConnectionPriority()   // #477: escalate to HIGH for the offload burst (faster sync). No-op unless enabled.
         applyPreferredPhy()           // #533: prefer LE 2M for the burst (halves air-time). No-op unless enabled.
-        // Opt-in raw capture (research aid): pref read fresh per session, like the probes gate.
-        // Normally already open from the connect hook; this covers a capture switched on mid-session.
-        if (connectedFamily == DeviceFamily.WHOOP5 && PuffinExperiment.from(context).isCaptureEnabled) {
-            startWhoop5BackfillCapture()
-            // Give the offload a FULL line budget. Since the capture was hoisted out of the `backfilling`
-            // gate it also records the live flood, and on a link that stays up overnight that flood can
-            // exhaust the 40k cap before the morning sync — pausing capture at exactly the moment the
-            // offload arrives, and losing the material this feature exists to collect. The line cap is a
-            // runaway guard, not a quota the live stream is entitled to spend, so the offload gets it
-            // back. The BYTE cap still bounds the file and is untouched.
-            captureLines = 0
-        }
-        if (connectedFamily == DeviceFamily.WHOOP5) {
-            // Re-apply the Broadcast-HR device-config flag if the user opted in (#181).
-            if (PuffinExperiment.from(context).broadcastHr) setBroadcastHr(true)
-            // Goose parity, hardware-validated (#78 fork): query the strap's stored range first and
-            // fire the transfer on its SUCCESS response (PENDING precedes it). FAIL-OPEN: real
-            // hardware sometimes swallows the first GET_DATA_RANGE entirely, so a 2s fallback fires
-            // the transfer anyway — the gate can delay the kick but never block it. WHOOP4 keeps its
-            // proven blind-fire path untouched.
-            send(CommandNumber.GET_DATA_RANGE, byteArrayOf(), withResponse = true)
-            handler.postDelayed({
-                if (backfilling && !historicalKickSent) {
-                    log("Backfill: GET_DATA_RANGE unanswered — requesting history anyway (fail-open)")
+        val family = connectedFamily
+        val continued = consecutiveAutoContinues > 0
+        ioScope.launch {
+            awaitPipelineBegin(family, continued)
+            handler.post {
+                if (!backfilling) return@post
+                // Opt-in raw capture (research aid): pref read fresh per session, like the probes gate.
+                if (family == DeviceFamily.WHOOP5 && PuffinExperiment.from(context).isCaptureEnabled) {
+                    startWhoop5BackfillCapture()
+                    captureLines = 0
+                }
+                if (family == DeviceFamily.WHOOP5) {
+                    if (PuffinExperiment.from(context).broadcastHr) setBroadcastHr(true)
+                    send(CommandNumber.GET_DATA_RANGE, byteArrayOf(), withResponse = true)
+                    handler.postDelayed({
+                        if (backfilling && !historicalKickSent) {
+                            log("Backfill: GET_DATA_RANGE unanswered — requesting history anyway (fail-open)")
+                            sendHistoricalKick()
+                        }
+                    }, DATA_RANGE_GATE_MS)
+                } else {
                     sendHistoricalKick()
                 }
-            }, DATA_RANGE_GATE_MS)
-        } else {
-            sendHistoricalKick()
+                armBackfillTimeout()
+                log("Backfill: session started — historical offload requested")
+            }
         }
-        armBackfillTimeout()
-        log("Backfill: session started — historical offload requested")
     }
 
     /** Fire SEND_HISTORICAL_DATA exactly once per backfill session (gate + fallback can both call). */
@@ -10126,27 +10147,57 @@ class WhoopBleClient(
      * END chunk assembly is never reordered. Port of `routeBackfillFrame` + the serial drain task.
      */
     private fun routeBackfillFrame(frame: ByteArray) {
-        val lease = backfillDrain.enqueue(frame) ?: return
+        val lease = backfillDrain.enqueue(BackfillPipelineItem.Frame(frame)) ?: return
+        startBackfillDrain(lease)
+    }
+
+    private suspend fun awaitPipelineBegin(family: DeviceFamily, continuedAfterRows: Boolean) {
+        val ack = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val lease = backfillDrain.enqueue(
+            BackfillPipelineItem.Begin(family, continuedAfterRows, ack),
+        )
+        if (lease != null) startBackfillDrain(lease)
+        ack.await()
+    }
+
+    private suspend fun awaitPipelineTimeout() {
+        val ack = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val lease = backfillDrain.enqueue(BackfillPipelineItem.Timeout(ack))
+        if (lease != null) startBackfillDrain(lease)
+        ack.await()
+    }
+
+    private fun startBackfillDrain(lease: BackfillDrainGate.Lease) {
         ioScope.launch {
             var ownsDrain = true
-            // A throw from ingest() must NEVER leave the drain stuck owned (that would wedge the
-            // offload — every later frame returns early and the queue never drains). finally guarantees
-            // the lease is released even if a chunk handler throws. (#77/#91 hardening.)
             try {
                 while (true) {
-                    val f = backfillDrain.pollOrRelease(lease)
-                    if (f == null) {
-                        ownsDrain = false
-                        break
-                    }
-                    try {
-                        backfiller.ingest(f)
-                    } catch (t: Throwable) {
-                        log("Backfill: drain error (${t.message}) — skipping frame, offload continues")
-                    }
-                    // If the Backfiller consumed all historical data, exit the session cleanly.
-                    if (backfilling && !backfiller.isBackfilling) {
-                        handler.post { exitBackfilling("HISTORY_COMPLETE") }
+                    when (val item = backfillDrain.pollOrRelease(lease)) {
+                        null -> {
+                            ownsDrain = false
+                            break
+                        }
+                        is BackfillPipelineItem.Frame -> {
+                            if (!acceptingPipelineFrames) continue
+                            try {
+                                backfiller.ingest(item.data)
+                            } catch (t: Throwable) {
+                                log("Backfill: drain error (${t.message}) — skipping frame, offload continues")
+                            }
+                            if (backfilling && !backfiller.isBackfilling) {
+                                handler.post { exitBackfilling("HISTORY_COMPLETE") }
+                            }
+                        }
+                        is BackfillPipelineItem.Begin -> {
+                            acceptingPipelineFrames = true
+                            backfiller.begin(item.family, continuedAfterRows = item.continuedAfterRows)
+                            item.ack.complete(Unit)
+                        }
+                        is BackfillPipelineItem.Timeout -> {
+                            acceptingPipelineFrames = false
+                            backfiller.timeoutFired()
+                            item.ack.complete(Unit)
+                        }
                     }
                 }
             } finally {
@@ -10160,11 +10211,37 @@ class WhoopBleClient(
      * silent the timer fires and we exit the session. Port of `armBackfillTimeout`.
      */
     private fun armBackfillTimeout() {
+        val now = System.currentTimeMillis()
+        if (now - lastBackfillTimeoutArmMs < 1000L) return
+        lastBackfillTimeoutArmMs = now
         handler.removeCallbacks(backfillTimeoutRunnable)
         handler.postDelayed(backfillTimeoutRunnable, BACKFILL_IDLE_TIMEOUT_MS)
     }
 
+    private fun pauseBackfillIdleWatchdogForCommit() {
+        if (!backfilling) return
+        chunkCommitInFlight = true
+        handler.removeCallbacks(backfillTimeoutRunnable)
+        handler.removeCallbacks(backfillCommitTimeoutRunnable)
+        handler.postDelayed(backfillCommitTimeoutRunnable, BACKFILL_IDLE_TIMEOUT_MS)
+    }
+
+    private fun resumeBackfillIdleWatchdogAfterAbortedCommit() {
+        if (!chunkCommitInFlight) return
+        chunkCommitInFlight = false
+        handler.removeCallbacks(backfillCommitTimeoutRunnable)
+        armBackfillTimeout()
+    }
+
+    private fun onBackfillCommitTimeout() {
+        ioScope.launch {
+            awaitPipelineTimeout()
+            handler.post { exitBackfilling("commit timeout") }
+        }
+    }
+
     private fun onBackfillTimeout() {
+        if (chunkCommitInFlight) return
         // 5/MG: a session that timed out with ZERO offload frames means the strap never answered the
         // history request (seen on real hardware — the first request after connect can be swallowed).
         // Retry once with a clean teardown; after 2 attempts the 900s periodic timer owns it. (#78 fork)
@@ -10172,19 +10249,23 @@ class WhoopBleClient(
             whoop5HistoryAttempts < 2 && _state.value.connected && _state.value.bonded
         ) {
             whoop5HistoryAttempts++
-            backfiller.timeoutFired()
-            backfilling = false
-            _state.update { it.copy(backfilling = false, syncChunksThisSession = 0) }
-            handler.removeCallbacks(backfillTimeoutRunnable)
-            backfillDrain.clear()
-            log("Backfill: no history frames arrived — retrying request (attempt ${whoop5HistoryAttempts + 1})")
-            // Bounded mid-attempt retry (whoop5HistoryAttempts < 2): AUTO_CONTINUE so the 90s event floor
-            // can't suppress it — it's continuing THIS connect's offload, not a fresh periodic kick.
-            handler.postDelayed({ requestSync(BackfillTrigger.AUTO_CONTINUE) }, WHOOP5_HISTORY_RETRY_DELAY_MS)
+            ioScope.launch {
+                awaitPipelineTimeout()
+                handler.post {
+                    backfilling = false
+                    _state.update { it.copy(backfilling = false, syncChunksThisSession = 0) }
+                    handler.removeCallbacks(backfillTimeoutRunnable)
+                    acceptingPipelineFrames = false
+                    log("Backfill: no history frames arrived — retrying request (attempt ${whoop5HistoryAttempts + 1})")
+                    handler.postDelayed({ requestSync(BackfillTrigger.AUTO_CONTINUE) }, WHOOP5_HISTORY_RETRY_DELAY_MS)
+                }
+            }
             return
         }
-        backfiller.timeoutFired()
-        exitBackfilling("timeout")
+        ioScope.launch {
+            awaitPipelineTimeout()
+            handler.post { exitBackfilling("timeout") }
+        }
     }
 
     /**
@@ -10434,6 +10515,9 @@ class WhoopBleClient(
             )
         } }
         handler.removeCallbacks(backfillTimeoutRunnable)
+        handler.removeCallbacks(backfillCommitTimeoutRunnable)
+        chunkCommitInFlight = false
+        acceptingPipelineFrames = false
         backfillDrain.clear()
         closeWhoop5BackfillCapture(flushSummary = true)
         log("Backfill: session ended — reason=$reason")
@@ -10667,6 +10751,9 @@ class WhoopBleClient(
         payload[0] = 0x01
         System.arraycopy(endData, 0, payload, 1, endData.size)
         send(CommandNumber.HISTORICAL_DATA_RESULT, payload, withResponse = true)
+        chunkCommitInFlight = false
+        handler.removeCallbacks(backfillCommitTimeoutRunnable)
+        armBackfillTimeout()
         // Progress signal for the "Syncing strap history…" UI (#77). Republish every 10th chunk only —
         // the FGS notification re-posts on every LiveState emission. Runs on the single serial drain
         // coroutine, so the counter is race-free.
@@ -11282,8 +11369,11 @@ class WhoopBleClient(
      * (e.g. AppViewModel.onCleared) AFTER [disconnect]. Idempotent.
      */
     fun shutdown() {
-        flushDurableLogTail()   // #1263: persist the last partial tail batch before we go away
-        ioScope.cancel()
+        try {
+            continuousImuRecorder.shutdown()
+            ImuSessionFileStore(context).flushAll()
+            flushDurableLogTail()
+        } finally { ioScope.cancel() }
     }
 
     // ====================================================================================

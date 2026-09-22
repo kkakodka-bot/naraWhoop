@@ -15,7 +15,7 @@ final class PruneTests: XCTestCase {
     }
 
     func testPrunesAgedSyncedBatches() async throws {
-        let store = try await WhoopStore.inMemory()
+        let store = try await receiptedFixtureStore()
         try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
         // synced long ago → pruned; synced recently → kept; unsynced → kept (under cap).
         try await store.enqueueRawBatch(meta("aged", capturedAt: 10, bytes: 100), frames: frames)
@@ -32,9 +32,8 @@ final class PruneTests: XCTestCase {
     }
 
     func testEvictsOldestRawBeyondByteCap() async throws {
-        // Policy 2 (#27): cap the total raw footprint, evicting the OLDEST batches. Decoded
-        // streams persist before raw (E2 invariant), so dropping the oldest raw loses no metric.
-        let store = try await WhoopStore.inMemory()
+        // Oldest bytes beyond the cap may retire only after the exact receipt fixture authorizes them.
+        let store = try await receiptedFixtureStore()
         try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
         try await store.enqueueRawBatch(meta("u1", capturedAt: 10, bytes: 500), frames: frames)
         try await store.enqueueRawBatch(meta("u2", capturedAt: 20, bytes: 500), frames: frames)
@@ -49,7 +48,7 @@ final class PruneTests: XCTestCase {
     func testEvictionAppliesToSyncedAndUnsyncedAlike() async throws {
         // The byte cap is a total-footprint bound: a freshly-synced batch still in the keep
         // window counts toward the cap, and the oldest raw (synced or not) is evicted first.
-        let store = try await WhoopStore.inMemory()
+        let store = try await receiptedFixtureStore()
         try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
         try await store.enqueueRawBatch(meta("s1", capturedAt: 10, bytes: 800), frames: frames)
         try await store.enqueueRawBatch(meta("u2", capturedAt: 20, bytes: 800), frames: frames)
@@ -62,7 +61,7 @@ final class PruneTests: XCTestCase {
     }
 
     func testPruneNeverTouchesDecodedTables() async throws {
-        let store = try await WhoopStore.inMemory()
+        let store = try await receiptedFixtureStore()
         try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
         _ = try await store.insert(Streams(hr: [HRSample(ts: 1, bpm: 60)]), deviceId: "dev1")
         try await store.enqueueRawBatch(meta("aged", capturedAt: 10, bytes: 100), frames: frames)
@@ -73,12 +72,107 @@ final class PruneTests: XCTestCase {
     }
 
     func testNothingToPruneReturnsZero() async throws {
-        let store = try await WhoopStore.inMemory()
+        let store = try await receiptedFixtureStore()
         try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
         try await store.enqueueRawBatch(meta("u1", capturedAt: 10, bytes: 100), frames: frames)
         let pruned = try await store.pruneRaw(now: 100, keepWindowSeconds: 1000,
                                               maxUnsyncedBytes: 1_000_000)
         XCTAssertEqual(pruned, 0)
+    }
+
+    func testLargeBacklogMakesBoundedProgressWithoutDeletingNewestBytes() async throws {
+        let store = try await receiptedFixtureStore()
+        try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
+        let count = WhoopStore.rawPruneRowLimit * 3 + 29
+        for index in 0..<count {
+            try await store.enqueueRawBatch(meta("batch-\(index)", capturedAt: index, bytes: 1), frames: frames)
+        }
+        var deleted = 0
+        for _ in 0..<4 {
+            let page = try await store.pruneRaw(now: count + 1, keepWindowSeconds: 0, maxUnsyncedBytes: 7)
+            XCTAssertGreaterThan(page, 0)
+            XCTAssertLessThanOrEqual(page, WhoopStore.rawPruneRowLimit)
+            deleted += page
+            let retained = try await store.allBatchIdsForTest()
+            XCTAssertEqual(retained.count, count - deleted)
+            for index in (count - 7)..<count { XCTAssertTrue(retained.contains("batch-\(index)")) }
+        }
+        XCTAssertEqual(deleted, count - 7)
+        let idle = try await store.pruneRaw(now: count + 1, keepWindowSeconds: 0, maxUnsyncedBytes: 7)
+        XCTAssertEqual(idle, 0)
+    }
+
+    func testAgingAndByteCapShareOneDeletionBudget() async throws {
+        let store = try await receiptedFixtureStore()
+        try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
+        let aged = WhoopStore.rawPruneRowLimit - 5
+        for index in 0..<(aged + 20) {
+            let key = "batch-\(index)"
+            try await store.enqueueRawBatch(meta(key, capturedAt: index, bytes: 1), frames: frames)
+            if index < aged { try await store.markRawBatchSynced(batchId: key, at: 1) }
+        }
+        let first = try await store.pruneRaw(now: 10_000, keepWindowSeconds: 1_000, maxUnsyncedBytes: 0)
+        XCTAssertEqual(first, WhoopStore.rawPruneRowLimit)
+        let retained = try await store.allBatchIdsForTest()
+        let expected = Set(((aged + 5)..<(aged + 20)).map { "batch-\($0)" })
+        XCTAssertEqual(Set(retained), expected)
+        let second = try await store.pruneRaw(now: 10_000, keepWindowSeconds: 1_000, maxUnsyncedBytes: 0)
+        XCTAssertEqual(second, 15)
+    }
+
+    func testUnreceiptedRowsConsumeTheCapWithoutExposingNewerInCapRows() async throws {
+        let store = try await receiptedFixtureStore()
+        try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
+        for (key, timestamp, bytes) in [
+            ("oldest-unreceipted", 10, 400), ("old-receipted", 20, 400),
+            ("boundary-unreceipted", 30, 600), ("newest-protected", 40, 600),
+        ] {
+            try await store.enqueueRawBatch(meta(key, capturedAt: timestamp, bytes: bytes), frames: frames)
+        }
+        try await store.registryWriter.write { db in
+            try db.execute(sql: "DELETE FROM rawDurabilityReceipt WHERE resourceKey IN ('oldest-unreceipted','boundary-unreceipted')")
+        }
+        let deleted = try await store.pruneRaw(now: 100, keepWindowSeconds: 0, maxUnsyncedBytes: 1_000)
+        XCTAssertEqual(deleted, 1)
+        let retained = try await store.allBatchIdsForTest()
+        XCTAssertEqual(Set(retained), ["oldest-unreceipted", "boundary-unreceipted", "newest-protected"])
+        let held = try await store.pruneRaw(now: 100, keepWindowSeconds: 0, maxUnsyncedBytes: 1_000)
+        XCTAssertEqual(held, 0, "Unreceipted debt can exceed the cap without authorizing newer bytes")
+    }
+
+    func testEqualCaptureTimesKeepTheNewestRowIDsWithinTheCap() async throws {
+        let store = try await receiptedFixtureStore()
+        try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
+        for key in ["first", "second", "third"] {
+            try await store.enqueueRawBatch(meta(key, capturedAt: 10, bytes: 500), frames: frames)
+        }
+        let deleted = try await store.pruneRaw(now: 100, keepWindowSeconds: 0, maxUnsyncedBytes: 1_000)
+        XCTAssertEqual(deleted, 1)
+        let retained = try await store.allBatchIdsForTest()
+        XCTAssertEqual(Set(retained), ["second", "third"])
+    }
+
+    func testMismatchedOrUnexpiredReceiptsCannotAuthorizeEitherDeletionPolicy() async throws {
+        let store = try await receiptedFixtureStore()
+        try await store.upsertDevice(id: "dev1", mac: nil, name: nil)
+        let keys = ["valid", "digest-mismatch", "owner-mismatch", "future-retention", "missing-receipt", "unassigned-source"]
+        for key in keys {
+            try await store.enqueueRawBatch(meta(key, capturedAt: 10, bytes: 100), frames: frames)
+            try await store.markRawBatchSynced(batchId: key, at: 1)
+        }
+        try await store.registryWriter.write { db in
+            // Persisted evidence corruption must fail closed, even if a legacy synced flag is present.
+            try db.execute(sql: "UPDATE rawDurabilityReceipt SET contentSHA256 = ? WHERE resourceKey = 'digest-mismatch'",
+                           arguments: [String(repeating: "0", count: 64)])
+            try db.execute(sql: "UPDATE rawDurabilityReceipt SET scopeKey = 'other-synthetic-owner' WHERE resourceKey = 'owner-mismatch'")
+            try db.execute(sql: "UPDATE rawDurabilityReceipt SET retainUntil = 20000 WHERE resourceKey = 'future-retention'")
+            try db.execute(sql: "DELETE FROM rawDurabilityReceipt WHERE resourceKey = 'missing-receipt'")
+            try db.execute(sql: "UPDATE ingestRawResource SET environment = NULL, accountId = NULL WHERE resourceKey = 'unassigned-source'")
+        }
+        let deleted = try await store.pruneRaw(now: 10_000, keepWindowSeconds: 100, maxUnsyncedBytes: 0)
+        XCTAssertEqual(deleted, 1)
+        let retained = try await store.allBatchIdsForTest()
+        XCTAssertEqual(Set(retained), Set(keys.dropFirst()))
     }
 
 }

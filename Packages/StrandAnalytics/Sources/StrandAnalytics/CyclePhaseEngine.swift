@@ -135,8 +135,57 @@ public enum CyclePhaseEngine {
     public static func classify(_ nights: [Night],
                                 baselineUsable: Bool,
                                 loggedPeriodStarts: [String] = []) -> Result {
+        classifyInputs(nights, baselineUsable: baselineUsable, loggedPeriodStarts: loggedPeriodStarts,
+                       preserveUnknown: false)
+    }
+
+    public enum CalendarInputError: Error, Equatable {
+        case invalidDay(String)
+        case duplicateDay(String)
+    }
+
+    /// Calendar holes stay unknown. The caller standardizes each night against its own before-state
+    /// and admits features under the requested day's source/reset/context policy.
+    public static func classifyCalendar(_ nights: [Night], baselineUsable: Bool, through: String,
+                                        loggedPeriodStarts: [String] = []) throws -> Result {
+        let end = try calendarDate(through)
+        var byDay: [String: Night] = [:]
+        for night in nights {
+            _ = try calendarDate(night.day)
+            guard night.day <= through else { continue }
+            guard byDay.updateValue(night, forKey: night.day) == nil else {
+                throw CalendarInputError.duplicateDay(night.day)
+            }
+        }
+        for day in loggedPeriodStarts { _ = try calendarDate(day) }
+        let calendar = MetricDayCalendar.utc
+        var cursor = try calendarDate(byDay.keys.min() ?? through)
+        var slots: [Night] = []
+        while cursor <= end {
+            guard let key = MetricDayCalendar.key(cursor) else { throw CalendarInputError.invalidDay(through) }
+            slots.append(byDay[key] ?? Night(day: key, tempZ: nil, rhrZ: nil, hrvZ: nil))
+            if cursor == end { break }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor), next > cursor else {
+                throw CalendarInputError.invalidDay(through)
+            }
+            cursor = next
+        }
+        return classifyInputs(slots, baselineUsable: baselineUsable, loggedPeriodStarts: loggedPeriodStarts,
+                              preserveUnknown: true)
+    }
+
+    private static func calendarDate(_ day: String) throws -> Date {
+        do { return try MetricDayCalendar.date(day) }
+        catch { throw CalendarInputError.invalidDay(day) }
+    }
+
+    private static func classifyInputs(_ nights: [Night], baselineUsable: Bool,
+                                       loggedPeriodStarts: [String], preserveUnknown: Bool) -> Result {
         // Gate: need a usable baseline and ~1.5 cycles of data.
-        guard baselineUsable, nights.count >= minNightsToClassify else {
+        let missingCurrent = preserveUnknown && nights.last.flatMap {
+            fusedIndex(tempZ: $0.tempZ, rhrZ: $0.rhrZ, hrvZ: $0.hrvZ)
+        } == nil
+        guard baselineUsable, !missingCurrent, nights.count >= minNightsToClassify else {
             return Result(phase: .learning, confidence: .learning, cycleDayLow: nil, cycleDayHigh: nil,
                           cycleLengthDays: nil, nextPeriodWindow: nil, shiftMarkers: [],
                           note: "Learning your pattern from your nightly temperature - keep wearing it overnight.")
@@ -157,15 +206,15 @@ public enum CyclePhaseEngine {
         let spread = max(1e-9, medianAbsoluteDeviation(values, center: center))
 
         // Per-night elevated flag (luteal-ward run detection).
-        let elevated: [Bool] = fused.map { row in
-            guard let v = row.value else { return false }
+        let elevated: [Bool?] = fused.map { row in
+            guard let v = row.value else { return preserveUnknown ? nil : false }
             return (v - center) >= elevationK * spread
         }
 
         // Detect rising EDGES (follicular→luteal onsets) — the temperature-shift markers.
         var onsets: [Int] = []
         for i in fused.indices {
-            if elevated[i] && (i == 0 || !elevated[i - 1]) { onsets.append(i) }
+            if elevated[i] == true && (i == 0 || elevated[i - 1] == false) { onsets.append(i) }
         }
         let shiftMarkers = onsets.map { ShiftMarker(day: fused[$0].day) }
 
@@ -230,7 +279,7 @@ public enum CyclePhaseEngine {
         // Phase of the MOST RECENT night relative to the latest onset.
         let daysSinceOnset = daysBetween(fused[lastOnsetIdx].day, lastNightDay) ?? 0
         let phase: Phase
-        if elevated[fused.count - 1] {
+        if elevated[fused.count - 1] == true {
             // Currently in an elevated run → luteal, unless we're right at the onset edge (peri-ovulatory).
             phase = daysSinceOnset <= periOvulatoryHalfWidth ? .periOvulatory : .luteal
         } else {

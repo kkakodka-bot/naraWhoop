@@ -1,6 +1,14 @@
 import Foundation
 import GRDB
 
+public enum DeviceIdentityMigrationError: Error, Equatable {
+    case capturedIdentityRequiresExplicitMigration
+}
+
+public enum RestorationIdentityError: Error, Equatable {
+    case missingOwner, ambiguousActiveDevice, invalidRegisteredDevice
+}
+
 /// Synchronous GRDB access to the device registry + day-ownership tables. Kept synchronous (its own
 /// queue) to mirror the existing store helpers; the app wraps it behind the WhoopStore actor / a
 /// @MainActor cache. Enforces invariant I1 (at most one .active) inside setActive's transaction.
@@ -16,6 +24,49 @@ import GRDB
 public struct DeviceRegistryStore: Sendable {
     let dbQueue: any DatabaseWriter
     public init(dbQueue: any DatabaseWriter) { self.dbQueue = dbQueue }
+
+    /// Minimal restoration admission from an existing account database, including committed WAL
+    /// changes. This never creates a store, runs migrations, binds an owner, or prepares archives.
+    /// Callers must still enforce onboarding approval and their current account/session generation.
+    public static func readRestorationDevice(path: String, projectURL: String,
+                                              userID: String) throws -> PairedDevice? {
+        guard UUID(uuidString: userID) != nil,
+              let url = URL(string: projectURL), url.host != nil else {
+            throw LocalAccountOwnershipError.invalidIdentity
+        }
+        var configuration = Configuration()
+        configuration.readonly = true
+        configuration.busyMode = .timeout(0.1)
+        let reader = try DatabaseQueue(path: path, configuration: configuration)
+        defer { try? reader.close() }
+        return try reader.read { db in
+            guard try db.tableExists("localAccountOwner"),
+                  let owner = try Row.fetchOne(db, sql:
+                    "SELECT projectURL,userID FROM localAccountOwner WHERE singleton=1") else {
+                throw RestorationIdentityError.missingOwner
+            }
+            guard owner["projectURL"] as String == projectURL,
+                  owner["userID"] as String == userID else {
+                throw LocalAccountOwnershipError.mismatchedOwner
+            }
+            let active = try Row.fetchAll(db, sql:
+                "SELECT * FROM pairedDevice WHERE status='active' LIMIT 2")
+            guard active.count <= 1 else { throw RestorationIdentityError.ambiguousActiveDevice }
+            guard let row = active.first else { return nil }
+            let brand: String = row["brand"]
+            let sourceKind: String = row["sourceKind"]
+            guard brand.caseInsensitiveCompare("WHOOP") == .orderedSame,
+                  sourceKind == SourceKind.liveBLE.rawValue || sourceKind == SourceKind.historyBLE.rawValue else {
+                return nil
+            }
+            let deviceID: String = row["id"]
+            let peripheralID: String? = row["peripheralId"]
+            guard !deviceID.isEmpty, let peripheralID, UUID(uuidString: peripheralID) != nil else {
+                throw RestorationIdentityError.invalidRegisteredDevice
+            }
+            return Self.decode(row)
+        }
+    }
 
     public func all() throws -> [PairedDevice] {
         try dbQueue.read { db in
@@ -118,6 +169,7 @@ public struct DeviceRegistryStore: Sendable {
     /// `Database.swift`. The `pairedDevice` registry row itself is NOT here (a delete-data operation
     /// empties the device's recordings; archiving/removing the registry entry is a separate op).
     static let deviceScopedTables = [
+        "rawDurabilityReceipt", "sensorQuarantine", "ingestRawResource",
         "hrSample", "rrInterval", "spo2Sample", "skinTempSample", "respSample", "gravitySample",
         "stepSample", "ppgHrSample", "event", "battery", "dailyMetric", "sleepSession",
         "journal", "workout", "appleDaily", "metricSeries", "dayOwnership",
@@ -149,6 +201,11 @@ public struct DeviceRegistryStore: Sendable {
         // v45-backfill-frontier: per-stream duplicate-replay skip markers for backfill ingest.
         "backfillFrontier",
     ]
+
+    /// Pending deletion control metadata is retained under its original identity. Erasing or
+    /// rekeying it could hide an empty replacement still owed to that identity's cloud window.
+    /// These tables contain no sample values; account deletion removes the account store itself.
+    static let deviceDeletionJournalTables: Set<String> = ["cloudMutableRevision", "cloudSourceMembership"]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all
     /// `deviceId`-keyed tables, in a single transaction (all-or-nothing). The `pairedDevice` registry
@@ -184,6 +241,16 @@ public struct DeviceRegistryStore: Sendable {
         return try dbQueue.write { db in
             guard try Bool.fetchOne(db, sql: "SELECT 1 FROM pairedDevice WHERE id = ?", arguments: [activeId]) ?? false
             else { return false }   // nothing to re-point
+            // Receipt keys attest to the original capture source. UPDATE OR IGNORE + DELETE
+            // would both transfer that attestation and discard a conflicting payload. Without
+            // an explicit alias/recovery migration, preserve the entire transaction unchanged.
+            for table in ["ingestRawResource", "sensorQuarantine", "rawDurabilityReceipt",
+                          "rawBatch", "ppgWaveformSample", "v18AuxSample"] {
+                if try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \(table) WHERE deviceId IN (?, ?))",
+                    arguments: [activeId, activeId + Self.computedSuffix]) == true {
+                    throw DeviceIdentityMigrationError.capturedIdentityRequiresExplicitMigration
+                }
+            }
             let serialExists = try Bool.fetchOne(db, sql: "SELECT 1 FROM pairedDevice WHERE id = ?", arguments: [serialId]) ?? false
             if serialExists {
                 // A prior pairing already established the serial id: carry THIS pairing's fresh BLE identity +

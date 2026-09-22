@@ -226,7 +226,8 @@ public final class LiveState: ObservableObject {
         let oldest = oldestUnix ?? strapRange?.oldestUnix
         strapRange = StrapRange(newestUnix: newestUnix, oldestUnix: oldest, firmwareLayout: firmware)
         // #34: persist the strap's newest banked record so the debug export can flag a reset/stale clock.
-        UserDefaults.standard.set(newestUnix, forKey: "strap.newestRecordTs")
+        guard accountRuntimeActive else { return }
+        defaults.set(newestUnix, forKey: "strap.newestRecordTs")
     }
 
     /// Bank the historical record-layout version (hist_version: 18/24/25/26) the strap emits, so the
@@ -422,6 +423,18 @@ public final class LiveState: ObservableObject {
     /// gates buzz, alarms, double-tap and history sync. LiveView has drawn this line since #69; this
     /// shared label (sidebar + Settings) had not, so the two screens disagreed about the same link.
     public var connectionStatusLabel: String {
+        switch connectionPhase {
+        case "restoring": return "Restoring connection"
+        case "pendingConnection", "reconnecting": return "Reconnecting · pending"
+        case "connecting": return "Connecting"
+        case "discovering": return "Discovering services"
+        case "subscribing": return "Subscribing"
+        case "bluetoothUnavailable": return "Bluetooth unavailable"
+        case "failed": return "Recovering connection"
+        case "intentionallyDisconnected": return "Disconnected by request"
+        default: break
+        }
+        if backfilling { return "Catching up" }
         if connected && encryptedBond { return "Bonded · streaming" }
         if connected && bonded { return "Live HR (not fully paired)" }
         if connected { return "Connected" }
@@ -429,6 +442,8 @@ public final class LiveState: ObservableObject {
         // No `bonded`-only idle arm: without an encrypted bond there was never a pairing to be idle from.
         return "Disconnected"
     }
+    /// Projection of the connection owner; contains no peripheral or account identity.
+    @Published public var connectionPhase = "idle"
     /// True when the link is up with a REAL encrypted bond → status reads green. A live-HR-only link is
     /// amber via [connectionStatusIsIdle]: it works, but every pairing-gated feature is unavailable.
     public var connectionStatusIsActive: Bool { connected && encryptedBond }
@@ -457,6 +472,8 @@ public final class LiveState: ObservableObject {
     /// covers a productive idle timeout and fires only after auto-continuation has decided the backlog is
     /// finished. Intermediate HISTORY_COMPLETE slices never bump it.
     @Published public var postOffloadBurstCompleted: UInt64 = 0
+    /// Refresh diagnostics after the downstream drain updates its durable jobs and journal.
+    @Published public var syncStatusRevision: UInt64 = 0
     /// True across the short false→true gaps between auto-continued sessions. Durable debts may accrue,
     /// but foreground/background wakes defer them until the terminal decision clears this flag.
     @Published public var postOffloadBurstInProgress = false
@@ -533,7 +550,22 @@ public final class LiveState: ObservableObject {
     /// looped forever. Informational note for the Live screen; cleared on a clean reconnect or Live re-open.
     @Published public var standardHRMode: String? = nil
 
-    public init() {}
+    private let defaults: UserDefaults
+    private let logNamespace: String
+    private var accountRuntimeActive = true
+
+    public init(defaults: UserDefaults = .standard, logNamespace: String = "legacy") {
+        self.defaults = defaults
+        self.logNamespace = logNamespace
+    }
+
+    func invalidateAccountRuntime() {
+        guard accountRuntimeActive else { return }
+        Self.persistTail(log, defaults: defaults)
+        accountRuntimeActive = false
+        log.removeAll()
+        clearBiometrics()
+    }
 
     /// Single funnel for battery readings — updates the published value AND notifies the hook,
     /// so both write sites (FrameRouter, BLEManager) drive the alert monitor identically.
@@ -624,7 +656,7 @@ public final class LiveState: ObservableObject {
         ouraWearState = nil               // a stale worn/charging badge must not outlive the link either
         // Perf: flush the durable log tail on disconnect (mirroring is batched in `append`), so a completed
         // session's tail is always persisted for a later scheduled export despite the per-line throttle.
-        Self.persistTail(log)
+        if accountRuntimeActive { Self.persistTail(log, defaults: defaults) }
         logsSincePersist = 0
     }
 
@@ -650,10 +682,11 @@ public final class LiveState: ObservableObject {
     private static let trimSlack = 256
 
     public func append(log line: String, domain: TestDomain? = nil) {
+        guard accountRuntimeActive else { return }
         // FIRST append of this process: rescue the previous process's durable tail into the generation ring
         // before this process's own `persistTail` overwrites it (see `rollLogGenerationsIfNeeded`). Latched,
         // so this is one Bool test per line after the first.
-        Self.rollLogGenerationsIfNeeded()
+        Self.rollLogGenerationsIfNeeded(defaults: defaults, namespace: logNamespace)
         // Tag inert when nil (today's behaviour, byte-identical). When tagged, prefix a compact,
         // parseable marker the export filters on. Redaction is STILL the only scrub point
         // (redactPii below); tagging happens BEFORE redaction so the scrub covers the whole line.
@@ -666,7 +699,7 @@ public final class LiveState: ObservableObject {
         logsSincePersist += 1
         if logsSincePersist >= Self.persistEveryNLines {
             logsSincePersist = 0
-            Self.persistTail(log)
+            Self.persistTail(log, defaults: defaults)
         }
         // #990: fold the Backfiller's per-session "session persisted N rows" summary into the persisted
         // ALL-TIME drained-rows tally, right here at the single log sink (no new BLE seam). The summary
@@ -702,16 +735,16 @@ public final class LiveState: ObservableObject {
     /// Mirror the most recent `tailLimit` lines to UserDefaults (called from `append`). Synchronous and
     /// cheap (a single small array write); UserDefaults coalesces the disk flush. `nonisolated` (touches
     /// only UserDefaults, no actor state) so the background/static export path can read the twin getter.
-    nonisolated private static func persistTail(_ lines: [String]) {
+    nonisolated private static func persistTail(_ lines: [String], defaults: UserDefaults) {
         let tail = lines.count > tailLimit ? Array(lines.suffix(tailLimit)) : lines
-        UserDefaults.standard.set(tail, forKey: tailKey)
+        defaults.set(tail, forKey: tailKey)
     }
 
     /// The persisted log tail, newest-last — what a scheduled export reads when no live session is open.
     /// Empty if nothing has ever been logged on this device. `nonisolated` so a background task with no
     /// main-actor instance can read it.
-    nonisolated public static func persistedLogTail() -> [String] {
-        (UserDefaults.standard.array(forKey: tailKey) as? [String]) ?? []
+    nonisolated public static func persistedLogTail(defaults: UserDefaults = .standard) -> [String] {
+        (defaults.array(forKey: tailKey) as? [String]) ?? []
     }
 
     // MARK: - Previous-process log generations (the "why did the app stop" record)
@@ -740,15 +773,19 @@ public final class LiveState: ObservableObject {
     static let generationTailLimit = 1_000
     /// Once-per-process latch: the roll must happen BEFORE the first `persistTail` of this process, and
     /// exactly once, or a second roll would push this process's own partial tail in as a "previous" one.
-    nonisolated(unsafe) private static var didRollGenerations = false
+    nonisolated private static let generationLock = NSLock()
+    nonisolated(unsafe) private static var rolledNamespaces: Set<String> = []
 
     /// Roll the surviving durable tail into the generation ring. Idempotent per process, and a NO-OP when
     /// the tail is empty — so a launch that logs nothing (or a run right after a roll) never pushes an
     /// empty generation and never evicts a real one.
-    nonisolated static func rollLogGenerationsIfNeeded(now: Date = Date()) {
-        if didRollGenerations { return }
-        didRollGenerations = true
-        let tail = persistedLogTail()
+    nonisolated static func rollLogGenerationsIfNeeded(now: Date = Date(),
+                                                      defaults: UserDefaults = .standard,
+                                                      namespace: String = "legacy") {
+        generationLock.lock()
+        defer { generationLock.unlock() }
+        guard rolledNamespaces.insert(namespace).inserted else { return }
+        let tail = persistedLogTail(defaults: defaults)
         guard !tail.isEmpty else { return }
         let iso = ISO8601DateFormatter()
         iso.timeZone = TimeZone(identifier: "UTC")
@@ -765,42 +802,46 @@ public final class LiveState: ObservableObject {
             : "\(clipped.count) of \(tail.count) line(s), head clipped"
         let header = "===== previous app session, \(count), rolled at "
             + iso.string(from: now) + " (this launch) ====="
-        var gens = persistedLogGenerations()
+        var gens = persistedLogGenerations(defaults: defaults)
         gens.append([header] + clipped)
         if gens.count > maxLogGenerations { gens.removeFirst(gens.count - maxLogGenerations) }
-        UserDefaults.standard.set(gens, forKey: generationsKey)
+        defaults.set(gens, forKey: generationsKey)
         // Clear the live slot: this tail now belongs to a generation, and leaving it would duplicate it in
         // every export until 32 fresh lines happen to overwrite it.
-        UserDefaults.standard.set([String](), forKey: tailKey)
+        defaults.set([String](), forKey: tailKey)
     }
 
     /// The stored generations, oldest-first. Each element's first line is its own separator header.
-    nonisolated static func persistedLogGenerations() -> [[String]] {
-        (UserDefaults.standard.array(forKey: generationsKey) as? [[String]]) ?? []
+    nonisolated static func persistedLogGenerations(defaults: UserDefaults = .standard) -> [[String]] {
+        (defaults.array(forKey: generationsKey) as? [[String]]) ?? []
     }
 
     /// The previous processes' lines, oldest-first, ready to sit AHEAD of the current session in an export.
     /// Empty string when there are none, so a caller can concatenate unconditionally.
-    nonisolated static func previousSessionsText() -> String {
-        let gens = persistedLogGenerations()
+    nonisolated static func previousSessionsText(defaults: UserDefaults = .standard) -> String {
+        let gens = persistedLogGenerations(defaults: defaults)
         guard !gens.isEmpty else { return "" }
         return gens.map { $0.joined(separator: "\n") }.joined(separator: "\n") + "\n"
             + "===== current app session =====\n"
     }
 
     /// Drop every stored generation (Settings → the same place the log is cleared from).
-    nonisolated static func clearLogGenerations() {
-        UserDefaults.standard.removeObject(forKey: generationsKey)
+    nonisolated static func clearLogGenerations(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: generationsKey)
     }
 
     /// Tests only: clear the once-per-process latch so a test can stand in for a fresh app launch.
-    nonisolated static func resetGenerationRollLatchForTesting() { didRollGenerations = false }
+    nonisolated static func resetGenerationRollLatchForTesting() {
+        generationLock.lock(); defer { generationLock.unlock() }
+        rolledNamespaces.removeAll()
+    }
 
     /// A shareable strap-log body sourced from the DURABLE tail, for a background / scheduled export that
     /// runs with no live `LiveState` instance. Mirrors `exportableLogText()`'s header so a scheduled drop
     /// reads the same as a manual share; falls back to the live `log` is not available here by design
     /// (this is a `static` so a background task needs no main-actor instance).
-    nonisolated public static func scheduledExportText(extraHeaderLines: [String] = []) -> String {
+    nonisolated public static func scheduledExportText(extraHeaderLines: [String] = [],
+                                                      defaults: UserDefaults = .standard) -> String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         #if os(iOS)
         let osName = "iOS"
@@ -818,7 +859,8 @@ public final class LiveState: ObservableObject {
         header += String(repeating: "-", count: 40) + "\n"
         // Same generations-then-current shape as `exportableLogText()`: a scheduled drop that fires after a
         // restart must not report only the (possibly empty) current tail.
-        return header + previousSessionsText() + persistedLogTail().joined(separator: "\n")
+        return header + previousSessionsText(defaults: defaults)
+            + persistedLogTail(defaults: defaults).joined(separator: "\n")
     }
 
     /// Scrub personal identifiers from a strap-log line so it's safe to share publicly (#445): BLE MAC
@@ -1019,7 +1061,8 @@ public final class LiveState: ObservableObject {
         // line — at which point the previous session is still in `tailKey` (unrolled) and the in-memory
         // `log` is empty, so `previousSessionsText()` below would miss it. The roll is latched + a no-op on
         // an empty tail, so this is harmless when `append` already ran.
-        Self.rollLogGenerationsIfNeeded()
+        guard accountRuntimeActive else { return "" }
+        Self.rollLogGenerationsIfNeeded(defaults: defaults, namespace: logNamespace)
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         #if os(iOS)
         let osName = "iOS"
@@ -1045,6 +1088,6 @@ public final class LiveState: ObservableObject {
         header += String(repeating: "-", count: 40) + "\n"
         // Previous processes first, so the body stays in chronological order and the log-parsing tools read
         // it unchanged — they just get the night that a wake-time restart used to erase.
-        return header + Self.previousSessionsText() + log.joined(separator: "\n")
+        return header + Self.previousSessionsText(defaults: defaults) + log.joined(separator: "\n")
     }
 }
