@@ -21,7 +21,9 @@ for migration in \
   20260907133000_noop_hr_samples.sql \
   20260907133100_noop_append_stream_projections.sql \
   20260907140000_noop_ingest_tokens.sql \
+  20260907150000_noop_push_wal.sql \
   20260907170000_noop_raw_object_lane.sql \
+  20260908120000_noop_push_staging_parts.sql \
   20260911120000_noop_remaining_append_projections.sql \
   20260916160000_scoring_service_state.sql \
   20260916170000_scoring_work_items_device_id.sql \
@@ -40,6 +42,11 @@ if [[ -f "$repo_dir/supabase/migrations/20260918030000_physiology_hrv_dependenci
   "${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260918030000_physiology_hrv_dependencies.sql" >>"$pg_test_dir/migrations.log"
 fi
 "${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260918030000_production_scoring_review_repairs.sql" >>"$pg_test_dir/migrations.log"
+# This released migration was moved to a unique source identity after a timestamp collision.
+# Preserve the reviewed catalogue dependency order: its receipt/reservation tables precede the
+# original projection ledger, which the current intake contract extends without replacing history.
+"${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260921060000_production_intake_durability.sql" >>"$pg_test_dir/migrations.log"
+"${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260918040000_production_projection_debt.sql" >>"$pg_test_dir/migrations.log"
 if [[ -f "$repo_dir/supabase/migrations/20260918040000_rr_packet_provenance.sql" ]]; then
   "${psql_cmd[@]}" -f "$repo_dir/supabase/migrations/20260918040000_rr_packet_provenance.sql" >>"$pg_test_dir/migrations.log"
 fi
@@ -55,6 +62,7 @@ fi
 for migration in "$repo_dir"/supabase/migrations/*.sql; do
   [[ -f "$migration" ]] || continue
   [[ "$(basename "$migration")" < 20260918100000_ ]] && continue
+  [[ "$(basename "$migration")" == 20260921060000_production_intake_durability.sql ]] && continue
   if [[ "$(basename "$migration")" == 20260918100000_physiology_independent_work.sql ]]; then
     "${psql_cmd[@]}" -f "$service_dir/service/src/test/resources/physiology_queue_isolation_fixture.sql" >>"$pg_test_dir/migrations.log"
   fi
