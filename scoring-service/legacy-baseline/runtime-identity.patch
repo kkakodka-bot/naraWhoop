@@ -144,7 +144,7 @@ diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/health/
 diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
 --- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
 +++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
-@@ -16,3 +16,17 @@
+@@ -16,3 +16,16 @@
      val config = ScoringConfig.fromEnv()
      require(config.algorithmVersion == "frwhoop-server-1") { "Frozen baseline must retain its v1 identity" }
 +    require(args.isEmpty() || args.contentEquals(arrayOf("--replay-day"))) { "Unsupported baseline command" }
@@ -156,9 +156,15 @@ diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/Scoring
 +    if (java.nio.file.Files.exists(packaged)) {
 +        require(java.nio.file.Files.readString(packaged).trim() == revision) { "Packaged baseline revision mismatch" }
 +    }
-+    if (args.isEmpty()) {
-+        require(config.replayUserId == null && config.replayDay == null && config.replayDeviceId == null) {
-+            "Baseline daemon cannot inherit replay configuration"
-+        }
++    if (args.isEmpty() &&
++        listOf(config.replayUserId, config.replayDay, config.replayDeviceId).any { it != null }) {
++        log.warn("Ignoring REPLAY_* in persistent baseline mode; explicit --replay-day is required")
 +    }
      val db = PostgresClient(config.databaseUrl)
+@@ -28,5 +41,5 @@
+-    if (args.contains("--replay-day") || config.replayUserId != null) {
++    if (args.contentEquals(arrayOf("--replay-day"))) {
+         val userId = UUID.fromString(config.replayUserId ?: error("REPLAY_USER_ID required for --replay-day"))
+         val day = config.replayDay ?: error("REPLAY_DAY required for --replay-day")
+         val deviceId = resolveReplayDeviceId(reader, userId, config.replayDeviceId)
+         log.info("replay mode: user={} device={} day={}", userId, deviceId, day)

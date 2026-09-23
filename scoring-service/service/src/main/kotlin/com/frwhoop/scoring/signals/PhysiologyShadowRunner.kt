@@ -37,7 +37,11 @@ class PhysiologyShadowRunner(
     data class PreparedJob(val payload: JSONObject)
     fun interface Executor { fun run(model: Model, job: PreparedJob): JSONObject }
     /** A configured, versioned acquisition adapter must provide timing/channel proof; NPB1 alone cannot. */
-    fun interface JobAssembler { fun prepare(model: Model, request: Request, raw: List<VerifiedRawObjectReader.Decoded>): PreparedJob? }
+    data class RawInputPlan(val objectIds: Set<UUID>?, val assemble: (List<VerifiedRawObjectReader.Decoded>) -> PreparedJob?)
+    fun interface JobAssembler {
+        fun prepare(model: Model, request: Request, raw: List<VerifiedRawObjectReader.Decoded>): PreparedJob?
+        fun plan(model: Model, request: Request): RawInputPlan? = RawInputPlan(null) { prepare(model, request, it) }
+    }
     data class ContextSummary(val start: Double, val end: Double, val summary: RespirationEstimator.Summary)
     data class Result(val windows: List<RespirationEstimator.Result>, val summaries: List<ContextSummary>,
                       val modelResults: List<JSONObject>, val rawReasons: List<String>, val verifiedObjects: Int) {
@@ -202,26 +206,8 @@ class PhysiologyShadowRunner(
         if (!includeModels) return Result(windows, summaries, waitingModels,
             rawReasons + if (candidates.size > 512) listOf("respiration_window_budget_reached") else emptyList(), 0)
         if (contexts.isEmpty()) rawReasons += "no_qualified_respiration_context"
-        if (catalogue == null) rawReasons += "raw_object_reader_not_configured" else {
-            try {
-                val manifests = catalogue.discover(request.userId, request.deviceId, request.start, request.end)
-                if (manifests.isEmpty()) rawReasons += "raw_objects_unavailable"
-                var bytes = 0L
-                for (manifest in manifests) {
-                    checkCancellation()
-                    if (decoded.size >= 8 || bytes + manifest.uncompressedBytes > 64L * 1024 * 1024) {
-                        rawReasons += "raw_verification_budget_exceeded"; break
-                    }
-                    bytes += manifest.uncompressedBytes
-                    try { decoded += catalogue.verify(manifest) }
-                    catch (interrupted: InterruptedException) { throw interrupted }
-                    catch (_: Exception) { rawReasons += "raw_object_verification_failed" }
-                }
-                rawReasons += decoded.map { it.unavailableReason }
-            } catch (interrupted: InterruptedException) { throw interrupted }
-            catch (_: Exception) { rawReasons += "raw_catalogue_unavailable" }
-        }
-        onProgress(Result(windows.toList(), summaries.toList(), waitingModels, rawReasons.distinct(), decoded.size))
+        // A reviewed acquisition plan selects its full object set before any raw fetch. Unrelated
+        // objects cannot consume a model's budget or hide a required older fragment.
         val configured = models.associateBy { it.id }
         val outputs = models.map { it.id }.map { id ->
             checkCancellation()
@@ -231,17 +217,43 @@ class PhysiologyShadowRunner(
                 model == null -> "model_not_configured"
                 executor == null -> "bounded_runtime_not_configured"
                 assembler == null -> "verified_model_input_adapter_not_configured"
-                rawReasons.any { it in setOf("raw_object_verification_failed", "raw_catalogue_unavailable") } -> "raw_input_temporarily_unavailable"
                 else -> null
             }
             if (reason == null && model != null) {
                 try {
-                    val job = assembler!!.prepare(model, request, decoded)
+                    val plan = assembler!!.plan(model, request)
+                    val job = if (plan == null) null else {
+                        val inputs = mutableListOf<VerifiedRawObjectReader.Decoded>()
+                        if (catalogue == null) {
+                            rawReasons += "raw_object_reader_not_configured"
+                            require(plan.objectIds == null || plan.objectIds.isEmpty()) { "raw_required_objects_missing" }
+                        } else {
+                            val manifests = catalogue.discover(request.userId, request.deviceId, request.start, request.end, plan.objectIds)
+                            require(manifests.sumOf { it.uncompressedBytes.toLong() } <= RawSignalCatalogue.MAX_ASSEMBLY_BYTES &&
+                                manifests.sumOf { it.compressedBytes.toLong() } <= RawSignalCatalogue.MAX_ASSEMBLY_BYTES) {
+                                "raw_assembly_budget_exceeded"
+                            }
+                            var records = 0L
+                            for (manifest in manifests) {
+                                checkCancellation()
+                                val source = try { catalogue.verify(manifest) }
+                                catch (interrupted: InterruptedException) { throw interrupted }
+                                catch (_: Exception) { error("raw_object_verification_failed") }
+                                records += source.records.size
+                                require(records <= VerifiedRawObjectReader.MAX_RECORDS) { "raw_assembly_budget_exceeded" }
+                                inputs += source
+                            }
+                        }
+                        checkCancellation()
+                        decoded += inputs
+                        plan.assemble(inputs)
+                    }
                     if (job == null) reason = "required_verified_model_inputs_unavailable" else {
                         val payload = job.payload
                         if (payload.optString("user_id") != request.userId.toString() || payload.optString("device_id") != request.deviceId.toString() ||
                             payload.optString("input_revision") != request.inputRevision) reason = "model_input_owner_or_revision_mismatch"
                         else {
+                            checkCancellation()
                             val output = executor!!.run(model, job)
                             if (output.optString("publication_mode") != "shadow" || output.opt("canonical_outputs_allowed") != false ||
                                 output.optString("model_id") != id || listOf("user_id", "device_id", "input_revision").any { output.optString(it) != payload.optString(it) })
@@ -249,7 +261,20 @@ class PhysiologyShadowRunner(
                             else return@map output
                         }
                     }
-                } catch (_: Exception) { reason = "model_input_or_execution_failed" }
+                } catch (interrupted: InterruptedException) { throw interrupted }
+                catch (failure: Exception) {
+                    reason = when {
+                        failure.message in setOf("raw_assembly_budget_exceeded", "raw_catalogue_budget_exceeded") -> "raw_input_budget_exceeded"
+                        failure.message == "raw_required_objects_missing" -> "required_verified_model_inputs_unavailable"
+                        failure is java.sql.SQLException || failure.message == "raw_object_verification_failed" -> "raw_input_temporarily_unavailable"
+                        else -> "model_input_or_execution_failed"
+                    }
+                    rawReasons += when {
+                        failure is java.sql.SQLException -> "raw_catalogue_unavailable"
+                        failure.message?.startsWith("raw_") == true -> failure.message!!
+                        else -> reason!!
+                    }
+                }
             }
             JSONObject().put("model_id", id).put("publication_mode", "shadow").put("canonical_outputs_allowed", false)
                 .put("user_id", request.userId).put("device_id", request.deviceId).put("input_revision", request.inputRevision)

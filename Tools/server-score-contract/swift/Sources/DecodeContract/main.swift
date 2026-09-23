@@ -5,6 +5,7 @@ struct Expectation: Decodable {
     let file: String, ownerId: String, day: String
     let availableFeatures: [String], unavailableFeatures: [String]
     let nestedHrvAvailable: Bool, nestedRespirationAvailable: Bool
+    let allowedNestedFields: [String]?
     let expectedDeviceId: String?
     let expectedValues: [String: Double]?
     let signalWindows: [SignalExpectation]?
@@ -83,7 +84,7 @@ for expectation in expectations {
         let fields = (expectation.nestedHrvAvailable ? [] : ["hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "overnight_hr_bpm", "hrv_summary", "heart_rate_windows",
             "recovery", "strain", "spo2_pct", "skin_temp_c", "skin_temp_dev_c"]) +
             (expectation.nestedRespirationAvailable ? [] : ["resp_rate_bpm", "respiration_summary"])
-        for field in fields {
+        for field in fields where !(expectation.allowedNestedFields ?? []).contains(field) {
             try require(night[field] == nil || night[field] is NSNull, "\(expectation.file): real Edge envelope leaked \(field)")
         }
     }

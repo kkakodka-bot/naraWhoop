@@ -2,6 +2,9 @@ package com.frwhoop.scoring
 
 import com.frwhoop.scoring.b2.B2ObjectStore
 import com.frwhoop.scoring.db.PostgresClient
+import com.frwhoop.scoring.signals.PhysiologyShadowRunner
+import org.json.JSONObject
+import java.nio.file.Path
 import com.frwhoop.scoring.signals.RawSignalCatalogue
 import com.frwhoop.scoring.signals.VerifiedRawObjectReader
 import org.junit.After
@@ -36,9 +39,9 @@ class RawSignalCatalogueIntegrationTest {
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db = PostgresClient(url)
         resetFleetTestState(db)
-        sql("insert into auth.users values('$user')")
-        sql("insert into profiles(id,timezone) values('$user','UTC')")
-        sql("insert into devices(id,user_id) values('$device','$user')")
+        sql("insert into auth.users(id) values('$user')")
+        sql("insert into profiles(id,timezone) values('$user','UTC') on conflict(id) do update set timezone='UTC'")
+        sql("insert into devices(id,user_id,source_kind) values('$device','$user','whoop')")
         sql("insert into object_manifests(id,user_id,device_id,object_key,status,sha256_source,sha256,compression,format," +
             "object_class,object_kind,compressed_bytes,uncompressed_bytes,sample_count) values('$objectId','$user','$device','$key'," +
             "'ready','client_claimed','${B2ObjectStore.sha256Hex(raw)}','gzip','bin_gzip_noop_push_v1','raw','noop_ppg',${encoded.size},${raw.size},1)")
@@ -52,7 +55,7 @@ class RawSignalCatalogueIntegrationTest {
         sql("insert into noop_enrollment_codes(id,user_id,code_hash,expires_at) values('$code','$user',repeat('a',64),now()+interval '1 day')")
         sql("insert into noop_app_installations(source_id,user_id,enrollment_code_id,platform,app_version) values('$source','$user','$code','ios','fixture')")
         sql("update devices set external_device_id='installation:$source:local-band' where id='$device'")
-        sql("insert into devices(id,user_id,external_device_id) values('$canonical','$user','whoop-SYNTH001')")
+        sql("insert into devices(id,user_id,source_kind,external_device_id) values('$canonical','$user','whoop','whoop-SYNTH001')")
         sql("update object_manifests set source_id='$source' where id='$objectId'")
         db.withConnection { c ->
             c.autoCommit=false
@@ -138,6 +141,67 @@ class RawSignalCatalogueIntegrationTest {
             assertEquals(revision + 1, number("select input_revision from physiology_work_items where user_id='$user' and day='2026-08-01'"))
             sql("update object_manifests set $column=$restored where id='$objectId'")
         }
+    }
+
+    @Test fun plannedDiscoveryReadsEveryPageWithEqualTimestampsAndFailsClosedOnMissingObject() {
+        val all = addObjects(257) + objectId
+        var reads = 0
+        val catalogue = RawSignalCatalogue(db.dataSource, VerifiedRawObjectReader(object : B2ObjectStore.GetClient {
+            override fun getObject(key: String, maximumBytes: Int): ByteArray { reads++; return encoded }
+        }))
+        assertEquals("raw_catalogue_budget_exceeded", assertThrows(IllegalArgumentException::class.java) {
+            catalogue.discover(user, device, start, start + 60)
+        }.message)
+        val discovered = catalogue.discover(user, device, start, start + 60, all.toSet())
+        assertEquals(all.toSet(), discovered.map { it.id }.toSet())
+        assertEquals(258, discovered.size)
+        assertEquals("Metadata discovery must not fetch objects while its transaction is open", 0, reads)
+        assertEquals(listOf(objectId), catalogue.discover(user, device, start, start + 60, setOf(objectId)).map { it.id })
+        sql("delete from noop_signal_windows where object_id='${all[128]}'")
+        assertEquals("raw_required_objects_missing", assertThrows(IllegalArgumentException::class.java) {
+            catalogue.discover(user, device, start, start + 60, all.toSet())
+        }.message)
+        assertEquals(0, reads)
+    }
+
+    @Test fun incompleteOrOverBudgetPlannedInputsNeverDownloadOrExecuteAPrefix() {
+        val second = addObjects(1).single()
+        var reads = 0; var executions = 0; var assemblies = 0
+        val catalogue = RawSignalCatalogue(db.dataSource, VerifiedRawObjectReader(object : B2ObjectStore.GetClient {
+            override fun getObject(key: String, maximumBytes: Int): ByteArray { reads++; return encoded }
+        }))
+        val model = PhysiologyShadowRunner.Model("neurokit2", JSONObject(), Path.of("."))
+        fun run(required: Set<UUID>): JSONObject {
+            val assembler = object : PhysiologyShadowRunner.JobAssembler {
+                override fun prepare(model: PhysiologyShadowRunner.Model, request: PhysiologyShadowRunner.Request,
+                                     raw: List<VerifiedRawObjectReader.Decoded>): PhysiologyShadowRunner.PreparedJob? = error("unplanned path")
+                override fun plan(model: PhysiologyShadowRunner.Model, request: PhysiologyShadowRunner.Request) =
+                    PhysiologyShadowRunner.RawInputPlan(required) { assemblies++; error("incomplete data must not assemble") }
+            }
+            return PhysiologyShadowRunner(catalogue, listOf(model),
+                PhysiologyShadowRunner.Executor { _, _ -> executions++; error("incomplete data must not execute") }, assembler)
+                .evaluateModel(PhysiologyShadowRunner.Request(user, device, "1", start, start + 60, emptyList()), model.id)
+        }
+        val missing = run(setOf(objectId, second, UUID.randomUUID()))
+        assertEquals("required_verified_model_inputs_unavailable", missing.getString("reason"))
+        sql("update object_manifests set uncompressed_bytes=${RawSignalCatalogue.MAX_ASSEMBLY_BYTES} where id='$second'")
+        val budget = run(setOf(objectId, second))
+        assertEquals("raw_input_budget_exceeded", budget.getString("reason"))
+        assertEquals(0, reads); assertEquals(0, assemblies); assertEquals(0, executions)
+    }
+
+    private fun addObjects(count: Int): List<UUID> {
+        val ids = List(count) { UUID.randomUUID() }
+        val values = ids.joinToString(",") { id ->
+            "('$id','$user','$device','v3/ppg/users/$user/devices/$device/$id','ready','client_claimed'," +
+                "'${B2ObjectStore.sha256Hex(raw)}','gzip','bin_gzip_noop_push_v1','raw','noop_ppg',${encoded.size},${raw.size},1)"
+        }
+        sql("insert into object_manifests(id,user_id,device_id,object_key,status,sha256_source,sha256,compression,format," +
+            "object_class,object_kind,compressed_bytes,uncompressed_bytes,sample_count) values $values")
+        sql("insert into noop_signal_windows(user_id,device_id,stream,hour_start,object_id,object_key,start_ts,end_ts) " +
+            "select user_id,device_id,'ppg',$start,id,object_key,$start,${start + 1} from object_manifests " +
+            "where id in (${ids.joinToString(",") { "'$it'" }})")
+        return ids
     }
 
     private fun catalogue(bytes: () -> ByteArray) = RawSignalCatalogue(db.dataSource,

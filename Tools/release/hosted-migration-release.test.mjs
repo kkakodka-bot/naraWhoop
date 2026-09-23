@@ -92,7 +92,7 @@ function fixture() {
   const unsignedManifest = {
     schemaVersion: 1,
     kind: 'frwhoop-immutable-migration-manifest',
-    candidate: { branch: 'release/integration', sha: candidateSha, tree: candidateTree },
+    candidate: { branch: 'repair/vps-server-20260922', sha: candidateSha, tree: candidateTree },
     sourceWorkstreams: [],
     hostedBaseline: {
       environment: 'hosted-production',
@@ -106,12 +106,12 @@ function fixture() {
     catalog: {
       path: catalogRelative,
       migrationDirectory: migrationRelative,
-      entryCount: 124,
+      entryCount: 127,
       baselineEntryCount: 117,
-      pendingEntryCount: 7,
+      pendingEntryCount: 10,
     },
-    counts: { total: 124, applied: 117, pending: 7 },
-    schemaFingerprintSha256: '910a1c74a760b496028d7c2c58c009f45e29f9643fd2c279c278156f9a23d4c5',
+    counts: { total: 127, applied: 117, pending: 10 },
+    schemaFingerprintSha256: '4e169fbf070920262b6bec899d63eb4728fb6f8f0932d22fb58e1fc5f15883c8',
     entries,
   };
   const manifest = { ...unsignedManifest, manifestFingerprintSha256: sha256Hex(canonicalJSON(unsignedManifest)) };
@@ -160,16 +160,10 @@ function rawSnapshot(manifest, pendingPrefix = 0, overrides = {}) {
 }
 
 function postverify() {
-  return {
-    status: 'PASS',
-    schema_fingerprint_sha256: EXPECTED_DATABASE_SCHEMA_FINGERPRINT,
-    compute_families: 27,
-    compute_metrics: 80,
-    rls_tables: 42,
-    selected_functions: 8,
-    selected_triggers: 6,
-    selected_policies: 6,
-  };
+  // Actual fresh 127-migration verifier output, also matched by populated and
+  // hosted-predecessor runs. Do not synthesize a passing obsolete 8/6 counter.
+  return JSON.parse(fs.readFileSync(path.join(sourceRoot,
+    'Tools/release/testdata/intake-integrated-schema.json'),'utf8'));
 }
 
 function mockedDatabase(manifest, {
@@ -370,12 +364,12 @@ test('recovers one atomic remote receipt after interruption between apply respon
     assert.equal(result.status, 'PASS');
     state = result.state;
     assert.equal(state.receipts[0].status, 'RECOVERED_ATOMIC_REMOTE_COMMIT');
-    assert.equal(state.receipts.length, 7);
-    assert.equal(database.prefix(), 7);
+    assert.equal(state.receipts.length, 10);
+    assert.equal(database.prefix(), 10);
   } finally { f.cleanup(); }
 });
 
-test('records POSTVERIFY_FAILED after all seven atomic applies and never claims PASS', () => {
+test('records POSTVERIFY_FAILED after all ten atomic applies and never claims PASS', () => {
   const f = fixture();
   try {
     const { plan } = planFor(f);
@@ -385,11 +379,11 @@ test('records POSTVERIFY_FAILED after all seven atomic applies and never claims 
       authorizedPlanFingerprint: plan.planFingerprintSha256,
       evidenceDir: f.evidenceDir, query: database.query, now: clock(),
     }), /synthetic postverify failure/);
-    assert.equal(database.prefix(), 7);
+    assert.equal(database.prefix(), 10);
     const state = JSON.parse(fs.readFileSync(path.join(f.evidenceDir, 'hosted-migration-state.json')));
     assert.equal(state.status, 'POSTVERIFY_FAILED');
-    assert.equal(state.appliedPrefix, 7);
-    assert.equal(state.receipts.length, 7);
+    assert.equal(state.appliedPrefix, 10);
+    assert.equal(state.receipts.length, 10);
   } finally { f.cleanup(); }
 });
 
@@ -406,6 +400,42 @@ test('rejects a passing verifier result with the wrong disposable-database schem
     }), /database schema fingerprint differs/);
     const state = JSON.parse(fs.readFileSync(path.join(f.evidenceDir, 'hosted-migration-state.json')));
     assert.equal(state.status, 'POSTVERIFY_FAILED');
+  } finally { f.cleanup(); }
+});
+
+test('rejects obsolete pre-intake verifier counts even with the reviewed fingerprint', () => {
+  const f=fixture();
+  try {
+    const {plan}=planFor(f);
+    const database=mockedDatabase(f.manifest,{postverifyResult:{...postverify(),selected_functions:8,selected_triggers:6}});
+    assert.throws(()=>applyHostedMigrationPlan({repoRoot:f.repo,manifest:f.manifest,binding:f.binding,
+      databaseClient:f.databaseClient,plan,authorizedPlanFingerprint:plan.planFingerprintSha256,
+      evidenceDir:f.evidenceDir,query:database.query,now:clock()}),/verification counts differ/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(f.evidenceDir,'hosted-migration-state.json'))).status,'POSTVERIFY_FAILED');
+  } finally { f.cleanup(); }
+});
+
+test('recomputes the reviewed fingerprint even when a new commit and manifest agree on changed bytes', () => {
+  const f=fixture();
+  try {
+    const identity=f.manifest.entries[0].stableIdentity;
+    const filename=path.join(f.migrations,identity);
+    fs.appendFileSync(filename,'\n-- changed baseline identity\n');
+    const bytes=fs.readFileSync(filename);
+    const catalogPath=path.join(f.repo,catalogRelative);
+    const catalog=JSON.parse(fs.readFileSync(catalogPath));
+    catalog[0].sha256=sha256Hex(bytes);
+    fs.writeFileSync(catalogPath,JSON.stringify(catalog,null,2)+'\n');
+    git(f.repo,['add','.']); git(f.repo,['commit','--quiet','-m','changed fixture source']);
+    const changed=structuredClone(f.manifest);
+    changed.candidate.sha=git(f.repo,['rev-parse','HEAD']);
+    changed.candidate.tree=git(f.repo,['rev-parse','HEAD^{tree}']);
+    changed.entries[0].sha256=catalog[0].sha256;
+    changed.entries[0].sizeBytes=bytes.length;
+    const {manifestFingerprintSha256:ignored,...unsigned}=changed;
+    void ignored;
+    changed.manifestFingerprintSha256=sha256Hex(canonicalJSON(unsigned));
+    assert.throws(()=>verifyMigrationManifest(f.repo,changed),/committed catalog contents differ/);
   } finally { f.cleanup(); }
 });
 
@@ -433,7 +463,7 @@ test('executes the verifier bytes captured during source verification even if th
   } finally { f.cleanup(); }
 });
 
-test('applies exactly seven migrations in order, reconciles every receipt, and passes independent verification', () => {
+test('applies exactly ten migrations in order, reconciles every receipt, and passes independent verification', () => {
   const f = fixture();
   try {
     const planDatabase = mockedDatabase(f.manifest);
@@ -447,12 +477,12 @@ test('applies exactly seven migrations in order, reconciles every receipt, and p
       evidenceDir: f.evidenceDir, query: database.query, now: clock(),
     });
     assert.equal(result.status, 'PASS');
-    assert.equal(result.state.appliedPrefix, 7);
-    assert.equal(result.state.receipts.length, 7);
-    assert.equal(database.prefix(), 7);
+    assert.equal(result.state.appliedPrefix, 10);
+    assert.equal(result.state.receipts.length, 10);
+    assert.equal(database.prefix(), 10);
     assert.deepEqual(database.calls.filter(call => call.label.startsWith('apply '))
       .map(call => call.label.slice('apply '.length)), PENDING_IDENTITIES);
-    assert.equal(result.ledger.fullIdentityLedger.length, 124);
+    assert.equal(result.ledger.fullIdentityLedger.length, 127);
     assert.equal(result.ledger.nativeLedger.length, 110);
     assert.equal(result.verification.status, 'PASS');
     const verification = verifyHostedMigrationResult({
@@ -482,6 +512,51 @@ test('generated apply SQL folds reviewed outer transaction into the atomic full-
     assert.match(sql, /frwhoop_full_identity_ledger_drift/);
     assert.match(sql, new RegExp(migration.stableIdentity.replaceAll('.', '\\.')));
   } finally { f.cleanup(); }
+});
+
+test('only exact reviewed PR22 bytes can use the executor-owned outer transaction', () => {
+  const identities = [
+    '20260922010000_object_copy_intents.sql',
+    '20260922020000_async_object_verification.sql',
+  ];
+  for (const stableIdentity of identities) {
+    const migrationBytes = fs.readFileSync(path.join(sourceRoot, migrationRelative, stableIdentity));
+    const args = { migrationBytes, migration: { stableIdentity, sha256: sha256Hex(migrationBytes), applyOrdinal: 8 },
+      expectedNativeLedger: [], expectedFullIdentityLedger: [] };
+    const sql = migrationApplySQL(args);
+    assert.equal((sql.match(/^begin;/gmi) ?? []).length, 1);
+    assert.equal((sql.match(/^commit;/gmi) ?? []).length, 1);
+    assert.ok(sql.includes(migrationBytes.toString('utf8').trim()), 'reviewed PR22 body must remain unchanged');
+    const receipt = sql.lastIndexOf('insert into supabase_migrations.scoring_source_identities');
+    assert.ok(receipt > sql.indexOf(migrationBytes.toString('utf8').trim()));
+    assert.ok(receipt < sql.lastIndexOf('\ncommit;'));
+    for (const changed of [Buffer.concat([migrationBytes, Buffer.from('\n')]),
+      Buffer.from(migrationBytes.toString('utf8').replace('create table', 'create unlogged table'))]) {
+      assert.throws(() => migrationApplySQL({ ...args, migrationBytes: changed,
+        migration: { ...args.migration, sha256: sha256Hex(changed) } }), /executor-wrapped migration bytes differ/);
+    }
+    assert.throws(() => migrationApplySQL({ ...args,
+      migration: { ...args.migration, stableIdentity: '20260922130000_unreviewed.sql' } }),
+    /migration is not one reviewed outer transaction/);
+  }
+});
+
+test('intake leading comments preserve one atomic transaction and executable prefixes are rejected', () => {
+  const stableIdentity = '20260922120000_intake_service_contract.sql';
+  const migrationBytes = fs.readFileSync(path.join(sourceRoot, migrationRelative, stableIdentity));
+  assert.match(migrationBytes.toString('utf8'), /^--[^\n]*\nbegin;/);
+  const args = { migrationBytes, migration: { stableIdentity, sha256: sha256Hex(migrationBytes), applyOrdinal: 10 },
+    expectedNativeLedger: [], expectedFullIdentityLedger: [] };
+  const sql = migrationApplySQL(args);
+  assert.equal((sql.match(/^begin;/gmi) ?? []).length, 1);
+  assert.equal((sql.match(/^commit;/gmi) ?? []).length, 1);
+  assert.match(sql, /set local lock_timeout = '5s';/);
+  assert.match(sql, /create function public\.noop_intake_consumer_contract\(\)/);
+  assert.ok(sql.indexOf("notify pgrst,'reload schema';") <
+    sql.lastIndexOf('insert into supabase_migrations.scoring_source_identities'));
+  assert.throws(() => migrationApplySQL({ ...args,
+    migrationBytes: Buffer.concat([Buffer.from('select 1;\n'), migrationBytes]) }),
+  /migration is not one reviewed outer transaction/);
 });
 
 test('psql runner uses the pinned executable, exact flags, minimal environment, and bounded timeout', () => {

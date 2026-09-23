@@ -15,11 +15,11 @@ class VerifiedModelJobAssembler(private val contracts: ContractResolver? = null)
         fun resolve(model: PhysiologyShadowRunner.Model, request: PhysiologyShadowRunner.Request): Receipt?
     }
 
-    override fun prepare(
-        model: PhysiologyShadowRunner.Model,
-        request: PhysiologyShadowRunner.Request,
-        raw: List<VerifiedRawObjectReader.Decoded>,
-    ): PhysiologyShadowRunner.PreparedJob? {
+    override fun prepare(model: PhysiologyShadowRunner.Model, request: PhysiologyShadowRunner.Request,
+                         raw: List<VerifiedRawObjectReader.Decoded>): PhysiologyShadowRunner.PreparedJob? =
+        plan(model, request)?.assemble?.invoke(raw)
+
+    override fun plan(model: PhysiologyShadowRunner.Model, request: PhysiologyShadowRunner.Request): PhysiologyShadowRunner.RawInputPlan? {
         val receipt = if (contracts != null) contracts.resolve(model, request) ?: return null else {
             // Local fixture/development path. The service uses the owner-scoped immutable registry.
             val asset = model.activation.optJSONObject("assets")?.optJSONObject("acquisition_contract") ?: return null
@@ -62,7 +62,26 @@ class VerifiedModelJobAssembler(private val contracts: ContractResolver? = null)
             "acquisition_time_scope_invalid"
         }
         require(contract.getString("mode") == "retrospective") { "noncausal_model_requires_retrospective_mode" }
-        require(raw.size <= 8 && raw.map { it.manifest.id }.distinct().size == raw.size) { "raw_object_identity_conflict" }
+        val attestations = contract.getJSONArray("raw_object_attestations")
+        require(attestations.length() in 1..RawSignalCatalogue.MAX_REQUIRED_OBJECTS) { "raw_catalogue_budget_exceeded" }
+        val required = (0 until attestations.length()).map {
+            UUID.fromString(attestations.getJSONObject(it).getString("object_id"))
+        }.toSet()
+        require(required.size == attestations.length()) { "raw_object_identity_conflict" }
+        // The immutable receipt is resolved once. Discovery and assembly use that same parsed contract.
+        return PhysiologyShadowRunner.RawInputPlan(required) { raw ->
+            assemble(model, request, raw, contract, digest, adapterVersion, checkpoint, start, end, required)
+        }
+    }
+
+    private fun assemble(model: PhysiologyShadowRunner.Model, request: PhysiologyShadowRunner.Request,
+                         raw: List<VerifiedRawObjectReader.Decoded>, contract: JSONObject, digest: String,
+                         adapterVersion: String, checkpoint: String?, start: Double, end: Double,
+                         required: Set<UUID>): PhysiologyShadowRunner.PreparedJob {
+        require(raw.size == required.size && raw.map { it.manifest.id }.toSet() == required) { "acquisition_raw_object_set_incomplete" }
+        require(raw.sumOf { it.manifest.uncompressedBytes.toLong() } <= RawSignalCatalogue.MAX_ASSEMBLY_BYTES &&
+            raw.sumOf { it.manifest.compressedBytes.toLong() } <= RawSignalCatalogue.MAX_ASSEMBLY_BYTES &&
+            raw.sumOf { it.records.size.toLong() } <= VerifiedRawObjectReader.MAX_RECORDS) { "raw_assembly_budget_exceeded" }
         require(raw.all { source -> source.records.map { it.rowId }.distinct().size == source.records.size }) {
             "acquisition_duplicate_row_id"
         }

@@ -13,9 +13,14 @@ const sourceRoot = path.resolve(testDirectory, '../..');
 const generator = path.join(testDirectory, 'generate-migration-manifest.mjs');
 const catalogRelative = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
 const migrationsRelative = 'supabase/migrations';
-const expectedFingerprint = '910a1c74a760b496028d7c2c58c009f45e29f9643fd2c279c278156f9a23d4c5';
+const expectedFingerprint = '4e169fbf070920262b6bec899d63eb4728fb6f8f0932d22fb58e1fc5f15883c8';
 
 const sources = {
+  'persistent-sync-followup': {
+    branch: 'codex/persistent-sync-followup-2026-09-22',
+    tip: 'a972493212f2eae29f01ecaddf9182260153400f',
+  },
+  'server-repair': { branch: 'repair/vps-server-20260922', tip: 'a'.repeat(40) },
   'server-pipeline': {
     branch: 'fix/server-pipeline',
     tip: 'cfb94434b1b4ed4dba587e5c4e7af405e782e560',
@@ -55,7 +60,7 @@ function fixture() {
   fs.writeFileSync(candidatePath, JSON.stringify({
     schemaVersion: 1,
     candidate: {
-      branch: 'release/integration',
+      branch: 'repair/vps-server-20260922',
       sha: 'a'.repeat(40),
       tree: 'b'.repeat(40),
     },
@@ -105,7 +110,7 @@ function invoke(f, output = f.output) {
   ], { encoding: 'utf8' });
 }
 
-test('emits one deterministic manifest for the 117 applied and seven pending migrations', () => {
+test('emits one deterministic manifest for the 117 applied and ten pending migrations', () => {
   const f = fixture();
   try {
     const first = invoke(f);
@@ -118,9 +123,9 @@ test('emits one deterministic manifest for the 117 applied and seven pending mig
 
     const manifest = JSON.parse(firstBytes);
     assert.equal(manifest.schemaFingerprintSha256, expectedFingerprint);
-    assert.deepEqual(manifest.counts, { applied: 117, pending: 7, total: 124 });
-    assert.equal(manifest.entries.length, 124);
-    assert.deepEqual(manifest.entries.map(row => row.ordinal), Array.from({ length: 124 }, (_, index) => index + 1));
+    assert.deepEqual(manifest.counts, { applied: 117, pending: 10, total: 127 });
+    assert.equal(manifest.entries.length, 127);
+    assert.deepEqual(manifest.entries.map(row => row.ordinal), Array.from({ length: 127 }, (_, index) => index + 1));
     assert.equal(manifest.sourceWorkstreams.find(row => row.workstream === 'ble-sync').migrationCount, 0);
 
     const sensor = manifest.entries[121];
@@ -135,6 +140,11 @@ test('emits one deterministic manifest for the 117 applied and seven pending mig
       '20260921110000_installation_retirement.sql');
     assert.deepEqual(sessions.dependencies, [compute.stableIdentity]);
     assert.equal(sessions.upgradeBehavior.upgradeOrdinal, 7);
+    assert.equal(manifest.entries[124].sourceWorkstream, 'persistent-sync-followup');
+    assert.equal(manifest.entries[125].sourceWorkstream, 'persistent-sync-followup');
+    assert.equal(manifest.entries[126].sourceWorkstream, 'server-repair');
+    assert.equal(manifest.entries[126].sourceTip, manifest.candidate.sha);
+    assert.deepEqual(manifest.entries[126].dependencies, [manifest.entries[125].stableIdentity]);
     assert.equal(manifest.entries.filter(row => row.collisionRenameState.state === 'historical_timestamp_collision').length, 12);
     assert.equal(manifest.entries.find(row => row.stableIdentity ===
       '20260918234000_motion_evidence_provenance.sql').hostedIdentityState.state, 'superseded_in_hosted_schema');

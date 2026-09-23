@@ -8,13 +8,21 @@ import { pathToFileURL } from 'node:url';
 const CATALOG_RELATIVE_PATH = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
 const MIGRATIONS_RELATIVE_PATH = 'supabase/migrations';
 const BASELINE_COUNT = 117;
-const EXPECTED_TOTAL = 124;
-const EXPECTED_SCHEMA_FINGERPRINT = '910a1c74a760b496028d7c2c58c009f45e29f9643fd2c279c278156f9a23d4c5';
+const EXPECTED_TOTAL = 127;
+const EXPECTED_SCHEMA_FINGERPRINT = '4e169fbf070920262b6bec899d63eb4728fb6f8f0932d22fb58e1fc5f15883c8';
 const HOSTED_PROJECT_REF = 'sgoyxzcagqyxexmsidtk';
 const HOSTED_HIGHEST_IDENTITY = '20260921104000_server_unrepresentable_clock.sql';
 const SUPERSEDED_HOSTED_IDENTITY = '20260918234000_motion_evidence_provenance.sql';
 
 const SOURCE_CONTRACT = Object.freeze({
+  'persistent-sync-followup': Object.freeze({
+    branch: 'codex/persistent-sync-followup-2026-09-22',
+    tip: 'a972493212f2eae29f01ecaddf9182260153400f',
+  }),
+  'server-repair': Object.freeze({
+    branch: 'repair/vps-server-20260922',
+    tip: null, // This workstream is the candidate itself, not an earlier release artifact.
+  }),
   'server-pipeline': Object.freeze({
     branch: 'fix/server-pipeline',
     tip: 'cfb94434b1b4ed4dba587e5c4e7af405e782e560',
@@ -72,6 +80,21 @@ const PENDING_CONTRACT = Object.freeze([
     stableIdentity: '20260921122000_compute_session_requests.sql',
     sha256: '14efd30ff5754a779ee300e86be08ce2db8bd6c4aa3b3e8a96bc97abf8b773a1',
     workstream: 'vps-only-compute',
+  }),
+  Object.freeze({
+    stableIdentity: '20260922010000_object_copy_intents.sql',
+    sha256: '5955c91bebaf706ab0cfc67f3c9a09e67a7438226bd04d66c4d4dd42a12b6eb4',
+    workstream: 'persistent-sync-followup',
+  }),
+  Object.freeze({
+    stableIdentity: '20260922020000_async_object_verification.sql',
+    sha256: 'dc8ce2caf80bf34b83027d4651386609bb7f63c6045b92c37e1e9c64dbf38a0d',
+    workstream: 'persistent-sync-followup',
+  }),
+  Object.freeze({
+    stableIdentity: '20260922120000_intake_service_contract.sql',
+    sha256: 'c39b15b45651d39d80a07f84ec4c99b1183d0addf75363209808aaac4a51d86d',
+    workstream: 'server-repair',
   }),
 ]);
 
@@ -204,7 +227,7 @@ function validateCandidateSources(raw) {
   requireExactKeys(raw, ['schemaVersion', 'candidate', 'sources'], 'candidate/source metadata');
   invariant(raw.schemaVersion === 1, 'candidate/source metadata schemaVersion must be 1');
   requireExactKeys(raw.candidate, ['branch', 'sha', 'tree'], 'candidate metadata');
-  invariant(raw.candidate.branch === 'release/integration', 'candidate branch must be release/integration');
+  invariant(raw.candidate.branch === 'repair/vps-server-20260922', 'candidate branch must be repair/vps-server-20260922');
   requireGitSha(raw.candidate.sha, 'candidate SHA');
   requireGitSha(raw.candidate.tree, 'candidate tree');
 
@@ -215,7 +238,7 @@ function validateCandidateSources(raw) {
     const source = raw.sources[workstream];
     requireExactKeys(source, ['branch', 'tip'], `source metadata for ${workstream}`);
     invariant(source.branch === SOURCE_CONTRACT[workstream].branch, `${workstream} branch differs from the reviewed source`);
-    invariant(source.tip === SOURCE_CONTRACT[workstream].tip, `${workstream} tip differs from the reviewed source`);
+    invariant(source.tip === (SOURCE_CONTRACT[workstream].tip ?? raw.candidate.sha), `${workstream} tip differs from the reviewed source`);
   }
   return raw;
 }
@@ -454,7 +477,7 @@ export function runCLI(argv) {
   return manifest;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
+if (process.argv[1] && fs.existsSync(process.argv[1]) && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
   try {
     runCLI(process.argv.slice(2));
   } catch (error) {

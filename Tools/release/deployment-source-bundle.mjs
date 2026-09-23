@@ -66,6 +66,10 @@ export const REQUIRED_CAPABILITIES = Object.freeze({
     'infra/vps/scripts/remote/12-truncate-for-restore.sh',
   ]),
   selectedV1Image: Object.freeze(['infra/vps/templates/Dockerfile.baseline']),
+  intakeImageAndCompose: Object.freeze([
+    'infra/vps/templates/Dockerfile.intake',
+    'infra/vps/templates/docker-compose.intake.yml',
+  ]),
   verifyRuntimeAndProgress: Object.freeze([
     'infra/vps/scripts/remote/verify-scoring-runtime.sh',
     'infra/vps/scripts/scoring-progress.sh',

@@ -502,5 +502,9 @@
   {
     "basename": "20260922020000_async_object_verification.sql",
     "sha256": "dc8ce2caf80bf34b83027d4651386609bb7f63c6045b92c37e1e9c64dbf38a0d"
+  },
+  {
+    "basename": "20260922120000_intake_service_contract.sql",
+    "sha256": "c39b15b45651d39d80a07f84ec4c99b1183d0addf75363209808aaac4a51d86d"
   }
 ]

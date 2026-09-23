@@ -23,7 +23,14 @@ begin
     'public.scoring_renew_lease(uuid,uuid,date,bigint,uuid,uuid,integer)',
     'public.scoring_finish_work(uuid,uuid,date,bigint,uuid,uuid,text,integer,text)',
     'public.retire_noop_installation(text)',
-    'public.confirm_noop_wearable(uuid,uuid,uuid,uuid,jsonb)'
+    'public.confirm_noop_wearable(uuid,uuid,uuid,uuid,jsonb)',
+    'public.noop_intake_consumer_contract()',
+    'public.noop_intake_consumer_poll(uuid,uuid,text,text,integer,integer,integer)',
+    'public.noop_async_verification_ready()',
+    'public.noop_intake_status()',
+    'public.noop_claim_object_verification(bigint,bigint)',
+    'public.noop_commit_object_receipt(uuid,uuid,text,text,text,bigint,bigint)',
+    'public.noop_commit_push_projection(uuid,text,jsonb,jsonb,jsonb,uuid)'
   ] loop
     assert to_regprocedure(object_name) is not null, 'missing final function: ' || object_name;
   end loop;
@@ -42,6 +49,17 @@ begin
   definition := pg_get_functiondef('public.server_scoring_for_device_day(uuid,date,uuid)'::regprocedure);
   assert position('server_scoring_read_contract' in definition) > 0,
     'enrollment route bypasses the canonical final contract';
+
+  assert public.noop_intake_consumer_contract() = jsonb_build_object(
+    'contract_version',1,'completion','verified_indexed','projection','atomic_lifecycle_v1',
+    'lanes',jsonb_build_array('verification','projection','legacy')),
+    'intake service contract differs from the packaged consumer';
+  definition := pg_get_functiondef('public.noop_apply_projection_rows(text,jsonb)'::regprocedure);
+  assert position('noop_project_append_batch' in definition)>0,
+    'atomic projection bypasses lifecycle/source admission';
+  definition := pg_get_functiondef('public.noop_project_append_batch(uuid,uuid,uuid,uuid,text,jsonb)'::regprocedure);
+  assert position('to_jsonb(x.*)' in definition)>0,
+    'gravity projection has not disambiguated the row from the x-axis column';
 
   select count(*), coalesce(sum(cardinality(metrics)), 0)
     into strict metric_count, owned_metric_count
@@ -66,7 +84,9 @@ begin
     'scoring_fleet_tenants','scoring_fleet_reservations','scoring_fleet_completions',
     'noop_fleet_intake_policy','noop_fleet_intake_usage','scoring_lane_tenants',
     'noop_account_retirements','sensor_acquisition_contracts','server_compute_dispositions',
-    'compute_account_sources','compute_session_requests','compute_session_results'
+    'compute_account_sources','compute_session_requests','compute_session_results',
+    'noop_object_verification_debt','noop_object_copy_intents','noop_intake_consumers',
+    'noop_intake_service_minutes','noop_verification_owner_service','noop_projection_owner_service'
   ] loop
     assert exists(
       select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -116,11 +136,33 @@ begin
     'authenticated compute policy read grant is missing';
   assert not has_table_privilege('authenticated','public.compute_family_policy','INSERT'),
     'authenticated can mutate compute policy';
+  foreach object_name in array array[
+    'public.noop_intake_consumer_contract()',
+    'public.noop_intake_consumer_poll(uuid,uuid,text,text,integer,integer,integer)',
+    'public.noop_async_verification_ready()',
+    'public.noop_intake_status()',
+    'public.noop_claim_object_verification(bigint,bigint)',
+    'public.noop_commit_object_receipt(uuid,uuid,text,text,text,bigint,bigint)',
+    'public.noop_commit_push_projection(uuid,text,jsonb,jsonb,jsonb,uuid)'
+  ] loop
+    assert has_function_privilege('service_role',object_name,'EXECUTE'),
+      'intake consumer grant missing: ' || object_name;
+    assert not has_function_privilege('authenticated',object_name,'EXECUTE')
+      and not has_function_privilege('anon',object_name,'EXECUTE'),
+      'client can service privileged intake: ' || object_name;
+  end loop;
+  assert not has_function_privilege('service_role',
+    'public.noop_apply_projection_rows_intake_legacy(text,jsonb)','EXECUTE'),
+    'legacy projection bypass remains callable';
+  assert not has_function_privilege('service_role',
+    'public.noop_commit_push_projection_intake_core(uuid,text,jsonb,jsonb,jsonb,uuid)','EXECUTE'),
+    'unfenced projection core remains callable';
 
   for object_name in
     select required.name from (values
       ('noop_installation_immutable'),('noop_active_source'),('noop_alias_raw_dependency'),
-      ('noop_account_retirement_admission'),('sensor_raw_coverage_unknown'),('sensor_raw_dependency')
+      ('noop_account_retirement_admission'),('sensor_raw_coverage_unknown'),('sensor_raw_dependency'),
+      ('noop_verification_owner_enqueued'),('noop_projection_owner_enqueued')
     ) required(name)
     where not exists(
       select 1 from pg_trigger trigger
@@ -147,7 +189,17 @@ with selected_functions as (
     'public.server_scoring_for_device_day(uuid,date,uuid)'::regprocedure,
     'public.publish_compute_dispositions(uuid,uuid,date,bigint)'::regprocedure,
     'public.process_compute_session_request()'::regprocedure,
-    'public.scoring_claim_one(integer,integer,uuid,uuid,date)'::regprocedure
+    'public.scoring_claim_one(integer,integer,uuid,uuid,date)'::regprocedure,
+    'public.noop_intake_consumer_contract()'::regprocedure,
+    'public.noop_intake_consumer_poll(uuid,uuid,text,text,integer,integer,integer)'::regprocedure,
+    'public.noop_async_verification_ready()'::regprocedure,
+    'public.noop_intake_status()'::regprocedure,
+    'public.noop_claim_object_verification(bigint,bigint)'::regprocedure,
+    'public.noop_commit_object_receipt(uuid,uuid,text,text,text,bigint,bigint)'::regprocedure,
+    'public.noop_claim_projection_debt()'::regprocedure,
+    'public.noop_apply_projection_rows(text,jsonb)'::regprocedure,
+    'public.noop_commit_push_projection(uuid,text,jsonb,jsonb,jsonb,uuid)'::regprocedure,
+    'public.noop_project_append_batch(uuid,uuid,uuid,uuid,text,jsonb)'::regprocedure
   )
 ), selected_triggers as (
   select n.nspname || '.' || c.relname || '.' || t.tgname identity,
@@ -156,13 +208,15 @@ with selected_functions as (
   join pg_namespace n on n.oid = c.relnamespace
   where not t.tgisinternal and t.tgname in (
     'noop_installation_immutable','noop_active_source','noop_alias_raw_dependency',
-    'noop_account_retirement_admission','sensor_raw_coverage_unknown','sensor_raw_dependency'
+    'noop_account_retirement_admission','sensor_raw_coverage_unknown','sensor_raw_dependency',
+    'noop_verification_owner_enqueued','noop_projection_owner_enqueued'
   )
 ), selected_policies as (
   select schemaname || '.' || tablename || '.' || policyname identity,
     concat_ws('|', cmd, roles::text, coalesce(qual,''), coalesce(with_check,'')) definition
   from pg_policies where schemaname = 'public' and policyname in (
-    'compute_disposition_owner','compute_request_owner','compute_result_owner','sensor_capture_worker','service_all','owner_read'
+    'compute_disposition_owner','compute_request_owner','compute_result_owner','sensor_capture_worker','service_all','owner_read',
+    'noop_intake_consumers_service','noop_intake_service_minutes_service'
   )
 ), material as (
   select 'function|' || identity || '|' || definition || '|' || acl value from selected_functions

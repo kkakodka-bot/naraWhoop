@@ -115,6 +115,9 @@ class AccountSessionController(
     fun isCurrent(context: AccountSessionContext): Boolean = synchronized(lock) {
         generation == context.generation && session?.scope == context.scope && configuration?.projectURL == context.scope.projectURL
     }
+    /** Repository commits take this lock before their own state lock. Never await inside body. */
+    internal fun <T> withSessionLock(body: () -> T): T = synchronized(lock) { body() }
+
     /** Linearizes the final SQLite commit against identity invalidation. Never await inside body. */
     internal fun <T> withIdentity(expected: AccountIdentitySnapshot, body: () -> T): T = synchronized(lock) {
         if (expected != AccountIdentitySnapshot(configuration?.projectURL, session?.scope, generation))
@@ -132,6 +135,22 @@ class AccountSessionController(
             synchronized(lock) { error = AuthFailure.CREDENTIAL_UNAVAILABLE }
             throw AccountAuthException(AuthFailure.CREDENTIAL_UNAVAILABLE)
         } finally { changed() }
+    }
+    fun clearSessionIfCurrent(accessToken: String, ownerId: String): Boolean {
+        var matched = false
+        try {
+            synchronized(lock) {
+                if (session?.accessToken != accessToken || session?.userId != ownerId) return false
+                matched = true
+                invalidate(); loaded = true
+                configuration?.let { store.clear(it.projectURL) }
+                error = null
+            }
+        } catch (_: Exception) {
+            synchronized(lock) { error = AuthFailure.CREDENTIAL_UNAVAILABLE }
+            throw AccountAuthException(AuthFailure.CREDENTIAL_UNAVAILABLE)
+        } finally { if (matched) changed() }
+        return true
     }
     suspend fun signIn(email: String, password: String): AccountSession {
         val start = try {
@@ -298,11 +317,14 @@ object CloudAuthClient {
     fun storedSession(context: Context): AccountSession? = controller(context).storedSession()
     fun identitySnapshot(context: Context): AccountIdentitySnapshot = controller(context).identitySnapshot()
     fun isCurrent(context: Context, expected: AccountSessionContext): Boolean = controller(context).isCurrent(expected)
+    internal fun <T> withSessionLock(context: Context, body: () -> T): T = controller(context).withSessionLock(body)
     internal fun <T> withIdentity(context: Context, expected: AccountIdentitySnapshot, body: () -> T): T =
         controller(context).withIdentity(expected, body)
     fun lastPersistenceError(context: Context): AuthFailure? = controller(context).lastError()
     fun clearSession(context: Context) { runCatching { clearSessionChecked(context) } }
     fun clearSessionChecked(context: Context) = controller(context).clearSession()
+    fun clearSessionIfCurrent(context: Context, accessToken: String, ownerId: String): Boolean =
+        controller(context).clearSessionIfCurrent(accessToken, ownerId)
     suspend fun signIn(context: Context, email: String, password: String): AccountSession =
         controller(context).signIn(email, password)
     suspend fun authorizedSession(context: Context): AuthorizedCloudSession = controller(context).authorizedSession()

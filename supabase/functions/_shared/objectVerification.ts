@@ -2,16 +2,29 @@ import { completeDurableObject, intakeError } from './durability.ts';
 import { PushProtocolError } from './registry.ts';
 import type { SupabaseRest } from './rest.ts';
 import type { S3Store } from './s3.ts';
+import type { PushFunctionConfig } from './config.ts';
 
 export const ASYNC_OBJECT_COMPLETION = 'async-v1';
 export const ASYNC_OBJECT_HEADER = 'Noop-Push-Completion';
 
+/** Administrative opt-in plus a successful recent compatible consumer poll. Fail closed.
+ * This admission guard is not a capacity or physical-continuity acceptance receipt.
+ */
+export async function asyncVerificationAvailable(cfg: Pick<PushFunctionConfig, 'asyncObjectVerification'>,
+  rest: Pick<SupabaseRest, 'rpc'>): Promise<boolean> {
+  if (!cfg.asyncObjectVerification) return false;
+  try { return await rest.rpc('noop_async_verification_ready', {}) === true; }
+  catch { return false; }
+}
+
+
 /** Shared by the authenticated HTTP handler and native tests; no opt-in means unchanged sync. */
-export async function objectCompletionResponse({ mode, completeSync, enqueue, hasDebt }: {
+export async function objectCompletionResponse({ mode, completeSync, enqueue, hasDebt, allowNewAsync = async () => false }: {
   mode: string | null;
   completeSync: () => Promise<Record<string, unknown>>;
   enqueue: () => ReturnType<typeof requestObjectVerification>;
   hasDebt: () => Promise<boolean>;
+  allowNewAsync?: () => Promise<boolean>;
 }) {
   const pending = async () => {
     const result = await enqueue();
@@ -19,7 +32,12 @@ export async function objectCompletionResponse({ mode, completeSync, enqueue, ha
       'content-type': 'application/json', ...(result.retryAfter ? { 'retry-after': result.retryAfter } : {}),
     } });
   };
-  if (mode === ASYNC_OBJECT_COMPLETION || await hasDebt()) return await pending();
+  if (await hasDebt()) return await pending();
+  if (mode === ASYNC_OBJECT_COMPLETION) {
+    if (!await allowNewAsync()) return Response.json({ type: 'error', protocolVersion: '1.2',
+      code: 'verification_consumer_unavailable' }, { status: 503, headers: { 'retry-after': '15' } });
+    return await pending();
+  }
   try { return Response.json({ type: 'objectAck', ...await completeSync() }); }
   catch (err) {
     // Enqueue can race the preceding lookup. The manifest-locked COPY reservation is the

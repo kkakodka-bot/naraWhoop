@@ -120,6 +120,71 @@ class VerifiedModelJobAssemblerTest {
         assertThrows(IllegalArgumentException::class.java) { assembler.prepare(model(contract),request,listOf(decoded,conflicting)) }
     }
 
+    @Test fun oneNineAnd257ObjectsProduceTheSameCompleteTensorAndPreserveUnknownSamples() = fixture { _, contract, decoded, model ->
+        val original = decoded.records.single().columns
+        contract.getJSONArray("channels").getJSONObject(0).getJSONArray("records").getJSONObject(0)
+            .getJSONArray("observed").put(361, false)
+        val expected = assembler.prepare(model(contract), request, listOf(decoded))!!.payload.getJSONArray("signals").toString()
+        for (objectCount in listOf(9, 257)) {
+            val changed = JSONObject(contract.toString())
+            val attestations = JSONArray(); val mappings = JSONArray()
+            val sources = mutableListOf<VerifiedRawObjectReader.Decoded>()
+            var offset = 0
+            repeat(objectCount) { index ->
+                val count = (original.size - offset + objectCount - index - 1) / (objectCount - index)
+                val sampleStart = 1000.0 + offset / 24.0
+                val second = sampleStart.toLong()
+                val bytes = ByteBuffer.allocate(39 + count * 2).order(ByteOrder.LITTLE_ENDIAN).apply {
+                    put("NPB1".toByteArray()); put(2); put(1); putInt(1)
+                    putLong(1); putLong(second); put(0); putLong(7L + index); putInt(count * 2)
+                    for (i in offset until offset + count) putShort(original[i].toShort())
+                }.array()
+                val id = UUID.randomUUID()
+                val manifest = decoded.manifest.copy(id = id, key = "v3/ppg/users/$user/devices/$device/$id",
+                    sha256 = B2ObjectStore.sha256Hex(bytes), compressedBytes = bytes.size, uncompressedBytes = bytes.size)
+                val source = VerifiedRawObjectReader(object : B2ObjectStore.GetClient {
+                    override fun getObject(key: String, maximumBytes: Int) = bytes
+                }).read(manifest, user, device)
+                sources += source
+                attestations.put(JSONObject(contract.getJSONArray("raw_object_attestations").getJSONObject(0).toString())
+                    .put("object_id", id).put("object_sha256", source.digest))
+                mappings.put(JSONObject().put("object_id", id).put("object_sha256", source.digest)
+                    .put("row_id", 1).put("record_index", 7L + index).put("sensor_second", second)
+                    .put("start_s", sampleStart).put("offset", 0).put("stride", 1).put("count", count)
+                    .put("observed", JSONArray(List(count) { offset + it != 361 })))
+                offset += count
+            }
+            changed.put("raw_object_attestations", attestations)
+            changed.getJSONArray("channels").getJSONObject(0).put("records", mappings)
+            val configured = model(changed)
+            val plan = assembler.plan(configured, request)!!
+            assertEquals(sources.map { it.manifest.id }.toSet(), plan.objectIds)
+            assertEquals(expected, plan.assemble(sources)!!.payload.getJSONArray("signals").toString())
+            assertEquals("acquisition_raw_object_set_incomplete", assertThrows(IllegalArgumentException::class.java) {
+                plan.assemble(sources.filterIndexed { index, _ -> index != objectCount / 2 })
+            }.message)
+            mappings.getJSONObject(objectCount / 2).put("start_s", 1000.1)
+            assertThrows(IllegalArgumentException::class.java) { assembler.prepare(model(changed), request, sources) }
+        }
+    }
+
+    @Test fun inputPlanPinsOneResolvedReceiptAndRejectsByteBudgetBeforeAssembly() = fixture { _, contract, decoded, model ->
+        val configured = model(contract)
+        var calls = 0
+        val registry = VerifiedModelJobAssembler(VerifiedModelJobAssembler.ContractResolver { _, _ ->
+            calls++
+            val bytes = contract.toString().toByteArray()
+            VerifiedModelJobAssembler.Receipt(bytes, B2ObjectStore.sha256Hex(bytes))
+        })
+        val plan = registry.plan(configured, request)!!
+        contract.put("input_revision", "unrelated-new-revision")
+        assertNotNull(plan.assemble(listOf(decoded)))
+        assertEquals(1, calls)
+        assertEquals("raw_assembly_budget_exceeded", assertThrows(IllegalArgumentException::class.java) {
+            plan.assemble(listOf(decoded.copy(manifest = decoded.manifest.copy(uncompressedBytes = 64 * 1024 * 1024 + 1))))
+        }.message)
+    }
+
     @Test fun typedHashMatchesPythonGolden() {
         val value = JSONObject().put("n", JSONArray().put(JSONObject.NULL).put(true).put(false).put(1).put(1.5).put("é")).put("x", "abc")
         val prefix = "{s1:n[ntfd".toByteArray()

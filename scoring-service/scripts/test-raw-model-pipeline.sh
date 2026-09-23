@@ -32,22 +32,17 @@ process.stdout.write(JSON.stringify({
 NODE
 suffix="$(basename "$evidence" | tr '[:upper:]' '[:lower:]')"
 database="nara-db-$suffix"
-rest="nara-rest-$suffix"
-auth="nara-auth-$suffix"
 network="nara-net-$suffix"
 cleanup() {
-  docker logs "$auth" > "$evidence/auth-service.log" 2>&1 || true
-  docker stop "$auth" "$rest" "$database" >/dev/null 2>&1 || true
-  docker network disconnect "$network" "$auth" >/dev/null 2>&1 || true
-  docker network disconnect "$network" "$rest" >/dev/null 2>&1 || true
+  docker stop "$database" >/dev/null 2>&1 || true
   docker network disconnect "$network" "$database" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   if [[ "${PIPELINE_TEST_REMOVE_CONTAINERS:-false}" == true ]]; then
-    docker rm "$auth" "$rest" "$database" >/dev/null 2>&1 || true
+    docker rm "$database" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
-printf 'Local pipeline evidence: %s\n' "$evidence"
+printf 'Local raw model evidence: %s\n' "$evidence"
 database_mount=()
 if [[ "${PIPELINE_TEST_BIND_DATA:-0}" == 1 ]]; then
   mkdir -p "$evidence/database-data"
@@ -77,7 +72,7 @@ done
 [[ "$ready" == true ]] || { docker logs "$database"; exit 1; }
 docker run --rm --network "$network" \
   -e GOTRUE_DB_DRIVER=postgres \
-  -e GOTRUE_DB_DATABASE_URL=postgres://supabase_admin:isolated-pipeline-only@database:5432/postgres?search_path=auth \
+  -e GOTRUE_DB_DATABASE_URL=postgres://supabase_admin:isolated-pipeline-only@database:5432/postgres \
   -e GOTRUE_SITE_URL=http://localhost -e API_EXTERNAL_URL=http://localhost \
   -e GOTRUE_JWT_SECRET=isolated-pipeline-jwt-secret-never-used-outside-tests \
   public.ecr.aws/supabase/gotrue:v2.197.0@sha256:1736a63078f5922b198c4cbe50f80ab9a2d3b54fe8b7b6cfb2e9dc5dbbc12c6b auth migrate > "$evidence/platform-auth-migrations.log" 2>&1 \
@@ -89,56 +84,19 @@ while IFS= read -r migration; do
   docker exec "$database" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 --single-transaction \
     -f "/migrations/$migration" > "$evidence/$migration.log" 2>&1 || { tail -40 "$evidence/$migration.log"; exit 1; }
 done < "$evidence/migration-order.txt"
-docker run --detach --name "$auth" --network "$network" --label nara.test=server-pipeline \
-  --log-opt max-size=20m --log-opt max-file=2 \
-  -p 127.0.0.1::9999 -e GOTRUE_API_HOST=0.0.0.0 -e GOTRUE_API_PORT=9999 \
-  -e GOTRUE_DB_DRIVER=postgres \
-  -e GOTRUE_DB_DATABASE_URL=postgres://supabase_admin:isolated-pipeline-only@database:5432/postgres?search_path=auth \
-  -e GOTRUE_SITE_URL=http://localhost -e API_EXTERNAL_URL=http://localhost \
-  -e GOTRUE_JWT_SECRET=isolated-pipeline-jwt-secret-never-used-outside-tests \
-  -e GOTRUE_JWT_AUD=authenticated -e GOTRUE_JWT_DEFAULT_GROUP_NAME=authenticated \
-  -e GOTRUE_EXTERNAL_EMAIL_ENABLED=true -e GOTRUE_MAILER_AUTOCONFIRM=true \
-  public.ecr.aws/supabase/gotrue:v2.197.0@sha256:1736a63078f5922b198c4cbe50f80ab9a2d3b54fe8b7b6cfb2e9dc5dbbc12c6b > "$evidence/auth.txt"
-docker run --detach --name "$rest" --network "$network" --label nara.test=server-pipeline \
-  --log-opt max-size=20m --log-opt max-file=2 \
-  -p 127.0.0.1::3000 -e PGRST_DB_URI=postgres://supabase_admin:isolated-pipeline-only@database:5432/postgres \
-  -e PGRST_DB_SCHEMAS=public -e PGRST_DB_ANON_ROLE=anon \
-  -e PGRST_JWT_SECRET=isolated-pipeline-jwt-secret-never-used-outside-tests \
-  public.ecr.aws/supabase/postgrest:v14.5 > "$evidence/rest.txt"
-export PIPELINE_TEST_DATABASE_CONTAINER="$database"
-rest_address="$(docker port "$rest" 3000/tcp)"
+# The cloned database retains every hosted migration and real Auth schema.
+# This JVM-only gate migrates Auth schema; it does not start or test Auth HTTP.
+# Only this freshly created, labelled disposable instance is quiesced for the clone.
+docker exec "$database" psql -U supabase_admin -d template1 -X -v ON_ERROR_STOP=1 -c "alter database postgres with allow_connections false;"
+docker exec "$database" psql -U supabase_admin -d template1 -X -v ON_ERROR_STOP=1 -c "select pg_terminate_backend(pid) from pg_stat_activity where datname='postgres';"
+docker exec "$database" createdb -U supabase_admin --maintenance-db template1 -T postgres physiology_queue_test
+docker exec "$database" psql -U supabase_admin -d template1 -X -v ON_ERROR_STOP=1 -c "alter database postgres with allow_connections true;"
 database_address="$(docker port "$database" 5432/tcp)"
-auth_address="$(docker port "$auth" 9999/tcp)"
-export PIPELINE_TEST_REST_URL="http://$rest_address"
-export PIPELINE_TEST_AUTH_URL="http://$auth_address"
-export PIPELINE_TEST_DATABASE_URL="postgresql://supabase_admin:isolated-pipeline-only@$database_address/postgres"
-export PIPELINE_TEST_OUTPUT="$evidence/decoders"
-cd "$repo_dir/supabase/functions"
-if [[ "${PIPELINE_TEST_INTAKE:-0}" == 1 ]]; then
-  npx --yes deno test --allow-all tests/intake_consumer_sql_test.ts 2>&1 | tee "$evidence/intake.log"
-  git -C "$repo_dir" diff --binary HEAD > "$evidence/source-diff.patch"
-  git -C "$repo_dir" status --porcelain=v1 --untracked-files=all > "$evidence/source-status-final.txt"
-  printf 'Fully migrated actual intake consumer evidence: %s\n' "$evidence"
-  exit 0
-fi
-if [[ "${PIPELINE_TEST_MULTIUSER:-0}" == 1 ]]; then
-  npx --yes deno test --allow-all --filter "${PIPELINE_TEST_FILTER:-}" tests/multiuser_sql_test.ts tests/multiuser_worker_sql_test.ts 2>&1 | tee "$evidence/multiuser.log"
-  git --no-replace-objects -C "$repo_dir" rev-parse --verify HEAD > "$evidence/source-sha.txt"
-  git --no-replace-objects -C "$repo_dir" rev-parse --verify 'HEAD^{tree}' > "$evidence/source-tree.txt"
-  git -C "$repo_dir" status --porcelain=v1 --untracked-files=all > "$evidence/source-status-final.txt"
-  git -C "$repo_dir" diff --binary HEAD > "$evidence/source-diff.patch"
-  git -C "$repo_dir" ls-files --others --exclude-standard > "$evidence/source-untracked.txt"
-  printf 'Fully migrated local multi-user evidence: %s\n' "$evidence"
-  exit 0
-fi
-npx --yes deno test --allow-all tests/server_pipeline_sql_test.ts 2>&1 | tee "$evidence/edge.log"
-cd "$repo_dir"
-bash Tools/server-score-contract/run-mobile-decoders.sh "$PIPELINE_TEST_OUTPUT" 2>&1 | tee "$evidence/mobile.log"
-swift_decoder="$(swift build --package-path Tools/server-score-contract/swift --show-bin-path)/DecodeContract"
-node Tools/server-score-contract/test-canonical-runners.mjs "$PIPELINE_TEST_OUTPUT" "$swift_decoder" \
-  "$repo_dir/Tools/server-score-contract/android/build/install/server-score-decoder-contract/bin/server-score-decoder-contract" \
-  2>&1 | tee "$evidence/canonical-mutations.log"
-git --no-replace-objects -C "$repo_dir" rev-parse --verify HEAD > "$evidence/source-sha.txt"
-git --no-replace-objects -C "$repo_dir" rev-parse --verify 'HEAD^{tree}' > "$evidence/source-tree.txt"
+export PHYSIOLOGY_TEST_DATABASE_URL="postgresql://supabase_admin:isolated-pipeline-only@$database_address/physiology_queue_test"
+docker exec "$database" psql -U supabase_admin -d physiology_queue_test -X -v ON_ERROR_STOP=1 -c "insert into internal.app_secrets(name,value) values('ingest','test') on conflict(name) do update set value=excluded.value;"
+cd "$repo_dir/scoring-service"
+./gradlew :service:test --tests com.frwhoop.scoring.RawSignalCatalogueIntegrationTest --tests com.frwhoop.scoring.VerifiedModelJobAssemblerTest --tests com.frwhoop.scoring.PhysiologyShadowRunnerTest --tests com.frwhoop.scoring.PhysiologyModelQueueIntegrationTest --tests com.frwhoop.scoring.ScoringInputGateIntegrationTest --no-daemon --rerun-tasks
+cp -R service/build/test-results/test "$evidence/jvm-test-results"
+git -C "$repo_dir" diff --binary HEAD > "$evidence/source-diff.patch"
 git -C "$repo_dir" status --porcelain=v1 --untracked-files=all > "$evidence/source-status-final.txt"
-printf 'SQL -> actual Edge -> Swift/Kotlin decoder tests passed. Evidence: %s\n' "$evidence"
+printf 'Full-chain raw model integration evidence: %s\n' "$evidence"

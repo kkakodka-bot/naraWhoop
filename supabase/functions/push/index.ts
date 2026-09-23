@@ -45,8 +45,9 @@ import { createEnrollmentService, EnrollmentError } from '../_shared/enrollment.
 import { createNoopDeviceResolver } from '../_shared/devices.ts';
 import { createUploadReceiptStore } from '../_shared/receipts.ts';
 import { projectEnrolledAppend } from '../_shared/appendProjection.ts';
+import { commitArchivedBatch } from '../_shared/projections.ts';
 import { createInstallationLifecycle } from '../_shared/installationLifecycle.ts';
-import { ASYNC_OBJECT_COMPLETION, ASYNC_OBJECT_HEADER, objectCompletionResponse } from '../_shared/objectVerification.ts';
+import { ASYNC_OBJECT_COMPLETION, ASYNC_OBJECT_HEADER, objectCompletionResponse, asyncVerificationAvailable } from '../_shared/objectVerification.ts';
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024 + 64 * 1024;
 
@@ -91,6 +92,7 @@ const pushIngest = createPushIngest({
   archiveObject: (args: unknown) => pushArchive.archiveObject(args),
   upsertRows: pushUpsertRows,
   projectAppend: (batch) => projectEnrolledAppend(rest, batch),
+  commitProjection: (receipt, body) => commitArchivedBatch(rest, receipt, body),
   deleteRows: (table: string, filter: unknown) => {
     if (!rest.configured) return Promise.resolve();
     return deleteReplacementRows(rest, table, filter);
@@ -182,7 +184,7 @@ async function handleCapabilities(req: Request): Promise<Response> {
           endpoint: OBJECT_LANE_PATH,
           maxObjectBytes: MAX_OBJECT_LANE_BYTES,
           urlTtlSec: UPLOAD_URL_TTL_SEC,
-          ...(cfg.asyncObjectVerification ? { completionModes: ['sync', ASYNC_OBJECT_COMPLETION] } : {}),
+          ...(await asyncVerificationAvailable(cfg, rest) ? { completionModes: ['sync', ASYNC_OBJECT_COMPLETION] } : {}),
         }
         : null,
     });
@@ -239,6 +241,7 @@ async function handleObjectComplete(req: Request, objectId: string): Promise<Res
     // Both completion paths enforce the enrolled installation scope before receipt access.
     return await objectCompletionResponse({
       mode: req.headers.get(ASYNC_OBJECT_HEADER),
+      allowNewAsync: () => asyncVerificationAvailable(cfg, rest),
       completeSync: async () => {
         const ack = await pushObjects.completeObject(scope);
         void enqueueScoringAfterIngest({ rest, userId: user.id, deviceId: ack?.deviceId })

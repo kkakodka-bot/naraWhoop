@@ -113,40 +113,80 @@ class VerifiedRawObjectReader(private val objects: B2ObjectStore.GetClient) {
 /** Owner-scoped discovery and conditional proof recording; a decode failure cannot bless an object. */
 class RawSignalCatalogue(private val dataSource: DataSource, private val reader: VerifiedRawObjectReader) {
     fun discover(userId: UUID, deviceId: UUID, start: Long, end: Long, objectIds: Set<UUID>? = null): List<VerifiedRawObjectReader.Manifest> {
-        require(end > start && end - start <= 76 * 3600) // Two local dates across DST or date-line travel.
-        require(objectIds == null || objectIds.size <= 2048) { "raw_catalogue_budget_exceeded" }
-        if(objectIds?.isEmpty() == true) return emptyList()
-        return dataSource.connection.use { connection -> connection.prepareStatement("""
-            select distinct m.id, m.user_id, m.device_id, m.object_key, m.sha256, m.compression, m.format,
-                m.compressed_bytes, m.uncompressed_bytes, m.sample_count, w.start_ts, w.end_ts, m.source_id
-            from public.noop_signal_windows w join public.object_manifests m on m.id=w.object_id
-            where w.user_id=? and (w.device_id=? or exists(select 1 from public.noop_wearable_aliases a
-                where a.user_id=w.user_id and a.provisional_device_id=w.device_id and a.source_id=m.source_id
-                  and a.canonical_device_id=?)) and m.user_id=w.user_id and m.device_id=w.device_id
-              and m.object_key=w.object_key and w.start_ts<? and w.end_ts>? and w.interpolated_records=0
-              and m.object_class in ('raw','waveform') and m.status in ('ready','verified')
-              and (?::uuid[] is null or m.id=any(?::uuid[]))
-            order by w.start_ts desc, m.id limit ?
-        """.trimIndent()).use { query ->
-            query.setObject(1, userId); query.setObject(2, deviceId); query.setObject(3, deviceId)
-            query.setLong(4, end); query.setLong(5, start)
-            val ids=objectIds?.let { connection.createArrayOf("uuid",it.toTypedArray()) }
-            query.setArray(6,ids); query.setArray(7,ids)
-            query.setInt(8, if(objectIds == null) 256 else 2048)
-            try { query.executeQuery().use { rows -> buildList {
-                while (rows.next()) {
-                    val compressed = rows.getLong("compressed_bytes"); val decoded = rows.getLong("uncompressed_bytes")
-                    if (compressed !in 1..VerifiedRawObjectReader.MAX_BYTES || decoded !in 1..VerifiedRawObjectReader.MAX_BYTES) continue
-                    val count = rows.getLong("sample_count"); val sampleCount = if (rows.wasNull()) null else count.takeIf { it in 1..100000 }?.toInt()
-                    if (count > 100000) continue
-                    add(VerifiedRawObjectReader.Manifest(rows.getObject("id", UUID::class.java), userId, rows.getObject("device_id", UUID::class.java),
-                        rows.getString("object_key"), rows.getString("sha256") ?: "", rows.getString("compression") ?: "",
-                        rows.getString("format") ?: "", compressed.toInt(), decoded.toInt(), sampleCount,
-                        rows.getLong("start_ts"), rows.getLong("end_ts"),
-                        sourceId=rows.getObject("source_id",UUID::class.java), canonicalDeviceId=deviceId))
+        require(end > start && end - start <= 76 * 3600)
+        require(objectIds == null || objectIds.size <= MAX_REQUIRED_OBJECTS) { "raw_catalogue_budget_exceeded" }
+        if (objectIds?.isEmpty() == true) return emptyList()
+        return dataSource.connection.use { connection ->
+            val isolation = connection.transactionIsolation
+            val readOnly = connection.isReadOnly
+            connection.transactionIsolation = java.sql.Connection.TRANSACTION_REPEATABLE_READ
+            connection.isReadOnly = true
+            connection.autoCommit = false
+            try {
+                // Only manifest metadata is held in this snapshot. Object downloads happen after commit.
+                val pages = objectIds?.sortedBy { it.toString() }?.chunked(PAGE_SIZE) ?: listOf(null)
+                val found = mutableListOf<VerifiedRawObjectReader.Manifest>()
+                for (page in pages) {
+                    if (Thread.currentThread().isInterrupted) throw InterruptedException("raw_catalogue_cancelled")
+                    connection.prepareStatement("""
+                        select distinct m.id, m.user_id, m.device_id, m.object_key, m.sha256, m.compression, m.format,
+                            m.compressed_bytes, m.uncompressed_bytes, m.sample_count, w.start_ts, w.end_ts, m.source_id
+                        from public.noop_signal_windows w join public.object_manifests m on m.id=w.object_id
+                        where w.user_id=? and (w.device_id=? or exists(select 1 from public.noop_wearable_aliases a
+                            where a.user_id=w.user_id and a.provisional_device_id=w.device_id and a.source_id=m.source_id
+                              and a.canonical_device_id=?)) and m.user_id=w.user_id and m.device_id=w.device_id
+                          and m.object_key=w.object_key and w.start_ts<? and w.end_ts>? and w.interpolated_records=0
+                          and m.object_class in ('raw','waveform') and m.status in ('ready','verified')
+                          and (?::uuid[] is null or m.id=any(?::uuid[]))
+                        order by w.start_ts desc, m.id limit ?
+                    """.trimIndent()).use { query ->
+                        query.queryTimeout = 10
+                        query.setObject(1, userId); query.setObject(2, deviceId); query.setObject(3, deviceId)
+                        query.setLong(4, end); query.setLong(5, start)
+                        val ids = page?.let { connection.createArrayOf("uuid", it.toTypedArray()) }
+                        query.setArray(6, ids); query.setArray(7, ids)
+                        query.setInt(8, (page?.size ?: MAX_UNPLANNED_OBJECTS) + 1)
+                        try { query.executeQuery().use { rows ->
+                            while (rows.next()) {
+                                val compressed = rows.getLong("compressed_bytes"); val decoded = rows.getLong("uncompressed_bytes")
+                                require(compressed in 1..VerifiedRawObjectReader.MAX_BYTES && decoded in 1..VerifiedRawObjectReader.MAX_BYTES) {
+                                    "raw_assembly_budget_exceeded"
+                                }
+                                val count = rows.getLong("sample_count")
+                                val sampleCount = if (rows.wasNull()) null else {
+                                    require(count in 1..VerifiedRawObjectReader.MAX_RECORDS) { "raw_assembly_budget_exceeded" }
+                                    count.toInt()
+                                }
+                                found += VerifiedRawObjectReader.Manifest(rows.getObject("id", UUID::class.java), userId,
+                                    rows.getObject("device_id", UUID::class.java), rows.getString("object_key"),
+                                    rows.getString("sha256") ?: "", rows.getString("compression") ?: "", rows.getString("format") ?: "",
+                                    compressed.toInt(), decoded.toInt(), sampleCount, rows.getLong("start_ts"), rows.getLong("end_ts"),
+                                    sourceId = rows.getObject("source_id", UUID::class.java), canonicalDeviceId = deviceId)
+                            }
+                        } } finally { ids?.free() }
+                        require(found.size <= (objectIds?.size ?: MAX_UNPLANNED_OBJECTS)) { "raw_catalogue_budget_exceeded" }
+                    }
                 }
-            } } } finally { ids?.free() }
-        } }
+                require(found.map { it.id }.toSet().size == found.size) { "raw_catalogue_identity_conflict" }
+                require(objectIds == null || found.map { it.id }.toSet() == objectIds) { "raw_required_objects_missing" }
+                connection.commit()
+                found
+            } catch (failure: Exception) {
+                connection.rollback()
+                throw failure
+            } finally {
+                connection.autoCommit = true
+                connection.isReadOnly = readOnly
+                connection.transactionIsolation = isolation
+            }
+        }
+    }
+
+    companion object {
+        const val PAGE_SIZE = 128
+        const val MAX_UNPLANNED_OBJECTS = 256
+        const val MAX_REQUIRED_OBJECTS = 2048
+        const val MAX_ASSEMBLY_BYTES = 64L * 1024 * 1024
     }
 
     fun verify(manifest: VerifiedRawObjectReader.Manifest): VerifiedRawObjectReader.Decoded {

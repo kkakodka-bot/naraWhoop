@@ -2,13 +2,20 @@ import assert from 'node:assert/strict';
 import { createHash, createHmac } from 'node:crypto';
 import { createSupabaseRest } from '../_shared/rest.ts';
 import { handleScoresRequest } from '../_shared/serverScores.ts';
+import { createPushArchive, createPushIngest } from '../_shared/ingest.ts';
+import { createPushWalStore } from '../_shared/wal.ts';
+import { commitArchivedBatch } from '../_shared/projections.ts';
+import { createNoopDeviceResolver } from '../_shared/devices.ts';
+import { createUploadReceiptStore } from '../_shared/receipts.ts';
+import { resolveUploadIdentity } from '../_shared/tokens.ts';
+import { pushConfig } from '../_shared/config.ts';
+import { startObjectHttp } from './local_objects.ts';
 
 const container = Deno.env.get('PIPELINE_TEST_DATABASE_CONTAINER');
 const restUrl = Deno.env.get('PIPELINE_TEST_REST_URL');
+const authUrl = Deno.env.get('PIPELINE_TEST_AUTH_URL');
 const output = Deno.env.get('PIPELINE_TEST_OUTPUT');
 const day = '2026-09-15';
-const owner = '11111111-1111-4111-8111-111111111111';
-const other = '22222222-2222-4222-8222-222222222222';
 const source = '33333333-3333-4333-8333-333333333333';
 const secondSource = '44444444-4444-4444-8444-444444444444';
 const allFeatures = ['sleep', 'hrv', 'respiration'];
@@ -30,6 +37,7 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
   ignore: !container, sanitizeOps: false, sanitizeResources: false, fn: async () => {
   assert.match(container!, /^nara-db-server-pipeline\.[a-z0-9]+$/);
   assert.match(restUrl!, /^http:\/\/127\.0\.0\.1:\d+$/);
+  assert.match(authUrl!, /^http:\/\/127\.0\.0\.1:\d+$/);
   assert.ok(output);
   const inspection = await new Deno.Command('docker', { args: ['inspect', container!, '--format',
     '{{index .Config.Labels "nara.test"}}'] }).output();
@@ -47,8 +55,32 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     try { await rest.select('devices', 'select=id&limit=1'); break; }
     catch (error) { if (attempt === 59) throw error; await new Promise(resolve => setTimeout(resolve, 250)); }
   }
+  // Real isolated GoTrue issues and validates the account credential. Only the
+  // Kong URL prefix is adapted; no user/authentication response is fabricated.
+  for (let attempt = 0; attempt < 60; attempt++) {
+    try {
+      const response=await fetch(`${authUrl}/health`,{signal:AbortSignal.timeout(2000)});
+      await response.body?.cancel();
+      if (!response.ok) throw new Error('auth_not_ready');
+      break;
+    } catch(error) { if(attempt===59) throw error; await new Promise(resolve=>setTimeout(resolve,250)); }
+  }
+  async function signup(name:string) {
+    const response=await fetch(`${authUrl}/signup`,{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({email:`pipeline-${name}@example.test`,password:'isolated-test-password-never-production'}),
+      signal:AbortSignal.timeout(15000)});
+    assert.equal(response.status,200,await response.clone().text());
+    const session=await response.json();
+    assert.match(session.user.id,/^[a-f0-9-]{36}$/);
+    assert.equal(typeof session.access_token,'string');
+    return session;
+  }
+  const ownerSession=await signup('owner');
+  const otherSession=await signup('other');
+  const owner=ownerSession.user.id;
+  const other=otherSession.user.id;
+  const accountToken=ownerSession.access_token;
   await sql(`
-    insert into auth.users(id) values ('${owner}'),('${other}');
     insert into profiles(id,timezone) values ('${owner}','UTC'),('${other}','UTC') on conflict(id) do update set timezone='UTC';
     insert into noop_enrollment_codes(id,user_id,code_hash,expires_at) values
       ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','${owner}',repeat('a',64),now()+interval '1 day'),
@@ -69,14 +101,20 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
       body: body === undefined ? undefined : JSON.stringify(body),
     }), { rest, cfg });
   }
-  async function accountRequest(device: string, requestSource=source) {
-    return await handleScoresRequest(new Request(`http://localhost/functions/v1/scores?day=${day}&deviceId=${device}`, {
-      headers:{authorization:`Bearer ${token}`,'x-noop-source-id':requestSource},
-    }),{rest,cfg,fetchImpl:async(input)=>{
+  async function accountRequest(device: string, requestSource=source, requestedDay=day, bearer=accountToken) {
+    return await handleScoresRequest(new Request(`http://localhost/functions/v1/scores?day=${requestedDay}&deviceId=${device}`, {
+      headers:{authorization:`Bearer ${bearer}`,'x-noop-source-id':requestSource},
+    }),{rest,cfg,fetchImpl:async(input,init)=>{
       assert.equal(String(input),`${restUrl}/auth/v1/user`);
-      return Response.json({id:owner});
+      return fetch(`${authUrl}/user`,{...init,signal:AbortSignal.timeout(15000)});
     }});
   }
+  const tokenParts=accountToken.split('.');
+  tokenParts[2]=(tokenParts[2][0]==='a'?'b':'a')+tokenParts[2].slice(1);
+  assert.equal((await accountRequest('whoop-TESTA001',source,day,tokenParts.join('.'))).status,401,
+    'actual Auth must reject an invalid signature');
+  assert.equal((await accountRequest('whoop-TESTA001',source,day,otherSession.access_token)).status,401,
+    'actual other-owner Auth cannot use this source');
   const identities: any[] = [];
   for (const [who, local] of [['a','whoop-TESTA001'],['a','whoop-TESTA002'],['b','whoop-TESTB001'],['b','whoop-TESTB002']]) {
     const response = await request(local,who,'/devices',{deviceId:local});
@@ -84,7 +122,6 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     identities.push((await response.json()).identity);
   }
   const device = identities[0].deviceId;
-  await rest.rpc('server_scoring_for_device_day',{p_user:owner,p_day:day,p_device:device});
   const expectations: any[] = [];
   await Deno.mkdir(output!, { recursive: true });
   async function capture(name: string, available: string[], nestedHrv = false, nestedRespiration = false, local = 'whoop-TESTA001') {
@@ -191,9 +228,6 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     expectations.push({...expectations.at(-1),file:`account-${name}.json`});
     return score;
   }
-  await capture('missing',[]);
-  await capture('pending-device',[],false,false,'whoop-UNREGISTERED');
-  assert.equal((await accountRequest('whoop-TESTA001',secondSource)).status,401,'other-owner source rejected');
   const sessionId=crypto.randomUUID();
   const sessionRequest={id:crypto.randomUUID(),family:'spot_hrv',session_id:sessionId,
     event_start:`${day}T12:00:00Z`,event_end:`${day}T12:02:00Z`,timezone_id:'UTC',input_revision:0,
@@ -210,28 +244,102 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
   const physiologyBinary = Deno.env.get('PIPELINE_TEST_V2_BINARY');
   if (baselineBinary || physiologyBinary) {
     assert.ok(baselineBinary && physiologyBinary, 'both real worker binaries are required');
-    const workerDay = '2026-09-14';
+    const workerDay = '2026-09-07';
     const ts = Math.floor(Date.parse(`${workerDay}T12:00:00Z`) / 1000);
     const sourceRevision = new TextDecoder().decode((await new Deno.Command('git', { args: ['rev-parse', 'HEAD'] }).output()).stdout).trim();
+    const objectServer=startObjectHttp({versioned:true,chunkBytes:8192});
+    const intakeConfig=pushConfig({B2_KEY_ID:'fixture',B2_APPLICATION_KEY:'fixture',B2_BUCKET:'fixture',RAW_STORE:'b2'});
+    const archive=createPushArchive({cfg:intakeConfig,rest,raw:objectServer.raw});
+    const intake=createPushIngest({walStore:createPushWalStore({rest})!,archiveObject:archive.archiveObject,
+      resolveDeviceId:createNoopDeviceResolver({rest}),receiptStore:createUploadReceiptStore({rest}),
+      commitProjection:(receipt,bytes)=>commitArchivedBatch(rest,receipt,bytes)});
+    try {
     for (const [index, identity] of identities.entries()) {
-      const batch = crypto.randomUUID();
-      const rows = Array.from({length:600},(_,n)=>({user_id:identity.userId,device_id:identity.deviceId,
-        source_id:identity.sourceId,batch_id:batch,ts:ts+n,bpm:60+index*10}));
-      const args = {p_user:identity.userId,p_device:identity.deviceId,p_source:identity.sourceId,
-        p_batch:batch,p_stream:'hrSample',p_rows:rows};
-      assert.equal(await rest.rpc('noop_project_append_batch',args),600);
-      const revision = await sql(`select input_revision from physiology_work_items where user_id='${identity.userId}' and device_id='${identity.deviceId}' and day='${workerDay}';`);
-      assert.equal(await rest.rpc('noop_project_append_batch',args),600);
-      assert.equal(await sql(`select input_revision from physiology_work_items where user_id='${identity.userId}' and device_id='${identity.deviceId}' and day='${workerDay}';`),revision,'duplicate batch does not dirty revision');
+      const batchReceipts: Array<{batch_id:string;receipt_id:string;content_sha256:string;wire_sha256:string;stream:string}>=[];
+      // Synthetic acquisition fixture for the unchanged baseline; no RR/beat timing is invented.
+      // Three hours of 1 Hz HR and gravity match the kernel's supported scalar inputs.
+      const positive = index === 0;
+      const inputStart = positive ? Math.floor(Date.parse(`${workerDay}T01:00:00Z`) / 1000) : ts;
+      const inputCount = positive ? 10_800 : 600;
+      for (const stream of positive ? ['hrSample','gravitySample'] : ['hrSample']) {
+        for (let offset=0;offset<inputCount;offset+=1000) {
+          const batch = crypto.randomUUID();
+          const records = Array.from({length:Math.min(1000,inputCount-offset)},(_,n)=>({type:'record',key:{ts:inputStart+offset+n},
+            data:stream==='hrSample' ? {bpm:positive ? 52+Math.floor((offset+n)/60)%3 : 60+index*10} : {x:0,y:0,z:1}}));
+          const header={type:'batch',protocolVersion:'1.1',stream,deviceId:identity.externalDeviceId,sourceId:identity.sourceId,
+            batchId:batch,endCursor:{ts:inputStart+offset+records.length-1},delivery:'append',recordCount:records.length};
+          const decodedBody=new TextEncoder().encode([header,...records].map(value=>JSON.stringify(value)).join('\n')+'\n');
+          const upload=await resolveUploadIdentity({rest,headers:new Headers({
+            authorization:`Bearer noop_pipeline_${identity.userId===owner?'a':'b'}`,'x-noop-fleet-token':'noop_pipeline_fleet'})});
+          assert.equal(upload.id,identity.userId);assert.equal(upload.sourceId,identity.sourceId);
+          assert.equal(await rest.rpc('admit_noop_request',{p_user:upload.id,p_source:upload.sourceId}),true);
+          const args={userId:upload.id,sourceId:upload.sourceId,tokenId:upload.tokenId,authMode:upload.authMode,decodedBody};
+          const ack=await intake.acceptBatch(args);
+          assert.equal(ack.acceptedRows,records.length);assert.equal(ack.durabilityReceipt.state,'verified_indexed');
+          assert.equal(ack.durabilityReceipt.contentSha256,createHash('sha256').update(decodedBody).digest('hex'));
+          assert.equal(await sql(`select state from noop_projection_debt where object_id='${batch}';`),'complete');
+          assert.equal(await sql(`select sha256_source from object_manifests where id='${batch}';`),'server_verified');
+          assert.equal(await sql(`select count(*) from noop_projection_observations where batch_id='${batch}';`),String(records.length));
+          batchReceipts.push({batch_id:batch,receipt_id:ack.durabilityReceipt.receiptId,content_sha256:ack.durabilityReceipt.contentSha256,
+            wire_sha256:ack.durabilityReceipt.wireSha256,stream});
+          const revision = await sql(`select input_revision from physiology_work_items where user_id='${identity.userId}' and device_id='${identity.deviceId}' and day='${workerDay}';`);
+          assert.deepEqual(await intake.acceptBatch(args),ack);
+          assert.equal(await sql(`select input_revision from physiology_work_items where user_id='${identity.userId}' and device_id='${identity.deviceId}' and day='${workerDay}';`),revision,'duplicate durable batch does not dirty revision');
+        }
+        const table=stream==='hrSample' ? 'noop_hr_samples' : 'noop_gravity_samples';
+        assert.equal(Number(await sql(`select count(*) from ${table} where user_id='${identity.userId}'
+          and device_id='${identity.deviceId}' and ts>=${inputStart} and ts<${inputStart+inputCount};`)),inputCount);
+      }
+      const workerEnv={PATH:Deno.env.get('PATH')!,JAVA_HOME:Deno.env.get('JAVA_HOME')!,
+        DATABASE_URL:Deno.env.get('PIPELINE_TEST_DATABASE_URL')!,SUPABASE_URL:restUrl!,
+        SUPABASE_SERVICE_ROLE_KEY:token,INGEST_SECRET:'isolated-pipeline-only',
+        SCORING_WORKER_SOURCE_REVISION:sourceRevision};
+      if (positive) {
+        assert.equal(await sql(`select status from scoring_work_items where user_id='${identity.userId}'
+          and device_id='${identity.deviceId}' and day='${workerDay}';`),'pending',
+          'durable scalar projection must enqueue the selected baseline without test-only enqueue');
+        // A retained replay environment must not turn the production daemon into a one-shot process.
+        const daemon=new Deno.Command(baselineBinary,{args:[],clearEnv:true,env:{...workerEnv,
+          SCORING_ALGORITHM_VERSION:'frwhoop-server-1',SCORING_POLL_SECONDS:'1',
+          SCORING_WORKER_INSTANCE_ID:crypto.randomUUID(),REPLAY_USER_ID:'invalid-stale-user',
+          REPLAY_DEVICE_ID:'invalid-stale-device',REPLAY_DAY:'invalid-stale-day'},stdout:'piped',stderr:'piped'}).spawn();
+        let exited=false;
+        const daemonOutput=daemon.output().then(result=>{exited=true;return result;});
+        const timeout=setTimeout(()=>{try {daemon.kill('SIGTERM');} catch { /* Already exited. */ }},120_000);
+        try {
+          let priorRevision=0;
+          for (let cycle=0;cycle<2;cycle++) {
+            let publicationRevision=0;
+            for (let attempt=0;attempt<100;attempt++) {
+              assert.equal(exited,false,'persistent worker exited before bounded test shutdown');
+              publicationRevision=Number(await sql(`select coalesce(max(input_revision),0) from server_physiology_results
+                where user_id='${identity.userId}' and device_id='${identity.deviceId}' and period_day='${workerDay}'
+                and algorithm_version='frwhoop-server-1';`));
+              if (publicationRevision>priorRevision) break;
+              await new Promise(resolve=>setTimeout(resolve,500));
+            }
+            assert.ok(publicationRevision>priorRevision,'persistent daemon must claim and publish each queued revision');
+            priorRevision=publicationRevision;
+            if (cycle===0) await rest.rpc('scoring_enqueue_legacy_fenced',{
+              p_user:identity.userId,p_device:identity.deviceId,p_day:workerDay,p_timezone:'UTC',p_debounce_seconds:0});
+          }
+          assert.equal(exited,false,'daemon remains alive after multiple publications');
+        } finally {
+          clearTimeout(timeout);
+          try {daemon.kill('SIGTERM');} catch { /* Already exited. */ }
+          const result=await daemonOutput;
+          const log=new TextDecoder().decode(result.stdout)+new TextDecoder().decode(result.stderr);
+          await Deno.writeTextFile(`${output}/worker-0-persistent-v1.log`,log);
+          assert.match(log,/Ignoring REPLAY_\* in persistent baseline mode/);
+        }
+      }
       assert.ok(Number(await sql(`select count(*) from scoring_jobs_v2 where user_id='${identity.userId}'
         and device_id='${identity.deviceId}' and day='${workerDay}' and algorithm_version='frwhoop-server-1';`))>0,
         'historical queue coexistence must not suppress fenced baseline publication');
       const workerBinaries: Array<[string,string]> = [['frwhoop-server-1',baselineBinary],['frwhoop-physiology-2',physiologyBinary]];
       for (const [version,binary] of workerBinaries) {
         const child: Deno.ChildProcess = new Deno.Command(binary, { args:['--replay-day'], clearEnv:true,
-          env:{PATH:Deno.env.get('PATH')!,JAVA_HOME:Deno.env.get('JAVA_HOME')!,
-            DATABASE_URL:Deno.env.get('PIPELINE_TEST_DATABASE_URL')!,
-            SUPABASE_URL:restUrl!,SUPABASE_SERVICE_ROLE_KEY:token,INGEST_SECRET:'isolated-pipeline-only',
+          env:{...workerEnv,
             SCORING_ALGORITHM_VERSION:version!,REPLAY_USER_ID:identity.userId,REPLAY_DEVICE_ID:identity.deviceId,REPLAY_DAY:workerDay,
             SCORING_WORKER_INSTANCE_ID:crypto.randomUUID(),SCORING_WORKER_SOURCE_REVISION:sourceRevision},
           stdout:'piped',stderr:'piped' }).spawn();
@@ -261,10 +369,67 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
       await Deno.writeTextFile(`${output}/worker-${index}.json`,bytes);
       const available=allFeatures.filter(key=>['available','stale'].includes(body.server_scoring.features[key].status));
       assert.equal(available.length,3,'retained v1 publication is readable, even with null unsupported measurements');
-      expectations.push({file:`worker-${index}.json`,ownerId:identity.userId,day:workerDay,
+      const expectation={file:`worker-${index}.json`,ownerId:identity.userId,day:workerDay,
         availableFeatures:available,unavailableFeatures:[],expectedDeviceId:identity.deviceId,
-        nestedHrvAvailable:false,nestedRespirationAvailable:false});
+        nestedHrvAvailable:false,nestedRespirationAvailable:false,
+        allowedNestedFields:positive ? ['resting_hr_bpm','overnight_hr_bpm'] : undefined,
+        expectedValues:positive ? {sleep:179.98333333333332} : undefined,
+        expectedCanonicalValues:positive ? {sleep_total_min:179.98333333333332,sleep_efficiency:100,resting_hr_bpm:53} : undefined};
+      expectations.push(expectation);
+      if (positive) {
+        const publication=JSON.parse(await sql(`select jsonb_build_object('revision',input_revision,
+          'payload_hash',payload_hash,'payload',payload) from server_physiology_results
+          where user_id='${identity.userId}' and device_id='${identity.deviceId}' and period_day='${workerDay}'
+          and algorithm_version='frwhoop-server-1' order by input_revision desc limit 1;`));
+        const value=publication.payload.daily.sleep_total_min;
+        assert.ok(value>0,'unchanged v1 must actually compute a supported numerical sleep result');
+        assert.equal(value,expectation.expectedValues!.sleep,'frozen kernel numerical fixture changed');
+        const selected=await rest.rpc('server_scoring_for_device_day',{
+          p_user:identity.userId,p_device:identity.deviceId,p_day:workerDay});
+        const sleep=body.server_scoring.compute.families.sleep;
+        for (const metric of ['hrv_rmssd_ms','hrv_sdnn_ms','spo2_pct','resp_rate_bpm']) {
+          assert.equal(body.server_scoring.daily[metric] ?? null,null,`no source fixture may manufacture ${metric}`);
+        }
+        assert.equal(selected.daily.sleep_total_min,value);
+        assert.equal(body.server_scoring.daily.sleep_total_min,value);
+        assert.equal(sleep.values.sleep_total_min,value);
+        assert.equal(sleep.canonical_qualification,'retained_legacy','positive proof must not manufacture qualification');
+        assert.equal(sleep.result_revision,`sha256:${publication.payload_hash}`);
+        assert.equal(sleep.input_revision,publication.revision);
+        assert.equal(Number(await sql("select count(*) from physiology_feature_qualifications where qualification='reference_qualified';")),0,
+          'positive baseline proof runs before any test-only qualification fixtures');
+        const account=await accountRequest(identity.externalDeviceId,identity.sourceId,workerDay);
+        assert.equal(account.status,200,await account.clone().text());
+        const accountBytes=await account.text();
+        assert.deepEqual(JSON.parse(accountBytes).server_scoring,body.server_scoring,'computed account/enrolled parity');
+        await Deno.writeTextFile(`${output}/account-worker-${index}.json`,accountBytes);
+        expectations.push({...expectation,file:`account-worker-${index}.json`});
+        await Deno.writeTextFile(`${output}/computed_fixture_input_to_result_trace.json`,JSON.stringify({
+          schema_version:1,evidence_kind:'synthetic_supported_input_executed_workers',source_revision:sourceRevision,
+          source_worktree_clean:Deno.env.get('PIPELINE_TEST_SOURCE_CLEAN')==='true',
+          source_status_sha256:Deno.env.get('PIPELINE_TEST_SOURCE_STATUS_SHA256') ?? null,
+          source_receipt:'../source-receipt.json',
+          physical_phone_readback:'NOT_MEASURED',account_auth_provider:'disposable_gotrue_issued_and_verified_bearer',
+          owner_id:identity.userId,source_id:identity.sourceId,device_id:identity.deviceId,day:workerDay,
+          inputs:{hr:{count:inputCount,rate_hz:1,unit:'bpm',formula:'52 + floor(sample_index / 60) % 3'},
+            gravity:{count:inputCount,rate_hz:1,unit:'g',xyz:[0,0,1]},start_epoch_s:inputStart,
+            end_epoch_s:inputStart+inputCount-1,rr_count:0,respiration_count:0},
+          input_transport:'real_NDJSON_parser_WAL_signed_loopback_S3_streamed_byte_verification',
+          acquisition:'synthetic_1Hz_supported_scalar_fixture_not_physical_BLE',storage_provider:'synthetic_loopback_S3_not_hosted_B2',
+          upload_auth:'actual_source_bound_installation_and_fleet_lookup',durability_receipts:batchReceipts,
+          durable_projection:'noop_commit_push_projection_atomic_lifecycle',queue:'scoring_work_items',
+          initial_queue_admission:'actual_scalar_change_trigger_no_test_enqueue',
+          worker:'frwhoop-server-1',numerical_source_revision:'5caa31689da0023e111beb36850d3f81d67e1be2',
+          input_revision:publication.revision,immutable_payload_sha256:publication.payload_hash,
+          qualification:sleep.canonical_qualification,metric:'sleep_total_min',unit:'min',value,
+          sql_selected_value:selected.daily.sleep_total_min,enrolled_value:sleep.values.sleep_total_min,
+          account_value:JSON.parse(accountBytes).server_scoring.compute.families.sleep.values.sleep_total_min,
+          native_expectation_files:[expectation.file,`account-worker-${index}.json`],
+          persistent_daemon:'two_publications_with_stale_replay_environment',
+        },null,2)+'\n');
+      }
     }
+    } finally {await objectServer.close();}
     // Read every device again after both devices for each owner have published. The old
     // user/day upsert table cannot substitute the most recently scored sibling device.
     for (const identity of identities) {
@@ -333,6 +498,10 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
       p_secret:'isolated-pipeline-only',p_payload:fenced}),/\(409\) stale scoring lease or input revision/);
     assert.ok(performance.now()-conflictStarted<5000,'stale lease is a bounded conflict, not a PostgREST retry loop');
   }
+  await rest.rpc('server_scoring_for_device_day',{p_user:owner,p_day:day,p_device:device});
+  await capture('missing',[]);
+  await capture('pending-device',[],false,false,'whoop-UNREGISTERED');
+  assert.equal((await accountRequest('whoop-TESTA001',secondSource)).status,401,'other-owner source rejected');
   // Test-only signed evidence uses the real signature verifier and selection guard.
   await sql(`create schema pipeline_test; revoke all on schema pipeline_test from public;
     create function pipeline_test.approve(f text) returns uuid language plpgsql as $body$
@@ -412,9 +581,6 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
     delete family.project; delete family.source_id;
   }
   assert.deepEqual(account,sqlApproved,'account and enrolled SQL wrappers share serialization before trusted Edge project/source binding');
-  const accountBody = btoa(JSON.stringify({role:'authenticated',sub:owner,exp:Math.floor(Date.now()/1000)+3600})).replaceAll('=','');
-  const accountToken = `${jwtHeader}.${accountBody}.${createHmac('sha256','isolated-pipeline-jwt-secret-never-used-outside-tests')
-    .update(`${jwtHeader}.${accountBody}`).digest('base64url')}`;
   const accountRest = createSupabaseRest({cfg:{supabaseUrl:restUrl!,supabaseServiceRoleKey:accountToken},
     fetchImpl:(input,init)=>fetch(String(input).replace('/rest/v1/','/'),init)});
   assert.deepEqual(await accountRest.rpc('server_scoring_for_day',{p_user:owner,p_day:day}),sqlApproved);

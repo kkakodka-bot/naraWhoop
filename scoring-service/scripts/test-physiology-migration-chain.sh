@@ -49,19 +49,56 @@ while IFS='|' read -r name source_sha; do
     [[ "$(node -p "require('$evidence/pre-upgrade-state.json').full_identity_rows")" == 117 ]] || {
       printf 'Hosted upgrade boundary is not the attested 117-identity baseline.\n' >&2; exit 1;
     }
+    # Exercise the production atomic migration/receipt wrapper against a local
+    # predecessor, including the timestamp-collision ledger that must not change.
+    docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
+      "create table if not exists supabase_migrations.schema_migrations(version text primary key,name text);
+       insert into supabase_migrations.schema_migrations(version,name)
+       select distinct on (left(basename,14)) left(basename,14),substring(basename from 16)
+       from supabase_migrations.scoring_source_identities order by left(basename,14),basename;" \
+      > "$evidence/native-ledger-seed.log"
+    docker exec "$container" psql -U postgres -d postgres -X -qAt -v ON_ERROR_STOP=1 -c \
+      "select coalesce(jsonb_agg(jsonb_build_object('version',version,'name',name) order by version),'[]')
+       from supabase_migrations.schema_migrations;" > "$evidence/native-ledger-before.json"
     seeded=true
   fi
   if [[ "$mode" == populated && "$seeded" == false && "$name" == 20260918010000* ]]; then
     docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f /seed.sql > "$evidence/seed.log" 2>&1
     seeded=true
   fi
-  if ! docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 --single-transaction \
-    -f "/workspace-migrations/$name" > "$evidence/$name.log" 2>&1; then
-    tail -40 "$evidence/$name.log"; exit 1
+  if [[ "$mode" == hosted-upgrade && "$seeded" == true ]]; then
+    docker exec "$container" psql -U postgres -d postgres -X -qAt -v ON_ERROR_STOP=1 -c \
+      "select coalesce(jsonb_agg(jsonb_build_object('stableIdentity',basename,'sha256',sha256) order by basename),'[]')
+       from supabase_migrations.scoring_source_identities;" > "$evidence/pre-apply-full-identity.json"
+    node --input-type=module - "$repo_dir" "$evidence" "$name" "$source_sha" > "$evidence/wrapped-$name" <<'NODE'
+import fs from 'node:fs';
+import path from 'node:path';
+import {pathToFileURL} from 'node:url';
+const [root,evidence,identity,sha256]=process.argv.slice(2);
+const {migrationApplySQL,PENDING_IDENTITIES}=await import(pathToFileURL(path.join(root,'Tools/release/hosted-migration-release.mjs')));
+const index=PENDING_IDENTITIES.indexOf(identity);
+if(index<0) throw new Error('not a reviewed forward migration');
+process.stdout.write(migrationApplySQL({
+  migrationBytes:fs.readFileSync(path.join(root,'supabase/migrations',identity)),
+  migration:{stableIdentity:identity,sha256,applyOrdinal:index+1},
+  expectedNativeLedger:JSON.parse(fs.readFileSync(path.join(evidence,'native-ledger-before.json'))),
+  expectedFullIdentityLedger:JSON.parse(fs.readFileSync(path.join(evidence,'pre-apply-full-identity.json'))),
+}));
+NODE
+    docker cp "$evidence/wrapped-$name" "$container:/wrapped-migration.sql"
+    if ! docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 \
+      -f /wrapped-migration.sql > "$evidence/$name.log" 2>&1; then
+      tail -40 "$evidence/$name.log"; exit 1
+    fi
+  else
+    if ! docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 --single-transaction \
+      -f "/workspace-migrations/$name" > "$evidence/$name.log" 2>&1; then
+      tail -40 "$evidence/$name.log"; exit 1
+    fi
+    docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
+      "insert into supabase_migrations.scoring_source_identities values ('$name','$source_sha');" >> "$evidence/ledger-init.log"
   fi
   printf 'PASS %s\n' "$name" >> "$evidence/results.txt"
-  docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
-    "insert into supabase_migrations.scoring_source_identities values ('$name','$source_sha');" >> "$evidence/ledger-init.log"
   if [[ "$mode" == populated && "$name" == 20260918010000_physiology_revisions.sql ]]; then
     docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f /steps.sql > "$evidence/steps.log" 2>&1
   fi
@@ -79,6 +116,10 @@ if [[ "$mode" == hosted-upgrade ]]; then
   [[ "$seeded" == true ]] || { printf 'Hosted upgrade boundary was not reached.\n' >&2; exit 1; }
   docker exec "$container" psql -U postgres -d postgres -X -qAt -v ON_ERROR_STOP=1 \
     -f /release-upgrade-verify.sql > "$evidence/upgrade-verification.json"
+  docker exec "$container" psql -U postgres -d postgres -X -qAt -v ON_ERROR_STOP=1 -c \
+    "select coalesce(jsonb_agg(jsonb_build_object('version',version,'name',name) order by version),'[]')
+     from supabase_migrations.schema_migrations;" > "$evidence/native-ledger-after.json"
+  cmp "$evidence/native-ledger-before.json" "$evidence/native-ledger-after.json"
 fi
 docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
   "do \$\$ begin assert not exists(select 1 from physiology_feature_defaults where algorithm_version<>'frwhoop-server-1'); assert not public.physiology_feature_is_canonical('frwhoop-physiology-2','hrv'); assert not public.physiology_feature_is_canonical('frwhoop-physiology-2','sleep'); assert not public.physiology_feature_is_canonical('frwhoop-physiology-2','respiration'); end \$\$;" > "$evidence/promotion-defaults.log"

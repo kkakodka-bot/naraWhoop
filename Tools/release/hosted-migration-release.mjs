@@ -10,8 +10,8 @@ import { canonicalJSON, sha256Hex } from './generate-migration-manifest.mjs';
 
 export const HOSTED_PROJECT_REF = 'sgoyxzcagqyxexmsidtk';
 export const CREDENTIAL_ENVIRONMENT = 'FRWHOOP_HOSTED_DATABASE_URL';
-export const EXPECTED_SCHEMA_FINGERPRINT = '910a1c74a760b496028d7c2c58c009f45e29f9643fd2c279c278156f9a23d4c5';
-export const EXPECTED_DATABASE_SCHEMA_FINGERPRINT = '2d476625729296d2caa03ca00cb834ecc7a0efad8fd48b21cb417bbc28c434ab';
+export const EXPECTED_SCHEMA_FINGERPRINT = '4e169fbf070920262b6bec899d63eb4728fb6f8f0932d22fb58e1fc5f15883c8';
+export const EXPECTED_DATABASE_SCHEMA_FINGERPRINT = '8bd81072dce64a41bb6d54b86fba016c238daa84b29b1feefa0c4607f32b2286';
 export const PSQL_CONNECT_TIMEOUT_SECONDS = 10;
 export const PSQL_QUERY_TIMEOUT_MILLISECONDS = 10 * 60 * 1000;
 export const LEDGER_STATEMENT_TIMEOUT_SECONDS = 30;
@@ -25,6 +25,9 @@ export const PENDING_IDENTITIES = Object.freeze([
   '20260921120000_sensor_acquisition_windows.sql',
   '20260921121000_final_hosted_compute_contract.sql',
   '20260921122000_compute_session_requests.sql',
+  '20260922010000_object_copy_intents.sql',
+  '20260922020000_async_object_verification.sql',
+  '20260922120000_intake_service_contract.sql',
 ]);
 
 const MANIFEST_KIND = 'frwhoop-immutable-migration-manifest';
@@ -36,7 +39,7 @@ const VERIFY_RELATIVE_PATH = 'Tools/release/verify-integrated-schema.sql';
 const MIGRATION_DIRECTORY = 'supabase/migrations';
 const CATALOG_RELATIVE_PATH = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
 const BASELINE_COUNT = 117;
-const TOTAL_COUNT = 124;
+const TOTAL_COUNT = 127;
 const GIT_EXECUTABLE = '/usr/bin/git';
 const DATABASE_CLIENT_KIND = 'frwhoop-hosted-database-client';
 
@@ -373,7 +376,7 @@ export function verifyMigrationManifest(repoRoot, manifest) {
     manifest.counts?.pending === PENDING_IDENTITIES.length, 'migration manifest counts differ');
   const candidateSha = gitSha(manifest.candidate?.sha, 'migration manifest candidate SHA');
   const candidateTree = gitSha(manifest.candidate?.tree, 'migration manifest candidate tree');
-  invariant(manifest.candidate?.branch === 'release/integration', 'migration manifest candidate branch differs');
+  invariant(manifest.candidate?.branch === 'repair/vps-server-20260922', 'migration manifest candidate branch differs');
   invariant(Array.isArray(manifest.entries) && manifest.entries.length === TOTAL_COUNT, 'migration manifest entry count differs');
 
   const resolvedRoot = fs.realpathSync(repoRoot);
@@ -398,6 +401,10 @@ export function verifyMigrationManifest(repoRoot, manifest) {
     `${candidateSha}:${CATALOG_RELATIVE_PATH}`)) === 0, 'runtime migration catalog differs from the candidate commit');
   const catalog = readJSON(catalogPath, 'runtime migration catalog');
   invariant(Array.isArray(catalog) && catalog.length === TOTAL_COUNT, 'runtime migration catalog count differs');
+  const catalogFingerprint=sha256Hex('frwhoop-migration-schema-v1\n'+catalog.map((row,index)=>
+    `${index+1}\0${row.basename}\0${row.sha256}\n`).join(''));
+  invariant(catalogFingerprint === EXPECTED_SCHEMA_FINGERPRINT,
+    'committed catalog contents differ from the reviewed schema fingerprint');
 
   for (const [index, row] of manifest.entries.entries()) {
     invariant(isObject(row), `migration manifest entry ${index + 1} must be an object`);
@@ -679,7 +686,21 @@ export function verifyHostedMigrationPlan(plan, manifest, binding, verifierSha25
 
 function stripReviewedTransaction(bytes, identity) {
   const text = bytes.toString('utf8');
-  const match = text.match(/^\s*begin\s*;([\s\S]*)commit\s*;\s*$/i);
+  // Preserve PR22's exact immutable source files, which relied on the migration
+  // executor's transaction. Only these byte identities may omit an outer block.
+  const executorWrapped = {
+    '20260922010000_object_copy_intents.sql': '5955c91bebaf706ab0cfc67f3c9a09e67a7438226bd04d66c4d4dd42a12b6eb4',
+    '20260922020000_async_object_verification.sql': 'dc8ce2caf80bf34b83027d4651386609bb7f63c6045b92c37e1e9c64dbf38a0d',
+  };
+  if (Object.hasOwn(executorWrapped, identity)) {
+    invariant(sha256Hex(bytes) === executorWrapped[identity],
+      `executor-wrapped migration bytes differ: ${identity}`);
+    return text.trim();
+  }
+  // Forward migrations may introduce themselves with comments. No executable
+  // statement may precede BEGIN; the full committed bytes are verified upstream.
+  const executable = text.replace(/^(?:\s|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/, '');
+  const match = executable.match(/^begin\s*;([\s\S]*)commit\s*;\s*$/i);
   invariant(match, `migration is not one reviewed outer transaction: ${identity}`);
   invariant(!/(^|\n)\s*(begin|commit|rollback)\s*;/i.test(match[1]),
     `migration contains nested transaction control: ${identity}`);
@@ -768,8 +789,8 @@ function validatePostverify(raw) {
     'integrated database schema fingerprint differs from the disposable-database release fingerprint');
   invariant(result.compute_families === 27 && result.compute_metrics === 80,
     'integrated compute ownership registry differs');
-  invariant(result.selected_functions === 8 && result.selected_triggers === 6 &&
-    Number.isInteger(result.selected_policies) && result.selected_policies >= 4,
+  invariant(result.selected_functions === 18 && result.selected_triggers === 11 &&
+    result.selected_policies === 24,
   'integrated function, trigger, queue, grant, or RLS verification counts differ');
   return result;
 }
@@ -1069,7 +1090,7 @@ function cli(argv) {
   throw new Error('NOT_READY: usage: hosted-migration-release.mjs bind-target|plan|apply|verify [exact options]');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
+if (process.argv[1] && fs.existsSync(process.argv[1]) && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {
   try { cli(process.argv.slice(2)); } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : 'NOT_READY: unknown hosted migration error'}\n`);
     process.exitCode = 1;

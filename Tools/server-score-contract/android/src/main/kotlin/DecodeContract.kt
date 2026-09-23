@@ -86,7 +86,7 @@ private fun verifyCanonicalSelection(cache: ServerScoreDayCache, bytes: String, 
         (if (expected.getBoolean("nestedRespirationAvailable")) emptyList() else listOf("resp_rate_bpm", "respiration_summary"))
     val sleep = rawFamilies.getJSONObject("sleep")
     for (nights in listOf(sleep.getJSONObject("details").optJSONArray("nights"), sleep.getJSONObject("values").optJSONArray("sleep_sessions"))) {
-        if (nights != null) for (i in 0 until nights.length()) for (field in restricted) {
+        if (nights != null) for (i in 0 until nights.length()) for (field in restricted.filterNot { field -> expected.optJSONArray("allowedNestedFields")?.toList()?.contains(field) == true }) {
             check(nights.getJSONObject(i).isNull(field)) { "$name: canonical sleep leaked $field" }
         }
     }
@@ -190,7 +190,7 @@ fun main(args: Array<String>) {
             val fields = (if (nestedHrv) emptyList() else listOf("hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm", "overnight_hr_bpm", "hrv_summary", "heart_rate_windows",
                 "recovery", "strain", "spo2_pct", "skin_temp_c", "skin_temp_dev_c")) +
                 (if (nestedRespiration) emptyList() else listOf("resp_rate_bpm", "respiration_summary"))
-            for (field in fields) check(night.isNull(field)) { "$name: real Edge envelope leaked $field" }
+            for (field in fields.filterNot { field -> expected.optJSONArray("allowedNestedFields")?.toList()?.contains(field) == true }) check(night.isNull(field)) { "$name: real Edge envelope leaked $field" }
         }
         println("kotlin $name: decoded and display selection verified")
     }

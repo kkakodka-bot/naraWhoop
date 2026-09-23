@@ -75,7 +75,7 @@ confirm that all selected defaults remain v1. These tests do not establish the p
 
 1. Pin and review the final clean commit, local build/test reports, the verified aggregate release
    manifest, immutable image config IDs, baseline digest and patch provenance. Build main/history
-   and baseline images from those exact bytes. Record both image IDs; a source label alone is
+   baseline and intake images from those exact bytes. Record all three image IDs; a source label alone is
    insufficient.
 2. Review the hosted ledger and apply only the separately authorized forward plan. Preserve raw
    inputs, immutable results, queue revisions, leases and prior image/configuration identities.
@@ -84,7 +84,7 @@ confirm that all selected defaults remain v1. These tests do not establish the p
 3. Configure only dedicated `SCORING_DATABASE_URL`, `SCORING_SUPABASE_URL`,
    `SCORING_SUPABASE_SERVICE_ROLE_KEY` and `SCORING_INGEST_SECRET` for the same hosted project.
    VPS-local Supabase credentials are not substitutes. Never put credentials into evidence.
-4. After separately authorized registry publication, bind the two registry manifest digest
+4. After separately authorized registry publication, bind the three registry manifest digest
    references to the verified aggregate release. The binder re-verifies every aggregate artifact
    and requires each registry digest to equal the reviewed OCI manifest digest. It records the
    distinct OCI config digest used for runtime inspection. The same plan must bind the reviewed
@@ -100,6 +100,9 @@ confirm that all selected defaults remain v1. These tests do not establish the p
      --manifest /reviewed/frwhoop-release/release-manifest.json \
      --selected-v1-image REGISTRY/frwhoop-v1@sha256:REVIEWED_MANIFEST_DIGEST \
      --shadow-v2-image REGISTRY/frwhoop-v2@sha256:REVIEWED_MANIFEST_DIGEST \
+     --intake-image REGISTRY/frwhoop-intake@sha256:REVIEWED_MANIFEST_DIGEST \
+     --intake-instance-id REVIEWED_FRESH_INSTANCE_UUID \
+     --intake-project-ref sgoyxzcagqyxexmsidtk \
      --target-ip REVIEWED_LITERAL_IPV4 \
      --target-ssh-port REVIEWED_PORT \
      --target-ssh-host-key-line 'ssh-ed25519 REVIEWED_BASE64_HOST_PUBLIC_KEY' \
@@ -107,6 +110,35 @@ confirm that all selected defaults remain v1. These tests do not establish the p
      --deploy-public-key-fingerprint 'SHA256:REVIEWED_DEPLOY_KEY_FINGERPRINT' \
      --output /reviewed/frwhoop-release/worker-deployment.json
    ```
+
+   The repaired aggregate requires a third OCI artifact named `intake` with `oci` and
+   `buildMetadata` paths in the release inputs. Its source SHA, config and manifest digests,
+   contract version 1, nonroot cached Deno command, and pinned Deno base are verified independently
+   from the scoring images. Build its curated context from the exact committed
+   `workers/intake/main.ts`, `supabase/functions/_shared`, `supabase/functions/deno.lock`, and
+   `infra/vps/templates/Dockerfile.intake`; do not archive local caches into its context.
+
+   Binding compiles the committed intake Compose template using Docker Compose and isolated
+   nonsecret env probes. It reads no hosted credential files and contacts no daemon. The deployment
+   JSON includes `intake.compiledCompose` and its canonical SHA-256; verification recompiles the
+   source and rejects changes to the image, project, instance, source, command or resource limits.
+   The bound runtime env files remain `/opt/frwhoop/intake.env` and `/opt/frwhoop/b2.env`.
+   Deploy the emitted `intake.compiledCompose` JSON, rather than resolving the raw template again
+   with ambient environment overrides. The offline probes intentionally substitute template env-file
+   paths; the compiled artifact is what fixes the credential paths and resource limits for deployment.
+   `compile-intake --repo-root . --commit FULL_SHA --intake-image DIGEST_REF
+   --intake-instance-id UUID --intake-project-ref sgoyxzcagqyxexmsidtk --output compose.json`
+   renders the same configuration for review without deploying it.
+
+   Deploy the reviewed intake configuration after the matching migration and before the scorer
+   cutover, using separately explicit deployment authority. The scorer script below deploys only
+   its three scoring lanes. Intake acceptance requires the bound image/config/source/instance and
+   contract, continuously serviced verification and projection queues, and a real verified/indexed
+   input that publishes a selected result. Poll metadata alone is insufficient. Keep optional async
+   admission off until a compatible consumer is continuously serviced and enablement is separately
+   approved. On rollback, first disable optional async admission, drain or preserve its accepted
+   debt, then replace intake only with a separately reviewed contract-compatible artifact; retain
+   migration and object/index receipts.
 
 5. Run the reviewed exact-source deployment script only with deployment authority. It requires a
    clean checkout at the aggregate manifest's exact source commit. Before opening SSH, it re-verifies
@@ -130,7 +162,7 @@ confirm that all selected defaults remain v1. These tests do not establish the p
      --artifact-root /reviewed/frwhoop-release \
      --worker-deployment /reviewed/frwhoop-release/worker-deployment.json
    ```
-6. Review all three exact container identities, commands, algorithms, source revisions, restart
+6. Review the intake and all three scoring container identities, commands, algorithms, source revisions, restart
    state, polls and publications, then review the enrolled-phone canary. Deployment success is not
    qualification, a decoded phone result, or physical displayed-state evidence.
 

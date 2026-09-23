@@ -75,7 +75,7 @@ Deno.test('native asynchronous object verification debt and exact receipt pollin
       assert.equal(pending.body.type,'error');assert.equal(pending.body.protocolVersion,'1.3');
       assert.equal(pending.body.code,'verification_pending');assert.equal(pending.body.state,'pending_verification');
       assert.equal(pending.body.durabilityReceipt,undefined);
-      const http=await objectCompletionResponse({mode:'async-v1',enqueue:()=>poll(f.id),
+      const http=await objectCompletionResponse({mode:'async-v1',allowNewAsync:async()=>true,enqueue:()=>poll(f.id),
         completeSync:()=>{throw new Error('must only enqueue');},hasDebt:async()=>false});
       assert.equal(http.status,503);assert.equal(http.headers.get('Retry-After'),'15');assert.deepEqual(await http.json(),pending.body);
       const before=await debt(f.id);assert.equal(before.attempts,0);

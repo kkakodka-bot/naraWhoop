@@ -83,9 +83,15 @@ class CanonicalConsumersNativeTest {
         private val scope = CoroutineScope(Job().apply { cancel() } + Dispatchers.IO)
         lateinit var response: JSONObject
         var readFailure = false
+        val requestedDays = mutableListOf<String>()
+        var unauthorizedToken: String? = null
+        var beforeReadReturns: (() -> Unit)? = null
         val runtime = AccountAppRuntime(account) { context, _ ->
             ServerScoreRepository(context, scope, ready = { true }, fetchSnapshot = { _, date, owner ->
+                requestedDays += date
+                unauthorizedToken?.let { throw ServerScoreClient.Unauthorized(it) }
                 check(!readFailure) { "synthetic network failure" }
+                beforeReadReturns?.invoke()
                 ServerScoreClient.parseSnapshot(response.toString(), date, owner)
             })
         }
@@ -387,6 +393,115 @@ class CanonicalConsumersNativeTest {
             assertNull(f.widget().recoveryPct)
             assertTrue(f.provider.inserted.isEmpty()); assertTrue(f.provider.deleted.isEmpty())
             assertTrue(PhoneComputeRuntime.evidence().isEmpty()); assertTrue(PhoneComputeRuntime.forbiddenAttempts().isEmpty())
+        }
+    }
+
+    @Test fun unauthorizedAccountReadImmediatelyClearsPublicCanonicalResults() = runBlocking(Dispatchers.IO) {
+        PhoneComputeRuntime.installFinalHosted()
+        Fixture().use { f ->
+            f.available("night_hrv", "hrv_rmssd_ms", 42); f.available("recovery", "recovery", 75)
+            f.refresh()
+            assertTrue(f.source.canonicalDays.value.isNotEmpty())
+            f.unauthorizedToken = "synthetic-access"
+            f.source.refreshDay(f.day)
+            assertTrue(f.source.canonicalDays.value.isEmpty())
+            assertTrue(f.source.days.value.isEmpty())
+            assertTrue(f.source.sleepDays.value.isEmpty())
+            assertNull(f.source.overlay(f.day))
+            assertFalse(f.source.signedIn.value)
+            assertNull(f.auth.controller.identitySnapshot().scope)
+            assertNull(f.widget().recoveryPct)
+            assertTrue(f.provider.inserted.isEmpty())
+            assertTrue(PhoneComputeRuntime.evidence().isEmpty())
+        }
+    }
+
+    @Test fun delayedRevocationForReplacedTokenPreservesCurrentCanonicalResults() = runBlocking(Dispatchers.IO) {
+        PhoneComputeRuntime.installFinalHosted()
+        Fixture().use { f ->
+            f.available("recovery", "recovery", 75); f.refresh()
+            val before = f.source.canonicalDays.value
+            f.unauthorizedToken = "obsolete-access"
+            f.source.refreshDay(f.day)
+            assertEquals(before, f.source.canonicalDays.value)
+            assertEquals("synthetic-access", f.auth.controller.storedSession()!!.accessToken)
+            assertEquals(75, f.widget().recoveryPct)
+        }
+    }
+
+    @Test fun periodicReadsRemainBoundedAfterBrowsingManyHistoricalDays() = runBlocking(Dispatchers.IO) {
+        PhoneComputeRuntime.installFinalHosted()
+        Fixture().use { f ->
+            val today = LocalDate.parse(f.day)
+            repeat(100) { f.source.overlay(today.minusDays(it + 1L).toString()) }
+            val selected = today.minusDays(100).toString()
+            f.readFailure = true
+            repeat(2) { f.source.refreshPollingDays() }
+            assertEquals(listOf(f.day, selected, f.day, selected), f.requestedDays)
+            f.requestedDays.clear()
+            f.source.refreshDay(today.minusDays(7).toString())
+            f.requestedDays.clear()
+            f.source.refreshPollingDays()
+            assertEquals(listOf(f.day, today.minusDays(7).toString()), f.requestedDays)
+            assertTrue(PhoneComputeRuntime.forbiddenAttempts().isEmpty())
+        }
+    }
+
+    @Test fun concurrentIdentitySynchronizationAndAuthenticatedRetirementDoNotInvertLocks() {
+        PhoneComputeRuntime.installFinalHosted()
+        val fixture = Fixture()
+        val repository = fixture.source
+        val held = java.util.concurrent.CountDownLatch(1)
+        val commit = java.util.concurrent.CountDownLatch(1)
+        val finished = java.util.concurrent.CountDownLatch(2)
+        val failures = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
+        val publisher = Thread {
+            try {
+                CloudAuthClient.withIdentity(fixture.account, fixture.account.identity) {
+                    held.countDown()
+                    check(commit.await(2, java.util.concurrent.TimeUnit.SECONDS))
+                    repository.retire()
+                }
+            } catch (failure: Throwable) { failures += failure }
+            finally { finished.countDown() }
+        }.apply { isDaemon = true }
+        val reader = Thread {
+            try { repository.overlay(fixture.day) }
+            catch (failure: Throwable) { failures += failure }
+            finally { finished.countDown() }
+        }.apply { isDaemon = true }
+        var complete = false
+        try {
+            publisher.start()
+            assertTrue(held.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            reader.start()
+            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(2)
+            while (reader.state != Thread.State.BLOCKED && System.nanoTime() < deadline) Thread.yield()
+            assertEquals(Thread.State.BLOCKED, reader.state)
+            commit.countDown()
+            complete = finished.await(2, java.util.concurrent.TimeUnit.SECONDS)
+            assertTrue("auth boundary and repository publication cannot deadlock", complete)
+            assertTrue(failures.toString(), failures.isEmpty())
+            assertNull(repository.overlay(fixture.day))
+            assertTrue(repository.canonicalDays.value.isEmpty())
+        } finally {
+            commit.countDown()
+            // Failed lock-order regressions leave daemon threads parked; do not block teardown on their lock.
+            if (complete) fixture.close() else fixture.auth.close()
+        }
+    }
+
+    @Test fun retirementFencesAnAlreadyRunningCanonicalRead() = runBlocking(Dispatchers.IO) {
+        PhoneComputeRuntime.installFinalHosted()
+        Fixture().use { f ->
+            f.available("recovery", "recovery", 75); f.refresh()
+            f.beforeReadReturns = { f.source.retire() }
+            f.source.refreshDay(f.day)
+            assertTrue(f.source.canonicalDays.value.isEmpty())
+            assertNull(f.source.overlay(f.day))
+            assertFalse(f.source.signedIn.value)
+            assertEquals("synthetic-access", f.auth.controller.storedSession()!!.accessToken)
+            f.source.awaitRetirement()
         }
     }
 

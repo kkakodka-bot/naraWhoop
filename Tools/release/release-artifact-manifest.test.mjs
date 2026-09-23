@@ -10,7 +10,11 @@ import { fileURLToPath } from 'node:url';
 import {
   ANDROID_INSPECTION_TOOLS,
   canonicalJSON,
-  createWorkerDeployment,
+  createWorkerDeployment as createWorkerDeploymentActual,
+  compileIntakeCompose,
+  intakeComposeContract,
+  INTAKE_ENTRYPOINT,
+  INTAKE_RUNTIME_IMAGE,
   inspectAapt2Version,
   inspectOCI,
   parseAndroidBadging,
@@ -60,7 +64,7 @@ function tar(entries) {
   return Buffer.concat(chunks);
 }
 const json = value => Buffer.from(JSON.stringify(value));
-function ociFixture(role) {
+function ociFixture(role, mutateConfig = () => {}) {
   const provenance = {
     transport_patch_sha256: '1'.repeat(64),
     identity_patch_sha256: '2'.repeat(64),
@@ -80,7 +84,18 @@ function ociFixture(role) {
       'io.frwhoop.algorithm.roles': 'frwhoop-physiology-2,frwhoop-server-2-history',
     }),
   };
-  const config = json({ architecture: 'amd64', os: 'linux', config: { Labels: labels } });
+  const configValue = { architecture: 'amd64', os: 'linux', config: { Labels: labels } };
+  if (role === 'intake') {
+    configValue.config.Labels = {
+      'org.opencontainers.image.revision': REVISION, 'org.frwhoop.worker.role': 'intake',
+      'org.frwhoop.intake.contract-version': '1', 'io.frwhoop.runtime.image': INTAKE_RUNTIME_IMAGE,
+      'io.frwhoop.image.platform': 'linux/amd64',
+    };
+    Object.assign(configValue.config, { User: 'deno', WorkingDir: '/app',
+      Entrypoint: [...INTAKE_ENTRYPOINT], Cmd: [] });
+  }
+  mutateConfig(configValue);
+  const config = json(configValue);
   const configDigest = 'sha256:' + sha256(config);
   const manifest = json({ schemaVersion: 2, mediaType: 'application/vnd.oci.image.manifest.v1+json',
     config: { mediaType: 'application/vnd.oci.image.config.v1+json', digest: configDigest, size: config.length }, layers: [] });
@@ -100,7 +115,7 @@ function ociFixture(role) {
   return { bytes, metadata, provenance, manifestDigest, configDigest };
 }
 
-for (const role of ['selected-v1', 'shadow-v2']) test(`OCI inspection binds ${role} revision, platform, bases and role`, t => {
+for (const role of ['selected-v1', 'shadow-v2', 'intake']) test(`OCI inspection binds ${role} revision, platform, bases and role`, t => {
   const fixture = ociFixture(role), directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-oci-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const filename = path.join(directory, 'image.tar');
@@ -124,6 +139,74 @@ test('OCI inspection rejects source/metadata substitutions and changed bytes', t
   changed[0] ^= 1;
   fs.writeFileSync(filename, changed);
   assert.throws(() => inspectOCI(filename, 'shadow-v2', REVISION, fixture.metadata), /NOT_READY/);
+});
+
+test('intake OCI rejects coherently rebuilt incompatible role, contract and runtime commands', t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-intake-oci-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const filename = path.join(directory, 'image.tar');
+  for (const mutate of [
+    value => { value.config.Labels['org.frwhoop.worker.role'] = 'shadow-v2'; },
+    value => { value.config.Labels['org.frwhoop.intake.contract-version'] = '2'; },
+    value => { value.config.Labels['io.frwhoop.runtime.image'] = 'denoland/deno:latest'; },
+    value => { value.config.User = 'root'; },
+    value => { value.config.WorkingDir = '/tmp'; },
+    value => { value.config.Cmd = ['--once']; },
+    value => { value.config.Entrypoint = ['sh', '-c']; },
+    value => { value.architecture = 'arm64'; },
+  ]) {
+    const fixture = ociFixture('intake', mutate);
+    fs.writeFileSync(filename, fixture.bytes);
+    assert.throws(() => inspectOCI(filename, 'intake', REVISION, fixture.metadata), /NOT_READY/);
+  }
+});
+
+test('compiled intake deployment rejects scope, privilege, command, resources and mutable image changes', () => {
+  const release = releaseForDeployment();
+  const v1 = `registry.invalid/frwhoop-v1@${release.artifacts.selectedV1.image.manifestDigest}`;
+  const v2 = `registry.invalid/frwhoop-v2@${release.artifacts.shadowV2.image.manifestDigest}`;
+  for (const mutate of [
+    value => { value.reference = 'registry.invalid/frwhoop-intake:latest'; },
+    value => { value.reference = v1; },
+    value => { value.instanceId = 'not-a-uuid'; },
+    value => { value.projectRef = 'differentproject1234'; },
+    value => { value.compiledCompose.services['intake-consumer'].environment.INTAKE_WORKER_SOURCE_REVISION = 'b'.repeat(40); },
+    value => { value.compiledCompose.services['intake-consumer'].environment.NOOP_ASYNC_OBJECT_VERIFICATION = '1'; },
+    value => { value.compiledCompose.services['intake-consumer'].command = ['--status']; },
+    value => { value.compiledCompose.services['intake-consumer'].privileged = true; },
+    value => { value.compiledCompose.services['intake-consumer'].cpus = 4; },
+    value => { value.compiledCompose.services['intake-consumer'].env_file.reverse(); },
+    value => { value.compiledCompose.services['intake-consumer'].tmpfs = ['/tmp:rw', 'noexec', 'nosuid', 'size=64m']; },
+  ]) {
+    const intake = intakeForDeployment(release); mutate(intake);
+    assert.throws(() => createWorkerDeployment(release, v1, v2, targetForDeployment(), intake), /NOT_READY/);
+  }
+});
+
+test('actual Compose compilation binds committed template with isolated nonsecret env probes', t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-intake-compile-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const git = (...args) => {
+    const result = spawnSync('git', ['-C', directory, ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
+  };
+  git('init', '--quiet'); git('config', 'user.name', 'Intake Compile Test');
+  git('config', 'user.email', 'fixture@example.invalid');
+  const relative = 'infra/vps/templates/docker-compose.intake.yml';
+  const filename = path.join(directory, relative);
+  fs.mkdirSync(path.dirname(filename), { recursive: true });
+  const template = fs.readFileSync(new URL('../../infra/vps/templates/docker-compose.intake.yml', import.meta.url), 'utf8');
+  fs.writeFileSync(filename, template);
+  git('add', relative); git('commit', '--quiet', '-m', 'fixture');
+  const intake = intakeForDeployment(releaseForDeployment());
+  const commit = git('rev-parse', 'HEAD');
+  fs.writeFileSync(filename, 'dirty worktree is deliberately ignored\n');
+  assert.deepEqual(compileIntakeCompose({ repoRoot: directory, commit, ...intake }),
+    intakeComposeContract(intake.reference, commit, intake.instanceId, intake.projectRef));
+  fs.writeFileSync(filename, template.replace('command: []', 'command: [--once]'));
+  git('add', relative); git('commit', '--quiet', '-m', 'incompatible command');
+  assert.throws(() => compileIntakeCompose({ repoRoot: directory, commit: git('rev-parse', 'HEAD'), ...intake }),
+    /committed intake Compose differs/);
 });
 
 test('Android inspection parsers bind staging package/build and signed manifest release markers', () => {
@@ -192,6 +275,7 @@ test('aggregate regeneration input is derived only from bound artifact and tool 
       selectedV1: { file: { path: 'v1.tar' }, buildMetadata: { path: 'v1.json' },
         provenance: { path: 'v1-provenance.json' } },
       shadowV2: { file: { path: 'v2.tar' }, buildMetadata: { path: 'v2.json' } },
+      intake: { file: { path: 'intake.tar' }, buildMetadata: { path: 'intake.json' } },
       android: { file: { path: 'app.apk' }, outputMetadata: { path: 'output-metadata.json' }, tools: {
         aapt2: { file: { path: 'tools/aapt2' } }, apksigJar: { file: { path: 'tools/apksigner.jar' } },
       } },
@@ -210,6 +294,7 @@ test('aggregate regeneration input is derived only from bound artifact and tool 
     apksigJar: 'tools/apksigner.jar',
   });
   assert.equal(input.artifacts.migrations.manifest, 'migrations.json');
+  assert.deepEqual(input.artifacts.intake, { oci: 'intake.tar', buildMetadata: 'intake.json' });
   assert.equal(input.artifacts.deployment.manifest, 'deployment.json');
 });
 
@@ -267,7 +352,7 @@ test('canonical release fingerprints ignore object insertion order but preserve 
 });
 
 function releaseForDeployment() {
-  const v1 = ociFixture('selected-v1'), v2 = ociFixture('shadow-v2');
+  const v1 = ociFixture('selected-v1'), v2 = ociFixture('shadow-v2'), intake = ociFixture('intake');
   const heartbeat = { table: 'physiology_worker_heartbeats', contract: 'physiology_worker_heartbeats-v1',
     sourceRevision: REVISION, requiredProgress: ['last_poll_at', 'last_score_at'], processIdentityRequired: true };
   return {
@@ -281,16 +366,31 @@ function releaseForDeployment() {
         publicationRole: 'selected', heartbeat },
       shadowV2: { imageArtifact: 'shadowV2', algorithmVersion: 'frwhoop-physiology-2',
         publicationRole: 'shadow', heartbeat },
+      intake: { imageArtifact: 'intake', contractVersion: 1, sourceRevision: REVISION,
+        publicationRole: 'verified-indexed-input', lanes: ['verification', 'projection', 'legacy'],
+        asyncAdmission: 'DISABLED_UNTIL_SEPARATELY_AUTHORIZED', progressTable: 'noop_intake_consumers' },
       historyV2: { imageArtifact: 'shadowV2', algorithmVersion: 'frwhoop-server-2-history',
         publicationRole: 'shadow-history', command: ['--history'], heartbeat },
     },
     artifacts: {
+      intake: { image: { platform: 'linux/amd64', manifestDigest: intake.manifestDigest,
+        configDigest: intake.configDigest } },
       selectedV1: { image: { platform: 'linux/amd64', manifestDigest: v1.manifestDigest,
         configDigest: v1.configDigest } },
       shadowV2: { image: { platform: 'linux/amd64', manifestDigest: v2.manifestDigest,
         configDigest: v2.configDigest } },
     },
   };
+}
+
+function intakeForDeployment(release) {
+  const reference = `registry.invalid/frwhoop-intake@${release.artifacts.intake.image.manifestDigest}`;
+  const instanceId = '11111111-1111-4111-8111-111111111111', projectRef = 'sgoyxzcagqyxexmsidtk';
+  return { reference, instanceId, projectRef,
+    compiledCompose: intakeComposeContract(reference, release.source.commit, instanceId, projectRef) };
+}
+function createWorkerDeployment(release, v1, v2, target, intake = intakeForDeployment(release)) {
+  return createWorkerDeploymentActual(release, v1, v2, target, intake);
 }
 
 function targetForDeployment() {
@@ -312,7 +412,7 @@ test('worker deployment binds aggregate fingerprint, OCI descriptors and lane or
   const deployment = createWorkerDeployment(release, v1, v2, targetForDeployment());
   assert.equal(verifyWorkerDeploymentContract(release, deployment), deployment);
   assert.deepEqual(deployment.laneOrder.map(lane => lane.service),
-    ['scoring-baseline-v1', 'scoring-physiology-v2', 'scoring-history']);
+    ['intake-consumer', 'scoring-baseline-v1', 'scoring-physiology-v2', 'scoring-history']);
   assert.equal(deployment.images.selectedV1.configDigest, release.artifacts.selectedV1.image.configDigest);
   assert.equal(deployment.images.shadowV2.configDigest, release.artifacts.shadowV2.image.configDigest);
   assert.deepEqual(deployment.runtimeClients.postgresql, POSTGRES_CLIENT);
@@ -354,6 +454,11 @@ test('worker deployment rejects mutable refs, role swaps and all identity mutati
   const mutations = [
     value => { value.source.commit = 'd'.repeat(40); },
     value => { value.releaseManifestFingerprintSha256 = 'd'.repeat(64); },
+    value => { value.images.intake.configDigest = 'sha256:' + 'd'.repeat(64); },
+    value => { value.intake.contractVersion = 2; },
+    value => { value.intake.asyncAdmission = 'ENABLED'; },
+    value => { value.intake.compiledCompose.services['intake-consumer'].command = ['--once']; },
+    value => { value.intake.compiledComposeSha256 = 'e'.repeat(64); },
     value => { value.images.selectedV1.configDigest = 'sha256:' + 'd'.repeat(64); },
     value => { value.images.shadowV2.manifestDigest = 'sha256:' + 'd'.repeat(64); },
     value => { value.runtimeClients.postgresql.configDigest = 'sha256:' + 'd'.repeat(64); },
@@ -369,7 +474,7 @@ test('worker deployment rejects mutable refs, role swaps and all identity mutati
   }
 });
 
-test('migration binding rejects coherently reauthored catalogs and binds all 124 committed source files', () => {
+test('migration binding rejects coherently reauthored catalogs and binds all 127 committed source files', () => {
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   const git = (...args) => {
     const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
@@ -380,6 +485,8 @@ test('migration binding rejects coherently reauthored catalogs and binds all 124
   const catalog = JSON.parse(fs.readFileSync(path.join(repo,
     'scoring-service/service/src/main/resources/scoring-migration-catalog.json'), 'utf8'));
   const sources = {
+    'persistent-sync-followup': { branch: 'codex/persistent-sync-followup-2026-09-22', tip: 'a972493212f2eae29f01ecaddf9182260153400f' },
+    'server-repair': { branch: 'repair/vps-server-20260922', tip: commit },
     'server-pipeline': { branch: 'fix/server-pipeline', tip: 'cfb94434b1b4ed4dba587e5c4e7af405e782e560' },
     'multiuser-scale': { branch: 'feat/multiuser-scale', tip: '0eac19cce495e761dc3d832dd1cfd8a07221c61d' },
     'sensor-algorithms': { branch: 'feat/sensor-algorithms', tip: '198b99924a79148ff01833115fe2f47f2025bfa4' },
@@ -389,7 +496,7 @@ test('migration binding rejects coherently reauthored catalogs and binds all 124
   const manifest = generateMigrationManifest({
     repoRoot: repo,
     candidateSources: { schemaVersion: 1,
-      candidate: { branch: 'release/integration', sha: commit, tree }, sources },
+      candidate: { branch: 'repair/vps-server-20260922', sha: commit, tree }, sources },
     hostedLedgerEvidence: {
       schemaVersion: 1, environment: 'hosted-production', projectRef: 'sgoyxzcagqyxexmsidtk',
       capturedAt: '2026-09-22T01:02:03Z', nativeLedgerRows: 110, fullIdentityRows: 117,
@@ -405,7 +512,7 @@ test('migration binding rejects coherently reauthored catalogs and binds all 124
   assert.deepEqual(validateMigrationManifest(manifest, repo, commit, tree), {
     schemaFingerprintSha256: manifest.schemaFingerprintSha256,
     manifestFingerprintSha256: manifest.manifestFingerprintSha256,
-    total: 124, applied: 117, pending: 7,
+    total: 127, applied: 117, pending: 10,
   });
   const rehash = value => {
     const { manifestFingerprintSha256: ignored, ...unsigned } = value;

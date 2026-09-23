@@ -1521,10 +1521,17 @@ fun NoopRoot() {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 appViewModel.ble.onForeground()
+                appViewModel.serverScores.setForeground(true)
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+                appViewModel.serverScores.setForeground(false)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        appViewModel.serverScores.setForeground(lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+        onDispose {
+            appViewModel.serverScores.setForeground(false)
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     var onboarded by remember {

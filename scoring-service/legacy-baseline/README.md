@@ -74,7 +74,7 @@ Production startup requires `SCORING_WORKER_INSTANCE_ID` (a fresh UUID per deplo
 `SCORING_WORKER_SOURCE_REVISION` (the repair SHA). A separate process UUID distinguishes restarts.
 In the image, the configured source must match `/app/release.sha`; standalone local integration
 binaries have no `/app` requirement. Replay requires explicit `--replay-day` plus `REPLAY_USER_ID`,
-`REPLAY_DEVICE_ID` and `REPLAY_DAY`. A daemon rejects inherited replay selectors.
+`REPLAY_DEVICE_ID` and `REPLAY_DAY`. Persistent mode ignores inherited replay selectors; only the explicit command runs a one-shot replay.
 
 Hosted Supabase database URLs must use `sslmode=verify-full&sslrootcert=system`. The patched JVM
 selects pgJDBC's Java-system-trust SSL factory as a separate connection property, so the shared URL

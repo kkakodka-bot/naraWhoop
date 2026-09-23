@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "workstream": "feat/vps-only-compute",
   "base": "cfb94434b1b4ed4dba587e5c4e7af405e782e560",
-  "finalHostedStatus": "SOURCE_CONTRACT_COMPLETE_RUNTIME_RECEIPTS_REQUIRED",
+  "finalHostedStatus": "SERVER_OWNERSHIP_GUARDED_NUMERICAL_PARITY_INCOMPLETE",
   "transitionRule": "Final hosted mode admits selected signed immutable server results or explicit server-owned missing states. Numerical phone producers remain reference-only and instrumented. Static eligibility is not runtime/deployment evidence; --require-final requires current-source executed receipts.",
   "phoneAllowed": [
     "BLE protocol/capability handling",
@@ -36,7 +36,8 @@
         "defaultDisposition": {
           "status": "unsupported",
           "reason": "device_observation_only"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.live_hr_selection",
@@ -120,6 +121,22 @@
           ],
           "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
         }
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/device_observation",
+        "apiFields": "compute.families.live_hr_selection.values; see outputContract.metrics",
+        "states": {
+          "implemented": "DIRECT_OBSERVATION",
+          "runtimeWired": "DIRECT_OBSERVATION",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [],
+        "testedMetricIds": []
       }
     },
     {
@@ -140,12 +157,14 @@
         "lane": "deterministic publication and independent retry",
         "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
         "sqlPublication": "supabase/migrations/20260921121000_final_hosted_compute_contract.sql",
-        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "canonicalNumericalProducer": null,
         "feature": "hrv",
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "selected_result_required"
-        }
+        },
+        "candidateNumericalSource": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "selectedNumericalRoute": "#/producerRoutes/retained_baseline"
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.night_hrv",
@@ -248,6 +267,27 @@
         "lane": "physiology",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/retained_baseline",
+        "apiFields": "compute.families.night_hrv.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SELECTED_BASELINE",
+          "fixtureTested": "PASS_LOCAL_ACTUAL_FROZEN_PRODUCER",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "PASS_LOCAL_IMMUTABLE_BASELINE_RESULT",
+          "readable": "PASS_LOCAL_ENROLLED_AND_GOTRUE_ACCOUNT_NATIVE_DECODERS",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Synthetic supported HR/gravity produced sleep_total_min179.98333333333332 and resting_hr_bpm53; no RR, respiration or oxygen was fabricated. Final clean-source rerun and physical readback remain required.",
+          "Positive evidence covers resting_hr_bpm only, not RMSSD/SDNN. Real beat timing and coverage remain unqualified."
+        ],
+        "testedMetricIds": [
+          "resting_hr_bpm"
+        ]
       }
     },
     {
@@ -267,12 +307,14 @@
         "lane": "deterministic publication and independent retry",
         "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
         "sqlPublication": "supabase/migrations/20260921121000_final_hosted_compute_contract.sql",
-        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "canonicalNumericalProducer": null,
         "feature": "hrv",
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "qualified_closed_window_required"
-        }
+        },
+        "candidateNumericalSource": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.current_hrv",
@@ -365,6 +407,24 @@
         "lane": "physiology",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/physiology_shadow",
+        "apiFields": "compute.families.current_hrv.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Five-minute v2 window code exists; the selected frozen baseline does not supply the required qualified closed-window series."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -389,7 +449,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "verified_session_beat_clock_required"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.spot_hrv",
@@ -478,6 +539,24 @@
           ],
           "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
         }
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/unimplemented",
+        "apiFields": "compute.families.spot_hrv.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NO_NUMERICAL_PRODUCER",
+          "runtimeWired": "MISSING_NUMERICAL_WIRING",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Explicit server missingness is implemented; no complete numerical producer. Engineering work remains and must not be reported as unsupported hardware."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -499,12 +578,14 @@
         "lane": "deterministic publication and independent retry",
         "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
         "sqlPublication": "supabase/migrations/20260921121000_final_hosted_compute_contract.sql",
-        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "canonicalNumericalProducer": null,
         "feature": "sleep",
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "selected_result_required"
-        }
+        },
+        "candidateNumericalSource": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "selectedNumericalRoute": "#/producerRoutes/retained_baseline"
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.sleep",
@@ -635,6 +716,27 @@
         "lane": "physiology",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/retained_baseline",
+        "apiFields": "compute.families.sleep.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SELECTED_BASELINE",
+          "fixtureTested": "PASS_LOCAL_ACTUAL_FROZEN_PRODUCER",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "PASS_LOCAL_IMMUTABLE_BASELINE_RESULT",
+          "readable": "PASS_LOCAL_ENROLLED_AND_GOTRUE_ACCOUNT_NATIVE_DECODERS",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Synthetic supported HR/gravity produced sleep_total_min179.98333333333332 and resting_hr_bpm53; no RR, respiration or oxygen was fabricated. Final clean-source rerun and physical readback remain required."
+        ],
+        "testedMetricIds": [
+          "sleep_total_min",
+          "sleep_efficiency"
+        ]
       }
     },
     {
@@ -661,7 +763,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.sleep_history",
@@ -783,6 +886,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.sleep_history.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -802,12 +923,14 @@
         "lane": "deterministic publication and independent retry",
         "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
         "sqlPublication": "supabase/migrations/20260921121000_final_hosted_compute_contract.sql",
-        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "canonicalNumericalProducer": null,
         "feature": "respiration",
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "selected_result_required"
-        }
+        },
+        "candidateNumericalSource": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "selectedNumericalRoute": "#/producerRoutes/retained_baseline"
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.respiration",
@@ -902,6 +1025,22 @@
         "lane": "physiology",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/retained_baseline",
+        "apiFields": "compute.families.respiration.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SELECTED_BASELINE",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [],
+        "testedMetricIds": []
       }
     },
     {
@@ -922,12 +1061,14 @@
         "lane": "deterministic publication and independent retry",
         "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
         "sqlPublication": "supabase/migrations/20260921121000_final_hosted_compute_contract.sql",
-        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "canonicalNumericalProducer": null,
         "feature": "hrv",
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "selected_result_required"
-        }
+        },
+        "candidateNumericalSource": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.recovery",
@@ -1022,6 +1163,24 @@
         "lane": "physiology",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/physiology_shadow",
+        "apiFields": "compute.families.recovery.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "v2 code computes candidate recovery; frozen selected-v1 mapper does not publish it. No selected numerical proof."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -1043,12 +1202,14 @@
         "lane": "deterministic publication and independent retry",
         "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
         "sqlPublication": "supabase/migrations/20260921121000_final_hosted_compute_contract.sql",
-        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "canonicalNumericalProducer": null,
         "feature": "hrv",
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "candidateNumericalSource": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.strain_energy",
@@ -1174,6 +1335,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.strain_energy.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -1200,7 +1379,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.steps",
@@ -1298,6 +1478,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.steps.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -1324,7 +1522,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.workouts",
@@ -1436,6 +1635,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.workouts.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -1461,7 +1678,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "qualified_incremental_workout_required"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.live_workout",
@@ -1547,6 +1765,24 @@
           ],
           "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
         }
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/unimplemented",
+        "apiFields": "compute.families.live_workout.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NO_NUMERICAL_PRODUCER",
+          "runtimeWired": "MISSING_NUMERICAL_WIRING",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Explicit server missingness is implemented; no complete numerical producer. Engineering work remains and must not be reported as unsupported hardware."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -1566,12 +1802,13 @@
         "lane": "deterministic publication and independent retry",
         "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
         "sqlPublication": "supabase/migrations/20260921121000_final_hosted_compute_contract.sql",
-        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "canonicalNumericalProducer": null,
         "feature": "hrv",
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "calibrated_oxygen_source_required"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.oxygen",
@@ -1672,11 +1909,29 @@
         }
       },
       "referenceOrCandidateProducer": {
-        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
-        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt",
-        "lane": "physiology",
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ServerMetricOrchestrator.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/HistoricalDayScorer.kt",
+        "lane": "historical",
         "invokedAtBase": true,
-        "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+        "authorization": "Separate imported/calibrated provenance required; raw optical estimate remains unqualified. Physiology-v2 DayScorer does not ingest SpO2."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.oxygen.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Raw sensor data or provisional conversion does not establish calibrated SpO2 or absolute temperature. Imported validated values require separate provenance."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -1697,12 +1952,14 @@
         "lane": "deterministic publication and independent retry",
         "productionInvocation": "ScoringPoller publishComputeDispositions -> publishDay; retryDay; processSession",
         "sqlPublication": "supabase/migrations/20260921121000_final_hosted_compute_contract.sql",
-        "canonicalNumericalProducer": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "canonicalNumericalProducer": null,
         "feature": "hrv",
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "qualified_temperature_source_required"
-        }
+        },
+        "candidateNumericalSource": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/DayScorer.kt",
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.temperature",
@@ -1802,6 +2059,24 @@
         "lane": "physiology",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/physiology_shadow",
+        "apiFields": "compute.families.temperature.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Raw sensor data or provisional conversion does not establish calibrated SpO2 or absolute temperature. Imported validated values require separate provenance."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -1826,7 +2101,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "qualified_intraday_temperature_required"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.intraday_temperature",
@@ -1909,6 +2185,25 @@
           ],
           "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
         }
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/unimplemented",
+        "apiFields": "compute.families.intraday_temperature.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NO_NUMERICAL_PRODUCER",
+          "runtimeWired": "MISSING_NUMERICAL_WIRING",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Raw sensor data or provisional conversion does not establish calibrated SpO2 or absolute temperature. Imported validated values require separate provenance.",
+          "Explicit server missingness is implemented; no complete numerical producer. Engineering work remains and must not be reported as unsupported hardware."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -1934,7 +2229,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "optical_clock_channel_unqualified"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.ppg_hr",
@@ -2020,6 +2316,31 @@
           ],
           "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
         }
+      },
+      "referenceOrCandidateProducer": {
+        "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/signals/QualifiedRawFeatures.kt",
+        "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/signals/BoundedRawFeatureLane.kt",
+        "lane": "physiology",
+        "invokedAtBase": true,
+        "authorization": "Qualified acquisition receipt required; no canonical family mapping or target reference proof."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/physiology_shadow",
+        "apiFields": "compute.families.ppg_hr.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Existing qualified raw PPG estimator exists. Canonical family producer/selection is absent. Twenty-four words do not prove24Hz; original records/timing/channel must qualify independently."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -2045,7 +2366,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.stress",
@@ -2156,6 +2478,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.stress.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -2181,7 +2521,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "qualified_live_decision_required"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.stress_events",
@@ -2265,6 +2606,24 @@
           ],
           "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
         }
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/unimplemented",
+        "apiFields": "compute.families.stress_events.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NO_NUMERICAL_PRODUCER",
+          "runtimeWired": "MISSING_NUMERICAL_WIRING",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Explicit server missingness is implemented; no complete numerical producer. Engineering work remains and must not be reported as unsupported hardware."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -2290,7 +2649,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.illness",
@@ -2387,6 +2747,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.illness.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -2411,7 +2789,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.cycle",
@@ -2508,6 +2887,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.cycle.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -2533,7 +2930,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.circadian",
@@ -2628,6 +3026,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.circadian.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -2653,7 +3069,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.readiness_load",
@@ -2771,6 +3188,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.readiness_load.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -2797,7 +3232,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.fitness_longevity",
@@ -2903,6 +3339,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.fitness_longevity.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -2929,7 +3383,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "historical_producer_shadow"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.baselines",
@@ -3029,6 +3484,24 @@
         "lane": "historical",
         "invokedAtBase": true,
         "authorization": "Numerical component presence is not canonical qualification; historical shadow stays unqualified."
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/historical_shadow",
+        "apiFields": "compute.families.baselines.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NUMERICAL_CODE_PRESENT",
+          "runtimeWired": "SOURCE_WIRED_SHADOW_ONLY",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Actual history-mode formulas are implemented; canonical selection/publication adapter and qualification are incomplete. This is not a hardware limitation."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -3053,7 +3526,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "qualified_session_response_required"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.biofeedback",
@@ -3140,6 +3614,24 @@
           ],
           "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt"
         }
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/unimplemented",
+        "apiFields": "compute.families.biofeedback.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NO_NUMERICAL_PRODUCER",
+          "runtimeWired": "MISSING_NUMERICAL_WIRING",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Explicit server missingness is implemented; no complete numerical producer. Engineering work remains and must not be reported as unsupported hardware."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -3164,7 +3656,8 @@
         "defaultDisposition": {
           "status": "unqualified",
           "reason": "qualified_live_decision_required"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.live_coaching",
@@ -3261,6 +3754,24 @@
           "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt",
           "coachingAdmission": "Canonical server family only; legacy context/model/BYOK and delayed scheduled-brief replay are closed in final hosted mode."
         }
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/unimplemented",
+        "apiFields": "compute.families.live_coaching.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NO_NUMERICAL_PRODUCER",
+          "runtimeWired": "MISSING_NUMERICAL_WIRING",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Explicit server missingness is implemented; no complete numerical producer. Engineering work remains and must not be reported as unsupported hardware."
+        ],
+        "testedMetricIds": []
       }
     },
     {
@@ -3285,7 +3796,8 @@
         "defaultDisposition": {
           "status": "unsupported",
           "reason": "qualified_insight_producer_unavailable"
-        }
+        },
+        "selectedNumericalRoute": null
       },
       "outputContract": {
         "schema": "server_scoring schema_version 2, contract_revision 2, compute.families.insights",
@@ -3377,6 +3889,24 @@
           "runtimeEvidence": "Required by check-cutover --require-final; registry is not a receipt",
           "coachingAdmission": "Canonical server family only; legacy context/model/BYOK and delayed scheduled-brief replay are closed in final hosted mode."
         }
+      },
+      "producerExecution": {
+        "route": "#/producerRoutes/unimplemented",
+        "apiFields": "compute.families.insights.values; see outputContract.metrics",
+        "states": {
+          "implemented": "NO_NUMERICAL_PRODUCER",
+          "runtimeWired": "MISSING_NUMERICAL_WIRING",
+          "fixtureTested": "POSITIVE_PRODUCER_NOT_YET_PROVEN_FOR_THIS_REPAIR",
+          "deployed": "NO_MATCHED_REPAIR_DEPLOYMENT",
+          "receivingQualifiedInput": "NOT_MEASURED",
+          "publishing": "NO_SELECTED_HOSTED_NUMERICAL_PROOF",
+          "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
+          "referenceQualified": "NOT_MEASURED"
+        },
+        "notes": [
+          "Explicit server missingness is implemented; no complete numerical producer. Engineering work remains and must not be reported as unsupported hardware."
+        ],
+        "testedMetricIds": []
       }
     }
   ],
@@ -3502,5 +4032,73 @@
       "numericContract": false,
       "resultBinding": "compute.families.insights explicit missing state/revision; not an invented metric value"
     }
-  ]
+  ],
+  "producerStateSemantics": {
+    "implemented": "Numerical code exists; an explicit missing-state publisher does not count.",
+    "runtimeWired": "Actual input, queue, executable and output path exists in source; deployment is independent.",
+    "fixtureTested": "Positive actual producer output only; rejection tests and hand-authored result envelopes do not satisfy this.",
+    "deployed": "Observed compatible process serving this project and selected capability.",
+    "receivingQualifiedInput": "Current real input is admitted by the capability acquisition contract, not merely indexed.",
+    "publishing": "Immutable numerical publication from that producer, scoped separately for fixture and hosted runtime.",
+    "readable": "Authorized numerical value reaches production decoder/cache; explicit nulls are not positive proof.",
+    "referenceQualified": "Independent synchronized reference evidence; retained legacy authorization is not new scientific validation."
+  },
+  "producerRoutes": {
+    "retained_baseline": {
+      "inputAdapter": "Frozen SignalSampleReader over noop_hr_samples/noop_gravity_samples/noop_rr_intervals/noop_resp_samples",
+      "queue": "scoring_work_items / scoring_legacy_claim_one",
+      "entrypoint": "scoring-service/legacy-baseline/runtime-identity.patch persistent main (explicit --replay-day only)",
+      "algorithmVersion": "frwhoop-server-1",
+      "numericalSource": "5caa31689da0023e111beb36850d3f81d67e1be2",
+      "assetConfiguration": "Frozen kernel and legacy mapper identities in baseline-transport-provenance.json",
+      "qualification": "retained_legacy; no changed formulas or fabricated reference approval",
+      "publicationSelector": "server_physiology_results immutable revision -> physiology_feature_defaults -> server_scoring_read_contract",
+      "workerImage": "REPAIR_ARTIFACT_PENDING; observed old selected-v1 image targets the wrong database",
+      "nativeConsumers": "#/sharedConsumers and each entry validation.finalHosted.consumerFiles"
+    },
+    "physiology_shadow": {
+      "inputAdapter": "SignalSampleReader; BoundedRawFeatureLane with SensorAcquisitionReader receipts for dependent raw capabilities",
+      "queue": "physiology_work_items / scoring_fleet_candidates / scoring_claim_one",
+      "entrypoint": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt -> ScoringPoller -> DayScorer",
+      "algorithmVersion": "frwhoop-physiology-2",
+      "assetConfiguration": "CanonicalScorePayload feature manifests; optional model assets separately versioned",
+      "qualification": "Per-feature manifest-matched approval required; default is shadow",
+      "publicationSelector": "server_physiology_results; selected output requires genuine per-feature qualification and explicit selection",
+      "workerImage": "Observed hosted image sha256:58a843bcc41531c73daa76c7f541ccc5ed04a6f93393574a75f54cae4e84fb04 at old source80a7c0771beff46b60e05ba933e78789b11cdc56; repair artifact pending",
+      "nativeConsumers": "#/sharedConsumers and each entry validation.finalHosted.consumerFiles"
+    },
+    "historical_shadow": {
+      "inputAdapter": "HistoricalSignalSampleReader + HistoryInputReader + HistoricalStateMachine (strictly prior-day state)",
+      "queue": "scoring_jobs_v2 / claim_scoring_history_v3; historyMode=true",
+      "entrypoint": "ScoringApplication -> HistoricalScoringPoller -> HistoricalDayScorer -> ServerMetricOrchestrator/ContextMetricOrchestrator",
+      "algorithmVersion": "frwhoop-server-2-history",
+      "assetConfiguration": "Versioned history generation/profile/configuration/source era",
+      "qualification": "Shadow only; inherited formula code is not canonical qualification",
+      "publicationSelector": "HistoricalEngineIngestWriter immutable queue/history fence, publicationMode=shadow, canonicalOutputsAllowed=false; canonical family mapping incomplete",
+      "workerImage": "No compatible hosted history process observed",
+      "nativeConsumers": "No numerical canonical history-family publication; missing-state consumers exist"
+    },
+    "unimplemented": {
+      "inputAdapter": "See requiredInputs; no complete numerical producer path",
+      "queue": "Only compute disposition/session queues exist; they publish missingness",
+      "entrypoint": "ComputeContractPublisher and process_compute_session_request do not constitute a numerical implementation",
+      "algorithmVersion": null,
+      "assetConfiguration": null,
+      "qualification": "UNIMPLEMENTED is an engineering state, not an unsupported-hardware determination",
+      "publicationSelector": "Explicit missing state only",
+      "workerImage": null,
+      "nativeConsumers": "Missing-state rendering exists; numerical producer parity incomplete"
+    },
+    "device_observation": {
+      "inputAdapter": "Original device-reported HR and source/timestamp; no waveform inference",
+      "queue": "Native direct observation and durable upload",
+      "entrypoint": "Native acquisition and direct observation display",
+      "algorithmVersion": null,
+      "assetConfiguration": null,
+      "qualification": "Device observation provenance, not VPS inferred HR",
+      "publicationSelector": "Direct observation; inferred fallback remains absent",
+      "workerImage": null,
+      "nativeConsumers": "Direct live HR consumers; server family retains explicit device_observation_only state"
+    }
+  }
 }

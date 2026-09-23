@@ -1,0 +1,28 @@
+# Standalone owned service. Schema and worker precede any async capability enablement.
+services:
+  intake-consumer:
+    image: ${INTAKE_WORKER_IMAGE:?A reviewed immutable intake image digest is required}
+    container_name: intake-consumer
+    restart: unless-stopped
+    init: true
+    cpus: "${INTAKE_WORKER_CPUS:-1.0}"
+    mem_limit: "${INTAKE_WORKER_MEMORY_LIMIT:-2g}"
+    pids_limit: 128
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    env_file:
+      - ${INTAKE_WORKER_ENV_FILE:-/opt/frwhoop/intake.env}
+      - ${INTAKE_B2_ENV_FILE:-/opt/frwhoop/b2.env}
+    environment:
+      INTAKE_WORKER_SOURCE_REVISION: ${INTAKE_WORKER_SOURCE_REVISION:?Exact packaged source revision required}
+      INTAKE_WORKER_INSTANCE_ID: ${INTAKE_WORKER_INSTANCE_ID:?Fresh deployment instance UUID required}
+      INTAKE_EXPECTED_SUPABASE_PROJECT: ${INTAKE_EXPECTED_SUPABASE_PROJECT:?Phone hosted project required}
+      RAW_STORE: b2
+    command: []
+    network_mode: bridge
+    stop_grace_period: 5m
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}

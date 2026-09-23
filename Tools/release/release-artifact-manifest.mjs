@@ -18,6 +18,12 @@ const REVISION = /^[0-9a-f]{40}$/;
 // lowercase Docker registry/path alphabet so a reviewed reference remains one inert token
 // when deployment passes it to the remote shell.
 const REGISTRY_DIGEST_REFERENCE = /^[a-z0-9][a-z0-9._:-]*(?:\/[a-z0-9][a-z0-9._-]*)+@sha256:[0-9a-f]{64}$/;
+export const INTAKE_RUNTIME_IMAGE = 'docker.io/denoland/deno:2.5.6@sha256:3ea71953ff50e3ff15c377ead1a8521f624e2f43d27713675a8bed7b33f166aa';
+export const INTAKE_ENTRYPOINT = Object.freeze(['deno', 'run', '--no-prompt', '--cached-only', '--frozen',
+  '--lock=/app/deno.lock', '--allow-env', '--allow-net',
+  '--allow-read=/app/workers/intake/source-revision', '/app/workers/intake/main.ts']);
+const INTAKE_COMPOSE_PATH = 'infra/vps/templates/docker-compose.intake.yml';
+const INTAKE_PROJECT = 'sgoyxzcagqyxexmsidtk';
 const BASELINE_COMMIT = '5caa31689da0023e111beb36850d3f81d67e1be2';
 const PLATFORM = 'linux/amd64';
 const BUILD_IMAGE = 'docker.io/library/eclipse-temurin@sha256:e573c097106f35634857604fdfbe70a2a2bbcaa52574bca3d2025703d0df994d';
@@ -38,12 +44,16 @@ export const ANDROID_INSPECTION_TOOLS = Object.freeze({
     sha256: 'eefdd6aed9db9fb849e4c98a50d8741e19d1b674ba6547220bcb9c3ed152123a',
   }),
 });
-const MIGRATION_TOTAL = 124;
+const MIGRATION_TOTAL = 127;
 const MIGRATION_BASELINE = 117;
-const MIGRATION_SCHEMA_FINGERPRINT = '910a1c74a760b496028d7c2c58c009f45e29f9643fd2c279c278156f9a23d4c5';
+const MIGRATION_SCHEMA_FINGERPRINT = '4e169fbf070920262b6bec899d63eb4728fb6f8f0932d22fb58e1fc5f15883c8';
 const MIGRATION_CATALOG_PATH = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
 const MIGRATION_DIRECTORY = 'supabase/migrations';
 const MIGRATION_WORKSTREAMS = Object.freeze([
+  Object.freeze({ workstream: 'persistent-sync-followup', branch: 'codex/persistent-sync-followup-2026-09-22',
+    tip: 'a972493212f2eae29f01ecaddf9182260153400f', migrationCount: 2 }),
+  Object.freeze({ workstream: 'server-repair', branch: 'repair/vps-server-20260922',
+    tip: null, migrationCount: 1 }),
   Object.freeze({ workstream: 'server-pipeline', branch: 'fix/server-pipeline',
     tip: 'cfb94434b1b4ed4dba587e5c4e7af405e782e560', migrationCount: 117 }),
   Object.freeze({ workstream: 'multiuser-scale', branch: 'feat/multiuser-scale',
@@ -68,6 +78,12 @@ const CONTRACT_FILES = [
   'android/fork-debug.keystore',
   'infra/vps/launch-capacity.json',
   'infra/vps/templates/Dockerfile.baseline',
+  'infra/vps/templates/Dockerfile.intake',
+  INTAKE_COMPOSE_PATH,
+  'workers/intake/main.ts',
+  'supabase/functions/_shared/intakeConsumer.ts',
+  'supabase/functions/deno.lock',
+  'supabase/migrations/20260922120000_intake_service_contract.sql',
   'infra/vps/templates/docker-compose.scoring-override.yml',
   'project.yml',
   'scoring-service/Dockerfile',
@@ -232,7 +248,7 @@ function descriptorEntry(archive, entries, descriptor, label) {
   return entry;
 }
 export function inspectOCI(filename, role, sourceRevision, buildMetadata, provenance = undefined) {
-  invariant(['selected-v1', 'shadow-v2'].includes(role), 'unsupported OCI role');
+  invariant(['selected-v1', 'shadow-v2', 'intake'].includes(role), 'unsupported OCI role');
   const entries = parseTar(filename);
   const layout = parseJSONBytes(readTarEntry(filename, entries.get('oci-layout')), 'OCI layout');
   invariant(layout?.imageLayoutVersion === '1.0.0', 'unsupported OCI layout');
@@ -261,11 +277,20 @@ export function inspectOCI(filename, role, sourceRevision, buildMetadata, proven
       labels['io.frwhoop.baseline.commit'] === BASELINE_COMMIT, 'v1 algorithm/baseline labels differ');
     invariant(labels['io.frwhoop.baseline.transport-sha256'] === provenance?.transport_patch_sha256 &&
       labels['io.frwhoop.baseline.identity-sha256'] === provenance?.identity_patch_sha256, 'v1 patch labels differ');
-  } else {
+  } else if (role === 'shadow-v2') {
     invariant(labels['io.frwhoop.algorithm.roles'] === 'frwhoop-physiology-2,frwhoop-server-2-history',
       'v2 algorithm-role label differs');
   }
-  invariant(labels['io.frwhoop.heartbeat.contract'] === 'physiology_worker_heartbeats-v1' &&
+  if (role === 'intake') {
+    invariant(labels['org.frwhoop.worker.role'] === 'intake' &&
+      labels['org.frwhoop.intake.contract-version'] === '1' &&
+      labels['io.frwhoop.runtime.image'] === INTAKE_RUNTIME_IMAGE &&
+      labels['io.frwhoop.image.platform'] === PLATFORM, 'intake role/base/contract labels differ');
+    invariant(config.config.User === 'deno' && config.config.WorkingDir === '/app' &&
+      canonicalJSON(config.config.Entrypoint) === canonicalJSON(INTAKE_ENTRYPOINT) &&
+      (config.config.Cmd == null || canonicalJSON(config.config.Cmd) === '[]'),
+    'intake immutable runtime command/user differs');
+  } else invariant(labels['io.frwhoop.heartbeat.contract'] === 'physiology_worker_heartbeats-v1' &&
     labels['io.frwhoop.build.image'] === BUILD_IMAGE && labels['io.frwhoop.runtime.image'] === RUNTIME_IMAGE &&
     labels['io.frwhoop.image.platform'] === PLATFORM, `${role} platform/base/heartbeat labels differ`);
   return {
@@ -338,6 +363,9 @@ function sourceContract(repo, commit) {
     'project.yml': ['NOOPSourceRevision: $(NOOP_SOURCE_REVISION)', 'NOOPFinalHostedCompute: true'],
     'scoring-service/Dockerfile': ['io.frwhoop.algorithm.roles=', 'io.frwhoop.heartbeat.contract='],
     'infra/vps/templates/Dockerfile.baseline': ['io.frwhoop.algorithm.version=', 'io.frwhoop.heartbeat.contract='],
+    'infra/vps/templates/Dockerfile.intake': ['org.frwhoop.worker.role=intake',
+      'org.frwhoop.intake.contract-version=1', INTAKE_RUNTIME_IMAGE],
+    'supabase/functions/_shared/intakeConsumer.ts': ['INTAKE_CONTRACT_VERSION = 1', 'noop_intake_consumer_contract'],
     'scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringConfig.kt':
       ['SCORING_WORKER_SOURCE_REVISION'],
     'scoring-service/service/src/main/kotlin/com/frwhoop/scoring/health/HeartbeatReporter.kt':
@@ -360,9 +388,10 @@ function validateInput(input) {
   exactKeys(input, ['schemaVersion', 'sourceSha', 'expected', 'artifacts'], 'release input');
   invariant(input.schemaVersion === 1 && REVISION.test(input.sourceSha), 'release input source SHA differs');
   validateIOSExpectedIdentities(input.expected);
-  exactKeys(input.artifacts, ['selectedV1', 'shadowV2', 'android', 'ios', 'edge', 'migrations', 'deployment'], 'release artifacts');
+  exactKeys(input.artifacts, ['selectedV1', 'shadowV2', 'intake', 'android', 'ios', 'edge', 'migrations', 'deployment'], 'release artifacts');
   exactKeys(input.artifacts.selectedV1, ['oci', 'buildMetadata', 'provenance'], 'selected v1 input');
   exactKeys(input.artifacts.shadowV2, ['oci', 'buildMetadata'], 'shadow v2 input');
+  exactKeys(input.artifacts.intake, ['oci', 'buildMetadata'], 'intake input');
   exactKeys(input.artifacts.android, ['apk', 'outputMetadata', 'aapt2', 'apksigJar'], 'Android input');
   exactKeys(input.artifacts.ios, ['ipa'], 'iOS input');
   exactKeys(input.artifacts.edge, ['bundle', 'manifest'], 'Edge input');
@@ -417,9 +446,9 @@ export function validateMigrationManifest(value, repo, commit, tree) {
     'pendingEntryCount'], 'migration catalog');
   exactKeys(value.counts, ['total', 'applied', 'pending'], 'migration counts');
   invariant(value.schemaVersion === 1 && value.kind === 'frwhoop-immutable-migration-manifest' &&
-    value.candidate.branch === 'release/integration' && value.candidate.sha === commit &&
+    value.candidate.branch === 'repair/vps-server-20260922' && value.candidate.sha === commit &&
     value.candidate.tree === tree, 'migration manifest source differs');
-  invariant(canonicalJSON(value.sourceWorkstreams) === canonicalJSON(MIGRATION_WORKSTREAMS),
+  invariant(canonicalJSON(value.sourceWorkstreams) === canonicalJSON(MIGRATION_WORKSTREAMS.map(row => ({ ...row, tip: row.tip ?? commit }))),
     'migration source workstreams differ');
   invariant(value.hostedBaseline.environment === 'hosted-production' &&
     value.hostedBaseline.projectRef === 'sgoyxzcagqyxexmsidtk' &&
@@ -462,9 +491,13 @@ export function validateMigrationManifest(value, repo, commit, tree) {
     const timestamp = row.basename.slice(0, 14);
     timestampGroups.set(timestamp, [...(timestampGroups.get(timestamp) ?? []), row.basename]);
   }
-  const workstreamAt = index => index < MIGRATION_BASELINE ? MIGRATION_WORKSTREAMS[0]
-    : index < 121 ? MIGRATION_WORKSTREAMS[1]
-      : index === 121 ? MIGRATION_WORKSTREAMS[2] : MIGRATION_WORKSTREAMS[4];
+  const workstreamAt = index => {
+    const name = index < MIGRATION_BASELINE ? 'server-pipeline'
+      : index < 121 ? 'multiuser-scale' : index === 121 ? 'sensor-algorithms'
+      : index < 124 ? 'vps-only-compute' : index < 126 ? 'persistent-sync-followup' : 'server-repair';
+    const row = MIGRATION_WORKSTREAMS.find(item => item.workstream === name);
+    return { ...row, tip: row.tip ?? commit };
+  };
   const renamed = new Map([
     ['20260921121000_final_hosted_compute_contract.sql',
       ['20260921110000_final_hosted_compute_contract.sql', '20260921110000_installation_retirement.sql']],
@@ -575,6 +608,8 @@ function validateDeploymentManifest(value, commit, tree, bundleIdentity) {
     value.files.some(file => file.path === 'infra/vps/scripts/deploy-hosted-edge-functions.mjs') &&
     value.files.some(file => file.path === 'infra/vps/scripts/verify-hosted-score-route-parity.mjs') &&
     value.files.some(file => file.path === 'infra/vps/scripts/remote/verify-scoring-runtime.sh') &&
+    value.files.some(file => file.path === 'infra/vps/templates/Dockerfile.intake') &&
+    value.files.some(file => file.path === INTAKE_COMPOSE_PATH) &&
     value.files.some(file => file.path === 'Tools/release/release-artifact-manifest.mjs'),
   'deployment bundle lacks required release/rollback sources');
   return { requiredCapabilities: value.requiredCapabilities, fileCount: value.files.length };
@@ -678,12 +713,17 @@ function roleContract(commit) {
       publicationRole: 'selected', heartbeat },
     shadowV2: { imageArtifact: 'shadowV2', algorithmVersion: 'frwhoop-physiology-2',
       publicationRole: 'shadow', heartbeat },
+    intake: { imageArtifact: 'intake', contractVersion: 1, sourceRevision: commit,
+      publicationRole: 'verified-indexed-input', lanes: ['verification', 'projection', 'legacy'],
+      asyncAdmission: 'DISABLED_UNTIL_SEPARATELY_AUTHORIZED', progressTable: 'noop_intake_consumers' },
     historyV2: { imageArtifact: 'shadowV2', algorithmVersion: 'frwhoop-server-2-history',
       publicationRole: 'shadow-history', command: ['--history'], heartbeat },
   };
 }
 
 const workerLaneOrder = [
+  { service: 'intake-consumer', contractVersion: 1,
+    publicationRole: 'verified-indexed-input', imageRole: 'intake' },
   { service: 'scoring-baseline-v1', algorithmVersion: 'frwhoop-server-1',
     publicationRole: 'selected', imageRole: 'selectedV1' },
   { service: 'scoring-physiology-v2', algorithmVersion: 'frwhoop-physiology-2',
@@ -747,13 +787,64 @@ function postgresClientContract(value) {
   return structuredClone(POSTGRES_CLIENT);
 }
 
-export function createWorkerDeployment(release, selectedV1Reference, shadowV2Reference, targetIdentity) {
+export function intakeComposeContract(reference, sourceRevision, instanceId, projectRef) {
+  invariant(REGISTRY_DIGEST_REFERENCE.test(reference) && REVISION.test(sourceRevision),
+    'intake Compose image/source identity is invalid');
+  invariant(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(instanceId) &&
+    projectRef === INTAKE_PROJECT, 'intake deployment instance/project identity differs');
+  return { name: 'frwhoop-intake', services: { 'intake-consumer': {
+    image: reference, container_name: 'intake-consumer', restart: 'unless-stopped', init: true,
+    cpus: 1, mem_limit: '2147483648', pids_limit: 128, read_only: true,
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=64m'], cap_drop: ['ALL'], security_opt: ['no-new-privileges:true'],
+    env_file: [{ path: '/opt/frwhoop/intake.env', required: true }, { path: '/opt/frwhoop/b2.env', required: true }],
+    environment: { INTAKE_WORKER_SOURCE_REVISION: sourceRevision, INTAKE_WORKER_INSTANCE_ID: instanceId,
+      INTAKE_EXPECTED_SUPABASE_PROJECT: projectRef, RAW_STORE: 'b2' },
+    command: [], entrypoint: null, network_mode: 'bridge', stop_grace_period: '5m0s',
+    logging: { driver: 'json-file', options: { 'max-size': '10m', 'max-file': '3' } },
+  } } };
+}
+
+// Compile committed bytes with nonsecret probe files. Compose versions can resolve env_file even
+// with --no-env-resolution, so this never exposes deployed credentials to the packaging process.
+// The two probe keys prove both files were included; only their reviewed runtime paths are bound.
+export function compileIntakeCompose({ repoRoot, commit, reference, instanceId, projectRef }) {
+  const expected = intakeComposeContract(reference, commit, instanceId, projectRef);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'frwhoop-intake-compose-'));
+  try {
+    const template = path.join(directory, 'compose.yml');
+    fs.writeFileSync(template, sourceBytes(repoRoot, commit, INTAKE_COMPOSE_PATH));
+    fs.writeFileSync(path.join(directory, 'intake.env'), 'FRWHOOP_RELEASE_INTAKE_PROBE=intake\n');
+    fs.writeFileSync(path.join(directory, 'b2.env'), 'FRWHOOP_RELEASE_B2_PROBE=b2\n');
+    const compiled = parseJSONBytes(run('docker', ['compose', '-p', 'frwhoop-intake', '-f', template,
+      'config', '--format', 'json'], { cwd: directory, env: {
+      PATH: process.env.PATH, INTAKE_WORKER_IMAGE: reference, INTAKE_WORKER_SOURCE_REVISION: commit,
+      INTAKE_WORKER_INSTANCE_ID: instanceId, INTAKE_EXPECTED_SUPABASE_PROJECT: projectRef,
+      INTAKE_WORKER_ENV_FILE: path.join(directory, 'intake.env'), INTAKE_B2_ENV_FILE: path.join(directory, 'b2.env'),
+    } }), 'compiled intake Compose');
+    const service = compiled?.services?.['intake-consumer'];
+    invariant(service?.environment?.FRWHOOP_RELEASE_INTAKE_PROBE === 'intake' &&
+      service.environment.FRWHOOP_RELEASE_B2_PROBE === 'b2', 'intake Compose env-file bindings differ');
+    delete service.environment.FRWHOOP_RELEASE_INTAKE_PROBE;
+    delete service.environment.FRWHOOP_RELEASE_B2_PROBE;
+    service.env_file = expected.services['intake-consumer'].env_file;
+    invariant(canonicalJSON(compiled) === canonicalJSON(expected),
+      'committed intake Compose differs from reviewed identity/resource/command policy');
+    return compiled;
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+}
+
+export function createWorkerDeployment(release, selectedV1Reference, shadowV2Reference, targetIdentity, intake) {
   invariant(release?.schemaVersion === 1 && release.kind === 'frwhoop-phone-test-artifact-manifest' &&
     REVISION.test(release.source?.commit) && REVISION.test(release.source?.tree) &&
     SHA256.test(release.manifestFingerprintSha256), 'verified release manifest is required');
   invariant(canonicalJSON(release.roles) === canonicalJSON(roleContract(release.source.commit)),
     'release worker roles differ');
   const postgresClient = postgresClientContract(release.runtimeClients?.postgresql);
+  const intakeImage = registryImage(intake?.reference, release.artifacts?.intake?.image, 'intake');
+  const compiledCompose = intakeComposeContract(intakeImage.reference, release.source.commit,
+    intake?.instanceId, intake?.projectRef);
+  invariant(canonicalJSON(intake?.compiledCompose) === canonicalJSON(compiledCompose),
+    'intake compiled Compose differs from reviewed runtime limits/identity');
   const unsigned = {
     schemaVersion: 1,
     kind: 'frwhoop-worker-deployment',
@@ -763,11 +854,15 @@ export function createWorkerDeployment(release, selectedV1Reference, shadowV2Ref
     heartbeatContract: 'physiology_worker_heartbeats-v1',
     laneOrder: structuredClone(workerLaneOrder),
     images: {
+      intake: intakeImage,
       selectedV1: registryImage(selectedV1Reference, release.artifacts?.selectedV1?.image, 'selected v1'),
       shadowV2: registryImage(shadowV2Reference, release.artifacts?.shadowV2?.image, 'shadow v2'),
     },
     runtimeClients: { postgresql: postgresClient },
     target: reviewedTarget(targetIdentity),
+    intake: { contractVersion: 1, instanceId: intake.instanceId, projectRef: intake.projectRef,
+      asyncAdmission: 'DISABLED_UNTIL_SEPARATELY_AUTHORIZED',
+      compiledCompose, compiledComposeSha256: sha256(canonicalJSON(compiledCompose)) },
     rollbackState: 'REQUIRES_SEPARATE_REVIEWED_COMPATIBLE_ARTIFACT',
   };
   return { ...unsigned, deploymentFingerprintSha256: sha256(canonicalJSON(unsigned)) };
@@ -775,11 +870,11 @@ export function createWorkerDeployment(release, selectedV1Reference, shadowV2Ref
 
 export function verifyWorkerDeploymentContract(release, deployment) {
   exactKeys(deployment, ['schemaVersion', 'kind', 'source', 'releaseManifestFingerprintSha256', 'platform',
-    'heartbeatContract', 'laneOrder', 'images', 'runtimeClients', 'target', 'rollbackState',
+    'heartbeatContract', 'laneOrder', 'images', 'runtimeClients', 'target', 'intake', 'rollbackState',
     'deploymentFingerprintSha256'],
   'worker deployment');
   exactKeys(deployment.source, ['commit', 'tree'], 'worker deployment source');
-  exactKeys(deployment.images, ['selectedV1', 'shadowV2'], 'worker deployment images');
+  exactKeys(deployment.images, ['selectedV1', 'shadowV2', 'intake'], 'worker deployment images');
   for (const [role, image] of Object.entries(deployment.images))
     exactKeys(image, ['reference', 'manifestDigest', 'configDigest'], `worker deployment ${role}`);
   exactKeys(deployment.runtimeClients, ['postgresql'], 'worker deployment runtime clients');
@@ -788,6 +883,8 @@ export function verifyWorkerDeploymentContract(release, deployment) {
   exactKeys(deployment.target,
     ['ip', 'sshPort', 'sshHostPublicKey', 'deployPublicKeyFingerprint'], 'worker deployment target');
   exactKeys(deployment.target.sshHostPublicKey, ['type', 'line', 'fingerprint'], 'worker deployment SSH host public key');
+  exactKeys(deployment.intake, ['contractVersion', 'instanceId', 'projectRef', 'asyncAdmission',
+    'compiledCompose', 'compiledComposeSha256'], 'intake deployment');
   const expected = createWorkerDeployment(release, deployment.images.selectedV1.reference,
     deployment.images.shadowV2.reference, {
       ip: deployment.target.ip,
@@ -795,20 +892,29 @@ export function verifyWorkerDeploymentContract(release, deployment) {
       sshHostPublicKeyLine: deployment.target.sshHostPublicKey.line,
       sshHostPublicKeyFingerprint: deployment.target.sshHostPublicKey.fingerprint,
       deployPublicKeyFingerprint: deployment.target.deployPublicKeyFingerprint,
-    });
+    }, { reference: deployment.images.intake.reference, ...deployment.intake });
   invariant(canonicalJSON(deployment) === canonicalJSON(expected), 'worker deployment binding differs');
   return deployment;
 }
 
 export function bindWorkerDeployment({ repoRoot, artifactRoot, manifest, selectedV1Reference, shadowV2Reference,
-  targetIdentity }) {
+  targetIdentity, intakeReference, intakeInstanceId, intakeProjectRef }) {
   const release = verifyReleaseManifest({ repoRoot, artifactRoot, manifest });
-  return createWorkerDeployment(release, selectedV1Reference, shadowV2Reference, targetIdentity);
+  const intake = { reference: intakeReference, instanceId: intakeInstanceId, projectRef: intakeProjectRef,
+    compiledCompose: compileIntakeCompose({ repoRoot, commit: release.source.commit,
+      reference: intakeReference, instanceId: intakeInstanceId, projectRef: intakeProjectRef }) };
+  return createWorkerDeployment(release, selectedV1Reference, shadowV2Reference, targetIdentity, intake);
 }
 
 export function verifyWorkerDeployment({ repoRoot, artifactRoot, manifest, deployment }) {
   const release = verifyReleaseManifest({ repoRoot, artifactRoot, manifest });
-  return verifyWorkerDeploymentContract(release, deployment);
+  verifyWorkerDeploymentContract(release, deployment);
+  const compiled = compileIntakeCompose({ repoRoot, commit: release.source.commit,
+    reference: deployment.images.intake.reference, instanceId: deployment.intake.instanceId,
+    projectRef: deployment.intake.projectRef });
+  invariant(canonicalJSON(compiled) === canonicalJSON(deployment.intake.compiledCompose),
+    'intake committed Compose differs from deployment binding');
+  return deployment;
 }
 
 export function prepareReleaseManifest({ repoRoot, artifactRoot, input }) {
@@ -828,6 +934,12 @@ export function prepareReleaseManifest({ repoRoot, artifactRoot, input }) {
   const v2File = fileIdentity(root, v2Input.oci), v2MetadataFile = fileIdentity(root, v2Input.buildMetadata);
   const v2Metadata = boundedJSON(artifactFile(root, v2Input.buildMetadata));
   const v2OCI = inspectOCI(artifactFile(root, v2Input.oci), 'shadow-v2', commit, v2Metadata);
+
+  const intakeInput = value.artifacts.intake;
+  const intakeFile = fileIdentity(root, intakeInput.oci);
+  const intakeMetadataFile = fileIdentity(root, intakeInput.buildMetadata);
+  const intakeOCI = inspectOCI(artifactFile(root, intakeInput.oci), 'intake', commit,
+    boundedJSON(artifactFile(root, intakeInput.buildMetadata)));
 
   const edgeInput = value.artifacts.edge, edgeBundlePath = artifactFile(root, edgeInput.bundle);
   const edgeBundle = fileIdentity(root, edgeInput.bundle);
@@ -862,6 +974,8 @@ export function prepareReleaseManifest({ repoRoot, artifactRoot, input }) {
         provenance: v1ProvenanceFile, image: v1OCI, algorithmVersion: 'frwhoop-server-1' },
       shadowV2: { kind: 'oci-image', file: v2File, buildMetadata: v2MetadataFile,
         image: v2OCI, algorithmVersions: ['frwhoop-physiology-2', 'frwhoop-server-2-history'] },
+      intake: { kind: 'oci-image', file: intakeFile, buildMetadata: intakeMetadataFile,
+        image: intakeOCI, contractVersion: 1 },
       android: inspectAndroid(repo, commit, root, value.artifacts.android, contract.versions),
       ios: inspectIOS(repo, commit, root, value.artifacts.ios, value.expected, contract.versions),
       edge: { kind: 'edge-source-bundle', file: edgeBundle, manifest: edgeManifestFile, ...edge },
@@ -895,6 +1009,7 @@ export function releaseInputFromManifest(manifest) {
         provenance: artifacts?.selectedV1?.provenance?.path },
       shadowV2: { oci: artifacts?.shadowV2?.file?.path,
         buildMetadata: artifacts?.shadowV2?.buildMetadata?.path },
+      intake: { oci: artifacts?.intake?.file?.path, buildMetadata: artifacts?.intake?.buildMetadata?.path },
       android: { apk: artifacts?.android?.file?.path,
         outputMetadata: artifacts?.android?.outputMetadata?.path,
         aapt2: artifacts?.android?.tools?.aapt2?.file?.path,
@@ -926,7 +1041,7 @@ export function verifyReleaseManifest({ repoRoot, artifactRoot, manifest }) {
 }
 
 function usage() {
-  return 'usage: release-artifact-manifest.mjs prepare --repo-root PATH --artifact-root PATH --inputs JSON --output JSON | verify --repo-root PATH --artifact-root PATH --manifest JSON | bind-deployment --repo-root PATH --artifact-root PATH --manifest JSON --selected-v1-image REF --shadow-v2-image REF --target-ip IP --target-ssh-port PORT --target-ssh-host-key-line KEY --target-ssh-host-key-fingerprint SHA256:BASE64 --deploy-public-key-fingerprint SHA256:BASE64 --output JSON | verify-deployment --repo-root PATH --artifact-root PATH --manifest JSON --deployment JSON';
+  return 'usage: release-artifact-manifest.mjs compile-intake --repo-root PATH --commit SHA --intake-image REF --intake-instance-id UUID --intake-project-ref REF --output JSON | prepare --repo-root PATH --artifact-root PATH --inputs JSON --output JSON | verify --repo-root PATH --artifact-root PATH --manifest JSON | bind-deployment --repo-root PATH --artifact-root PATH --manifest JSON --selected-v1-image REF --shadow-v2-image REF --intake-image REF --intake-instance-id UUID --intake-project-ref REF --target-ip IP --target-ssh-port PORT --target-ssh-host-key-line KEY --target-ssh-host-key-fingerprint SHA256:BASE64 --deploy-public-key-fingerprint SHA256:BASE64 --output JSON | verify-deployment --repo-root PATH --artifact-root PATH --manifest JSON --deployment JSON';
 }
 function argumentsFor(argv, keys) {
   invariant(argv.length === keys.length * 2, usage());
@@ -947,6 +1062,17 @@ function atomicWrite(filename, value) {
 }
 export function runCLI(argv) {
   const [mode, ...rest] = argv;
+  if (mode === 'compile-intake') {
+    const args = argumentsFor(rest, ['--repo-root', '--commit', '--intake-image', '--intake-instance-id',
+      '--intake-project-ref', '--output']);
+    const compiled = compileIntakeCompose({ repoRoot: args['--repo-root'], commit: args['--commit'],
+      reference: args['--intake-image'], instanceId: args['--intake-instance-id'],
+      projectRef: args['--intake-project-ref'] });
+    atomicWrite(args['--output'], compiled);
+    process.stdout.write(JSON.stringify({ status: 'INTAKE_COMPOSE_COMPILED_OFFLINE',
+      output: path.resolve(args['--output']), sha256: sha256(canonicalJSON(compiled)) }) + '\n');
+    return compiled;
+  }
   if (mode === 'prepare') {
     const args = argumentsFor(rest, ['--repo-root', '--artifact-root', '--inputs', '--output']);
     const manifest = prepareReleaseManifest({ repoRoot: args['--repo-root'], artifactRoot: args['--artifact-root'],
@@ -966,11 +1092,13 @@ export function runCLI(argv) {
   }
   if (mode === 'bind-deployment') {
     const args = argumentsFor(rest, ['--repo-root', '--artifact-root', '--manifest', '--selected-v1-image',
-      '--shadow-v2-image', '--target-ip', '--target-ssh-port', '--target-ssh-host-key-line',
+      '--shadow-v2-image', '--intake-image', '--intake-instance-id', '--intake-project-ref', '--target-ip', '--target-ssh-port', '--target-ssh-host-key-line',
       '--target-ssh-host-key-fingerprint', '--deploy-public-key-fingerprint', '--output']);
     const manifest = boundedJSON(path.resolve(args['--manifest']));
     const deployment = bindWorkerDeployment({ repoRoot: args['--repo-root'], artifactRoot: args['--artifact-root'],
       manifest, selectedV1Reference: args['--selected-v1-image'], shadowV2Reference: args['--shadow-v2-image'],
+      intakeReference: args['--intake-image'], intakeInstanceId: args['--intake-instance-id'],
+      intakeProjectRef: args['--intake-project-ref'],
       targetIdentity: {
         ip: args['--target-ip'], sshPort: args['--target-ssh-port'],
         sshHostPublicKeyLine: args['--target-ssh-host-key-line'],
@@ -992,6 +1120,7 @@ export function runCLI(argv) {
       sourceSha: deployment.source.commit, sourceTree: deployment.source.tree,
       fingerprint: deployment.deploymentFingerprintSha256,
       selectedV1: deployment.images.selectedV1, shadowV2: deployment.images.shadowV2,
+      intake: deployment.images.intake, intakeContract: deployment.intake.contractVersion,
       postgresqlClient: deployment.runtimeClients.postgresql, target: deployment.target }) + '\n');
     return deployment;
   }

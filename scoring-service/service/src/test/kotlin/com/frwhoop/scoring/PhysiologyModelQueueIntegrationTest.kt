@@ -30,9 +30,9 @@ class PhysiologyModelQueueIntegrationTest {
         require(url!!.contains("@127.0.0.1:") && url.endsWith("/physiology_queue_test"))
         db=PostgresClient(url);queue=ModelWorkQueue(db,10)
         resetFleetTestState(db)
-        sql("insert into auth.users values('$user')")
-        sql("insert into profiles(id,timezone) values('$user','UTC')")
-        sql("insert into devices(id,user_id) values('$device','$user')")
+        sql("insert into auth.users(id) values('$user')")
+        sql("insert into profiles(id,timezone) values('$user','UTC') on conflict(id) do update set timezone='UTC'")
+        sql("insert into devices(id,user_id,source_kind) values('$device','$user','whoop')")
         dirty();activate(model)
     }
     @After fun close() { if(::db.isInitialized) {
@@ -57,9 +57,9 @@ class PhysiologyModelQueueIntegrationTest {
         val job=queue.claim(model)!!
         assertTrue(queue.finish(job,failure="inference_timeout"));assertNull(queue.claim(model))
         val otherUser=UUID.randomUUID();val otherDevice=UUID.randomUUID()
-        sql("insert into auth.users values('$otherUser')")
-        sql("insert into profiles(id,timezone) values('$otherUser','UTC')")
-        sql("insert into devices(id,user_id) values('$otherDevice','$otherUser')")
+        sql("insert into auth.users(id) values('$otherUser')")
+        sql("insert into profiles(id,timezone) values('$otherUser','UTC') on conflict(id) do update set timezone='UTC'")
+        sql("insert into devices(id,user_id,source_kind) values('$otherDevice','$otherUser','whoop')")
         ScoringWorkQueue(db).dirtyWorkItem(otherUser,otherDevice,day)
         val other=queue.claim(model)!!;assertEquals(otherUser,other.userId)
         assertTrue(queue.finish(other,output(other,model)))
@@ -214,9 +214,9 @@ class PhysiologyModelQueueIntegrationTest {
         assertTrue((System.nanoTime()-start)/1e9<6)
         assertEquals(1L,count("select count(*) from physiology_model_work_items where model_id='${model.id}' and user_id='$user' and state='retry'"))
         val otherUser=UUID.randomUUID();val otherDevice=UUID.randomUUID()
-        sql("insert into auth.users values('$otherUser')")
-        sql("insert into profiles(id,timezone) values('$otherUser','UTC')")
-        sql("insert into devices(id,user_id) values('$otherDevice','$otherUser')")
+        sql("insert into auth.users(id) values('$otherUser')")
+        sql("insert into profiles(id,timezone) values('$otherUser','UTC') on conflict(id) do update set timezone='UTC'")
+        sql("insert into devices(id,user_id,source_kind) values('$otherDevice','$otherUser','whoop')")
         ScoringWorkQueue(db).dirtyWorkItem(otherUser,otherDevice,day)
         assertEquals(otherUser,queue.claim(model)!!.userId)
     }

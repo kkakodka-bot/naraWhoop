@@ -79,4 +79,10 @@ if (requireFinal) {
 console.log(JSON.stringify({ registry: 'PASS', families: ids.size, outputs: metrics.size,
   ownershipParity: 'PASS', assertions: { static: finalSource ?? 'registry and legacy ownership maps only',
     executed: runtimeEvidence ?? 'NOT_VERIFIED' },
-  finalHosted: requireFinal && !finalFailure ? 'READY' : 'NOT_VERIFIED', blocked, finalFailure }, null, 2));
+  // These gates establish source/runtime ownership. Even an executed all-null
+  // envelope and zero local calls cannot establish numerical producer closure,
+  // deployment, reference qualification or physical phone continuity.
+  finalHosted: requireFinal && !finalFailure ? 'SOURCE_RUNTIME_VERIFIED' : 'NOT_VERIFIED',
+  numericalProducerParity: registry.finalHostedStatus,
+  productionAcceptance: 'NOT_MEASURED',
+  blocked, finalFailure }, null, 2));

@@ -534,9 +534,9 @@ class ScoringInputGateIntegrationTest {
         }
     } }
     private fun owner(owner:UUID,strap:UUID) {
-        sql("insert into auth.users values('$owner')")
-        sql("insert into profiles(id,timezone) values('$owner','UTC')")
-        sql("insert into devices(id,user_id) values('$strap','$owner')")
+        sql("insert into auth.users(id) values('$owner')")
+        sql("insert into profiles(id,timezone) values('$owner','UTC') on conflict(id) do update set timezone='UTC'")
+        sql("insert into devices(id,user_id,source_kind) values('$strap','$owner','whoop')")
     }
     private fun hrInsert(at:Long,owner:UUID=user,strap:UUID=device)=
         "insert into noop_hr_samples(user_id,device_id,source_id,ts,bpm,batch_id) values('$owner','$strap','$source',$at,60,'$batch')"

@@ -10,7 +10,7 @@ hosted ledgers before any mutation. Git object replacement, lazy fetch, hooks, g
 and nonlocal protocols are disabled during source verification. The native Supabase ledger remains a
 110-row timestamp ledger. The runner does not rewrite or backfill it. The full identity ledger in
 `supabase_migrations.scoring_source_identities` must contain the exact 117-row reviewed baseline. The
-plan then names the seven forward migrations in their immutable order.
+plan then names the ten forward migrations in their immutable order.
 
 Do not use `supabase db push` for this release. Do not run the `apply` command without explicit
 production-migration authorization and a reviewed plan fingerprint.

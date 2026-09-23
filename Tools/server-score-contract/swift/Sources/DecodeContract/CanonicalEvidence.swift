@@ -99,7 +99,7 @@ func verifyCanonicalSelection(_ cache: ServerScoreDayCache, bytes: Data,
     let sleep = rawFamilies["sleep"]!
     let nested = ((sleep["details"] as? [String: Any])?["nights"] as? [[String: Any]] ?? []) +
         ((sleep["values"] as? [String: Any])?["sleep_sessions"] as? [[String: Any]] ?? [])
-    for night in nested { for field in restricted {
+    for night in nested { for field in restricted where !(expectation.allowedNestedFields ?? []).contains(field) {
         try require(night[field] == nil || night[field] is NSNull, "\(file): canonical sleep leaked \(field)")
     } }
 

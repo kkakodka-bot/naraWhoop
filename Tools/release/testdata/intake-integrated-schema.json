@@ -1,0 +1,1 @@
+{"status": "PASS", "rls_tables": 135, "compute_metrics": 80, "compute_families": 27, "selected_policies": 24, "selected_triggers": 11, "selected_functions": 18, "schema_fingerprint_sha256": "8bd81072dce64a41bb6d54b86fba016c238daa84b29b1feefa0c4607f32b2286"}

@@ -1,0 +1,18 @@
+FROM docker.io/denoland/deno:2.5.6@sha256:3ea71953ff50e3ff15c377ead1a8521f624e2f43d27713675a8bed7b33f166aa
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.revision=$SOURCE_REVISION \
+    org.frwhoop.worker.role=intake \
+    org.frwhoop.intake.contract-version=1 \
+    io.frwhoop.runtime.image="docker.io/denoland/deno:2.5.6@sha256:3ea71953ff50e3ff15c377ead1a8521f624e2f43d27713675a8bed7b33f166aa" \
+    io.frwhoop.image.platform=linux/amd64
+WORKDIR /app
+COPY supabase/functions/_shared /app/supabase/functions/_shared
+COPY supabase/functions/deno.lock /app/deno.lock
+COPY workers/intake/main.ts /app/workers/intake/main.ts
+RUN test "${#SOURCE_REVISION}" = 40 && echo "$SOURCE_REVISION" | grep -Eq '^[0-9a-f]{40}$' \
+    && printf '%s\n' "$SOURCE_REVISION" > /app/workers/intake/source-revision \
+    && deno cache --frozen --lock=/app/deno.lock /app/workers/intake/main.ts \
+    && deno check --frozen --lock=/app/deno.lock /app/workers/intake/main.ts
+USER deno
+ENTRYPOINT ["deno", "run", "--no-prompt", "--cached-only", "--frozen", "--lock=/app/deno.lock", "--allow-env", "--allow-net", "--allow-read=/app/workers/intake/source-revision", "/app/workers/intake/main.ts"]
+CMD []

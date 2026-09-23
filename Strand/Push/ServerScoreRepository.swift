@@ -3,6 +3,19 @@ import Combine
 import NoopPush
 import WhoopStore
 
+struct ServerResultPollBudget {
+    private var identity: String?
+    private var deadline: TimeInterval?
+
+    mutating func interval(identity: String, pending: Bool, failed: Bool, foreground: Bool,
+                           uptime: TimeInterval, idle: TimeInterval) -> TimeInterval {
+        if self.identity != identity { self.identity = identity; deadline = nil }
+        guard foreground, pending, !failed else { deadline = nil; return idle }
+        if deadline == nil { deadline = uptime + 60 }
+        return uptime < deadline! ? min(2, idle) : idle
+    }
+}
+
 @MainActor
 final class ServerScoreRepository: ObservableObject {
     /// Root posts this after validated receipts/result invalidation; no payload is needed.
@@ -26,6 +39,7 @@ final class ServerScoreRepository: ObservableObject {
         var enabled: () -> Bool
         var ready: () -> Bool
         var automaticPolling = true
+        var pollSleep: (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
         var canonicalDeviceId: (String, String) -> String? = { _, _ in nil }
         var projectURL: () -> String? = { ServerScoringSettings.supabaseProjectURL()?.absoluteString }
         var ownershipStore: ServerMetricOwnershipStore? = nil
@@ -74,6 +88,7 @@ final class ServerScoreRepository: ObservableObject {
     private var timeZone = TimeZone.current
     private var explicitTimeZone = false
     private var foreground = true
+    private var pollBudget = ServerResultPollBudget()
     private var retired = false
     private var selectedDay: String?
     private var pollTask: Task<Void, Never>?
@@ -127,6 +142,12 @@ final class ServerScoreRepository: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.enrollmentChanged() }
             .store(in: &subscriptions)
+        NotificationCenter.default.publisher(for: Self.refreshRequested)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.foreground, !self.retired else { return }
+                Task { [weak self] in await self?.refreshVisibleDays(reason: .invalidation) }
+            }.store(in: &subscriptions)
     }
 
     init(fetch: @escaping Fetch = { try await ServerScoreClient.fetchDaySnapshot(day: $0, context: $1) },
@@ -232,6 +253,7 @@ final class ServerScoreRepository: ObservableObject {
             hydrateAndRefresh()
             startPolling(todayKey: currentDay)
         } else {
+            pollBudget = ServerResultPollBudget()
             stopPolling()
             cancelHydration()
             cancelRequests()
@@ -402,14 +424,17 @@ final class ServerScoreRepository: ObservableObject {
     func startPolling(todayKey: String) {
         guard !retired else { return }
         if let dependencies = legacy {
+            synchronizeOwner()
             pollingDay = todayKey
-            guard dependencies.ready(), dependencies.automaticPolling else { return }
+            guard foreground, dependencies.ready(), dependencies.automaticPolling else { return }
             guard signedIn, activeDeviceId != nil else { return }
             stopPolling()
             pollTask = Task { [weak self] in
                 while !Task.isCancelled {
-                    await self?.legacyFetch(day: todayKey)
-                    try? await Task.sleep(for: .seconds(ServerScoringSettings.pollIntervalSeconds))
+                    guard let self, self.foreground, !self.retired else { return }
+                    await self.refreshVisibleDays(todayKey: self.currentDay, reason: .poll)
+                    do { try await dependencies.pollSleep(self.nextPollInterval()) }
+                    catch { return }
                 }
             }
             return
@@ -424,13 +449,27 @@ final class ServerScoreRepository: ObservableObject {
             while !Task.isCancelled {
                 guard let self, self.foreground, !self.retired else { return }
                 await self.refreshVisibleDays(reason: .poll)
-                do { try await Task.sleep(for: .seconds(ServerScoringSettings.pollIntervalSeconds)) }
+                do { try await Task.sleep(for: .seconds(self.nextPollInterval())) }
                 catch { return }
             }
         }
     }
 
     func stopPolling() { pollTask?.cancel(); pollTask = nil }
+
+    private func nextPollInterval() -> TimeInterval {
+        let targets = Set([currentDay, selectedDay].compactMap { $0 })
+        let pending = legacy == nil ? state.days.filter { targets.contains($0.key) }.values.contains(where: \.pending) : enrolledDays.filter { targets.contains($0.key) }.values.contains { cache in
+            cache.canonicalResults?.families.values.contains { $0.status == "processing" } == true ||
+                cache.features.values.contains { feature in
+                    ["pending", "running", "retry"].contains(feature.processingStatus ?? "") || feature.status == "pending" ||
+                        (feature.requiredRevision.map { $0 > (feature.inputRevision ?? 0) } ?? false)
+                }
+        }
+        return pollBudget.interval(identity: "\(epoch):\(session.generation)", pending: pending,
+            failed: lastError != nil, foreground: foreground, uptime: ProcessInfo.processInfo.systemUptime,
+            idle: TimeInterval(ServerScoringSettings.pollIntervalSeconds))
+    }
 
     private func invalidateVisibleDays() {
         for day in Set([currentDay, selectedDay].compactMap({ $0 })) {
@@ -445,7 +484,9 @@ final class ServerScoreRepository: ObservableObject {
             guard let dependencies = legacy, dependencies.ready(), signedIn, activeDeviceId != nil else { return }
             if let todayKey { visibleDays.insert(todayKey) }
             if visibleDays.isEmpty { visibleDays.insert(pollingDay ?? Repository.dayString(Date())) }
-            for day in visibleDays.sorted() { await legacyFetch(day: day) }
+            let targets = reason == .poll ? Set([currentDay, selectedDay].compactMap { $0 }) : visibleDays
+            for day in targets.sorted() { await legacyFetch(day: day) }
+            if reason == .invalidation, foreground { startPolling(todayKey: currentDay) }
             return
         }
         guard !retired else { return }
@@ -487,6 +528,7 @@ final class ServerScoreRepository: ObservableObject {
         if let dependencies = legacy {
             synchronizeOwner()
             visibleDays.insert(day)
+            selectedDay = day
             let cache = session.overlay(day: day, currentOwnerId: currentOwnerId)
             if let ownership { return ownership.presentation(cache, day: day, readFailed: enrollmentReadFailures.contains(day)) }
             return dependencies.enabled() ? cache : nil

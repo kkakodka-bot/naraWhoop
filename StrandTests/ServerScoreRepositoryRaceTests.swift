@@ -4,6 +4,82 @@ import WhoopStore
 
 @MainActor
 final class ServerScoreRepositoryRaceTests: XCTestCase {
+    func testEnrollmentPollUsesFastPendingReadThenReturnsToIdleAfterResult() async throws {
+        let auth = Auth(ownerA)
+        let today = Repository.dayString(Date())
+        var reads = 0
+        var delays: [Double] = []
+        let finished = expectation(description: "published result returns to idle polling")
+        var dependencies = dependencies(auth) { date, owner in
+            reads += 1
+            var cache = ServerScoreDayCache(day: date, algorithmVersion: "frwhoop-server-1",
+                daily: .init(sleepTotalMin: 480), nights: [], computedAt: nil, stale: false, fetchedAt: Date())
+            cache.ownerId = owner
+            cache.features = try self.snapshot(owner).features
+            cache.features["sleep"]?.processingStatus = reads == 1 ? "running" : "done"
+            return cache
+        }
+        dependencies.automaticPolling = true
+        dependencies.pollSleep = { interval in
+            delays.append(interval)
+            if delays.count == 2 { finished.fulfill(); throw CancellationError() }
+        }
+        let repo = ServerScoreRepository(dependencies: dependencies)
+        repo.selectDevice(localDeviceId: "strap-a")
+        repo.startPolling(todayKey: today)
+        await fulfillment(of: [finished], timeout: 2)
+        repo.stopPolling()
+        XCTAssertEqual(delays, [2, 15])
+        XCTAssertEqual(reads, 2)
+        XCTAssertEqual(repo.state.scalar(.sleepTotal, day: today), 480)
+        XCTAssertFalse(repo.state.days[today]?.pending ?? true)
+    }
+
+    func testPeriodicEnrollmentReadsOnlyTodayAndLastDisplayedDayAfterHistoryBrowsing() async throws {
+        let auth = Auth(ownerA)
+        let today = Repository.dayString(Date())
+        var reads: [String] = []
+        let finished = expectation(description: "bounded historical catch-up")
+        var dependencies = dependencies(auth) { date, owner in
+            reads.append(date)
+            var cache = ServerScoreDayCache(day: date, algorithmVersion: "frwhoop-server-1",
+                daily: .init(sleepTotalMin: 480), nights: [], computedAt: nil, stale: false, fetchedAt: Date())
+            cache.ownerId = owner
+            cache.features = try self.snapshot(owner).features
+            return cache
+        }
+        dependencies.automaticPolling = true
+        dependencies.pollSleep = { _ in finished.fulfill(); throw CancellationError() }
+        let repo = ServerScoreRepository(dependencies: dependencies)
+        repo.selectDevice(localDeviceId: "strap-a")
+        var selected = today
+        for offset in 1...100 {
+            selected = Repository.dayString(Date().addingTimeInterval(-Double(offset) * 86400))
+            _ = repo.overlay(for: selected)
+        }
+        repo.startPolling(todayKey: today)
+        await fulfillment(of: [finished], timeout: 2)
+        repo.stopPolling()
+        XCTAssertEqual(reads.sorted(), [today, selected].sorted())
+    }
+
+    func testPendingPollBudgetIsBoundedAndStopsForFailureBackgroundAndCompletion() {
+        var budget = ServerResultPollBudget()
+        func interval(_ time: Double, pending: Bool = true, failed: Bool = false,
+                      foreground: Bool = true, identity: String = "owner-device-generation") -> Double {
+            budget.interval(identity: identity, pending: pending, failed: failed,
+                            foreground: foreground, uptime: time, idle: 15)
+        }
+        XCTAssertEqual(interval(100), 2)
+        XCTAssertEqual(interval(159), 2)
+        XCTAssertEqual(interval(160), 15)
+        XCTAssertEqual(interval(1_000), 15, "Repeated pending reads cannot extend the budget")
+        XCTAssertEqual(interval(1_000, identity: "replacement-device-generation"), 2)
+        XCTAssertEqual(interval(1_001, failed: true), 15)
+        XCTAssertEqual(interval(1_002, foreground: false), 15)
+        XCTAssertEqual(interval(1_003, pending: false), 15)
+    }
+
     private let day = "2026-09-16"
     private let ownerA = "11111111-1111-1111-1111-111111111111"
     private let ownerB = "44444444-4444-4444-4444-444444444444"

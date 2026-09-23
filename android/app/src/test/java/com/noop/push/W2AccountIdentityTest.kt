@@ -21,6 +21,19 @@ private const val W2_NOW = 1_800_000_000_000L
 
 /** No Android context, keystore, real accounts or network are used in this suite. */
 class W2AccountIdentityTest {
+    @Test fun readRevocationOnlyClearsTheMatchingOwnerAndAccessToken() {
+        val f = Fixture()
+        f.auth.storedSession()
+        assertFalse(f.auth.clearSessionIfCurrent("old-access", W2_B))
+        assertFalse(f.auth.clearSessionIfCurrent("stale-access", W2_A))
+        assertEquals("old-access", f.auth.storedSession()!!.accessToken)
+        assertEquals(0, f.store.clears)
+        assertTrue(f.auth.clearSessionIfCurrent("old-access", W2_A))
+        assertNull(f.auth.identitySnapshot().scope)
+        assertNull(f.store.value)
+        assertEquals(1, f.store.clears)
+    }
+
     @Test fun canonicalNamespaceSeparatesProjectsAndOwners() {
         val a = AccountScope.create("https://EXAMPLE.test:443/", W2_A.uppercase())
         assertEquals(AccountScope.create("https://example.test", W2_A), a)
