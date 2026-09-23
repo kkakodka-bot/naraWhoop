@@ -53,17 +53,22 @@ while IFS='|' read -r name source_sha; do
     [[ "$(node -p "require('$evidence/pre-upgrade-state.json').full_identity_rows")" == 117 ]] || {
       printf 'Hosted upgrade boundary is not the attested 117-identity baseline.\n' >&2; exit 1;
     }
-    # Exercise the production atomic migration/receipt wrapper against a local
-    # predecessor, including the timestamp-collision ledger that must not change.
-    docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
-      "create table if not exists supabase_migrations.schema_migrations(version text primary key,name text);
-       insert into supabase_migrations.schema_migrations(version,name)
-       select distinct on (left(basename,14)) left(basename,14),substring(basename from 16)
-       from supabase_migrations.scoring_source_identities order by left(basename,14),basename;" \
-      > "$evidence/native-ledger-seed.log"
+    # Preserve the actual native ledger independently of the full source identities.
+    # DISTINCT timestamps fabricate a row for the attested superseded motion migration,
+    # choose the wrong collision name, and append .sql to all real native names.
+    docker exec "$container" psql -U postgres -d postgres -X -qAt -v ON_ERROR_STOP=1 -c \
+      "select coalesce(jsonb_agg(jsonb_build_object('stableIdentity',basename,'sha256',sha256) order by basename),'[]')
+       from supabase_migrations.scoring_source_identities;" > "$evidence/pre-upgrade-full-identity.json"
+    node "$repo_dir/scoring-service/scripts/hosted-ledger-fixture.mjs" seed \
+      "$evidence/pre-upgrade-full-identity.json" > "$evidence/native-ledger-seed.sql"
+    docker cp "$evidence/native-ledger-seed.sql" "$container:/native-ledger-seed.sql"
+    docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 \
+      -f /native-ledger-seed.sql > "$evidence/native-ledger-seed.log"
     docker exec "$container" psql -U postgres -d postgres -X -qAt -v ON_ERROR_STOP=1 -c \
       "select coalesce(jsonb_agg(jsonb_build_object('version',version,'name',name) order by version),'[]')
        from supabase_migrations.schema_migrations;" > "$evidence/native-ledger-before.json"
+    node "$repo_dir/scoring-service/scripts/hosted-ledger-fixture.mjs" verify \
+      "$evidence/native-ledger-before.json" > "$evidence/native-ledger-fidelity-before.json"
     seeded=true
   fi
   if [[ "$mode" == populated && "$seeded" == false && "$name" == 20260918010000* ]]; then
@@ -80,15 +85,41 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 const [root,evidence,identity,sha256]=process.argv.slice(2);
 const {migrationApplySQL,PENDING_IDENTITIES}=await import(pathToFileURL(path.join(root,'Tools/release/hosted-migration-release.mjs')));
+const {loadHostedPredecessorFixture}=await import(pathToFileURL(path.join(root,'scoring-service/scripts/hosted-ledger-fixture.mjs')));
 const index=PENDING_IDENTITIES.indexOf(identity);
 if(index<0) throw new Error('not a reviewed forward migration');
-process.stdout.write(migrationApplySQL({
+const wrapped=migrationApplySQL({
   migrationBytes:fs.readFileSync(path.join(root,'supabase/migrations',identity)),
   migration:{stableIdentity:identity,sha256,applyOrdinal:index+1},
-  expectedNativeLedger:JSON.parse(fs.readFileSync(path.join(evidence,'native-ledger-before.json'))),
+  expectedNativeLedger:loadHostedPredecessorFixture().nativeLedger,
   expectedFullIdentityLedger:JSON.parse(fs.readFileSync(path.join(evidence,'pre-apply-full-identity.json'))),
-}));
+});
+if(index===0) {
+  if(!wrapped.includes('\nbegin;\n')) throw new Error('reviewed transaction boundary missing');
+  const mutations={
+    'extra-native-row': "insert into supabase_migrations.schema_migrations(version,name) values('20260918234000','motion_evidence_provenance');",
+    'collision-name': "update supabase_migrations.schema_migrations set name='production_projection_debt' where version='20260918040000';",
+  };
+  for(const [kind,sql] of Object.entries(mutations)) {
+    fs.writeFileSync(path.join(evidence,`native-drift-${kind}.sql`),wrapped.replace('\nbegin;\n',`\nbegin;\n${sql}\n`));
+  }
+}
+process.stdout.write(wrapped);
 NODE
+    if [[ "$name" == 20260921110000* ]]; then
+      # Real disposable-DB faults inside the wrapper transaction: both must fail
+      # specifically at the native precondition and roll back before normal apply.
+      for drift in extra-native-row collision-name; do
+        docker cp "$evidence/native-drift-$drift.sql" "$container:/native-drift.sql"
+        if docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 \
+          -f /native-drift.sql > "$evidence/native-drift-$drift.log" 2>&1; then
+          printf 'Native ledger drift was accepted: %s\n' "$drift" >&2; exit 1
+        fi
+        rg -q 'frwhoop_native_ledger_drift' "$evidence/native-drift-$drift.log" || {
+          tail -20 "$evidence/native-drift-$drift.log"; exit 1;
+        }
+      done
+    fi
     docker cp "$evidence/wrapped-$name" "$container:/wrapped-migration.sql"
     if ! docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 \
       -f /wrapped-migration.sql > "$evidence/$name.log" 2>&1; then
@@ -123,6 +154,8 @@ if [[ "$mode" == hosted-upgrade ]]; then
   docker exec "$container" psql -U postgres -d postgres -X -qAt -v ON_ERROR_STOP=1 -c \
     "select coalesce(jsonb_agg(jsonb_build_object('version',version,'name',name) order by version),'[]')
      from supabase_migrations.schema_migrations;" > "$evidence/native-ledger-after.json"
+  node "$repo_dir/scoring-service/scripts/hosted-ledger-fixture.mjs" verify \
+    "$evidence/native-ledger-after.json" > "$evidence/native-ledger-fidelity-after.json"
   cmp "$evidence/native-ledger-before.json" "$evidence/native-ledger-after.json"
 fi
 docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
