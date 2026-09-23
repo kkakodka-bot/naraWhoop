@@ -506,4 +506,114 @@ class ServerComputeContractTest {
         assertTrue(session.accept(before, session.generation(), owner))
         assertTrue(session.accept(pending, session.generation(), owner))
     }
+    private fun oldLegacyBody(marker: JSONObject? = null): JSONObject {
+        val root = body()
+        available(root, 42)
+        family(root, "night_hrv").getJSONObject("values").put("resting_hr_bpm", 51)
+        val overlay = root.getJSONObject("server_scoring")
+        val daily = overlay.getJSONObject("daily").put("resting_hr_bpm", 51)
+        val night = JSONObject().put("id", "legacy-night").put("device_id", device).put("user_id", owner)
+            .put("algorithm_version", "frwhoop-server-1").put("start_at", "2026-09-21T00:00:00Z")
+            .put("end_at", "2026-09-21T08:00:00Z").put("in_bed_min", 480).put("asleep_min", 450)
+            .put("hrv_rmssd_ms", 42).put("hrv_sdnn_ms", 52).put("resting_hr_bpm", 51)
+            .put("resp_rate_bpm", 12).put("recovery", 77).put("efficiency", 0.9375)
+            .put("stages", JSONArray().put(JSONObject().put("start", 1789948800L)
+                .put("end", 1789977600L).put("stage", "deep")))
+        availableSleep(root, JSONArray().put(night))
+        family(root, "sleep").getJSONObject("values").put("sleep_total_min", 450).put("sleep_in_bed_min", 480)
+        daily.put("sleep_total_min", 450).put("sleep_in_bed_min", 480)
+        availableMetric(root, "respiration", "resp_rate_bpm", 12); daily.put("resp_rate_bpm", 12)
+        availableMetric(root, "recovery", "recovery", 77); daily.put("recovery", 77)
+        for (key in listOf("night_hrv", "sleep", "respiration", "recovery")) {
+            family(root, key).put("algorithm_version", "frwhoop-server-1")
+                .put("canonical_qualification", "retained_legacy").put("feature_manifest_hash", JSONObject.NULL)
+            if (marker != null) family(root, key).getJSONObject("details").put("input_eligibility", JSONObject(marker.toString()))
+        }
+        for (key in listOf("hrv", "sleep", "respiration")) overlay.getJSONObject("features").getJSONObject(key)
+            .put("algorithm_version", "frwhoop-server-1").put("canonical_qualification", "retained_legacy")
+            .put("feature_manifest_hash", JSONObject.NULL)
+            .apply { if (marker != null) put("input_eligibility", JSONObject(marker.toString())) }
+        return root
+    }
+
+    @Test fun offlineOldLegacyBytesLoseBeatDependentValuesButKeepScopedScalarResult() {
+        val bytes = oldLegacyBody().toString()
+        val disk = java.io.File.createTempFile("old-legacy-cache", ".json")
+        try {
+            disk.writeText(bytes)
+            val cache = decode(JSONObject(disk.readText()))
+            assertNull(ServerConsumerProjection.number(cache, "hrv_rmssd_ms"))
+            assertNull(ServerConsumerProjection.number(cache, "resp_rate_bpm"))
+            assertNull(ServerConsumerProjection.number(cache, "recovery"))
+            assertNull(ServerConsumerProjection.number(cache, "sleep_total_min"))
+            assertEquals(51.0, ServerConsumerProjection.number(cache, "resting_hr_bpm")!!, 0.0)
+            assertEquals(480.0, ServerConsumerProjection.number(cache, "sleep_in_bed_min")!!, 0.0)
+            assertNull(cache.nights.single().hrvRmssdMs); assertNull(cache.nights.single().asleepMin)
+            assertTrue(cache.nights.single().stages.isEmpty())
+            assertEquals("2026-09-21T00:00:00Z", cache.nights.single().startAt)
+            assertEquals(cache.compute, decode(JSONObject(cache.rawSnapshotJSON!!)).compute)
+            assertEquals(bytes, disk.readText()) // read policy never rewrites the immutable old cache fixture
+        } finally { disk.delete() }
+    }
+
+    @Test fun exactExcludedMarkerPreservesSleepButNeverQualifiesBeatMetrics() {
+        val marker = JSONObject().put("policy_version", "legacy-rr-excluded-1").put("rr_input", "excluded")
+        val cache = decode(oldLegacyBody(marker))
+        assertEquals(450.0, ServerConsumerProjection.number(cache, "sleep_total_min")!!, 0.0)
+        assertEquals(51.0, ServerConsumerProjection.number(cache, "resting_hr_bpm")!!, 0.0)
+        assertNull(ServerConsumerProjection.number(cache, "hrv_rmssd_ms"))
+        assertNull(ServerConsumerProjection.number(cache, "resp_rate_bpm"))
+        assertNull(ServerConsumerProjection.number(cache, "recovery"))
+        assertTrue(cache.nights.single().stages.isNotEmpty())
+        marker.put("qualification", "fabricated")
+        assertNull(ServerConsumerProjection.number(decode(oldLegacyBody(marker)), "sleep_total_min"))
+    }
+
+    @Test fun sameHashLegacyRefreshNormalizesOnlyIneligibleMetricsAndPreservesIdentityFence() {
+        val raw = oldLegacyBody()
+        val safe = decode(JSONObject(raw.toString()))
+        val oldFamilies = safe.compute!!.families.mapValues { (key, value) ->
+            val old = family(raw, key)
+            value.copy(status = old.getString("status"), reason = old.opt("reason") as? String, json = old.toString())
+        }
+        val old = safe.copy(compute = safe.compute!!.copy(families = oldFamilies))
+        assertNull(old.compute!!.families.getValue("night_hrv").number("hrv_rmssd_ms"))
+        val oldNight = (old.compute!!.families.getValue("sleep").value("sleep_sessions") as JSONArray).getJSONObject(0)
+        assertTrue(oldNight.isNull("hrv_rmssd_ms")); assertTrue(oldNight.isNull("asleep_min"))
+        assertEquals(0, oldNight.getJSONArray("stages").length())
+        assertEquals(51, oldNight.getInt("resting_hr_bpm"))
+        val spotJSON = JSONObject(old.compute!!.families.getValue("night_hrv").json)
+            .put("metrics", JSONArray(listOf("spot_hrv_rmssd_ms")))
+            .put("values", JSONObject().put("spot_hrv_rmssd_ms", 42))
+            .put("decision_id", "old-spot-decision").put("expires_at", "2099-01-01T00:00:00Z")
+        val spot = old.compute!!.families.getValue("night_hrv").copy(family = "spot_hrv",
+            metrics = setOf("spot_hrv_rmssd_ms"), decisionId = "old-spot-decision",
+            expiresAt = "2099-01-01T00:00:00Z", json = spotJSON.toString())
+        assertTrue(spot.authorized)
+        assertFalse(spot.usableDecision(System.currentTimeMillis()))
+        assertTrue(ServerComputeRevisionFence.admits(old, safe))
+        assertEquals("beat_timing_unverified", ServerVitalSelection.resolve(ServerVitalSelection.Metric.HRV,
+            true, day, old, 99.0).status)
+        val changed = oldLegacyBody()
+        family(changed, "night_hrv").getJSONObject("values").put("resting_hr_bpm", 52)
+        changed.getJSONObject("server_scoring").getJSONObject("daily").put("resting_hr_bpm", 52)
+        assertFalse(ServerComputeRevisionFence.admits(safe, decode(changed)))
+        val changedMarker = JSONObject().put("policy_version", "legacy-rr-excluded-1").put("rr_input", "excluded")
+        assertFalse(ServerComputeRevisionFence.admits(safe, decode(oldLegacyBody(changedMarker))))
+    }
+
+    @Test fun legacyReadGateDoesNotNormalizeMalformedAuthorizationOrRevocationIntoAvailability() {
+        for (key in listOf("canonical_qualification", "manifest_hash")) {
+            val raw = oldLegacyBody()
+            family(raw, "night_hrv").put(key, JSONObject.NULL)
+            assertThrows(IllegalArgumentException::class.java) { decode(raw) }
+        }
+        val revoked = oldLegacyBody()
+        val f = family(revoked, "night_hrv").put("status", "revoked").put("reason", "approval_revoked")
+        f.getJSONObject("values").keys().asSequence().toList().forEach { f.getJSONObject("values").put(it, JSONObject.NULL) }
+        val daily = revoked.getJSONObject("server_scoring").getJSONObject("daily")
+        for (key in listOf("hrv_rmssd_ms", "hrv_sdnn_ms", "resting_hr_bpm")) daily.put(key, JSONObject.NULL)
+        assertEquals("approval_revoked", decode(revoked).compute!!.families.getValue("night_hrv").reason)
+    }
+
 }

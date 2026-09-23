@@ -24,6 +24,7 @@ object ServerComputeRevisionFence {
                 after.inputRevision < before.inputRevision) return@all false
             if (before.resultRevision == null || before.resultRevision != after.resultRevision) return@all true
             val prior = JSONObject(before.json); val candidate = JSONObject(after.json)
+            LegacyBeatReadEligibility.family(prior); LegacyBeatReadEligibility.family(candidate)
             // Availability is read-time state. All values, versions, evidence and details remain immutable.
             for (field in listOf("freshness", "status", "reason")) { prior.remove(field); candidate.remove(field) }
             canonical(prior) == canonical(candidate)

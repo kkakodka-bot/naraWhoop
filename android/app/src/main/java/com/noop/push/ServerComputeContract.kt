@@ -24,13 +24,30 @@ data class ServerComputeFamily(
     fun expired(nowMs: Long = System.currentTimeMillis()): Boolean = expiresAt?.let {
         runCatching { java.time.Instant.parse(it).toEpochMilli() <= nowMs }.getOrDefault(true)
     } ?: false
-    fun value(metric: String): Any? = if (!authorized || expired() || metric !in metrics) null else
-        JSONObject(json).optJSONObject("values")?.opt(metric)?.takeUnless { it == JSONObject.NULL }
+    fun value(metric: String): Any? {
+        if (!authorized || expired() || metric !in metrics) return null
+        val scoped = JSONObject(json)
+        if (!LegacyBeatReadEligibility.permits(algorithmVersion, metric,
+                scoped.optJSONObject("details")?.optJSONObject("input_eligibility"))) return null
+        LegacyBeatReadEligibility.family(scoped)
+        if (scoped.optString("status") !in setOf("available", "stale")) return null
+        return scoped.optJSONObject("values")?.opt(metric)?.takeUnless { it == JSONObject.NULL }
+    }
     fun number(metric: String): Double? = (value(metric) as? Number)?.toDouble()?.takeIf { it.isFinite() }
-    fun detail(name: String): Any? = if (authorized && !expired()) JSONObject(json).optJSONObject("details")?.opt(name)
-        ?.takeUnless { it == JSONObject.NULL } else null
+    fun unavailableReason(metric: String): String? = if (status == "revoked") null else if (!LegacyBeatReadEligibility.permits(algorithmVersion, metric,
+        JSONObject(json).optJSONObject("details")?.optJSONObject("input_eligibility"))) LegacyBeatReadEligibility.reason else
+        JSONObject(json).optJSONObject("details")?.optJSONObject("metric_availability")?.optJSONObject(metric)?.optString("reason")?.takeIf { it.isNotBlank() }
+    fun detail(name: String): Any? {
+        if (!authorized || expired()) return null
+        val scoped = JSONObject(json)
+        LegacyBeatReadEligibility.family(scoped)
+        if (scoped.optString("status") !in setOf("available", "stale")) return null
+        return scoped.optJSONObject("details")?.opt(name)?.takeUnless { it == JSONObject.NULL }
+    }
     fun usableDecision(nowMs: Long): Boolean = authorized && decisionId != null &&
-        expiresAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() > nowMs }.getOrDefault(false) } == true
+        expiresAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() > nowMs }.getOrDefault(false) } == true &&
+        (algorithmVersion != "frwhoop-server-1" || metrics.all { LegacyBeatReadEligibility.permits(algorithmVersion, it,
+            JSONObject(json).optJSONObject("details")?.optJSONObject("input_eligibility")) })
 }
 
 data class ServerComputeContract(val project: String, val ownerId: String, val sourceId: String?,
@@ -91,6 +108,7 @@ data class ServerComputeContract(val project: String, val ownerId: String, val s
         }
         fun decodeFamily(f: JSONObject, key: String, project: String, owner: String, source: String,
                          window: String, device: String?): ServerComputeFamily {
+                LegacyBeatReadEligibility.family(f)
                 require(key in familyIDs)
                 val status = f.getString("status")
                 require(f.getString("owner") == "server" && status in states)
@@ -149,5 +167,105 @@ data class ServerComputeContract(val project: String, val ownerId: String, val s
             java.time.Instant.parse(it)
         }
         internal fun JSONObject.text(key: String): String? = (opt(key) as? String)?.takeIf { it.isNotBlank() }
+    }
+}
+
+/** Read eligibility is narrower than retained-v1 identity; this never computes physiology. */
+internal object LegacyBeatReadEligibility {
+    const val reason = "beat_timing_unverified"
+    private val always = setOf("hrv_rmssd_ms", "hrv_sdnn_ms", "resp_rate_bpm", "recovery", "current_hrv",
+        "spot_hrv_rmssd_ms", "spot_hrv_sdnn_ms")
+    private val sleep = setOf("sleep_total_min", "sleep_awake_min", "sleep_light_min", "sleep_deep_min",
+        "sleep_rem_min", "sleep_efficiency", "disturbances", "rest", "sleep_performance", "sleep_onset_at", "wake_onset_at",
+        "sleep_unstaged_min", "state_unknown_min", "off_body_min")
+    private val nightAlways = always + setOf("hrv_summary", "respiration_summary", "avg_hrv", "avg_hrv_ms", "sdnn_ms")
+    private val nightSleep = setOf("asleep_min", "awake_min", "light_min", "deep_min", "rem_min", "efficiency",
+        "disturbances", "rest", "sleep_unstaged_min", "state_unknown_min", "off_body_min", "state_coverage")
+    fun excluded(marker: JSONObject?): Boolean = marker != null && marker.keys().asSequence().toSet() ==
+        setOf("policy_version", "rr_input") && marker.opt("policy_version") == "legacy-rr-excluded-1" &&
+        marker.opt("rr_input") == "excluded"
+    fun permits(algorithm: String?, metric: String, marker: JSONObject?): Boolean = algorithm != "frwhoop-server-1" ||
+        metric !in always && (metric !in sleep || excluded(marker))
+    private fun clear(value: JSONObject?, keys: Set<String>) { keys.forEach { value?.put(it, JSONObject.NULL) } }
+    private fun nights(rows: org.json.JSONArray?, marked: Boolean) {
+        if (rows == null) return
+        for (i in 0 until rows.length()) rows.optJSONObject(i)?.let { n ->
+            clear(n, nightAlways)
+            n.put("respiration_unavailable_reason", reason)
+            if (!marked) {
+                clear(n, nightSleep)
+                n.put("stages", org.json.JSONArray()).put("hypnogram", org.json.JSONArray())
+                    .put("measurement_available", false).put("measurement_unavailable_reason", reason)
+            }
+        }
+    }
+    fun family(f: JSONObject) {
+        if (f.opt("algorithm_version") != "frwhoop-server-1") return
+        // Preserve the original strict decoder failure for malformed authorization and
+        // unavailable numeric payloads. A read gate cannot turn them into valid missingness.
+        if (f.opt("status") !in setOf("available", "stale", "insufficient_quality")) return
+        if (f.opt("owner") != "server" || f.opt("canonical_qualification") != "retained_legacy" ||
+            (f.opt("manifest_hash") as? String)?.matches(Regex("^[a-f0-9]{64}$")) != true ||
+            (f.opt("result_revision") as? String)?.matches(Regex("^(sha256:[a-f0-9]{64}|compute:[0-9]+|session:[0-9]+)$")) != true ||
+            f.opt("input_revision") !is Number || f.opt("computed_at") !is String ||
+            (f.opt("device_id") as? String).isNullOrBlank()) return
+        val values = f.optJSONObject("values") ?: return
+        val details = f.optJSONObject("details") ?: return
+        val marker = details.optJSONObject("input_eligibility")
+        val marked = excluded(marker)
+        val unavailable = details.optJSONObject("metric_availability") ?: JSONObject()
+        for (key in values.keys().asSequence().toList()) if (!permits("frwhoop-server-1", key, marker)) {
+            values.put(key, JSONObject.NULL)
+            unavailable.put(key, JSONObject().put("status", "unqualified").put("reason", reason))
+        }
+        details.put("metric_availability", unavailable).put("read_eligibility_policy", "legacy-beat-read-1")
+        if (!marked) details.put("input_eligibility", JSONObject.NULL)
+        if (values.has("hrv_rmssd_ms") || values.has("resp_rate_bpm")) details.put("summary", JSONObject.NULL)
+        if (values.has("current_hrv")) details.put("measurements", org.json.JSONArray()).remove("selected_window")
+        if (values.has("sleep_sessions")) {
+            nights(values.optJSONArray("sleep_sessions"), marked); nights(details.optJSONArray("nights"), marked)
+            if (!marked) {
+                details.optJSONObject("daily_compatibility")?.let { compatibility ->
+                    clear(compatibility, sleep.filter { compatibility.has(it) }.toSet())
+                }
+                details.optJSONObject("daily_compatibility")?.put("full_day_sleep_epochs", org.json.JSONArray())
+            }
+        }
+        if (values.keys().asSequence().all { values.isNull(it) } &&
+            values.keys().asSequence().any { it in always }) {
+            f.put("status", "unqualified").put("reason", reason).put("expires_at", JSONObject.NULL)
+        }
+    }
+    fun apply(root: JSONObject) {
+        val overlay = root.optJSONObject("server_scoring") ?: return
+        val features = overlay.optJSONObject("features") ?: return
+        fun legacy(feature: String) = features.optJSONObject(feature)?.optString("algorithm_version") == "frwhoop-server-1"
+        val compute = overlay.optJSONObject("compute") ?: root.optJSONObject("compute")
+        val families = compute?.optJSONObject("families")
+        val marked = excluded(if (compute == null) features.optJSONObject("sleep")?.optJSONObject("input_eligibility")
+            else families?.optJSONObject("sleep")?.optJSONObject("details")?.optJSONObject("input_eligibility"))
+        val daily = overlay.optJSONObject("daily")
+        if (legacy("hrv")) clear(daily, setOf("hrv_rmssd_ms", "hrv_sdnn_ms", "hrv_summary", "recovery"))
+        if (legacy("respiration")) {
+            clear(daily, setOf("resp_rate_bpm", "respiration_summary"))
+            daily?.put("respiration_unavailable_reason", reason)
+        }
+        if (legacy("sleep")) {
+            nights(overlay.optJSONArray("nights"), marked)
+            if (!marked) { clear(daily, sleep); daily?.put("full_day_sleep_epochs", org.json.JSONArray()) }
+        }
+        if (legacy("hrv")) {
+            val filtered = org.json.JSONArray()
+            overlay.optJSONArray("measurements")?.let { rows -> for (i in 0 until rows.length()) {
+                if (rows.optJSONObject(i)?.optString("feature") != "hrv") filtered.put(rows.get(i))
+            } }
+            overlay.put("measurements", filtered)
+        }
+        families?.keys()?.asSequence()?.toList()?.forEach { family(families.getJSONObject(it)) }
+        if (listOf("hrv", "sleep", "respiration").any(::legacy)) {
+            // A cached compatibility projection must be rebuilt under this read policy.
+            // Scope, immutable identity and all retained values still undergo normal validation.
+            overlay.remove("compatibility_projection")
+        }
     }
 }
