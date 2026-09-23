@@ -32,7 +32,7 @@ select 'a9910000-0000-4000-8000-000000000001','a9910000-0000-4000-8000-000000000
   v.manifest_hash,p.payload,encode(sha256(convert_to(p.payload::text,'UTF8')),'hex'),now(),'final'
 from public.physiology_work_items w
 join public.physiology_algorithm_versions v on v.algorithm_version='frwhoop-server-1'
-cross join lateral (select '{"daily":{"hrv_rmssd_ms":42},"nights":[],"measurements":[]}'::jsonb payload) p
+cross join lateral (select '{"daily":{"hrv_rmssd_ms":42,"resting_hr_bpm":51,"sleep_in_bed_min":480},"nights":[],"measurements":[]}'::jsonb payload) p
 where w.user_id='a9910000-0000-4000-8000-000000000001'
   and w.device_id='a9910000-0000-4000-8000-000000000011' and w.day='2026-09-17';
 
