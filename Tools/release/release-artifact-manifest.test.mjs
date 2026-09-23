@@ -531,7 +531,7 @@ test('initial deployment scope binds intake and selected v1 without shadow or hi
     intakeForDeployment(release), 'one-owner', { mode: 'all-eligible' }), /scope differs/);
 });
 
-test('migration binding rejects coherently reauthored catalogs and binds all 128 committed source files', () => {
+test('migration binding rejects coherently reauthored catalogs and binds all 129 committed source files', () => {
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   const git = (...args) => {
     const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
@@ -569,7 +569,7 @@ test('migration binding rejects coherently reauthored catalogs and binds all 128
   assert.deepEqual(validateMigrationManifest(manifest, repo, commit, tree), {
     schemaFingerprintSha256: manifest.schemaFingerprintSha256,
     manifestFingerprintSha256: manifest.manifestFingerprintSha256,
-    total: 128, applied: 117, pending: 11,
+    total: 129, applied: 117, pending: 12,
   });
   const rehash = value => {
     const { manifestFingerprintSha256: ignored, ...unsigned } = value;

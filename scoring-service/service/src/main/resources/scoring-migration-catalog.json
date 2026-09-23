@@ -510,5 +510,9 @@
   {
     "basename": "20260922130000_scoped_intake_admission.sql",
     "sha256": "076ef5db0e4837378c9070adcf7a8a8df5cae1cf33ac680b7070cd117514ec52"
+  },
+  {
+    "basename": "20260923120000_legacy_beat_read_eligibility.sql",
+    "sha256": "819513ea27f2d6f6fb9f32b317db056262e25abe6af05f6514eb87ade11161b7"
   }
 ]

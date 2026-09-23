@@ -7,6 +7,8 @@ declare
   owned_metric_count integer;
 begin
   foreach object_name in array array[
+    'public.server_legacy_read_eligibility(jsonb)',
+    'internal.engine_publish_legacy_fenced(text,jsonb)',
     'public.server_scoring_read_contract(uuid,date,uuid)',
     'public.server_scoring_read_contract_v1(uuid,date,uuid)',
     'public.server_scoring_read_contract_before_signals(uuid,date,uuid)',
@@ -46,6 +48,31 @@ begin
   ] loop
     assert to_regprocedure(object_name) is not null, 'missing final function: ' || object_name;
   end loop;
+
+  definition := pg_get_functiondef('internal.engine_publish_legacy_fenced(text,jsonb)'::regprocedure);
+  assert position('invalid legacy input eligibility' in definition)>0
+    and position('stored:=stored||jsonb_build_object(''input_eligibility''' in definition)>0
+    and position('stored:=stored||jsonb_build_object(''input_eligibility''' in definition)
+      < position('content_hash:=' in definition),
+    'legacy exclusion marker is not validated and bound before immutable hashing';
+  definition := pg_get_functiondef('public.server_scoring_read_contract_before_signals(uuid,date,uuid)'::regprocedure);
+  assert position('server_legacy_read_eligibility(result)' in definition)>0,
+    'legacy compatibility reader bypasses beat-input eligibility';
+  assert public.server_legacy_read_eligibility(
+    '{"daily":{"hrv_rmssd_ms":42,"resting_hr_bpm":60,"sleep_total_min":420},"nights":[]}')
+      #>'{daily,hrv_rmssd_ms}'='null'::jsonb,
+    'old beat-derived HRV remains readable';
+  assert public.server_legacy_read_eligibility(
+    '{"daily":{"resting_hr_bpm":60,"sleep_total_min":420},"nights":[]}')
+      #>>'{daily,resting_hr_bpm}'='60',
+    'legacy read eligibility discarded independent observed-HR result';
+  assert public.server_legacy_read_eligibility(
+    '{"daily":{"sleep_total_min":420},"nights":[]}')#>'{daily,sleep_total_min}'='null'::jsonb,
+    'old RR-dependent sleep remains readable';
+  assert public.server_legacy_read_eligibility(
+    '{"daily":{"sleep_total_min":420},"nights":[],"input_eligibility":{"policy_version":"legacy-rr-excluded-1","rr_input":"excluded"}}')
+      #>>'{daily,sleep_total_min}'='420',
+    'RR-excluded scalar sleep is not preserved';
 
   definition := pg_get_functiondef('public.server_scoring_read_contract(uuid,date,uuid)'::regprocedure);
   assert position('server_scoring_read_contract_v1' in definition) > 0,
@@ -224,7 +251,9 @@ with selected_functions as (
   select p.oid, n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' identity,
     pg_get_functiondef(p.oid) definition, coalesce(p.proacl::text, '') acl
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.oid in (
+  where n.nspname in ('public','internal') and p.oid in (
+    'public.server_legacy_read_eligibility(jsonb)'::regprocedure,
+    'internal.engine_publish_legacy_fenced(text,jsonb)'::regprocedure,
     'public.server_scoring_read_contract(uuid,date,uuid)'::regprocedure,
     'public.server_scoring_read_contract_v1(uuid,date,uuid)'::regprocedure,
     'public.server_scoring_read_contract_before_signals(uuid,date,uuid)'::regprocedure,

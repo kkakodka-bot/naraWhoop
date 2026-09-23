@@ -8,8 +8,8 @@ import { pathToFileURL } from 'node:url';
 const CATALOG_RELATIVE_PATH = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
 const MIGRATIONS_RELATIVE_PATH = 'supabase/migrations';
 const BASELINE_COUNT = 117;
-const EXPECTED_TOTAL = 128;
-const EXPECTED_SCHEMA_FINGERPRINT = 'f5d9f630389b1236efbe8494878faecb0fe8e9e17f5d25b47723759d9c58d92d';
+const EXPECTED_TOTAL = 129;
+const EXPECTED_SCHEMA_FINGERPRINT = 'bd78bdc02131edb3f5de974158202dc948e899cffb85b05970a45b1db2ae4edd';
 const HOSTED_PROJECT_REF = 'sgoyxzcagqyxexmsidtk';
 const HOSTED_HIGHEST_IDENTITY = '20260921104000_server_unrepresentable_clock.sql';
 const SUPERSEDED_HOSTED_IDENTITY = '20260918234000_motion_evidence_provenance.sql';
@@ -99,6 +99,11 @@ const PENDING_CONTRACT = Object.freeze([
   Object.freeze({
     stableIdentity: '20260922130000_scoped_intake_admission.sql',
     sha256: '076ef5db0e4837378c9070adcf7a8a8df5cae1cf33ac680b7070cd117514ec52',
+    workstream: 'server-repair',
+  }),
+  Object.freeze({
+    stableIdentity: '20260923120000_legacy_beat_read_eligibility.sql',
+    sha256: '819513ea27f2d6f6fb9f32b317db056262e25abe6af05f6514eb87ade11161b7',
     workstream: 'server-repair',
   }),
 ]);

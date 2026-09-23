@@ -106,12 +106,12 @@ function fixture() {
     catalog: {
       path: catalogRelative,
       migrationDirectory: migrationRelative,
-      entryCount: 128,
+      entryCount: 129,
       baselineEntryCount: 117,
-      pendingEntryCount: 11,
+      pendingEntryCount: 12,
     },
-    counts: { total: 128, applied: 117, pending: 11 },
-    schemaFingerprintSha256: 'f5d9f630389b1236efbe8494878faecb0fe8e9e17f5d25b47723759d9c58d92d',
+    counts: { total: 129, applied: 117, pending: 12 },
+    schemaFingerprintSha256: 'bd78bdc02131edb3f5de974158202dc948e899cffb85b05970a45b1db2ae4edd',
     entries,
   };
   const manifest = { ...unsignedManifest, manifestFingerprintSha256: sha256Hex(canonicalJSON(unsignedManifest)) };
@@ -160,7 +160,7 @@ function rawSnapshot(manifest, pendingPrefix = 0, overrides = {}) {
 }
 
 function postverify() {
-  // Actual fresh 128-migration verifier output, also matched by populated and
+  // Actual fresh 129-migration verifier output, also matched by populated and
   // hosted-predecessor runs. Do not synthesize a passing obsolete 8/6 counter.
   return JSON.parse(fs.readFileSync(path.join(sourceRoot,
     'Tools/release/testdata/intake-integrated-schema.json'),'utf8'));
@@ -406,12 +406,12 @@ test('recovers one atomic remote receipt after interruption between apply respon
     assert.equal(result.status, 'PASS');
     state = result.state;
     assert.equal(state.receipts[0].status, 'RECOVERED_ATOMIC_REMOTE_COMMIT');
-    assert.equal(state.receipts.length, 11);
-    assert.equal(database.prefix(), 11);
+    assert.equal(state.receipts.length, 12);
+    assert.equal(database.prefix(), 12);
   } finally { f.cleanup(); }
 });
 
-test('records POSTVERIFY_FAILED after all eleven atomic applies and never claims PASS', () => {
+test('records POSTVERIFY_FAILED after all twelve atomic applies and never claims PASS', () => {
   const f = fixture();
   try {
     const { plan } = planFor(f);
@@ -421,11 +421,11 @@ test('records POSTVERIFY_FAILED after all eleven atomic applies and never claims
       authorizedPlanFingerprint: plan.planFingerprintSha256,
       evidenceDir: f.evidenceDir, query: database.query, now: clock(),
     }), /synthetic postverify failure/);
-    assert.equal(database.prefix(), 11);
+    assert.equal(database.prefix(), 12);
     const state = JSON.parse(fs.readFileSync(path.join(f.evidenceDir, 'hosted-migration-state.json')));
     assert.equal(state.status, 'POSTVERIFY_FAILED');
-    assert.equal(state.appliedPrefix, 11);
-    assert.equal(state.receipts.length, 11);
+    assert.equal(state.appliedPrefix, 12);
+    assert.equal(state.receipts.length, 12);
   } finally { f.cleanup(); }
 });
 
@@ -505,7 +505,7 @@ test('executes the verifier bytes captured during source verification even if th
   } finally { f.cleanup(); }
 });
 
-test('applies exactly eleven migrations in order, reconciles every receipt, and passes independent verification', () => {
+test('applies exactly twelve migrations in order, reconciles every receipt, and passes independent verification', () => {
   const f = fixture();
   try {
     const planDatabase = mockedDatabase(f.manifest);
@@ -519,12 +519,12 @@ test('applies exactly eleven migrations in order, reconciles every receipt, and 
       evidenceDir: f.evidenceDir, query: database.query, now: clock(),
     });
     assert.equal(result.status, 'PASS');
-    assert.equal(result.state.appliedPrefix, 11);
-    assert.equal(result.state.receipts.length, 11);
-    assert.equal(database.prefix(), 11);
+    assert.equal(result.state.appliedPrefix, 12);
+    assert.equal(result.state.receipts.length, 12);
+    assert.equal(database.prefix(), 12);
     assert.deepEqual(database.calls.filter(call => call.label.startsWith('apply '))
       .map(call => call.label.slice('apply '.length)), PENDING_IDENTITIES);
-    assert.equal(result.ledger.fullIdentityLedger.length, 128);
+    assert.equal(result.ledger.fullIdentityLedger.length, 129);
     assert.equal(result.ledger.nativeLedger.length, 110);
     assert.equal(result.verification.status, 'PASS');
     const verification = verifyHostedMigrationResult({

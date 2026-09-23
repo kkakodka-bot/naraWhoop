@@ -44,16 +44,16 @@ export const ANDROID_INSPECTION_TOOLS = Object.freeze({
     sha256: 'eefdd6aed9db9fb849e4c98a50d8741e19d1b674ba6547220bcb9c3ed152123a',
   }),
 });
-const MIGRATION_TOTAL = 128;
+const MIGRATION_TOTAL = 129;
 const MIGRATION_BASELINE = 117;
-const MIGRATION_SCHEMA_FINGERPRINT = 'f5d9f630389b1236efbe8494878faecb0fe8e9e17f5d25b47723759d9c58d92d';
+const MIGRATION_SCHEMA_FINGERPRINT = 'bd78bdc02131edb3f5de974158202dc948e899cffb85b05970a45b1db2ae4edd';
 const MIGRATION_CATALOG_PATH = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
 const MIGRATION_DIRECTORY = 'supabase/migrations';
 const MIGRATION_WORKSTREAMS = Object.freeze([
   Object.freeze({ workstream: 'persistent-sync-followup', branch: 'codex/persistent-sync-followup-2026-09-22',
     tip: 'a972493212f2eae29f01ecaddf9182260153400f', migrationCount: 2 }),
   Object.freeze({ workstream: 'server-repair', branch: 'repair/vps-server-20260922',
-    tip: null, migrationCount: 2 }),
+    tip: null, migrationCount: 3 }),
   Object.freeze({ workstream: 'server-pipeline', branch: 'fix/server-pipeline',
     tip: 'cfb94434b1b4ed4dba587e5c4e7af405e782e560', migrationCount: 117 }),
   Object.freeze({ workstream: 'multiuser-scale', branch: 'feat/multiuser-scale',

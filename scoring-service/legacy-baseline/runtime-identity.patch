@@ -388,7 +388,7 @@ index 149c079d712aca810c9ffede2b9e81a703d8e464..153a4b099c2e786d3792f115e5fd1bcc
 +
 +class BaselineAdmissionViolation : IllegalStateException("baseline_admission_scope_mismatch")
 diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
-index 0e74b5ab8f76b15ebe7541d338f7b99b37f14e50..02303ec82c3b9a81e7db6534845620e88c952ba0 100644
+index 0e74b5ab8f76b15ebe7541d338f7b99b37f14e50..00fea95dfcb7305ec92371ba54f40681e5dad937 100644
 --- a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
 +++ b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
 @@ -6,6 +6,7 @@ import com.frwhoop.scoring.db.EngineIngestWriter
@@ -399,7 +399,7 @@ index 0e74b5ab8f76b15ebe7541d338f7b99b37f14e50..02303ec82c3b9a81e7db6534845620e8
  import com.frwhoop.scoring.scoring.DayScorer
  import com.frwhoop.scoring.scoring.ScoringPoller
  import com.noop.analytics.UserProfile
-@@ -142,6 +143,109 @@ class LegacyQueueIntegrationTest {
+@@ -142,6 +143,112 @@ class LegacyQueueIntegrationTest {
          assertTrue(queue.renew(successor!!))
      }
  
@@ -502,14 +502,17 @@ index 0e74b5ab8f76b15ebe7541d338f7b99b37f14e50..02303ec82c3b9a81e7db6534845620e8
 +        assertEquals("1", scalarText("select count(*)::text from server_physiology_results where user_id='$user' and device_id='$device' " +
 +            "and payload#>>'{daily,hrv_rmssd_ms}' is null and payload#>>'{daily,hrv_sdnn_ms}' is null " +
 +            "and (payload#>>'{daily,resting_hr_bpm}')::double precision > 0 " +
-+            "and (payload#>>'{daily,sleep_total_min}')::double precision > 0"))
++            "and (payload#>>'{daily,sleep_total_min}')::double precision > 0 " +
++            "and payload#>>'{input_eligibility,policy_version}'='legacy-rr-excluded-1' " +
++            "and payload#>>'{input_eligibility,rr_input}'='excluded' " +
++            "and payload_hash=encode(sha256(convert_to(payload::text,'UTF8')),'hex')"))
 +        assertEquals(10800, observed.rr.size)
 +    }
 +
      private fun input(): SignalSampleReader.DayInputs {
          val start = java.time.Instant.parse("2026-09-17T00:00:00Z").epochSecond
          return SignalSampleReader.DayInputs(user, day, device.toString(), 0L, start, start+86399,
-@@ -150,24 +254,37 @@ class LegacyQueueIntegrationTest {
+@@ -150,24 +257,37 @@ class LegacyQueueIntegrationTest {
              emptyList(), emptyList(), DeviceFamily.WHOOP5)
      }
  

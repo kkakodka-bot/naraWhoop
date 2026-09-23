@@ -1,1 +1,1 @@
-{"status": "PASS", "rls_tables": 136, "compute_metrics": 80, "compute_families": 27, "selected_policies": 24, "selected_triggers": 11, "selected_functions": 30, "schema_fingerprint_sha256": "b8e62f83ddb071099869cf1e194a6ef5bf9bf857bca06f6b6624c250be20f90b"}
+{"status": "PASS", "rls_tables": 136, "compute_metrics": 80, "compute_families": 27, "selected_policies": 24, "selected_triggers": 11, "selected_functions": 32, "schema_fingerprint_sha256": "d9fb8fcb73324dcc94c67190756c3ec292fec89a2d959ef05bdc3c9915c957f4"}
