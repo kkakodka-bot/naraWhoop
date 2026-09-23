@@ -3999,8 +3999,8 @@
         "android/app/src/main/java/com/noop/ui/HydrationScreen.kt"
       ],
       "allowedLocal": "User water input and totals only",
-      "status": "unsupported",
-      "reason": "qualified_insight_producer_unavailable",
+      "status": "unqualified",
+      "reason": "producer_not_implemented",
       "numericContract": false,
       "resultBinding": "compute.families.insights explicit missing state/revision; not an invented metric value"
     },
@@ -4013,8 +4013,8 @@
         "android/app/src/main/java/com/noop/ui/RhythmScreen.kt"
       ],
       "allowedLocal": "Consent and direct observations only",
-      "status": "unsupported",
-      "reason": "qualified_insight_producer_unavailable",
+      "status": "unqualified",
+      "reason": "producer_not_implemented",
       "numericContract": false,
       "resultBinding": "compute.families.insights explicit missing state/revision; not an invented metric value"
     },
@@ -4027,8 +4027,8 @@
         "android/app/src/main/java/com/noop/ui/CaffeineLog.kt"
       ],
       "allowedLocal": "User intake input only; no elimination or active-dose inference",
-      "status": "unsupported",
-      "reason": "qualified_insight_producer_unavailable",
+      "status": "unqualified",
+      "reason": "producer_not_implemented",
       "numericContract": false,
       "resultBinding": "compute.families.insights explicit missing state/revision; not an invented metric value"
     }
@@ -4066,12 +4066,13 @@
           "resp_rate_bpm",
           "recovery"
         ],
-        "missingReason": "producer_not_implemented",
+        "missingReason": "beat_timing_unverified",
         "missingPrerequisite": "Qualified original beat timing, gaps, coverage and provenance adapter",
         "independentMetrics": [
           "resting_hr_bpm"
         ],
-        "sleepRestriction": "Pre-policy v1 stages and stage-derived sleep metrics are withheld by API/cache read eligibility. New RR-excluded v1 may expose unchanged HR/gravity sleep estimates; no PSG qualification implied."
+        "sleepRestriction": "Pre-policy v1 stages and stage-derived sleep metrics are withheld by API/cache read eligibility. New RR-excluded v1 may expose unchanged HR/gravity sleep estimates; no PSG qualification implied.",
+        "engineeringPrerequisiteReason": "producer_not_implemented"
       }
     },
     "physiology_shadow": {
