@@ -4,10 +4,19 @@ import com.noop.push.ServerScoreDayCache
 import com.noop.push.ServerComputeContract
 import com.noop.push.ServerComputeRevisionFence
 import com.noop.push.ServerMetricOwnership
+import com.noop.push.LegacyBeatReadEligibility
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+
+internal fun canonicalFamilyContractMatches(lhs: JSONObject, rhs: JSONObject): Boolean {
+    // Preserve every wire identity, revision and evidence field. Compare the public
+    // read-eligible projection because persistence may normalize private legacy fields.
+    // Work on copies: original immutable response bytes remain untouched.
+    fun admitted(value: JSONObject): JSONObject = JSONObject(value.toString()).also(LegacyBeatReadEligibility::family)
+    return admitted(lhs).similar(admitted(rhs))
+}
 
 private fun changedContract(cache: ServerScoreDayCache, change: (JSONObject) -> Unit): ServerScoreDayCache {
     val compute = JSONObject(requireNotNull(cache.rawSnapshotJSON)).getJSONObject("server_scoring").getJSONObject("compute")
@@ -57,12 +66,13 @@ private fun verifyCanonicalSelection(cache: ServerScoreDayCache, bytes: String, 
     }
     val raw = JSONObject(bytes).getJSONObject("server_scoring").getJSONObject("compute")
     val rawFamilies = raw.getJSONObject("families")
+    val rawContract = requireNotNull(ServerComputeContract.decode(JSONObject(raw.toString()), cache.ownerId, cache.day))
     for ((key, family) in contract.families) {
-        check(JSONObject(family.json).similar(rawFamilies.getJSONObject(key))) {
+        check(canonicalFamilyContractMatches(JSONObject(family.json), rawFamilies.getJSONObject(key))) {
             "$name: $key immutable identity/evidence/value changed after persistence"
         }
         for (metric in family.metrics) {
-            val value = if (family.authorized && !family.expired()) rawFamilies.getJSONObject(key).getJSONObject("values").opt(metric) else null
+            val value = rawContract.families.getValue(key).value(metric)
             check(JSONObject().put("value", value ?: JSONObject.NULL).similar(
                 JSONObject().put("value", family.value(metric) ?: JSONObject.NULL))) { "$name: canonical $metric selection differs" }
         }
