@@ -46,19 +46,20 @@ index 07069edefcba6349e75294b5baf1a844a6e31248..d87183501b84568a1c1a52fb24bd3321
          val day = config.replayDay ?: error("REPLAY_DAY required for --replay-day")
          val deviceId = resolveReplayDeviceId(reader, userId, config.replayDeviceId)
 diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt
-index cd95d5a01e438a239b56f45c5522216344f787ee..5cc2d8c76e7040557d57d11350daa6211dcb2780 100644
+index cd95d5a01e438a239b56f45c5522216344f787ee..3fed17b34c77d6d1ea46a2b8aa3552452aea90b8 100644
 --- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt
 +++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt
-@@ -95,7 +95,7 @@ class EngineIngestWriter(
+@@ -95,7 +95,8 @@ class EngineIngestWriter(
          }
      }
  
 -    fun write(bundle: ServerScoreBundle, item: ScoringWorkQueue.WorkItem) {
-+    fun write(bundle: ServerScoreBundle, item: ScoringWorkQueue.WorkItem, requireCanaryAdmission: Boolean = false) {
++    fun write(bundle: ServerScoreBundle, item: ScoringWorkQueue.WorkItem, requireCanaryAdmission: Boolean = false,
++              rrInputsExcluded: Boolean = false) {
          require(bundle.algorithmVersion == "frwhoop-server-1") { "Frozen baseline must retain its v1 identity" }
          require(bundle.userId == item.userId && bundle.deviceId == item.deviceId.toString() && bundle.day == item.day) {
              "Publication owner differs from the baseline claim"
-@@ -106,18 +106,19 @@ class EngineIngestWriter(
+@@ -106,18 +107,23 @@ class EngineIngestWriter(
              .put("input_revision", item.inputRevision)
              .put("lease_token", item.leaseToken.toString())
              .put("run_id", item.runId.toString())
@@ -67,6 +68,10 @@ index cd95d5a01e438a239b56f45c5522216344f787ee..5cc2d8c76e7040557d57d11350daa621
 -            .put("p_payload", payload)
 -            .toString()
 -            .toRequestBody(jsonType)
++        if (rrInputsExcluded) {
++            payload.put("input_eligibility", JSONObject()
++                .put("policy_version", "legacy-rr-excluded-1").put("rr_input", "excluded"))
++        }
 +        val envelope = JSONObject().put("p_secret", ingestSecret).put("p_payload", payload)
 +        if (requireCanaryAdmission) {
 +            envelope.put("p_user", item.userId.toString()).put("p_device", item.deviceId.toString())
@@ -84,7 +89,7 @@ index cd95d5a01e438a239b56f45c5522216344f787ee..5cc2d8c76e7040557d57d11350daa621
              .post(body)
              .header("apikey", serviceRoleKey)
              .header("Authorization", "Bearer $serviceRoleKey")
-@@ -126,6 +127,9 @@ class EngineIngestWriter(
+@@ -126,6 +132,9 @@ class EngineIngestWriter(
              .build()
  
          http.newCall(req).execute().use { resp ->
@@ -260,7 +265,7 @@ index b1ea87d6806a04d0f612f96e0c0053c32b02b0b5..e94631f199166f5ee439bd6e131a82a2
      }
  }
 diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt
-index 149c079d712aca810c9ffede2b9e81a703d8e464..aa7428d4f883601d4b25ea031c504fa18b41808c 100644
+index 149c079d712aca810c9ffede2b9e81a703d8e464..153a4b099c2e786d3792f115e5fd1bcc01a83328 100644
 --- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt
 +++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt
 @@ -20,6 +20,7 @@ class ScoringPoller(
@@ -279,7 +284,7 @@ index 149c079d712aca810c9ffede2b9e81a703d8e464..aa7428d4f883601d4b25ea031c504fa1
                  log.error("baseline poll cycle failed: {}", err.javaClass.simpleName)
                  heartbeat.recordError(err.javaClass.simpleName)
              }
-@@ -41,22 +43,30 @@ class ScoringPoller(
+@@ -41,41 +43,58 @@ class ScoringPoller(
      }
  
      fun pollOnce() {
@@ -314,19 +319,27 @@ index 149c079d712aca810c9ffede2b9e81a703d8e464..aa7428d4f883601d4b25ea031c504fa1
          val started = System.nanoTime()
          RunningLegacyLease({ queue.renew(item) }, queue.claimLease.dividedBy(3)).use { lease ->
              try {
-@@ -65,17 +75,21 @@ class ScoringPoller(
-                     queue.markWaiting(item, "no device or hr/rr inputs")
-                     return false
-                 }
-+                if (input.userId != item.userId || input.deviceId != item.deviceId.toString()) {
+-                val input = inputs.loadDay(item.userId, item.day, item.deviceId)
++                val observed = inputs.loadDay(item.userId, item.day, item.deviceId)
++                // Legacy RR rows have neither qualified beat timing nor a complete acquisition
++                // receipt join. Channel/family labels cannot repair that absent provenance.
++                // Keep original observations durable; only the verified-input adapter may opt
++                // RR into computation. Independent observed HR/gravity remain usable here.
++                val input = observed?.copy(rr = emptyList())
++                if (input != null && (input.userId != item.userId || input.deviceId != item.deviceId.toString())) {
 +                    throw BaselineAdmissionViolation()
 +                }
+                 if (input == null || (input.hr.isEmpty() && input.rr.isEmpty())) {
+-                    queue.markWaiting(item, "no device or hr/rr inputs")
++                    queue.markWaiting(item, "no eligible HR inputs; legacy RR timing unverified")
+                     return false
+                 }
                  val bundle = scorer.score(input, config.algorithmVersion)
                  check(lease.checkOwned()) { "Baseline lease lost before publication" }
                  // The RPC atomically validates this exact lease, publishes v1 and records archive
                  // debt. The old unfenced B2 writer must not overwrite a newer revision's object.
 -                writer.write(bundle, item)
-+                writer.write(bundle, item, requireCanaryAdmission = admission.ownerId != null)
++                writer.write(bundle, item, requireCanaryAdmission = admission.ownerId != null, rrInputsExcluded = true)
                  val durationMs = ((System.nanoTime() - started) / 1_000_000)
                      .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                  val done = queue.markDone(item, durationMs)
@@ -337,7 +350,7 @@ index 149c079d712aca810c9ffede2b9e81a703d8e464..aa7428d4f883601d4b25ea031c504fa1
                  if (queue.markFailed(item, err.javaClass.simpleName)) {
                      heartbeat.recordError(err.javaClass.simpleName)
                      log.warn("baseline run {} failed: {}", item.runId, err.javaClass.simpleName)
-@@ -112,3 +126,36 @@ internal class RunningLegacyLease(
+@@ -112,3 +131,36 @@ internal class RunningLegacyLease(
          executor.shutdownNow()
      }
  }
@@ -375,7 +388,7 @@ index 149c079d712aca810c9ffede2b9e81a703d8e464..aa7428d4f883601d4b25ea031c504fa1
 +
 +class BaselineAdmissionViolation : IllegalStateException("baseline_admission_scope_mismatch")
 diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
-index 0e74b5ab8f76b15ebe7541d338f7b99b37f14e50..d31ece9446af25408ce242b390ff7b772cc7af63 100644
+index 0e74b5ab8f76b15ebe7541d338f7b99b37f14e50..02303ec82c3b9a81e7db6534845620e88c952ba0 100644
 --- a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
 +++ b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
 @@ -6,6 +6,7 @@ import com.frwhoop.scoring.db.EngineIngestWriter
@@ -386,7 +399,7 @@ index 0e74b5ab8f76b15ebe7541d338f7b99b37f14e50..d31ece9446af25408ce242b390ff7b77
  import com.frwhoop.scoring.scoring.DayScorer
  import com.frwhoop.scoring.scoring.ScoringPoller
  import com.noop.analytics.UserProfile
-@@ -142,6 +143,79 @@ class LegacyQueueIntegrationTest {
+@@ -142,6 +143,109 @@ class LegacyQueueIntegrationTest {
          assertTrue(queue.renew(successor!!))
      }
  
@@ -463,10 +476,40 @@ index 0e74b5ab8f76b15ebe7541d338f7b99b37f14e50..d31ece9446af25408ce242b390ff7b77
 +        assertEquals("1", scalarText("select count(*)::text from scoring_work_items where user_id='$user' and device_id='$device' and status='running' and done_at is null"))
 +    }
 +
++    @Test fun unqualifiedLegacyIntervalsStayOutOfPublicationWhileScalarMetricsCompute() {
++        queue.dirtyWorkItem(user, device, day)
++        val base = input()
++        // Deliberately unqualified fixture: plausible values alone are not beat timing proof.
++        val begin = base.dayLo + 3600
++        val observed = base.copy(hr = (0..10799).map { index ->
++            HrSample(device.toString(), begin + index, 52 + (index / 60) % 3)
++        }, gravity = (0..10799).map { index ->
++            com.noop.data.GravitySample(device.toString(), begin + index, 0.0, 0.0, 1.0)
++        }, rr = (0..10799).map { index ->
++            com.noop.data.RrInterval(device.toString(), begin + index,
++                if (index % 2 == 0) 1100 else 1120, srcChannel = 5, tsSuspect = 0)
++        })
++        val legacyControl = DayScorer().score(observed, "frwhoop-server-1")
++        assertTrue("Regression must reach an ungated legacy HRV path",
++            legacyControl.result.daily.avgHrv != null || legacyControl.result.daily.avgSdnn != null ||
++                legacyControl.result.sleepSessions.any { it.avgHRV != null })
++        val provider = object : ScoreInputProvider {
++            override fun loadDay(userId: UUID, day: String, deviceId: UUID) = observed
++        }
++        val admission = BaselineAdmission.fromEnvironment(mapOf("SCORING_ADMISSION_MODE" to "canary",
++            "SCORING_CANARY_OWNER_ID" to user.toString(), "SCORING_CANARY_DEVICE_ID" to device.toString()))
++        poller(provider, rpcWriter(), admission).pollOnce()
++        assertEquals("1", scalarText("select count(*)::text from server_physiology_results where user_id='$user' and device_id='$device' " +
++            "and payload#>>'{daily,hrv_rmssd_ms}' is null and payload#>>'{daily,hrv_sdnn_ms}' is null " +
++            "and (payload#>>'{daily,resting_hr_bpm}')::double precision > 0 " +
++            "and (payload#>>'{daily,sleep_total_min}')::double precision > 0"))
++        assertEquals(10800, observed.rr.size)
++    }
++
      private fun input(): SignalSampleReader.DayInputs {
          val start = java.time.Instant.parse("2026-09-17T00:00:00Z").epochSecond
          return SignalSampleReader.DayInputs(user, day, device.toString(), 0L, start, start+86399,
-@@ -150,24 +224,37 @@ class LegacyQueueIntegrationTest {
+@@ -150,24 +254,37 @@ class LegacyQueueIntegrationTest {
              emptyList(), emptyList(), DeviceFamily.WHOOP5)
      }
  
