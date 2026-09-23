@@ -9,6 +9,9 @@ public struct PushProtocolException: Error, LocalizedError, Sendable {
 }
 
 public enum PushProtocol {
+    public static let freshAppendMaximumRecords = 128
+    public static let freshAppendMaximumDecodedBytes = 64 * 1024
+    public static let freshAppendWindowSeconds: Int64 = 300
     public static let version = "1.0"
     public static let binaryVersion = "1.1"
     /// Legacy object lane; retain this version when the receiver negotiates 1.2.
@@ -82,8 +85,12 @@ public enum PushProtocol {
         deviceId: String,
         startCursor: PushCursor?,
         records: [PushAppendRecord],
-        protocolVersion: String = version
+        protocolVersion: String = version,
+        freshAppend: Bool = false,
+        maximumDecodedBytes: Int = PushProtocolLimits.maxBodyBytes
     ) throws -> PushBatch {
+        guard maximumDecodedBytes > 0, maximumDecodedBytes <= PushProtocolLimits.maxBodyBytes else { throw PushProtocolException("invalid decoded limit") }
+        let decodedLimit = min(maximumDecodedBytes, freshAppend ? freshAppendMaximumDecodedBytes : PushProtocolLimits.maxBodyBytes)
         try validateUUID(sourceId, name: "sourceId")
         guard [version, binaryVersion, objectVersion, identityObjectVersion, auxiliaryIdentityVersion].contains(protocolVersion),
               !table.isScalarExtension || protocolVersion != version else {
@@ -108,7 +115,7 @@ public enum PushProtocol {
             }
         }
 
-        let candidates = Array(records.prefix(PushProtocolLimits.maxRecords))
+        let candidates = Array(records.prefix(freshAppend ? freshAppendMaximumRecords : PushProtocolLimits.maxRecords))
         var selectedRows: [PushAppendRecord] = []
         var selectedLines: [Data] = []
         var rowBytes = 0
@@ -121,7 +128,7 @@ public enum PushProtocol {
                 sourceId: sourceId, table: table, deviceId: deviceId,
                 start: startCursor, end: end, count: candidateCount, batchId: uuidPlaceholder, protocolVersion: wireVersion
             ).count
-            if headerSize + rowBytes + encodedRow.count > PushProtocolLimits.maxBodyBytes { break }
+            if headerSize + rowBytes + encodedRow.count > decodedLimit { break }
             selectedRows.append(candidate)
             selectedLines.append(encodedRow)
             rowBytes += encodedRow.count
@@ -132,17 +139,18 @@ public enum PushProtocol {
         }
 
         let endCursor = try cursorFor(table: table, deviceId: deviceId, record: selectedRows.last!)
-        let identity = appendIdentity(
+        var identity = appendIdentity(
             sourceId: sourceId, table: table, deviceId: deviceId,
             start: startCursor, end: endCursor, count: selectedRows.count, protocolVersion: wireVersion
         )
+        if freshAppend { identity["identityDomain"] = .string("fresh-append-v1") }
         let batchId = stableUuid(header: identity, lines: selectedLines)
         let header = try appendHeader(
             sourceId: sourceId, table: table, deviceId: deviceId,
             start: startCursor, end: endCursor, count: selectedRows.count, batchId: batchId, protocolVersion: wireVersion
         )
         let body = concatenate(header: header, lines: selectedLines)
-        precondition(body.count <= PushProtocolLimits.maxBodyBytes)
+        precondition(body.count <= decodedLimit)
         return PushBatch(
             protocolVersion: wireVersion,
             batchId: batchId,
@@ -697,6 +705,17 @@ public enum PushProtocol {
             "stream": .string(table.wireName),
             "type": .string("batch"),
         ]
+    }
+
+    /// Bind the local progress kind to its domain-separated identity, not just a mutable label.
+    static func hasFreshAppendIdentity(_ batch: PushBatch) -> Bool {
+        guard batch.mode == "append", let table = PushAppendTable(rawValue: batch.table.wireName),
+              let end = batch.endCursor else { return false }
+        var identity = appendIdentity(sourceId: batch.sourceId, table: table, deviceId: batch.deviceId,
+            start: batch.startCursor, end: end, count: batch.recordCount, protocolVersion: batch.protocolVersion)
+        identity["identityDomain"] = .string("fresh-append-v1")
+        let records = batch.body.split(separator: 10).dropFirst().map { Data($0) + Data([10]) }
+        return records.count == batch.recordCount && stableUuid(header: identity, lines: records) == batch.batchId
     }
 
     private static func appendHeader(

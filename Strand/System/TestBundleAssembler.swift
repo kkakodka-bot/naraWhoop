@@ -14,6 +14,16 @@ enum TestBundleAssembler {
     /// The redaction stamp written into meta.json so a maintainer knows the whole-bundle scrub ran.
     static let redactionVersion = "v2"
 
+    static func syncIntervalEvidenceEntry() -> FileExport.BundleEntry {
+        var snapshot = SyncPipelineTrace.diagnosticSnapshot()
+        snapshot["app_build"] = String((Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unavailable").prefix(64))
+        snapshot["source_revision"] = String((Bundle.main.object(forInfoDictionaryKey: "NOOPSourceRevision") as? String ?? "unavailable").prefix(64))
+        snapshot["artifact_binding"] = "matched_installation_receipt_required"
+        let data = (try? JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys]))
+            ?? Data(#"{"schema_version":1,"status":"UNAVAILABLE","reason":"interval_snapshot_encoding_failed"}"#.utf8)
+        return .init(name: "sync-interval-evidence.json", data: data)
+    }
+
     /// The bundle files that may be trimmed to fit the cap (newest-tail kept). The strap-log tail and
     /// meta.json are already bounded, so only these raw research streams can blow the budget: the WHOOP
     /// frame capture plus the Oura ring's Tier-B JSONL sidecars (raw notifications / IBI-HR / activity MET).
@@ -182,7 +192,7 @@ enum TestBundleAssembler {
         //    capEntries budgets raw-capture as capBytes - (everything else), so a large/retina PNG shrinks
         //    the raw-capture tail rather than breaching the cap. Only raw-capture is trimmed; report.txt and
         //    last-crash are bounded and the PNG is kept whole.
-        let textEntries = [reportEntry] + (rawCapture.map { [$0] } ?? []) + (crash.map { [$0] } ?? []) + ouraDiagnostics
+        let textEntries = [reportEntry, syncIntervalEvidenceEntry()] + (rawCapture.map { [$0] } ?? []) + (crash.map { [$0] } ?? []) + ouraDiagnostics
         let redacted = redactEntries(textEntries)
         let (capped, truncated) = capEntries(redacted + (shot.map { [$0] } ?? []))
         var entries = capped

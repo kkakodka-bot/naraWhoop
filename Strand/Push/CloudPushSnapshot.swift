@@ -21,6 +21,12 @@ struct CloudPushSnapshot: PushSnapshotSource {
     }
 
     func knownDeviceIds(capabilities: PushCapabilities) async throws -> [String] {
+        let result = try await discoverDevices(capabilities: capabilities)
+        guard result.isComplete else { throw PushSourceReadError.deferred }
+        return result.deviceIDs
+    }
+
+    func discoverDevices(capabilities: PushCapabilities) async throws -> PushDeviceDiscovery {
         guard allowsPreparation() else { throw PushSourceReadError.deferred }
         let tables = Set((capabilities.appendTables.map { sqlTable($0) }
             + capabilities.mutableTables.map { sqlTable($0) }
@@ -31,16 +37,15 @@ struct CloudPushSnapshot: PushSnapshotSource {
         let membershipReady = try await db.read { try WhoopStore.cloudSourceMembership($0, tables: tables).isComplete }
         guard allowsPreparation() else { throw PushSourceReadError.deferred }
         if !membershipReady {
-            let bootstrap = try await db.write { db in
+            _ = try await db.write { db in
                 guard allowsPreparation() else { throw PushSourceReadError.deferred }
                 return try WhoopStore.advanceCloudSourceBootstrap(db, tables: tables, maximumRows: 2_000)
             }
-            guard bootstrap.isComplete, allowsPreparation() else { throw PushSourceReadError.deferred }
+            guard allowsPreparation() else { throw PushSourceReadError.deferred }
         }
-        var ids = try await db.read { db in
+        let discovery = try await db.read { db in
             guard allowsPreparation() else { throw PushSourceReadError.deferred }
             let membership = try WhoopStore.cloudSourceMembership(db, tables: tables)
-            guard membership.isComplete else { throw PushSourceReadError.deferred }
             var ids = Set(membership.deviceIDs)
             try String.fetchAll(db, sql: "SELECT id FROM device WHERE id <> ''").forEach { ids.insert($0) }
             // Revision tombstones preserve devices whose last mutable row was removed/rekeyed.
@@ -48,8 +53,9 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 try String.fetchAll(db, sql: "SELECT DISTINCT deviceId FROM cloudMutableRevision WHERE tableName = ? AND deviceId <> ''",
                     arguments: [table.wireName]).forEach { ids.insert($0) }
             }
-            return ids
+            return PushDeviceDiscovery(deviceIDs: Array(ids), isComplete: membership.isComplete)
         }
+        var ids = Set(discovery.deviceIDs)
         guard allowsPreparation() else { throw PushSourceReadError.deferred }
         if !capabilities.binaryTables.isDisjoint(with: [.rawImuSession, .rawBatch]), let imuPushSource {
             ids.formUnion(imuPushSource.pushDeviceIds())
@@ -58,7 +64,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
             }
         }
         guard allowsPreparation() else { throw PushSourceReadError.deferred }
-        return Array(ids).sorted()
+        return .init(deviceIDs: Array(ids).sorted(), isComplete: discovery.isComplete)
     }
 
     func mutableDirtyRanges(table: PushMutableTable, deviceId: String, afterRevision: Int64,
@@ -116,13 +122,36 @@ struct CloudPushSnapshot: PushSnapshotSource {
     /// member is never skipped; callers persist an explicit compatible-encoding pause.
     func appendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64,
                     limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage {
+        try await readAppendPage(table: table, deviceId: deviceId, afterRowId: afterRowId,
+            sinceTs: nil, throughTs: nil, limit: limit, limits: limits)
+    }
+
+    func freshAppendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64, sinceTs: Int64, throughTs: Int64,
+                         limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage {
+        guard sinceTs >= 0, throughTs >= sinceTs, throughTs - sinceTs <= PushProtocol.freshAppendWindowSeconds, limit <= PushProtocol.freshAppendMaximumRecords + 1,
+              limits.maximumDecodedBytes <= PushProtocol.freshAppendMaximumDecodedBytes else { throw PushSourceReadError.requiresCompatibleEncoding }
+        return try await readAppendPage(table: table, deviceId: deviceId, afterRowId: afterRowId,
+            sinceTs: sinceTs, throughTs: throughTs, limit: limit, limits: limits)
+    }
+
+    private func readAppendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64,
+                                sinceTs: Int64?, throughTs: Int64?, limit: Int,
+                                limits: PushSourceReadLimits) async throws -> PushAppendPage {
         guard limit > 0, limit <= PushProtocolLimits.maxRecords + 1 else { throw PushSourceReadError.requiresCompatibleEncoding }
         return try await db.read { db in
             guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
             let spec = appendSpec(table)
             let columns = spec.columns + (table.isScalarExtension ? ["provenanceJSON"] : [])
-            let metadata = try Row.fetchAll(db, sql: "SELECT rowid AS id, \(lengthExpression(columns)) AS bytes FROM \(spec.sqlName) WHERE deviceId = ? AND rowid > ? ORDER BY rowid LIMIT ?",
-                arguments: [deviceId, afterRowId, limit])
+            let fresh = sinceTs != nil && throughTs != nil
+            let timePredicate = fresh ? " AND ts >= ? AND ts <= ?" : ""
+            // Unary + avoids preferring a whole-history rowid walk merely to satisfy ORDER BY.
+            // Every append table has a (deviceId, ts, ...) index; timestamp membership is original.
+            let ordering = fresh ? "+rowid" : "rowid"
+            var metadataArguments: StatementArguments = [deviceId, afterRowId]
+            if let sinceTs, let throughTs { metadataArguments += [sinceTs, throughTs] }
+            metadataArguments += [limit]
+            let metadata = try Row.fetchAll(db, sql: "SELECT rowid AS id, \(lengthExpression(columns)) AS bytes FROM \(spec.sqlName) WHERE deviceId = ? AND rowid > ?\(timePredicate) ORDER BY \(ordering) LIMIT ?",
+                arguments: metadataArguments)
             var last: Int64?, count = 0, bytes = 0
             for row in metadata {
                 guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
@@ -133,8 +162,11 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 bytes += size; count += 1; last = row["id"]
             }
             guard let last else { return .init(rows: [], hasMore: false) }
-            let rows = try Row.fetchAll(db, sql: "SELECT rowid AS _pushRowId, \(columns.joined(separator: ", ")) FROM \(spec.sqlName) WHERE deviceId = ? AND rowid > ? AND rowid <= ? ORDER BY rowid LIMIT ?",
-                arguments: [deviceId, afterRowId, last, count]).map { row in
+            var payloadArguments: StatementArguments = [deviceId, afterRowId, last]
+            if let sinceTs, let throughTs { payloadArguments += [sinceTs, throughTs] }
+            payloadArguments += [count]
+            let rows = try Row.fetchAll(db, sql: "SELECT rowid AS _pushRowId, \(columns.joined(separator: ", ")) FROM \(spec.sqlName) WHERE deviceId = ? AND rowid > ? AND rowid <= ?\(timePredicate) ORDER BY \(ordering) LIMIT ?",
+                arguments: payloadArguments).map { row in
                     guard limits.shouldContinue() else { throw PushSourceReadError.deferred }
                     return try appendRecord(row: row, spec: spec, includeProvenance: table.isScalarExtension)
                 }
@@ -303,11 +335,13 @@ struct CloudPushSnapshot: PushSnapshotSource {
             // stored route when present; otherwise publish its explicit null.
             // All other required columns remain strict schema requirements.
             var selectColumns = spec.columns
+            var sizeColumns = spec.columns
             if table == .workout,
                try !db.columns(in: spec.sqlName).contains(where: { $0.name == "routePolyline" }) {
                 selectColumns = spec.columns.map {
                     $0 == "routePolyline" ? "NULL AS routePolyline" : $0
                 }
+                sizeColumns.removeAll { $0 == "routePolyline" }
             }
             let sql = """
                 SELECT \(selectColumns.joined(separator: ", "))
@@ -316,7 +350,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 ORDER BY \(spec.keyColumns.joined(separator: ", ")) ASC
                 LIMIT ?
                 """
-            let sizes = try Int.fetchAll(db, sql: "SELECT \(lengthExpression(spec.columns)) FROM \(spec.sqlName) WHERE \(predicate) ORDER BY \(spec.keyColumns.joined(separator: ", ")) ASC LIMIT ?",
+            let sizes = try Int.fetchAll(db, sql: "SELECT \(lengthExpression(sizeColumns)) FROM \(spec.sqlName) WHERE \(predicate) ORDER BY \(spec.keyColumns.joined(separator: ", ")) ASC LIMIT ?",
                 arguments: StatementArguments(arguments + [limit]))
             var remaining = PushProtocolLimits.maxMutableSnapshotEncodedBytes
             for size in sizes {

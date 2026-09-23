@@ -4,6 +4,9 @@ import Foundation
 /// A failed final write must not release accepted bytes merely because the account changed.
 @MainActor
 final class RetiredCaptureDrain {
+    /// Propagates a permitted-event fence through captured legacy drain closures without
+    /// giving a retired writer replacement identity or upload credentials.
+    @TaskLocal static var allowsWork: (@MainActor () -> Bool)?
     private struct Entry {
         let id: UUID
         let drain: @MainActor () async -> Bool
@@ -28,14 +31,16 @@ final class RetiredCaptureDrain {
         if automaticRetry { scheduleRetry(immediate: true) }
     }
 
-    func retry() async {
+    func retry(allowing: @escaping @MainActor () -> Bool = { true }) async {
+        guard allowing(), !Task.isCancelled else { return }
         if let running { return await running.value }
         // Bound each pass and rotate failures so one unavailable store cannot starve other owners.
         let selected = Array(entries.prefix(16))
         guard !selected.isEmpty else { return }
         let task = Task { [weak self] in
             for entry in selected {
-                let succeeded = await entry.drain()
+                guard allowing(), !Task.isCancelled else { break }
+                let succeeded = await Self.$allowsWork.withValue(allowing) { await entry.drain() }
                 guard let self, let index = self.entries.firstIndex(where: { $0.id == entry.id }) else { continue }
                 let retained = self.entries.remove(at: index)
                 if !succeeded { self.entries.append(retained) }

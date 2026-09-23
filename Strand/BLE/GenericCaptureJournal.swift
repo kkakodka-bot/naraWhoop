@@ -22,6 +22,8 @@ final class GenericCaptureJournal {
     private var pending: [Batch] = []
     private var finalBuffers: [FinalBuffer] = []
     private var running: Task<Bool, Never>?
+    private var passAllows: () -> Bool = { true }
+    private var passTransactionsRemaining = Int.max
     private var holdNotification: Task<Void, Never>?
     private var sealed = false
     private var flushingAcceptedBuffer = false
@@ -79,12 +81,21 @@ final class GenericCaptureJournal {
     }
 
     /// Joins in-flight work. A failed pass retains the exact batch and final source for a later retry.
-    func drain() async -> Bool {
+    func drain(allowing: (() -> Bool)? = nil, maximumTransactions: Int = 256) async -> Bool {
+        if let allowing = allowing ?? RetiredCaptureDrain.allowsWork {
+            guard allowing(), !Task.isCancelled else { return false }
+            let prior = passAllows
+            passAllows = { prior() && allowing() }
+            passTransactionsRemaining = min(passTransactionsRemaining, max(0, maximumTransactions))
+        }
         retryTimer?.cancel()
         retryTimer = nil
         if let running { return await running.value }
         startWriteIfNeeded()
-        guard let running else { return pending.isEmpty && finalBuffers.isEmpty }
+        guard let running else {
+            passAllows = { true }; passTransactionsRemaining = Int.max
+            return pending.isEmpty && finalBuffers.isEmpty
+        }
         return await running.value
     }
 
@@ -95,9 +106,12 @@ final class GenericCaptureJournal {
         }
         guard running == nil, !pending.isEmpty || !finalBuffers.isEmpty else { return }
         running = Task { [self] in
-            defer { running = nil }
+            defer { running = nil; passAllows = { true }; passTransactionsRemaining = Int.max }
             while true {
+                guard !Task.isCancelled, passAllows() else { return false }
                 if let batch = pending.first {
+                    guard passTransactionsRemaining > 0 else { return false }
+                    passTransactionsRemaining -= 1
                     do { try await writer(batch.streams, batch.deviceID) }
                     catch { hold(); return false }
                     pending.removeFirst()
@@ -243,9 +257,10 @@ final class GenericCaptureJournal {
               !state.pending.isEmpty || state.heldSink != nil || !finalBuffers.isEmpty
                 || holdNotification != nil || (sealed && !state.sessionSealed) else { return }
         running = Task { [self] in
-            defer { running = nil }
+            defer { running = nil; passAllows = { true }; passTransactionsRemaining = Int.max }
             do {
                 while true {
+                    guard !Task.isCancelled, passAllows() else { return false }
                     if let entry = state.pending.first {
                         if entry.batch == nil {
                             entry.batch = try await state.encoder.freeze(entry.offer)
@@ -254,6 +269,8 @@ final class GenericCaptureJournal {
                         if entry.receipt == nil {
                             try await state.encoder.checkCapacity(path: state.path, force: false)
                             try await state.hooks.beforeAppend(batch)
+                            guard passAllows(), !Task.isCancelled, passTransactionsRemaining > 0 else { return false }
+                            passTransactionsRemaining -= 1
                             let receipt = try await state.store.appendStandardHRCapture(batch, session: state.session)
                             try await state.hooks.afterAppend(receipt)
                             guard receipt.id == batch.id, receipt.intentSHA256 == batch.intentSHA256 else {
@@ -265,6 +282,8 @@ final class GenericCaptureJournal {
                         }
                         try await state.hooks.beforeProjection()
                         while true {
+                            guard passAllows(), !Task.isCancelled, passTransactionsRemaining > 0 else { return false }
+                            passTransactionsRemaining -= 1
                             let step = try await state.store.projectNextStandardHRCapture(owner: state.session.owner)
                             try await state.hooks.afterProjection(step)
                             switch step {
@@ -295,6 +314,8 @@ final class GenericCaptureJournal {
                         if !finalBuffers.isEmpty { throw StandardHRCaptureError.storageUnavailable }
                     }
                     if sealed && !state.sessionSealed {
+                        guard passAllows(), !Task.isCancelled, passTransactionsRemaining > 0 else { return false }
+                        passTransactionsRemaining -= 1
                         try await state.store.sealStandardHRCapture(state.session)
                         state.sessionSealed = true
                         if let slot = state.slot {

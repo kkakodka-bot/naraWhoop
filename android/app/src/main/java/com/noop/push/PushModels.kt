@@ -464,6 +464,14 @@ interface PushProgressStore {
     suspend fun rememberDeviceId(deviceId: String)
     suspend fun cursor(table: PushAppendTable, deviceId: String): PushCursor?
     suspend fun saveCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor)
+    suspend fun freshCursor(table: PushAppendTable, deviceId: String): PushCursor? = null
+    suspend fun saveFreshCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor?) {
+        throw UnsupportedOperationException("Durable fresh progress required")
+    }
+    suspend fun pendingFreshBatch(table: PushAppendTable, deviceId: String): PushBatch? = null
+    suspend fun savePendingFreshBatch(table: PushAppendTable, deviceId: String, batch: PushBatch?) {
+        throw UnsupportedOperationException("Durable immutable fresh selection required")
+    }
     suspend fun binaryCursor(table: PushBinaryTable, deviceId: String): PushCursor?
     suspend fun saveBinaryCursor(table: PushBinaryTable, deviceId: String, cursor: PushCursor)
     suspend fun window(table: PushMutableTable, deviceId: String): PushWindowProgress?
@@ -488,6 +496,10 @@ interface PushSnapshotSource {
         afterRowId: Long,
         limit: Int,
     ): List<PushAppendRecord>
+
+    /** Recent original timestamps only; ordinary append progress retains every older hole. */
+    suspend fun freshAppendRows(table: PushAppendTable, deviceId: String, afterRowId: Long,
+        fromTs: Long, throughTs: Long, limit: Int): List<PushAppendRecord> = emptyList()
 
     suspend fun mutableRows(
         table: PushMutableTable,

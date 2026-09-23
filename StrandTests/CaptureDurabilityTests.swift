@@ -178,6 +178,192 @@ final class CaptureDurabilityTests: XCTestCase {
         XCTAssertEqual(s.attempts.flatMap { $0.1 }, [first, second])
     }
 
+    func testLiveFlushAdmitsOriginalSnapshotRatherThanFollowingNewArrivals() async throws {
+        let store = Store()
+        let collector = Collector(store: store, deviceId: "old",
+            policy: .init(maxFrames: 64, maxInterval: 100), imuStore: try imu())
+        var arrivals = 0
+        store.inserted = {
+            if arrivals < 3 { arrivals += 1; collector.ingest(self.console()) }
+        }
+        collector.ingest(console())
+        let result1 = await collector.flush()
+        XCTAssertTrue(result1)
+        XCTAssertEqual(store.inserts.count, 1, "New arrivals must yield to other capture lanes")
+        XCTAssertEqual(collector.bufferedCount, 1)
+        store.inserted = nil
+        let result2 = await collector.drainForShutdown()
+        XCTAssertTrue(result2)
+    }
+
+    func testStandardFlushAdmitsOriginalSnapshotRatherThanFollowingNewArrivals() async throws {
+        let store = Store()
+        let collector = Collector(store: store, deviceId: "old",
+            policy: .init(maxFrames: 64, maxInterval: 100), imuStore: try imu())
+        var arrivals = 0
+        store.inserted = {
+            if arrivals < 3 { arrivals += 1; collector.ingestStandardHR(hr: 70, rr: [], at: 100 + arrivals) }
+        }
+        collector.ingestStandardHR(hr: 70, rr: [], at: 100)
+        let result3 = await collector.flushStandardHR()
+        XCTAssertTrue(result3)
+        XCTAssertEqual(store.inserts.count, 1)
+        store.inserted = nil
+        let result4 = await collector.drainForShutdown()
+        XCTAssertTrue(result4)
+    }
+
+    func testStandardDeviceSnapshotRetainsRROnlyTailAndExcludesLaterRows() async throws {
+        let store = Store()
+        let collector = Collector(store: store, deviceId: "a",
+            policy: .init(maxFrames: 64, maxInterval: 100), imuStore: try imu())
+        collector.ingestStandardHR(hr: 70, rr: [], at: 100)
+        collector.deviceId = "b"
+        collector.ingestStandardHR(hr: 0, rr: [900], at: 100)
+        store.inserted = {
+            store.inserted = nil
+            collector.deviceId = "a"
+            collector.ingestStandardHR(hr: 71, rr: [], at: 101)
+            collector.deviceId = "b"
+            collector.ingestStandardHR(hr: 0, rr: [901], at: 101)
+        }
+        let first = await collector.flushStandardHR()
+        XCTAssertTrue(first)
+        XCTAssertEqual(store.inserts.map { $0.0 }, ["a", "b"])
+        XCTAssertEqual(store.inserts.flatMap { $0.1.hr.map(\.bpm) }, [70])
+        XCTAssertEqual(store.inserts.flatMap { $0.1.rr.map(\.rrMs) }, [900])
+        let second = await collector.drainForShutdown()
+        XCTAssertTrue(second)
+        XCTAssertEqual(store.inserts.map { $0.0 }, ["a", "b", "a", "b"])
+        XCTAssertEqual(store.inserts.flatMap { $0.1.hr.map(\.bpm) }, [70, 71])
+        XCTAssertEqual(store.inserts.flatMap { $0.1.rr.map(\.rrMs) }, [900, 901])
+    }
+
+    func testProductionPreclockCaptureAtomicallyArchivesWithoutDecodedTimeOrWaveformQualification() async throws {
+        let store = try await WhoopStore.inMemory()
+        let scope = DurableIngestScope(environment: "https://fixture.invalid",
+            accountID: "11111111-1111-4111-8111-111111111111", deviceID: "preclock")
+        try await store.bindAccountOwner(projectURL: scope.environment!, userID: scope.accountID!)
+        try await store.upsertDevice(id: scope.deviceID, mac: nil, name: nil)
+        let receiptTime = 1_790_000_000
+        let collector = Collector(store: store, deviceId: scope.deviceID,
+            policy: .init(maxFrames: 64, maxInterval: 100), enableRawCapture: false, now: { receiptTime },
+            imuStore: try imu(), captureScope: scope)
+        let hex = "aa1800ff28020f3de10100003c0000000000000000000000b7e67942"
+        let chars = Array(hex)
+        let frame = stride(from: 0, to: chars.count, by: 2).map { UInt8(String(chars[$0...$0+1]), radix: 16)! }
+        XCTAssertTrue(collector.ingest(frame))
+        let drained = await collector.flush()
+        XCTAssertTrue(drained)
+        let hr = try await store.hrSamples(deviceId: scope.deviceID, from: 0, to: 2_000_000_000, limit: 10)
+        XCTAssertTrue(hr.isEmpty, "Receipt time is not a decoded sensor timestamp")
+        let rows = try await store.registryWriter.read { db in
+            try Row.fetchAll(db, sql: "SELECT rowid AS sourceRow, * FROM rawBatch")
+        }
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(row["capturedAt"] as Int, receiptTime)
+        XCTAssertEqual(row["startTs"] as Int, receiptTime)
+        XCTAssertEqual(row["endTs"] as Int, receiptTime + 1)
+        let raw = try await store.rawFrames(batchId: row["batchId"])
+        XCTAssertEqual(raw, [frame])
+        let packet = try PushBinaryCodec.pack(table: .rawBatch, rows: [.rawBatch(.init(
+            rowId: row["sourceRow"], batchId: row["batchId"], capturedAt: row["capturedAt"],
+            deviceClockRef: row["deviceClockRef"], wallClockRef: row["wallClockRef"],
+            startTs: row["startTs"], endTs: row["endTs"], frameCount: row["frameCount"],
+            byteSize: row["byteSize"], framesBlob: row["framesBlob"]))])
+        XCTAssertEqual(Array(packet.prefix(6)), [78, 80, 66, 49, 1, 3],
+            "Archive kind 3 must stay distinct from the server's qualified waveform kinds 1/4")
+        let counts = try await store.registryWriter.read { db in
+            [try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM rrInterval")!,
+             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ppgWaveformSample")!,
+             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM ingestRawResource WHERE lane='rawBatch'")!]
+        }
+        XCTAssertEqual(counts, [0, 0, 1])
+        let debt = try await store.owedJobs()
+        XCTAssertTrue(debt.contains { $0.kind == "cloudPush" })
+        collector.shutdownForAccountChange()
+    }
+
+    func testProductionLiveRawFailureCannotLeaveDecodedRowsOrUploadDebt() async throws {
+        let store = try await WhoopStore.inMemory()
+        let scope = DurableIngestScope(environment: "https://fixture.invalid",
+            accountID: "11111111-1111-4111-8111-111111111111", deviceID: "old")
+        try await store.bindAccountOwner(projectURL: scope.environment!, userID: scope.accountID!)
+        try await store.upsertDevice(id: scope.deviceID, mac: nil, name: nil)
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                CREATE TEMP TRIGGER reject_live_raw BEFORE INSERT ON rawBatch
+                BEGIN SELECT RAISE(ABORT, 'synthetic raw write failure'); END
+                """)
+        }
+        let collector = Collector(store: store, deviceId: scope.deviceID,
+            policy: .init(maxFrames: 64, maxInterval: 100), enableRawCapture: true,
+            imuStore: try imu(), captureScope: scope)
+        collector.clockRef = ClockRef(device: 31_538_447, wall: 1_790_000_000)
+        let hex = "aa1800ff28020f3de10100003c0000000000000000000000b7e67942"
+        let chars = Array(hex)
+        let frame = stride(from: 0, to: chars.count, by: 2).map { UInt8(String(chars[$0...$0+1]), radix: 16)! }
+        collector.ingest(frame)
+        let result5 = await collector.flush()
+        XCTAssertFalse(result5)
+        let rows = try await store.hrSamples(deviceId: scope.deviceID, from: 0, to: 2_000_000_000, limit: 10)
+        let debt = try await store.owedJobs()
+        XCTAssertTrue(rows.isEmpty, "Required raw and decoded data must share one durable transaction")
+        XCTAssertTrue(debt.isEmpty)
+        XCTAssertEqual(collector.bufferedCount, 1)
+        try await store.registryWriter.write { db in try db.execute(sql: "DROP TRIGGER reject_live_raw") }
+        let result6 = await collector.drainForShutdown()
+        XCTAssertTrue(result6)
+        let committed = try await store.hrSamples(deviceId: scope.deviceID, from: 0, to: 2_000_000_000, limit: 10)
+        XCTAssertEqual(committed.map(\.bpm), [60])
+        let raw = try await store.pendingRawBatches(limit: 10)
+        XCTAssertEqual(raw.count, 1)
+    }
+
+    func testFiniteOpportunityServicesStandardBeforeCustomAndRetainsExpiredTail() async throws {
+        let store = Store()
+        let collector = Collector(store: store, deviceId: "old",
+            policy: .init(maxFrames: 64, maxInterval: 100), imuStore: try imu())
+        var active = true
+        collector.ingestStandardHR(hr: 70, rr: [], at: 100)
+        collector.ingest(console())
+        store.inserted = { active = false }
+        let result7 = await collector.drainOpportunity(allowing: { active })
+        XCTAssertFalse(result7)
+        XCTAssertEqual(store.inserts.first?.1.hr.first?.bpm, 70)
+        XCTAssertEqual(collector.bufferedCount, 1)
+        store.inserted = nil
+        let result8 = await collector.drainForShutdown()
+        XCTAssertTrue(result8)
+    }
+
+    func testJoiningAnExistingDrainInstallsExpiryFenceBeforeItsNextTransaction() async throws {
+        let store = Store(); store.pause = true
+        let entered = expectation(description: "first captured transaction")
+        store.inserted = { entered.fulfill(); store.inserted = nil }
+        let collector = Collector(store: store, deviceId: "a",
+            policy: .init(maxFrames: 64, maxInterval: 100), imuStore: try imu())
+        collector.ingest(console())
+        collector.deviceId = "b"
+        collector.ingest(console())
+        let original = Task { await collector.flush() }
+        await fulfillment(of: [entered], timeout: 2)
+        var allowed = true
+        let joined = Task { await collector.flush(allowing: { allowed }) }
+        await Task.yield()
+        allowed = false
+        store.pause = false; store.gate?.resume(); store.gate = nil
+        let originalResult = await original.value, joinedResult = await joined.value
+        XCTAssertFalse(originalResult)
+        XCTAssertFalse(joinedResult)
+        XCTAssertEqual(store.inserts.map { $0.0 }, ["a"])
+        XCTAssertEqual(collector.bufferedCount, 1)
+        let recovered = await collector.drainForShutdown()
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(store.inserts.map { $0.0 }, ["a", "b"])
+    }
+
     func testStandardShutdownWritesOldScopeAndDurableUploadDebt() async throws {
         let s = try await WhoopStore.inMemory()
         let scope = DurableIngestScope(environment: "https://fixture.invalid",

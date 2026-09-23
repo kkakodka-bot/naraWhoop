@@ -603,6 +603,9 @@ public struct PushRunResult: Sendable {
     public let acceptedRecords: Int
     public let hasRetryableFailure: Bool
     public let nextDeviceIndex: Int
+    public let nextLaneIndex: Int
+    public let nextRecoveryIndex: Int
+    public let discoveryComplete: Bool
     public let deviceListFingerprint: String?
     public let hasMoreDevices: Bool
     public let failure: PushFailure?
@@ -616,6 +619,9 @@ public struct PushRunResult: Sendable {
         acceptedRecords: Int = 0,
         hasRetryableFailure: Bool = false,
         nextDeviceIndex: Int = 0,
+        nextLaneIndex: Int = 0,
+        nextRecoveryIndex: Int = 0,
+        discoveryComplete: Bool = true,
         deviceListFingerprint: String? = nil,
         hasMoreDevices: Bool = false,
         failure: PushFailure? = nil
@@ -628,9 +634,23 @@ public struct PushRunResult: Sendable {
         self.acceptedRecords = acceptedRecords
         self.hasRetryableFailure = hasRetryableFailure
         self.nextDeviceIndex = nextDeviceIndex
+        self.nextLaneIndex = nextLaneIndex
+        self.nextRecoveryIndex = nextRecoveryIndex
+        self.discoveryComplete = discoveryComplete
         self.deviceListFingerprint = deviceListFingerprint
         self.hasMoreDevices = hasMoreDevices
         self.failure = failure
+    }
+}
+
+/// Compact metadata for durable work; reading this never materializes its saved payload.
+public struct PushPendingLane: Sendable {
+    public let selectionID: String
+    public let kind: PushSourceCommit.Kind
+    public let table: String
+    public let deviceID: String
+    public init(selectionID: String, kind: PushSourceCommit.Kind, table: String, deviceID: String) {
+        self.selectionID = selectionID; self.kind = kind; self.table = table; self.deviceID = deviceID
     }
 }
 
@@ -671,6 +691,8 @@ public extension PushTransport {
 public protocol PushProgressStore: Sendable {
     func knownDeviceIds() async throws -> Set<String>
     func rememberDeviceId(_ deviceId: String) async throws
+    func freshCursor(table: PushAppendTable, deviceId: String) async throws -> PushCursor?
+    func saveFreshCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor) async throws
     func cursor(table: PushAppendTable, deviceId: String) async throws -> PushCursor?
     func saveCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor) async throws
     func binaryCursor(table: PushBinaryTable, deviceId: String) async throws -> PushCursor?
@@ -683,6 +705,10 @@ public protocol PushProgressStore: Sendable {
 }
 
 public extension PushProgressStore {
+    func freshCursor(table: PushAppendTable, deviceId: String) async throws -> PushCursor? { nil }
+    func saveFreshCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor) async throws {
+        throw PushProtocolException("fresh progress store is unavailable")
+    }
     /// Stores predating the object lane have no in-flight state; the coordinator rebuilds and
     /// re-intents from scratch, which the receiver dedupes by object id.
     func inFlightObject(table: PushBinaryTable, deviceId: String) async throws -> PushInFlightObject? { nil }
@@ -690,6 +716,9 @@ public extension PushProgressStore {
 }
 
 public protocol PushSnapshotSource: Sendable {
+    func discoverDevices(capabilities: PushCapabilities) async throws -> PushDeviceDiscovery
+    func freshAppendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64, sinceTs: Int64, throughTs: Int64,
+                         limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage
     func appendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64,
                     limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage
     func appendFingerprintAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> String?

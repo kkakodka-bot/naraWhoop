@@ -81,4 +81,19 @@ final class RetiredCaptureDrainTests: XCTestCase {
         XCTAssertEqual(later.calls, 1)
         XCTAssertEqual(retired.pendingCount, 0)
     }
+    func testExpiredWakeRetainsUnstartedOldWritersForNextWake() async {
+        let retired = RetiredCaptureDrain(automaticRetry: false)
+        var allowed = true
+        var calls: [String] = []
+        retired.retain(id: UUID()) { calls.append("old-a"); allowed = false; return true }
+        retired.retain(id: UUID()) { calls.append("old-b"); return true }
+        await retired.retry(allowing: { allowed })
+        XCTAssertEqual(calls, ["old-a"])
+        XCTAssertEqual(retired.pendingCount, 1)
+        allowed = true
+        await retired.retry(allowing: { allowed })
+        XCTAssertEqual(calls, ["old-a", "old-b"])
+        XCTAssertEqual(retired.pendingCount, 0)
+    }
+
 }

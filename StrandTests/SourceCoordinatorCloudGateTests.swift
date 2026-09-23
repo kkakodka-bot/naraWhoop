@@ -33,7 +33,7 @@ final class SourceCoordinatorCloudGateTests: XCTestCase {
             }, genericCapture: captureReady ? GenericCaptureJournal { streams, device in
                 guard let writer = await store() else { throw CocoaError(.fileReadNoSuchFile) }
                 _ = try await writer.insert(streams, deviceId: device)
-            } : nil)
+            } : nil, onCaptureOpportunity: { state.captureOpportunities += 1 })
     }
 
     func testReadyPrivacyPolicyCannotSubstituteForPreparedCaptureWriter() async throws {
@@ -178,6 +178,29 @@ final class SourceCoordinatorCloudGateTests: XCTestCase {
         XCTAssertEqual(rows.map(\.ts), [102])
     }
 
+    func testCaptureOpportunityCannotCrossPrivacyGenerationOrRetiredAccount() async throws {
+        let store = try await WhoopStore.inMemory(), state = SourcePolicyState(ready: true)
+        let coordinator = coordinator(registry(store), state, store: { store })
+        coordinator.start()
+        let old = coordinator.captureOpportunityCallback()
+        old()
+        XCTAssertEqual(state.captureOpportunities, 1)
+        state.termsAccepted = false
+        coordinator.reconcilePrivacyPolicy()
+        old()
+        state.termsAccepted = true
+        coordinator.reconcilePrivacyPolicy()
+        old()
+        XCTAssertEqual(state.captureOpportunities, 1, "An old source cannot reuse a restored grant")
+        let current = coordinator.captureOpportunityCallback()
+        current()
+        XCTAssertEqual(state.captureOpportunities, 2)
+        coordinator.shutdownForAccountChange()
+        current()
+        old()
+        XCTAssertEqual(state.captureOpportunities, 2, "A retired callback cannot start another account's relay")
+    }
+
     private func waitForRows(_ store: WhoopStore, expected: Int) async throws -> [HRSample] {
         for _ in 0..<100 {
             let rows = try await store.hrSamples(deviceId: strap, from: 0, to: 1000, limit: 100)
@@ -195,6 +218,7 @@ private final class SourcePolicyState {
     var enrolled: Bool
     var termsAccepted: Bool
     var sources: [FakeCloudGatedSource] = []
+    var captureOpportunities = 0
     var whoopStarts = 0
     var whoopStops = 0
     init(ready: Bool = false) { enrolled = ready; termsAccepted = ready }

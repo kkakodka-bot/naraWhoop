@@ -108,30 +108,11 @@ final class HomeScreenQuickActionSceneDelegate: NSObject, UIWindowSceneDelegate,
     // Those methods would have compiled, shipped, and silently never run, which is a worse failure than a
     // red build because nothing reports it.
 
-    /// Give buffered standard-HR rows a real persistence attempt as the scene leaves the foreground.
-    ///
-    /// iOS suspends a connected strap WITHOUT a disconnect edge, and the Collector's 30-sample /
-    /// 30-second cadence timer does not run while suspended — so a sub-cadence 0x2A37 batch sits in
-    /// memory and dies with the app if iOS terminates it before it resumes.
+    /// A scene transition services both standard and custom capture under the same finite owner.
+    /// Sparse records do not depend on a timer running after suspension.
     func sceneDidEnterBackground(_ scene: UIScene) {
-        // A bare Task is suspended along with the app, which would leave this doing nothing at the one
-        // moment it exists for. Ask UIKit for a window and end it on BOTH paths, so the assertion is
-        // always released rather than expiring.
-        let application = UIApplication.shared
-        var taskID: UIBackgroundTaskIdentifier = .invalid
-        taskID = application.beginBackgroundTask(withName: "standard-hr-lifecycle-flush") {
-            application.endBackgroundTask(taskID)
-            taskID = .invalid
-        }
-        // @MainActor explicitly: AppModel and BLEManager are both main-actor isolated, and a bare Task
-        // from a nonisolated delegate callback does not inherit that. Same idiom BLEManager uses for this
-        // exact call on the disconnect edge.
-        Task { @MainActor in
-            await Self.flushStandardHR(.background)
-            if taskID != .invalid {
-                application.endBackgroundTask(taskID)
-                taskID = .invalid
-            }
+        MainActor.assumeIsolated {
+            AppModel.shared?.ble.beginCaptureOpportunity(kind: .taskAssertion)
         }
     }
 

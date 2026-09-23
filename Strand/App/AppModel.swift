@@ -61,6 +61,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func retryCaptureDuringOpportunity(allowing: @escaping () -> Bool) async {
+        guard allowing(), captureAdmissionEnabled, isAccountRuntimeActive, !Task.isCancelled else { return }
+        // Existing coordinators retain exact receipt identity; this retry needs no visible scene.
+        if let coordinator = sourceCoordinator { await coordinator.retryCapturePersistence(allowing: allowing) }
+        guard allowing(), captureAdmissionEnabled, isAccountRuntimeActive, !Task.isCancelled else { return }
+        await ble.flushCaptureForOpportunity(allowing: allowing)
+    }
+
     /// Timestamp formatter for the generic-HR strap-log lines routed through `straplog` into the shared
     /// log (issue #421). Mirrors `BLEManager.logTimeFormatter`'s `HH:mm:ss` so WHOOP and HR-strap lines
     /// read identically in the exported strap log.
@@ -1339,7 +1347,12 @@ final class AppModel: ObservableObject {
             straplog: { [weak self] line in
                 self?.live.append(log: "[\(AppModel.logTimeFormatter.string(from: Date()))] \(line)")
             },
-            genericCapture: captureJournal)
+            genericCapture: captureJournal,
+            onCaptureOpportunity: { [weak self] in
+                guard let self, self.isAccountRuntimeActive, self.captureAdmissionEnabled,
+                      (self.accountContext ?? CloudRuntimeIdentity.currentEnrollmentSnapshot()?.context) == context else { return }
+                self.ble.beginCaptureOpportunity(kind: .bleCallback)
+            })
         if capturePreparationHooks.startCoordinator { coordinator.start() }
         self.deviceRegistry = registry
         // #1303: adoption re-points the strap onto its stable `whoop-<serial>` id inside BLEManager (which

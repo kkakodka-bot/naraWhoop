@@ -133,6 +133,11 @@ final class CloudPushBackgroundRuntime: @unchecked Sendable {
         try? await runtime?.reconcile()
     }
 
+    static func finishOpportunityTransfers(_ opportunity: ResourceBudget.Opportunity) async {
+        guard let runtime = snapshot(), !runtime.isRetired else { return }
+        await runtime.queue.finishOpportunityTransfers(opportunity)
+    }
+
     static func nextWake() async -> (AccountSessionContext, Date?)? {
         guard let runtime = snapshot(), !runtime.isRetired else { return nil }
         guard let date = try? await runtime.queue.nextWakeDate(captured: runtime.context) else {

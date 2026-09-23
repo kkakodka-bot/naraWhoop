@@ -612,6 +612,16 @@ public final class BLEManager: NSObject, ObservableObject {
     /// True while a historical offload session is in progress (frames route to Backfiller).
     private let resourceBudget: ResourceBudget
     private let resourceBudgetOwner = UUID()
+    private var captureOpportunity: ResourceBudget.Opportunity?
+    private var captureOpportunityTask: Task<Void, Never>?
+    private var captureOpportunityTimeout: Task<Void, Never>?
+    private var captureRelayTask: Task<Void, Never>?
+    private var captureOpportunityLease: HistoricalCommitLease?
+    #if DEBUG
+    var captureOpportunityLeaseFactoryForTesting: ((@escaping () -> Void) -> HistoricalCommitLease)?
+    var test_captureOpportunity: ResourceBudget.Opportunity? { captureOpportunity }
+    func test_waitForCaptureOpportunity() async { await captureOpportunityTask?.value }
+    #endif
     deinit { resourceBudget.history(owner: resourceBudgetOwner, active: false) }
     private var backfilling = false {
         didSet { resourceBudget.history(owner: resourceBudgetOwner,
@@ -1806,6 +1816,8 @@ public final class BLEManager: NSObject, ObservableObject {
     public func shutdownForAccountChange() {
         guard !accountShutdown else { return }
         accountShutdown = true
+        if let opportunity = captureOpportunity { finishCaptureOpportunity(opportunity, expiring: true) }
+        resourceBudget.endOpportunities(owner: resourceBudgetOwner)
         connectionStartupTask?.cancel()
         connectionStartupTask = nil
         realtimeIntent.endConnection(clearIntent: true)
@@ -2261,7 +2273,89 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Give buffered standard-HR rows a persistence attempt before app suspension/termination.
     /// Kept on BLEManager so the app lifecycle reaches the live Collector owned by this connection.
     func flushStandardHRForLifecycle(reason: LivePersistTrace.StandardHRFlushReason) async {
-        await collector?.flushStandardHR(reason: reason)
+        _ = await collector?.drainOpportunity(allowing: { !Task.isCancelled })
+    }
+
+    /// A real callback/lifecycle event owns a finite local persistence and relay handoff pass.
+    /// The application work budget is not an OS deadline; UIKit expiration is an independent fence.
+    func beginCaptureOpportunity(kind: ResourceBudget.OpportunityKind) {
+        guard !accountShutdown, captureOpportunity == nil else { return }
+        let opportunity = resourceBudget.beginOpportunity(kind: kind, owner: resourceBudgetOwner)
+        captureOpportunity = opportunity
+        let lease = acquireCaptureOpportunityLease { [weak self] in
+            self?.finishCaptureOpportunity(opportunity, expiring: true)
+        }
+        guard resourceBudget.isCurrent(opportunity) else { lease.finish(); return }
+        captureOpportunityLease = lease
+        captureOpportunityTimeout = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+            self?.finishCaptureOpportunity(opportunity, expiring: true)
+        }
+        captureOpportunityTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.finishCaptureOpportunity(opportunity) }
+            // At most ten coalesced passes share the original two-second window. Later
+            // notifications neither stack assertions nor move the deadline. Local persistence
+            // remains independent of a slow network attempt admitted in the same window.
+            for _ in 0..<10 {
+                guard !Task.isCancelled, !self.accountShutdown, self.resourceBudget.isCurrent(opportunity) else { break }
+                await self.flushCaptureForOpportunity(allowing: {
+                    !self.accountShutdown && self.resourceBudget.isCurrent(opportunity)
+                })
+                guard self.resourceBudget.isCurrent(opportunity), !Task.isCancelled else { break }
+                if self.captureRelayTask == nil {
+                    self.captureRelayTask = Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        defer { if self.captureOpportunity?.id == opportunity.id { self.captureRelayTask = nil } }
+                        await CloudPushBackgroundRuntime.reconcileActive()
+                        await CloudPushBackgroundRuntime.finishOpportunityTransfers(opportunity)
+                    }
+                }
+                do { try await Task.sleep(nanoseconds: 200_000_000) } catch { break }
+            }
+
+        }
+    }
+
+    private func acquireCaptureOpportunityLease(expired: @escaping () -> Void) -> HistoricalCommitLease {
+        #if DEBUG
+        if let factory = captureOpportunityLeaseFactoryForTesting { return factory(expired) }
+        #endif
+        #if os(iOS)
+        return HistoricalCommitLease(begin: { expiration in
+            let id = UIApplication.shared.beginBackgroundTask(withName: "CapturePersistence", expirationHandler: expiration)
+            return id == .invalid ? nil : id.rawValue
+        }, end: { UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: $0)) }, expired: expired)
+        #else
+        return HistoricalCommitLease(begin: { _ in 0 }, end: { _ in }, expired: expired)
+        #endif
+    }
+
+    private func finishCaptureOpportunity(_ opportunity: ResourceBudget.Opportunity, expiring: Bool = false) {
+        guard captureOpportunity?.id == opportunity.id else { return }
+        resourceBudget.endOpportunity(opportunity)
+        if expiring { captureOpportunityTask?.cancel() }
+        captureRelayTask?.cancel()
+        captureRelayTask = nil
+        captureOpportunityTimeout?.cancel()
+        captureOpportunityTimeout = nil
+        captureOpportunityLease?.finish()
+        captureOpportunityLease = nil
+        // A suspended store write still owns its captured data. Do not start a second pass while
+        // it finishes merely because the execution budget expired.
+        if !expiring || captureOpportunityTask == nil {
+            captureOpportunityTask = nil
+            captureOpportunity = nil
+        }
+    }
+
+    func flushCaptureForOpportunity(allowing: @escaping () -> Bool) async {
+        for _ in 0..<4 {
+            guard allowing(), !Task.isCancelled, let collector, collector.hasPendingCapture else { return }
+            if await collector.drainOpportunity(allowing: allowing) { return }
+            // Storage failure already retains data and exposes the failure; don't spin four retries.
+            if collector.lastWriteFailed { return }
+        }
     }
 
     /// USER-initiated connect (the Connect button, the scan flow, Add-a-WHOOP). The ONLY entry that
@@ -8068,6 +8162,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         guard !accountShutdown, !intentionalDisconnect, restorationTask == nil,
               let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral],
               connectionOwner.beginRestoration() else { return }
+        beginCaptureOpportunity(kind: .restoration)
         launchedViaStateRestoration = true
         let restoreGeneration = UUID()
         let capturedDeviceIntent = deviceIntentRevision
@@ -8905,6 +9000,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             return
         }
         guard let data = characteristic.value else { return }
+        defer { beginCaptureOpportunity(kind: .bleCallback) }
         let bytes = [UInt8](data)
         if consumeOnboardingValue(bytes, characteristic: characteristic, peripheral: peripheral) { return }
         // Level A is authoritative: persist the exact notification value before routing,

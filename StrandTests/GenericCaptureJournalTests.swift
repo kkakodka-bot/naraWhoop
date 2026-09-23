@@ -296,4 +296,40 @@ final class GenericCaptureJournalTests: XCTestCase {
         XCTAssertEqual(source.pendingCaptureCount, 0)
         XCTAssertEqual(journal.pendingBatchCount, 0)
     }
+    func testFiniteRetryStopsBetweenTransactionsAndRetainsExactTail() async {
+        var committed: [Int] = []
+        var allowed = true
+        let journal = GenericCaptureJournal { streams, device in
+            XCTAssertEqual(device, "original-owner-device")
+            committed.append(streams.hr[0].ts)
+            allowed = false
+        }
+        XCTAssertTrue(journal.admit(Streams(hr: [.init(ts: 100, bpm: 70)]), deviceID: "original-owner-device"))
+        XCTAssertTrue(journal.admit(Streams(hr: [.init(ts: 101, bpm: 71)]), deviceID: "original-owner-device"))
+        let first = await journal.drain(allowing: { allowed }, maximumTransactions: 2)
+        XCTAssertFalse(first)
+        XCTAssertEqual(committed, [100])
+        XCTAssertEqual(journal.pendingBatchCount, 1)
+        journal.sealCapture()
+        let retry = await journal.drain()
+        XCTAssertTrue(retry)
+        XCTAssertEqual(committed, [100, 101])
+    }
+
+    func testFiniteTransactionBudgetRetainsTailEvenWhenOpportunityStillValid() async {
+        var committed: [Int] = []
+        let journal = GenericCaptureJournal { streams, _ in committed.append(streams.hr[0].ts) }
+        for ts in 100...102 {
+            XCTAssertTrue(journal.admit(Streams(hr: [.init(ts: ts, bpm: 70)]), deviceID: "old"))
+        }
+        let first = await journal.drain(allowing: { true }, maximumTransactions: 1)
+        XCTAssertFalse(first)
+        XCTAssertEqual(committed, [100])
+        XCTAssertEqual(journal.pendingBatchCount, 2)
+        journal.sealCapture()
+        let retry = await journal.drain()
+        XCTAssertTrue(retry)
+        XCTAssertEqual(committed, [100, 101, 102])
+    }
+
 }

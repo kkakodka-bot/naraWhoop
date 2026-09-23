@@ -105,9 +105,14 @@ public struct PushPreparedSelection: Codable, Sendable {
         guard batches.allSatisfy({ $0.sourceId == first.sourceId && $0.deviceId == commit.deviceID
             && $0.table.wireName == commit.table && $0.protocolVersion == first.protocolVersion }) else { throw Self.invalid() }
         switch commit.kind {
-        case .append:
+        case .append, .freshAppend:
             guard batches.count == 1, first.mode == "append", commit.cursor != nil,
                   commit.cursor == first.endCursor, commit.window == nil else { throw Self.invalid() }
+            if commit.kind == .freshAppend {
+                guard first.recordCount <= PushProtocol.freshAppendMaximumRecords,
+                      first.body.count <= PushProtocol.freshAppendMaximumDecodedBytes,
+                      PushProtocol.hasFreshAppendIdentity(first) else { throw Self.invalid() }
+            }
         case .mutable:
             guard commit.cursor == nil, let progress = commit.window, let window = first.window,
                   progress.batchId == first.replacementId,

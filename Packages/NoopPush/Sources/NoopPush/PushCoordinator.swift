@@ -60,12 +60,25 @@ public struct PushCoordinator: Sendable {
 
     public func pushAppend(_ table: PushAppendTable, deviceId: String,
                            protocolVersion: String = PushProtocol.version) async -> PushResult {
+        await pushAppend(table, deviceId: deviceId, protocolVersion: protocolVersion, fresh: false)
+    }
+
+    public func pushFreshAppend(_ table: PushAppendTable, deviceId: String,
+                                protocolVersion: String = PushProtocol.version) async -> PushResult {
+        await pushAppend(table, deviceId: deviceId, protocolVersion: protocolVersion, fresh: true)
+    }
+
+    private func pushAppend(_ table: PushAppendTable, deviceId: String, protocolVersion: String, fresh: Bool) async -> PushResult {
+        let byteLimit = fresh ? PushProtocol.freshAppendMaximumDecodedBytes : PushProtocolLimits.maxBodyBytes
+        let rowLimit = min(wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords, fresh ? PushProtocol.freshAppendMaximumRecords : PushProtocolLimits.maxRecords)
+        let kind: PushSourceCommit.Kind = fresh ? .freshAppend : .append
         guard allowsPreparation() else { return pressureDeferred }
-        if let paused = await preparationPaused(table: table.wireName, deviceId: deviceId) { return paused }
-        guard wakeBudget?.admitInlinePreparation(maximumDecodedBytes: PushProtocolLimits.maxBodyBytes) ?? true else { return pressureDeferred }
+        if !fresh, let paused = await preparationPaused(table: table.wireName, deviceId: deviceId) { return paused }
+        guard wakeBudget?.admitInlinePreparation(maximumDecodedBytes: byteLimit) ?? true else { return pressureDeferred }
         let stored: PushCursor?
         do {
-            stored = try await progress.cursor(table: table, deviceId: deviceId)
+            stored = fresh ? try await progress.freshCursor(table: table, deviceId: deviceId)
+                : try await progress.cursor(table: table, deviceId: deviceId)
         } catch {
             return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
         }
@@ -86,15 +99,21 @@ public struct PushCoordinator: Sendable {
 
         let page: PushAppendPage
         do {
-            page = try await source.appendPage(
-                table: table,
-                deviceId: deviceId,
-                afterRowId: effective?.rowId ?? 0,
-                limit: (wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords) + 1,
-                limits: .init(maximumDecodedBytes: PushProtocolLimits.maxBodyBytes,
-                    protocolVersion: protocolVersion, shouldContinue: allowsActivePreparation)
-            )
+            let limits = PushSourceReadLimits(maximumDecodedBytes: byteLimit, protocolVersion: protocolVersion,
+                shouldContinue: allowsActivePreparation)
+            if fresh {
+                let clock = today().timeIntervalSince1970
+                guard clock.isFinite, clock >= Double(PushProtocol.freshAppendWindowSeconds), clock < Double(Int64.max) else { throw PushSourceReadError.deferred }
+                let through = Int64(clock.rounded(.down))
+                page = try await source.freshAppendPage(table: table, deviceId: deviceId,
+                    afterRowId: effective?.rowId ?? 0, sinceTs: through - PushProtocol.freshAppendWindowSeconds, throughTs: through,
+                    limit: rowLimit + 1, limits: limits)
+            } else {
+                page = try await source.appendPage(table: table, deviceId: deviceId,
+                    afterRowId: effective?.rowId ?? 0, limit: rowLimit + 1, limits: limits)
+            }
         } catch let error as PushSourceReadError {
+            if fresh { return error == .deferred ? pressureDeferred : incompatiblePreparation }
             return await sourceReadFailure(error, table: table.wireName, deviceId: deviceId)
         } catch let error as PushProtocolException {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
@@ -104,7 +123,7 @@ public struct PushCoordinator: Sendable {
 
         let rows = page.rows
         guard !rows.isEmpty else {
-            wakeBudget?.refundEmptyPreparation(maximumDecodedBytes: PushProtocolLimits.maxBodyBytes)
+            wakeBudget?.refundEmptyPreparation(maximumDecodedBytes: byteLimit)
             return .noData
         }
 
@@ -112,8 +131,10 @@ public struct PushCoordinator: Sendable {
         do {
             guard allowsActivePreparation() else { return pressureDeferred }
             batch = try PushProtocol.appendBatch(table: table, sourceId: sourceId, deviceId: deviceId,
-                startCursor: effective, records: Array(rows.prefix(wakeBudget?.rowsPerJob ?? PushProtocolLimits.maxRecords)), protocolVersion: protocolVersion)
+                startCursor: effective, records: Array(rows.prefix(rowLimit)), protocolVersion: protocolVersion,
+                freshAppend: fresh, maximumDecodedBytes: byteLimit)
         } catch let error as PushProtocolException where error.errorDescription == "first append record exceeds the 4 MiB decoded batch limit" {
+            if fresh { return incompatiblePreparation }
             return await sourceReadFailure(.requiresCompatibleEncoding, table: table.wireName, deviceId: deviceId)
         } catch {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
@@ -122,7 +143,7 @@ public struct PushCoordinator: Sendable {
         if let prepareSelection {
             do {
                 guard destinationStillCurrent() else { throw CancellationError() }
-                try await prepareSelection(.init(inline: [batch], commit: .init(kind: .append,
+                try await prepareSelection(.init(inline: [batch], commit: .init(kind: kind,
                     table: table.wireName, deviceID: deviceId, batchIDs: [batch.batchId], cursor: batch.endCursor)))
             } catch { return preparationFailure() }
         }
@@ -134,9 +155,10 @@ public struct PushCoordinator: Sendable {
         do {
             guard destinationStillCurrent() else { throw CancellationError() }
             if let commitSource {
-                try await commitSource(.init(kind: .append, table: table.wireName, deviceID: deviceId,
+                try await commitSource(.init(kind: kind, table: table.wireName, deviceID: deviceId,
                                               batchIDs: [batchId], cursor: end))
-            } else { try await progress.saveCursor(table: table, deviceId: deviceId, cursor: end) }
+            } else if fresh { try await progress.saveFreshCursor(table: table, deviceId: deviceId, cursor: end) }
+            else { try await progress.saveCursor(table: table, deviceId: deviceId, cursor: end) }
             return .accepted(batchId: batchId, recordCount: recordCount, hasMore: page.hasMore || rows.count > batch.recordCount, batchCount: batchCount)
         } catch let error as PushProtocolException {
             return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
@@ -519,147 +541,155 @@ public struct PushCoordinator: Sendable {
 
     public func pushKnownDevices(
         startDeviceIndex: Int = 0,
+        startLaneIndex: Int = 0,
+        startRecoveryIndex: Int = 0,
         expectedDeviceListFingerprint: String? = nil,
         maxDevices: Int = .max,
         capabilities: PushCapabilities = .all,
-        binaryEnabled: Bool = false
+        binaryEnabled: Bool = false,
+        pendingLanes: [PushPendingLane] = [],
+        resumePreparedLane: (@Sendable (PushPendingLane) async -> PushResult)? = nil,
+        allowsHistoricalPreparation: @Sendable () -> Bool = { true },
+        checkpoint: (@Sendable (Int, Int, Int, String) async throws -> Void)? = nil
     ) async -> PushRunResult {
-        precondition(startDeviceIndex >= 0)
+        precondition(startDeviceIndex >= 0 && startLaneIndex >= 0 && startRecoveryIndex >= 0)
         precondition(maxDevices > 0)
         guard allowsPreparation() else {
             return PushRunResult(acceptedBatches: 0, rejectedBatches: 0, hasMoreAppendRows: true,
-                                 hasRetryableFailure: true)
+                hasRetryableFailure: true, nextDeviceIndex: startDeviceIndex, nextLaneIndex: startLaneIndex,
+                nextRecoveryIndex: startRecoveryIndex, discoveryComplete: false)
         }
-        let ndjsonEnabled = !capabilities.appendTables.isEmpty || !capabilities.mutableTables.isEmpty
-        let binaryAllowed = binaryEnabled && !capabilities.binaryTables.isEmpty
-        if capabilities.isEmpty || (!ndjsonEnabled && !binaryAllowed) {
+        if capabilities.isEmpty && pendingLanes.isEmpty {
             return PushRunResult(acceptedBatches: 0, rejectedBatches: 0, hasMoreAppendRows: false)
         }
-
-        let devices: [String]
+        let devices: [String], discoveryComplete: Bool
         do {
-            let live = try await source.knownDeviceIds(capabilities: capabilities).filter { !$0.isBlank }.uniqued()
+            let discovery = try await source.discoverDevices(capabilities: capabilities)
+            discoveryComplete = discovery.isComplete
+            let live = discovery.deviceIDs.filter { !$0.isBlank }.uniqued()
             for id in live { try await progress.rememberDeviceId(id) }
             let known = try await progress.knownDeviceIds()
-            devices = (live + known).filter { !$0.isBlank }.uniqued().sorted()
+            devices = (live + known + pendingLanes.map(\.deviceID)).filter { !$0.isBlank }.uniqued().sorted()
         } catch PushSourceReadError.deferred {
             return PushRunResult(acceptedBatches: 0, rejectedBatches: 0, hasMoreAppendRows: true,
-                                 hasRetryableFailure: true)
+                hasRetryableFailure: true, nextDeviceIndex: startDeviceIndex, nextLaneIndex: startLaneIndex,
+                nextRecoveryIndex: startRecoveryIndex, discoveryComplete: false)
         } catch {
-            let failure = PushFailure(code: .localDatabase)
-            return PushRunResult(
-                acceptedBatches: 0, rejectedBatches: 1, hasMoreAppendRows: false,
-                hasRetryableFailure: true, failure: failure
-            )
+            return PushRunResult(acceptedBatches: 0, rejectedBatches: 1, hasMoreAppendRows: true,
+                hasRetryableFailure: true, nextDeviceIndex: startDeviceIndex, nextLaneIndex: startLaneIndex,
+                nextRecoveryIndex: startRecoveryIndex, discoveryComplete: false, failure: PushFailure(code: .localDatabase))
         }
-
-        // The index only names a position in this exact ordered set. Discovery can grow
-        // between wakes, so a missing/changed fingerprint conservatively restarts the cycle.
-        let deviceListFingerprint: String
-        do { deviceListFingerprint = PushDurabilityReceipt.sha256(try JSONEncoder().encode(devices)) }
+        let fingerprint: String
+        do { fingerprint = PushDurabilityReceipt.sha256(try JSONEncoder().encode(["fresh-history-rounds-v1"] + devices)) }
         catch { return PushRunResult(acceptedBatches: 0, rejectedBatches: 1, hasMoreAppendRows: true, hasRetryableFailure: true) }
         guard !devices.isEmpty else {
-            return PushRunResult(acceptedBatches: 0, rejectedBatches: 0, hasMoreAppendRows: false,
-                                 deviceListFingerprint: deviceListFingerprint)
+            return PushRunResult(acceptedBatches: 0, rejectedBatches: 0, hasMoreAppendRows: !discoveryComplete,
+                discoveryComplete: discoveryComplete, deviceListFingerprint: fingerprint)
         }
 
-        let start = expectedDeviceListFingerprint == deviceListFingerprint ? startDeviceIndex % devices.count : 0
-        let selectedCount = min(maxDevices, devices.count)
-        let selectedDevices = (0..<selectedCount).map { devices[(start + $0) % devices.count] }
-        let nextDeviceIndex = (start + selectedCount) % devices.count
-
-        var accepted = 0
-        var acceptedRecords = 0
-        var rejected = 0
-        var more = false
-        var binaryMore = false
-        var mutableMore = false
-        var retryableFailure = false
+        // Positions are stable even when capabilities or pending selections change. A saved lane
+        // gets its own turn; recovery cannot consume every wake before current capture is examined.
+        let appendOrder: [PushAppendTable] = [.hrSample, .gravitySample, .rrInterval, .rrPacketProvenance,
+            .standardHRReceipt, .event, .battery, .spo2Sample, .skinTempSample, .respSample,
+            .stepSample, .sleepStateSample, .ppgHrSample]
+        let otherFresh = appendOrder.filter { $0 != .hrSample && $0 != .gravitySample }
+        let historical: [(PushSourceCommit.Kind, String)] = appendOrder.map { (.append, $0.wireName) }
+            + [PushMutableTable.dailyMetric, .sleepSession, .workout, .journal].map { (.mutable, $0.wireName) }
+            + PushBinaryTable.allCases.map { (.binary, $0.wireName) }
+        // Four-turn rounds bound the service interval of current HR/gravity independently of
+        // the size or number of old backlogs. A single-request wake still grants history a turn.
+        let lanes: [(PushSourceCommit.Kind, String)] = historical.enumerated().flatMap { index, old in
+            [(.freshAppend, PushAppendTable.hrSample.wireName), (.freshAppend, PushAppendTable.gravitySample.wireName),
+             (.freshAppend, otherFresh[index % otherFresh.count].wireName), old]
+        }
+        let matched = expectedDeviceListFingerprint == fingerprint
+        var deviceIndex = matched ? startDeviceIndex % devices.count : 0
+        var laneIndex = matched ? startLaneIndex % lanes.count : 0
+        var recoveryIndex = startRecoveryIndex % 1_000_001
+        let selectedDevices = Set((0..<min(maxDevices, devices.count)).map { devices[(deviceIndex + $0) % devices.count] })
+        var laneTurns = 0, accepted = 0, acceptedRecords = 0, rejected = 0
+        var finishedThisWake: Set<String> = [], completedSelections: Set<String> = []
+        var more = !discoveryComplete, binaryMore = false, mutableMore = false, retryableFailure = false
         var selectedFailure: PushFailure?
-
-        // Wake-budget ordering: ship scored mutable tables first so a short background wake still
-        // lands today's Charge / sleep / workouts / journal before dense per-second append streams.
-        // Append tables follow: lightweight event + battery, then the heavy HR/SpO₂/temp/resp/gravity
-        // lanes, with rrInterval last among append tables. Binary/object lanes stay last.
-        let mutableOrder: [PushMutableTable] = [.dailyMetric, .sleepSession, .workout, .journal]
-        let appendOrder: [PushAppendTable] = [
-            .event, .battery, .hrSample, .spo2Sample, .skinTempSample,
-            .respSample, .gravitySample, .stepSample, .sleepStateSample, .ppgHrSample,
-            .rrInterval, .rrPacketProvenance, .standardHRReceipt,
-        ]
-
-        for deviceId in selectedDevices {
-            if ndjsonEnabled {
-                for table in mutableOrder where capabilities.mutableTables.contains(table) {
-                    switch await pushMutable(table, deviceId: deviceId) {
-                    case .accepted(_, let records, let hasMore, let batchCount):
-                        accepted += batchCount
-                        acceptedRecords += records
-                        mutableMore = mutableMore || hasMore
-                    case .rejected(_, let retryable, let failure):
-                        rejected += 1
-                        if selectedFailure == nil || (retryable && !retryableFailure) {
-                            selectedFailure = failure?.attributed(to: table)
-                        }
-                        retryableFailure = retryableFailure || retryable
-                    case .noData:
-                        break
-                    }
+        var stopped = false
+        while laneTurns < lanes.count * devices.count && selectedDevices.contains(devices[deviceIndex]) {
+            guard allowsPreparation() else { stopped = true; more = true; break }
+            let device = devices[deviceIndex], lane = lanes[laneIndex]
+            let laneKey = lane.0.rawValue + "\u{0}" + lane.1 + "\u{0}" + device
+            let saved = pendingLanes.filter { $0.deviceID == device && $0.kind == lane.0 && $0.table == lane.1
+                && !completedSelections.contains($0.selectionID) }
+                .sorted { $0.selectionID < $1.selectionID }
+            let result: PushResult
+            var resumedID: String?
+            if finishedThisWake.contains(laneKey) { result = .noData }
+            else if !saved.isEmpty {
+                if let resumePreparedLane {
+                    let pending = saved[recoveryIndex % saved.count]
+                    resumedID = pending.selectionID
+                    result = await resumePreparedLane(pending)
+                    recoveryIndex = (recoveryIndex + 1) % 1_000_001
+                    // A second saved version or newly appended rows still need another turn.
+                    more = true
+                } else { result = .rejected(reason: "prepared_recovery_unavailable", retryable: true, failure: nil) }
+            } else if lane.0 == .freshAppend, let table = appendOrder.first(where: { $0.wireName == lane.1 }),
+                      capabilities.appendTables.contains(table) {
+                result = await pushFreshAppend(table, deviceId: device, protocolVersion: capabilities.protocolVersion)
+            } else if lane.0 != .freshAppend && !allowsHistoricalPreparation() {
+                // Keeping debt and advancing the scheduling position does not advance a source cursor.
+                more = true; result = .noData
+            } else if lane.0 == .append, let table = appendOrder.first(where: { $0.wireName == lane.1 }),
+                      capabilities.appendTables.contains(table) {
+                result = await pushAppend(table, deviceId: device, protocolVersion: capabilities.protocolVersion)
+            } else if lane.0 == .mutable, let table = PushMutableTable.allCases.first(where: { $0.wireName == lane.1 }),
+                      capabilities.mutableTables.contains(table) {
+                result = await pushMutable(table, deviceId: device)
+            } else if lane.0 == .binary, binaryEnabled,
+                      let table = PushBinaryTable.allCases.first(where: { $0.wireName == lane.1 }),
+                      capabilities.binaryTables.contains(table), let objectLane = capabilities.objectLane,
+                      objectLane.streams.contains(table) {
+                result = await pushObjects(table, deviceId: device, lane: objectLane)
+            } else { result = .noData }
+            let attemptedWork: Bool
+            switch result {
+            case .accepted(_, let records, let hasMore, let batchCount):
+                attemptedWork = true
+                if let resumedID { completedSelections.insert(resumedID) }
+                if !hasMore && saved.count <= 1 { finishedThisWake.insert(laneKey) }
+                accepted += batchCount; acceptedRecords += records
+                if lane.0 == .mutable { mutableMore = mutableMore || hasMore }
+                else if lane.0 == .binary { binaryMore = binaryMore || hasMore }
+                else { more = more || hasMore }
+            case .rejected(_, let retryable, let failure):
+                attemptedWork = true
+                finishedThisWake.insert(laneKey)
+                rejected += 1; more = true
+                if selectedFailure == nil || (retryable && !retryableFailure) {
+                    if let table = PushAppendTable.allCases.first(where: { $0.wireName == lane.1 }) { selectedFailure = failure?.attributed(to: table) }
+                    else if let table = PushMutableTable.allCases.first(where: { $0.wireName == lane.1 }) { selectedFailure = failure?.attributed(to: table) }
+                    else if let table = PushBinaryTable.allCases.first(where: { $0.wireName == lane.1 }) { selectedFailure = failure?.attributed(to: table) }
+                    else { selectedFailure = failure }
                 }
-                for table in appendOrder where capabilities.appendTables.contains(table) {
-                    switch await pushAppend(table, deviceId: deviceId, protocolVersion: capabilities.protocolVersion) {
-                    case .accepted(_, let records, let hasMore, let batchCount):
-                        accepted += batchCount
-                        acceptedRecords += records
-                        more = more || hasMore
-                    case .rejected(_, let retryable, let failure):
-                        rejected += 1
-                        if selectedFailure == nil || (retryable && !retryableFailure) {
-                            selectedFailure = failure?.attributed(to: table)
-                        }
-                        retryableFailure = retryableFailure || retryable
-                    case .noData:
-                        break
-                    }
-                }
+                retryableFailure = retryableFailure || retryable
+            case .noData: attemptedWork = false; finishedThisWake.insert(laneKey)
             }
-            if binaryAllowed {
-                for table in PushBinaryTable.allCases where capabilities.binaryTables.contains(table) {
-                    // Raw streams move only over the advertised object lane. With no lane the rows
-                    // stay local: the inline endpoint refuses them with `use_object_lane` and a
-                    // retry loop would burn battery on a refusal the client cannot act on.
-                    guard let lane = capabilities.objectLane, lane.streams.contains(table) else { continue }
-                    switch await pushObjects(table, deviceId: deviceId, lane: lane) {
-                    case .accepted(_, let records, let hasMore, let batchCount):
-                        accepted += batchCount
-                        acceptedRecords += records
-                        binaryMore = binaryMore || hasMore
-                    case .rejected(_, let retryable, let failure):
-                        rejected += 1
-                        if selectedFailure == nil || (retryable && !retryableFailure) {
-                            selectedFailure = failure?.attributed(to: table)
-                        }
-                        retryableFailure = retryableFailure || retryable
-                    case .noData:
-                        break
-                    }
-                }
+            laneTurns += 1; laneIndex += 1
+            if laneIndex % 4 == 0 {
+                deviceIndex = (deviceIndex + 1) % devices.count
+                if deviceIndex != 0 { laneIndex -= 4 }
+                else if laneIndex == lanes.count { laneIndex = 0 }
             }
+            // Persist after failures as well as success. A poisoned lane cannot freeze the prefix.
+            do {
+                if attemptedWork || laneIndex % 4 == 0 { try await checkpoint?(deviceIndex, laneIndex, recoveryIndex, fingerprint) }
+            }
+            catch { rejected += 1; retryableFailure = true; more = true; stopped = true; break }
+            if deviceIndex == 0 && laneIndex == 0 { break }
         }
-
-        return PushRunResult(
-            acceptedBatches: accepted,
-            rejectedBatches: rejected,
-            hasMoreAppendRows: more,
-            hasMoreBinaryRows: binaryMore,
-            hasMoreMutableRows: mutableMore,
-            acceptedRecords: acceptedRecords,
-            hasRetryableFailure: retryableFailure,
-            nextDeviceIndex: nextDeviceIndex,
-            deviceListFingerprint: deviceListFingerprint,
-            hasMoreDevices: devices.count > selectedCount,
-            failure: selectedFailure
-        )
+        return PushRunResult(acceptedBatches: accepted, rejectedBatches: rejected, hasMoreAppendRows: more,
+            hasMoreBinaryRows: binaryMore, hasMoreMutableRows: mutableMore, acceptedRecords: acceptedRecords,
+            hasRetryableFailure: retryableFailure, nextDeviceIndex: deviceIndex, nextLaneIndex: laneIndex,
+            nextRecoveryIndex: recoveryIndex, discoveryComplete: discoveryComplete, deviceListFingerprint: fingerprint,
+            hasMoreDevices: stopped || selectedDevices.count < devices.count || !discoveryComplete, failure: selectedFailure)
     }
 
     private func deliverBinary(_ batch: PushBinaryBatch) async -> PushResult {

@@ -225,4 +225,82 @@ final class ResourceBudgetTests: XCTestCase {
         budget.queuedCloud(owner: owner, bytes: 0, jobs: 0)
         XCTAssertTrue(budget.permits(.cloudPreparation))
     }
+
+    func testHistoryAndHealthyFIFOReserveRelayWithoutAdmittingMaintenance() {
+        let environment = Environment(), budget = environment.budget(), owner = UUID()
+        budget.history(owner: owner, active: true)
+        for time in stride(from: 100.0, through: 1_000.0, by: 1) {
+            environment.update(now: time)
+            budget.pipeline(owner: owner, depth: 1, oldestUptime: time - 0.001)
+            for work in [ResourceBudget.Work.cloudPreparation, .cloudTransfer, .cloudControl] {
+                XCTAssertTrue(budget.permits(work))
+                XCTAssertEqual(budget.snapshot(for: work).maximumTransfers, 2)
+            }
+            XCTAssertFalse(budget.permits(.bulk))
+            budget.pipeline(owner: owner, depth: 0, oldestUptime: nil)
+            XCTAssertTrue(budget.permits(.cloudTransfer), "FIFO transitions cannot renew relay cooldown")
+        }
+    }
+
+    func testOverloadedFIFOStopsPreparationWhileReceiptsAndReadyDebtCanDrain() {
+        let environment = Environment(), budget = environment.budget(), owner = UUID()
+        budget.pipeline(owner: owner, depth: ResourceBudget.maximumPreparationFIFODepth + 1, oldestUptime: 100)
+        XCTAssertEqual(budget.snapshot(for: .cloudPreparation).reason, .fifo)
+        XCTAssertTrue(budget.permits(.cloudTransfer))
+        XCTAssertTrue(budget.permits(.cloudControl))
+        budget.pipeline(owner: owner, depth: 1, oldestUptime: 90)
+        XCTAssertEqual(budget.snapshot(for: .cloudPreparation).reason, .fifo)
+        XCTAssertTrue(budget.permits(.localCommit))
+    }
+
+    func testLaterBLEOpportunityOverridesOldAssertionOnlyForItsFiniteWorkBudget() {
+        let environment = Environment(), budget = environment.budget(), owner = UUID()
+        budget.lifecycle(backgroundRemaining: 10)
+        environment.update(now: 7_300)
+        XCTAssertFalse(budget.permits(.cloudTransfer))
+        let event = budget.beginOpportunity(kind: .bleCallback, owner: owner)
+        XCTAssertNil(event.platformDeadlineUptime, "CoreBluetooth does not expose an OS grant deadline")
+        XCTAssertEqual(event.workDeadlineUptime, 7_302)
+        XCTAssertTrue(budget.isCurrent(event))
+        XCTAssertTrue(budget.permits(.cloudPreparation))
+        XCTAssertTrue(budget.permits(.cloudControl))
+        XCTAssertEqual(budget.snapshot(for: .cloudTransfer).maximumTransfers, 1)
+        XCTAssertFalse(budget.permits(.bulk), "A BLE event is not maintenance authorization")
+        environment.update(now: 7_302)
+        XCTAssertFalse(budget.isCurrent(event))
+        XCTAssertEqual(budget.snapshot(for: .cloudTransfer).reason, .backgroundDeadline)
+        XCTAssertTrue(budget.permits(.localCommit))
+    }
+
+    func testOpportunityExpirationAndOwnerRetirementCannotCancelAnotherOwner() {
+        let environment = Environment(), budget = environment.budget(), owner = UUID()
+        budget.lifecycle(backgroundRemaining: 0)
+        let first = budget.beginOpportunity(kind: .taskAssertion, owner: owner, maximumDuration: 5, platformRemaining: 0.5)
+        let other = budget.beginOpportunity(kind: .urlSession, owner: UUID())
+        XCTAssertEqual(first.platformDeadlineUptime, 100.5)
+        environment.update(now: 100.5)
+        XCTAssertFalse(budget.isCurrent(first))
+        XCTAssertTrue(budget.isCurrent(other))
+        budget.endOpportunities(owner: owner)
+        XCTAssertTrue(budget.permits(.cloudControl))
+        budget.endOpportunity(other)
+        XCTAssertFalse(budget.permits(.cloudControl))
+        budget.endOpportunity(other)
+        XCTAssertFalse(budget.permits(.cloudTransfer))
+    }
+
+    func testFiniteOpportunityDoesNotBypassHeatStorageOrNetwork() {
+        let environment = Environment(), budget = environment.budget()
+        budget.lifecycle(backgroundRemaining: 0)
+        _ = budget.beginOpportunity(kind: .bleCallback, owner: UUID())
+        environment.update(thermal: .critical)
+        XCTAssertEqual(budget.snapshot(for: .cloudControl).reason, .heat)
+        environment.update(thermal: .nominal)
+        budget.storage(availableBytes: 1)
+        XCTAssertEqual(budget.snapshot(for: .cloudTransfer).reason, .storage)
+        budget.storage(availableBytes: 1_073_741_824)
+        budget.network(permitted: false)
+        XCTAssertEqual(budget.snapshot(for: .cloudControl).reason, .network)
+        XCTAssertTrue(budget.permits(.acknowledgement))
+    }
 }

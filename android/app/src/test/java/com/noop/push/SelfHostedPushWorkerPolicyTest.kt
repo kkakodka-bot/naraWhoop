@@ -16,8 +16,8 @@ class SelfHostedPushWorkerPolicyTest {
         assertFalse(isPushNetworkAvailable(wifiOnly = false, isConnected = false, isWifi = false, isUnmetered = false))
     }
 
-    @Test fun retryableFailureKeepsFailingDeviceIndex() {
-        assertEquals(2, persistedDeviceIndex(startDeviceIndex = 2, nextDeviceIndex = 3, retryableFailure = true))
+    @Test fun retryableFailureRotatesSchedulingWithoutCommittingReceiptProgress() {
+        assertEquals(3, persistedDeviceIndex(startDeviceIndex = 2, nextDeviceIndex = 3, retryableFailure = true))
     }
 
     @Test fun successfulSliceAdvancesDeviceIndex() {

@@ -20,6 +20,14 @@ class EndpointScopedProgressStore(
     override suspend fun saveCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor) =
         delegate.saveCursor(table, scoped(deviceId), cursor)
 
+    override suspend fun freshCursor(table: PushAppendTable, deviceId: String) =
+        delegate.freshCursor(table, scoped(deviceId))
+    override suspend fun saveFreshCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor?) =
+        delegate.saveFreshCursor(table, scoped(deviceId), cursor)
+    override suspend fun pendingFreshBatch(table: PushAppendTable, deviceId: String) =
+        delegate.pendingFreshBatch(table, scoped(deviceId))
+    override suspend fun savePendingFreshBatch(table: PushAppendTable, deviceId: String, batch: PushBatch?) =
+        delegate.savePendingFreshBatch(table, scoped(deviceId), batch)
     override suspend fun binaryCursor(table: PushBinaryTable, deviceId: String): PushCursor? =
         delegate.binaryCursor(table, scoped(deviceId))
 

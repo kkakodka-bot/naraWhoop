@@ -42,6 +42,16 @@ public struct AccountFencedSnapshot: PushSnapshotSource {
     public init(source: any PushSnapshotSource, admission: AccountPushAdmission) {
         self.source = source; self.admission = admission
     }
+    public func discoverDevices(capabilities: PushCapabilities) async throws -> PushDeviceDiscovery {
+        try admission.check(); let value = try await source.discoverDevices(capabilities: capabilities)
+        try admission.check(); return value
+    }
+    public func freshAppendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64, sinceTs: Int64, throughTs: Int64,
+                                limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage {
+        try admission.check(); let value = try await source.freshAppendPage(table: table, deviceId: deviceId,
+            afterRowId: afterRowId, sinceTs: sinceTs, throughTs: throughTs, limit: limit, limits: limits)
+        try admission.check(); return value
+    }
     public func knownDeviceIds(capabilities: PushCapabilities) async throws -> [String] {
         try admission.check(); let value = try await source.knownDeviceIds(capabilities: capabilities)
         try admission.check(); return value
@@ -113,6 +123,13 @@ public struct AccountFencedProgress: PushProgressStore {
     }
     public func rememberDeviceId(_ deviceId: String) async throws {
         try admission.check(); try await progress.rememberDeviceId(deviceId); try admission.check()
+    }
+    public func freshCursor(table: PushAppendTable, deviceId: String) async throws -> PushCursor? {
+        try admission.check(); let value = try await progress.freshCursor(table: table, deviceId: deviceId)
+        try admission.check(); return value
+    }
+    public func saveFreshCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor) async throws {
+        try admission.check(); try await progress.saveFreshCursor(table: table, deviceId: deviceId, cursor: cursor); try admission.check()
     }
     public func cursor(table: PushAppendTable, deviceId: String) async throws -> PushCursor? {
         try admission.check(); let value = try await progress.cursor(table: table, deviceId: deviceId)

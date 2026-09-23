@@ -64,6 +64,8 @@ final class AccountAppRuntime: ObservableObject {
     private var identity: AccountIdentitySnapshot
     private var subscription: AnyCancellable?
     private var policySubscription: AnyCancellable?
+    private var captureOpportunitySubscription: AnyCancellable?
+    private var captureRecoveryTask: Task<Void, Never>?
     private var preparation: Task<Void, Never>?
     private var retirement: Task<Void, Never>?
     private var background: CloudPushBackgroundRuntime?
@@ -123,6 +125,12 @@ final class AccountAppRuntime: ObservableObject {
         }
         if let rejectedDrain { self.retiredCapture.retain(id: identity.generation, drain: rejectedDrain) }
         subscription = dependencies.observeIdentity { [weak self] in self?.replaceIfNeeded() }
+        captureOpportunitySubscription = NotificationCenter.default.publisher(for: ResourceBudget.opportunityBegan)
+            .receive(on: DispatchQueue.main).sink { [weak self] note in
+                guard let self, let budget = note.object as? ResourceBudget,
+                      let opportunity = note.userInfo?["opportunity"] as? ResourceBudget.Opportunity else { return }
+                self.retryCaptureDuringOpportunity(opportunity, budget: budget)
+            }
         if dependencies.externalEffects == .live {
             policySubscription = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
                 .receive(on: DispatchQueue.main)
@@ -276,6 +284,20 @@ final class AccountAppRuntime: ObservableObject {
         if foreground { Task { await retiredCapture.retry() } }
     }
 
+    /// Process execution may service retained local writers, but never changes their account
+    /// or grants them the replacement account's upload authorization.
+    func retryCaptureDuringOpportunity(_ opportunity: ResourceBudget.Opportunity,
+                                       budget: ResourceBudget = .shared) {
+        guard budget.isCurrent(opportunity), captureRecoveryTask == nil else { return }
+        captureRecoveryTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.captureRecoveryTask = nil }
+            await self.retiredCapture.retry(allowing: { budget.isCurrent(opportunity) })
+            guard budget.isCurrent(opportunity), !Task.isCancelled else { return }
+            await self.model.retryCaptureDuringOpportunity(allowing: { budget.isCurrent(opportunity) })
+        }
+    }
+
     private func retireCapture(of model: AppModel, generation: UUID) {
         let drain = dependencies.retireModel(model)
         guard model.captureAdmissionEnabled else { return }
@@ -308,6 +330,13 @@ final class AccountAppRuntime: ObservableObject {
     /// Unknown/previous owners are never rebound to the current account. Their files remain on disk.
     func handleBackgroundEvents(identifier: String, completion: @escaping () -> Void) {
         guard dependencies.externalEffects == .live else { completion(); return }
+        let budget = ResourceBudget.shared
+        let opportunity = budget.beginOpportunity(kind: .urlSession, owner: generation)
+        let originalCompletion = completion
+        let completion = {
+            budget.endOpportunity(opportunity)
+            originalCompletion()
+        }
         if let background, background.handleEvents(identifier: identifier, completionHandler: completion) { return }
         if let previous = drainingBackground[identifier],
            previous.handleEvents(identifier: identifier, completionHandler: completion) { return }

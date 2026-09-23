@@ -25,6 +25,7 @@ enum class PushFailureCode {
     CONNECTION_RESET,
     NETWORK_IO,
     HTTP_AUTH,
+    OBJECT_INTENT_EXPIRED,
     HTTP_NOT_FOUND,
     HTTP_TIMEOUT,
     HTTP_TOO_LARGE,
@@ -80,6 +81,7 @@ data class PushFailure(
         PushFailureCode.HTTP_TIMEOUT,
         PushFailureCode.HTTP_RATE_LIMIT,
         PushFailureCode.HTTP_SERVER,
+        PushFailureCode.OBJECT_INTENT_EXPIRED,
         PushFailureCode.LOCAL_DATABASE,
         -> true
         else -> false
@@ -186,6 +188,7 @@ internal fun pushFailureMessage(context: Context, failure: PushFailure): String 
         PushFailureCode.CONNECTION_RESET -> context.getString(R.string.push_error_connection_reset)
         PushFailureCode.NETWORK_IO -> context.getString(R.string.push_error_network_io)
         PushFailureCode.HTTP_AUTH -> context.getString(R.string.push_error_http_auth, failure.httpStatus ?: 401)
+        PushFailureCode.OBJECT_INTENT_EXPIRED -> context.getString(R.string.push_error_object_intent_expired)
         PushFailureCode.HTTP_NOT_FOUND -> context.getString(R.string.push_error_http_not_found, failure.httpStatus ?: 404)
         PushFailureCode.HTTP_TIMEOUT -> context.getString(R.string.push_error_http_timeout, failure.httpStatus ?: 408)
         PushFailureCode.HTTP_TOO_LARGE -> context.getString(R.string.push_error_http_too_large, failure.httpStatus ?: 413)

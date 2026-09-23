@@ -904,6 +904,102 @@ final class CloudUploadQueueTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: journal.bodyURL(job)), Data([2, 4, 6]))
     }
 
+    func testTwoDelayedExpiredIntentsRemainRenewableWithoutChangingObject() async throws {
+        let (_, context, layout) = try fixture()
+        let clock = RenewalTestClock()
+        var job = try objectJob(context, layout)
+        job.signedExpiry = clock.value.addingTimeInterval(60)
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget)
+        try journal.save(job)
+        let original = job, adapter = UploadAdapter()
+        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+            authorize: { _ in "test" }, isCurrent: { _ in true },
+            policy: { .init(concurrency: 1, allowsCellular: true, allowsConstrained: false) },
+            control: { request in
+                XCTAssertEqual(request.httpBody, original.manifest)
+                let expiry = ISO8601DateFormatter().string(from: clock.value.addingTimeInterval(60))
+                return .init(statusCode: 200, body: try JSONSerialization.data(withJSONObject: [
+                    "type": "objectIntent", "protocolVersion": PushProtocol.objectVersion,
+                    "objectId": original.objectID!, "objectKey": original.objectKey!, "duplicate": false,
+                    "uploadUrl": "https://bucket.example/renewed/\(clock.value.timeIntervalSince1970)",
+                    "expiresAt": expiry, "requiredHeaders": [:]]))
+            }, now: { clock.value }, resourceBudget: resourceBudget)
+        try await q.reconcile()
+        for index in 0..<2 {
+            let task = try XCTUnwrap(adapter.last).task
+            clock.advance(120)
+            adapter.finish(task.identifier)
+            await q.receive(task, status: 403, body: Data(), error: false)
+            let saved = try XCTUnwrap(journal.load()[job.id])
+            XCTAssertEqual(saved.phase, .retryPending, "expiry \(index) must retain renewable debt")
+            XCTAssertTrue(saved.needsNewIntent)
+            clock.advance(3600)
+            try await q.reconcile()
+        }
+        let saved = try XCTUnwrap(journal.load()[job.id])
+        XCTAssertEqual(saved.objectID, original.objectID)
+        XCTAssertEqual(saved.objectKey, original.objectKey)
+        XCTAssertEqual(saved.payloadSHA256, original.payloadSHA256)
+        XCTAssertEqual(try Data(contentsOf: journal.bodyURL(saved)), Data([2, 4, 6]))
+        XCTAssertEqual(adapter.count, 3)
+    }
+
+    func testCompletionReceiptGetsFirstBoundedSlotBeforeOlderTransfer() async throws {
+        let (_, context, layout) = try fixture()
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget)
+        var completion = try objectJob(context, layout)
+        completion.operation = .objectComplete; completion.phase = .uploaded
+        try journal.save(completion)
+        var older = CloudUploadJob(id: AccountScope.digest("older-transfer"), owner: context.scope,
+            generation: context.generation, endpoint: endpoint, deviceID: "older", createdAt: .distantPast,
+            operation: .request, method: "POST", headers: [:])
+        try journal.persistBody(Data([7, 8, 9]), job: &older); try journal.save(older)
+        let adapter = UploadAdapter(), q = try queue(context, layout, adapter, limit: 1)
+        try await q.reconcile()
+        XCTAssertEqual(adapter.count, 1)
+        XCTAssertTrue(adapter.first?.request.url?.path.hasSuffix("/complete") == true)
+        XCTAssertEqual(try journal.load()[older.id]?.phase, .prepared)
+        XCTAssertEqual(try Data(contentsOf: journal.bodyURL(older)), Data([7, 8, 9]))
+    }
+
+    func testRepeatedFreshIntentDenialStaysBoundedEvenWithNewSignedURLs() async throws {
+        let (_, context, layout) = try fixture(), clock = RenewalTestClock()
+        var job = try objectJob(context, layout)
+        job.signedExpiry = clock.value.addingTimeInterval(3600)
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget)
+        try journal.save(job)
+        let original = job, adapter = UploadAdapter()
+        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+            authorize: { _ in "test" }, isCurrent: { _ in true },
+            policy: { .init(concurrency: 1, allowsCellular: true, allowsConstrained: false) },
+            control: { _ in .init(statusCode: 200, body: try JSONSerialization.data(withJSONObject: [
+                "type": "objectIntent", "protocolVersion": PushProtocol.objectVersion,
+                "objectId": original.objectID!, "objectKey": original.objectKey!, "duplicate": false,
+                "uploadUrl": "https://bucket.example/new-signature",
+                "expiresAt": ISO8601DateFormatter().string(from: clock.value.addingTimeInterval(3600)),
+                "requiredHeaders": [:]])) }, now: { clock.value }, resourceBudget: resourceBudget)
+        try await q.reconcile()
+        for index in 0..<2 {
+            let task = try XCTUnwrap(adapter.last).task
+            adapter.finish(task.identifier)
+            await q.receive(task, status: 403, body: Data(), error: false)
+            if index == 0 {
+                let saved = try XCTUnwrap(journal.load()[job.id])
+                clock.advance(try XCTUnwrap(saved.nextAttemptAt).timeIntervalSince(clock.value) + 1)
+                try await q.reconcile()
+            }
+        }
+        let saved = try XCTUnwrap(journal.load()[job.id])
+        XCTAssertEqual(saved.phase, .pausedTerminal)
+        XCTAssertEqual(saved.consecutiveFreshIntentDenials, 2)
+        XCTAssertEqual(saved.objectID, original.objectID)
+        XCTAssertEqual(saved.payloadSHA256, original.payloadSHA256)
+        clock.advance(86_400)
+        try await q.reconcile()
+        XCTAssertEqual(adapter.count, 2)
+        XCTAssertEqual(try Data(contentsOf: journal.bodyURL(saved)), Data([2, 4, 6]))
+    }
+
     func testExpiryRenewalPreservesObjectKeyIDAndFile() async throws {
         let (_, context, layout) = try fixture()
         var job = try objectJob(context, layout)
@@ -961,6 +1057,152 @@ final class CloudUploadQueueTests: XCTestCase {
         delivery.store { XCTAssertTrue(Thread.isMainThread); event.fulfill() }
         delivery.finish(); delivery.finish()
         await fulfillment(of: [refresh, event], timeout: 1)
+    }
+
+    func testActiveFiniteOpportunitySelectsOrdinaryTransportForSmallImmutableBody() async throws {
+        let (_, context, layout) = try fixture()
+        let budget = ResourceBudget(thermal: { 0 }, lowPower: { false })
+        let opportunity = budget.beginOpportunity(kind: .bleCallback, owner: UUID(), maximumDuration: 2)
+        defer { budget.endOpportunity(opportunity) }
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: budget)
+        var job = try objectJob(context, layout)
+        job.signedURL = "https://finite.invalid/put"
+        try journal.save(job)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [FiniteUploadURLProtocol.self]
+        let adapter = CloudUploadURLSession(identifier: "finite-test", configuration: config)
+        defer { adapter.invalidate() }
+        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+            authorize: { _ in "fixture-token" }, isCurrent: { _ in true },
+            policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
+            control: { _ in throw CloudUploadError.unavailable }, resourceBudget: budget)
+        try await q.reconcile()
+        let value = try JSONSerialization.jsonObject(with: XCTUnwrap(journal.metadata.read(job.id + ".json"))) as! [String: Any]
+        XCTAssertEqual(value["transportKind"] as? String, "ordinary")
+        XCTAssertEqual(try Data(contentsOf: journal.bodyURL(job)), Data([2, 4, 6]))
+        await q.suspend()
+    }
+
+    func testOrdinaryDeadlineWaitsForRetirementBeforeOneDurableFallback() async throws {
+        let (_, context, layout) = try fixture(), clock = RenewalTestClock()
+        let budget = ResourceBudget(thermal: { 0 }, lowPower: { false })
+        let opportunity = budget.beginOpportunity(kind: .bleCallback, owner: UUID(), maximumDuration: 0.2)
+        let original = try objectJob(context, layout)
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: budget)
+        let adapter = UploadAdapter(supportsOrdinary: true)
+        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+            authorize: { _ in "fixture" }, isCurrent: { _ in true },
+            policy: { .init(concurrency: 2, allowsCellular: false, allowsConstrained: false) },
+            control: { _ in throw CloudUploadError.unavailable }, now: { clock.value }, resourceBudget: budget)
+        try await q.reconcile()
+        let ordinary = try XCTUnwrap(adapter.first).task
+        XCTAssertEqual(ordinary.transportKind, .ordinary)
+        XCTAssertTrue(ordinary.description?.hasSuffix(":ordinary") == true)
+        let joinedAt = Date()
+        await q.finishOpportunityTransfers(opportunity)
+        XCTAssertLessThan(Date().timeIntervalSince(joinedAt), 1)
+        XCTAssertTrue(adapter.cancelled.contains(ordinary.identifier))
+        try await q.reconcile() // Fake OS still owns the cancelled task.
+        XCTAssertEqual(adapter.count, 1)
+        XCTAssertEqual(try journal.load()[original.id]?.phase, .transferring)
+        adapter.finish(ordinary.identifier)
+        await q.receive(ordinary, status: 200, body: Data(), error: false)
+        XCTAssertEqual(try journal.load()[original.id]?.operation, .objectPut, "late PUT success cannot advance cancelled attempt")
+        clock.advance(3600)
+        let renewed = budget.beginOpportunity(kind: .bleCallback, owner: UUID(), maximumDuration: 2)
+        defer { budget.endOpportunity(renewed) }
+        try await q.reconcile()
+        let fallback = try XCTUnwrap(adapter.last).task
+        XCTAssertEqual(adapter.count, 2)
+        XCTAssertEqual(fallback.transportKind, .background)
+        await q.receive(ordinary, status: 200, body: try receipt(original), error: false)
+        XCTAssertEqual(try journal.load()[original.id]?.phase, .transferring)
+        XCTAssertNil(try journal.load()[original.id]?.validatedReceipt)
+        XCTAssertEqual(try Data(contentsOf: journal.bodyURL(original)), Data([2, 4, 6]))
+        await q.suspend()
+    }
+
+    func testColdRestartCannotRestoreOrdinarySessionOrSpendItsAllowanceAgain() async throws {
+        let (_, context, layout) = try fixture()
+        let budget = ResourceBudget(thermal: { 0 }, lowPower: { false })
+        let opportunity = budget.beginOpportunity(kind: .bleCallback, owner: UUID(), maximumDuration: 2)
+        defer { budget.endOpportunity(opportunity) }
+        let original = try objectJob(context, layout)
+        let first = UploadAdapter(supportsOrdinary: true)
+        func make(_ adapter: UploadAdapter) throws -> CloudUploadQueue {
+            try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+                authorize: { _ in "fixture" }, isCurrent: { _ in true },
+                policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
+                control: { _ in throw CloudUploadError.unavailable }, resourceBudget: budget)
+        }
+        let q = try make(first)
+        try await q.reconcile()
+        let old = try XCTUnwrap(first.first).task
+        XCTAssertEqual(old.transportKind, .ordinary)
+        await q.suspend()
+        let restarted = UploadAdapter(supportsOrdinary: true), reopened = try make(restarted)
+        try await reopened.reconcile()
+        XCTAssertEqual(restarted.first?.task.transportKind, .background)
+        await reopened.receive(old, status: 200, body: Data(), error: false)
+        let saved = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: budget).load()[original.id]
+        XCTAssertEqual(saved?.phase, .transferring)
+        XCTAssertEqual(saved?.operation, .objectPut)
+        XCTAssertNil(saved?.validatedReceipt)
+        await reopened.suspend()
+    }
+
+    func testOrdinaryAndDaemonSessionTaskIDsHaveDistinctPersistableIdentity() async throws {
+        let (_, context, layout) = try fixture()
+        let job = try objectJob(context, layout)
+        let file = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget).bodyURL(job)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [FiniteUploadURLProtocol.self]
+        let adapter = CloudUploadURLSession(identifier: "namespace-test", configuration: config)
+        defer { adapter.invalidate() }
+        var request = URLRequest(url: URL(string: "https://finite.invalid/put")!); request.httpMethod = "PUT"
+        let background = adapter.create(request: request, file: file, description: "job:one:background", transportKind: .background)
+        let ordinary = adapter.create(request: request, file: file, description: "job:two:ordinary", transportKind: .ordinary)
+        XCTAssertEqual(background.identifier, -ordinary.identifier, "both real URLSessions start with the same raw task ID")
+        XCTAssertGreaterThan(background.identifier, 0); XCTAssertLessThan(ordinary.identifier, 0)
+        adapter.resume(background.identifier); adapter.resume(ordinary.identifier)
+        var tasks: [CloudUploadTaskSnapshot] = []
+        for _ in 0..<100 {
+            tasks = await adapter.tasks()
+            if tasks.count == 2 { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(Set(tasks.map(\.identifier)), [background.identifier, ordinary.identifier])
+        XCTAssertEqual(Set(tasks.map { $0.transportKind.rawValue }), ["ordinary", "background"])
+        XCTAssertEqual(Set(tasks.compactMap(\.description)), ["job:one:background", "job:two:ordinary"])
+    }
+
+    func testOrdinaryCompletionRequiresSameExactReceiptBeforeAnySourceCleanup() async throws {
+        let (_, context, layout) = try fixture()
+        let budget = ResourceBudget(thermal: { 0 }, lowPower: { false })
+        let opportunity = budget.beginOpportunity(kind: .bleCallback, owner: UUID(), maximumDuration: 2)
+        defer { budget.endOpportunity(opportunity) }
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: budget)
+        var job = try objectJob(context, layout)
+        job.operation = .objectComplete; job.phase = .uploaded; try journal.save(job)
+        let adapter = UploadAdapter(supportsOrdinary: true)
+        let q = try CloudUploadQueue(context: context, layout: layout, adapter: adapter,
+            authorize: { _ in "fixture" }, isCurrent: { _ in true },
+            policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
+            control: { _ in throw CloudUploadError.unavailable }, resourceBudget: budget)
+        try await q.reconcile()
+        let task = try XCTUnwrap(adapter.first).task
+        XCTAssertEqual(task.transportKind, .ordinary)
+        // Forged mode cannot match an otherwise identical task ID/description.
+        await q.receive(.init(identifier: task.identifier, description: task.description, transportKind: .background),
+            status: 200, body: try receipt(job), error: false)
+        XCTAssertEqual(try journal.load()[job.id]?.phase, .transferring)
+        adapter.finish(task.identifier)
+        await q.receive(task, status: 200, body: try receipt(job), error: false)
+        await q.finishOpportunityTransfers(opportunity)
+        XCTAssertEqual(try journal.load()[job.id]?.phase, .receiptSaved)
+        XCTAssertNotNil(try journal.load()[job.id]?.validatedReceipt)
+        XCTAssertEqual(try Data(contentsOf: journal.bodyURL(job)), Data([2, 4, 6]), "receipt alone is not source cleanup")
+        await q.suspend()
     }
 
     func testRealFileUploadTaskUsingControlledURLProtocol() async throws {
@@ -1305,13 +1547,61 @@ final class CloudUploadQueueTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: journal.bodyURL(spare)), Data([2, 4, 6]))
     }
     private func admissionSelection(_ context: AccountSessionContext, row: Int64 = 1,
-                                    device: String = "admission-device") throws -> CloudPushPreparedSelection {
+                                    device: String = "admission-device", fresh: Bool = false) throws -> CloudPushPreparedSelection {
         let batch = try PushProtocol.appendBatch(table: .hrSample, sourceId: W5ReceiptFixture.source,
             deviceId: device, startCursor: nil,
-            records: [.init(rowId: row, key: ["ts": .int(row)], data: ["bpm": .int(60)])])
+            records: [.init(rowId: row, key: ["ts": .int(row)], data: ["bpm": .int(60)])], freshAppend: fresh)
         return try .init(context: context, endpoint: endpoint, receiverStateID: "admission-receiver", progressVersion: "1.2",
-            selection: .init(inline: [batch], commit: .init(kind: .append, table: "hrSample", deviceID: device,
+            selection: .init(inline: [batch], commit: .init(kind: fresh ? .freshAppend : .append, table: "hrSample", deviceID: device,
                 batchIDs: [batch.batchId], cursor: batch.endCursor)), inlineGzip: [CloudPushTransport.gzip(batch.body)])
+    }
+
+    func testFreshAndHistoricalSelectionsOfSameRowsStayDistinctAndShareBoundedSlots() async throws {
+        let (_, context, layout) = try fixture()
+        let historical = try admissionSelection(context, row: 1_800_000_000, device: "same-device")
+        let fresh = try admissionSelection(context, row: 1_800_000_000, device: "same-device", fresh: true)
+        let otherHistory = try admissionSelection(context, row: 1_800_000_000, device: "other-history")
+        let writer = try queue(context, layout, UploadAdapter(), limit: 0, capacity: 8_000_000)
+        for selection in [historical, otherHistory, fresh] { try await writer.prepareSelection(selection, captured: context) }
+        await writer.suspend()
+        let journal = try CloudUploadJournal(directory: layout.uploadDirectory, resourceBudget: resourceBudget)
+        try journal.loadSelections(owner: context.scope)
+        for var job in try journal.load().values where job.headers["Content-Encoding"] == "gzip" {
+            job.deliveryAdmitted = true; try journal.save(job)
+        }
+        let adapter = UploadAdapter(), q = try queue(context, layout, adapter, limit: 2, capacity: 8_000_000)
+        let freshBatch = try fresh.selection.restoredInlineBatches()[0]
+        let historyBatch = try historical.selection.restoredInlineBatches()[0]
+        XCTAssertNotEqual(freshBatch.batchId, historyBatch.batchId)
+        let freshID = try await q.selectionID(batchID: freshBatch.batchId, sourceID: fresh.sourceID,
+            endpoint: endpoint, receiverStateID: fresh.receiverStateID, captured: context)
+        let historyID = try await q.selectionID(batchID: historyBatch.batchId, sourceID: historical.sourceID,
+            endpoint: endpoint, receiverStateID: historical.receiverStateID, captured: context)
+        XCTAssertEqual(freshID, fresh.id); XCTAssertEqual(historyID, historical.id)
+        let lanes = try await q.pendingPreparedLanes(sourceID: fresh.sourceID, endpoint: endpoint,
+            receiverStateID: fresh.receiverStateID, captured: context)
+        XCTAssertEqual(lanes.count, 3)
+        XCTAssertEqual(lanes.filter { $0.kind == .freshAppend }.map(\.selectionID), [fresh.id])
+        try await q.reconcile()
+        XCTAssertEqual(adapter.count, 2)
+        let scheduled = try journal.load().values.filter { $0.phase == .transferring }
+        XCTAssertEqual(scheduled.filter { $0.preparedSelectionID == fresh.id }.count, 1)
+        XCTAssertEqual(scheduled.filter { $0.preparedSelectionID != fresh.id }.count, 1)
+        let task = try XCTUnwrap(adapter.first).task
+        XCTAssertEqual(scheduled.first { $0.preparedSelectionID == fresh.id }?.taskDescription, task.description)
+        let receipt = try W5ReceiptFixture.bytes(W5ReceiptFixture.inline(freshBatch, owner: context.scope.userID))
+        adapter.finish(task.identifier)
+        await q.receive(task, status: 200, body: receipt, error: false)
+        try await q.validateResponse(batch: freshBatch, response: .init(statusCode: 200, body: receipt), captured: context,
+            receiverStateID: fresh.receiverStateID, selectionID: fresh.id)
+        XCTAssertTrue(try journal.load().values.filter { $0.preparedSelectionID == historical.id }.allSatisfy { $0.validatedReceipt == nil })
+        do {
+            try await q.validateResponse(batch: historyBatch, response: .init(statusCode: 200, body: receipt), captured: context,
+                receiverStateID: historical.receiverStateID, selectionID: historical.id)
+            XCTFail("fresh receipt settled historical identity")
+        } catch { }
+        XCTAssertEqual(try journal.load().count, 6, "neither receipt alone deletes source jobs")
+        await q.suspend()
     }
 
     private func admissionFiles(_ layout: AccountStorageLayout) throws -> [String: Data] {
@@ -1415,7 +1705,7 @@ final class CloudUploadQueueTests: XCTestCase {
         await reopened.suspend()
     }
 
-    func testInjectedHistoryBudgetStopsQueueWorkAndResumesWithoutAffectingAnotherBudget() async throws {
+    func testInjectedHistoryBudgetAllowsReadyTransferButDefersBulkEncoding() async throws {
         let (_, blockedContext, blockedLayout) = try fixture()
         let (_, healthyContext, healthyLayout) = try fixture()
         _ = try objectJob(blockedContext, blockedLayout)
@@ -1430,12 +1720,12 @@ final class CloudUploadQueueTests: XCTestCase {
             control: { _ in throw CloudUploadError.unavailable }, resourceBudget: historyBudget)
         let healthy = try queue(healthyContext, healthyLayout, healthyAdapter)
         do {
-            try await blocked.checkSelectionEncodingAdmission(captured: blockedContext)
-            XCTFail("history pressure admitted new encoding")
+            try await blocked.checkBulkAdmission(captured: blockedContext)
+            XCTFail("history pressure admitted historical bulk encoding")
         } catch { XCTAssertEqual(error as? CloudUploadError, .retryScheduled) }
         try await blocked.reconcile()
         try await healthy.reconcile()
-        XCTAssertEqual(blockedAdapter.count, 0)
+        XCTAssertEqual(blockedAdapter.count, 1, "ready immutable bytes remain serviceable during history")
         XCTAssertEqual(healthyAdapter.count, 1)
         XCTAssertTrue(historyBudget.permits(.localCommit))
         XCTAssertTrue(historyBudget.permits(.acknowledgement))
@@ -1647,17 +1937,25 @@ private final class UploadAdapter: CloudUploadSessionAdapter, @unchecked Sendabl
     private var created: [Created] = []
     private var cancellations: [Int] = []
     private var resumptions: [Int] = []
+    private let ordinarySupported: Bool
+    init(supportsOrdinary: Bool = false) { ordinarySupported = supportsOrdinary }
+    var supportsOrdinaryTransfers: Bool { ordinarySupported }
     var count: Int { lock.lock(); defer { lock.unlock() }; return created.count }
     var first: Created? { lock.lock(); defer { lock.unlock() }; return created.first }
     var last: Created? { lock.lock(); defer { lock.unlock() }; return created.last }
     var cancelled: [Int] { lock.lock(); defer { lock.unlock() }; return cancellations }
     var resumed: [Int] { lock.lock(); defer { lock.unlock() }; return resumptions }
     func seed(_ task: CloudUploadTaskSnapshot) { lock.lock(); live.append(task); lock.unlock() }
+    func finish(_ identifier: Int) { lock.lock(); live.removeAll { $0.identifier == identifier }; lock.unlock() }
     private func snapshot() -> [CloudUploadTaskSnapshot] { lock.lock(); defer { lock.unlock() }; return live }
     func tasks() async -> [CloudUploadTaskSnapshot] { snapshot() }
     func create(request: URLRequest, file: URL, description: String) -> CloudUploadTaskSnapshot {
+        create(request: request, file: file, description: description, transportKind: .background)
+    }
+    func create(request: URLRequest, file: URL, description: String, transportKind: CloudUploadTransportKind) -> CloudUploadTaskSnapshot {
         lock.lock(); defer { lock.unlock() }
-        let task = CloudUploadTaskSnapshot(identifier: 100 + created.count, description: description)
+        let task = CloudUploadTaskSnapshot(identifier: (100 + created.count) * (transportKind == .ordinary ? -1 : 1),
+            description: description, transportKind: transportKind)
         created.append(.init(task: task, request: request, file: file)); live.append(task)
         return task
     }
@@ -1735,4 +2033,18 @@ private final class UploadJournalFault: @unchecked Sendable {
     private var active = false
     func arm() { lock.lock(); defer { lock.unlock() }; active = true }
     func take() -> Bool { lock.lock(); defer { lock.unlock() }; let value = active; active = false; return value }
+}
+
+private final class RenewalTestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date = Date(timeIntervalSince1970: 1_800_000_000)
+    var value: Date { lock.lock(); defer { lock.unlock() }; return date }
+    func advance(_ seconds: TimeInterval) { lock.lock(); date.addTimeInterval(seconds); lock.unlock() }
+}
+
+private final class FiniteUploadURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { /* Controlled pending response: no external network. */ }
+    override func stopLoading() {}
 }

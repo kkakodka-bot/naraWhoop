@@ -275,6 +275,13 @@ class SelfHostedPushSettings private constructor(
         prefs.edit().putBoolean("$KEY_CYCLE_MORE.$namespace", needed).apply()
     }
 
+    fun cycleHadRetryableFailure(namespace: String): Boolean =
+        prefs.getBoolean("cycleRetryable.$namespace", false)
+
+    fun saveCycleHadRetryableFailure(namespace: String, failed: Boolean) {
+        check(prefs.edit().putBoolean("cycleRetryable.$namespace", failed).commit())
+    }
+
     fun cycleHadRejection(namespace: String): Boolean = prefs.getBoolean("$KEY_CYCLE_REJECTED.$namespace", false)
 
     fun saveCycleHadRejection(namespace: String, rejected: Boolean) {
@@ -295,6 +302,24 @@ class SelfHostedPushSettings private constructor(
 
     fun saveCycleFailure(namespace: String, failure: PushFailure?) {
         val editor = prefs.edit()
+        writeCycleFailure(editor, namespace, failure)
+        check(editor.commit()) { "Could not persist push failure category" }
+    }
+
+    /** Scheduling and retained failure debt become visible together across process death. */
+    fun saveCycleCheckpoint(namespace: String, nextIndex: Int, more: Boolean,
+        rejected: Boolean, failure: PushFailure?, retryable: Boolean) {
+        require(nextIndex >= 0)
+        val editor = prefs.edit().putInt("$KEY_NEXT_DEVICE.$namespace", nextIndex)
+            .putBoolean("$KEY_CYCLE_MORE.$namespace", more)
+            .putBoolean("$KEY_CYCLE_REJECTED.$namespace", rejected)
+            .putBoolean("cycleRetryable.$namespace", retryable)
+        writeCycleFailure(editor, namespace, failure)
+        check(editor.commit()) { "Could not persist push cycle checkpoint" }
+    }
+
+    private fun writeCycleFailure(editor: android.content.SharedPreferences.Editor,
+        namespace: String, failure: PushFailure?) {
         if (failure == null) {
             editor.remove("$KEY_CYCLE_FAILURE_CODE.$namespace")
                 .remove("$KEY_CYCLE_FAILURE_STATUS.$namespace")
@@ -308,7 +333,6 @@ class SelfHostedPushSettings private constructor(
                 editor.putString("$KEY_CYCLE_FAILURE_RECEIVER_CODE.$namespace", it)
             } ?: editor.remove("$KEY_CYCLE_FAILURE_RECEIVER_CODE.$namespace")
         }
-        check(editor.commit()) { "Could not persist push failure category" }
     }
 
     companion object {

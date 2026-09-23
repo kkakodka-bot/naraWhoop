@@ -53,6 +53,30 @@ class BleRawDurabilityTest {
         BleRawCapture.create(owner, frames, "WHOOP4", 1_790_000_000_123, 123, 100, 1_790_000_000,
             "receipt_anchor_unverified", ordinal.toString())
 
+    @Test fun freshRoomSelectionBypassesHistoryWithoutChangingNormalMembership() = runBlocking {
+        val now = 20_000L
+        db.withTransaction {
+            val sql = db.openHelper.writableDatabase
+            val insert = sql.compileStatement("INSERT INTO hrSample(deviceId,ts,bpm,synced) VALUES(?,?,62,0)")
+            insert.use {
+                for (ts in 1L..5_000L) {
+                    it.bindString(1, owner.deviceId); it.bindLong(2, ts); it.executeInsert()
+                }
+                it.bindString(1, owner.deviceId); it.bindLong(2, now); it.executeInsert()
+                it.bindLong(2, now + 1); it.executeInsert()
+                it.bindString(1, "another-wearable"); it.bindLong(2, now); it.executeInsert()
+            }
+        }
+        val dao = db.pushDao(captureSourceId = source)
+        val fresh = dao.freshAppendRows(PushAppendTable.HR_SAMPLE, owner.deviceId, 0, now - 300, now, 129)
+        assertEquals(1, fresh.size)
+        assertEquals(now, fresh.single().key["ts"])
+        assertEquals(5_001L, fresh.single().rowId)
+        val normal = dao.appendRows(PushAppendTable.HR_SAMPLE, owner.deviceId, 0, 2)
+        assertEquals(listOf(1L, 2L), normal.map { it.rowId })
+        assertTrue(dao.freshAppendRows(PushAppendTable.HR_SAMPLE, owner.deviceId, 5_001, now - 300, now, 129).isEmpty())
+    }
+
     @Test fun commitOutlivesReopenWithExactIdentityBytesAndUploadDebt() = runBlocking {
         val raw = capture()
         WhoopRepository(db).insert(StreamBatch(hr = listOf(HrRow(100, 70))), owner.deviceId,

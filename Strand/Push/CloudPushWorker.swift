@@ -45,7 +45,7 @@ enum CloudPushWorker {
            let free = attributes[.systemFreeSize] as? NSNumber {
             ResourceBudget.shared.storage(availableBytes: free.int64Value)
         }
-        guard ResourceBudget.shared.permits(.bulk) else { return .deferred }
+        guard ResourceBudget.shared.permits(.cloudControl) else { return .deferred }
         guard let binding = CloudPushCaptureBindings.binding(for: db),
               let initial = CloudRuntimeIdentity.snapshot().context, binding.scope == initial.scope else {
             traceOutcome = .authenticationRequired
@@ -176,7 +176,8 @@ enum CloudPushWorker {
         })
         let snapshot = AccountFencedSnapshot(source: capturedSnapshot, admission: admission)
         let coordinator: PushCoordinator
-        let preparedBlocked: Bool
+        let pendingLanes: [PushPendingLane]
+        let resumePreparedLane: @Sendable (PushPendingLane) async -> PushResult
         let rotation: CloudRotationCheckpoint
         let rotationQueue: CloudUploadQueue
         do {
@@ -228,37 +229,47 @@ enum CloudPushWorker {
                 endpoint: endpoint.url, receiverStateID: capabilities.receiverStateId,
                 currentVersion: capabilities.protocolVersion, directory: runtime.progressDirectory,
                 committer: makeCommitter)
-            preparedBlocked = try await CloudPushPreparedRecovery.recover(queue: runtime.queue, context: initial,
-                sourceID: binding.sourceID, endpoint: endpoint.url, receiverStateID: capabilities.receiverStateId,
-                directory: runtime.progressDirectory, coordinator: makeCoordinator)
             guard await validate(dependentAdmission) else { throw CancellationError() }
             try admission.check()
-            // Recovery may have changed the current namespace through a separately opened actor.
-            // Reopen it before fresh selection rather than retaining a stale in-memory cursor.
-            let refreshed = try CloudPushProgressStore(namespace: namespace, directory: runtime.progressDirectory,
+            let currentProgress = try CloudPushProgressStore(namespace: namespace, directory: runtime.progressDirectory,
                 auxiliaryIdentityV2: capabilities.protocolVersion == PushProtocol.auxiliaryIdentityVersion)
-            coordinator = makeCoordinator(refreshed, capabilities.protocolVersion)
+            coordinator = makeCoordinator(currentProgress, capabilities.protocolVersion)
+            pendingLanes = try await runtime.queue.pendingPreparedLanes(sourceID: binding.sourceID, endpoint: endpoint.url,
+                receiverStateID: capabilities.receiverStateId, captured: initial)
+            resumePreparedLane = { lane in
+                guard (try? admission.check()) != nil else { return .rejected(reason: "cancelled", retryable: true, failure: nil) }
+                return await CloudPushPreparedRecovery.resume(lane, queue: runtime.queue, context: initial,
+                    directory: runtime.progressDirectory, currentNamespace: namespace, currentProgress: currentProgress,
+                    coordinator: makeCoordinator)
+            }
         } catch is CancellationError { traceOutcome = .cancelled; return .deferred }
         catch { traceOutcome = .failed; return .deferred }
         let run = await coordinator.pushKnownDevices(
             startDeviceIndex: rotation.index,
+            startLaneIndex: rotation.laneIndex ?? 0, startRecoveryIndex: rotation.recoveryIndex ?? 0,
             expectedDeviceListFingerprint: rotation.deviceListFingerprint,
             maxDevices: maxDevicesPerRun, capabilities: capabilities,
-            binaryEnabled: CloudPushSettings.binaryObjectsEnabled
+            binaryEnabled: CloudPushSettings.binaryObjectsEnabled,
+            pendingLanes: pendingLanes, resumePreparedLane: resumePreparedLane,
+            allowsHistoricalPreparation: { ResourceBudget.shared.permits(.bulk) },
+            checkpoint: { device, lane, recovery, fingerprint in
+                try admission.check()
+                try await rotationQueue.saveRotationCheckpoint(namespace: namespace, index: device, carryMore: true,
+                    deviceListFingerprint: fingerprint, laneIndex: lane, recoveryIndex: recovery, captured: initial)
+            }
         )
         guard await validate(dependentAdmission), (try? admission.check()) != nil else {
             traceOutcome = .cancelled; return .deferred
         }
         let more = rotation.carryMore || run.hasMoreAppendRows || run.hasMoreBinaryRows || run.hasMoreMutableRows
-        let cycleCompleted = run.nextDeviceIndex == 0
-        if !run.hasRetryableFailure && run.rejectedBatches == 0 && !preparedBlocked {
-            do {
+        let cycleCompleted = run.nextDeviceIndex == 0 && run.nextLaneIndex == 0 && run.discoveryComplete
+        do {
                 // A reboot must retain both the next device and debt seen earlier in this cycle.
                 // An absent legacy checkpoint starts at device zero and conservatively replays.
                 try await rotationQueue.saveRotationCheckpoint(namespace: namespace, index: run.nextDeviceIndex,
-                    carryMore: cycleCompleted ? false : more, deviceListFingerprint: run.deviceListFingerprint, captured: initial)
-            } catch { traceOutcome = .failed; return .deferred }
-        }
+                    carryMore: cycleCompleted ? false : more, deviceListFingerprint: run.deviceListFingerprint ?? rotation.deviceListFingerprint,
+                    laneIndex: run.nextLaneIndex, recoveryIndex: run.nextRecoveryIndex, captured: initial)
+        } catch { traceOutcome = .failed; return .deferred }
 
         if let runtime = try? CloudPushBackgroundRuntime.current(for: initial),
            let message = try? await runtime.queue.pausedMessage(captured: initial) {
@@ -267,7 +278,7 @@ enum CloudPushWorker {
             if (try? admission.check()) != nil { await markOwed?() }
             return .terminalFailure
         }
-        if run.hasRetryableFailure || preparedBlocked {
+        if run.hasRetryableFailure {
             traceOutcome = .failed
             CloudPushSettings.recordScopedRun(context: initial, state: .retrying,
                 message: "Upload will retry.", batches: run.acceptedBatches, records: run.acceptedRecords)
@@ -304,7 +315,7 @@ enum CloudPushWorker {
     }
 
     private static func validate(_ admission: SyncEngine.DependentStageAdmission?) async -> Bool {
-        guard ResourceBudget.shared.permits(.bulk) else { return false }
+        guard ResourceBudget.shared.permits(.cloudControl) else { return false }
         guard let admission else { return true }
         guard await admission.validate() else { return false }
         do { try admission.checkBoundary(); return true }

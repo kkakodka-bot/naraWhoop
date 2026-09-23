@@ -39,13 +39,13 @@ struct CollectorPolicy {
         self.maxInterval = maxInterval
         self.maxPreClockFrames = maxPreClockFrames
     }
-    static let `default` = CollectorPolicy(maxFrames: 64, maxInterval: 0.75, maxPreClockFrames: 4096)
+    static let `default` = CollectorPolicy(maxFrames: 64, maxInterval: 0.2, maxPreClockFrames: 4096)
 }
 
 /// Buffers complete (reassembled) frames and periodically persists them:
-/// parse → extractStreams(clockRef) → store.insert (DECODED FIRST, durable) →
-/// store.enqueueRawBatch (raw, transient outbox) → clear buffer.
-/// Requested raw data remains pending until its outbox write also commits. Retention is receipt-gated.
+/// parse → lossless extractStreams(clockRef) → one scoped decoded/raw/debt commit → clear buffer.
+/// Exact raw frames remain in the existing receipt-gated outbox, including unknown decodes.
+/// Unscoped compatibility stores retain their existing insert/enqueue seam.
 @MainActor
 final class Collector {
     private let store: StoreWriting
@@ -100,9 +100,12 @@ final class Collector {
     private var pendingLive: PendingLive?
     private var liveDrain: Task<Bool, Never>?
     private var standardDrain: Task<Bool, Never>?
+    private var liveAllows: () -> Bool = { true }
+    private var standardAllows: () -> Bool = { true }
     private var flushDeadline: Task<Void, Never>?
     private(set) var acceptingCapture = true
     private(set) var lastDrainSucceeded = true
+    private(set) var lastWriteFailed = false
     private let onDurabilityFailure: (() -> Void)?
     /// #1118: strap-log sink for the per-transport R-R census. Optional and defaulted to nil so the
     /// test fakes that construct a Collector are untouched; `BLEManager` wires its own `log`.
@@ -301,9 +304,12 @@ final class Collector {
     @discardableResult
     func drainForShutdown() async -> Bool {
         shutdownForAccountChange()
-        let live = await flush()
-        let standard = await flushStandardHR()
-        lastDrainSucceeded = live && standard
+        _ = await flush()
+        // An earlier in-flight pass may have admitted only its original snapshot.
+        let live = bufferedCount == 0 ? true : await flush()
+        _ = await flushStandardHR()
+        let standard = hasPendingCapture ? await flushStandardHR() : true
+        lastDrainSucceeded = live && standard && !hasPendingCapture
         return lastDrainSucceeded
     }
 
@@ -311,28 +317,51 @@ final class Collector {
     /// Join the single active drain, or start one. Accepted frames leave memory only after all
     /// required writes commit. New arrivals accumulate behind the immutable pending batch.
     @discardableResult
-    func flush() async -> Bool {
+    func flush(maximumBatches: Int = 64, allowing: @escaping () -> Bool = { true }) async -> Bool {
+        let previous = liveAllows, inherited = RetiredCaptureDrain.allowsWork
+        liveAllows = { previous() && allowing() && (inherited?() ?? true) }
         if let liveDrain { return await liveDrain.value }
+        let admittedCount = bufferedCount
         let task = Task { @MainActor in
-            while self.pendingLive != nil || !self.buffer.isEmpty {
+            defer { self.liveDrain = nil; self.liveAllows = { true } }
+            var remaining = admittedCount
+            for _ in 0..<max(0, min(64, maximumBatches)) {
+                guard remaining > 0 else { break }
+                guard !Task.isCancelled, self.liveAllows(), self.prepareLiveBatch(maximumFrames: remaining),
+                      let pending = self.pendingLive else { return false }
                 guard await self.flushLiveBatch() else { return false }
+                remaining -= pending.batch.count
             }
-            return true
+            return remaining == 0
         }
         liveDrain = task
         let result = await task.value
-        liveDrain = nil
         lastDrainSucceeded = result
         return result
     }
 
-    private func flushLiveBatch() async -> Bool {
+    /// One finite wake services both independent lanes. A continuous custom stream cannot
+    /// keep standard HR behind an until-empty loop. No new transaction starts after expiry.
+    @discardableResult
+    func drainOpportunity(allowing: @escaping () -> Bool) async -> Bool {
+        guard allowing(), !Task.isCancelled else { return false }
+        _ = await flushStandardHR(maximumBatches: 1, allowing: allowing)
+        guard allowing(), !Task.isCancelled else { return !hasPendingCapture }
+        _ = await flush(maximumBatches: 1, allowing: allowing)
+        return !hasPendingCapture
+    }
+
+    var hasPendingCapture: Bool {
+        bufferedCount > 0 || !stdHR.isEmpty || !stdRR.isEmpty || !stdContact.isEmpty || !stdReceipts.isEmpty
+    }
+
+    private func prepareLiveBatch(maximumFrames: Int) -> Bool {
         if pendingLive == nil {
             guard let first = buffer.first else { return true }
             let batch = Array(buffer.prefix {
                 $0.deviceID == first.deviceID && $0.sessionID == first.sessionID && $0.family == first.family && $0.wantsRaw == first.wantsRaw
                     && $0.clock?.device == first.clock?.device && $0.clock?.wall == first.clock?.wall
-            }.prefix(max(1, policy.maxFrames)))
+            }.prefix(max(1, min(policy.maxFrames, maximumFrames))))
             let ref = first.clock ?? (first.deviceID == deviceId && first.sessionID == stdReceiptSessionId &&
                 first.family == family ? clockRef : nil)
             let streams = ref.map { extractStreams(batch.map(\.parsed), deviceClockRef: $0.device, wallClockRef: $0.wall) } ?? Streams()
@@ -340,8 +369,11 @@ final class Collector {
             let frames = batch.map(\.frame)
             let meta: RawBatchMeta?
             do {
-                if first.wantsRaw || ref == nil {
+                if captureScope != nil || first.wantsRaw || ref == nil {
                     let bounds = try RawBatchMeta.captureBounds(streams: streams, fallbackTimestamp: first.capturedAt)
+                    // Missing sensor time remains missing: Streams are empty above. The legacy
+                    // archive header requires an anchor, so retain receipt identity only; kind 3
+                    // rawBatch is excluded from waveform qualification on the server.
                     meta = RawBatchMeta(batchId: correlation.uuidString, deviceId: first.deviceID,
                         clockRef: ref ?? ClockRef(device: first.capturedAt, wall: first.capturedAt),
                         capturedAt: first.capturedAt, startTs: bounds.startTs, endTs: bounds.endTs,
@@ -349,18 +381,23 @@ final class Collector {
                         captureScope: captureScope?.forDevice(first.deviceID))
                 } else { meta = nil }
             } catch {
+                lastWriteFailed = true
                 onDurabilityFailure?()
                 return false
             }
             pendingLive = PendingLive(batch: batch, streams: streams, meta: meta, correlation: correlation)
             buffer.removeFirst(batch.count)
         }
+        return true
+    }
+
+    private func flushLiveBatch() async -> Bool {
         guard let pending = pendingLive else { return true }
         let interval = SyncPipelineTrace.begin(.chunkPersistence, correlation: pending.correlation)
         var outcome: SyncPipelineTrace.Outcome = .failed
         defer { SyncPipelineTrace.end(interval, outcome: outcome) }
-        // SNAPSHOT + CLEAR before any await: decoded-before-raw ordering AND the
-        // buffer-snapshot-before-await invariant are both satisfied here.
+        // The immutable pending batch is selected before any await; its raw envelope and
+        // decoded rows share one production transaction, with no intermediate durable gap.
         let deviceId = pending.batch[0].deviceID
         let frames = pending.batch.map(\.frame)
         let streams = pending.streams
@@ -378,12 +415,14 @@ final class Collector {
             }
         }
         do {
+            lastWriteFailed = false
             if !pending.decodedCommitted {
                 let inserted: BankedCounts
-                if let concreteStore, let captureScope {
-                    inserted = try await concreteStore.insertAndMarkJobsOwed(
-                        streams, deviceId: deviceId, postOffloadJobKinds: ["cloudPush"],
-                        note: "live rows committed", captureScope: captureScope.forDevice(deviceId)).counts
+                if let concreteStore, let captureScope, let meta = pending.meta {
+                    inserted = try await concreteStore.commitLiveCapture(streams,
+                        scope: captureScope.forDevice(deviceId),
+                        rawCapture: HistoricalRawCapture(meta: meta, frames: frames),
+                        note: "live raw and decoded rows committed").counts
                 } else {
                     inserted = try await store.insert(streams, deviceId: deviceId)
                 }
@@ -391,7 +430,7 @@ final class Collector {
                 pendingLive?.decodedCommitted = true
                 pendingLive?.committedCounts = inserted
             }
-            if let meta = pending.meta {
+            if let meta = pending.meta, concreteStore == nil || captureScope == nil {
                 let assembly = SyncPipelineTrace.begin(.uploadPreparation, correlation: pending.correlation)
                 var assemblyOutcome: SyncPipelineTrace.Outcome = .failed
                 defer { SyncPipelineTrace.end(assembly, outcome: assemblyOutcome) }
@@ -399,6 +438,7 @@ final class Collector {
                 assemblyOutcome = .succeeded
             }
         } catch {
+            lastWriteFailed = true
             // Retain the exact pending batch, metadata and decoded-commit state. A raw retry must
             // neither replay decoded inserts nor change its UUID/time bounds when the clock moves.
             // Swallowing this made the census above read like success: a store rejecting everything still
@@ -491,35 +531,58 @@ final class Collector {
 
     /// Persist the buffered standard HR/RR/contact. Re-buffers on failure so nothing is lost.
     @discardableResult
-    func flushStandardHR(reason: LivePersistTrace.StandardHRFlushReason = .explicit) async -> Bool {
+    func flushStandardHR(reason: LivePersistTrace.StandardHRFlushReason = .explicit,
+                         maximumBatches: Int = 64, allowing: @escaping () -> Bool = { true }) async -> Bool {
+        let previous = standardAllows, inherited = RetiredCaptureDrain.allowsWork
+        standardAllows = { previous() && allowing() && (inherited?() ?? true) }
         if let standardDrain { return await standardDrain.value }
+        // Capture device order before suspending. New arrivals belong to the next bounded pass.
+        var devices: [String] = []
+        for device in stdHR.map(\.deviceID) + stdRR.map(\.deviceID) + stdContact.map(\.deviceID) + stdReceipts.map(\.deviceID) {
+            if !devices.contains(device) { devices.append(device) }
+        }
+        let batches = devices.map { device in
+            (device: device, hr: stdHR.filter { $0.deviceID == device }.count,
+             rr: stdRR.filter { $0.deviceID == device }.count,
+             contact: stdContact.filter { $0.deviceID == device }.count,
+             receipts: stdReceipts.filter { $0.deviceID == device }.count)
+        }
         let task = Task { @MainActor in
-            while !self.stdHR.isEmpty || !self.stdRR.isEmpty || !self.stdContact.isEmpty || !self.stdReceipts.isEmpty {
-                guard await self.flushStandardBatch(reason: reason) else { return false }
+            defer { self.standardDrain = nil; self.standardAllows = { true } }
+            for batch in batches.prefix(max(0, min(64, maximumBatches))) {
+                guard !Task.isCancelled, self.standardAllows() else { return false }
+                guard await self.flushStandardBatch(deviceId: batch.device, hrCount: batch.hr, rrCount: batch.rr,
+                    contactCount: batch.contact, receiptCount: batch.receipts, reason: reason) else { return false }
             }
-            return true
+            return devices.count <= max(0, min(64, maximumBatches))
         }
         standardDrain = task
         let result = await task.value
-        standardDrain = nil
         lastDrainSucceeded = result
         return result
     }
 
-    private func flushStandardBatch(reason: LivePersistTrace.StandardHRFlushReason) async -> Bool {
-        guard let deviceId = stdHR.first?.deviceID ?? stdRR.first?.deviceID
-                ?? stdContact.first?.deviceID ?? stdReceipts.first?.deviceID else { return true }
+    private func takeStandardPrefix<Element>(_ buffer: inout [Element], count: Int,
+                                            matching: (Element) -> Bool) -> [Element] {
+        var selected: [Element] = [], retained: [Element] = []
+        for item in buffer {
+            if selected.count < count, matching(item) { selected.append(item) }
+            else { retained.append(item) }
+        }
+        buffer = retained
+        return selected
+    }
+
+    private func flushStandardBatch(deviceId: String, hrCount: Int, rrCount: Int,
+                                    contactCount: Int, receiptCount: Int,
+                                    reason: LivePersistTrace.StandardHRFlushReason) async -> Bool {
         let interval = SyncPipelineTrace.begin(.chunkPersistence)
         var outcome: SyncPipelineTrace.Outcome = .failed
         defer { SyncPipelineTrace.end(interval, outcome: outcome) }
-        let hr = stdHR.filter { $0.deviceID == deviceId }.map(\.sample)
-        let rr = stdRR.filter { $0.deviceID == deviceId }.map(\.sample)
-        let contact = stdContact.filter { $0.deviceID == deviceId }.map(\.sample)
-        let receipts = stdReceipts.filter { $0.deviceID == deviceId }.map(\.row)
-        stdHR.removeAll { $0.deviceID == deviceId }
-        stdRR.removeAll { $0.deviceID == deviceId }
-        stdContact.removeAll { $0.deviceID == deviceId }
-        stdReceipts.removeAll { $0.deviceID == deviceId }
+        let hr = takeStandardPrefix(&stdHR, count: hrCount) { $0.deviceID == deviceId }.map(\.sample)
+        let rr = takeStandardPrefix(&stdRR, count: rrCount) { $0.deviceID == deviceId }.map(\.sample)
+        let contact = takeStandardPrefix(&stdContact, count: contactCount) { $0.deviceID == deviceId }.map(\.sample)
+        let receipts = takeStandardPrefix(&stdReceipts, count: receiptCount) { $0.deviceID == deviceId }.map(\.row)
         log?(LivePersistTrace.standardHRFlushAttemptLine(
             reason: reason, offeredHRRows: hr.count, offeredRRRows: rr.count))
         // #1118: census this batch BEFORE it is stored, exactly as the historical path does, so a strap
@@ -538,6 +601,7 @@ final class Collector {
             }
         }
         do {
+            lastWriteFailed = false
             let streams = Streams(hr: hr, rr: rr, events: contact, standardHrReceipts: receipts)
             let inserted: BankedCounts
             if let concreteStore, let captureScope {
@@ -554,6 +618,7 @@ final class Collector {
             outcome = .succeeded
             return true
         } catch {
+            lastWriteFailed = true
             stdHR.insert(contentsOf: hr.map { (deviceId, $0) }, at: 0)
             stdRR.insert(contentsOf: rr.map { (deviceId, $0) }, at: 0)
             stdContact.insert(contentsOf: contact.map { (deviceId, $0) }, at: 0)

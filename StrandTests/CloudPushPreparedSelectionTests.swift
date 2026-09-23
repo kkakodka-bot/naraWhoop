@@ -160,12 +160,58 @@ final class CloudPushPreparedSelectionTests: XCTestCase {
                 "uploadUrl": "https://bucket.example/synthetic", "requiredHeaders": [:], "expiresAt": "2030-01-01T00:00:00Z"]))
         }
     }
-    private func append(_ f: Fixture, row: Int64 = 1, device: String? = nil, version: String = "1.2") throws -> CloudPushPreparedSelection {
+    private func append(_ f: Fixture, row: Int64 = 1, device: String? = nil, version: String = "1.2", fresh: Bool = false) throws -> CloudPushPreparedSelection {
         let batch = try PushProtocol.appendBatch(table: .hrSample, sourceId: source, deviceId: device ?? self.device,
-            startCursor: nil, records: [.init(rowId: row, key: ["ts": .int(row)], data: ["bpm": .int(60)])])
+            startCursor: nil, records: [.init(rowId: row, key: ["ts": .int(row)], data: ["bpm": .int(60)])], freshAppend: fresh)
         return try .init(context: f.context, endpoint: endpoint, receiverStateID: receiver, progressVersion: version,
-            selection: .init(inline: [batch], commit: .init(kind: .append, table: "hrSample", deviceID: batch.deviceId,
+            selection: .init(inline: [batch], commit: .init(kind: fresh ? .freshAppend : .append, table: "hrSample", deviceID: batch.deviceId,
                 batchIDs: [batch.batchId], cursor: batch.endCursor)), inlineGzip: [CloudPushTransport.gzip(batch.body)])
+    }
+
+    func testFreshReceiptCrashRecoveryKeepsHistoryAndRawRetentionIndependent() async throws {
+        var f = try await fixture()
+        do {
+            _ = try await raw(f)
+            let fresh = try append(f, row: 10001, fresh: true), history = try append(f, row: 10001)
+            XCTAssertNotEqual(fresh.commit.batchIDs, history.commit.batchIDs)
+            try await f.runtime.queue.prepareSelection(fresh, captured: f.context)
+            try await f.runtime.queue.prepareSelection(history, captured: f.context)
+            let batch = try XCTUnwrap(fresh.selection.restoredInlineBatches().first)
+            let reply = try W5ReceiptFixture.bytes(W5ReceiptFixture.inline(batch, owner: f.context.scope.userID))
+            PreparedURLProtocol.set { _ in (200, reply) }
+            let original = try progress(f, version: "1.2")
+            let interrupted = await coordinator(f, original, version: "1.2", beforeStage: { throw PreparedStop.crash })
+                .resumePrepared(fresh.selection)
+            guard case .rejected = interrupted else { throw PreparedStop.rejected("expected interruption") }
+            let beforeFresh = try await original.freshCursor(table: .hrSample, deviceId: device)
+            let beforeHistory = try await original.cursor(table: .hrSample, deviceId: device)
+            XCTAssertNil(beforeFresh); XCTAssertNil(beforeHistory)
+            let root = f.root; try await stop(f); f = try await fixture(root: root)
+            PreparedURLProtocol.set { _ in XCTFail("saved exact receipt recovery must remain offline"); throw PreparedStop.crash }
+            let current = try progress(f, version: "1.2")
+            let capturedFixture = f
+            let result = await CloudPushPreparedRecovery.resume(.init(selectionID: fresh.id, kind: .freshAppend,
+                table: "hrSample", deviceID: device), queue: f.runtime.queue, context: f.context,
+                directory: f.runtime.progressDirectory, currentNamespace: fresh.progressNamespace, currentProgress: current,
+                coordinator: { self.coordinator(capturedFixture, $0, version: $1) })
+            guard case .accepted = result else { throw PreparedStop.rejected("fresh recovery failed") }
+            let currentFresh = try await current.freshCursor(table: .hrSample, deviceId: device)
+            let currentHistory = try await current.cursor(table: .hrSample, deviceId: device)
+            XCTAssertEqual(currentFresh?.rowId, 10001); XCTAssertNil(currentHistory)
+            let savedLanes = try await f.runtime.queue.pendingPreparedLanes(sourceID: source, endpoint: endpoint,
+                receiverStateID: receiver, captured: f.context)
+            XCTAssertEqual(savedLanes.map(\.selectionID), [history.id])
+            let unsynced = try await f.store.registryWriter.read { db in
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM rawBatch WHERE syncedAt IS NULL")
+            }
+            XCTAssertEqual(unsynced, 1)
+            // A later write through the reused actor must not erase the newly recovered fresh key.
+            try await current.rememberDeviceId("another-device")
+            let reopened = try progress(f, version: "1.2")
+            let persisted = try await reopened.freshCursor(table: .hrSample, deviceId: device)
+            XCTAssertEqual(persisted, currentFresh)
+        } catch { await close(f); throw error }
+        await close(f)
     }
 
     func testFreshCoordinatorStreamsToAccountFileBeforeTransferThenSettlesExactReceipt() async throws {

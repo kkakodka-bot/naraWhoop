@@ -107,6 +107,22 @@ class PushDao internal constructor(
         }
     }
 
+    override suspend fun freshAppendRows(table: PushAppendTable, deviceId: String, afterRowId: Long,
+        fromTs: Long, throughTs: Long, limit: Int): List<PushAppendRecord> {
+        require(limit in 1..PushFreshSelection.MAX_RECORDS + 1 && fromTs <= throughTs)
+        val spec = appendSpec(table)
+        val predicate = "deviceId = ? AND ts >= ? AND ts <= ? AND rowid > ?"
+        return db.withTransaction {
+            val args = arrayOf<Any?>(deviceId, fromTs, throughTs, afterRowId, limit)
+            ensureSnapshotBounded(PushSnapshotPreflight.query(spec.sqlName, spec.columns, predicate, "rowid ASC"), args, 1024 * 1024L)
+            val sql = "SELECT rowid AS _pushRowId, ${spec.columns.joinToString()} FROM ${spec.sqlName} " +
+                "WHERE $predicate ORDER BY rowid ASC LIMIT ?"
+            db.query(SimpleSQLiteQuery(sql, args)).use { cursor ->
+                buildList { while (cursor.moveToNext()) add(cursor.appendRecord(spec)) }
+            }
+        }
+    }
+
     override suspend fun mutableRows(
         table: PushMutableTable,
         deviceId: String,
@@ -264,11 +280,11 @@ class PushDao internal constructor(
         }
     }
 
-    private fun ensureSnapshotBounded(sql: String, args: Array<Any?>) {
+    private fun ensureSnapshotBounded(sql: String, args: Array<Any?>, limit: Long = PushSnapshotPreflight.MAX_ESTIMATED_SNAPSHOT_BYTES) {
         val estimate = db.query(SimpleSQLiteQuery(sql, args)).use { cursor ->
             if (cursor.moveToFirst()) cursor.getLong(0) else 0L
         }
-        if (estimate > PushSnapshotPreflight.MAX_ESTIMATED_SNAPSHOT_BYTES) {
+        if (estimate > limit) {
             throw PushProtocolException("snapshot exceeds local memory limit")
         }
     }

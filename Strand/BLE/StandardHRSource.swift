@@ -97,6 +97,8 @@ public final class StandardHRSource: NSObject, ObservableObject {
     /// charge the same place the WHOOP strap does. Default no-op keeps the discovery-only scanner and
     /// existing call sites silent / compiling unchanged.
     private let onBattery: (Int) -> Void
+    /// Captured account runtime hook for a real accepted notification; it creates no radio work.
+    private let onCaptureOpportunity: () -> Void
     /// Diagnostic sink for the connect lifecycle. Wired (via `SourceCoordinator`) to the SAME strap-log
     /// sink `BLEManager` uses, so the generic-HR path is no longer invisible in a bug report (issue #421).
     /// Every line is prefixed `"HR-strap: "` so it's distinguishable from WHOOP lines in the shared log.
@@ -154,12 +156,14 @@ public final class StandardHRSource: NSObject, ObservableObject {
                 onBattery: @escaping (Int) -> Void = { _ in },
                 polarDebug: @escaping () -> Bool = { false },
                 admit: ((Streams) -> Bool)? = nil,
-                startCentral: Bool = true) {
+                startCentral: Bool = true,
+                onCaptureOpportunity: @escaping () -> Void = {}) {
         self.live = live
         self.deviceId = deviceId
         self.persist = admit ?? { streams in persist(streams); return true }
         self.log = log
         self.onBattery = onBattery
+        self.onCaptureOpportunity = onCaptureOpportunity
         self.polarDebug = polarDebug
         super.init()
         // Dedicated queue-less central → callbacks arrive on the main queue, matching @MainActor.
@@ -171,12 +175,14 @@ public final class StandardHRSource: NSObject, ObservableObject {
     convenience init(live: LiveState, deviceId: String, durableCapture: StandardHRCaptureSink?,
                      log: @escaping (String) -> Void = { _ in },
                      onBattery: @escaping (Int) -> Void = { _ in },
-                     polarDebug: @escaping () -> Bool = { false }, startCentral: Bool = true) throws {
+                     polarDebug: @escaping () -> Bool = { false }, startCentral: Bool = true,
+                     onCaptureOpportunity: @escaping () -> Void = {}) throws {
         guard let durableCapture, durableCapture.isOpen, durableCapture.deviceID == deviceId else {
             throw StandardHRCaptureError.closedSession
         }
         self.init(live: live, deviceId: deviceId, persist: { _ in }, log: log,
-                  onBattery: onBattery, polarDebug: polarDebug, admit: { _ in false }, startCentral: false)
+                  onBattery: onBattery, polarDebug: polarDebug, admit: { _ in false }, startCentral: false,
+                  onCaptureOpportunity: onCaptureOpportunity)
         self.durableCapture = durableCapture
         if startCentral { self.central = CBCentralManager(delegate: self, queue: nil) }
     }
@@ -295,6 +301,7 @@ public final class StandardHRSource: NSObject, ObservableObject {
     func ingestHeartRateMeasurement(_ bytes: [UInt8], at timestamp: Int) -> Bool {
         guard canReceiveCallbacks, !persistenceHeld, buffer.count < flushCount, bytes.count <= 512,
               let parsed = StandardHeartRate.parse(bytes) else { return false }
+        defer { onCaptureOpportunity() }
         var held = false
         if let durableCapture {
             switch durableCapture.offer(rawBytes: Data(bytes), hostTimestampSeconds: Int64(timestamp),

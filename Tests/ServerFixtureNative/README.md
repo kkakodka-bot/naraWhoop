@@ -54,3 +54,17 @@ enough for PostgreSQL's Unix socket filename limit. The worker scheduling and B2
 configuration remain separate release evidence.
 
 The additional identity fixtures exercise the actual Swift mutable replacement generator and the old raw-block versus current compressed Zstandard representation. The server regression replays A→B→A and empty→row→empty through the production receipt cache and projection transaction. It also verifies both binary representations retain the decoded batch identity while earning separate exact wire receipts. Old saved bytes remain unchanged. Binary inline posts are rejected before the receipt cache; the account-scoped client uses the object lane.
+
+To include the real SQLite fresh/history selection, prepared-selection crash/replay, and optional
+column regressions while retaining all codec export checks:
+
+```sh
+NARA_SERVER_FIXTURE_EXTRA_TEST_FILTER='CloudPushSnapshotTests|CloudPushPreparedSelectionTests' \
+  zsh Tests/ServerFixtureNative/run.sh "$RUNNER_TEMP/ble-source-artifacts"
+swift test --package-path Packages/NoopPush --filter PushFreshHistoryTests
+```
+
+`BoundaryStubs.swift` denies default authentication and host capture storage; tests that exercise
+revocation inject only fixture-owned admission callbacks. Receipt fixtures are synthetic exact
+receipt-contract tests, not real provider verification or physical phone acceptance. The optional
+copied-phone SQLite test skips unless its explicit private fixture path is supplied.

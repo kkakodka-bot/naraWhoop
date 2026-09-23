@@ -15,7 +15,7 @@ if CommandLine.arguments.count > 1 {
     suite.addTest(GenericCaptureJournalTests.defaultTestSuite)
     suite.addTest(RetiredCaptureDrainTests.defaultTestSuite)
     suite.addTest(StandardHRDurableCaptureTests.defaultTestSuite)
-    let expected = 11 + StandardHRDurableCaptureTests.expectedNativeCount
+    let expected = 14 + StandardHRDurableCaptureTests.expectedNativeCount
     #endif
     suite.run()
     guard let result = suite.testRun, result.executionCount == expected else { exit(2) }

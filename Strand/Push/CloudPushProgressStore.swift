@@ -56,6 +56,10 @@ actor CloudPushProgressStore: PushProgressStore {
     func rememberDeviceId(_ deviceId: String) async throws {
         var next = state; next.devices.insert(deviceId); try save(next)
     }
+    func freshCursor(table: PushAppendTable, deviceId: String) async throws -> PushCursor? { state.cursors[key("freshAppend", table.wireName, deviceId)] }
+    func saveFreshCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor) async throws {
+        var next = state; next.cursors[key("freshAppend", table.wireName, deviceId)] = cursor; try save(next)
+    }
     func cursor(table: PushAppendTable, deviceId: String) async throws -> PushCursor? { state.cursors[key("append", table.wireName, deviceId)] }
     func saveCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor) async throws {
         var next = state; next.cursors[key("append", table.wireName, deviceId)] = cursor; try save(next)
