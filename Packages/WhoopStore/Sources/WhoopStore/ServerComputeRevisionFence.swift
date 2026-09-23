@@ -39,6 +39,11 @@ public enum ServerComputeRevisionFence {
     private static func immutable(_ value: ServerCanonicalFamilyResult) -> Data? {
         guard let data = try? JSONEncoder().encode(value),
               var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        // Read policy can withhold fields from an old immutable publication without
+        // changing its hash. Compare both revisions through the same policy; retained
+        // HR/in-bed values, input receipts and qualified v2 details remain immutable.
+        object["values"] = ServerScoreCacheCodec.foundationJSON(.object(value.values))
+        object["details"] = ServerScoreCacheCodec.foundationJSON(.object(value.details))
         for key in ["freshness", "status", "reason"] { object.removeValue(forKey: key) }
         return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }

@@ -63,7 +63,8 @@ public struct ServerRespirationSummary: Equatable {
         var primary = visible ? scalar : nil
         if !visible { reason = reason ?? "respiration_unavailable" }
         if legacy {
-            reason = reason ?? "legacy_quality_unavailable"
+            primary = nil
+            reason = ServerLegacyReadEligibility.reason
         } else if primary != nil {
             if context != "main_sleep" {
                 primary = nil; reason = "incompatible_respiration_context"

@@ -19,9 +19,10 @@ final class ServerComputeOutboxTests: XCTestCase {
             "source_id": source, "device_id": device, "window": request.sessionID,
             "metrics": Array(ServerCanonicalResults.familyMetrics[request.family]!), "status": status,
             "result_revision": "session:123", "input_revision": request.inputRevision,
-            "algorithm_version": status == "available" ? "frwhoop-server-1" : "vps-only-1",
-            "canonical_qualification": status == "available" ? "retained_legacy" : NSNull(),
+            "algorithm_version": status == "available" ? "frwhoop-physiology-2" : "vps-only-1",
+            "canonical_qualification": status == "available" ? "signed_reference_approval" : NSNull(),
             "manifest_hash": status == "available" ? String(repeating: "a", count: 64) : NSNull(),
+            "feature_manifest_hash": status == "available" ? String(repeating: "b", count: 64) : NSNull(),
             "configuration_version": "vps-only-1", "computed_at": "2026-09-21T10:00:00Z",
             "timezone_id": request.timezoneID, "freshness": freshness,
             "values": Dictionary(uniqueKeysWithValues: ServerCanonicalResults.familyMetrics[request.family]!.map { ($0, value) }), "details": [:]]
@@ -70,6 +71,18 @@ final class ServerComputeOutboxTests: XCTestCase {
         XCTAssertTrue(try outbox.consumeDecision(decision, now: clock.date(from: "2026-09-21T10:00:30Z")!))
         XCTAssertFalse(try outbox.consumeDecision(decision, now: clock.date(from: "2026-09-21T10:00:31Z")!))
         XCTAssertFalse(try outbox.consumeDecision(decision, now: clock.date(from: "2026-09-21T10:01:00Z")!))
+    }
+
+    func testUnqualifiedLegacySpotDecisionCannotBeConsumedFromOldCache() throws {
+        let db = try DatabaseQueue(), outbox = try ServerComputeOutbox(db: db, scope: scope), request = request()
+        let qualifiedFixture = try result(request, status: "available", value: 37, expires: "2026-09-21T10:01:00Z")
+        var old = try JSONSerialization.jsonObject(with: JSONEncoder().encode(qualifiedFixture)) as! [String: Any]
+        old["algorithm_version"] = "frwhoop-server-1"; old["canonical_qualification"] = "retained_legacy"
+        let legacy = try JSONDecoder().decode(ServerCanonicalFamilyResult.self,
+            from: JSONSerialization.data(withJSONObject: old))
+        XCTAssertFalse(try outbox.consumeDecision(legacy,
+            now: ISO8601DateFormatter().date(from: "2026-09-21T10:00:30Z")!))
+        XCTAssertNil(legacy.number("spot_hrv_rmssd_ms"))
     }
 
     func testDecisionFreshnessIsValidatedAndCannotReplayUnavailableOrExpiredValue() throws {
