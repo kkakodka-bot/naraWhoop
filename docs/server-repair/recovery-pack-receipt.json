@@ -1,0 +1,86 @@
+{
+  "zip_path": "/Volumes/Untitled/WHOOP NARA-pr16/FRWHOOP_Recovery_Pack.zip",
+  "zip_sha256": "f55d8558548519d35010f094fdc2a7689a9ad5aedac39759c9ef661d3b925292",
+  "files": [
+    {
+      "path": "00_START_HERE.md",
+      "bytes": 5588,
+      "sha256": "f45fa4a7354aa9caeacc3129a8ccd3838f62386d512681835a422fe79993e73d",
+      "matches_manifest": true
+    },
+    {
+      "path": "01_EVIDENCE_AND_DIAGNOSIS.md",
+      "bytes": 12291,
+      "sha256": "00be613789962ad0e7c7451ac7b695e82dbe421a5815d919ec41567a0da85d8f",
+      "matches_manifest": true
+    },
+    {
+      "path": "02_SHARED_CONTRACT.md",
+      "bytes": 15503,
+      "sha256": "ea537121ac5022e85e02937ba5e9aaa98f0a6d70212cf835e650def687c90832",
+      "matches_manifest": true
+    },
+    {
+      "path": "03_BLE_SYNC_SPEC.md",
+      "bytes": 16022,
+      "sha256": "8cd23066ce8d3b217f6610966c37a2c07a4a6f59d1bf9b75686b7ce77864519b",
+      "matches_manifest": true
+    },
+    {
+      "path": "04_VPS_ALGORITHMS_SPEC.md",
+      "bytes": 26622,
+      "sha256": "f2b23f99ffd1b20511f2be30e36e9643f6a0cacca13c722a50b020395273d958",
+      "matches_manifest": true
+    },
+    {
+      "path": "05_ISSUE_BLE_SYNC.md",
+      "bytes": 3122,
+      "sha256": "79e8a99d3100e75e404d3590a25a4d9efcb509543f9649a2fe7961d7a93099b2",
+      "matches_manifest": true
+    },
+    {
+      "path": "06_ISSUE_VPS_ALGORITHMS.md",
+      "bytes": 3292,
+      "sha256": "0c2e87b8d7e559fdcbb6f59cc58da33767c308291480024b136776c3c6ff55b3",
+      "matches_manifest": true
+    },
+    {
+      "path": "evidence/adversarial.md",
+      "bytes": 19518,
+      "sha256": "733f06ed1486b7033b3d544946cf63cd611cb967d9f979bd69e7ee119a32b48a",
+      "matches_manifest": true
+    },
+    {
+      "path": "evidence/algorithms.md",
+      "bytes": 34222,
+      "sha256": "20d0ba8730b0bdced1435273566b32f82621a116f9a2f445bb31277ede9ff66c",
+      "matches_manifest": true
+    },
+    {
+      "path": "evidence/ble.md",
+      "bytes": 25024,
+      "sha256": "5127451d2b047d787ced2e9a73456e87b63a5100e3062b981dc264795c3a39a5",
+      "matches_manifest": true
+    },
+    {
+      "path": "evidence/lineage.md",
+      "bytes": 16622,
+      "sha256": "c1324411ac4ccd6863c976a868c7d08324a155a9357e83cb6a3bdf0f0f6adeea",
+      "matches_manifest": true
+    },
+    {
+      "path": "evidence/platform.md",
+      "bytes": 16950,
+      "sha256": "21c9ffe8790c7d05244189e3d0b36e3285804fe7f7106d54513e2dd69a49feaa",
+      "matches_manifest": true
+    },
+    {
+      "path": "evidence/server.md",
+      "bytes": 22008,
+      "sha256": "cd0e8ca31a89f8b043bdee4aa509eba7d56583e70d13fe4c795f18c6715b9564",
+      "matches_manifest": true
+    }
+  ],
+  "01_EVIDENCE_AND_DIAGNOSIS.md_download_matches_pack": true,
+  "04_VPS_ALGORITHMS_SPEC.md_download_matches_pack": true
+}

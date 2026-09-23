@@ -22,6 +22,7 @@ class BoundedRawFeatureLane(objects: B2ObjectStore.GetClient?, private val timeo
     fun evaluate(inputs: SignalSampleReader.DayInputs): Map<String,Outcome> {
         val receipts = inputs.acquisitionEvidence.receipts.filter { it.kind in setOf("ppg","imu") }.sortedByDescending { it.start }
         if(receipts.isEmpty()) return emptyMap()
+        inputs.rawManifestFailureReason?.let { reason -> return receipts.associate { it.digest to Outcome(reason=reason) } }
         if(extractor == null) return receipts.associate { it.digest to Outcome(reason="archive_worker_unavailable") }
         val result = ConcurrentHashMap<String,Outcome>()
         // Metadata changes invalidate a successful cache even when an operator has not revoked its receipt yet.

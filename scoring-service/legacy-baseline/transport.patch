@@ -1057,7 +1057,7 @@ index 0bcb280..0000000
 diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/PostgresClient.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/PostgresClient.kt
 --- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/PostgresClient.kt
 +++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/PostgresClient.kt
-@@ -2,6 +2,9 @@ package com.frwhoop.scoring.db
+@@ -2,6 +2,9 @@
 
  import com.zaxxer.hikari.HikariConfig
  import com.zaxxer.hikari.HikariDataSource
@@ -1067,7 +1067,7 @@ diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/Post
  import java.sql.Connection
 
  /**
-@@ -23,6 +26,9 @@ class PostgresClient private constructor(
+@@ -23,6 +26,9 @@
      constructor(databaseUrl: String) : this(
          HikariDataSource(
              HikariConfig().apply {
@@ -1077,21 +1077,25 @@ diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/Post
                  driverClassName = "org.postgresql.Driver"
                  jdbcUrl = normalizeJdbcUrl(databaseUrl)
                  maximumPoolSize = 6
-@@ -43,6 +49,43 @@ class PostgresClient private constructor(
+@@ -42,6 +48,70 @@
+
      companion object {
          data class UserInfo(val user: String?, val password: String?)
-
++
 +        private const val JAVA_SYSTEM_TRUST_FACTORY = "org.postgresql.ssl.DefaultJavaSSLFactory"
 +        private val HOSTED_DATABASE_OPTIONS = setOf("sslmode", "sslrootcert", "connectTimeout", "socketTimeout",
 +            "cancelSignalTimeout", "ApplicationName", "applicationName", "targetServerType", "channelBinding",
 +            "prepareThreshold")
 +
-+        /** Require hostname and CA verification for the hosted database shared with libpq tools. */
-+        fun requireVerifiedHostedTls(databaseUrl: String): Boolean {
++        /** Hosted credentials may leave the process only with hostname and CA verification enabled.
++         * Local disposable/self-hosted databases retain their existing test/development behavior. */
++        fun requireVerifiedHostedTls(databaseUrl: String): Boolean = verifiedHostedRoot(databaseUrl) != null
++
++        private fun verifiedHostedRoot(databaseUrl: String): String? {
 +            val uri = try { URI(normalizeJdbcUrl(databaseUrl).removePrefix("jdbc:")) }
 +            catch (_: Exception) { throw IllegalArgumentException("DATABASE_URL is invalid") }
-+            val host = uri.host?.lowercase() ?: return false
-+            if (!(host.endsWith(".supabase.co") || host.endsWith(".pooler.supabase.com"))) return false
++            val host = uri.host?.lowercase() ?: return null
++            if (!(host.endsWith(".supabase.co") || host.endsWith(".pooler.supabase.com"))) return null
 +            val options = linkedMapOf<String, String>()
 +            for (raw in uri.rawQuery.orEmpty().split('&').filter(String::isNotEmpty)) {
 +                val name = decodeOption(raw.substringBefore('='))
@@ -1103,28 +1107,51 @@ diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/Post
 +                "Hosted DATABASE_URL contains unsupported options"
 +            }
 +            require(options["sslmode"] == "verify-full") { "Hosted DATABASE_URL requires sslmode=verify-full" }
-+            require(options["sslrootcert"] == "system") { "Hosted DATABASE_URL requires sslrootcert=system" }
++            val root = options["sslrootcert"] ?: throw IllegalArgumentException("Hosted DATABASE_URL requires a reviewed sslrootcert")
++            if (root != "system") verifyPinnedHostedCa(root)
 +            require("ssl" !in options) { "Hosted DATABASE_URL must use one explicit TLS mode" }
-+            return true
++            return root
 +        }
 +
-+        /** pgJDBC 42.7.4 treats sslrootcert=system as a file unless Java trust is selected here. */
-+        fun verifiedHostedJdbcProperties(databaseUrl: String): Map<String, String> =
-+            if (requireVerifiedHostedTls(databaseUrl)) mapOf("sslfactory" to JAVA_SYSTEM_TRUST_FACTORY) else emptyMap()
++        private fun verifyPinnedHostedCa(filename: String) {
++            // Public Supabase CA, pinned to the reviewed source asset. Never fetch trust at runtime.
++            // A path is configurable for isolated local preflight, but trust bytes are not.
++            try {
++                val file = java.nio.file.Path.of(filename)
++                require(file.isAbsolute && !java.nio.file.Files.isSymbolicLink(file) && file.toRealPath() == file)
++                require(java.nio.file.Files.isRegularFile(file) && java.nio.file.Files.size(file) in 1..131072)
++                val bytes = java.nio.file.Files.readAllBytes(file)
++                val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
++                    .joinToString("") { "%02x".format(it) }
++                require(digest == "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7")
++                val certificate = java.security.cert.CertificateFactory.getInstance("X.509")
++                    .generateCertificate(bytes.inputStream()) as java.security.cert.X509Certificate
++                require(certificate.basicConstraints >= 0)
++                certificate.checkValidity()
++            } catch (_: Exception) {
++                throw IllegalArgumentException("Hosted DATABASE_URL root certificate differs from reviewed trust")
++            }
++        }
++
++        /** libpq accepts sslrootcert=system directly. pgJDBC 42.7.4 treats that value as a file
++         * name unless its Java-system-trust factory is selected separately. Keep the shared URL
++         * libpq-compatible and add the JVM-only factory as a connection property. */
++        internal fun verifiedHostedJdbcProperties(databaseUrl: String): Map<String, String> =
++            if (verifiedHostedRoot(databaseUrl) == "system") mapOf("sslfactory" to JAVA_SYSTEM_TRUST_FACTORY)
++            else emptyMap() // pgJDBC's validating LibPQFactory reads the pinned explicit CA file.
 +
 +        private fun decodeOption(value: String): String = try {
 +            URLDecoder.decode(value, StandardCharsets.UTF_8)
 +        } catch (_: IllegalArgumentException) {
 +            throw IllegalArgumentException("DATABASE_URL has malformed option encoding")
 +        }
-+
+
          /** Map a receiver-style database URL to a userinfo-free JDBC URL. Pure: no I/O, no pool. */
          fun normalizeJdbcUrl(databaseUrl: String): String {
-             val base = when {
 diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/PostgresClientTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/PostgresClientTest.kt
 --- a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/PostgresClientTest.kt
 +++ b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/PostgresClientTest.kt
-@@ -3,12 +3,35 @@ package com.frwhoop.scoring
+@@ -3,11 +3,66 @@
  import com.frwhoop.scoring.db.PostgresClient
  import org.junit.Assert.assertEquals
  import org.junit.Assert.assertNull
@@ -1135,7 +1162,7 @@ diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/Postgre
  class PostgresClientTest {
      // URL handling is pure and testable WITHOUT opening a real Hikari pool / database
      // (Phase 3 gate: "URL normalization must be testable without requiring a real database").
-
++
 +    @Test fun hostedTlsUsesTheJvmSystemTrustFactoryAndRejectsDriverOverrides() {
 +        val url = "postgresql://postgres.project:secret@aws-0-us-west-1.pooler.supabase.com:6543/postgres?" +
 +            "sslmode=verify-full&sslrootcert=system"
@@ -1157,9 +1184,40 @@ diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/Postgre
 +            PostgresClient.verifiedHostedJdbcProperties("postgresql://postgres:secret@localhost:5432/postgres"))
 +    }
 +
++    @Test fun explicitReviewedCaUsesActualValidatingDriverFactoryAndRejectsChangedTrust() {
++        val directory = java.nio.file.Files.createTempDirectory("hosted-ca-test").toRealPath()
++        try {
++            val original = java.nio.file.Path.of("../../Tools/release/certificates/supabase-prod-ca-2021.crt").toRealPath()
++            val ca = java.nio.file.Files.copy(original, directory.resolve("ca.crt"))
++            val encodedPath = java.net.URLEncoder.encode(ca.toString(), java.nio.charset.StandardCharsets.UTF_8)
++            val url = "postgresql://postgres:private-test@db.sgoyxzcagqyxexmsidtk.supabase.co:5432/postgres?" +
++                "sslmode=verify-full&sslrootcert=$encodedPath"
++            val properties = PostgresClient.verifiedHostedJdbcProperties(url)
++            assertEquals(emptyMap<String, String>(), properties)
++            val parsed = org.postgresql.Driver.parseURL(PostgresClient.normalizeJdbcUrl(url),
++                java.util.Properties().apply { putAll(properties) })!!
++            assertEquals("verify-full", parsed.getProperty("sslmode"))
++            assertEquals(ca.toString(), parsed.getProperty("sslrootcert"))
++            assertEquals("org.postgresql.ssl.LibPQFactory",
++                org.postgresql.core.SocketFactoryFactory.getSslSocketFactory(parsed).javaClass.name)
++            assertThrows(IllegalArgumentException::class.java) {
++                PostgresClient.verifiedHostedJdbcProperties(url.replace("verify-full", "require"))
++            }
++            val link = java.nio.file.Files.createSymbolicLink(directory.resolve("link.crt"), ca)
++            assertThrows(IllegalArgumentException::class.java) {
++                PostgresClient.verifiedHostedJdbcProperties(url.substringBefore("sslrootcert=") + "sslrootcert=" + link)
++            }
++            java.nio.file.Files.writeString(ca, "changed trust")
++            val error = assertThrows(IllegalArgumentException::class.java) {
++                PostgresClient.verifiedHostedJdbcProperties(url)
++            }
++            assertEquals("Hosted DATABASE_URL root certificate differs from reviewed trust", error.message)
++            assertNull(error.cause)
++        } finally { directory.toFile().deleteRecursively() }
++    }
+
      @Test
      fun normalizesPostgresqlUrlToJdbc() {
-         // Userinfo is stripped for the JDBC URL; credentials travel via Hikari data-source properties.
 diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/WorkItemCompletionTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/WorkItemCompletionTest.kt
 deleted file mode 100644
 index b17bb2f..0000000

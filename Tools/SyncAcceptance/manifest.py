@@ -8,7 +8,8 @@ import re
 import subprocess
 
 SCENARIOS = (
-    "locked_backlog_2h", "overnight_12h_three_runs", "range_return_30_cycles",
+    "locked_backlog_2h", "locked_computed_results_4h", "ordinary_24h_soak",
+    "overnight_12h_three_runs", "range_return_30_cycles",
     "bluetooth_off_10min_locked_recovery", "discovery_subscription_commit_ack_interruptions",
     "genuine_system_termination_restoration", "offline_2h_locked_recovery",
     "network_credentials_signed_url_transitions", "low_power_thermal_pressure",
@@ -22,6 +23,10 @@ GATES = (
     "ordinary_sqlite_durability_commits", "cloud_impact_on_ble_p99",
     "backfill_throughput_30min", "healthy_link_progress_gap", "bulk_admission_stop_latency",
     "critical_thermal_jetsam_exc_resource", "memory_delta_and_peak", "matched_battery_regression",
+    "immutable_input_to_selected_result", "authenticated_native_ui_revision_equality",
+    "phone_physiological_executions", "phone_counter_process_coverage",
+    "verification_projection_service_rate", "selected_queue_age_and_exhaustion",
+    "target_vps_live_history_capacity",
 )
 EVIDENCE_NAMES = {
     "connection", "transport", "hosted", "store", "push", "cloud", "imu", "crash_stress",
@@ -75,11 +80,12 @@ def main():
         evidence.append({"name": name, "sha256": digest.hexdigest(), "bytes": path.stat().st_size,
                          "source_binding": "SEE_RUN_SOURCE_SHA_OR_FINGERPRINTS"})
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "candidate": {"sha": sha, "working_tree_dirty": dirty,
                       "version": version("MARKETING_VERSION"), "build": version("CURRENT_PROJECT_VERSION")},
-        "audited_sha": "2f26b62ae685ddbcec4c539f7c5d806ce72f60cf",
-        "resumed_pr22_sha": "97704bdf8e4ab802083070d8d45664ade51c1f6c",
+        "historical_audit_sha": "2f26b62ae685ddbcec4c539f7c5d806ce72f60cf",
+        "historical_pr22_integration_ancestor": "97704bdf8e4ab802083070d8d45664ade51c1f6c",
+        "repair_common_base": "76f2d70f621de91268e295ebcb6c6da29162991f",
         "release_disposition": "NOT_READY",
         "local_evidence": evidence,
         "physical_cells": [
@@ -96,6 +102,17 @@ def main():
             "before_after_signposts", "time_profiler", "energy_log", "file_activity", "disk_io")},
         "metrickit": {name: "NOT_MEASURED" for name in ("cpu", "memory", "energy", "hang", "exit")},
         "deployed_server_receipts_and_account_isolation": "NOT_MEASURED",
+        "elapsed_observation_requirements_seconds": {
+            "locked_computed_results_4h": 14400, "ordinary_24h_soak": 86400,
+            "ordinary_72h_soak": 259200,
+        },
+        "phone_counter_evidence": {
+            "status": "NOT_MEASURED", "process_generations": [],
+            "unobserved_process_tails": "NOT_MEASURED",
+            "requirement": "Zero executed calls plus supported numerical result readback; "
+                           "counter snapshots cover only their reported process interval. "
+                           "An unseen restart or missing tail cannot establish zero calls.",
+        },
         "limitations": ["No indefinite background execution", "No ordinary recovery promise after force-quit",
                         "Protected storage may be unavailable before first unlock", "OS scheduling is discretionary",
                         "Local evidence does not establish physical or deployed-server acceptance"],

@@ -30,3 +30,13 @@ Independent release, upload, acquisition/native and Edge reviewers inspected act
 `04_VPS_ALGORITHMS_SPEC.md` and `01_EVIDENCE_AND_DIAGNOSIS.md` were read from Downloads. At the time of this record, the user-named `FRWHOOP_Recovery_Pack/02_SHARED_CONTRACT.md` and `evidence/{server,algorithms,lineage}.md` were not present at the supplied location. This document records the interface preserved from the available specification and actual source; it does not claim to replace or have reviewed those missing files. Reconcile them when the pack is available.
 
 No production migration, deployment, model promotion, phone installation/reset or main merge is authorized by this base.
+
+## Supplied contract reconciliation
+
+The subsequently supplied `/Volumes/Untitled/WHOOP NARA-pr16/FRWHOOP_Recovery_Pack.zip` was extracted read-only from the original checkout into `/Volumes/Untitled/server-repair-evidence/recovery-pack/FRWHOOP_Recovery_Pack`. All 13 document hashes and byte counts match its audit manifest; the previously read 01/04 Downloads files are byte-identical. The exact [02_SHARED_CONTRACT.md](02_SHARED_CONTRACT.md), SHA256 `ea537121ac5022e85e02937ba5e9aaa98f0a6d70212cf835e650def687c90832`, is now authoritative. Root read the full shared contract and server/algorithms/lineage evidence; independent owners reconcile their domains. The base identity and edit ownership above remain unchanged.
+
+The shared contract makes explicit the single machine-readable `acceptance.json`, fixed initial per-stage latency targets, and independent review after actual physical acceptance. No earlier source test is promoted to those unperformed gates. The Markdown ledger is a human-readable view of that single ledger. Final producer parity remains incomplete; server ownership guards and missingness alone do not satisfy its no-feature-removal requirement.
+
+## BLE ownership update
+
+On 2026-09-22 the user explicitly assigned BLE implementation to this same team. The BLE worktree remains at the reviewed common base for isolated acquisition/lifecycle/auth/scheduler work. Root owns cross-worktree integration and shared AppModel/SyncEngine coordination; no final matched phone build will be labeled combined until those changes are merged and verified.

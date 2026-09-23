@@ -33,9 +33,12 @@ class QualifiedRawFeatures(private val objects: B2ObjectStore.GetClient) {
                 SensorAcquisitionProof.finite(j,"gyroscope_scale") > 0) { "axis_units_unverified" }
         }
         val mappings = j.getJSONArray("records")
-        require(mappings.length() in 1..300) { "raw_sample_budget_exceeded" }
+        require(mappings.length() in 1..MAX_MAPPED_RECORDS) { "raw_sample_budget_exceeded" }
         val ids = (0 until mappings.length()).map { UUID.fromString(mappings.getJSONObject(it).getString("object_id")) }.toSet()
-        require(ids.size in 1..8) { "raw_object_budget_exceeded" }
+        // Transport shard boundaries cannot change the supported five-minute signal window.
+        // At most one required object per mapped record; complete metadata and byte budgets
+        // are checked before any download, and inference still needs every mapped record.
+        require(ids.size in 1..MAX_MAPPED_RECORDS) { "raw_object_budget_exceeded" }
         val selected = ids.map { id -> manifests.singleOrNull { it.id == id } ?: error("archive_pending") }
         require(selected.all { it.sourceId?.toString() == j.getJSONObject("cohort").getString("source_id") }) { "capture_source_mismatch" }
         require(selected.sumOf { it.uncompressedBytes.toLong() } <= 8 * 1024 * 1024 &&
@@ -102,6 +105,7 @@ class QualifiedRawFeatures(private val objects: B2ObjectStore.GetClient) {
     }
     companion object {
         const val VERSION = "qualified-raw-features-1"
+        const val MAX_MAPPED_RECORDS = 300
         fun median(values: List<Double>): Double = values.sorted().let { (it[(it.size-1)/2]+it[it.size/2])/2 }
         private fun interrupted() { if(Thread.currentThread().isInterrupted) throw InterruptedException("raw_task_cancelled") }
     }

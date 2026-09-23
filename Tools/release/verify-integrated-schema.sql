@@ -40,6 +40,8 @@ begin
     'final hosted contract does not wrap the signal-aware contract';
   assert position('''mode'',''final_hosted''' in definition) > 0,
     'final hosted response mode is absent';
+  assert position('d.policy_version=policy.policy_version' in definition) > 0,
+    'final hosted reader can reuse obsolete immutable dispositions';
   definition := pg_get_functiondef('public.server_scoring_read_contract_v1(uuid,date,uuid)'::regprocedure);
   assert position('server_scoring_read_contract_before_signals' in definition) > 0,
     'signal-aware contract does not wrap the qualified base contract';
@@ -66,6 +68,14 @@ begin
     from public.compute_family_policy;
   assert metric_count = 27, 'compute family count differs from the final hosted registry';
   assert owned_metric_count = 80, 'compute metric count differs from the final hosted registry';
+  assert (
+    select count(*) = 7 and bool_and(
+      unavailable_status = 'unqualified' and unavailable_reason = 'producer_not_implemented'
+      and policy_version = 'vps-only-producers-2')
+    from public.compute_family_policy
+    where family in ('spot_hrv','live_workout','intraday_temperature','stress_events',
+                     'biofeedback','live_coaching','insights')
+  ), 'unfinished server producers are mislabeled as unsupported acquisition';
   assert not exists(
     select metric from public.compute_family_policy policy,
       lateral unnest(policy.metrics) metric group by metric having count(*) <> 1

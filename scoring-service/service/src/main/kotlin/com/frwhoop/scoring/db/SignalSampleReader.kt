@@ -51,6 +51,7 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
         val acquisitionEvidence: SensorAcquisitionReader.Evidence = SensorAcquisitionReader.Evidence(emptyList()),
         val rawManifests: List<com.frwhoop.scoring.signals.VerifiedRawObjectReader.Manifest> = emptyList(),
         val temperatureSources: Map<Long,String> = emptyMap(),
+        val rawManifestFailureReason: String? = null,
     )
 
     override fun loadDay(userId: UUID, day: String, deviceId: UUID): DayInputs? =
@@ -95,6 +96,17 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
                 observations=observations.orEmpty().filter { it.originalId !in ids } + qualified
             }
 
+            var rawManifestFailureReason: String? = null
+            val rawManifests = try {
+                rawCatalogue.discoverAvailable(userId, deviceId, nightLo, nightHi + 1, SensorAcquisitionReader.objectIds(evidence))
+            } catch (error: IllegalArgumentException) {
+                // A bounded raw metadata rejection must not erase independent scalar inputs. SQL,
+                // cancellation and unexpected failures still escape so the queue retries the read.
+                if (error.message !in setOf("raw_catalogue_budget_exceeded", "raw_assembly_budget_exceeded", "raw_catalogue_identity_conflict")) throw error
+                rawManifestFailureReason = error.message
+                emptyList()
+            }
+
             DayInputs(
                 userId = userId,
                 day = day,
@@ -135,7 +147,8 @@ class SignalSampleReader(private val db: PostgresClient) : ScoreInputProvider {
                 baselines = if (available) CanonicalBaselineReader.load(conn, userId, deviceId, day)
                     else com.noop.analytics.ProfileBaselines(),
                 acquisitionEvidence=evidence,
-                rawManifests=rawCatalogue.discover(userId,deviceId,nightLo,nightHi+1,SensorAcquisitionReader.objectIds(evidence)),
+                rawManifests=rawManifests,
+                rawManifestFailureReason=rawManifestFailureReason,
                 temperatureSources=sourceIdentities(conn,userId,deviceId,"noop_skin_temp_samples","ts",nightLo,nightHi+1).mapKeys { it.key.toLong() },
             )
         }

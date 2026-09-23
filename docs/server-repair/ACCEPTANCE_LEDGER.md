@@ -1,42 +1,29 @@
 # Shared repair acceptance ledger
 
-Authoritative shared ledger for BLE and VPS repairs. Root integration owns this file; independent reviewers contribute linked receipts. `PASS_LOCAL` does not imply deployment, physical acceptance, or scientific qualification.
+[acceptance.json](acceptance.json) is the single authoritative machine-readable ledger. This Markdown table is its human-readable view. Source, synthetic, local integration, deployed, physical, reference and load evidence are separate; PASS at one tier does not pass another. Original problem: **OPEN**.
 
-## Source and edit ownership
+Common base: `76f2d70f621de91268e295ebcb6c6da29162991f`. Server branch `repair/vps-server-20260922`; BLE branch `repair/ble-sync-20260922` is still at the common base. The exact supplied [shared contract](02_SHARED_CONTRACT.md) and verified [pack receipt](recovery-pack-receipt.json) are now available.
 
-- Frozen common base: `76f2d70f621de91268e295ebcb6c6da29162991f`.
-- Server: `/Volumes/Untitled/WHOOP NARA-server-repair`, `repair/vps-server-20260922`.
-- BLE: `/Volumes/Untitled/WHOOP NARA-ble-repair`, `repair/ble-sync-20260922`, created at the common base. No BLE implementation has been integrated yet.
-- Chat A owns acquisition, local durability, lifecycle, mobile transport/auth and `AppModel`/`SyncEngine` changes. Chat B owns server schema, producer queues, results, native result consumers, and the combined release. Coordinate shared-file changes before editing.
-- Current Chat B boundary edits include `CloudAuthClient` compare-and-clear for a result-read 401, and foreground/pause notification from Android `MainActivity` to the result reader. They do not grant new capture execution time.
-- Preserved raw contract: local commit before BLE ACK; exact source/device/batch/digest verified-indexed receipt before release; pending verification is not release authority; projection settlement and physiological input qualification are separate states. Async remains disabled until a matched continuously serviced consumer and explicit capability enablement.
-- Supplied BLE prerequisites: `/Volumes/Untitled/ble-repair-prerequisites.MhTsik/STAGE0_BLE_INPUTS.md` plus its lifecycle, performance and auth reports. Their synthetic clocks are not locked-phone observations.
-- `01_EVIDENCE_AND_DIAGNOSIS.md` and `04_VPS_ALGORITHMS_SPEC.md` have been read. As of the latest filesystem check, `/Users/rahulvijayan/Downloads/FRWHOOP_Recovery_Pack/` is absent. Exact `02_SHARED_CONTRACT.md` and evidence-pack reconciliation remain pending; the preserved interface in `STAGE0_COMMON_BASE.md` is not represented as the missing document.
+Chat A owns acquisition/local durability/lifecycle/mobile auth/transport. Chat B owns schema/queues/results/native result consumers and combined release. Coordinate shared-file changes. Current B boundary edits are CloudAuthClient compare-and-clear and Android foreground/pause notification to the result reader; neither grants capture execution time. Preserve local commit before BLE ACK and exact verified-indexed identity before cloud retention release. Async remains off.
 
-## Gates
+| Gate | Evidence tier | Status | Observed result / remaining work |
+|---|---|---|---|
+| shared_base | source | PASS | Both histories retained; all supplied pack hashes match; unrelated dirty checkout preserved |
+| real_incident_trace | deployed_read_only | PASS | Accepted/indexed batch still has projection debt; selected-v1 queue pending with no compatible hosted consumer; physical capture/cache/render unmeasured |
+| intake_and_migrations | local_integration | PASS | Local intake7 steps and fresh/populated/wrapped predecessor chains passed; later source revalidation remains required |
+| computed_synthetic_chain | local_integration | PASS | Sleep179.98333333333332min/RHR53/efficiency100%; separate from real recording; final-source rerun pending |
+| raw_native_focused | local_integration | PASS | Raw70/Swift43/Android37 passed on9b; broader suite subsequently found optional raw-lane isolation defect being fixed |
+| zero_inference_source | local_integration | PASS | Swift35/Android4 passed on9b; physical exports and final source rerun separate |
+| full_server_suite | local_integration | FAIL | First full run: analytics1106/0fail/5reference skips; service585/2fail. Raw optional-object failure needs fix; concurrent Swift source edit invalidated corpus. Rerun after freeze |
+| producer_parity | source | FAIL | Canonical history-family wiring and several live/session producers remain incomplete; explicit missingness is not hardware exclusion |
+| combined_ble_source | source | NOT_MEASURED | BLE worktree exists at common base; no subsequent BLE implementation integrated |
+| matched_artifacts | source | NOT_MEASURED | 9b intake OCI verified; final freeze/build in progress; no transfer of prior source receipts |
+| deployment | deployed | NOT_MEASURED | No approval requested/granted, no production mutation |
+| real_phone_readback | physical | NOT_MEASURED | No candidate installed or actual phone readback observed |
+| locked_4h | physical | NOT_MEASURED | Not performed |
+| soak_24h | physical | NOT_MEASURED | Not performed |
+| soak_72h | physical | NOT_MEASURED | Not performed |
+| target_capacity | load | NOT_MEASURED | Idle4CPU/7.755GiB snapshot only; prior1000-owner scalar run does not pass or establish capacity |
+| reference_qualification | scientific_reference | NOT_MEASURED | No newly qualified adapter/model/SpO2 or calibration |
 
-| Gate | State | Evidence / remaining requirement |
-| --- | --- | --- |
-| Both full histories and frozen release identity | PASS_LOCAL | `stage0-receipts.json`, `stage0-release-review.md`; both parents retained, old artifact identity independently checked |
-| Common base native/schema regression | PASS_LOCAL | Stage 0 logs and receipts; subsequent changes need final combined rerun |
-| Current real outage trace | DIAGNOSED | Hosted selected-v1 work is pending with no compatible selected worker; client-claimed digest/projection debt also requires settlement repair. Trace must retain historical-phone-snapshot and privileged-read limits |
-| Atomic projection and continuously serviced verification | PASS_LOCAL | Forward migration and full-chain intake seven-step test pass; no hosted mutation |
-| Real computed fixture through selected worker and handlers | PASS_LOCAL | Joined NDJSON/storage/receipt/automatic selected queue/baseline/real GoTrue and enrolled API/native decoder/cache chain passed; final-source rerun required |
-| Scoped native cache, retirement and bounded catch-up | PASS_LOCAL | Swift 43 and Android 37 focused tests passed, including bounded visited-day polling and actual lock-order regression; no installed phone claim |
-| Complete bounded raw model assembly | PASS_LOCAL | Full-schema 70-test run passed without skips, including 1/9/257 shards and input-gate concurrency; acquisition qualification and models remain separate |
-| Per-family numerical producer parity | INCOMPLETE | Existing shadow formulas and explicit missing states are not canonical producer closure |
-| Zero local physiology with supported outputs | PARTIAL_LOCAL | Base app checks passed; exact final source and positive decoder/consumer evidence required |
-| Final combined BLE/VPS source | PENDING_BLE_IMPLEMENTATION | BLE worktree exists at common base; merge actual completed BLE changes and retest |
-| Matched artifact build and independent pre-canary review | NOT_READY | Freeze source and bind all migration/Edge/intake/worker/phone artifacts; no transferred old-build receipts |
-| Deployment and phone installation approval | NOT_REQUESTED | Request only for a concrete reviewed matched plan |
-| Actual enrolled/account phone readback | NOT_MEASURED | Normal authorized phone identity and connected phone required |
-| Four-hour locked continuity | NOT_MEASURED | Actual elapsed capture, receipt and result continuity on matched phone/server release |
-| 24-hour / 72-hour soaks | NOT_MEASURED | Actual elapsed workload, faults, durability and resource observations |
-| Target VPS capacity | NOT_MEASURED | Measured real rates, raw-object sizes, inference mix and unfinished jobs; local 1,000-owner report does not establish capacity |
-| Scientific reference qualification | NOT_MEASURED | Capability-specific synchronized independent reference; no fabricated beat timing, calibration or SpO₂ |
-
-## Independent checkpoints
-
-Diagnosis and common-base design were independently inspected by release, runtime, and acquisition/science reviewers. Implementation cross-review is in progress. Pre-canary and physical acceptance reviews have not occurred and cannot be credited from diagnosis reviews. Exact requirements in the missing shared contract remain to be reconciled.
-
-No production deployment, model promotion, phone reset/installation, or main merge is authorized by this ledger. The original problem remains open until the supported deployed path and physical acceptance gates are measured.
+Exact commands, source bindings, hashes, latency criteria and checkpoint states are in the JSON ledger. No production deployment, registry publication, model promotion, phone reset/installation or main merge is authorized by this ledger.

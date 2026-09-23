@@ -24,6 +24,7 @@ LABEL org.opencontainers.image.revision=$RELEASE_SHA \
       io.frwhoop.baseline.commit="5caa31689da0023e111beb36850d3f81d67e1be2" \
       io.frwhoop.baseline.transport-sha256=$TRANSPORT_PATCH_SHA256 \
       io.frwhoop.baseline.identity-sha256=$IDENTITY_PATCH_SHA256 \
+      io.frwhoop.database.ca.sha256="700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7" \
       io.frwhoop.heartbeat.contract="physiology_worker_heartbeats-v1" \
       io.frwhoop.build.image=$BUILD_IMAGE \
       io.frwhoop.runtime.image=$RUNTIME_IMAGE \
@@ -31,9 +32,12 @@ LABEL org.opencontainers.image.revision=$RELEASE_SHA \
 WORKDIR /app
 COPY --from=build /build/scoring-service/service/build/install/service /app/
 COPY --from=build /build/baseline-transport-provenance.json /app/
+COPY Tools/release/certificates/supabase-prod-ca-2021.crt /opt/frwhoop/supabase-prod-ca-2021.crt
+RUN printf '%s\n' '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7  /opt/frwhoop/supabase-prod-ca-2021.crt' | sha256sum -c - \
+    && chmod 444 /opt/frwhoop/supabase-prod-ca-2021.crt
 RUN printf '%s\n' "$RELEASE_SHA" | grep -Eq '^[0-9a-f]{40}$' \
     && printf '%s\n' "$TRANSPORT_PATCH_SHA256" | grep -Eq '^[0-9a-f]{64}$' \
     && printf '%s\n' "$IDENTITY_PATCH_SHA256" | grep -Eq '^[0-9a-f]{64}$' \
     && printf '%s\n' "$RELEASE_SHA" > /app/release.sha && chmod 444 /app/release.sha
-ENV JAVA_OPTS="-Xmx1g -XX:+UseContainerSupport"
+ENV JAVA_OPTS="-Xmx512m -XX:+UseContainerSupport"
 ENTRYPOINT ["/app/bin/service"]

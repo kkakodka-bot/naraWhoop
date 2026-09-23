@@ -273,6 +273,47 @@ class SensorWindowIntegrationTest {
         assertTrue(window(withdrawn, "ppg").isNull("values"))
     }
 
+    @Test fun rawMetadataBudgetFailureKeepsIndependentPositiveScalarAndPublishesExplicitRawReason() {
+        val raw = ownedRaw("ppg")
+        insertReceipt(raw.proof)
+        insertRaw(raw)
+        for ((offset, value) in listOf(10 to 3200, 150 to 3250, 290 to 3300)) {
+            sql("insert into noop_skin_temp_samples(user_id,device_id,source_id,ts,raw,batch_id) " +
+                "values('$user','$device','$source',${start+offset},$value,'${UUID.randomUUID()}')")
+        }
+        val samples = SignalSampleReader(db).loadDay(user, day, device, "UTC")!!.skinTemp
+        val scalarIdentity = samples.joinToString(";") { "${it.ts}:${it.raw}:${it.aux1Raw}:${it.aux2Raw}" }
+        insertReceipt(owned(SensorFixtures.base("temperature")).put("unit","celsius_centi").put("wear_status","on_body")
+            .put("scalar_sha256",SensorAcquisitionProof.sha256(scalarIdentity.toByteArray())))
+        sql("update object_manifests set compressed_bytes=67108865 where id='${raw.manifest.id}'")
+        val input = SignalSampleReader(db).loadDay(user, day, device, "UTC")!!
+        assertEquals("raw_assembly_budget_exceeded", input.rawManifestFailureReason)
+        assertTrue(input.rawManifests.isEmpty())
+        assertEquals(3, input.skinTemp.size)
+        var fetches = 0
+        BoundedRawFeatureLane(object : B2ObjectStore.GetClient {
+            override fun getObject(key: String, maximumBytes: Int): ByteArray { fetches++; error("must not fetch rejected metadata") }
+        }).use { lane ->
+            val work = claimCurrent()
+            val scored = payload(work, start + 300, DayScorer(rawFeatures=lane))
+            val optical = window(scored, "ppg")
+            assertEquals("raw_assembly_budget_exceeded", optical.getString("reason"))
+            assertTrue(optical.isNull("values"))
+            val temperature = window(scored, "temperature")
+            assertEquals("available", temperature.getString("measurement_status"))
+            assertEquals(32.5, temperature.getJSONObject("values").getDouble("median_skin_c"), 0.0)
+            publish(scored)
+            assertTrue(queue.markDone(work, 1))
+            assertEquals(0, fetches)
+            asRole("service_role", user) { connection ->
+                val api = read(connection, "server_scoring_for_device_day", user, device)
+                assertEquals("available", window(api, "temperature").getString("analysis_status"))
+                assertTrue("synthetic scalar proof is not canonical qualification", window(api, "temperature").isNull("values"))
+                assertEquals("raw_assembly_budget_exceeded", window(api, "ppg").getString("reason"))
+            }
+        }
+    }
+
     @Test fun actualColumnarImuAndPointTemperatureKeepUnitsCoverageSourceAndWearGates() {
         val raw = ownedRaw("imu")
         insertReceipt(raw.proof)

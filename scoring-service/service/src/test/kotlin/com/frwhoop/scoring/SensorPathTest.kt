@@ -91,6 +91,29 @@ internal object SensorFixtures {
             .put("accelerometer_scale",.00981).put("gyroscope_scale",.001)
         return Raw(raw,manifest,proof)
     }
+
+    fun rawShards(kind: String, shardCount: Int): Pair<List<Raw>, JSONObject> {
+        require(shardCount in 1..300)
+        val original = raw(kind)
+        val recordBytes = (original.bytes.size - 10) / 300
+        val proof = JSONObject(original.proof.toString())
+        val mappings = proof.getJSONArray("records")
+        val shards = (0 until shardCount).map { index ->
+            val from = 300 * index / shardCount
+            val endExclusive = 300 * (index + 1) / shardCount
+            val bytes = ByteBuffer.allocate(10 + (endExclusive - from) * recordBytes).order(ByteOrder.LITTLE_ENDIAN)
+                .put(original.bytes, 0, 6).putInt(endExclusive - from)
+                .put(original.bytes, 10 + from * recordBytes, (endExclusive - from) * recordBytes).array()
+            val id = UUID.randomUUID()
+            val manifest = original.manifest.copy(id = id, key = original.manifest.key + "/$id",
+                sha256 = SensorAcquisitionProof.sha256(bytes), compressedBytes = bytes.size,
+                uncompressedBytes = bytes.size, records = endExclusive - from, start = start + from, end = start + endExclusive)
+            for (record in from until endExclusive) mappings.getJSONObject(record)
+                .put("object_id", id.toString()).put("object_sha256", manifest.sha256)
+            Raw(bytes, manifest, proof)
+        }
+        return shards to proof
+    }
 }
 
 class SensorPathTest {
@@ -143,6 +166,59 @@ class SensorPathTest {
         assertEquals("motion_alignment_unverified",assertThrows(IllegalArgumentException::class.java) { extract() }.message)
         raw.proof.put("motion_status","aligned_quiet").getJSONObject("cohort").put("source_id",UUID.randomUUID().toString())
         assertEquals("capture_source_mismatch",assertThrows(IllegalArgumentException::class.java) { extract() }.message)
+    }
+    @Test fun shardBoundariesDoNotChangeCompletePpgOrImuWindowFeatures() {
+        for (kind in listOf("ppg", "imu")) {
+            var reference: QualifiedRawFeatures.Features? = null
+            for (count in listOf(1, 9, QualifiedRawFeatures.MAX_MAPPED_RECORDS)) {
+                val (shards, proof) = f.rawShards(kind, count)
+                val byKey = shards.associate { it.manifest.key to it.bytes }
+                var gets = 0
+                val analyzer = QualifiedRawFeatures(object : B2ObjectStore.GetClient {
+                    override fun getObject(key: String, maximumBytes: Int): ByteArray {
+                        gets++; return byKey.getValue(key)
+                    }
+                })
+                val actual = analyzer.extract(SensorAcquisitionProof.verify(f.receipt(proof), f.user, f.device),
+                    shards.map { it.manifest }.reversed(), f.user, f.device)
+                assertEquals(count, gets)
+                assertTrue(actual.values.isNotEmpty())
+                assertEquals(1.0, actual.observedFraction, 0.0)
+                assertEquals(0.0, actual.maximumGap, 0.0)
+                if (reference == null) reference = actual else {
+                    assertEquals(reference.values, actual.values)
+                    assertEquals(reference.samples, actual.samples)
+                    assertEquals(reference.observedThrough, actual.observedThrough, 0.0)
+                    assertTrue(reference.quality.similar(actual.quality))
+                }
+            }
+        }
+    }
+    @Test fun completeShardedWindowBudgetsAndMissingObjectsAbstainBeforeFetchOrInference() {
+        val (shards, proof) = f.rawShards("ppg", 9)
+        val manifests = shards.map { it.manifest }
+        var gets = 0
+        BoundedRawFeatureLane(object : B2ObjectStore.GetClient {
+            override fun getObject(key: String, maximumBytes: Int): ByteArray {
+                gets++; error("budget failure must happen before object access")
+            }
+        }).use { lane ->
+            fun assertAbstains(expected: String, altered: List<VerifiedRawObjectReader.Manifest>, json: JSONObject = proof) {
+                val receipt = f.receipt(json)
+                val result = lane.evaluate(f.inputs().copy(
+                    acquisitionEvidence = SensorAcquisitionReader.Evidence(listOf(receipt)), rawManifests = altered))
+                    .getValue(receipt.digest)
+                assertEquals(expected, result.reason)
+                assertNull(result.features)
+                assertEquals(0, gets)
+            }
+            assertAbstains("archive_pending", manifests.dropLast(1))
+            assertAbstains("raw_byte_budget_exceeded", manifests.map { it.copy(compressedBytes = 1024 * 1024) })
+            assertAbstains("raw_byte_budget_exceeded", manifests.map { it.copy(uncompressedBytes = 1024 * 1024) })
+            val tooMany = JSONObject(proof.toString())
+            tooMany.getJSONArray("records").put(JSONObject(tooMany.getJSONArray("records").getJSONObject(0).toString()))
+            assertAbstains("raw_sample_budget_exceeded", manifests, tooMany)
+        }
     }
     @Test fun nativeAndroidContinuousAndSessionRowsDecodeWithoutInventingCoverage() {
         // Exact zstd bytes produced by CloudImuPushSourceTest.nativeArchiveArtifacts...

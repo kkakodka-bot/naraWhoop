@@ -26,11 +26,15 @@ ARG RELEASE_SHA=${VCS_REF}
 LABEL org.opencontainers.image.revision=$RELEASE_SHA \
       io.frwhoop.algorithm.roles="frwhoop-physiology-2,frwhoop-server-2-history" \
       io.frwhoop.heartbeat.contract="physiology_worker_heartbeats-v1" \
+      io.frwhoop.database.ca.sha256="700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7" \
       io.frwhoop.build.image=$BUILD_IMAGE \
       io.frwhoop.runtime.image=$RUNTIME_IMAGE \
       io.frwhoop.image.platform=$RELEASE_PLATFORM
 WORKDIR /app
 COPY --from=build /build/scoring-service/service/build/install/service /app/
+COPY Tools/release/certificates/supabase-prod-ca-2021.crt /opt/frwhoop/supabase-prod-ca-2021.crt
+RUN printf '%s\n' '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7  /opt/frwhoop/supabase-prod-ca-2021.crt' | sha256sum -c - \
+    && chmod 444 /opt/frwhoop/supabase-prod-ca-2021.crt
 RUN test "${#RELEASE_SHA}" -eq 40 && printf '%s\n' "$RELEASE_SHA" | grep -Eq '^[0-9a-f]{40}$' \
     && { test -z "$VCS_REF" || test "$VCS_REF" = "$RELEASE_SHA"; } \
     && printf '%s\n' "$RELEASE_SHA" > /app/release.sha && chmod 444 /app/release.sha

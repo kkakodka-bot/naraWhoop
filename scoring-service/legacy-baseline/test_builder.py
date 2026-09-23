@@ -73,6 +73,49 @@ class BaselineBuilderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "platform must be explicit linux/amd64"):
             builder.validate_image_inputs("linux/arm64", builder.DEFAULT_BUILD_IMAGE, builder.DEFAULT_RUNTIME_IMAGE)
 
+    def test_reviewed_public_ca_bytes_are_required_before_context_creation(self):
+        ca = MODULE_PATH.parents[2] / builder.PUBLIC_CA_SOURCE
+        self.assertEqual(ca.read_bytes(), builder.verified_public_ca(ca))
+        with tempfile.TemporaryDirectory() as scratch:
+            wrong_ca = Path(scratch) / "wrong.crt"
+            wrong_ca.write_bytes(ca.read_bytes() + b"\n")
+            output = Path(scratch) / "new-context"
+            transport = builder.PREFIX + "main/kotlin/com/frwhoop/scoring/db/PostgresClient.kt"
+            with mock.patch.object(builder.subprocess, "check_output", side_effect=[builder.BASELINE,
+                    ("1\t1\t" + transport + "\0").encode()]):
+                with self.assertRaisesRegex(ValueError, "differs from reviewed trust"):
+                    builder.prepare(Path(scratch), output, Path("transport.patch"), public_ca=wrong_ca)
+            self.assertFalse(output.exists())
+            link = Path(scratch) / "linked.crt"
+            link.symlink_to(ca)
+            with self.assertRaisesRegex(ValueError, "regular certificate file"):
+                builder.verified_public_ca(link)
+
+    def test_ca_is_part_of_exact_release_input_validation(self):
+        root = MODULE_PATH.parents[2]
+        def committed_bytes(argv):
+            relative = argv[-1].split(":", 1)[1]
+            if relative == builder.PUBLIC_CA_SOURCE:
+                return b"different certificate at declared revision"
+            return (root / relative).read_bytes()
+        with mock.patch("sys.argv", ["build.py", "--repository", "/unused", "--context", "/unused-context",
+                                     "--image", "fixture.invalid/baseline:reviewed", "--release-sha", "a" * 40]):
+            with mock.patch.object(builder.subprocess, "check_output", side_effect=committed_bytes), \
+                    mock.patch.object(builder, "prepare") as prepare:
+                with self.assertRaisesRegex(ValueError, builder.PUBLIC_CA_SOURCE):
+                    builder.main()
+                prepare.assert_not_called()
+
+    def test_both_worker_images_embed_and_verify_the_pinned_ca(self):
+        root = MODULE_PATH.parents[2]
+        for relative in ("infra/vps/templates/Dockerfile.baseline", "scoring-service/Dockerfile"):
+            with self.subTest(relative=relative):
+                source = (root / relative).read_text()
+                self.assertIn('io.frwhoop.database.ca.sha256="' + builder.PUBLIC_CA_SHA256 + '"', source)
+                self.assertIn("COPY " + builder.PUBLIC_CA_SOURCE + " " + builder.PUBLIC_CA_RUNTIME, source)
+                self.assertIn(builder.PUBLIC_CA_SHA256 + "  " + builder.PUBLIC_CA_RUNTIME, source)
+                self.assertIn("| sha256sum -c -", source)
+
     def test_mutable_or_malformed_base_images_are_rejected(self):
         for value in (
             "eclipse-temurin:17-jdk-jammy",
@@ -124,6 +167,9 @@ class BaselineBuilderTests(unittest.TestCase):
             "sslrootcert=system",
             "org.postgresql.ssl.DefaultJavaSSLFactory",
             "org.postgresql.ssl.NonValidatingFactory",
+            "org.postgresql.ssl.LibPQFactory",
+            builder.PUBLIC_CA_SHA256,
+            "explicitReviewedCaUsesActualValidatingDriverFactoryAndRejectsChangedTrust",
         ):
             self.assertIn(token, source)
 

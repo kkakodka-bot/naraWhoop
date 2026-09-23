@@ -103,6 +103,7 @@ confirm that all selected defaults remain v1. These tests do not establish the p
      --intake-image REGISTRY/frwhoop-intake@sha256:REVIEWED_MANIFEST_DIGEST \
      --intake-instance-id REVIEWED_FRESH_INSTANCE_UUID \
      --intake-project-ref sgoyxzcagqyxexmsidtk \
+     --scope initial-selected-v1 \
      --target-ip REVIEWED_LITERAL_IPV4 \
      --target-ssh-port REVIEWED_PORT \
      --target-ssh-host-key-line 'ssh-ed25519 REVIEWED_BASE64_HOST_PUBLIC_KEY' \
@@ -132,7 +133,7 @@ confirm that all selected defaults remain v1. These tests do not establish the p
 
    Deploy the reviewed intake configuration after the matching migration and before the scorer
    cutover, using separately explicit deployment authority. The scorer script below deploys only
-   its three scoring lanes. Intake acceptance requires the bound image/config/source/instance and
+   the scoring lanes in its reviewed scope. Intake acceptance requires the bound image/config/source/instance and
    contract, continuously serviced verification and projection queues, and a real verified/indexed
    input that publishes a selected result. Poll metadata alone is insufficient. Keep optional async
    admission off until a compatible consumer is continuously serviced and enablement is separately
@@ -146,12 +147,19 @@ confirm that all selected defaults remain v1. These tests do not establish the p
    requires its fingerprint to match the plan. It creates a private mode-0600 `known_hosts` file from
    the plan-bound key. A read-only authenticated probe records the observed IP, port, host-key and
    deploy-key identities under the artifact root before the remote deployment lock or any application
-   mutation. It then acquires one deployment-session lock spanning selected v1, v2 shadow, history and
-   final fleet verification. While holding that lock, it streams `git archive` rather than local
-   caches, pulls each exact reference, requires `RepoDigests` to contain it, requires the image ID to
-   equal the bound OCI config digest, and performs read-only preflight. Prepare one bounded,
-   owner-isolated canary work item for
-   each lane before this step: every candidate must advance both its poll heartbeat and an immutable
+   mutation. It then acquires one deployment-session lock spanning the scoring lanes named by the
+   fingerprint-bound scope and final verification. `initial-selected-v1` starts only baseline at
+   1 CPU/1 GiB; intake runs separately from its bound compiled Compose at 1 CPU/2 GiB. `full-fleet`
+   additionally starts shadow v2 and history and requires separate approval and capacity review.
+   While holding that lock, the script streams `git archive`, pulls exact references, requires
+   matching `RepoDigests`, hashes actual saved config bytes, and binds container `.Image` to the
+   independently verified Docker local ID. Classic Docker uses a config ID; containerd may use
+   the manifest ID. Both reviewed manifest and config identities remain checked.
+   The v2 image is also used for a transient read-only `--check-config` capped at 1 CPU/1 GiB.
+   Quiesce the previously identified old shadow worker only as explicitly approved before this
+   phase; the scoped command does not stop unselected workers. Continuous queues have no owner
+   allowlist and claim all eligible owners, so approval must name fresh global backlog counts.
+   Every started candidate must advance both its poll heartbeat and an immutable
    publication before its persistent restart policy is enabled. The script never rebuilds on the
    target, accepts inherited replay selectors, relabels v2 as v1, changes qualification, or exposes
    scorer ports:
@@ -162,12 +170,12 @@ confirm that all selected defaults remain v1. These tests do not establish the p
      --artifact-root /reviewed/frwhoop-release \
      --worker-deployment /reviewed/frwhoop-release/worker-deployment.json
    ```
-6. Review the intake and all three scoring container identities, commands, algorithms, source revisions, restart
+6. Review intake and every scoring container in the approved scope: identities, commands, algorithms, source revisions, restart
    state, polls and publications, then review the enrolled-phone canary. Deployment success is not
    qualification, a decoded phone result, or physical displayed-state evidence.
 
 The old single-worker `--image-manifest` entrypoint now validates the artifact then explicitly
-returns `NOT_READY`: its self-hosted topology cannot substitute for this hosted three-lane path.
+returns `NOT_READY`: its self-hosted topology cannot substitute for this hosted scoped deployment.
 The retained image provenance tooling still checks exact context/native bytes, config IDs,
 platform/registry digests and labels; no fallback to mutable `:latest` is supported here.
 
@@ -177,18 +185,26 @@ config `sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537`
 platform `linux/amd64`, version `17.11-alpine3.24`. Before hosted credentials are sourced, deployment
 pulls that exact reference, checks `RepoDigests`, saves the local image, and verifies the saved Docker
 or OCI descriptors, config digest and platform offline. Both diagnostic query paths reject a tag or
-any identity that differs from the plan. Libpq keeps `sslmode=verify-full&sslrootcert=system`; JVM
-workers use the JVM system trust factory while preserving that shared hosted URL contract.
+any identity that differs from the plan. TLS always retains `sslmode=verify-full`. `sslrootcert=system`
+remains supported for system-trusted chains. This target requires the pinned public Supabase CA,
+so its reviewed database URL uses `sslrootcert=/opt/frwhoop/supabase-prod-ca-2021.crt`.
+The committed public certificate must hash to
+`700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7`. Baseline and v2 images bind that
+hash in their OCI labels and contain those bytes. Diagnostic PostgreSQL containers receive only
+that verified host file through a read-only mount. Deployment refuses a different existing host
+certificate instead of replacing it. No arbitrary trust path, weaker SSL mode or hostname-check
+bypass is permitted.
 
 ## Read-only runtime evidence
 
 The installed `verify-scoring-runtime.sh` requires a full source SHA, independently reviewed
-immutable image ID, and explicit version. For example, on the authorized target:
+config digest, explicit version, and immutable registry reference. For example, on the authorized target:
 
 ```sh
-/opt/frwhoop/scoring/verify-scoring-runtime.sh FULL_SOURCE_SHA sha256:REVIEWED_IMAGE_ID frwhoop-physiology-2
-/opt/frwhoop/scoring/verify-scoring-runtime.sh FULL_SOURCE_SHA sha256:REVIEWED_BASELINE_ID frwhoop-server-1
-/opt/frwhoop/scoring/verify-scoring-runtime.sh FULL_SOURCE_SHA sha256:REVIEWED_IMAGE_ID frwhoop-server-2-history
+/opt/frwhoop/scoring/verify-scoring-runtime.sh FULL_SOURCE_SHA sha256:REVIEWED_BASELINE_CONFIG frwhoop-server-1 REGISTRY/frwhoop-v1@sha256:REVIEWED_MANIFEST
+# Only when full-fleet scope was separately approved:
+/opt/frwhoop/scoring/verify-scoring-runtime.sh FULL_SOURCE_SHA sha256:REVIEWED_V2_CONFIG frwhoop-physiology-2 REGISTRY/frwhoop-v2@sha256:REVIEWED_MANIFEST
+/opt/frwhoop/scoring/verify-scoring-runtime.sh FULL_SOURCE_SHA sha256:REVIEWED_V2_CONFIG frwhoop-server-2-history REGISTRY/frwhoop-v2@sha256:REVIEWED_MANIFEST
 ```
 
 Each check binds the intended hosted project and exact container/image/source/version, requires a
@@ -214,10 +230,10 @@ explicit capability/unavailable states, not evidence of a worker crash.
 
 ## Rollback
 
-The deployment-session lock is `/opt/frwhoop/scoring-deployment.lock`. It is removed only after all
-three exact lanes pass the final fleet check. Any interrupted or rejected partial deployment retains
+The deployment-session lock is `/opt/frwhoop/scoring-deployment.lock`. It is removed only after every
+scoring lane in the reviewed scope passes the final check. Any interrupted or rejected partial deployment retains
 the lock and prints `DEPLOYMENT_LOCK_RETAINED`; another invocation must not remove it automatically.
-An operator must first record the three container/config identities and rollback directories,
+An operator must first record all affected container/config identities and rollback directories,
 resolve each lane with a reviewed compatible artifact, and only then remove the lock using the owner
 token recorded in its mode-0700 directory. This prevents two invocations from interleaving across
 the lane-by-lane cutover.

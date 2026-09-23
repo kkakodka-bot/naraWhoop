@@ -68,4 +68,36 @@ insert into release_upgrade_fixture.expected values
   ('object',(select jsonb_agg(jsonb_build_object('id',id,'user',user_id,'device',device_id,
     'source',source_id,'token',ingest_token_id,'auth',auth_mode,'key',object_key,'sha256',sha256,
     'status',status) order by id) from public.object_manifests where id='a9910000-0000-4000-8000-000000000071'));
+
+-- The original hosted boundary precedes this table. The runner calls this fixture
+-- only after all released predecessors and immediately before the new forward repair.
+create function release_upgrade_fixture.seed_previous_compute_dispositions()
+returns void language plpgsql as $$
+declare prior jsonb; inserted integer;
+begin
+  assert (select unavailable_status='unsupported' and policy_version='vps-only-1'
+    from public.compute_family_policy where family='insights'), 'predecessor policy differs';
+  insert into public.server_physiology_results(user_id,device_id,period_day,algorithm_version,input_revision,
+    run_id,manifest_hash,payload,payload_hash,computed_at,publication_status)
+  select r.user_id,r.device_id,r.period_day,'frwhoop-physiology-2',r.input_revision,
+    'a9910000-0000-4000-8000-000000000062',v.manifest_hash,p.payload,
+    encode(sha256(convert_to(p.payload::text,'UTF8')),'hex'),now(),'final'
+  from public.server_physiology_results r
+  join public.physiology_algorithm_versions v on v.algorithm_version='frwhoop-physiology-2'
+  cross join lateral (select '{"daily":{},"nights":[],"measurements":[],"calendar_ownership":{"timezone_ids":["America/Los_Angeles"]}}'::jsonb payload) p
+  where r.run_id='a9910000-0000-4000-8000-000000000061';
+  perform set_config('request.jwt.claim.role','service_role',true);
+  select public.publish_compute_dispositions('a9910000-0000-4000-8000-000000000001',
+    'a9910000-0000-4000-8000-000000000011','2026-09-17',input_revision) into inserted
+  from public.server_physiology_results where run_id='a9910000-0000-4000-8000-000000000062';
+  assert inserted=27, 'predecessor dispositions were not generated';
+  prior:=public.server_scoring_for_device_day('a9910000-0000-4000-8000-000000000001',
+    '2026-09-17','a9910000-0000-4000-8000-000000000011');
+  assert prior#>>'{compute,families,insights,status}'='unsupported', 'fixture did not reproduce old hardware label';
+  assert prior#>>'{compute,families,insights,reason}'='qualified_insight_producer_unavailable',
+    'fixture did not reproduce old producer reason';
+  insert into release_upgrade_fixture.expected(key,value)
+    select 'old_dispositions',jsonb_agg(to_jsonb(d) order by d.revision)
+    from public.server_compute_dispositions d where d.user_id='a9910000-0000-4000-8000-000000000001';
+end $$;
 commit;

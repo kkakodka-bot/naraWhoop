@@ -1,0 +1,302 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "recovery-contract-1",
+  "contractSha256": "ea537121ac5022e85e02937ba5e9aaa98f0a6d70212cf835e650def687c90832",
+  "authority": "Single shared BLE/VPS acceptance ledger; ACCEPTANCE_LEDGER.md is its human-readable view",
+  "originalProblem": "OPEN",
+  "releaseMilestones": {
+    "CODE_VERIFIED": "INCOMPLETE",
+    "DEPLOYED_CANARY": "NOT_MEASURED",
+    "DEVICE_ACCEPTED": "NOT_MEASURED",
+    "PRODUCTION_SCOPE_ACCEPTED": "NOT_MEASURED"
+  },
+  "commonBaseSha": "76f2d70f621de91268e295ebcb6c6da29162991f",
+  "frozenReleaseCandidate": null,
+  "latencyTargets": {
+    "source": "02_SHARED_CONTRACT.md section6; initial targets fixed before canary; not observed performance",
+    "requiredStatistics": [
+      "p50",
+      "p95",
+      "p99",
+      "max",
+      "sample_count",
+      "failures",
+      "timeouts",
+      "unfinished",
+      "missingness"
+    ],
+    "p95Milliseconds": {
+      "ble_receive_to_local_durable": 250,
+      "local_live_durable_to_attempt_eligible": 5000,
+      "ble_receive_to_required_receipt_healthy": 10000,
+      "eligible_window_to_selected_publication": 10000,
+      "publication_to_active_display": 3000,
+      "accessory_return_to_notifications": 30000
+    },
+    "lockedBackground": "Report total user latency and eligible app-controlled latency separately; OS deferral is not excluded from total"
+  },
+  "checkpoints": [
+    {
+      "id": "diagnosis",
+      "status": "PASS",
+      "evidence": "stage0 release/runtime/science independent source and real trace reviews"
+    },
+    {
+      "id": "before_edits",
+      "status": "PASS",
+      "evidence": "stage0 merge/design ownership review; contract now reconciled"
+    },
+    {
+      "id": "implementation",
+      "status": "FAIL",
+      "evidence": "Independent reviews caught projection, receipt-trigger, raw-lane and release identity defects; final repairs/reruns in progress"
+    },
+    {
+      "id": "pre_canary",
+      "status": "NOT_MEASURED",
+      "evidence": "Pre-canary source reviews performed; final combined artifact review still pending"
+    },
+    {
+      "id": "after_physical_acceptance",
+      "status": "NOT_MEASURED",
+      "evidence": "Readiness review cannot pass unperformed physical tests"
+    }
+  ],
+  "gates": [
+    {
+      "id": "shared_base",
+      "evidenceTier": "source",
+      "status": "PASS",
+      "expectedCriterion": "Preserve both complete histories and verify frozen release identity",
+      "observedResult": "Both histories retained; all supplied pack hashes match; unrelated dirty checkout preserved",
+      "commandOrProtocol": "git ancestry and exact artifact/source hash verification",
+      "sourceSha": "76f2d70f621de91268e295ebcb6c6da29162991f",
+      "environment": "local Mac disposable services",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/server-repair/stage0-receipts.json",
+          "sha256": "3029b918c27be6a7d2467004bd9e0ea82bb74598d97948f0a0d7bba462970763"
+        },
+        {
+          "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/server-repair/recovery-pack-receipt.json",
+          "sha256": "0eaaf59408ff1e1c723acbd84e612328e9842c69b3400652ad367aa0dd13d097"
+        }
+      ]
+    },
+    {
+      "id": "real_incident_trace",
+      "evidenceTier": "deployed_read_only",
+      "status": "PASS",
+      "expectedCriterion": "Identify first failed observed transition without production mutation",
+      "observedResult": "Accepted/indexed batch still has projection debt; selected-v1 queue pending with no compatible hosted consumer; physical capture/cache/render unmeasured",
+      "commandOrProtocol": "Bounded read-only scoped hosted queries and historical371 SQLite snapshot",
+      "sourceSha": null,
+      "environment": "deployed_read_only",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/server-repair/input_to_result_trace.json",
+          "sha256": "b6c508bb469b7cde264bc98c382e51c0c4310c21291c12fb9a1be6b5d1ffe6f3"
+        },
+        {
+          "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/server-repair/runtime-review.md",
+          "sha256": "c1bcc9a30ee09640c4abb4c8bf6cd6fc5aacba216355fa2c5bcd2a25fd9aa99c"
+        }
+      ]
+    },
+    {
+      "id": "intake_and_migrations",
+      "evidenceTier": "local_integration",
+      "status": "PASS",
+      "expectedCriterion": "Atomic exact verification/index receipt and projection; full127 migrations including unchanged110 native predecessor ledger",
+      "observedResult": "Local intake7 steps and fresh/populated/wrapped predecessor chains passed; later source revalidation remains required",
+      "commandOrProtocol": "PIPELINE_TEST_INTAKE=1 test-server-pipeline.sh; test-physiology-migration-chain.sh fresh/populated/hosted-upgrade",
+      "sourceSha": null,
+      "environment": "local Mac disposable services",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/physiology-chain-hosted-upgrade.0qZfkA/integrated-schema-verification.json",
+          "sha256": "dae43ba3e424ccd85400b26c1ba0ae785b1c000be0af25f3c2f0393447d3a8cf"
+        }
+      ]
+    },
+    {
+      "id": "computed_synthetic_chain",
+      "evidenceTier": "local_integration",
+      "status": "PASS",
+      "expectedCriterion": "Actual selected computation through durable intake, actual JWT/enrolled API and native decoders",
+      "observedResult": "Sleep179.98333333333332min/RHR53/efficiency100%; separate from real recording; final-source rerun pending",
+      "commandOrProtocol": "PIPELINE_TEST_V1_BINARY and PIPELINE_TEST_V2_BINARY test-server-pipeline.sh",
+      "sourceSha": null,
+      "environment": "local Mac disposable services",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/server-pipeline.Be25gT/decoders/computed_fixture_input_to_result_trace.json",
+          "sha256": "573e5985be9de819369f6db016aa05f094c56c445e32d888efd6a8f18e59c05f"
+        }
+      ]
+    },
+    {
+      "id": "raw_native_focused",
+      "evidenceTier": "local_integration",
+      "status": "PASS",
+      "expectedCriterion": "Bounded complete model input and scoped native consumers with meaningful negative cases",
+      "observedResult": "Raw70/Swift43/Android37 passed on9b; broader suite subsequently found optional raw-lane isolation defect being fixed",
+      "commandOrProtocol": "test-raw-model-pipeline.sh; compute app-host and Android consumer tests",
+      "sourceSha": "9b51bfd42150f04f705b1aaf31da2b758aed2bcd",
+      "environment": "local Mac disposable services",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/science-native-9b51bfd/receipt-manifest.json",
+          "sha256": "508ad693112f8caab4c7bd8deb750df3fd8c603cebfc01b62c4fdb7ca2a74ecd"
+        }
+      ]
+    },
+    {
+      "id": "zero_inference_source",
+      "evidenceTier": "local_integration",
+      "status": "PASS",
+      "expectedCriterion": "Exercise normal/background/session/debug guards without numerical local calls",
+      "observedResult": "Swift35/Android4 passed on9b; physical exports and final source rerun separate",
+      "commandOrProtocol": "FinalHostedChecks and Android final-hosted native suites",
+      "sourceSha": "9b51bfd42150f04f705b1aaf31da2b758aed2bcd",
+      "environment": "local Mac disposable services",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/science-native-9b51bfd/final-hosted-receipt.json",
+          "sha256": "6d58415c78bc5bf6c22fe39c246b2203d44515813f18b97cb45bf67cb36f67e6"
+        }
+      ]
+    },
+    {
+      "id": "full_server_suite",
+      "evidenceTier": "local_integration",
+      "status": "FAIL",
+      "expectedCriterion": "Actual Swift corpus and all JVM tests pass; declared reference skips retained",
+      "observedResult": "First full run: analytics1106/0fail/5reference skips; service585/2fail. Raw optional-object failure needs fix; concurrent Swift source edit invalidated corpus. Rerun after freeze",
+      "commandOrProtocol": "bash scoring-service/scripts/test-server-jvm.sh",
+      "sourceSha": "a6ceb7c43004f9f8a2f57906bd37128ef52d0903",
+      "environment": "local Mac disposable services",
+      "evidence": []
+    },
+    {
+      "id": "producer_parity",
+      "evidenceTier": "source",
+      "status": "FAIL",
+      "expectedCriterion": "Every supported family has actual numerical producer, selected publication and consumer",
+      "observedResult": "Canonical history-family wiring and several live/session producers remain incomplete; explicit missingness is not hardware exclusion",
+      "commandOrProtocol": "Actual callsite/queue/publication/consumer inspection",
+      "sourceSha": "9b51bfd42150f04f705b1aaf31da2b758aed2bcd",
+      "environment": "local Mac disposable services",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/compute/metric-ownership.json",
+          "sha256": "8a9a19899c338a69f8260a3453451cb6ec958ee659f86c9426f17fb8f077ddfd"
+        }
+      ]
+    },
+    {
+      "id": "combined_ble_source",
+      "evidenceTier": "source",
+      "status": "NOT_MEASURED",
+      "expectedCriterion": "Integrate complete BLE repair and rerun combined source",
+      "observedResult": "BLE worktree exists at common base; no subsequent BLE implementation integrated",
+      "commandOrProtocol": "Review and integrate repair/ble-sync-20260922",
+      "sourceSha": "76f2d70f621de91268e295ebcb6c6da29162991f",
+      "environment": "local Mac disposable services",
+      "evidence": []
+    },
+    {
+      "id": "matched_artifacts",
+      "evidenceTier": "source",
+      "status": "NOT_MEASURED",
+      "expectedCriterion": "Exact migration/Edge/intake/baseline/v2/phone artifacts from reviewed frozen source",
+      "observedResult": "9b intake OCI verified; final freeze/build in progress; no transfer of prior source receipts",
+      "commandOrProtocol": "Release artifact builder and independent identity review",
+      "sourceSha": null,
+      "environment": "local Mac disposable services",
+      "evidence": []
+    },
+    {
+      "id": "deployment",
+      "evidenceTier": "deployed",
+      "status": "NOT_MEASURED",
+      "expectedCriterion": "Explicit approval for exact matched plan and successful observed deployment",
+      "observedResult": "No approval requested/granted, no production mutation",
+      "commandOrProtocol": "Pinned hosted migration plan; bound scoped services/Edge/phone artifacts",
+      "sourceSha": null,
+      "environment": "deployed",
+      "evidence": []
+    },
+    {
+      "id": "real_phone_readback",
+      "evidenceTier": "physical",
+      "status": "NOT_MEASURED",
+      "expectedCriterion": "Consented real supported numerical result equals immutable/API/cache/UI revision with zero local physiology",
+      "observedResult": "No candidate installed or actual phone readback observed",
+      "commandOrProtocol": "Normal enrolled/account API and physical native capture/render trace",
+      "sourceSha": null,
+      "environment": "physical",
+      "evidence": []
+    },
+    {
+      "id": "locked_4h",
+      "evidenceTier": "physical",
+      "status": "NOT_MEASURED",
+      "expectedCriterion": "Four elapsed locked hours with durable capture/receipt/results and resource evidence",
+      "observedResult": "Not performed",
+      "commandOrProtocol": "Matched phone/wearable/server capture with lifecycle and independent trace review",
+      "sourceSha": null,
+      "environment": "physical",
+      "evidence": []
+    },
+    {
+      "id": "soak_24h",
+      "evidenceTier": "physical",
+      "status": "NOT_MEASURED",
+      "expectedCriterion": "24 elapsed hours including recovery/fault/backlog cases",
+      "observedResult": "Not performed",
+      "commandOrProtocol": "Matched artifact soak protocol",
+      "sourceSha": null,
+      "environment": "physical",
+      "evidence": []
+    },
+    {
+      "id": "soak_72h",
+      "evidenceTier": "physical",
+      "status": "NOT_MEASURED",
+      "expectedCriterion": "72 elapsed hours with unfinished jobs and all process intervals reported",
+      "observedResult": "Not performed",
+      "commandOrProtocol": "Matched artifact soak protocol",
+      "sourceSha": null,
+      "environment": "physical",
+      "evidence": []
+    },
+    {
+      "id": "target_capacity",
+      "evidenceTier": "load",
+      "status": "NOT_MEASURED",
+      "expectedCriterion": "Target VPS sustained actual bytes/object/row/model mix with live and history fairness",
+      "observedResult": "Idle4CPU/7.755GiB snapshot only; prior1000-owner scalar run does not pass or establish capacity",
+      "commandOrProtocol": "Bounded authorized target workload with queue/resource distributions and uncompleted jobs",
+      "sourceSha": null,
+      "environment": "load",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/server-repair-edge-review/target-resource-baseline.json",
+          "sha256": "1b81a54974f8b7a5b8ff2d1b0d696635b405ddcc1f7da89fc2c999825df6ad5f"
+        }
+      ]
+    },
+    {
+      "id": "reference_qualification",
+      "evidenceTier": "scientific_reference",
+      "status": "NOT_MEASURED",
+      "expectedCriterion": "Held-out independent synchronized reference by modality, retained coverage and rights",
+      "observedResult": "No newly qualified adapter/model/SpO2 or calibration",
+      "commandOrProtocol": "Per-capability physical reference protocol; model promotion separately authorized",
+      "sourceSha": null,
+      "environment": "scientific_reference",
+      "evidence": []
+    }
+  ]
+}

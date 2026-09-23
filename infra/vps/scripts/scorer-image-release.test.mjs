@@ -328,7 +328,7 @@ test('actual deployment verifies the aggregate plan before config or SSH and arc
     if(args[0]?.endsWith('/Tools/release/release-artifact-manifest.mjs') && args[1]==='verify-deployment') {
       fs.appendFileSync(${JSON.stringify(record)},JSON.stringify({program:'release-verifier',args,stdin:''})+'\\n');
       if(process.env.PLAN_REJECT==='1') { process.stderr.write('NOT_READY: synthetic deployment binding differs\\n'); process.exit(1); }
-      process.stdout.write(JSON.stringify({status:'WORKER_DEPLOYMENT_VERIFIED',sourceSha:'${'a'.repeat(40)}',sourceTree:'${'b'.repeat(40)}',fingerprint:${JSON.stringify(deploymentFingerprint)},
+      process.stdout.write(JSON.stringify({status:'WORKER_DEPLOYMENT_VERIFIED',scope:'full-fleet',sourceSha:'${'a'.repeat(40)}',sourceTree:'${'b'.repeat(40)}',fingerprint:${JSON.stringify(deploymentFingerprint)},
         selectedV1:{reference:process.env.MALICIOUS_REF||${JSON.stringify(v1)},configDigest:${JSON.stringify(v1Config)}},
         shadowV2:{reference:${JSON.stringify(v2)},configDigest:${JSON.stringify(v2Config)}},
         postgresqlClient:${JSON.stringify(postgresClient)},target:${JSON.stringify(deploymentTarget)}})+'\\n');
@@ -379,7 +379,7 @@ test('actual deployment verifies the aggregate plan before config or SSH and arc
   assert.match(injected.stderr, /reference is invalid/);
   assert.deepEqual(injected.calls.map(call => call.program), ['release-verifier']);
   const exact = invoke(deploymentArgs);
-  assert.match(exact.stdout, /Deploy complete: a{40}/);
+  assert.match(exact.stdout, /Scoring scope complete: a{40} full-fleet; intake acceptance remains separately required/);
   assert.equal(exact.calls[0].program, 'release-verifier');
   assert.ok(exact.calls.every(c => !['rsync','scp'].includes(c.program)));
   const archive = exact.calls.find(c => c.program === 'git' && c.args.includes('archive'));
@@ -402,8 +402,8 @@ test('actual deployment verifies the aggregate plan before config or SSH and arc
     ['scoring-baseline-v1','scoring-physiology-v2','scoring-history']);
   for (const lane of lanes) {
     assert.doesNotMatch(lane.stdin, /docker build|scoring-service:latest|rsync/);
-    assert.deepEqual(lane.args.slice(-8), [v1, v2, v1Config, v2Config,
-      postgresClient.reference, postgresClient.configDigest, postgresClient.platform, postgresClient.version]);
+    assert.deepEqual(lane.args.slice(-9), [v1, v2, v1Config, v2Config,
+      postgresClient.reference, postgresClient.configDigest, postgresClient.platform, postgresClient.version, 'full-fleet']);
     assert.match(lane.stdin, /SCORING_EXPECTED_IMAGE_ID/);
     assert.match(lane.stdin, /\.RepoDigests/);
     assert.doesNotMatch(lane.stdin, /docker start/);
@@ -440,7 +440,7 @@ test('deployment session lock is retained on every incomplete path and released 
 const cp=require('node:child_process');
 const args=process.argv.slice(2);
 if(args[0]?.endsWith('/Tools/release/release-artifact-manifest.mjs') && args[1]==='verify-deployment') {
-  process.stdout.write(JSON.stringify({status:'WORKER_DEPLOYMENT_VERIFIED',sourceSha:'${release}',sourceTree:'${tree}',fingerprint:${JSON.stringify(deploymentFingerprint)},
+  process.stdout.write(JSON.stringify({status:'WORKER_DEPLOYMENT_VERIFIED',scope:'full-fleet',sourceSha:'${release}',sourceTree:'${tree}',fingerprint:${JSON.stringify(deploymentFingerprint)},
     selectedV1:{reference:${JSON.stringify(v1)},configDigest:${JSON.stringify(v1Config)}},
     shadowV2:{reference:${JSON.stringify(v2)},configDigest:${JSON.stringify(v2Config)}},
     postgresqlClient:${JSON.stringify(postgresClient)},target:${JSON.stringify(deploymentTarget)}})+'\\n');

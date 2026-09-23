@@ -5,6 +5,8 @@ declare
   actual jsonb;
   account_route jsonb;
   enrollment_route jsonb;
+  family text;
+  regenerated integer;
 begin
   select value into expected from release_upgrade_fixture.expected where key='installations';
   select jsonb_agg(jsonb_build_object('source',source_id,'user',user_id,'platform',platform,
@@ -59,17 +61,58 @@ begin
     'enrollment route lost owner identity';
   assert enrollment_route->'daily'->>'hrv_rmssd_ms'='42',
     'retained v1 result is not readable after upgrade';
+
+  -- Read before regeneration: a stored predecessor disposition must not mask the
+  -- corrected policy, even though its immutable historical bytes remain intact.
+  foreach family in array array['spot_hrv','live_workout','intraday_temperature','stress_events',
+                               'biofeedback','live_coaching','insights'] loop
+    assert enrollment_route#>>array['compute','families',family,'status']='unqualified' and
+      enrollment_route#>>array['compute','families',family,'reason']='producer_not_implemented',
+      'obsolete disposition masked current engineering missingness: '||family;
+    assert account_route#>array['compute','families',family]=enrollment_route#>array['compute','families',family],
+      'account/enrollment producer missingness diverged: '||family;
+    assert enrollment_route#>>array['compute','families',family,'result_revision'] is null,
+      'old disposition was incorrectly reused under new policy: '||family;
+    assert enrollment_route#>>array['compute','families',family,'configuration_version']='vps-only-producers-2',
+      'family read omitted the current producer policy version';
+  end loop;
+
+  assert public.process_compute_disposition(), 'normal disposition worker did not regenerate new policy';
+  select count(*) into regenerated from public.server_compute_dispositions
+    where user_id='a9910000-0000-4000-8000-000000000001' and policy_version='vps-only-producers-2';
+  assert regenerated=7, 'normal worker must append exactly the seven new dispositions';
+  account_route:=public.server_scoring_for_day('a9910000-0000-4000-8000-000000000001','2026-09-17');
+  enrollment_route:=public.server_scoring_for_device_day('a9910000-0000-4000-8000-000000000001',
+    '2026-09-17','a9910000-0000-4000-8000-000000000011');
+  foreach family in array array['spot_hrv','live_workout','intraday_temperature','stress_events',
+                               'biofeedback','live_coaching','insights'] loop
+    assert enrollment_route#>>array['compute','families',family,'status']='unqualified' and
+      enrollment_route#>>array['compute','families',family,'reason']='producer_not_implemented',
+      'regenerated disposition lost explicit engineering missingness: '||family;
+    assert account_route#>array['compute','families',family]=enrollment_route#>array['compute','families',family],
+      'account/enrollment regenerated dispositions diverged: '||family;
+    assert enrollment_route#>>array['compute','families',family,'result_revision'] like 'compute:%',
+      'read contract did not select the regenerated disposition: '||family;
+  end loop;
+  assert not public.process_compute_disposition(), 'completed policy was spuriously regenerated';
+  select value into expected from release_upgrade_fixture.expected where key='old_dispositions';
+  select jsonb_agg(to_jsonb(d) order by d.revision) into actual from public.server_compute_dispositions d
+    where d.user_id='a9910000-0000-4000-8000-000000000001' and d.policy_version='vps-only-1';
+  assert actual=expected, 'historical immutable disposition changed during policy upgrade';
 end $$;
 
 select jsonb_build_object(
   'status','PASS',
   'upgrade_baseline_full_identities',117,
-  'pending_migrations_applied',7,
+  'pending_migrations_applied',10,
   'preserved_installations',2,
   'preserved_users',2,
   'preserved_devices',2,
   'preserved_raw_samples',2,
   'preserved_raw_objects',1,
   'preserved_immutable_results',1,
+  'preserved_prior_dispositions',27,
+  'regenerated_policy_dispositions',7,
+  'engineering_missingness_before_and_after_regeneration','PASS',
   'account_enrollment_contract_revision',2
 )::text;

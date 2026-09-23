@@ -7,7 +7,38 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Twin of the Swift TestBundleAssemblerTests: an injected serial is scrubbed in a non-sink file. */
+@org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
+@org.robolectric.annotation.Config(sdk = [34], application = android.app.Application::class,
+    instrumentedPackages = ["com.noop.analytics.PhoneComputeRuntime"])
 class TestBundleAssemblerTest {
+
+    @Test fun actualReportExportsBoundedCountersThroughReviewAndRedaction() {
+        val runtime = com.noop.analytics.PhoneComputeRuntime
+        runtime.installFinalHosted()
+        val before = runtime.diagnosticSnapshot()
+        val secret = "private-token-" + "sensitive".repeat(5_000)
+        repeat(1_000) { assertFalse(runtime.allowsLocal(secret)) }
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val entries = TestBundleAssembler.assemble(context, TestDomain.CONNECTION, "ready")
+        val bytes = entries.single { it.first == "phone-compute-evidence.json" }.second
+        assertTrue(bytes.size < 4_096)
+        val snapshot = org.json.JSONObject(String(bytes, Charsets.UTF_8))
+        assertEquals(before["process_generation"], snapshot.getString("process_generation"))
+        assertEquals(36, snapshot.getString("process_generation").length)
+        assertEquals("current_process_only", snapshot.getString("coverage"))
+        assertEquals("NOT_MEASURED", snapshot.getString("previous_process_coverage"))
+        assertTrue(snapshot.getBoolean("final_hosted"))
+        assertEquals(0L, snapshot.getLong("execution_count"))
+        assertEquals(0L, snapshot.getLong("forbidden_attempt_count"))
+        assertEquals((before["denied_admission_count"] as Long) + 1_000L, snapshot.getLong("denied_admission_count"))
+        assertFalse(String(bytes).contains("sensitive"))
+        assertTrue(snapshot.has("app_build") && snapshot.has("source_revision"))
+        val next = runtime.diagnosticSnapshot()
+        assertEquals(snapshot.getLong("denied_admission_count"), next["denied_admission_count"])
+        val review = ReportReviewGate(entries)
+        assertTrue(review.previewText.contains("phone-compute-evidence.json"))
+        assertFalse(review.isCleared)
+    }
 
     @Test fun reScrubsEveryFileIncludingRawCapture() {
         val rawWithSerial = "{\"console\":\"connected to WHOOP 4C1594026 ok\"}"

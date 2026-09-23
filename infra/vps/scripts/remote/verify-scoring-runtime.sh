@@ -3,18 +3,29 @@
 set -euo pipefail
 release_sha="${1:-}"
 [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'FAIL: expected a full release SHA' >&2; exit 1; }
-SCORING_EXPECTED_IMAGE_ID="${2:-}"
-[[ "$SCORING_EXPECTED_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'FAIL: provide the reviewed immutable image ID as argument 2' >&2; exit 1; }
+reviewed_config_digest="${2:-}"
+[[ "$reviewed_config_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'FAIL: provide the reviewed config digest as argument 2' >&2; exit 1; }
 SCORING_ALGORITHM_VERSION="${3:-frwhoop-physiology-2}"
+reviewed_image_reference="${4:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [[ -f "$SCRIPT_DIR/scoring-progress.sh" ]]; then
+  image_verifier="$SCRIPT_DIR/verify-worker-image.py"
   # Installed standalone with the same exact release.
   # shellcheck disable=SC1091
   source "$SCRIPT_DIR/scoring-progress.sh"
 else
+  image_verifier="$SCRIPT_DIR/../verify-worker-image.py"
   # shellcheck disable=SC1091
   source "$SCRIPT_DIR/../scoring-progress.sh"
 fi
+# Hash the reviewed config bytes before reading credentials or accepting container progress.
+case "$SCORING_ALGORITHM_VERSION" in
+  frwhoop-server-1) image_role=baseline ;;
+  frwhoop-physiology-2|frwhoop-server-2-history) image_role=physiology ;;
+  *) echo 'FAIL: unsupported worker version' >&2; exit 1 ;;
+esac
+SCORING_EXPECTED_IMAGE_ID="$(python3 "$image_verifier" --reference "$reviewed_image_reference" \
+  --config-digest "$reviewed_config_digest" --source-revision "$release_sha" --role "$image_role" --output image-id)"
 # Dedicated intended configuration is authoritative, not the candidate's own destination.
 # shellcheck disable=SC1091
 source /opt/frwhoop/secrets.env

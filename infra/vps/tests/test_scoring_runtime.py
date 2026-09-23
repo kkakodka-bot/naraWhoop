@@ -27,9 +27,15 @@ def snapshot(poll="p0", score="s0", healthy="t", eligible=0, lease=0, exhausted=
 class ScoringRuntimeTest(unittest.TestCase):
     def run_check(self, rows, query_fails=False, duplicate=False, other_project=False, database_url=None,
                   real_psql=None, expected_password="fixture-secret", query_seconds=0, expected_ssl=None, peer_url=None,
-                  algorithm_version='frwhoop-physiology-2', client_identity=None):
+                  algorithm_version='frwhoop-physiology-2', client_identity=None, pinned_ca=False,
+                  baseline_java_opts='-Xmx512m -XX:+UseContainerSupport', java_override=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            if pinned_ca:
+                root = root.resolve()
+                ca_file = root / 'supabase-prod-ca-2021.crt'
+                shutil.copy(HELPER.parents[3] / 'Tools/release/certificates/supabase-prod-ca-2021.crt', ca_file)
+                database_url = 'postgresql://postgres:fixture-secret@db.example/postgres?sslmode=verify-full&sslrootcert=' + str(ca_file)
             (root / "snapshots.json").write_text(json.dumps(rows))
             (root / "clock").write_text("0")
             docker = root / "docker"
@@ -48,6 +54,9 @@ if args[0] == 'inspect':
     elif '.Image' in args[2]: print('sha256:' + 'a'*64)
     elif '.Config.Env' in args[2]:
         print('SCORING_ALGORITHM_VERSION=' + settings['MOCK_VERSION'])
+        if settings['MOCK_VERSION'] == 'frwhoop-server-1':
+            print('JAVA_OPTS=' + settings['BASELINE_JAVA_OPTS'])
+            if settings['JAVA_OVERRIDE']: print(settings['JAVA_OVERRIDE'])
         print('DATABASE_URL=' + settings['MOCK_DATABASE_URL'])
         print('SCORING_WORKER_INSTANCE_ID=11111111-1111-4111-8111-111111111111')
         print('SCORING_WORKER_SOURCE_REVISION=' + 'a'*40)
@@ -63,6 +72,10 @@ elif args[0] == 'run':
     assert not any('fixture-secret' in arg for arg in args)
     assert os.environ['PGDATABASE'] == 'postgres'
     assert os.environ['PGPASSWORD'] == settings['EXPECTED_PASSWORD']
+    if os.environ['PGSSLROOTCERT'] != 'system':
+        cert = os.environ['PGSSLROOTCERT']
+        assert pathlib.Path(cert).is_file()
+        assert args[args.index('--mount')+1] == 'type=bind,src=' + cert + ',dst=' + cert + ',readonly'
     if settings.get('EXPECTED_SSL'): assert os.environ['PGSSLMODE'] == settings['EXPECTED_SSL']
     (root / 'clock').write_text(str(int((root / 'clock').read_text()) + int(settings['QUERY_SECONDS'])))
     query = sys.stdin.read()
@@ -115,8 +128,23 @@ else: raise AssertionError(args)
                 'MOCK_DATABASE_URL': env['MOCK_DATABASE_URL'],
                 'POSTGRES_CLIENT_IMAGE': client['SCORING_POSTGRES_CLIENT_IMAGE'],
                 'REAL_PSQL': env.get('REAL_PSQL', ''),
+                'BASELINE_JAVA_OPTS': baseline_java_opts, 'JAVA_OVERRIDE': java_override,
             }))
             shutil.copy(HELPER, root / 'scoring-progress.sh')
+            shutil.copy(HELPER.with_name('scoring-tls.py'), root / 'scoring-tls.py')
+            if pinned_ca:
+                tls_file = root / 'scoring-tls.py'
+                tls_file.write_text(tls_file.read_text().replace("CA_PATH = '/opt/frwhoop/supabase-prod-ca-2021.crt'",
+                    'CA_PATH = ' + repr(str(ca_file))))
+            # Archive verification itself is covered with real bytes by test_worker_image.
+            (root / 'verify-worker-image.py').write_text("""import sys
+args = dict(zip(sys.argv[1::2], sys.argv[2::2]))
+assert args['--reference'] == 'fixture.invalid/worker@sha256:' + 'b'*64
+assert args['--config-digest'] == 'sha256:' + 'a'*64
+assert args['--source-revision'] == 'a'*40
+assert args['--role'] in ('baseline', 'physiology') and args['--output'] == 'image-id'
+print(args['--config-digest'])
+""")
             secrets = root / 'secrets.env'
             secrets.write_text("SCORING_DATABASE_URL='" + env['MOCK_DATABASE_URL'] + "'\n"
                                "SCORING_SUPABASE_URL='https://" + 'a'*20 + ".supabase.co/rest/v1'\n")
@@ -126,7 +154,8 @@ else: raise AssertionError(args)
             wrapper.write_text(SCRIPT.read_text()
                                .replace('source /opt/frwhoop/secrets.env', 'source "' + str(secrets) + '"')
                                .replace('source /opt/frwhoop/scoring-client.env', 'source "' + str(client_env) + '"'))
-            result = subprocess.run(["bash", str(wrapper), SHA, 'sha256:' + 'a'*64, algorithm_version], text=True, capture_output=True, env=env, timeout=20)
+            result = subprocess.run(["bash", str(wrapper), SHA, 'sha256:' + 'a'*64, algorithm_version,
+                                     'fixture.invalid/worker@sha256:' + 'b'*64], text=True, capture_output=True, env=env, timeout=20)
             command_log = root / 'commands.jsonl'
             commands = [json.loads(line) for line in command_log.read_text().splitlines()] if command_log.exists() else []
             result.local_psql_error = (root / "local-psql-error").read_text() if (root / "local-psql-error").exists() else "client was not reached"
@@ -147,6 +176,21 @@ else: raise AssertionError(args)
         runs = [command for command in result.mock_commands if command[0] == 'run']
         self.assertTrue(runs)
         self.assertTrue(all(POSTGRES_CLIENT_IMAGE in command for command in runs))
+
+    def test_pinned_ca_is_mounted_read_only_for_real_runtime_poll_command(self):
+        result = self.run_check([snapshot(), snapshot(poll="p1"), snapshot(poll="p2")], pinned_ca=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        runs = [command for command in result.mock_commands if command[0] == 'run']
+        self.assertTrue(runs)
+        self.assertTrue(all('--mount' in command for command in runs))
+
+    def test_baseline_heap_expansion_or_alternate_java_override_fails_before_poll(self):
+        for options in ({'baseline_java_opts': '-Xmx1g -XX:+UseContainerSupport'},
+                        {'java_override': 'JAVA_TOOL_OPTIONS=-Xmx2g'}):
+            with self.subTest(options=options):
+                result = self.run_check([snapshot()], algorithm_version='frwhoop-server-1', **options)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(any(command[0] == 'run' for command in result.mock_commands))
 
     def test_stalled_poll_fails_even_when_queue_is_empty(self):
         result = self.run_check([snapshot()])

@@ -111,7 +111,7 @@ function fixture() {
       pendingEntryCount: 10,
     },
     counts: { total: 127, applied: 117, pending: 10 },
-    schemaFingerprintSha256: '4e169fbf070920262b6bec899d63eb4728fb6f8f0932d22fb58e1fc5f15883c8',
+    schemaFingerprintSha256: 'e71489e9317a7a47c1f4c591ca8c26187bf726149e4c456246098673c4d66b24',
     entries,
   };
   const manifest = { ...unsignedManifest, manifestFingerprintSha256: sha256Hex(canonicalJSON(unsignedManifest)) };
@@ -256,6 +256,48 @@ test('rejects an independently observed hosted current_user mismatch before plan
     });
     assert.throws(() => planFor(f, database), /observed current_user differs/);
     assert.equal(database.calls.some(call => call.label.startsWith('apply ')), false);
+  } finally { f.cleanup(); }
+});
+
+test('pins an explicit public CA, preserves verify-full, and refuses trust drift before another query', () => {
+  const f = fixture();
+  try {
+    const ca = fs.realpathSync(f.directory) + '/reviewed-ca.crt';
+    fs.copyFileSync(path.join(sourceRoot, 'Tools/release/certificates/supabase-prod-ca-2021.crt'), ca);
+    const caHash = sha256Hex(fs.readFileSync(ca));
+    const binding = createTargetBinding({ projectRef: HOSTED_PROJECT_REF,
+      host: `db.${HOSTED_PROJECT_REF}.supabase.co`, port: 5432, user: 'postgres',
+      sslRootCert: ca, sslRootCertSha256: caHash });
+    assert.notEqual(binding.targetBindingFingerprintSha256, f.binding.targetBindingFingerprintSha256);
+    const url = new URL(`postgresql://postgres:test-only@db.${HOSTED_PROJECT_REF}.supabase.co:5432/postgres`);
+    url.searchParams.set('sslmode', 'verify-full');
+    url.searchParams.set('sslrootcert', ca);
+    let calls = 0;
+    const runner = createPsqlRunner(binding, f.databaseClient, { [CREDENTIAL_ENVIRONMENT]: String(url) },
+      (_executable, _args, options) => {
+        calls++;
+        assert.equal(options.env.PGSSLMODE, 'verify-full');
+        assert.equal(options.env.PGSSLROOTCERT, ca);
+        return { status: 0, stdout: 'ok', stderr: '' };
+      });
+    assert.equal(runner('select 1', 'CA contract'), 'ok');
+    url.searchParams.set('sslmode', 'require');
+    assert.throws(() => connectionFromEnvironment(binding, { [CREDENTIAL_ENVIRONMENT]: String(url) }), /verify-full/);
+    url.searchParams.set('sslmode', 'verify-full');
+    url.searchParams.set('sslrootcert', 'system');
+    assert.throws(() => connectionFromEnvironment(binding, { [CREDENTIAL_ENVIRONMENT]: String(url) }), /reviewed sslrootcert/);
+    fs.appendFileSync(ca, '\n');
+    assert.throws(() => runner('select 2', 'changed CA'), /root certificate bytes differ/);
+    assert.equal(calls, 1, 'trust drift must stop before any query is spawned');
+    const link = ca + '.link';
+    fs.symlinkSync(ca, link);
+    assert.throws(() => createTargetBinding({ projectRef: HOSTED_PROJECT_REF,
+      host: binding.host, port: 5432, user: 'postgres', sslRootCert: link,
+      sslRootCertSha256: sha256Hex(fs.readFileSync(ca)) }), /canonical regular file/);
+    fs.writeFileSync(ca, 'not a certificate');
+    assert.throws(() => createTargetBinding({ projectRef: HOSTED_PROJECT_REF,
+      host: binding.host, port: 5432, user: 'postgres', sslRootCert: ca,
+      sslRootCertSha256: sha256Hex(fs.readFileSync(ca)) }), /one PEM certificate/);
   } finally { f.cleanup(); }
 });
 

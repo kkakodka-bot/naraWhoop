@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import tempfile
+from unittest.mock import patch
 
 path = Path(__file__).resolve().parents[1] / 'scripts/scoring-hosted-query.py'
 spec = importlib.util.spec_from_file_location('scoring_hosted_query', path)
@@ -9,6 +11,28 @@ spec.loader.exec_module(module)
 
 
 class HostedQueryBindingTest(unittest.TestCase):
+    def test_pinned_public_ca_supports_verify_full_and_read_only_mount(self):
+        source = path.parents[3] / 'Tools/release/certificates/supabase-prod-ca-2021.crt'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / 'supabase-prod-ca-2021.crt'
+            root.write_bytes(source.read_bytes())
+            with patch.object(module.tls, 'CA_PATH', str(root)):
+                env = module.connection_environment(
+                    'postgresql://postgres.test:fixture@aws-0.pooler.supabase.com/postgres?sslmode=verify-full&sslrootcert=' + str(root),
+                    'https://test.supabase.co/rest/v1')
+                self.assertEqual(env['PGSSLMODE'], 'verify-full')
+                self.assertEqual(module.tls.verified_root_mounts(env['PGSSLROOTCERT']),
+                                 ['--mount', f'type=bind,src={root},dst={root},readonly'])
+                root.write_text('unreviewed trust')
+                with self.assertRaisesRegex(ValueError, 'pinned public CA'):
+                    module.tls.verified_root_mounts(str(root))
+                root.unlink()
+                root.symlink_to(source)
+                with self.assertRaisesRegex(ValueError, 'canonical regular'):
+                    module.tls.verified_root_mounts(str(root))
+        with self.assertRaisesRegex(ValueError, 'unreviewed'):
+            module.tls.verified_root_mounts('/tmp/arbitrary-root.crt')
+
     def test_pooler_and_rest_bind_to_same_project_without_credential_output(self):
         env = module.connection_environment('postgresql://postgres.test:synthetic%2Bvalue@aws-0.pooler.supabase.com/postgres?sslmode=verify-full&sslrootcert=system',
                                             'https://test.supabase.co/rest/v1')

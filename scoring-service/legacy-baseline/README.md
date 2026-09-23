@@ -76,9 +76,12 @@ In the image, the configured source must match `/app/release.sha`; standalone lo
 binaries have no `/app` requirement. Replay requires explicit `--replay-day` plus `REPLAY_USER_ID`,
 `REPLAY_DEVICE_ID` and `REPLAY_DAY`. Persistent mode ignores inherited replay selectors; only the explicit command runs a one-shot replay.
 
-Hosted Supabase database URLs must use `sslmode=verify-full&sslrootcert=system`. The patched JVM
-selects pgJDBC's Java-system-trust SSL factory as a separate connection property, so the shared URL
-remains valid for the pinned libpq client while pgJDBC verifies the certificate and hostname.
+Hosted Supabase database URLs must use `sslmode=verify-full` with either `sslrootcert=system` or
+the canonical absolute path of the reviewed public CA. Both worker images embed that CA at
+`/opt/frwhoop/supabase-prod-ca-2021.crt`; its exact SHA-256 is checked by the builder, Dockerfile and
+JVM before use and recorded in image labels and baseline provenance. The explicit CA uses pgJDBC's
+validating `LibPQFactory`. The system option selects its Java-system-trust factory as a separate
+connection property, so both URL forms remain libpq compatible and retain certificate and hostname checks.
 Driver, credential, and hostname-verifier query overrides are rejected before a connection opens.
 
 Original mutable-key B2 publication is retired. The repaired service's archive worker drains the

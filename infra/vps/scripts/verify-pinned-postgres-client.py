@@ -67,6 +67,7 @@ def verify_config(config_bytes, expected_config, platform):
     os_name, architecture = platform.split('/', 1)
     require(config.get('os') == os_name and config.get('architecture') == architecture,
             'PostgreSQL client platform differs')
+    return config
 
 
 def verify_docker_archive(archive, members, expected_config, platform):
@@ -77,7 +78,7 @@ def verify_docker_archive(archive, members, expected_config, platform):
     require(isinstance(config_name, str) and re.fullmatch(r'(?:blobs/sha256/)?[0-9a-f]{64}(?:\.json)?', config_name),
             'Docker archive config descriptor is invalid')
     config_bytes = read_member(archive, members, config_name)
-    verify_config(config_bytes, expected_config, platform)
+    return verify_config(config_bytes, expected_config, platform)
 
 
 def descriptor_blob(archive, members, descriptor, label):
@@ -109,7 +110,7 @@ def verify_oci_archive(archive, members, manifest_digest, expected_config, platf
     require(isinstance(config_descriptor, dict) and config_descriptor.get('digest') == expected_config,
             'OCI config descriptor differs')
     config_bytes = descriptor_blob(archive, members, config_descriptor, 'OCI config')
-    verify_config(config_bytes, expected_config, platform)
+    return verify_config(config_bytes, expected_config, platform)
 
 
 def verify_saved_archive(filename, manifest_digest, expected_config, platform):
@@ -118,9 +119,9 @@ def verify_saved_archive(filename, manifest_digest, expected_config, platform):
         members = safe_members(archive)
         if 'oci-layout' in members or 'index.json' in members:
             require('oci-layout' in members and 'index.json' in members, 'incomplete OCI archive')
-            verify_oci_archive(archive, members, manifest_digest, expected_config, platform)
+            return verify_oci_archive(archive, members, manifest_digest, expected_config, platform)
         else:
-            verify_docker_archive(archive, members, expected_config, platform)
+            return verify_docker_archive(archive, members, expected_config, platform)
 
 
 def verify_archive(filename, reference, expected_config, platform, version):

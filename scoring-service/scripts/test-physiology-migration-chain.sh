@@ -40,6 +40,10 @@ catalog_rows="$(node --input-type=module -e '
 ' "$repo_dir/infra/vps/scripts/scoring-migration-catalog.mjs" "$repo_dir/supabase/migrations")"
 seeded=false
 while IFS='|' read -r name source_sha; do
+  if [[ "$mode" == hosted-upgrade && "$name" == 20260922120000* ]]; then
+    docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -c \
+      'select release_upgrade_fixture.seed_previous_compute_dispositions();' > "$evidence/previous-disposition-seed.log" 2>&1
+  fi
   if [[ "$mode" == hosted-upgrade && "$seeded" == false && "$name" == 20260921110000* ]]; then
     docker exec "$container" psql -U postgres -d postgres -X -v ON_ERROR_STOP=1 \
       -f /release-upgrade-seed.sql > "$evidence/upgrade-seed.log" 2>&1

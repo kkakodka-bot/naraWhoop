@@ -112,7 +112,17 @@ class VerifiedRawObjectReader(private val objects: B2ObjectStore.GetClient) {
 
 /** Owner-scoped discovery and conditional proof recording; a decode failure cannot bless an object. */
 class RawSignalCatalogue(private val dataSource: DataSource, private val reader: VerifiedRawObjectReader) {
-    fun discover(userId: UUID, deviceId: UUID, start: Long, end: Long, objectIds: Set<UUID>? = null): List<VerifiedRawObjectReader.Manifest> {
+    fun discover(userId: UUID, deviceId: UUID, start: Long, end: Long, objectIds: Set<UUID>? = null): List<VerifiedRawObjectReader.Manifest> =
+        discoverSnapshot(userId, deviceId, start, end, objectIds, requireComplete = true)
+
+    /** Deterministic day inputs retain available windows when another receipt's object is pending or
+     * withdrawn. Each raw feature extractor still verifies its own complete required set. Model jobs
+     * must use discover, whose exact-set fence prevents partial inference. */
+    fun discoverAvailable(userId: UUID, deviceId: UUID, start: Long, end: Long, objectIds: Set<UUID>): List<VerifiedRawObjectReader.Manifest> =
+        discoverSnapshot(userId, deviceId, start, end, objectIds, requireComplete = false)
+
+    private fun discoverSnapshot(userId: UUID, deviceId: UUID, start: Long, end: Long, objectIds: Set<UUID>?,
+                                 requireComplete: Boolean): List<VerifiedRawObjectReader.Manifest> {
         require(end > start && end - start <= 76 * 3600)
         require(objectIds == null || objectIds.size <= MAX_REQUIRED_OBJECTS) { "raw_catalogue_budget_exceeded" }
         if (objectIds?.isEmpty() == true) return emptyList()
@@ -168,7 +178,7 @@ class RawSignalCatalogue(private val dataSource: DataSource, private val reader:
                     }
                 }
                 require(found.map { it.id }.toSet().size == found.size) { "raw_catalogue_identity_conflict" }
-                require(objectIds == null || found.map { it.id }.toSet() == objectIds) { "raw_required_objects_missing" }
+                require(!requireComplete || objectIds == null || found.map { it.id }.toSet() == objectIds) { "raw_required_objects_missing" }
                 connection.commit()
                 found
             } catch (failure: Exception) {

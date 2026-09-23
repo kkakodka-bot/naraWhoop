@@ -76,6 +76,37 @@ final class FinalHostedRuntimeTests: XCTestCase {
         assertZero("cold_launch_foreground_background_backfill_preferences_diagnostics")
     }
 
+    func testReportExportsBoundedCurrentProcessCountersWithoutProducerValues() async throws {
+        PhoneComputeRuntime.resetTestCounters()
+        let (model, _) = try await fixture()
+        let before = PhoneComputeRuntime.diagnosticSnapshot()
+        let privateProducer = "private-owner-token-" + String(repeating: "secret", count: 5_000)
+        for _ in 0..<1_000 { XCTAssertFalse(PhoneComputeRuntime.permitsLocal(privateProducer)) }
+        let entries = TestBundleAssembler.assemble(profile: .connection, live: model.live)
+        let entry = try XCTUnwrap(entries.first { $0.name == "phone-compute-evidence.json" })
+        XCTAssertLessThan(entry.data.count, 4_096)
+        let snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: entry.data) as? [String: Any])
+        XCTAssertEqual(snapshot["process_generation"] as? String, before["process_generation"] as? String)
+        XCTAssertEqual((snapshot["process_generation"] as? String)?.count, 36)
+        XCTAssertEqual(snapshot["coverage"] as? String, "current_process_only")
+        XCTAssertEqual(snapshot["previous_process_coverage"] as? String, "NOT_MEASURED")
+        XCTAssertEqual(snapshot["final_hosted"] as? Bool, true)
+        XCTAssertEqual(snapshot["execution_count"] as? Int, 0)
+        XCTAssertEqual(snapshot["forbidden_attempt_count"] as? Int, 0)
+        XCTAssertEqual(snapshot["denied_admission_count"] as? Int, (before["denied_admission_count"] as! Int) + 1_000)
+        XCTAssertGreaterThanOrEqual((snapshot["observation_elapsed_ms"] as! NSNumber).int64Value, (before["observation_elapsed_ms"] as! NSNumber).int64Value)
+        XCTAssertTrue(snapshot["test_process"] as? Bool == true)
+        XCTAssertNotNil(snapshot["app_build"])
+        XCTAssertNotNil(snapshot["source_revision"])
+        XCTAssertFalse(String(decoding: entry.data, as: UTF8.self).contains("secret"))
+        let next = PhoneComputeRuntime.diagnosticSnapshot()
+        XCTAssertEqual(next["execution_count"] as? Int, 0, "reporting cannot invoke or reset physiology")
+        XCTAssertEqual(next["denied_admission_count"] as? Int, snapshot["denied_admission_count"] as? Int)
+        let review = ReportReviewGate(entries: entries)
+        XCTAssertTrue(review.previewText.contains("phone-compute-evidence.json"))
+        XCTAssertFalse(review.isCleared)
+    }
+
     func testRawUploadRemainsRunnableWithAllLocalAnalyticsDisabled() async throws {
         PhoneComputeRuntime.resetTestCounters()
         let (model, store) = try await fixture()

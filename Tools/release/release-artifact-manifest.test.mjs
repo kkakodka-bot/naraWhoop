@@ -72,6 +72,7 @@ function ociFixture(role, mutateConfig = () => {}) {
   const labels = {
     'org.opencontainers.image.revision': REVISION,
     'io.frwhoop.heartbeat.contract': 'physiology_worker_heartbeats-v1',
+    'io.frwhoop.database.ca.sha256': '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7',
     'io.frwhoop.build.image': BUILD_IMAGE,
     'io.frwhoop.runtime.image': RUNTIME_IMAGE,
     'io.frwhoop.image.platform': 'linux/amd64',
@@ -85,6 +86,7 @@ function ociFixture(role, mutateConfig = () => {}) {
     }),
   };
   const configValue = { architecture: 'amd64', os: 'linux', config: { Labels: labels } };
+  if (role === 'selected-v1') configValue.config.Env = ['JAVA_OPTS=-Xmx512m -XX:+UseContainerSupport'];
   if (role === 'intake') {
     configValue.config.Labels = {
       'org.opencontainers.image.revision': REVISION, 'org.frwhoop.worker.role': 'intake',
@@ -139,6 +141,32 @@ test('OCI inspection rejects source/metadata substitutions and changed bytes', t
   changed[0] ^= 1;
   fs.writeFileSync(filename, changed);
   assert.throws(() => inspectOCI(filename, 'shadow-v2', REVISION, fixture.metadata), /NOT_READY/);
+});
+
+test('worker OCI rejects a coherently rebuilt image with missing or substituted database trust', t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-worker-trust-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const filename = path.join(directory, 'image.tar');
+  for (const role of ['selected-v1', 'shadow-v2']) for (const ca of [undefined, '0'.repeat(64)]) {
+    const fixture = ociFixture(role, value => { value.config.Labels['io.frwhoop.database.ca.sha256'] = ca; });
+    fs.writeFileSync(filename, fixture.bytes);
+    assert.throws(() => inspectOCI(filename, role, REVISION, fixture.metadata,
+      role === 'selected-v1' ? fixture.provenance : undefined), /database trust labels differ/);
+  }
+});
+
+test('baseline OCI rejects expanded heap and alternate Java option overrides', t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-baseline-heap-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const filename = path.join(directory, 'image.tar');
+  for (const environment of [[], ['JAVA_OPTS=-Xmx1g -XX:+UseContainerSupport'],
+    ['JAVA_OPTS=-Xmx512m -XX:+UseContainerSupport', 'JAVA_TOOL_OPTIONS=-Xmx2g'],
+    ['JAVA_OPTS=-Xmx512m -XX:+UseContainerSupport', '_JAVA_OPTIONS=-Xmx2g']]) {
+    const fixture = ociFixture('selected-v1', value => { value.config.Env = environment; });
+    fs.writeFileSync(filename, fixture.bytes);
+    assert.throws(() => inspectOCI(filename, 'selected-v1', REVISION, fixture.metadata, fixture.provenance),
+      /heap or Java override differs/);
+  }
 });
 
 test('intake OCI rejects coherently rebuilt incompatible role, contract and runtime commands', t => {
@@ -319,25 +347,19 @@ test('iOS expected identities retain the committed phone/widget/watch/App Group 
   }
 });
 
-test('aggregate source contract keeps launch capacity at the measured conditional canary limit', () => {
-  const capacity = {
-    schemaVersion: 1, decision: 'CONDITIONAL_CANARY_ONLY', evidenceScope: 'LOCAL_SCALAR_FIXTURE',
-    targetVpsCapacity: 'NOT_MEASURED', fleetCapacityReadiness: 'FAIL',
-    conditionalCanaryAdmission: { activeOwners: 10, devices: 20, physiologyWorkerProcesses: 4 },
-    publicationSlo: { percentile: 95, seconds: 60,
-      origin: 'after all required input is durably accepted' },
-    databaseConnections: { budget: 40, reserve: 16, workerPoolSize: 4,
-      declaredProcessesIncludingReservedOptionalModel: 6 },
-    unsupportedClaims: [{ activeOwners: 1000, status: 'UNSUPPORTED', reason: 'Target VPS is not measured.' }],
-  };
+test('aggregate source contract separates historical fixture capacity from unmeasured current global queues', () => {
+  const capacity = JSON.parse(fs.readFileSync(new URL('../../infra/vps/launch-capacity.json', import.meta.url)));
   assert.equal(validateLaunchCapacity(capacity), capacity);
   for (const mutate of [
     value => { value.targetVpsCapacity = 'PASS'; },
     value => { value.fleetCapacityReadiness = 'PASS'; },
-    value => { value.conditionalCanaryAdmission.activeOwners = 1000; },
-    value => { value.conditionalCanaryAdmission.physiologyWorkerProcesses = 3; },
-    value => { value.publicationSlo.seconds = 120; },
-    value => { value.databaseConnections.reserve = 0; },
+    value => { value.currentAdmission.safeActiveOwners = 10; },
+    value => { value.currentAdmission.ownerAllowlist = true; },
+    value => { value.publicationSlo.seconds = 60; },
+    value => { value.proposedInitialTopology.status = 'APPROVED'; },
+    value => { value.proposedInitialTopology.services[1].memoryBytes *= 2; },
+    value => { value.historicalScalarFixture.appliesToCurrentAdmission = true; },
+    value => { value.databaseConnections.intakeTransport = 'THREE_POSTGRES_CONNECTIONS'; },
     value => { value.unsupportedClaims[0].status = 'SUPPORTED'; },
   ]) {
     const changed = structuredClone(capacity); mutate(changed);
@@ -472,6 +494,21 @@ test('worker deployment rejects mutable refs, role swaps and all identity mutati
     const changed = structuredClone(valid); mutate(changed);
     assert.throws(() => verifyWorkerDeploymentContract(release, changed), /NOT_READY/);
   }
+});
+
+test('initial deployment scope binds intake and selected v1 without shadow or history starts', () => {
+  const release = releaseForDeployment();
+  const v1 = `registry.invalid/frwhoop-v1@${release.artifacts.selectedV1.image.manifestDigest}`;
+  const v2 = `registry.invalid/frwhoop-v2@${release.artifacts.shadowV2.image.manifestDigest}`;
+  const initial = createWorkerDeploymentActual(release, v1, v2, targetForDeployment(),
+    intakeForDeployment(release), 'initial-selected-v1');
+  assert.equal(verifyWorkerDeploymentContract(release, initial), initial);
+  assert.deepEqual(initial.laneOrder.map(lane => lane.service), ['intake-consumer', 'scoring-baseline-v1']);
+  const expanded = structuredClone(initial);
+  expanded.scope = 'full-fleet';
+  assert.throws(() => verifyWorkerDeploymentContract(release, expanded), /NOT_READY/);
+  assert.throws(() => createWorkerDeploymentActual(release, v1, v2, targetForDeployment(),
+    intakeForDeployment(release), 'one-owner'), /scope differs/);
 });
 
 test('migration binding rejects coherently reauthored catalogs and binds all 127 committed source files', () => {

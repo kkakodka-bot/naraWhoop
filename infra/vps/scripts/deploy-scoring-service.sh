@@ -36,6 +36,10 @@ deployment_field() {
 RELEASE_SHA="$(deployment_field sourceSha)"
 RELEASE_TREE="$(deployment_field sourceTree)"
 DEPLOYMENT_FINGERPRINT="$(deployment_field fingerprint)"
+DEPLOYMENT_SCOPE="$(deployment_field scope)"
+[[ "$DEPLOYMENT_SCOPE" == initial-selected-v1 || "$DEPLOYMENT_SCOPE" == full-fleet ]] || {
+  echo 'NOT_READY: unrecognized reviewed deployment scope' >&2; exit 3;
+}
 SELECTED_V1_IMAGE="$(deployment_field selectedV1.reference)"
 SELECTED_V1_CONFIG="$(deployment_field selectedV1.configDigest)"
 SHADOW_V2_IMAGE="$(deployment_field shadowV2.reference)"
@@ -173,7 +177,7 @@ UNLOCK
       result=1
     fi
   elif [[ "$LOCK_ACQUIRED" == true ]]; then
-    echo 'DEPLOYMENT_LOCK_RETAINED: the full three-lane deployment did not complete; inspect the recorded lane state before removing /opt/frwhoop/scoring-deployment.lock' >&2
+    echo 'DEPLOYMENT_LOCK_RETAINED: the reviewed scoring scope did not complete; inspect the recorded lane state before removing /opt/frwhoop/scoring-deployment.lock' >&2
   fi
   exit "$result"
 }
@@ -207,7 +211,8 @@ echo "========== sync exact scoring build context =========="
 release_git archive "$RELEASE_SHA" android scoring-service \
   infra/vps/scripts/scoring-progress.sh infra/vps/scripts/remote/verify-scoring-runtime.sh \
   infra/vps/scripts/scoring-hosted-query.py infra/vps/scripts/remote/read-scoring-query.sh \
-  infra/vps/scripts/verify-pinned-postgres-client.py \
+  infra/vps/scripts/verify-pinned-postgres-client.py infra/vps/scripts/verify-worker-image.py \
+  infra/vps/scripts/scoring-tls.py Tools/release/certificates/supabase-prod-ca-2021.crt \
   infra/vps/templates/docker-compose.scoring-override.yml | \
   ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" \
     "tar -xf - -C '${REMOTE_BUILD}'"
@@ -216,7 +221,7 @@ echo "========== configure scoring env + deploy reviewed images =========="
 deploy_lane() {
 ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$REMOTE_BUILD" "$1" \
   "$SELECTED_V1_IMAGE" "$SHADOW_V2_IMAGE" "$SELECTED_V1_CONFIG" "$SHADOW_V2_CONFIG" \
-  "$POSTGRES_CLIENT_IMAGE" "$POSTGRES_CLIENT_CONFIG" "$POSTGRES_CLIENT_PLATFORM" "$POSTGRES_CLIENT_VERSION" <<'REMOTE'
+  "$POSTGRES_CLIENT_IMAGE" "$POSTGRES_CLIENT_CONFIG" "$POSTGRES_CLIENT_PLATFORM" "$POSTGRES_CLIENT_VERSION" "$DEPLOYMENT_SCOPE" <<'REMOTE'
 set -euo pipefail
 RELEASE_SHA="$1"
 BASE="/opt/frwhoop"
@@ -231,6 +236,12 @@ SCORING_POSTGRES_CLIENT_IMAGE="$8"
 SCORING_POSTGRES_CLIENT_CONFIG_DIGEST="$9"
 SCORING_POSTGRES_CLIENT_PLATFORM="${10}"
 SCORING_POSTGRES_CLIENT_VERSION="${11}"
+DEPLOYMENT_SCOPE="${12}"
+case "$DEPLOYMENT_SCOPE" in
+  initial-selected-v1) [[ "$SCORING_SERVICE" == scoring-baseline-v1 ]] || exit 3 ;;
+  full-fleet) ;;
+  *) echo 'NOT_READY: unrecognized reviewed deployment scope' >&2; exit 3 ;;
+esac
 SECRETS="${BASE}/secrets.env"
 SCORING_ENV="${BASE}/scoring.env"
 COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
@@ -273,6 +284,26 @@ verify_postgres_client() (
 # Verify the public client image without hosted credentials in process memory. Every later psql
 # client invocation receives only this plan-bound digest reference.
 verify_postgres_client
+# Install only the exact public CA carried by the reviewed source. Unknown existing trust is
+# preserved and blocks deployment; no arbitrary certificate is accepted from environment values.
+python3 - "${BUILD}/Tools/release/certificates/supabase-prod-ca-2021.crt" "${BASE}/supabase-prod-ca-2021.crt" <<'CA'
+import hashlib, os, pathlib, stat, sys
+expected = '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7'
+source, target = map(pathlib.Path, sys.argv[1:])
+for path in (source, target):
+    if path == source or path.exists() or path.is_symlink():
+        metadata = path.lstat()
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 65536:
+            raise SystemExit('NOT_READY: public database CA is not a bounded regular file')
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            raise SystemExit('NOT_READY: public database CA differs from reviewed bytes')
+if not target.exists():
+    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    with os.fdopen(descriptor, 'wb') as output:
+        output.write(source.read_bytes())
+        output.flush()
+        os.fsync(output.fileno())
+CA
 export SCORING_POSTGRES_CLIENT_IMAGE SCORING_POSTGRES_CLIENT_CONFIG_DIGEST \
   SCORING_POSTGRES_CLIENT_PLATFORM SCORING_POSTGRES_CLIENT_VERSION
 
@@ -352,9 +383,32 @@ finish() {
             # Another invocation may have acquired the fixed name while Compose failed.
             # Never stop/remove it or activate a competing prior scorer with unknown ownership.
             rollback_failed=true
-          elif ! timeout 40 docker rm -f "$candidate_id" >/dev/null; then
-            rollback_failed=true
-            timeout 40 docker stop --time 30 "$candidate_id" >/dev/null || rollback_failed=true
+          else
+            # Preserve bounded allowlisted state before removal, never a full inspect/environment
+            # or raw logs. If evidence cannot be retained, stop and preserve the container itself.
+            if timeout 12 docker inspect -f '{"containerId":{{json .Id}},"imageId":{{json .Image}},"state":{"status":{{json .State.Status}},"running":{{json .State.Running}},"exitCode":{{json .State.ExitCode}},"oomKilled":{{json .State.OOMKilled}}},"restartCount":{{json .RestartCount}},"sourceRevision":{{json (index .Config.Labels "org.opencontainers.image.revision")}}}' "$candidate_id" |
+              python3 -c '
+import json, os, sys
+raw = sys.stdin.buffer.read(8193)
+if not raw or len(raw) > 8192: raise SystemExit(3)
+value = json.loads(raw)
+if set(value) != {"containerId", "imageId", "state", "restartCount", "sourceRevision"}: raise SystemExit(3)
+if value["containerId"] != sys.argv[2]: raise SystemExit(3)
+if set(value["state"]) != {"status", "running", "exitCode", "oomKilled"}: raise SystemExit(3)
+descriptor = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(descriptor, "w") as output:
+    json.dump({"schemaVersion": 1, **value}, output, sort_keys=True)
+    output.write("\n"); output.flush(); os.fsync(output.fileno())
+' "${rollback_dir}/rejected-candidate.json" "$candidate_id"; then
+              if ! timeout 40 docker rm -f "$candidate_id" >/dev/null; then
+                rollback_failed=true
+                timeout 40 docker stop --time 30 "$candidate_id" >/dev/null || rollback_failed=true
+              fi
+            else
+              echo 'Rejected candidate evidence capture failed; retaining stopped candidate for review' >&2
+              rollback_failed=true
+              timeout 40 docker stop --time 30 "$candidate_id" >/dev/null || rollback_failed=true
+            fi
           fi
         fi
       else rollback_failed=true; fi
@@ -406,28 +460,19 @@ scoring_identity_valid
 unset REPLAY_USER_ID REPLAY_DAY REPLAY_DEVICE_ID
 
 verify_reviewed_image() {
-  local reviewed_image="$1" expected_config="$2" actual_config repo_digests
+  local reviewed_image="$1" expected_config="$2" role="$3"
   timeout 300 docker pull "$reviewed_image" >/dev/null
-  actual_config="$(docker image inspect -f '{{.Id}}' "$reviewed_image")"
-  [[ "$actual_config" == "$expected_config" ]] || {
-    echo 'Pulled worker image config digest differs from the verified deployment plan' >&2; exit 1;
-  }
-  repo_digests="$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$reviewed_image")"
-  grep -Fqx -- "$reviewed_image" <<<"$repo_digests" || {
-    echo 'Pulled worker image repository digest differs from the verified deployment plan' >&2; exit 1;
-  }
-  [[ "$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$reviewed_image")" == "$RELEASE_SHA" ]] || exit 1
-  [[ "$(docker image inspect -f '{{ index .Config.Labels "io.frwhoop.heartbeat.contract" }}' "$reviewed_image")" == physiology_worker_heartbeats-v1 ]] || exit 1
-  [[ "$(docker image inspect -f '{{ index .Config.Labels "io.frwhoop.image.platform" }}' "$reviewed_image")" == linux/amd64 ]] || exit 1
-  [[ "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "$reviewed_image")" == linux/amd64 ]] || exit 1
+  python3 "${BUILD}/infra/vps/scripts/verify-worker-image.py" \
+    --reference "$reviewed_image" --config-digest "$expected_config" \
+    --source-revision "$RELEASE_SHA" --role "$role" --output image-id
 }
-verify_reviewed_image "$SCORING_BASELINE_IMAGE" "$REVIEWED_BASELINE_CONFIG"
-verify_reviewed_image "$SCORING_V2_IMAGE" "$REVIEWED_V2_CONFIG"
+baseline_engine_id="$(verify_reviewed_image "$SCORING_BASELINE_IMAGE" "$REVIEWED_BASELINE_CONFIG" baseline)"
+v2_engine_id="$(verify_reviewed_image "$SCORING_V2_IMAGE" "$REVIEWED_V2_CONFIG" physiology)"
 candidate_image="$SCORING_V2_IMAGE"
-SCORING_EXPECTED_IMAGE_ID="$REVIEWED_V2_CONFIG"
+SCORING_EXPECTED_IMAGE_ID="$v2_engine_id"
 if [[ "$SCORING_SERVICE" == scoring-baseline-v1 ]]; then
   candidate_image="$SCORING_BASELINE_IMAGE"
-  SCORING_EXPECTED_IMAGE_ID="$REVIEWED_BASELINE_CONFIG"
+  SCORING_EXPECTED_IMAGE_ID="$baseline_engine_id"
   [[ "$(docker image inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$candidate_image")" == "$RELEASE_SHA" ]] || exit 1
   [[ "$(docker image inspect -f '{{ index .Config.Labels "io.frwhoop.algorithm.version" }}' "$candidate_image")" == frwhoop-server-1 ]] || exit 1
   [[ "$(docker image inspect -f '{{ index .Config.Labels "io.frwhoop.baseline.commit" }}' "$candidate_image")" == 5caa31689da0023e111beb36850d3f81d67e1be2 ]] || exit 1
@@ -447,13 +492,17 @@ export SCORING_EXPECTED_IMAGE_ID
 # A failed check leaves current workers and their environment files intact.
 preflight_version="$SCORING_ALGORITHM_VERSION"
 [[ "$preflight_version" != frwhoop-server-1 ]] || preflight_version=frwhoop-physiology-2
-docker run --rm --env-file "$candidate_env" --env-file "${BASE}/b2.env" \
+docker run --rm --cpus 1 --memory 1g --pids-limit 256 --env-file "$candidate_env" --env-file "${BASE}/b2.env" \
   -e "SCORING_ALGORITHM_VERSION=$preflight_version" \
   "$SCORING_V2_IMAGE" --check-config
 
 cd "$COMPOSE_DIR"
 export SCORING_CPUS="${SCORING_CPUS:-2.0}"
 export SCORING_MEMORY_LIMIT="${SCORING_MEMORY_LIMIT:-2g}"
+if [[ "$DEPLOYMENT_SCOPE" == initial-selected-v1 ]]; then
+  # The scoped plan fixes baseline at 1 CPU/1 GiB; ambient secret-file overrides cannot expand it.
+  export SCORING_BASELINE_CPUS=1.0 SCORING_BASELINE_MEMORY_LIMIT=1g
+fi
 compose_project="frwhoop-scoring-${SCORING_WORKER_INSTANCE_ID}"
 SCORING_ENV_FILE="$candidate_env" SCORING_BASELINE_ENV_FILE="$candidate_env" SCORING_HISTORY_ENV_FILE="$candidate_env" docker compose \
   -p "$compose_project" -f "$CANDIDATE_COMPOSE" config --quiet
@@ -501,21 +550,37 @@ install -m 700 "${BUILD}/infra/vps/scripts/scoring-progress.sh" "${COMPOSE_DIR}/
 install -m 700 "${BUILD}/infra/vps/scripts/remote/verify-scoring-runtime.sh" "${COMPOSE_DIR}/verify-scoring-runtime.sh"
 install -m 700 "${BUILD}/infra/vps/scripts/scoring-hosted-query.py" "${COMPOSE_DIR}/scoring-hosted-query.py"
 install -m 700 "${BUILD}/infra/vps/scripts/remote/read-scoring-query.sh" "${COMPOSE_DIR}/read-scoring-query.sh"
+install -m 700 "${BUILD}/infra/vps/scripts/verify-worker-image.py" "${COMPOSE_DIR}/verify-worker-image.py"
+install -m 700 "${BUILD}/infra/vps/scripts/verify-pinned-postgres-client.py" "${COMPOSE_DIR}/verify-pinned-postgres-client.py"
+install -m 700 "${BUILD}/infra/vps/scripts/scoring-tls.py" "${COMPOSE_DIR}/scoring-tls.py"
 echo "Prior worker/configuration retained for rollback: ${rollback_dir}"
 REMOTE
 }
 
-for lane in scoring-baseline-v1 scoring-physiology-v2 scoring-history; do
+scoring_lanes=(scoring-baseline-v1)
+if [[ "$DEPLOYMENT_SCOPE" == full-fleet ]]; then
+  scoring_lanes+=(scoring-physiology-v2 scoring-history)
+fi
+for lane in "${scoring_lanes[@]}"; do
   deploy_lane "$lane"
 done
 
-ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$SELECTED_V1_CONFIG" "$SHADOW_V2_CONFIG" <<'VERIFY'
+ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$SELECTED_V1_CONFIG" "$SHADOW_V2_CONFIG" \
+  "$SELECTED_V1_IMAGE" "$SHADOW_V2_IMAGE" "$DEPLOYMENT_SCOPE" <<'VERIFY'
 set -euo pipefail
 revision="$1"
 v1_config="$2"
 v2_config="$3"
+scope="$6"
+[[ "$scope" == initial-selected-v1 || "$scope" == full-fleet ]] || exit 3
 [[ "$revision" =~ ^[0-9a-f]{40}$ && "$v1_config" =~ ^sha256:[0-9a-f]{64}$ &&
    "$v2_config" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+v1_engine_id="$(python3 /opt/frwhoop/scoring/verify-worker-image.py --reference "$4" \
+  --config-digest "$v1_config" --source-revision "$revision" --role baseline --output image-id)"
+if [[ "$scope" == full-fleet ]]; then
+  v2_engine_id="$(python3 /opt/frwhoop/scoring/verify-worker-image.py --reference "$5" \
+    --config-digest "$v2_config" --source-revision "$revision" --role physiology --output image-id)"
+fi
 
 environment_value() {
   local container="$1" key="$2" environment matches
@@ -543,9 +608,13 @@ verify_lane() {
   [[ "$worker" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || return 1
   printf '%s' "$worker"
 }
-v1_worker="$(verify_lane scoring-baseline-v1 frwhoop-server-1 "$v1_config" default)"
-v2_worker="$(verify_lane scoring-physiology-v2 frwhoop-physiology-2 "$v2_config" default)"
-history_worker="$(verify_lane scoring-history frwhoop-server-2-history "$v2_config" '["--history"]')"
+v1_worker="$(verify_lane scoring-baseline-v1 frwhoop-server-1 "$v1_engine_id" default)"
+required_workers="('frwhoop-server-1','$v1_worker'::uuid)"
+if [[ "$scope" == full-fleet ]]; then
+  v2_worker="$(verify_lane scoring-physiology-v2 frwhoop-physiology-2 "$v2_engine_id" default)"
+  history_worker="$(verify_lane scoring-history frwhoop-server-2-history "$v2_engine_id" '["--history"]')"
+  required_workers+=",('frwhoop-physiology-2','$v2_worker'::uuid),('frwhoop-server-2-history','$history_worker'::uuid)"
+fi
 
 selection_violations="$(/opt/frwhoop/scoring/read-scoring-query.sh <<SQL
 select count(*) from (
@@ -585,9 +654,7 @@ SQL
 
 missing_planned="$(/opt/frwhoop/scoring/read-scoring-query.sh <<SQL
 with required(algorithm_version,worker_instance_id) as (values
-  ('frwhoop-server-1','$v1_worker'::uuid),
-  ('frwhoop-physiology-2','$v2_worker'::uuid),
-  ('frwhoop-server-2-history','$history_worker'::uuid)
+  $required_workers
 )
 select count(*) from required r where not exists (
   select 1 from public.physiology_worker_heartbeats h
@@ -597,8 +664,8 @@ select count(*) from required r where not exists (
 );
 SQL
 )"
-[[ "$missing_planned" == 0 ]] || { echo 'NOT_READY: all three planned lanes require exact-container poll and publication heartbeats' >&2; exit 3; }
+[[ "$missing_planned" == 0 ]] || { echo 'NOT_READY: every scoped scoring lane requires exact-container poll and publication heartbeats' >&2; exit 3; }
 VERIFY
 
 DEPLOYMENT_COMPLETE=true
-echo "Deploy complete: ${RELEASE_SHA}"
+echo "Scoring scope complete: ${RELEASE_SHA} ${DEPLOYMENT_SCOPE}; intake acceptance remains separately required"

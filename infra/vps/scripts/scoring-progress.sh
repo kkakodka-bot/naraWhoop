@@ -83,6 +83,10 @@ scoring_assert_candidate() {
   ports="$(timeout 12 docker port "$container")" || return 1
   [[ -z "$ports" ]] || return 1
   environment="$(timeout 12 docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container")" || return 1
+  if [[ "$SCORING_ALGORITHM_VERSION" == frwhoop-server-1 ]]; then
+    [[ "$(scoring_environment_value "$environment" JAVA_OPTS)" == '-Xmx512m -XX:+UseContainerSupport' ]] || return 1
+    if grep -Eq '^(JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|_JAVA_OPTIONS)=' <<<"$environment"; then return 1; fi
+  fi
   scoring_identity_valid || return 1
   [[ -n "${SCORING_DATABASE_URL:-}" && -n "${SCORING_SUPABASE_URL:-}" &&
      "$SCORING_WORKER_SOURCE_REVISION" == "$release_sha" ]] || return 1
@@ -111,9 +115,10 @@ scoring_progress_snapshot() {
   # alone does not expand a URI, so decode its fields once before passing libpq variables.
   local SCORING_VERIFY_DATABASE_URL="$database_url"
   local SCORING_VERIFY_QUERY_TIMEOUT="${1:-40}"
-  export SCORING_VERIFY_DATABASE_URL SCORING_VERIFY_QUERY_TIMEOUT
+  local SCORING_TLS_HELPER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scoring-tls.py"
+  export SCORING_VERIFY_DATABASE_URL SCORING_VERIFY_QUERY_TIMEOUT SCORING_TLS_HELPER
   python3 -c '
-import os, subprocess, sys
+import os, subprocess, sys, importlib.util
 from urllib.parse import urlsplit, unquote, parse_qsl
 try:
     expected_client = {
@@ -139,8 +144,12 @@ try:
     # pgJDBC uses the last occurrence and form-style query decoding. Credential userinfo
     # above instead preserves literal plus. The acceptance connection has its own time budget.
     options = dict(pairs)
-    if options.get("sslmode") != "verify-full" or options.get("sslrootcert") != "system" or "ssl" in options:
+    if options.get("sslmode") != "verify-full" or "ssl" in options:
         raise ValueError("verified hosted database connection required")
+    tls_spec = importlib.util.spec_from_file_location("scoring_tls", os.environ["SCORING_TLS_HELPER"])
+    tls = importlib.util.module_from_spec(tls_spec)
+    tls_spec.loader.exec_module(tls)
+    trust_mounts = tls.verified_root_mounts(options.get("sslrootcert"))
     budget = min(40, int(os.environ["SCORING_VERIFY_QUERY_TIMEOUT"]))
     if budget <= 0: raise ValueError("runtime deadline exhausted")
     env = {name: os.environ[name] for name in ("PATH", "HOME", "DOCKER_CONFIG", "DOCKER_HOST", "XDG_RUNTIME_DIR")
@@ -156,6 +165,7 @@ try:
                   PGCONNECT_TIMEOUT=str(min(10,budget)), PGAPPNAME="physiology-runtime-acceptance")
     env.update(fields)
     command = ["docker", "run", "--rm", "-i"]
+    command.extend(trust_mounts)
     for name in fields: command.extend(["--env", name])
     command.extend([client_image, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|", "-f", "-"])
     version = os.environ["SCORING_ALGORITHM_VERSION"]

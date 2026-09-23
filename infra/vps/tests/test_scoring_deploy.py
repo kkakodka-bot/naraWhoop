@@ -21,6 +21,23 @@ POSTGRES_CONFIG = "sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc
 POSTGRES_PLATFORM = "linux/amd64"
 POSTGRES_VERSION = "17.11-alpine3.24"
 
+# Transaction tests stub this boundary; test_worker_image hashes real archive bytes.
+WORKER_VERIFIER = '''import os, sys, json, pathlib
+args = dict(zip(sys.argv[1::2], sys.argv[2::2]))
+assert args['--source-revision'] == 'a'*40
+assert args['--output'] == 'image-id'
+role = args['--role']
+assert role in ('baseline', 'physiology')
+expected = 'sha256:' + ('3'*64 if role == 'baseline' else 'a'*64)
+assert args['--config-digest'] == expected
+assert args['--reference'] == 'fixture.invalid/reviewed-' + ('v1@sha256:'+'1'*64 if role == 'baseline' else 'v2@sha256:'+'2'*64)
+if os.environ.get('FIXTURE_ROOT'):
+ with (pathlib.Path(os.environ['FIXTURE_ROOT'])/'docker.jsonl').open('a') as output:
+  output.write(json.dumps(['worker-image-archive-verifier', args['--reference'], expected]) + '\\n')
+if os.environ.get('SCENARIO') in ('wrong-config', 'wrong-repo-digest', 'wrong-image'): sys.exit(3)
+print('sha256:'+'2'*64 if os.environ.get('SCENARIO') == 'containerd-id' and role == 'physiology' else expected)
+'''
+
 DOCKER = r'''#!/usr/bin/env python3
 import json, os, pathlib, sys
 args = sys.argv[1:]
@@ -76,7 +93,13 @@ elif args[0] == 'inspect':
     key,row = lookup(args[-1])
     if '-f' not in args: sys.exit(0)
     field = args[args.index('-f')+1]
-    if '.Config.Env' in field:
+    if field.startswith('{"containerId":'):
+        assert '.Config.Env' not in field
+        if scenario == 'forensic-failure': sys.exit(1)
+        print(json.dumps({'containerId': key, 'imageId': 'sha256:'+'a'*64,
+            'state': {'status': 'running' if row['running'] else 'exited', 'running': row['running'],
+                      'exitCode': 0, 'oomKilled': False}, 'restartCount': 0, 'sourceRevision': 'a'*40}))
+    elif '.Config.Env' in field:
         print('SCORING_ALGORITHM_VERSION=' + row['version'])
         if key == 'new-v2':
             environment = dict(state['candidate_env'])
@@ -95,7 +118,7 @@ elif args[0] == 'inspect':
     elif 'com.docker.compose.project' in field: print(row.get('project','prior-project'))
     elif '.Name' in field: print('/' + row['name'])
     elif '.Id' in field: print(key)
-    elif '.Image' in field: print('sha256:' + 'a'*64)
+    elif '.Image' in field: print('sha256:' + ('2'*64 if scenario == 'containerd-id' else 'a'*64))
     else: raise AssertionError(field)
 elif args[0] == 'stop':
     key,row = lookup(args[-1]); row['running'] = False; save()
@@ -140,7 +163,7 @@ elif args[0] == 'run' and 'psql' in args:
     if scenario == 'late-debt' and n == 1: debt = False
     if scenario == 'debt' and n > 2: score = 20
     if scenario == 'live-lease' and n > 3: score = 30
-    if scenario in ('idle', 'restart-policy') and n > 2: score = 10
+    if scenario in ('idle', 'restart-policy', 'containerd-id') and n > 2: score = 10
     if scenario == 'stale-poll': poll = 10
     if scenario == 'score-only': poll = 0; score = n*10
     if scenario == 'future-poll': poll = 2000
@@ -177,6 +200,22 @@ elif args[0] != 'build': raise AssertionError(args)
 
 
 class ScoringDeployTest(unittest.TestCase):
+    def test_reviewed_scope_executes_only_its_selected_scoring_services(self):
+        body = SCRIPT.read_text().split('scoring_lanes=(scoring-baseline-v1)', 1)[1].split('\n\nssh ', 1)[0]
+        body = 'scoring_lanes=(scoring-baseline-v1)' + body
+        for scope, expected in (
+            ('initial-selected-v1', ['scoring-baseline-v1']),
+            ('full-fleet', ['scoring-baseline-v1', 'scoring-physiology-v2', 'scoring-history']),
+        ):
+            with self.subTest(scope=scope):
+                result = subprocess.run(['bash', '-c', 'deploy_lane() { echo "$1"; };\n' + body],
+                    env=dict(os.environ, DEPLOYMENT_SCOPE=scope), text=True, capture_output=True, check=True)
+                self.assertEqual(result.stdout.splitlines(), expected)
+
+    def test_initial_scope_final_check_does_not_require_unlaunched_shadow_workers(self):
+        result = self.run_final_verifier(scope='initial-selected-v1')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def run_remote(self, scenario="idle", missing_hosted_key=False, missing_b2=False, missing_database=False,
                    previous_running=True):
         with tempfile.TemporaryDirectory() as directory:
@@ -187,6 +226,10 @@ class ScoringDeployTest(unittest.TestCase):
             (build / "infra/vps/scripts/remote").mkdir()
             (build / "infra/vps/templates").mkdir(parents=True)
             shutil.copy(VPS / "scripts/scoring-progress.sh", build / "infra/vps/scripts")
+            shutil.copy(VPS / "scripts/scoring-tls.py", build / "infra/vps/scripts")
+            (build / 'Tools/release/certificates').mkdir(parents=True)
+            shutil.copy(VPS.parents[1] / 'Tools/release/certificates/supabase-prod-ca-2021.crt',
+                        build / 'Tools/release/certificates')
             shutil.copy(VPS / "scripts/remote/verify-scoring-runtime.sh", build / "infra/vps/scripts/remote")
             shutil.copy(VPS / "scripts/scoring-hosted-query.py", build / "infra/vps/scripts")
             shutil.copy(VPS / "scripts/remote/read-scoring-query.sh", build / "infra/vps/scripts/remote")
@@ -202,6 +245,7 @@ assert args['--platform'] == os.environ['POSTGRES_PLATFORM']
 assert args['--version'] == os.environ['POSTGRES_VERSION']
 """)
             verifier.chmod(0o755)
+            (build / "infra/vps/scripts/verify-worker-image.py").write_text(WORKER_VERIFIER)
             compose = base / "scoring/docker-compose.yml"
             compose.parent.mkdir(parents=True)
             compose.write_text("previous-compose\n")
@@ -254,16 +298,18 @@ assert args['--version'] == os.environ['POSTGRES_VERSION']
             bash = "/opt/homebrew/bin/bash" if Path("/opt/homebrew/bin/bash").exists() else "bash"
             result = subprocess.run([bash, "-s", "--", SHA, str(build), "scoring-physiology-v2",
                                      V1_IMAGE, V2_IMAGE, V1_CONFIG, V2_CONFIG, POSTGRES_IMAGE,
-                                     POSTGRES_CONFIG, POSTGRES_PLATFORM, POSTGRES_VERSION], input=remote, text=True,
+                                     POSTGRES_CONFIG, POSTGRES_PLATFORM, POSTGRES_VERSION, 'full-fleet'], input=remote, text=True,
                                     capture_output=True, env=env, timeout=20)
             log = root / "docker.jsonl"
             commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+            result.forensic_receipts = [json.loads(p.read_text()) for p in base.glob('scoring-rollback.*/rejected-candidate.json')]
+            result.forensic_modes = [p.stat().st_mode & 0o777 for p in base.glob('scoring-rollback.*/rejected-candidate.json')]
             return (result, commands, (base / "scoring.env").read_text(), compose.read_text(),
                     json.loads((root / "docker-state.json").read_text()),
                     [p.name for p in base.glob("scoring-rollback.*/candidate.env")])
 
     def run_final_verifier(self, *, defaults=None, source_selections=None,
-                           v2_canonical=None, history_canonical=None):
+                           v2_canonical=None, history_canonical=None, scope='full-fleet'):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binary_dir = root / "bin"
@@ -283,6 +329,7 @@ import os, sys
 args=sys.argv[1:]
 assert args[0]=='inspect' and '-f' in args
 field=args[args.index('-f')+1]; name=args[-1]
+if os.environ.get('TEST_SCOPE') == 'initial-selected-v1': assert name == 'scoring-baseline-v1'
 lanes={
  'scoring-baseline-v1':('frwhoop-server-1','sha256:'+('3'*64),'11111111-1111-4111-8111-111111111111','null'),
  'scoring-physiology-v2':('frwhoop-physiology-2','sha256:'+('a'*64),'22222222-2222-4222-8222-222222222222','[]'),
@@ -315,6 +362,8 @@ if 'release_role_violations' in body:
    or bool(state['v2Canonical']) or bool(state['historyCanonical']))
  print(1 if violations else 0)
 elif 'with required(algorithm_version,worker_instance_id)' in body:
+ if os.environ.get('TEST_SCOPE') == 'initial-selected-v1':
+  assert 'frwhoop-physiology-2' not in body and 'frwhoop-server-2-history' not in body
  assert body.count('last_score_at') >= 2; print(0)
 elif 'physiology_feature_defaults' in body and 'physiology_source_selection' in body:
  print(0)
@@ -323,10 +372,13 @@ else: raise AssertionError(body)
             query.chmod(0o755)
             remote = SCRIPT.read_text().split("<<'VERIFY'\n", 1)[1].split("\nVERIFY\n", 1)[0]
             remote = remote.replace('/opt/frwhoop/scoring/read-scoring-query.sh', str(query))
+            worker_verifier = root / 'verify-worker-image.py'
+            worker_verifier.write_text(WORKER_VERIFIER)
+            remote = remote.replace('/opt/frwhoop/scoring/verify-worker-image.py', str(worker_verifier))
             env = os.environ.copy()
-            env.update(PATH=str(binary_dir) + os.pathsep + env["PATH"], RELEASE_STATE=str(state_file))
+            env.update(PATH=str(binary_dir) + os.pathsep + env["PATH"], RELEASE_STATE=str(state_file), TEST_SCOPE=scope)
             bash = "/opt/homebrew/bin/bash" if Path("/opt/homebrew/bin/bash").exists() else "bash"
-            return subprocess.run([bash, "-s", "--", SHA, V1_CONFIG, V2_CONFIG], input=remote,
+            return subprocess.run([bash, "-s", "--", SHA, V1_CONFIG, V2_CONFIG, V1_IMAGE, V2_IMAGE, scope], input=remote,
                                   text=True, capture_output=True, env=env, timeout=10)
 
     def assert_preserved(self, result, commands, config, compose, state, pending, running=False,
@@ -380,7 +432,7 @@ else: raise AssertionError(body)
         self.assertEqual(queries[0], queries[1])
 
     def test_success_requires_two_actual_polls_and_a_publication_then_retains_prior_worker(self):
-        for scenario in ("idle", "debt", "live-lease"):
+        for scenario in ("idle", "debt", "live-lease", "containerd-id"):
             with self.subTest(scenario=scenario):
                 result, commands, config, compose, state, pending = self.run_remote(scenario)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -394,11 +446,11 @@ else: raise AssertionError(body)
                 self.assertFalse(any(c[0] == "build" for c in commands))
                 self.assertEqual([c[-1] for c in commands if c[0] == "pull"],
                                  [POSTGRES_IMAGE, V1_IMAGE, V2_IMAGE])
-                inspected_ids = [c[-1] for c in commands if c[:4] == ['image', 'inspect', '-f', '{{.Id}}']]
+                verified_images = [(c[1], c[2]) for c in commands if c[0] == 'worker-image-archive-verifier']
                 inspected_refs = [c[-1] for c in commands if c[:4] == ['image', 'inspect', '-f',
                                   '{{range .RepoDigests}}{{println .}}{{end}}']]
-                self.assertEqual(inspected_ids, [V1_IMAGE, V2_IMAGE])
-                self.assertEqual(inspected_refs, [POSTGRES_IMAGE, V1_IMAGE, V2_IMAGE])
+                self.assertEqual(verified_images, [(V1_IMAGE, V1_CONFIG), (V2_IMAGE, V2_CONFIG)])
+                self.assertEqual(inspected_refs, [POSTGRES_IMAGE])
                 self.assertIn("SUPABASE_SERVICE_ROLE_KEY=hosted-key\n", config)
                 self.assertNotIn("wrong-local", config)
                 self.assertIn("scoring-physiology-v2:", compose)
@@ -459,6 +511,34 @@ else: raise AssertionError(body)
                          "rename-applied-then-failed", "restart-policy"):
             with self.subTest(scenario=scenario):
                 self.assert_preserved(*self.run_remote(scenario))
+
+    def test_rejected_candidate_has_allowlisted_private_forensic_receipt_before_removal(self):
+        result, commands, *_ = self.run_remote('crash')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.forensic_modes, [0o600])
+        self.assertEqual(len(result.forensic_receipts), 1)
+        receipt = result.forensic_receipts[0]
+        self.assertEqual(set(receipt), {'schemaVersion', 'containerId', 'imageId', 'state',
+                                       'restartCount', 'sourceRevision'})
+        self.assertEqual(receipt['containerId'], 'new-v2')
+        self.assertEqual(receipt['sourceRevision'], SHA)
+        self.assertEqual(set(receipt['state']), {'status', 'running', 'exitCode', 'oomKilled'})
+        serialized = json.dumps(receipt)
+        for forbidden in ('Config', 'Env', 'password', 'hosted-key', 'hosted-ingest', 'SUPABASE', 'DATABASE_URL'):
+            self.assertNotIn(forbidden, serialized)
+        capture = next(i for i, command in enumerate(commands) if command[0] == 'inspect' and
+                       '-f' in command and command[command.index('-f')+1].startswith('{"containerId":'))
+        removal = next(i for i, command in enumerate(commands) if command[0] == 'rm')
+        self.assertLess(capture, removal)
+
+    def test_failed_forensic_capture_retains_stopped_candidate(self):
+        result, commands, _, _, state, _ = self.run_remote('forensic-failure')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('retaining stopped candidate', result.stderr)
+        self.assertEqual(result.forensic_receipts, [])
+        self.assertIn('new-v2', state['containers'])
+        self.assertFalse(state['containers']['new-v2']['running'])
+        self.assertFalse(any(command[0] == 'rm' for command in commands))
 
     def test_other_destination_or_worker_cannot_supply_acceptance_evidence(self):
         for scenario in ("wrong-database", "wrong-rest", "wrong-worker", "wrong-source", "missing-worker",
@@ -551,11 +631,15 @@ else: raise AssertionError(field)
                 query.chmod(0o755)
                 remote = SCRIPT.read_text().split("<<'VERIFY'\n", 1)[1].split("\nVERIFY\n", 1)[0]
                 remote = remote.replace('/opt/frwhoop/scoring/read-scoring-query.sh', str(query))
+                worker_verifier = root / 'verify-worker-image.py'
+                worker_verifier.write_text(WORKER_VERIFIER)
+                remote = remote.replace('/opt/frwhoop/scoring/verify-worker-image.py', str(worker_verifier))
                 env = os.environ.copy()
                 env["PATH"] = str(binary_dir) + os.pathsep + env["PATH"]
                 bash = "/opt/homebrew/bin/bash" if Path("/opt/homebrew/bin/bash").exists() else "bash"
                 def verify():
-                    return subprocess.run([bash, "-s", "--", SHA, V1_CONFIG, V2_CONFIG], input=remote,
+                    return subprocess.run([bash, "-s", "--", SHA, V1_CONFIG, V2_CONFIG, V1_IMAGE, V2_IMAGE,
+                                           'full-fleet'], input=remote,
                                           text=True, capture_output=True, env=env, timeout=10)
                 def reset(extra=""):
                     sql("truncate public.physiology_feature_defaults,public.physiology_source_selection,"

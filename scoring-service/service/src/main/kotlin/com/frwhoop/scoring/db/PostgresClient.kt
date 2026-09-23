@@ -71,11 +71,13 @@ class PostgresClient private constructor(
 
         /** Hosted credentials may leave the process only with hostname and CA verification enabled.
          * Local disposable/self-hosted databases retain their existing test/development behavior. */
-        fun requireVerifiedHostedTls(databaseUrl: String): Boolean {
+        fun requireVerifiedHostedTls(databaseUrl: String): Boolean = verifiedHostedRoot(databaseUrl) != null
+
+        private fun verifiedHostedRoot(databaseUrl: String): String? {
             val uri = try { URI(normalizeJdbcUrl(databaseUrl).removePrefix("jdbc:")) }
             catch (_: Exception) { throw IllegalArgumentException("DATABASE_URL is invalid") }
-            val host = uri.host?.lowercase() ?: return false
-            if (!(host.endsWith(".supabase.co") || host.endsWith(".pooler.supabase.com"))) return false
+            val host = uri.host?.lowercase() ?: return null
+            if (!(host.endsWith(".supabase.co") || host.endsWith(".pooler.supabase.com"))) return null
             val options = linkedMapOf<String, String>()
             for (raw in uri.rawQuery.orEmpty().split('&').filter(String::isNotEmpty)) {
                 val name = decodeOption(raw.substringBefore('='))
@@ -87,16 +89,38 @@ class PostgresClient private constructor(
                 "Hosted DATABASE_URL contains unsupported options"
             }
             require(options["sslmode"] == "verify-full") { "Hosted DATABASE_URL requires sslmode=verify-full" }
-            require(options["sslrootcert"] == "system") { "Hosted DATABASE_URL requires sslrootcert=system" }
+            val root = options["sslrootcert"] ?: throw IllegalArgumentException("Hosted DATABASE_URL requires a reviewed sslrootcert")
+            if (root != "system") verifyPinnedHostedCa(root)
             require("ssl" !in options) { "Hosted DATABASE_URL must use one explicit TLS mode" }
-            return true
+            return root
+        }
+
+        private fun verifyPinnedHostedCa(filename: String) {
+            // Public Supabase CA, pinned to the reviewed source asset. Never fetch trust at runtime.
+            // A path is configurable for isolated local preflight, but trust bytes are not.
+            try {
+                val file = java.nio.file.Path.of(filename)
+                require(file.isAbsolute && !java.nio.file.Files.isSymbolicLink(file) && file.toRealPath() == file)
+                require(java.nio.file.Files.isRegularFile(file) && java.nio.file.Files.size(file) in 1..131072)
+                val bytes = java.nio.file.Files.readAllBytes(file)
+                val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+                    .joinToString("") { "%02x".format(it) }
+                require(digest == "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7")
+                val certificate = java.security.cert.CertificateFactory.getInstance("X.509")
+                    .generateCertificate(bytes.inputStream()) as java.security.cert.X509Certificate
+                require(certificate.basicConstraints >= 0)
+                certificate.checkValidity()
+            } catch (_: Exception) {
+                throw IllegalArgumentException("Hosted DATABASE_URL root certificate differs from reviewed trust")
+            }
         }
 
         /** libpq accepts sslrootcert=system directly. pgJDBC 42.7.4 treats that value as a file
          * name unless its Java-system-trust factory is selected separately. Keep the shared URL
          * libpq-compatible and add the JVM-only factory as a connection property. */
         internal fun verifiedHostedJdbcProperties(databaseUrl: String): Map<String, String> =
-            if (requireVerifiedHostedTls(databaseUrl)) mapOf("sslfactory" to JAVA_SYSTEM_TRUST_FACTORY) else emptyMap()
+            if (verifiedHostedRoot(databaseUrl) == "system") mapOf("sslfactory" to JAVA_SYSTEM_TRUST_FACTORY)
+            else emptyMap() // pgJDBC's validating LibPQFactory reads the pinned explicit CA file.
 
         private fun decodeOption(value: String): String = try {
             URLDecoder.decode(value, StandardCharsets.UTF_8)

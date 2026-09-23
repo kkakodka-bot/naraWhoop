@@ -1,5 +1,6 @@
 import Foundation
 import StrandAnalytics
+import WhoopProtocol
 
 /// Assembles the Test Centre export bundle: gathers report.txt, meta.json, raw-capture and last-crash,
 /// runs the redaction pass over EVERY file, applies the 20 MB cap, and hands the entries to
@@ -10,6 +11,17 @@ import StrandAnalytics
 /// over every entry's text here, the single scrub point, and stamp meta.redaction = "v2" so a maintainer
 /// can trust the scrub. Redaction stays the only scrub point; we just guarantee it covers the whole bundle.
 enum TestBundleAssembler {
+
+    static func computeEvidenceEntry() -> FileExport.BundleEntry {
+        var snapshot = PhoneComputeRuntime.diagnosticSnapshot()
+        snapshot["app_version"] = String((Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unavailable").prefix(64))
+        snapshot["app_build"] = String((Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unavailable").prefix(64))
+        snapshot["source_revision"] = String((Bundle.main.object(forInfoDictionaryKey: "NOOPSourceRevision") as? String ?? "unavailable").prefix(64))
+        snapshot["artifact_binding"] = "matched_installation_receipt_required"
+        // Every field is a fixed key and a primitive; no per-producer strings or physiological values.
+        let data = try! JSONSerialization.data(withJSONObject: snapshot, options: [.sortedKeys])
+        return FileExport.BundleEntry(name: "phone-compute-evidence.json", data: data)
+    }
 
     /// The redaction stamp written into meta.json so a maintainer knows the whole-bundle scrub ran.
     static let redactionVersion = "v2"
@@ -182,7 +194,7 @@ enum TestBundleAssembler {
         //    capEntries budgets raw-capture as capBytes - (everything else), so a large/retina PNG shrinks
         //    the raw-capture tail rather than breaching the cap. Only raw-capture is trimmed; report.txt and
         //    last-crash are bounded and the PNG is kept whole.
-        let textEntries = [reportEntry] + (rawCapture.map { [$0] } ?? []) + (crash.map { [$0] } ?? []) + ouraDiagnostics
+        let textEntries = [reportEntry, computeEvidenceEntry()] + (rawCapture.map { [$0] } ?? []) + (crash.map { [$0] } ?? []) + ouraDiagnostics
         let redacted = redactEntries(textEntries)
         let (capped, truncated) = capEntries(redacted + (shot.map { [$0] } ?? []))
         var entries = capped

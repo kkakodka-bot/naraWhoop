@@ -19,6 +19,9 @@ DEFAULT_RUNTIME_IMAGE = (
     "sha256:24cd8eed18b5976441d27b45823490eb5e8efff4b3ecdc632e442717ea66f160"
 )
 RELEASE_PLATFORM = "linux/amd64"
+PUBLIC_CA_SOURCE = "Tools/release/certificates/supabase-prod-ca-2021.crt"
+PUBLIC_CA_RUNTIME = "/opt/frwhoop/supabase-prod-ca-2021.crt"
+PUBLIC_CA_SHA256 = "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7"
 IMAGE_REFERENCE = re.compile(
     r"^[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?/"
     r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
@@ -94,7 +97,17 @@ def mapper_digest(context):
     return hashlib.sha256(mapper).hexdigest()
 
 
-def prepare(repository, context, patch, identity_patch=None):
+def verified_public_ca(path):
+    """Only reviewed public trust bytes enter the build; runtime performs X.509 validation too."""
+    if not path.is_file() or path.is_symlink() or not 0 < path.stat().st_size <= 131072:
+        raise ValueError("Public database CA must be the reviewed regular certificate file")
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != PUBLIC_CA_SHA256:
+        raise ValueError("Public database CA differs from reviewed trust")
+    return data
+
+
+def prepare(repository, context, patch, identity_patch=None, public_ca=None):
     head = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()
     if head != BASELINE:
         raise ValueError(f"Expected exact baseline checkout {BASELINE}; got {head}")
@@ -109,6 +122,7 @@ def prepare(repository, context, patch, identity_patch=None):
             changed.add(record.split("\t", 2)[2])
     if not changed or not changed <= ALLOWED:
         raise ValueError(f"Patch changes paths outside the transport allowlist: {sorted(changed - ALLOWED)}")
+    ca_bytes = verified_public_ca(public_ca or Path(__file__).resolve().parents[2] / PUBLIC_CA_SOURCE)
     context.mkdir(parents=True)
     archive = subprocess.Popen(["git", "-C", str(repository), "archive", BASELINE], stdout=subprocess.PIPE)
     try:
@@ -127,12 +141,22 @@ def prepare(repository, context, patch, identity_patch=None):
         raise RuntimeError("Frozen baseline result mapping changed")
     if after != before:
         raise RuntimeError("A source outside the reviewed transport allowlist changed")
+    # The frozen source comparison above precedes this explicit nonnumerical image asset.
+    # Never replace any baseline file while adding current reviewed trust to the context.
+    ca_destination = context / PUBLIC_CA_SOURCE
+    if ca_destination.exists():
+        raise RuntimeError("Baseline already contains the public CA build asset")
+    ca_destination.parent.mkdir(parents=True, exist_ok=True)
+    ca_destination.write_bytes(ca_bytes)
     provenance = {
         "baseline_commit": BASELINE,
         "transport_patch_sha256": hashlib.sha256(patch.read_bytes()).hexdigest(),
         "identity_patch_sha256": hashlib.sha256(identity_patch.read_bytes()).hexdigest() if identity_patch else None,
         "frozen_files_sha256": before,
         "baseline_result_mapper_sha256": mapper_before,
+        "database_ca_sha256": PUBLIC_CA_SHA256,
+        "database_ca_source_path": PUBLIC_CA_SOURCE,
+        "database_ca_runtime_path": PUBLIC_CA_RUNTIME,
         "changed_paths": sorted(changed),
         "algorithm_version": "frwhoop-server-1",
         "canonical_math_changed": False,
@@ -160,7 +184,8 @@ def main():
             raise ValueError("--image requires the exact --release-sha of this repair")
         repair_root = Path(__file__).resolve().parents[2]
         for relative in ("scoring-service/legacy-baseline/build.py", "scoring-service/legacy-baseline/transport.patch",
-                         "scoring-service/legacy-baseline/runtime-identity.patch", "infra/vps/templates/Dockerfile.baseline"):
+                         "scoring-service/legacy-baseline/runtime-identity.patch", "infra/vps/templates/Dockerfile.baseline",
+                         PUBLIC_CA_SOURCE):
             committed = subprocess.check_output(["git", "-C", str(repair_root), "show", args.release_sha + ":" + relative])
             if committed != (repair_root / relative).read_bytes():
                 raise ValueError("Baseline build input differs from declared repair revision: " + relative)

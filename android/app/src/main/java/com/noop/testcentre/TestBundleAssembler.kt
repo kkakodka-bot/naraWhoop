@@ -18,6 +18,15 @@ object TestBundleAssembler {
 
     const val REDACTION_VERSION = "v2"
 
+    internal fun computeEvidenceEntry(): Pair<String, ByteArray> {
+        val snapshot = org.json.JSONObject(com.noop.analytics.PhoneComputeRuntime.diagnosticSnapshot())
+            .put("app_version", BuildConfig.VERSION_NAME.take(64))
+            .put("app_build", BuildConfig.VERSION_CODE.toString())
+            .put("source_revision", BuildConfig.NOOP_SOURCE_REVISION.take(64))
+            .put("artifact_binding", "matched_installation_receipt_required")
+        return "phone-compute-evidence.json" to snapshot.toString().toByteArray(Charsets.UTF_8)
+    }
+
     /**
      * Re-run the redaction sink over every entry. Text entries are decoded UTF-8, scrubbed via the same
      * redactStrapLogPii used by the live log sink, and re-encoded. raw-capture is where the embedded
@@ -120,6 +129,7 @@ object TestBundleAssembler {
         val reportText = reportBody + "\n" + captureCheck
         val entries = ArrayList<Pair<String, ByteArray>>()
         entries.add("report.txt" to reportText.toByteArray())
+        entries.add(computeEvidenceEntry())
 
         // last-crash.txt: only if a crash was captured (degrade gracefully, never fabricate).
         var crashWasCaptured = false

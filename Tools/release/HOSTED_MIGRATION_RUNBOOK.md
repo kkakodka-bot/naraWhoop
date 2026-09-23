@@ -43,8 +43,8 @@ statement timeout, and a five-minute migration statement timeout. `-X` disables 
 
 Create a non-secret target binding. Direct connections must use
 `db.sgoyxzcagqyxexmsidtk.supabase.co:5432` with user `postgres`. A Supabase pooler hostname is also
-accepted only when the user is `postgres.sgoyxzcagqyxexmsidtk`. Both paths require
-`sslmode=verify-full&sslrootcert=system`.
+accepted only when the user is `postgres.sgoyxzcagqyxexmsidtk`. Both paths require `sslmode=verify-full`. The binding uses either the system trust store or one
+explicit public CA file with its reviewed SHA256; the same trust choice must be present in the URL.
 
 ```bash
 node Tools/release/hosted-migration-release.mjs bind-target \
@@ -57,8 +57,16 @@ node Tools/release/hosted-migration-release.mjs bind-target \
   --output /absolute/evidence/hosted-target-binding.json
 ```
 
+For the observed FRWHOOP target, system trust failed certificate validation. Supabase
+[documents](https://supabase.com/docs/guides/platform/ssl-enforcement) its downloadable CA for
+`verify-full`; the public certificate and provenance are in `Tools/release/certificates/`. To bind it,
+add both `--ssl-root-cert /canonical/absolute/path/supabase-prod-ca-2021.crt` and
+`--ssl-root-cert-sha256 700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7`
+to `bind-target`. The runner rejects symlinks, invalid/non-CA/expired certificates and changed bytes
+before each connection. It does not change system trust or download a certificate during apply.
+
 Supply the credential through `FRWHOOP_HOSTED_DATABASE_URL`. The URL must match the binding exactly
-and include exactly `sslmode=verify-full&sslrootcert=system`. The runner passes the decoded password to `psql` only through its
+and include exactly `sslmode=verify-full` and `sslrootcert=system` or the URL-encoded pinned CA path. The runner passes the decoded password to `psql` only through its
 child environment. It never puts the URL or password in arguments, evidence, or normal output.
 
 ## 2. Create the read-only plan
@@ -85,12 +93,14 @@ Review these files before authorization:
 - `hosted-migration-state.json`
 
 The plan fingerprint binds the target, candidate SHA and tree, migration manifest, verifier hash,
-psql path/hash/version, bounded timeouts, native ledger fingerprint, exact seven migration files,
+psql path/hash/version, bounded timeouts, native ledger fingerprint, exact ten migration files,
 apply order, and both expected schema fingerprints. The migration-catalog fingerprint is
-`910a1c74a760b496028d7c2c58c009f45e29f9643fd2c279c278156f9a23d4c5`. The final integrated database
-definition fingerprint is `2d476625729296d2caa03ca00cb834ecc7a0efad8fd48b21cb417bbc28c434ab`, measured identically on the
-fresh, populated, and representative 117-to-124 disposable database paths. These are separate
-contracts and neither substitutes for the other.
+`e71489e9317a7a47c1f4c591ca8c26187bf726149e4c456246098673c4d66b24`. The final integrated database
+definition fingerprint is `8c0f6b62fadc0d42fafab8b7ff0140b75198fddbbc728b8b5f2e62ded0e69663`, measured on the final predecessor upgrade; final fresh/populated reruns are pending. The earlier draft was measured on the
+fresh, populated, and representative 117-to-127 disposable database paths. These are separate
+contracts and neither substitutes for the other. The final verifier asserts 18 functions, 11 triggers,
+24 policies and RLS on 135 tables. The predecessor test executes the actual hosted apply wrapper for
+all ten pending migrations and proves that the native timestamp ledger remains unchanged.
 
 ## 3. Apply the reviewed plan
 
@@ -120,7 +130,7 @@ written. If the response is lost, the read-only reconciliation distinguishes an 
 rollback and stops without replaying the migration. Drift or an unreconciled partial result stops the
 run.
 
-After all seven migrations, the runner executes the already captured, candidate-commit-verified bytes
+After all ten migrations, the runner executes the already captured, candidate-commit-verified bytes
 of `verify-integrated-schema.sql` inside a read-only transaction. It does not reread the worktree after
 mutation begins. Its assertions cover the final account and enrollment routes, immutable result
 identity, metric ownership, queue claims, grants, triggers, RLS tables and policies, and
@@ -142,7 +152,7 @@ node Tools/release/hosted-migration-release.mjs verify \
   --psql-path /absolute/canonical/path/to/psql
 ```
 
-`verify` performs no mutation. It requires all 124 full identities with their manifest hashes, the
+`verify` performs no mutation. It requires all 127 full identities with their manifest hashes, the
 unchanged reviewed native ledger, and a passing integrated schema verification.
 
 ## Repository test

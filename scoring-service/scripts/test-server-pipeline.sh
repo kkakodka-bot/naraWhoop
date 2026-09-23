@@ -114,6 +114,18 @@ export PIPELINE_TEST_AUTH_URL="http://$auth_address"
 export PIPELINE_TEST_DATABASE_URL="postgresql://supabase_admin:isolated-pipeline-only@$database_address/postgres"
 export PIPELINE_TEST_OUTPUT="$evidence/decoders"
 cd "$repo_dir/supabase/functions"
+if [[ -n "${PIPELINE_TEST_REAL_RECORDING:-}" ]]; then
+  # The entire output directory is private: real recording values appear in worker/API/native
+  # artifacts. Only the explicit sanitized trace may be copied into a shared handoff.
+  chmod 700 "$evidence"
+  npx --yes deno test --allow-all tests/real_recording_replay_sql_test.ts > "$evidence/private-recording.log" 2>&1
+  cd "$repo_dir"
+  bash Tools/server-score-contract/run-mobile-decoders.sh "$PIPELINE_TEST_OUTPUT" > "$evidence/private-mobile.log" 2>&1
+  git -C "$repo_dir" diff --binary HEAD > "$evidence/source-diff.patch"
+  git -C "$repo_dir" status --porcelain=v1 --untracked-files=all > "$evidence/source-status-final.txt"
+  printf 'Private actual scalar replay and both native decoders passed; sanitized trace only: %s/decoders/real_recording_input_to_result_trace.sanitized.json\n' "$evidence"
+  exit 0
+fi
 if [[ "${PIPELINE_TEST_INTAKE:-0}" == 1 ]]; then
   npx --yes deno test --allow-all tests/intake_consumer_sql_test.ts 2>&1 | tee "$evidence/intake.log"
   git -C "$repo_dir" diff --binary HEAD > "$evidence/source-diff.patch"

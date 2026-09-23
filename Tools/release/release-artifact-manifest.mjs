@@ -46,7 +46,7 @@ export const ANDROID_INSPECTION_TOOLS = Object.freeze({
 });
 const MIGRATION_TOTAL = 127;
 const MIGRATION_BASELINE = 117;
-const MIGRATION_SCHEMA_FINGERPRINT = '4e169fbf070920262b6bec899d63eb4728fb6f8f0932d22fb58e1fc5f15883c8';
+const MIGRATION_SCHEMA_FINGERPRINT = 'e71489e9317a7a47c1f4c591ca8c26187bf726149e4c456246098673c4d66b24';
 const MIGRATION_CATALOG_PATH = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
 const MIGRATION_DIRECTORY = 'supabase/migrations';
 const MIGRATION_WORKSTREAMS = Object.freeze([
@@ -67,6 +67,7 @@ const MIGRATION_WORKSTREAMS = Object.freeze([
 ]);
 const EDGE_FUNCTIONS = ['account-deletion', 'ingest-verify', 'push', 'reconcile', 'retention-sweep', 'scores'];
 const CONTRACT_FILES = [
+  'Tools/release/certificates/supabase-prod-ca-2021.crt',
   'Tools/release/VerifyApk.java',
   'Tools/release/deployment-source-bundle.mjs',
   'Tools/release/edge-source-bundle.mjs',
@@ -273,6 +274,9 @@ export function inspectOCI(filename, role, sourceRevision, buildMetadata, proven
     buildMetadata?.['containerimage.config.digest'] === expectedConfig, 'BuildKit metadata differs from OCI descriptors');
   invariant(buildMetadata?.['containerimage.descriptor']?.digest === expectedDigest, 'BuildKit descriptor digest differs');
   if (role === 'selected-v1') {
+    invariant(Array.isArray(config.config.Env) && canonicalJSON(config.config.Env.filter(value =>
+      /^(JAVA_OPTS|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|_JAVA_OPTIONS)=/.test(value))) ===
+      canonicalJSON(['JAVA_OPTS=-Xmx512m -XX:+UseContainerSupport']), 'v1 heap or Java override differs');
     invariant(labels['io.frwhoop.algorithm.version'] === 'frwhoop-server-1' &&
       labels['io.frwhoop.baseline.commit'] === BASELINE_COMMIT, 'v1 algorithm/baseline labels differ');
     invariant(labels['io.frwhoop.baseline.transport-sha256'] === provenance?.transport_patch_sha256 &&
@@ -291,8 +295,9 @@ export function inspectOCI(filename, role, sourceRevision, buildMetadata, proven
       (config.config.Cmd == null || canonicalJSON(config.config.Cmd) === '[]'),
     'intake immutable runtime command/user differs');
   } else invariant(labels['io.frwhoop.heartbeat.contract'] === 'physiology_worker_heartbeats-v1' &&
+    labels['io.frwhoop.database.ca.sha256'] === '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7' &&
     labels['io.frwhoop.build.image'] === BUILD_IMAGE && labels['io.frwhoop.runtime.image'] === RUNTIME_IMAGE &&
-    labels['io.frwhoop.image.platform'] === PLATFORM, `${role} platform/base/heartbeat labels differ`);
+    labels['io.frwhoop.image.platform'] === PLATFORM, `${role} platform/base/heartbeat/database trust labels differ`);
   return {
     platform: PLATFORM,
     manifestDigest: expectedDigest,
@@ -326,23 +331,37 @@ function sourceBytes(repo, commit, filename) {
 }
 export function validateLaunchCapacity(value) {
   exactKeys(value, ['schemaVersion', 'decision', 'evidenceScope', 'targetVpsCapacity',
-    'fleetCapacityReadiness', 'conditionalCanaryAdmission', 'publicationSlo', 'databaseConnections',
-    'unsupportedClaims'], 'launch capacity');
-  exactKeys(value.conditionalCanaryAdmission, ['activeOwners', 'devices', 'physiologyWorkerProcesses'],
-    'launch capacity admission');
-  exactKeys(value.publicationSlo, ['percentile', 'seconds', 'origin'], 'launch capacity SLO');
-  exactKeys(value.databaseConnections, ['budget', 'reserve', 'workerPoolSize',
-    'declaredProcessesIncludingReservedOptionalModel'], 'launch capacity database budget');
-  invariant(value.schemaVersion === 1 && value.decision === 'CONDITIONAL_CANARY_ONLY' &&
-    value.evidenceScope === 'LOCAL_SCALAR_FIXTURE' && value.targetVpsCapacity === 'NOT_MEASURED' &&
-    value.fleetCapacityReadiness === 'FAIL' &&
-    canonicalJSON(value.conditionalCanaryAdmission) === canonicalJSON({
-      activeOwners: 10, devices: 20, physiologyWorkerProcesses: 4,
-    }) && canonicalJSON(value.publicationSlo) === canonicalJSON({
-      percentile: 95, seconds: 60, origin: 'after all required input is durably accepted',
-    }) && canonicalJSON(value.databaseConnections) === canonicalJSON({
-      budget: 40, reserve: 16, workerPoolSize: 4, declaredProcessesIncludingReservedOptionalModel: 6,
-    }), 'launch capacity declaration differs from measured conditional canary limits');
+    'fleetCapacityReadiness', 'currentAdmission', 'publicationSlo', 'proposedInitialTopology',
+    'databaseConnections', 'historicalScalarFixture', 'unsupportedClaims'], 'launch capacity');
+  invariant(value.schemaVersion === 2 && value.decision === 'AWAITING_EXPLICIT_DEPLOYMENT_APPROVAL' &&
+    value.evidenceScope === 'LOCAL_FIXTURES_AND_READ_ONLY_TARGET_SNAPSHOT' &&
+    value.targetVpsCapacity === 'NOT_MEASURED' && value.fleetCapacityReadiness === 'FAIL',
+  'target capacity and deployment approval remain unestablished');
+  invariant(canonicalJSON(value.currentAdmission) === canonicalJSON({
+    queueScope: 'ALL_ELIGIBLE_OWNERS_IN_SELECTED_QUEUES', ownerAllowlist: false,
+    safeActiveOwners: null, safeDevices: null, eligibleBacklog: 'REQUIRES_FRESH_PREDEPLOYMENT_COUNT',
+  }), 'current global queue scope cannot claim measured owner or device admission');
+  invariant(canonicalJSON(value.publicationSlo) === canonicalJSON({
+    percentile: 95, seconds: 10, origin: 'eligible input/window to selected VPS publication, including queue time',
+    status: 'TARGET_NOT_MEASURED',
+  }), 'publication target must retain the unmeasured shared-contract ten-second criterion');
+  invariant(canonicalJSON(value.proposedInitialTopology) === canonicalJSON({
+    status: 'PROPOSED_NOT_APPROVED_OR_CAPACITY_TESTED', services: [
+      { service: 'intake-consumer', cpus: 1, memoryBytes: 2147483648 },
+      { service: 'scoring-baseline-v1', cpus: 1, memoryBytes: 1073741824 },
+    ], excludedServices: ['scoring-physiology-v2', 'scoring-history', 'optional-model-workers'],
+    existingShadowQuiescence: 'REQUIRES_EXPLICIT_APPROVAL',
+  }), 'initial topology differs from the unapproved resource proposal');
+  invariant(canonicalJSON(value.databaseConnections) === canonicalJSON({
+    status: 'TARGET_BUDGET_NOT_MEASURED', selectedBaselinePoolSize: 6, intakeSerialRestLanes: 3,
+    intakeTransport: 'SHARED_POSTGREST_NOT_THREE_DEDICATED_CONNECTIONS',
+  }), 'intake REST demand cannot be counted as measured dedicated database connections');
+  invariant(canonicalJSON(value.historicalScalarFixture) === canonicalJSON({
+    evidenceScope: 'LOCAL_SCALAR_FIXTURE_ONLY', activeOwners: 10, devices: 20,
+    physiologyWorkerProcesses: 4, publicationP95Seconds: 60, databaseConnectionBudget: 40,
+    databaseConnectionReserve: 16, declaredProcessesIncludingReservedOptionalModel: 6,
+    appliesToCurrentAdmission: false,
+  }), 'historical scalar fixture must remain separate from current target admission');
   invariant(Array.isArray(value.unsupportedClaims) && value.unsupportedClaims.length === 1,
     'launch capacity unsupported-claim declaration differs');
   exactKeys(value.unsupportedClaims[0], ['activeOwners', 'status', 'reason'], 'launch capacity unsupported claim');
@@ -357,6 +376,8 @@ function sourceContract(repo, commit) {
     return { path: filename, sizeBytes: bytes.length, sha256: sha256(bytes) };
   });
   const text = filename => sourceBytes(repo, commit, filename).toString('utf8');
+  invariant(sha256(sourceBytes(repo, commit, 'Tools/release/certificates/supabase-prod-ca-2021.crt')) ===
+    '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7', 'committed database trust bytes differ');
   for (const [filename, tokens] of Object.entries({
     'android/app/build.gradle.kts': ['NOOP_SOURCE_REVISION', 'noopSourceRevision'],
     'android/app/src/main/AndroidManifest.xml': ['com.noop.release.source_revision', 'com.noop.release.final_hosted_compute'],
@@ -427,6 +448,9 @@ function validateV1Provenance(value, repo, sourceRevision) {
     'v1 build/test provenance is incomplete');
   invariant(value?.image_build?.platform === PLATFORM && value.image_build.build_image === BUILD_IMAGE &&
     value.image_build.runtime_image === RUNTIME_IMAGE, 'v1 image inputs differ');
+  invariant(value.database_ca_sha256 === '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7' &&
+    value.database_ca_source_path === 'Tools/release/certificates/supabase-prod-ca-2021.crt' &&
+    value.database_ca_runtime_path === '/opt/frwhoop/supabase-prod-ca-2021.crt', 'v1 public database trust provenance differs');
   invariant(SHA256.test(value.transport_patch_sha256) && SHA256.test(value.identity_patch_sha256) &&
     SHA256.test(value.frozen_files_sha256) && SHA256.test(value.baseline_result_mapper_sha256),
     'v1 source provenance hashes are invalid');
@@ -833,7 +857,9 @@ export function compileIntakeCompose({ repoRoot, commit, reference, instanceId, 
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 }
 
-export function createWorkerDeployment(release, selectedV1Reference, shadowV2Reference, targetIdentity, intake) {
+export function createWorkerDeployment(release, selectedV1Reference, shadowV2Reference, targetIdentity, intake,
+  scope = 'full-fleet') {
+  invariant(['initial-selected-v1', 'full-fleet'].includes(scope), 'worker deployment scope differs');
   invariant(release?.schemaVersion === 1 && release.kind === 'frwhoop-phone-test-artifact-manifest' &&
     REVISION.test(release.source?.commit) && REVISION.test(release.source?.tree) &&
     SHA256.test(release.manifestFingerprintSha256), 'verified release manifest is required');
@@ -852,7 +878,8 @@ export function createWorkerDeployment(release, selectedV1Reference, shadowV2Ref
     releaseManifestFingerprintSha256: release.manifestFingerprintSha256,
     platform: PLATFORM,
     heartbeatContract: 'physiology_worker_heartbeats-v1',
-    laneOrder: structuredClone(workerLaneOrder),
+    scope,
+    laneOrder: structuredClone(scope === 'initial-selected-v1' ? workerLaneOrder.slice(0, 2) : workerLaneOrder),
     images: {
       intake: intakeImage,
       selectedV1: registryImage(selectedV1Reference, release.artifacts?.selectedV1?.image, 'selected v1'),
@@ -870,7 +897,7 @@ export function createWorkerDeployment(release, selectedV1Reference, shadowV2Ref
 
 export function verifyWorkerDeploymentContract(release, deployment) {
   exactKeys(deployment, ['schemaVersion', 'kind', 'source', 'releaseManifestFingerprintSha256', 'platform',
-    'heartbeatContract', 'laneOrder', 'images', 'runtimeClients', 'target', 'intake', 'rollbackState',
+    'heartbeatContract', 'scope', 'laneOrder', 'images', 'runtimeClients', 'target', 'intake', 'rollbackState',
     'deploymentFingerprintSha256'],
   'worker deployment');
   exactKeys(deployment.source, ['commit', 'tree'], 'worker deployment source');
@@ -892,18 +919,18 @@ export function verifyWorkerDeploymentContract(release, deployment) {
       sshHostPublicKeyLine: deployment.target.sshHostPublicKey.line,
       sshHostPublicKeyFingerprint: deployment.target.sshHostPublicKey.fingerprint,
       deployPublicKeyFingerprint: deployment.target.deployPublicKeyFingerprint,
-    }, { reference: deployment.images.intake.reference, ...deployment.intake });
+    }, { reference: deployment.images.intake.reference, ...deployment.intake }, deployment.scope);
   invariant(canonicalJSON(deployment) === canonicalJSON(expected), 'worker deployment binding differs');
   return deployment;
 }
 
 export function bindWorkerDeployment({ repoRoot, artifactRoot, manifest, selectedV1Reference, shadowV2Reference,
-  targetIdentity, intakeReference, intakeInstanceId, intakeProjectRef }) {
+  targetIdentity, intakeReference, intakeInstanceId, intakeProjectRef, scope }) {
   const release = verifyReleaseManifest({ repoRoot, artifactRoot, manifest });
   const intake = { reference: intakeReference, instanceId: intakeInstanceId, projectRef: intakeProjectRef,
     compiledCompose: compileIntakeCompose({ repoRoot, commit: release.source.commit,
       reference: intakeReference, instanceId: intakeInstanceId, projectRef: intakeProjectRef }) };
-  return createWorkerDeployment(release, selectedV1Reference, shadowV2Reference, targetIdentity, intake);
+  return createWorkerDeployment(release, selectedV1Reference, shadowV2Reference, targetIdentity, intake, scope);
 }
 
 export function verifyWorkerDeployment({ repoRoot, artifactRoot, manifest, deployment }) {
@@ -1041,7 +1068,7 @@ export function verifyReleaseManifest({ repoRoot, artifactRoot, manifest }) {
 }
 
 function usage() {
-  return 'usage: release-artifact-manifest.mjs compile-intake --repo-root PATH --commit SHA --intake-image REF --intake-instance-id UUID --intake-project-ref REF --output JSON | prepare --repo-root PATH --artifact-root PATH --inputs JSON --output JSON | verify --repo-root PATH --artifact-root PATH --manifest JSON | bind-deployment --repo-root PATH --artifact-root PATH --manifest JSON --selected-v1-image REF --shadow-v2-image REF --intake-image REF --intake-instance-id UUID --intake-project-ref REF --target-ip IP --target-ssh-port PORT --target-ssh-host-key-line KEY --target-ssh-host-key-fingerprint SHA256:BASE64 --deploy-public-key-fingerprint SHA256:BASE64 --output JSON | verify-deployment --repo-root PATH --artifact-root PATH --manifest JSON --deployment JSON';
+  return 'usage: release-artifact-manifest.mjs compile-intake --repo-root PATH --commit SHA --intake-image REF --intake-instance-id UUID --intake-project-ref REF --output JSON | prepare --repo-root PATH --artifact-root PATH --inputs JSON --output JSON | verify --repo-root PATH --artifact-root PATH --manifest JSON | bind-deployment --repo-root PATH --artifact-root PATH --manifest JSON --selected-v1-image REF --shadow-v2-image REF --intake-image REF --intake-instance-id UUID --intake-project-ref REF --scope initial-selected-v1|full-fleet --target-ip IP --target-ssh-port PORT --target-ssh-host-key-line KEY --target-ssh-host-key-fingerprint SHA256:BASE64 --deploy-public-key-fingerprint SHA256:BASE64 --output JSON | verify-deployment --repo-root PATH --artifact-root PATH --manifest JSON --deployment JSON';
 }
 function argumentsFor(argv, keys) {
   invariant(argv.length === keys.length * 2, usage());
@@ -1092,13 +1119,14 @@ export function runCLI(argv) {
   }
   if (mode === 'bind-deployment') {
     const args = argumentsFor(rest, ['--repo-root', '--artifact-root', '--manifest', '--selected-v1-image',
-      '--shadow-v2-image', '--intake-image', '--intake-instance-id', '--intake-project-ref', '--target-ip', '--target-ssh-port', '--target-ssh-host-key-line',
+      '--shadow-v2-image', '--intake-image', '--intake-instance-id', '--intake-project-ref', '--scope', '--target-ip', '--target-ssh-port', '--target-ssh-host-key-line',
       '--target-ssh-host-key-fingerprint', '--deploy-public-key-fingerprint', '--output']);
     const manifest = boundedJSON(path.resolve(args['--manifest']));
     const deployment = bindWorkerDeployment({ repoRoot: args['--repo-root'], artifactRoot: args['--artifact-root'],
       manifest, selectedV1Reference: args['--selected-v1-image'], shadowV2Reference: args['--shadow-v2-image'],
       intakeReference: args['--intake-image'], intakeInstanceId: args['--intake-instance-id'],
       intakeProjectRef: args['--intake-project-ref'],
+      scope: args['--scope'],
       targetIdentity: {
         ip: args['--target-ip'], sshPort: args['--target-ssh-port'],
         sshHostPublicKeyLine: args['--target-ssh-host-key-line'],
@@ -1119,6 +1147,7 @@ export function runCLI(argv) {
     process.stdout.write(JSON.stringify({ status: 'WORKER_DEPLOYMENT_VERIFIED',
       sourceSha: deployment.source.commit, sourceTree: deployment.source.tree,
       fingerprint: deployment.deploymentFingerprintSha256,
+      scope: deployment.scope,
       selectedV1: deployment.images.selectedV1, shadowV2: deployment.images.shadowV2,
       intake: deployment.images.intake, intakeContract: deployment.intake.contractVersion,
       postgresqlClient: deployment.runtimeClients.postgresql, target: deployment.target }) + '\n');

@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """Run bounded read-only SQL against the configured hosted scorer project without URI output."""
 import os
+import importlib.util
+from pathlib import Path
 import subprocess
 import sys
 from urllib.parse import parse_qsl, unquote, urlsplit
+
+tls_spec = importlib.util.spec_from_file_location('scoring_tls', Path(__file__).with_name('scoring-tls.py'))
+tls = importlib.util.module_from_spec(tls_spec)
+tls_spec.loader.exec_module(tls)
 
 
 POSTGRES_CLIENT = {
@@ -39,11 +45,12 @@ def connection_environment(database, endpoint):
     if len({name for name, _ in pairs}) != len(pairs):
         raise ValueError('duplicate database URI option')
     options = dict(pairs)
-    if options.get('sslmode') != 'verify-full' or options.get('sslrootcert') != 'system' or 'ssl' in options:
+    if options.get('sslmode') != 'verify-full' or 'ssl' in options:
         raise ValueError('verified hosted database connection required')
+    tls.verified_root_mounts(options.get('sslrootcert'))
     return dict(PGHOST=url.hostname, PGPORT=str(url.port or 5432), PGUSER=username,
                 PGPASSWORD=unquote(url.password or ''), PGDATABASE=unquote(url.path.removeprefix('/')) or 'postgres',
-                PGSSLMODE='verify-full', PGSSLROOTCERT='system', PGCONNECT_TIMEOUT='10', PGAPPNAME='scoring-readonly-diagnostics',
+                PGSSLMODE='verify-full', PGSSLROOTCERT=options['sslrootcert'], PGCONNECT_TIMEOUT='10', PGAPPNAME='scoring-readonly-diagnostics',
                 PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=10000 -c lock_timeout=3000')
 
 
@@ -54,6 +61,7 @@ def main():
            if name in os.environ}
     env.update(fields)
     command = ['docker', 'run', '--rm', '-i']
+    command.extend(tls.verified_root_mounts(fields['PGSSLROOTCERT']))
     for name in fields:
         command.extend(['--env', name])
     command.extend([client_image, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-At', '-f', '-'])

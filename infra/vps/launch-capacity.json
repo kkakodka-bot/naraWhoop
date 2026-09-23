@@ -1,30 +1,53 @@
 {
-  "schemaVersion": 1,
-  "decision": "CONDITIONAL_CANARY_ONLY",
-  "evidenceScope": "LOCAL_SCALAR_FIXTURE",
+  "schemaVersion": 2,
+  "decision": "AWAITING_EXPLICIT_DEPLOYMENT_APPROVAL",
+  "evidenceScope": "LOCAL_FIXTURES_AND_READ_ONLY_TARGET_SNAPSHOT",
   "targetVpsCapacity": "NOT_MEASURED",
   "fleetCapacityReadiness": "FAIL",
-  "conditionalCanaryAdmission": {
-    "activeOwners": 10,
-    "devices": 20,
-    "physiologyWorkerProcesses": 4
+  "currentAdmission": {
+    "queueScope": "ALL_ELIGIBLE_OWNERS_IN_SELECTED_QUEUES",
+    "ownerAllowlist": false,
+    "safeActiveOwners": null,
+    "safeDevices": null,
+    "eligibleBacklog": "REQUIRES_FRESH_PREDEPLOYMENT_COUNT"
   },
   "publicationSlo": {
     "percentile": 95,
-    "seconds": 60,
-    "origin": "after all required input is durably accepted"
+    "seconds": 10,
+    "origin": "eligible input/window to selected VPS publication, including queue time",
+    "status": "TARGET_NOT_MEASURED"
+  },
+  "proposedInitialTopology": {
+    "status": "PROPOSED_NOT_APPROVED_OR_CAPACITY_TESTED",
+    "services": [
+      { "service": "intake-consumer", "cpus": 1, "memoryBytes": 2147483648 },
+      { "service": "scoring-baseline-v1", "cpus": 1, "memoryBytes": 1073741824 }
+    ],
+    "excludedServices": ["scoring-physiology-v2", "scoring-history", "optional-model-workers"],
+    "existingShadowQuiescence": "REQUIRES_EXPLICIT_APPROVAL"
   },
   "databaseConnections": {
-    "budget": 40,
-    "reserve": 16,
-    "workerPoolSize": 4,
-    "declaredProcessesIncludingReservedOptionalModel": 6
+    "status": "TARGET_BUDGET_NOT_MEASURED",
+    "selectedBaselinePoolSize": 6,
+    "intakeSerialRestLanes": 3,
+    "intakeTransport": "SHARED_POSTGREST_NOT_THREE_DEDICATED_CONNECTIONS"
+  },
+  "historicalScalarFixture": {
+    "evidenceScope": "LOCAL_SCALAR_FIXTURE_ONLY",
+    "activeOwners": 10,
+    "devices": 20,
+    "physiologyWorkerProcesses": 4,
+    "publicationP95Seconds": 60,
+    "databaseConnectionBudget": 40,
+    "databaseConnectionReserve": 16,
+    "declaredProcessesIncludingReservedOptionalModel": 6,
+    "appliesToCurrentAdmission": false
   },
   "unsupportedClaims": [
     {
       "activeOwners": 1000,
       "status": "UNSUPPORTED",
-      "reason": "The integrated local scheduler fixture exceeded the publication p95 SLO, and target-VPS capacity is not measured."
+      "reason": "Historical local scalar scheduler evidence does not establish current waveform, intake or target-VPS capacity."
     }
   ]
 }

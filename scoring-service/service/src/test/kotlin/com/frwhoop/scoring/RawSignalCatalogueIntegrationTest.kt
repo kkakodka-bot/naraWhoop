@@ -79,6 +79,18 @@ class RawSignalCatalogueIntegrationTest {
         assertEquals(device.toString(),string("select device_id from object_manifests where id='$objectId'"))
     }
 
+    @Test fun optionalWindowDiscoveryKeepsAvailableInputWhileModelDiscoveryRejectsMissingObject() {
+        var fetches = 0
+        val catalogue = catalogue { fetches++; encoded }
+        val required = setOf(objectId, UUID.randomUUID())
+        assertEquals(listOf(objectId), catalogue.discoverAvailable(user, device, start, start + 60, required).map { it.id })
+        try { catalogue.discover(user, device, start, start + 60, required); fail("model input must be complete") }
+        catch (error: IllegalArgumentException) { assertEquals("raw_required_objects_missing", error.message) }
+        sql("update object_manifests set status='failed' where id='$objectId'")
+        assertTrue(catalogue.discoverAvailable(user, device, start, start + 60, required).isEmpty())
+        assertEquals(0, fetches)
+    }
+
     @Test fun repeatedActualHashAndDecodeDoesNotContinuouslyRedirtyTheQueue() {
         var fetches = 0
         val catalogue = catalogue { fetches++; encoded }

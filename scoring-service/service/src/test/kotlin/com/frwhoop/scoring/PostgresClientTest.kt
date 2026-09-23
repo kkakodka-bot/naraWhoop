@@ -53,6 +53,38 @@ class PostgresClientTest {
         assertEquals("pass", password)
     }
 
+    @Test fun explicitReviewedCaUsesActualValidatingDriverFactoryAndRejectsChangedTrust() {
+        val directory = java.nio.file.Files.createTempDirectory("hosted-ca-test").toRealPath()
+        try {
+            val original = java.nio.file.Path.of("../../Tools/release/certificates/supabase-prod-ca-2021.crt").toRealPath()
+            val ca = java.nio.file.Files.copy(original, directory.resolve("ca.crt"))
+            val encodedPath = java.net.URLEncoder.encode(ca.toString(), java.nio.charset.StandardCharsets.UTF_8)
+            val url = "postgresql://postgres:private-test@db.sgoyxzcagqyxexmsidtk.supabase.co:5432/postgres?" +
+                "sslmode=verify-full&sslrootcert=$encodedPath"
+            val properties = PostgresClient.verifiedHostedJdbcProperties(url)
+            assertEquals(emptyMap<String, String>(), properties)
+            val parsed = org.postgresql.Driver.parseURL(PostgresClient.normalizeJdbcUrl(url),
+                java.util.Properties().apply { putAll(properties) })!!
+            assertEquals("verify-full", parsed.getProperty("sslmode"))
+            assertEquals(ca.toString(), parsed.getProperty("sslrootcert"))
+            assertEquals("org.postgresql.ssl.LibPQFactory",
+                org.postgresql.core.SocketFactoryFactory.getSslSocketFactory(parsed).javaClass.name)
+            assertThrows(IllegalArgumentException::class.java) {
+                PostgresClient.verifiedHostedJdbcProperties(url.replace("verify-full", "require"))
+            }
+            val link = java.nio.file.Files.createSymbolicLink(directory.resolve("link.crt"), ca)
+            assertThrows(IllegalArgumentException::class.java) {
+                PostgresClient.verifiedHostedJdbcProperties(url.substringBefore("sslrootcert=") + "sslrootcert=" + link)
+            }
+            java.nio.file.Files.writeString(ca, "changed trust")
+            val error = assertThrows(IllegalArgumentException::class.java) {
+                PostgresClient.verifiedHostedJdbcProperties(url)
+            }
+            assertEquals("Hosted DATABASE_URL root certificate differs from reviewed trust", error.message)
+            assertNull(error.cause)
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
     @Test
     fun normalizesPostgresUrlToJdbcPostgresql() {
         assertEquals(

@@ -611,7 +611,11 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
   assert.equal(sessionResponse.status,200,await sessionResponse.clone().text());
   const sessionResult=await sessionResponse.json();
   assert.equal(sessionResult.result.status,'unqualified');
-  assert.equal(sessionResult.result.reason,'verified_session_beat_clock_required');
+  assert.equal(sessionResult.result.reason,'producer_not_implemented');
+  assert.equal(sessionResult.result.status,'unqualified');
+  const insightPolicy = await sql("select unavailable_status||':'||unavailable_reason from compute_family_policy where family='insights';");
+  assert.equal(insightPolicy, 'unqualified:producer_not_implemented',
+    'unfinished engineering must not be reported as unsupported hardware');
   assert.match(sessionResult.result.result_revision,/^session:\d+$/);
   assert.deepEqual(sessionResult.result.values,{spot_hrv_rmssd_ms:null,spot_hrv_sdnn_ms:null});
   assert.deepEqual(await (await readSession()).json(),sessionResult,'immutable retry readback');

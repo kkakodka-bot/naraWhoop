@@ -9,13 +9,18 @@ import java.net.URLClassLoader
 
 /** Separate production class loader: a final phone policy can never be reset for research tests. */
 class FinalHostedComputeRuntimeTest {
-    private fun isolated(method: String) {
+    private fun callIsolated(method: String): Any? {
         val urls = System.getProperty("noop.test.runtimeClasspath").split(java.io.File.pathSeparator)
             .map { java.io.File(it).toURI().toURL() }
         check(urls.isNotEmpty())
-        URLClassLoader(urls.toTypedArray(), ClassLoader.getSystemClassLoader().parent).use { loader ->
+        return URLClassLoader(urls.toTypedArray(), ClassLoader.getSystemClassLoader().parent).use { loader ->
             Class.forName(FinalHostedRuntimeProbe::class.java.name, true, loader).getMethod(method).invoke(null)
         }
+    }
+    private fun isolated(method: String) { callIsolated(method) }
+    @Test fun boundedDiagnosticCountsIncludeForbiddenAttempts() = isolated("diagnosticCounts")
+    @Test fun separateRuntimeGenerationsCannotBeMistakenForContinuousCoverage() {
+        org.junit.Assert.assertNotEquals(callIsolated("generation"), callIsolated("generation"))
     }
     @Test fun hostedAcquisitionAndLiveTimerPathsExecuteZeroInference() = isolated("admissionAndCapture")
     @Test fun accidentalDeepProducerExecutionFailsBeforeScoring() = isolated("negativeControl")
@@ -70,6 +75,28 @@ object FinalHostedRuntimeProbe {
         check(PhoneComputeRuntime.forbiddenAttempts().isEmpty())
         check(PhoneComputeRuntime.blockedAdmissions().keys.containsAll(setOf("current_hrv", "ppg_estimate", "ppg_hr")))
         println("FINAL_HOSTED_RUNTIME admitted=0 forbidden=0 raw_ble_decode_and_upload_encoding=true raw_waveform_preserved=true live_timer_and_requests=true")
+    }
+    @JvmStatic fun generation(): String {
+        val before = PhoneComputeRuntime.diagnosticSnapshot()
+        val after = PhoneComputeRuntime.diagnosticSnapshot()
+        check(before["process_generation"] == after["process_generation"])
+        check(before["previous_process_coverage"] == "NOT_MEASURED")
+        return before.getValue("process_generation") as String
+    }
+    @JvmStatic fun diagnosticCounts() {
+        PhoneComputeRuntime.installFinalHosted()
+        val before = PhoneComputeRuntime.diagnosticSnapshot()
+        val secret = "private-token-" + "sensitive".repeat(5_000)
+        val workers = List(4) { Thread { repeat(250) { check(!PhoneComputeRuntime.allowsLocal(secret)) } } }
+        workers.forEach { it.start() }; workers.forEach { it.join(2_000); check(!it.isAlive) }
+        check(runCatching { HrvAnalyzer.rmssdRaw(listOf(800.0, 810.0)) }.isFailure)
+        val after = PhoneComputeRuntime.diagnosticSnapshot()
+        check(after["process_generation"] == before["process_generation"])
+        check(after["final_hosted"] == true && after["execution_count"] == 0L)
+        check(after["denied_admission_count"] == 1_000L && after["forbidden_attempt_count"] == 1L)
+        check(after["coverage"] == "current_process_only" && after["previous_process_coverage"] == "NOT_MEASURED")
+        check(after.getValue("observation_elapsed_ms") as Long >= before.getValue("observation_elapsed_ms") as Long)
+        check(!after.toString().contains("sensitive") && after.size <= 16)
     }
     @JvmStatic fun negativeControl() {
         PhoneComputeRuntime.installFinalHosted()

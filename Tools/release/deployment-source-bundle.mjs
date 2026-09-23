@@ -18,6 +18,7 @@ const MODES = new Map([['100644', 0o644], ['100755', 0o755]]);
 export const INCLUDED_ROOTS = Object.freeze([
   'Tools/prepare-ios-sideload-app.sh',
   'Tools/release/*.{java,mjs,py,sql}',
+  'Tools/release/certificates/supabase-prod-ca-2021.crt',
   'infra/vps/**',
 ]);
 
@@ -49,6 +50,9 @@ export const REQUIRED_CAPABILITIES = Object.freeze({
     'infra/vps/scripts/scoring-hosted-query.py',
     'infra/vps/scripts/remote/read-scoring-query.sh',
     'infra/vps/scripts/verify-pinned-postgres-client.py',
+    'infra/vps/scripts/verify-worker-image.py',
+    'infra/vps/scripts/scoring-tls.py',
+    'Tools/release/certificates/supabase-prod-ca-2021.crt',
   ]),
   deploymentBundle: Object.freeze(['Tools/release/deployment-source-bundle.mjs']),
   deploymentRunbook: Object.freeze(['infra/vps/SERVER_PIPELINE_DEPLOYMENT.md']),
@@ -101,6 +105,7 @@ function safePath(value, label) {
 function selected(relative) {
   if (relative === 'Tools/prepare-ios-sideload-app.sh') return true;
   if (relative.startsWith('infra/vps/')) return true;
+  if (relative === 'Tools/release/certificates/supabase-prod-ca-2021.crt') return true;
   if (!relative.startsWith('Tools/release/')) return false;
   const suffix = relative.slice('Tools/release/'.length);
   return !suffix.includes('/') && RELEASE_TOOL_EXTENSIONS.has(path.posix.extname(suffix));

@@ -10,8 +10,8 @@ import { canonicalJSON, sha256Hex } from './generate-migration-manifest.mjs';
 
 export const HOSTED_PROJECT_REF = 'sgoyxzcagqyxexmsidtk';
 export const CREDENTIAL_ENVIRONMENT = 'FRWHOOP_HOSTED_DATABASE_URL';
-export const EXPECTED_SCHEMA_FINGERPRINT = '4e169fbf070920262b6bec899d63eb4728fb6f8f0932d22fb58e1fc5f15883c8';
-export const EXPECTED_DATABASE_SCHEMA_FINGERPRINT = '8bd81072dce64a41bb6d54b86fba016c238daa84b29b1feefa0c4607f32b2286';
+export const EXPECTED_SCHEMA_FINGERPRINT = 'e71489e9317a7a47c1f4c591ca8c26187bf726149e4c456246098673c4d66b24';
+export const EXPECTED_DATABASE_SCHEMA_FINGERPRINT = '8c0f6b62fadc0d42fafab8b7ff0140b75198fddbbc728b8b5f2e62ded0e69663';
 export const PSQL_CONNECT_TIMEOUT_SECONDS = 10;
 export const PSQL_QUERY_TIMEOUT_MILLISECONDS = 10 * 60 * 1000;
 export const LEDGER_STATEMENT_TIMEOUT_SECONDS = 30;
@@ -225,9 +225,32 @@ function targetShape({ projectRef, host, port, database, user }) {
   return { host: normalized, accessPath: direct ? 'direct' : 'pooler' };
 }
 
-export function createTargetBinding({ projectRef, host, port, database = 'postgres', user, expectedCurrentUser = 'postgres' }) {
+function verifyRootCertificate(filename, expectedHash) {
+  sha256(expectedHash, 'root certificate hash');
+  invariant(typeof filename === 'string' && path.isAbsolute(filename), 'root certificate path must be absolute');
+  const stat = fs.lstatSync(filename);
+  invariant(stat.isFile() && !stat.isSymbolicLink() && fs.realpathSync(filename) === filename,
+    'root certificate must be a canonical regular file');
+  invariant(stat.size > 0 && stat.size <= 128 * 1024, 'root certificate size is invalid');
+  const bytes = fs.readFileSync(filename);
+  invariant(sha256Hex(bytes) === expectedHash, 'root certificate bytes differ from reviewed hash');
+  const pem = bytes.toString('utf8');
+  invariant(/^\s*-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----\s*$/.test(pem),
+    'root certificate must contain exactly one PEM certificate');
+  let certificate;
+  try { certificate = new crypto.X509Certificate(bytes); }
+  catch { throw new Error('NOT_READY: root certificate is invalid'); }
+  invariant(certificate.ca, 'root certificate is not a CA');
+  invariant(Date.parse(certificate.validFrom) <= Date.now() && Date.parse(certificate.validTo) > Date.now(),
+    'root certificate is outside its validity interval');
+}
+
+export function createTargetBinding({ projectRef, host, port, database = 'postgres', user, expectedCurrentUser = 'postgres',
+  sslRootCert = 'system', sslRootCertSha256 }) {
   const shape = targetShape({ projectRef, host, port, database, user });
   invariant(expectedCurrentUser === 'postgres', 'expected hosted current_user must be postgres');
+  if (sslRootCert === 'system') invariant(sslRootCertSha256 === undefined, 'system roots cannot carry a file hash');
+  else verifyRootCertificate(sslRootCert, sslRootCertSha256);
   const unsigned = {
     schemaVersion: 1,
     kind: TARGET_KIND,
@@ -240,7 +263,8 @@ export function createTargetBinding({ projectRef, host, port, database = 'postgr
     expectedCurrentUser,
     accessPath: shape.accessPath,
     sslMode: 'verify-full',
-    sslRootCert: 'system',
+    sslRootCert,
+    ...(sslRootCert === 'system' ? {} : { sslRootCertSha256 }),
     credentialEnvironment: CREDENTIAL_ENVIRONMENT,
   };
   return { ...unsigned, targetBindingFingerprintSha256: fingerprint(unsigned) };
@@ -250,6 +274,7 @@ export function verifyTargetBinding(binding, projectRef = HOSTED_PROJECT_REF) {
   exactKeys(binding, [
     'schemaVersion', 'kind', 'environment', 'projectRef', 'host', 'port', 'database', 'user',
     'expectedCurrentUser', 'accessPath', 'sslMode', 'sslRootCert', 'credentialEnvironment', 'targetBindingFingerprintSha256',
+    ...(binding?.sslRootCert === 'system' ? [] : ['sslRootCertSha256']),
   ], 'hosted target binding');
   invariant(binding.schemaVersion === 1 && binding.kind === TARGET_KIND, 'hosted target binding type differs');
   invariant(binding.environment === 'hosted-production', 'target environment must be hosted-production');
@@ -259,7 +284,7 @@ export function verifyTargetBinding(binding, projectRef = HOSTED_PROJECT_REF) {
   invariant(binding.accessPath === shape.accessPath, 'target access path differs from host/user binding');
   invariant(binding.expectedCurrentUser === 'postgres', 'expected hosted current_user must be postgres');
   invariant(binding.sslMode === 'verify-full', 'hosted target must require sslmode=verify-full');
-  invariant(binding.sslRootCert === 'system', 'hosted target must use the reviewed system root store');
+  if (binding.sslRootCert !== 'system') verifyRootCertificate(binding.sslRootCert, binding.sslRootCertSha256);
   invariant(binding.credentialEnvironment === CREDENTIAL_ENVIRONMENT, 'hosted credential environment differs');
   const { fingerprint: actual } = signed(binding, 'targetBindingFingerprintSha256');
   sha256(binding.targetBindingFingerprintSha256, 'target binding fingerprint');
@@ -285,7 +310,7 @@ export function connectionFromEnvironment(binding, environment = process.env) {
     'database URL must contain exactly sslmode=verify-full');
   const sslRoots = url.searchParams.getAll('sslrootcert');
   invariant(sslRoots.length === 1 && sslRoots[0] === binding.sslRootCert,
-    'database URL must contain exactly sslrootcert=system');
+    'database URL must contain exactly the reviewed sslrootcert');
   invariant(url.password.length > 0, 'database URL password is missing');
   for (const key of url.searchParams.keys()) {
     invariant(key === 'sslmode' || key === 'sslrootcert', `database URL parameter is not reviewed: ${key}`);
@@ -314,6 +339,8 @@ export function createPsqlRunner(binding, databaseClient, environment = process.
   verifyDatabaseClient(databaseClient);
   return (sql, label) => {
     verifyDatabaseClient(databaseClient);
+    // Recheck the pinned trust bytes before every connection, including after a prior query.
+    verifyTargetBinding(binding);
     const childEnvironment = {
       LANG: 'C',
       LC_ALL: 'C',
@@ -656,7 +683,7 @@ export function verifyHostedMigrationPlan(plan, manifest, binding, verifierSha25
   invariant(canonicalJSON(plan.databaseClient) === canonicalJSON(databaseClient),
     'hosted migration plan database client differs');
   invariant(Array.isArray(plan.migrations) && plan.migrations.length === PENDING_IDENTITIES.length,
-    'hosted migration plan must contain exactly seven migrations');
+    `hosted migration plan must contain exactly ${PENDING_IDENTITIES.length} migrations`);
   for (const [index, row] of plan.migrations.entries()) {
     invariant(row.applyOrdinal === index + 1 && row.manifestOrdinal === BASELINE_COUNT + index + 1 &&
       row.stableIdentity === PENDING_IDENTITIES[index] && row.sha256 === manifest.entries[BASELINE_COUNT + index].sha256 &&
@@ -1015,7 +1042,9 @@ function integer(value, label) {
 function cli(argv) {
   const [mode, ...rest] = argv;
   if (mode === 'bind-target') {
-    const args = parseFlags(rest, new Set(['--project-ref', '--host', '--port', '--database', '--user', '--expected-current-user', '--output']));
+    const pinnedRoot = rest.includes('--ssl-root-cert') || rest.includes('--ssl-root-cert-sha256');
+    const args = parseFlags(rest, new Set(['--project-ref', '--host', '--port', '--database', '--user', '--expected-current-user', '--output',
+      ...(pinnedRoot ? ['--ssl-root-cert', '--ssl-root-cert-sha256'] : [])]));
     const binding = createTargetBinding({
       projectRef: args.project_ref,
       host: args.host,
@@ -1023,6 +1052,8 @@ function cli(argv) {
       database: args.database,
       user: args.user,
       expectedCurrentUser: args.expected_current_user,
+      sslRootCert: args.ssl_root_cert,
+      sslRootCertSha256: args.ssl_root_cert_sha256,
     });
     atomicWrite(args.output, binding, { exclusive: true });
     process.stdout.write(`${JSON.stringify({ status: 'TARGET_BOUND', projectRef: binding.projectRef,
