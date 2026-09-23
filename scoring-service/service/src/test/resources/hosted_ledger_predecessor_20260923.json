@@ -1,0 +1,935 @@
+{
+  "schemaVersion": 1,
+  "description": "Exact deployed ledger predecessor copied from a read-only receipt; source-schema replay is still a local approximation of hosted DDL.",
+  "sourceReceipt": {
+    "file": "hosted-migration-ledger-current.json",
+    "sha256": "f3b71d15536666f21b7d645490971da0354435f6b5324ea66a554236d0210a5c",
+    "projectRef": "sgoyxzcagqyxexmsidtk",
+    "capturedAt": "2026-09-23T00:44:14.140985+00:00",
+    "captureMethod": "Supabase Management database query, explicit READ ONLY transaction",
+    "productionMutation": false
+  },
+  "historicalSupersessionAttestation": {
+    "releaseSourceSha": "33a38c5167afec5beeadd700be714e89fa25fb57",
+    "file": "migrations/inputs/hosted-ledger-evidence.json",
+    "sha256": "853e5766b725d3a14fb03a12b95ae211e41ed11e871bcce6f19bb43f80badb37"
+  },
+  "nativeLedger": [
+    {
+      "name": "frwhoop_base_schema",
+      "version": "20260819190000"
+    },
+    {
+      "name": "frwhoop_storage_v1",
+      "version": "20260819193357"
+    },
+    {
+      "name": "frwhoop_storage_grants",
+      "version": "20260819194247"
+    },
+    {
+      "name": "frwhoop_revoke_truncate",
+      "version": "20260819194325"
+    },
+    {
+      "name": "frwhoop_query_surface",
+      "version": "20260819201044"
+    },
+    {
+      "name": "settings_and_integrations",
+      "version": "20260823231259"
+    },
+    {
+      "name": "sleep_storage_tables",
+      "version": "20260824054744"
+    },
+    {
+      "name": "sleep_storage_rls_views",
+      "version": "20260824054807"
+    },
+    {
+      "name": "sleep_storage_query_rpcs",
+      "version": "20260824054842"
+    },
+    {
+      "name": "sleep_storage_ingest_rpc",
+      "version": "20260824054934"
+    },
+    {
+      "name": "internal_app_secrets_rls",
+      "version": "20260824055245"
+    },
+    {
+      "name": "sleep_storage_fk_indexes",
+      "version": "20260824055400"
+    },
+    {
+      "name": "sleep_storage_ingest_extras",
+      "version": "20260824055514"
+    },
+    {
+      "name": "app_config_and_ingest_rpcs",
+      "version": "20260824171406"
+    },
+    {
+      "name": "engine_ingest_rpcs",
+      "version": "20260824171719"
+    },
+    {
+      "name": "engine_rpcs_canonical",
+      "version": "20260824172642"
+    },
+    {
+      "name": "unify_secret_gate",
+      "version": "20260824172649"
+    },
+    {
+      "name": "production_persistence",
+      "version": "20260824180000"
+    },
+    {
+      "name": "post_persistence_indexes",
+      "version": "20260824185725"
+    },
+    {
+      "name": "settings_identity_canonical",
+      "version": "20260824190000"
+    },
+    {
+      "name": "revoke_trigger_execute",
+      "version": "20260824210000"
+    },
+    {
+      "name": "canonical_day_series_broadcast",
+      "version": "20260824220000"
+    },
+    {
+      "name": "greenfield_engine_rpcs",
+      "version": "20260824230000"
+    },
+    {
+      "name": "workout_remote_flags",
+      "version": "20260825021116"
+    },
+    {
+      "name": "energy_expenditure",
+      "version": "20260825120000"
+    },
+    {
+      "name": "weight_nutrition_longitudinal",
+      "version": "20260825140000"
+    },
+    {
+      "name": "gravity_sleep_persistence",
+      "version": "20260825180915"
+    },
+    {
+      "name": "healthkit_source_links",
+      "version": "20260825194526"
+    },
+    {
+      "name": "healthkit_external_identity",
+      "version": "20260825201751"
+    },
+    {
+      "name": "sleep_probability_coverage",
+      "version": "20260826090000"
+    },
+    {
+      "name": "day_rpc_authenticated_reads",
+      "version": "20260826120000"
+    },
+    {
+      "name": "startup_read_optimization",
+      "version": "20260827100000"
+    },
+    {
+      "name": "strain_v2_shadow",
+      "version": "20260828120000"
+    },
+    {
+      "name": "day_completeness",
+      "version": "20260830202224"
+    },
+    {
+      "name": "overnight_finalization",
+      "version": "20260830202241"
+    },
+    {
+      "name": "day_completeness_harden",
+      "version": "20260830202255"
+    },
+    {
+      "name": "day_completeness_revoke_truncate",
+      "version": "20260830204525"
+    },
+    {
+      "name": "gap_expected_absence",
+      "version": "20260830213940"
+    },
+    {
+      "name": "sleep_projection_day_ownership",
+      "version": "20260830230000"
+    },
+    {
+      "name": "steps_recompute_clear",
+      "version": "20260830260000"
+    },
+    {
+      "name": "apple_watch_step_reference_labels",
+      "version": "20260830270000"
+    },
+    {
+      "name": "steps_v3_reference_hardening",
+      "version": "20260830280000"
+    },
+    {
+      "name": "steps_v3_reference_hardening",
+      "version": "20260831024452"
+    },
+    {
+      "name": "steps_v3_reference_hardening",
+      "version": "20260831030000"
+    },
+    {
+      "name": "engine_patch_service_role",
+      "version": "20260831033637"
+    },
+    {
+      "name": "steps_v3_read_auth_and_label_invariants",
+      "version": "20260831081315"
+    },
+    {
+      "name": "day_snapshot_available_sources",
+      "version": "20260831224500"
+    },
+    {
+      "name": "canonical_snapshot_availability",
+      "version": "20260901002700"
+    },
+    {
+      "name": "snapshot_energy_steps_contract",
+      "version": "20260901004753"
+    },
+    {
+      "name": "sleep_persist_state",
+      "version": "20260901010629"
+    },
+    {
+      "name": "sleep_persist_state_rpcs",
+      "version": "20260901010751"
+    },
+    {
+      "name": "database_security_hardening",
+      "version": "20260901012423"
+    },
+    {
+      "name": "snapshot_hr_occupied_buckets",
+      "version": "20260901022006"
+    },
+    {
+      "name": "snapshot_hr_occupied_coverage",
+      "version": "20260901022058"
+    },
+    {
+      "name": "skin_temp_display",
+      "version": "20260901204500"
+    },
+    {
+      "name": "sleep_stager_v3_shadow",
+      "version": "20260902010000"
+    },
+    {
+      "name": "sleep_stager_v3_shadow_rpc",
+      "version": "20260902120000"
+    },
+    {
+      "name": "workout_detect_v2_beta",
+      "version": "20260902130000"
+    },
+    {
+      "name": "snapshot_persisted_metrics",
+      "version": "20260902140000"
+    },
+    {
+      "name": "shadow_read_model_snapshot",
+      "version": "20260902220000"
+    },
+    {
+      "name": "noop_hr_samples",
+      "version": "20260907133000"
+    },
+    {
+      "name": "noop_append_stream_projections",
+      "version": "20260907133100"
+    },
+    {
+      "name": "noop_ingest_tokens",
+      "version": "20260907140000"
+    },
+    {
+      "name": "noop_push_wal",
+      "version": "20260907150000"
+    },
+    {
+      "name": "noop_journal_entries",
+      "version": "20260907160000"
+    },
+    {
+      "name": "noop_raw_object_lane",
+      "version": "20260907170000"
+    },
+    {
+      "name": "noop_push_staging_parts",
+      "version": "20260908120000"
+    },
+    {
+      "name": "noop_remaining_append_projections",
+      "version": "20260911120000"
+    },
+    {
+      "name": "scheduled_workers_pg_cron",
+      "version": "20260911140000"
+    },
+    {
+      "name": "fix_http_post_worker",
+      "version": "20260911160000"
+    },
+    {
+      "name": "http_post_worker_timeout",
+      "version": "20260911170000"
+    },
+    {
+      "name": "scoring_service_state",
+      "version": "20260916160000"
+    },
+    {
+      "name": "scoring_work_items_device_id",
+      "version": "20260916170000"
+    },
+    {
+      "name": "server_score_user_reads",
+      "version": "20260917180000"
+    },
+    {
+      "name": "scoring_derived_artifact",
+      "version": "20260917190000"
+    },
+    {
+      "name": "physiology_revisions",
+      "version": "20260918010000"
+    },
+    {
+      "name": "physiology_publication",
+      "version": "20260918020000"
+    },
+    {
+      "name": "physiology_hrv_dependencies",
+      "version": "20260918030000"
+    },
+    {
+      "name": "rr_packet_provenance",
+      "version": "20260918040000"
+    },
+    {
+      "name": "physiology_calendar_ownership",
+      "version": "20260918050000"
+    },
+    {
+      "name": "physiology_wear_dependencies",
+      "version": "20260918060000"
+    },
+    {
+      "name": "physiology_legacy_boundary_continuation",
+      "version": "20260918070000"
+    },
+    {
+      "name": "production_ppg_input_selection",
+      "version": "20260918080000"
+    },
+    {
+      "name": "physiology_independent_work",
+      "version": "20260918100000"
+    },
+    {
+      "name": "device_ownership_invariant",
+      "version": "20260918110000"
+    },
+    {
+      "name": "fenced_baseline_transport",
+      "version": "20260918120000"
+    },
+    {
+      "name": "owner_score_reads",
+      "version": "20260918130000"
+    },
+    {
+      "name": "score_device_with_samples",
+      "version": "20260918140000"
+    },
+    {
+      "name": "coalesce_inflight_scoring",
+      "version": "20260918150000"
+    },
+    {
+      "name": "standard_hr_receipts",
+      "version": "20260918180000"
+    },
+    {
+      "name": "frequent_heart_rate_readback",
+      "version": "20260918190000"
+    },
+    {
+      "name": "restore_input_revision_fencing",
+      "version": "20260918200000"
+    },
+    {
+      "name": "bounded_scoring_input_gate",
+      "version": "20260918210000"
+    },
+    {
+      "name": "bound_projection_invalidation_work",
+      "version": "20260918220000"
+    },
+    {
+      "name": "physiology_signed_promotion",
+      "version": "20260918230000"
+    },
+    {
+      "name": "physiology_model_queue",
+      "version": "20260918233000"
+    },
+    {
+      "name": "skin_temperature_dependencies",
+      "version": "20260919010000"
+    },
+    {
+      "name": "physiology_worker_heartbeats",
+      "version": "20260919020000"
+    },
+    {
+      "name": "noop_enrollment_identity",
+      "version": "20260919200000"
+    },
+    {
+      "name": "enrolled_device_scores",
+      "version": "20260919210000"
+    },
+    {
+      "name": "atomic_append_projection",
+      "version": "20260920220000"
+    },
+    {
+      "name": "server_composite_baselines",
+      "version": "20260920230000"
+    },
+    {
+      "name": "set_based_append_projection",
+      "version": "20260920233000"
+    },
+    {
+      "name": "production_intake_durability",
+      "version": "20260921060000"
+    },
+    {
+      "name": "production_append_stream_compatibility",
+      "version": "20260921070000"
+    },
+    {
+      "name": "server_score_read_contract",
+      "version": "20260921100000"
+    },
+    {
+      "name": "server_pipeline_diagnostics",
+      "version": "20260921101000"
+    },
+    {
+      "name": "server_baseline_publication",
+      "version": "20260921102000"
+    },
+    {
+      "name": "server_publication_conflict_transport",
+      "version": "20260921103000"
+    },
+    {
+      "name": "server_unrepresentable_clock",
+      "version": "20260921104000"
+    }
+  ],
+  "fullIdentityLedger": [
+    {
+      "sha256": "819ca9fd9181c049e12ab082bf50ad6a33b3f1e8955d89c5c98fd1dfcbd631dd",
+      "stableIdentity": "20260819190000_frwhoop_base_schema.sql"
+    },
+    {
+      "sha256": "9feb5b9f09bef0f02a7ed8537a37fc11aa804f594ecbebb042af7889e5c99fe4",
+      "stableIdentity": "20260819193357_frwhoop_storage_v1.sql"
+    },
+    {
+      "sha256": "0075bed39c32afd773d42fc90986506864fe275bd118a1cc24f5ca0fd0810af9",
+      "stableIdentity": "20260819194247_frwhoop_storage_grants.sql"
+    },
+    {
+      "sha256": "9bb92ba9dde7075c966e4ca06f63a5610acdb586b6ebef22fde900c4ca9c638a",
+      "stableIdentity": "20260819194325_frwhoop_revoke_truncate.sql"
+    },
+    {
+      "sha256": "4df40aa896e06220c559cdf41256e10c7c57d4e77a24c06d1482491fd0662ea9",
+      "stableIdentity": "20260819201044_frwhoop_query_surface.sql"
+    },
+    {
+      "sha256": "26204992c2145e9ad42603801840585a314bba0fcf73e8e634360d793434cb43",
+      "stableIdentity": "20260823231259_settings_and_integrations.sql"
+    },
+    {
+      "sha256": "b4271565c8f40e667b87f8d9fa0e05657c046b3d8e03328a6d3ccf0db7108ee1",
+      "stableIdentity": "20260824054744_sleep_storage_tables.sql"
+    },
+    {
+      "sha256": "07426d1e2db1191833910bd4d313a999e06f77085e1e37a418849bb21ec5717e",
+      "stableIdentity": "20260824054807_sleep_storage_rls_views.sql"
+    },
+    {
+      "sha256": "4eb454bae2aafce9c792d8397e03a8a73ca49f64945f14e036d44bc025c973c1",
+      "stableIdentity": "20260824054842_sleep_storage_query_rpcs.sql"
+    },
+    {
+      "sha256": "5cb513d1406a6c765a8c7bdff433a1316fd153d2869c955406f805d777057122",
+      "stableIdentity": "20260824054934_sleep_storage_ingest_rpc.sql"
+    },
+    {
+      "sha256": "eef0a1934eb47af76ad8cabb36e057b24928fc0666b1a6f0e3da182c92d9d97a",
+      "stableIdentity": "20260824055245_internal_app_secrets_rls.sql"
+    },
+    {
+      "sha256": "3dd2658fe6f170ccbf57b126642ca4813b6a516f27c730318e6308ce364f7a71",
+      "stableIdentity": "20260824055400_sleep_storage_fk_indexes.sql"
+    },
+    {
+      "sha256": "56860694a9ce63fb106daeb526a0873b62bc363bd026cfff0f6a09621ffc55e5",
+      "stableIdentity": "20260824055514_sleep_storage_ingest_extras.sql"
+    },
+    {
+      "sha256": "42628b025d6288e5b81c8018b6f05db5b246ba2d1f496c04ac26b4a4a3de4701",
+      "stableIdentity": "20260824171406_app_config_and_ingest_rpcs.sql"
+    },
+    {
+      "sha256": "07c96b5771db1798007732668101610ddc6fc324d6f1527b777e6db7bdc4e836",
+      "stableIdentity": "20260824171719_engine_ingest_rpcs.sql"
+    },
+    {
+      "sha256": "ba789d4d714c9a81471c090b7e9ba39420a0ddec9cb5468462eace2ca9ab3f1e",
+      "stableIdentity": "20260824172642_engine_rpcs_canonical.sql"
+    },
+    {
+      "sha256": "365f802d579a2c467f65d70156974cfcc2e54a757e866b45a531e7eea71b1383",
+      "stableIdentity": "20260824172649_unify_secret_gate.sql"
+    },
+    {
+      "sha256": "b7d7a07ccd7bb6f6657a387d988cefef0e29103642ff98ff89f1967f7d6963f3",
+      "stableIdentity": "20260824180000_production_persistence.sql"
+    },
+    {
+      "sha256": "fe9affbfe6642157cb07709e2f39550aac59eb961e4c87f3ddad7cf58f8b48fc",
+      "stableIdentity": "20260824185725_post_persistence_indexes.sql"
+    },
+    {
+      "sha256": "dbcd1c1a47d74e74acff5f21f4074f614c7242b13720c4315fc6fe90b0da1694",
+      "stableIdentity": "20260824190000_settings_identity_canonical.sql"
+    },
+    {
+      "sha256": "13b60c0c9e750c1ef210fede013e81a8bd091892a41f1797cf0157d84d2e85f0",
+      "stableIdentity": "20260824210000_revoke_trigger_execute.sql"
+    },
+    {
+      "sha256": "47bbad196ceeb9343e95efba46416c2c264adbbe2536a4f3e3056cf6bc816ec0",
+      "stableIdentity": "20260824220000_canonical_day_series_broadcast.sql"
+    },
+    {
+      "sha256": "1ed12c88a3cafe55056cf8896d9e5a13eef64d02373efdbffa98f7f92e994f8a",
+      "stableIdentity": "20260824230000_greenfield_engine_rpcs.sql"
+    },
+    {
+      "sha256": "8244c19ff1dbb8fb8a2dd54ec8894021adb1e1830f711bbba22cbc3934595f08",
+      "stableIdentity": "20260825021116_workout_remote_flags.sql"
+    },
+    {
+      "sha256": "4652a0dd3444fdb56724b6c6ddf0175c85f2083410886f7a9063716a5807c903",
+      "stableIdentity": "20260825120000_energy_expenditure.sql"
+    },
+    {
+      "sha256": "6c2b12287ad8c25cedaca6660e2117777e042970c2f33da8dca7befcb5e4b702",
+      "stableIdentity": "20260825140000_weight_nutrition_longitudinal.sql"
+    },
+    {
+      "sha256": "0aa1a1c78de585e0fb8e317eaff2319a57f61b47cdc94cf6e60b5785b1c72ee5",
+      "stableIdentity": "20260825180915_gravity_sleep_persistence.sql"
+    },
+    {
+      "sha256": "4fbc37f6df83c69dda483441275a7d4bab87b6f853ddb498f14e7d678d5681be",
+      "stableIdentity": "20260825194526_healthkit_source_links.sql"
+    },
+    {
+      "sha256": "c8bd508fca32dac7656f06918c2b5a51c4f7d39fd5289326027c124260258f5a",
+      "stableIdentity": "20260825201751_healthkit_external_identity.sql"
+    },
+    {
+      "sha256": "75c687b84e9fb7a6854d41843fe80e7caf9eeb6888180891452f6a76529007ee",
+      "stableIdentity": "20260826090000_sleep_probability_coverage.sql"
+    },
+    {
+      "sha256": "b284729c0dd6693e458d7c1388b7571a3c935eb10f9e9fd0bc6fc67d2ba23366",
+      "stableIdentity": "20260826120000_day_rpc_authenticated_reads.sql"
+    },
+    {
+      "sha256": "8cbcfdacecd982b43689fca3518b0c1940dacf155942e4f02bdedd5b7801991b",
+      "stableIdentity": "20260827100000_startup_read_optimization.sql"
+    },
+    {
+      "sha256": "91a486efe4f201b2799ea54fe73e92d8d7bebe3c321c8a41abc8597a858f339a",
+      "stableIdentity": "20260828120000_strain_v2_shadow.sql"
+    },
+    {
+      "sha256": "6df7c289fb7770ed2729690c06482ea8ad60c9c85c5ef0fcbeccb8642f31f63c",
+      "stableIdentity": "20260830202224_day_completeness.sql"
+    },
+    {
+      "sha256": "00450eb0afc478037ff8461bc6e9f08e2f60886fe9bba374065daab0b4c40a2c",
+      "stableIdentity": "20260830202241_overnight_finalization.sql"
+    },
+    {
+      "sha256": "084690fbe1869750c89816a65261203251248de0a102a806cad961b811af95dd",
+      "stableIdentity": "20260830202255_day_completeness_harden.sql"
+    },
+    {
+      "sha256": "6e301e12220d94527c50ae2ff134b0ce5b93894421edd0cdbb6bfbc3f5586eec",
+      "stableIdentity": "20260830204525_day_completeness_revoke_truncate.sql"
+    },
+    {
+      "sha256": "8b8dce081375ff3126df5ea6cbcd3f8c1aec7a93f95d3a0e82fb6333cc4f4140",
+      "stableIdentity": "20260830213940_gap_expected_absence.sql"
+    },
+    {
+      "sha256": "329ab3e6a90239e8c121f74b1369c089f9944198849d3e9b509ae062a9e4fbdb",
+      "stableIdentity": "20260830230000_sleep_projection_day_ownership.sql"
+    },
+    {
+      "sha256": "7b175b522121459c74ad372160d111f77299eb8693f345c284bb95ad068fa7c7",
+      "stableIdentity": "20260830260000_steps_recompute_clear.sql"
+    },
+    {
+      "sha256": "3926e4397314528158feff18948e649b39b21b3fe97704629d6efa6dd1a68d88",
+      "stableIdentity": "20260830270000_apple_watch_step_reference_labels.sql"
+    },
+    {
+      "sha256": "d37a5356ee7dbf908f9121b3036cd9099ccd71ce5d732006ec48244643b56b56",
+      "stableIdentity": "20260830280000_steps_v3_reference_hardening.sql"
+    },
+    {
+      "sha256": "8808cffd3ac1cd522d4d08b0f6244850e7f830a89e4b6dc3cbce99eb0beab77c",
+      "stableIdentity": "20260831024452_steps_v3_reference_hardening.sql"
+    },
+    {
+      "sha256": "8808cffd3ac1cd522d4d08b0f6244850e7f830a89e4b6dc3cbce99eb0beab77c",
+      "stableIdentity": "20260831030000_steps_v3_reference_hardening.sql"
+    },
+    {
+      "sha256": "bda30256244db267e81d65aca69fa108e23e347e99af72edf2f977b342f686ca",
+      "stableIdentity": "20260831033637_engine_patch_service_role.sql"
+    },
+    {
+      "sha256": "59a5a87a47c3b73c24af07bc04d74b6e62704329db9f9e5a5fda188eb939121c",
+      "stableIdentity": "20260831081315_steps_v3_read_auth_and_label_invariants.sql"
+    },
+    {
+      "sha256": "575e655704f1e5825f1de19ae15817a71cb1296673caa4998ac98ba8543b97ad",
+      "stableIdentity": "20260831224500_day_snapshot_available_sources.sql"
+    },
+    {
+      "sha256": "344f78ec9c5bfb7bf3da113b9f25e52b3e6258ea5ce3d0e42cd5e69b3f865eed",
+      "stableIdentity": "20260901002700_canonical_snapshot_availability.sql"
+    },
+    {
+      "sha256": "252fdcda2210321b261feef97af40bdcf587ea4eed169b44f5e0f4b18556259b",
+      "stableIdentity": "20260901004753_snapshot_energy_steps_contract.sql"
+    },
+    {
+      "sha256": "40a6a3d96cf52c3e91b5d8b082d5424856b6b4c6dfa377aae3a1fa35c633254e",
+      "stableIdentity": "20260901010629_sleep_persist_state.sql"
+    },
+    {
+      "sha256": "8f3801bfd95955a67430255ed8cb917b12696f5cb03e5fe17565706e9fd5e15c",
+      "stableIdentity": "20260901010751_sleep_persist_state_rpcs.sql"
+    },
+    {
+      "sha256": "a8b95a756033ceb8e6b493ab711f560768c44144ecb2a5e2fc03ef291ef6b602",
+      "stableIdentity": "20260901012423_database_security_hardening.sql"
+    },
+    {
+      "sha256": "17f85e0bd6df2021e2955509b6822ab3ca39f803c1ccfcb09e1d37a8e0dfbf0e",
+      "stableIdentity": "20260901022006_snapshot_hr_occupied_buckets.sql"
+    },
+    {
+      "sha256": "15af7085d238fa64fda97687103ddeabc19a2d798e64a8f4bb4c3046c319272d",
+      "stableIdentity": "20260901022058_snapshot_hr_occupied_coverage.sql"
+    },
+    {
+      "sha256": "3183cbf237f6e46d216218e60ac44542069eccb0b62b8c0f47f67822d3570cc8",
+      "stableIdentity": "20260901204500_skin_temp_display.sql"
+    },
+    {
+      "sha256": "2ee6f5635bbf6f006dd9c7d8b100ffccba19db2ebc002052094c5c1cdd7cfa82",
+      "stableIdentity": "20260902010000_sleep_stager_v3_shadow.sql"
+    },
+    {
+      "sha256": "a50a1872feef5f78165f9c4b51d92b4b9a9f5fa8be6356d65ab58664caa0c07d",
+      "stableIdentity": "20260902120000_sleep_stager_v3_shadow_rpc.sql"
+    },
+    {
+      "sha256": "04cc08d12b2162f87586f0226bb6200746dcffb82ce3cb5f0816ec377630b56c",
+      "stableIdentity": "20260902130000_workout_detect_v2_beta.sql"
+    },
+    {
+      "sha256": "594524db597e6771e66eac3830a486305ab99196aecf1aedd6e2cfb26c56e0da",
+      "stableIdentity": "20260902140000_snapshot_persisted_metrics.sql"
+    },
+    {
+      "sha256": "64f29cb454d709d0710bdffc7cfa11c13a4c2e51abe94e565b614e52faad7626",
+      "stableIdentity": "20260902220000_shadow_read_model_snapshot.sql"
+    },
+    {
+      "sha256": "aa21733f6c3d2efe4dc62572c6274e2fb99c318c69f2d141e02894516a81853e",
+      "stableIdentity": "20260907133000_noop_hr_samples.sql"
+    },
+    {
+      "sha256": "e3dffef2ea93eb7e747c92dd57ccc7dd1af48aa21e236050ad72835d8b4b0f01",
+      "stableIdentity": "20260907133100_noop_append_stream_projections.sql"
+    },
+    {
+      "sha256": "e4b4b29107469a49d0ef9e3f86030fde777de386ad8b233d953633665bd1b846",
+      "stableIdentity": "20260907140000_noop_ingest_tokens.sql"
+    },
+    {
+      "sha256": "b4a7e387ac96c283f775d18f31f77095e286bce3ed73dcf02a78bb8231022f24",
+      "stableIdentity": "20260907150000_noop_push_wal.sql"
+    },
+    {
+      "sha256": "c9e2953d5ba30a0f202de90e773d93b46003222c6df3cca8093b71d218b44818",
+      "stableIdentity": "20260907160000_noop_journal_entries.sql"
+    },
+    {
+      "sha256": "0a4f04efc44e9417e3a97a4ccbe282590555e3182570b53495e1ff893aaae1de",
+      "stableIdentity": "20260907170000_noop_raw_object_lane.sql"
+    },
+    {
+      "sha256": "4301506bce2ddb6e58cfc658dc7b43755517498eb3f646c2837852c24d7b6a36",
+      "stableIdentity": "20260908120000_noop_push_staging_parts.sql"
+    },
+    {
+      "sha256": "d958f52ebc6513b86062ddea978e532ffb67f8b50cc2700454310a4524d38ae9",
+      "stableIdentity": "20260911120000_noop_remaining_append_projections.sql"
+    },
+    {
+      "sha256": "7417366815ebacf038f441d948c2edf563473b14903876ac1c4e4dee775d6410",
+      "stableIdentity": "20260911140000_scheduled_workers_pg_cron.sql"
+    },
+    {
+      "sha256": "37162cb8e8cc9a00061ed2a5ed9a4c2de6d0a7dfd846f30b238a2095de71cb5c",
+      "stableIdentity": "20260911160000_fix_http_post_worker.sql"
+    },
+    {
+      "sha256": "e9d45495a575708a1d2c715dcc885d0e6394039e96ea0dc6b4e33b7a9e80e3e9",
+      "stableIdentity": "20260911170000_http_post_worker_timeout.sql"
+    },
+    {
+      "sha256": "5617a44a67507a9252445c5dc314be4619aa1c01af9bc26101e902b61f1602d7",
+      "stableIdentity": "20260916160000_scoring_service_state.sql"
+    },
+    {
+      "sha256": "ccf30064c631b0cd1dce77cab9eb413ca4fa74a8b219d50282469aea68fd9582",
+      "stableIdentity": "20260916170000_scoring_work_items_device_id.sql"
+    },
+    {
+      "sha256": "b22eb83edd7cc1c3f8a773403a06fa13ea5fdc45c8bddd6a11a008e17e013a40",
+      "stableIdentity": "20260917180000_server_score_user_reads.sql"
+    },
+    {
+      "sha256": "5e6507777b9b728dc93265aae09c4efa7f13f79fe709526fae2ae977ca63d57d",
+      "stableIdentity": "20260917190000_scoring_derived_artifact.sql"
+    },
+    {
+      "sha256": "32e16c2de9e09507709be24547b1f48603958798f8c77001315a7722c6acd6a2",
+      "stableIdentity": "20260918010000_physiology_revisions.sql"
+    },
+    {
+      "sha256": "03ddc0d9899a6af30a7b4aa540bac0c64a8bdae4858e34e06cca2bcd453ddbb6",
+      "stableIdentity": "20260918010000_production_scoring_durability.sql"
+    },
+    {
+      "sha256": "5a68e82309d17e5d2eb1c00750f118807d19a0be2950ef7dc48a679122f402a2",
+      "stableIdentity": "20260918020000_physiology_publication.sql"
+    },
+    {
+      "sha256": "4628abbd598de7d31dc95e4473a480293790df945e075e4e2f9b48d565160933",
+      "stableIdentity": "20260918030000_physiology_hrv_dependencies.sql"
+    },
+    {
+      "sha256": "e0757305f92365c042b9199355bf748cbed3cb1478ff23ae74fbb938ba6f21a4",
+      "stableIdentity": "20260918030000_production_scoring_review_repairs.sql"
+    },
+    {
+      "sha256": "9e593817d507da6c6fd9244cb0b2010952db304bf4d750ca91ff6a2b3c20724f",
+      "stableIdentity": "20260918040000_production_projection_debt.sql"
+    },
+    {
+      "sha256": "f28e991f07822660ff06c396bfde72625dcee2bc312095ff0ec38ed4aa9e6db7",
+      "stableIdentity": "20260918040000_rr_packet_provenance.sql"
+    },
+    {
+      "sha256": "7d67ef1af5a5f0fa32cf9d8c29abab0c50ab64c60807c584b111264271637f2c",
+      "stableIdentity": "20260918050000_physiology_calendar_ownership.sql"
+    },
+    {
+      "sha256": "e61ccb887615f6dbb4b7ba510fd9d81b852dde6e1822fd0aea514c56136a51a1",
+      "stableIdentity": "20260918050000_production_scoring_history.sql"
+    },
+    {
+      "sha256": "f0f6908cf0d5a845cea749e498fda982c2e3e172798989b52b8b879d3eda7ab8",
+      "stableIdentity": "20260918060000_physiology_wear_dependencies.sql"
+    },
+    {
+      "sha256": "61bc50801d24bbbabd8c2d937818a5a9905ac2b27bff033ce468b02f99cb69ac",
+      "stableIdentity": "20260918060000_production_scalar_projections.sql"
+    },
+    {
+      "sha256": "04247fe600ad602fc3e6c258128616ee850d5f99c5a843a247d02ee4479fdc20",
+      "stableIdentity": "20260918070000_physiology_legacy_boundary_continuation.sql"
+    },
+    {
+      "sha256": "7a8354411b3f8b4bc6dbf1656cd4d223c9d9c9faad2998d10327b670d75f340d",
+      "stableIdentity": "20260918070000_production_aux_identity_provenance.sql"
+    },
+    {
+      "sha256": "dd7df3634b72aefb8c32284bd1b81d0759679201eb528f9d90a0b16f51d5a57e",
+      "stableIdentity": "20260918080000_production_ppg_input_selection.sql"
+    },
+    {
+      "sha256": "914f55b01964b5aa52409b7daea80dfe13560b47c14ffc8ab4cb215df700f16d",
+      "stableIdentity": "20260918100000_physiology_independent_work.sql"
+    },
+    {
+      "sha256": "c7b3dc181c7bde88bd8997346c346ae01d6e53add7bf215d9574cf15d7c18d90",
+      "stableIdentity": "20260918110000_device_ownership_invariant.sql"
+    },
+    {
+      "sha256": "3f9de714fba81484211eeb1a5438ceb58e83724a2dd8022cadc54099b52a435f",
+      "stableIdentity": "20260918120000_fenced_baseline_transport.sql"
+    },
+    {
+      "sha256": "fbd801f44e9214e089653268ed104be573d1490f0a6ee8b895a742567ce3567d",
+      "stableIdentity": "20260918130000_owner_score_reads.sql"
+    },
+    {
+      "sha256": "bd317d904cc20dd500e10177141bc1cf123aa49f3845e976da86732445c31a6e",
+      "stableIdentity": "20260918140000_score_device_with_samples.sql"
+    },
+    {
+      "sha256": "7e0572db1bd7ffa07bbf8437557c565ec7019ccc695a5126ccb93f8ad2442604",
+      "stableIdentity": "20260918150000_coalesce_inflight_scoring.sql"
+    },
+    {
+      "sha256": "ce588c280471c31a8d6b4a70b1f501200039c0f021aec858cb4d08d1c991d8c8",
+      "stableIdentity": "20260918180000_standard_hr_receipts.sql"
+    },
+    {
+      "sha256": "4f41b988b73b39bbe91a6e3f1f06e8089b44f03666f85b73e390c6e2885dab7b",
+      "stableIdentity": "20260918190000_frequent_heart_rate_readback.sql"
+    },
+    {
+      "sha256": "41d1fe0ca21d5ccf75d7177c9a273a85955576c44910375688071f58d1c0fbbf",
+      "stableIdentity": "20260918200000_restore_input_revision_fencing.sql"
+    },
+    {
+      "sha256": "d441381ed4cf68fdcade56b46227187d26f6af5c1dc54da048d5b9bdbf4c0e30",
+      "stableIdentity": "20260918210000_bounded_scoring_input_gate.sql"
+    },
+    {
+      "sha256": "16fddebf9a0eebb9ac673985e710ec880ebd6ba771cfab83a1c10a1303e8cdc3",
+      "stableIdentity": "20260918220000_bound_projection_invalidation_work.sql"
+    },
+    {
+      "sha256": "b81f38951f471779ab0e2021f6c00425d0dd7bb770940df88570be70210d4402",
+      "stableIdentity": "20260918230000_physiology_signed_promotion.sql"
+    },
+    {
+      "sha256": "e6362bfd78074b70514a9648ebc35574db36a776fcc51f2584c80d4e47bc2a96",
+      "stableIdentity": "20260918233000_physiology_model_queue.sql"
+    },
+    {
+      "sha256": "982237106b845b7d29ebabc1682c5b8706f1e483dd6427dc4be1efe0463dc33d",
+      "stableIdentity": "20260918234000_motion_evidence_provenance.sql"
+    },
+    {
+      "sha256": "75a34bf98efa335431c1f434189b68d15caaa74a06cbdfdbe56e6810355e1857",
+      "stableIdentity": "20260919010000_skin_temperature_dependencies.sql"
+    },
+    {
+      "sha256": "8463f852973ae8e236cc81c1fe7b89f2113155985211edc18378827c72ccc8dd",
+      "stableIdentity": "20260919020000_physiology_worker_heartbeats.sql"
+    },
+    {
+      "sha256": "c5fa4cdb7413524ceaf42ab556058573046d563266ee5f9d960bec2bbd57bc3f",
+      "stableIdentity": "20260919200000_noop_enrollment_identity.sql"
+    },
+    {
+      "sha256": "cd2262a03d791d73c8e84033c9211647871f143f1833fa7a70753f2316799581",
+      "stableIdentity": "20260919210000_enrolled_device_scores.sql"
+    },
+    {
+      "sha256": "c25b3d8283c82ffc6628e1ddf65a0a4b8d5267de304dc375ebeea75e315ac55d",
+      "stableIdentity": "20260920220000_atomic_append_projection.sql"
+    },
+    {
+      "sha256": "da903ed1b5fcd613b876c6f601ccd29b0372e2b0bda1b7e9105ce335fa4361fe",
+      "stableIdentity": "20260920230000_server_composite_baselines.sql"
+    },
+    {
+      "sha256": "c3cc5b3c557d7a1d1f96409059982e68e6492f38fdf12257793a812d5100d93c",
+      "stableIdentity": "20260920233000_set_based_append_projection.sql"
+    },
+    {
+      "sha256": "84594d3f19c109b9227c38dedecd63a1177d0df7e24e3b8d58f164b0f7f4488d",
+      "stableIdentity": "20260921060000_production_intake_durability.sql"
+    },
+    {
+      "sha256": "4b484dd1525f13abab5622c019d1a38442e31971aa810678194677114dc58543",
+      "stableIdentity": "20260921070000_production_append_stream_compatibility.sql"
+    },
+    {
+      "sha256": "4d2b22661a7d7e0cc10d711bd726d79fbba9cd68b6e3201c3bc541c6ea6e176e",
+      "stableIdentity": "20260921100000_server_score_read_contract.sql"
+    },
+    {
+      "sha256": "218682d0385d95b50547eb182d7613ea9484eb558445189cd00c86d6dcc7c838",
+      "stableIdentity": "20260921101000_server_pipeline_diagnostics.sql"
+    },
+    {
+      "sha256": "e7deccc18dfa26608de916b3bbf43549883befec67daa8a80de1a559d36e531e",
+      "stableIdentity": "20260921102000_server_baseline_publication.sql"
+    },
+    {
+      "sha256": "7c3309226da8c6b23e3d966e91f14aef184477e03f245f8c220794e2393d6ead",
+      "stableIdentity": "20260921103000_server_publication_conflict_transport.sql"
+    },
+    {
+      "sha256": "0f723d9e2789d45b26e37aad9f6b95bc8f372d85f2441d8b4be3252abab8a014",
+      "stableIdentity": "20260921104000_server_unrepresentable_clock.sql"
+    }
+  ],
+  "identityStates": {
+    "20260918234000_motion_evidence_provenance.sql": {
+      "state": "superseded_in_hosted_schema",
+      "reason": "The hosted schema already had the equivalent columns and constraints through a later forward repair."
+    }
+  }
+}
