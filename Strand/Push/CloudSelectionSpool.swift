@@ -60,7 +60,7 @@ struct CloudSelectionIndex: Codable, Sendable {
                   parts.allSatisfy({ $0.sourceID == first.sourceID && $0.deviceID == commit.deviceID
                     && $0.table == commit.table && $0.protocolVersion == first.protocolVersion }),
                   Self.validUUID(first.sourceID) else { throw CloudUploadError.corruptJournal }
-            if commit.kind == .append {
+            if commit.kind == .append || commit.kind == .freshAppend {
                 guard parts.count == 1, first.mode == "append", commit.cursor != nil,
                       commit.cursor == first.endCursor, commit.window == nil else { throw CloudUploadError.corruptJournal }
             } else {

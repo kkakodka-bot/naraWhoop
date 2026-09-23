@@ -5,8 +5,12 @@ struct CloudRotationCheckpoint: Codable, Equatable, Sendable {
     let index: Int
     let carryMore: Bool
     let deviceListFingerprint: String?
-    init(index: Int, carryMore: Bool, deviceListFingerprint: String? = nil) {
+    let laneIndex: Int?
+    let recoveryIndex: Int?
+    init(index: Int, carryMore: Bool, deviceListFingerprint: String? = nil,
+         laneIndex: Int? = nil, recoveryIndex: Int? = nil) {
         self.index = index; self.carryMore = carryMore; self.deviceListFingerprint = deviceListFingerprint
+        self.laneIndex = laneIndex; self.recoveryIndex = recoveryIndex
     }
 }
 
@@ -63,6 +67,13 @@ actor CloudUploadQueue {
     private var suspended = false
     private var binaryPreparation: PushBinaryPreparation?
     private var cancellingTasks: Set<Int> = []
+    private struct OrdinaryLease { let attempt: UUID; let opportunity: ResourceBudget.Opportunity; let deadline: TimeInterval }
+    private var ordinaryLeases: [String: OrdinaryLease] = [:]
+    private var ordinaryWatchdogs: [String: Task<Void, Never>] = [:]
+    private var ordinaryIntervals: [String: SyncPipelineTrace.Interval] = [:]
+    private var cancelledOrdinaryAttempts: Set<UUID> = []
+    private var opportunityObserver: NSObjectProtocol?
+    private var opportunityJoins: [UUID: (Set<UUID>, CheckedContinuation<Void, Never>)] = [:]
     private struct SavedOutcomeError: Error { let underlying: Error }
     private struct CleanupBatch: Hashable {
         let receiverStateID: String
@@ -98,21 +109,30 @@ actor CloudUploadQueue {
         jobs = try journal.load()
         controlOutcomes = try journal.loadControlOutcomes(owner: context.scope)
         lastVerifiedReceiptAt = try journal.receiptCheckpoint(owner: context.scope)
-        for var value in controlOutcomes.values where value.authenticationRefreshPending {
-            value.authenticationRefreshPending = false
-            value.paused = true
-            value.disposition = .authentication
-            try journal.saveControlOutcome(value)
-            controlOutcomes[value.id] = value
-        }
         guard jobs.values.allSatisfy({ $0.owner == context.scope }) else { throw CloudUploadError.staleOwner }
-        for var job in jobs.values where job.authenticationRefreshPending == true {
-            // The refresh allowance was consumed before a possible process death. Never repeat it blindly.
-            job.phase = .pausedTerminal
-            job.authenticationRefreshPending = false
-            job.responseDisposition = .authentication
-            try journal.save(job)
-            jobs[job.id] = job
+        // Pending refresh remains durable retry debt. On the next admitted opportunity compare
+        // the submitted credential digest with the current scoped credential before refreshing.
+        // The account controller may have persisted a rotation before this process stopped.
+        // Earlier builds collapsed an interrupted refresh into terminal auth without a credential
+        // version. Migrate only that recognized state once; every subsequent attempt uses the digest
+        // fence. Other ambiguous terminal outcomes remain retained for explicit resolution.
+        if refreshCredentials != nil {
+            for var job in jobs.values where job.phase == .pausedTerminal && job.operation != .objectPut &&
+                job.responseDisposition == .authentication && job.authenticationRefreshCount == 1 &&
+                job.credentialVersion == nil && (job.legacyAuthenticationRecoveryCount ?? 0) == 0 {
+                job.legacyAuthenticationRecoveryCount = 1
+                job.phase = .retryPending; job.authenticationRefreshPending = true
+                job.nextAttemptAt = job.nextAttemptAt ?? now()
+                try journal.save(job); jobs[job.id] = job
+            }
+            for var value in controlOutcomes.values where value.paused && value.disposition == .authentication &&
+                value.authenticationRefreshCount == 1 && value.credentialVersion == nil &&
+                (value.legacyAuthenticationRecoveryCount ?? 0) == 0 {
+                value.legacyAuthenticationRecoveryCount = 1
+                value.paused = false; value.authenticationRefreshPending = true
+                value.nextAttemptAt = value.nextAttemptAt ?? now()
+                try journal.saveControlOutcome(value); controlOutcomes[value.id] = value
+            }
         }
         for job in jobs.values {
             if let id = job.preparedSelectionID {
@@ -125,13 +145,74 @@ actor CloudUploadQueue {
         let pending = jobs.values.filter { !$0.acknowledged }
         resourceBudget.queuedCloud(owner: budgetOwner,
             bytes: pending.reduce(0) { $0 + $1.payloadBytes }, jobs: pending.count)
+        opportunityObserver = NotificationCenter.default.addObserver(forName: ResourceBudget.changed, object: nil, queue: nil) { [weak self] _ in
+            Task { await self?.cancelExpiredOrdinaryTransfers() }
+        }
     }
 
     private func check(_ captured: AccountSessionContext) throws {
         guard !suspended, captured == context, isCurrent(captured) else { throw CloudUploadError.staleOwner }
     }
 
-    deinit { resourceBudget.queuedCloud(owner: budgetOwner, bytes: 0, jobs: 0) }
+    deinit {
+        if let opportunityObserver { NotificationCenter.default.removeObserver(opportunityObserver) }
+        for task in ordinaryWatchdogs.values { task.cancel() }
+        resourceBudget.queuedCloud(owner: budgetOwner, bytes: 0, jobs: 0)
+    }
+
+    /// Join only attempts already admitted for this event, never future arrivals or other owners.
+    /// The original watchdog deadline releases the join even if OS cancellation acknowledgement lags.
+    func finishOpportunityTransfers(_ opportunity: ResourceBudget.Opportunity) async {
+        guard !suspended, isCurrent(context), resourceBudget.isCurrent(opportunity) else { return }
+        let attempts = Set(ordinaryLeases.values.filter { $0.opportunity.id == opportunity.id }.map(\.attempt))
+        guard !attempts.isEmpty else { return }
+        await withCheckedContinuation { opportunityJoins[UUID()] = (attempts, $0) }
+    }
+
+    private func finishOrdinaryLease(_ id: String, outcome: SyncPipelineTrace.Outcome = .cancelled) {
+        if let interval = ordinaryIntervals.removeValue(forKey: id) { SyncPipelineTrace.end(interval, outcome: outcome) }
+        ordinaryWatchdogs.removeValue(forKey: id)?.cancel()
+        ordinaryLeases.removeValue(forKey: id)
+        let active = Set(ordinaryLeases.values.map(\.attempt))
+        for (key, value) in opportunityJoins where value.0.isDisjoint(with: active) {
+            opportunityJoins.removeValue(forKey: key); value.1.resume()
+        }
+    }
+
+    private func cancelOrdinary(_ id: String, attempt: UUID, timedOut: Bool = false) {
+        guard !suspended, var job = jobs[id], job.phase == .transferring,
+              job.transportKind == .ordinary, job.attempt == attempt else { finishOrdinaryLease(id); return }
+        cancelledOrdinaryAttempts.insert(attempt)
+        job.ordinaryCancellationRequested = true
+        // Stop the real task even if the journal is temporarily unwritable. The in-memory attempt
+        // fence also rejects a response racing that write; a cold process cannot resurrect this session.
+        if let task = job.taskIdentifier { cancellingTasks.insert(task); adapter.cancel(task) }
+        try? commit(job)
+        finishOrdinaryLease(id, outcome: timedOut ? .timedOut : .cancelled)
+    }
+
+    private func cancelExpiredOrdinaryTransfers() {
+        guard !suspended else { return }
+        for (id, lease) in ordinaryLeases where !resourceBudget.isCurrent(lease.opportunity) ||
+            ProcessInfo.processInfo.systemUptime >= lease.deadline ||
+            !resourceBudget.permits(jobs[id]?.operation == .objectComplete ? .cloudControl : .cloudTransfer) {
+            cancelOrdinary(id, attempt: lease.attempt, timedOut: ProcessInfo.processInfo.systemUptime >= lease.deadline)
+        }
+    }
+
+    private func armOrdinary(_ job: CloudUploadJob, opportunity: ResourceBudget.Opportunity, deadline: TimeInterval) -> Bool {
+        guard let attempt = job.attempt else { return false }
+        ordinaryLeases[job.id] = OrdinaryLease(attempt: attempt, opportunity: opportunity, deadline: deadline)
+        let remaining = min(resourceBudget.remainingDuration(for: opportunity) ?? 0,
+                            deadline - ProcessInfo.processInfo.systemUptime)
+        guard remaining > 0 else { cancelOrdinary(job.id, attempt: attempt, timedOut: ProcessInfo.processInfo.systemUptime >= deadline); return false }
+        ordinaryWatchdogs[job.id] = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000)) }
+            catch { return }
+            await self?.cancelOrdinary(job.id, attempt: attempt, timedOut: true)
+        }
+        return true
+    }
 
     private func publishQueuePressure() {
         guard !suspended else { return }
@@ -187,16 +268,23 @@ actor CloudUploadQueue {
         guard bytes.count <= 4096 else { throw CloudUploadError.corruptJournal }
         let value = try JSONDecoder().decode(CloudRotationCheckpoint.self, from: bytes)
         guard value.index >= 0, value.index <= 1_000_000,
+              value.laneIndex.map({ (0...1_000_000).contains($0) }) ?? true,
+              value.recoveryIndex.map({ (0...1_000_000).contains($0) }) ?? true,
               Self.validRotationFingerprint(value.deviceListFingerprint) else { throw CloudUploadError.corruptJournal }
         return value
     }
     func saveRotationCheckpoint(namespace: String, index: Int, carryMore: Bool,
-                                deviceListFingerprint: String? = nil, captured: AccountSessionContext) throws {
+                                deviceListFingerprint: String? = nil, laneIndex: Int? = nil,
+                                recoveryIndex: Int? = nil, captured: AccountSessionContext) throws {
         try check(captured)
-        guard index >= 0, index <= 1_000_000, Self.validRotationFingerprint(deviceListFingerprint) else { throw CloudUploadError.invalidRequest }
+        guard index >= 0, index <= 1_000_000,
+              laneIndex.map({ (0...1_000_000).contains($0) }) ?? true,
+              recoveryIndex.map({ (0...1_000_000).contains($0) }) ?? true,
+              Self.validRotationFingerprint(deviceListFingerprint) else { throw CloudUploadError.invalidRequest }
         let name = try rotationName(namespace)
         let bytes = try JSONEncoder().encode(CloudRotationCheckpoint(index: index, carryMore: carryMore,
-                                                                   deviceListFingerprint: deviceListFingerprint))
+                                                                   deviceListFingerprint: deviceListFingerprint,
+                                                                   laneIndex: laneIndex, recoveryIndex: recoveryIndex))
         try journal.metadata.transaction { try journal.metadata.put(name, data: bytes) }
     }
     private static func validRotationFingerprint(_ value: String?) -> Bool {
@@ -348,28 +436,60 @@ actor CloudUploadQueue {
         guard controlsInFlight.insert(id).inserted else { throw CloudUploadError.retryScheduled }
         defer { controlsInFlight.remove(id) }
         var value = controlOutcomes[id] ?? CloudControlOutcome(id: id, owner: context.scope)
-        if value.paused { throw controlFailure(value) }
-        if let date = value.nextAttemptAt, date > now() { throw CloudUploadError.retryScheduled }
-        guard policy().concurrency > 0, resourceBudget.permits(.cloudTransfer) else { throw CloudUploadError.retryScheduled }
-        if value.authenticationRefreshPending {
-            value.authenticationRefreshPending = false
-            value.paused = true
-            try saveControl(value)
-            guard let refreshCredentials else { throw controlFailure(value) }
-            try await refreshCredentials(context)
+        guard policy().concurrency > 0, resourceBudget.permits(.cloudControl) else { throw CloudUploadError.retryScheduled }
+        if value.paused {
+            guard value.disposition == .authentication, let rejected = value.credentialVersion else { throw controlFailure(value) }
+            let current = try await authorize(context)
             try check(context)
-            value.paused = false
+            guard credentialVersion(current) != rejected else { throw controlFailure(value) }
+            value.paused = false; value.authenticationRefreshCount = 0
+            value.authenticationRefreshPending = false; value.authenticationRejectedVersion = nil
+            value.authenticationRefreshedVersion = nil; value.nextAttemptAt = nil
             try saveControl(value)
         }
+        if let date = value.nextAttemptAt, date > now() { throw CloudUploadError.retryScheduled }
+        guard policy().concurrency > 0, resourceBudget.permits(.cloudControl) else { throw CloudUploadError.retryScheduled }
+        var token: String
+        do {
+            token = try await authorize(context)
+            try check(context)
+            if value.authenticationRefreshPending {
+                if value.authenticationRejectedVersion == nil { value.authenticationRejectedVersion = credentialVersion(token) }
+                value.credentialVersion = credentialVersion(token)
+                guard let refreshCredentials else { throw AccountAuthError.signedOut }
+                if value.authenticationRejectedVersion == nil || value.authenticationRejectedVersion == credentialVersion(token) {
+                    try saveControl(value) // Keep debt pending across both sides of the refresh await.
+                    try await refreshCredentials(context)
+                    try check(context)
+                    token = try await authorize(context)
+                    try check(context)
+                }
+                value.authenticationRefreshPending = false
+                value.authenticationRefreshedVersion = credentialVersion(token)
+                try saveControl(value)
+            }
+            value.credentialVersion = credentialVersion(token)
+        } catch {
+            try check(context)
+            if Self.terminalAuthorization(error) {
+                value.paused = true; value.authenticationRefreshPending = false
+                value.disposition = .authentication; value.nextAttemptAt = nil
+            } else {
+                value.disposition = value.authenticationRefreshPending ? .authentication : .retryable
+                controlBackoff(&value)
+            }
+            try saveControl(value)
+            throw error
+        }
         var request = original
-        request.setValue("Bearer \(try await authorize(context))", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let fleet = fleetToken(), !fleet.isEmpty {
             request.setValue(fleet, forHTTPHeaderField: CloudPushTransport.fleetTokenHeader)
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         try check(context)
         let admission = policy()
-        guard admission.concurrency > 0, resourceBudget.permits(.cloudTransfer) else { throw CloudUploadError.retryScheduled }
+        guard admission.concurrency > 0, resourceBudget.permits(.cloudControl) else { throw CloudUploadError.retryScheduled }
         request.allowsCellularAccess = admission.allowsCellular
         request.allowsExpensiveNetworkAccess = admission.allowsCellular
         request.allowsConstrainedNetworkAccess = admission.allowsConstrained
@@ -401,7 +521,9 @@ actor CloudUploadQueue {
             value.failures += 1; value.nextAttemptAt = nil
         } else if !(200...299).contains(response.statusCode) {
             let failure = PushFailure.http(status: response.statusCode, receiverCode: value.receiverCode)
-            if failure.code == .httpAuth, value.authenticationRefreshCount == 0, refreshCredentials != nil {
+            if failure.code == .httpAuth, value.authenticationRefreshedVersion != value.credentialVersion,
+               value.authenticationRefreshCount == 0, refreshCredentials != nil {
+                value.authenticationRejectedVersion = value.credentialVersion
                 value.authenticationRefreshCount = 1; value.authenticationRefreshPending = true
                 value.disposition = .authentication; controlBackoff(&value)
             } else if failure.retryable {
@@ -415,6 +537,7 @@ actor CloudUploadQueue {
                 try validate(response)
                 value.responseValidated = true; value.disposition = .verified
                 value.failures = 0; value.nextAttemptAt = nil; value.authenticationRefreshCount = 0
+                value.authenticationRejectedVersion = nil; value.authenticationRefreshedVersion = nil
             } catch {
                 value.paused = true; value.disposition = .terminal; value.receiverCode = "response_invalid"
                 value.failures += 1; value.nextAttemptAt = nil
@@ -445,6 +568,7 @@ actor CloudUploadQueue {
         for var value in controlOutcomes.values where value.paused {
             value.paused = false; value.nextAttemptAt = nil; value.disposition = nil
             value.authenticationRefreshCount = 0; value.authenticationRefreshPending = false
+            value.authenticationRejectedVersion = nil; value.authenticationRefreshedVersion = nil
             try saveControl(value)
         }
         for id in jobs.values.filter({ $0.phase == .pausedTerminal }).map(\.id) {
@@ -455,8 +579,6 @@ actor CloudUploadQueue {
     /// Transferring tasks already belong to URLSession; terminal records need explicit resolution.
     func nextWakeDate(captured: AccountSessionContext) throws -> Date? {
         try check(captured)
-        let capabilitiesID = AccountScope.digest("capabilities\u{0}" + context.scope.projectURL + "/functions/v1/push")
-        if controlOutcomes[capabilitiesID]?.paused == true { return nil }
         let controlDates = controlOutcomes.values.filter { !$0.paused }.compactMap(\.nextAttemptAt)
         let jobDates = jobs.values.filter {
             !$0.acknowledged && $0.phase != .pausedTerminal && $0.phase != .transferring &&
@@ -474,9 +596,9 @@ actor CloudUploadQueue {
         try check(captured)
         guard value.owner == context.scope else { throw CloudUploadError.staleOwner }
         let isFresh = journal.selectionIndex[value.id] == nil
-        // Saved receipt debt must be able to drain a full queue. Heat/history still gate replay;
-        // the queued-byte/job threshold applies only before accepting a new source selection.
-        guard resourceBudget.permits(isFresh ? .cloudPreparation : .bulk) else { throw CloudUploadError.retryScheduled }
+        // Saved receipt debt can drain a full queue during history. Only new preparation consumes
+        // preparation headroom; exact existing selections retain their original byte authority.
+        guard resourceBudget.permits(isFresh ? .cloudPreparation : .cloudControl) else { throw CloudUploadError.retryScheduled }
         let legacyJobs = jobs.values.filter { $0.preparedSelectionID == nil }.count
         // This synchronous actor-local boundary precedes any new reservation/body publication.
         // An exact existing reservation (including interrupted publication) keeps its original
@@ -568,6 +690,18 @@ actor CloudUploadQueue {
         try check(captured)
         return journal.selectionIndex.values.filter { $0.matches(owner: context.scope, sourceID: sourceID,
             endpoint: endpoint, receiverStateID: receiverStateID) }.map(\.id).sorted()
+    }
+
+    /// Compact lane membership for fair recovery; this does not deserialize sensor payloads.
+    func pendingPreparedLanes(sourceID: String, endpoint: String, receiverStateID: String,
+                              captured: AccountSessionContext) throws -> [PushPendingLane] {
+        try check(captured)
+        return journal.selectionIndex.values.filter {
+            $0.matches(owner: context.scope, sourceID: sourceID, endpoint: endpoint, receiverStateID: receiverStateID)
+                && journal.continuations[$0.id]?.sourceCommitted == false
+        }.sorted { $0.id < $1.id }.map {
+            PushPendingLane(selectionID: $0.id, kind: $0.commit.kind, table: $0.commit.table, deviceID: $0.commit.deviceID)
+        }
     }
 
     func selectionID(batchID: String, sourceID: String, endpoint: String, receiverStateID: String,
@@ -662,19 +796,19 @@ actor CloudUploadQueue {
 
     func preparedSelection(_ id: String, captured: AccountSessionContext) throws -> CloudPushPreparedSelection {
         try check(captured)
-        guard resourceBudget.permits(.bulk) else { throw CloudUploadError.retryScheduled }
+        guard resourceBudget.permits(.cloudControl) else { throw CloudUploadError.retryScheduled }
         guard let value = try journal.selection(id) else { throw CloudUploadError.corruptJournal }
         return value
     }
 
     func checkSelectionEncodingAdmission(captured: AccountSessionContext) throws {
         try check(captured)
-        guard resourceBudget.permits(.bulk) else { throw CloudUploadError.retryScheduled }
+        guard resourceBudget.permits(.cloudPreparation) else { throw CloudUploadError.retryScheduled }
     }
 
     func checkIntentAdmission(captured: AccountSessionContext) throws {
         try check(captured)
-        guard policy().concurrency > 0 else { throw CloudUploadError.retryScheduled }
+        guard policy().concurrency > 0, resourceBudget.permits(.cloudControl) else { throw CloudUploadError.retryScheduled }
     }
 
     func preparedIntentBody(_ manifest: PushObjectManifest, endpoint: String, receiverStateID: String,
@@ -754,6 +888,9 @@ actor CloudUploadQueue {
         // A duplicate intent names an archive key, never a new PUT target. Completion validates it.
         if !intent.duplicate { job.objectKey = intent.objectKey }
         job.lanePath = lane.endpoint
+        let signedVersion = Self.intentVersion(url: intent.uploadUrl, headers: intent.requiredHeaders, expiry: intent.expiresAt)
+        if job.signedIntentVersion != signedVersion { job.signedURLRenewalCount = 0 }
+        job.signedIntentVersion = signedVersion
         job.signedURL = intent.uploadUrl
         job.signedHeaders = intent.requiredHeaders
         job.signedExpiry = Self.expiry(intent.expiresAt)
@@ -932,6 +1069,15 @@ actor CloudUploadQueue {
         let admission = policy()
         var claimed: Set<Int> = []
         try recoverCleanupMarkers()
+        // Inspect current credentials once for a paused receiver cohort; do not force refresh per job.
+        // A changed scoped credential may recover an old denial, but it is never a receipt.
+        var currentCredentialVersion: String?
+        if jobs.values.contains(where: { $0.phase == .pausedTerminal && $0.operation != .objectPut &&
+            $0.responseDisposition == .authentication && $0.credentialVersion != nil }),
+           admission.concurrency > 0, resourceBudget.permits(.cloudControl) {
+            if let token = try? await authorize(context) { currentCredentialVersion = credentialVersion(token) }
+            try check(context)
+        }
         for var job in jobs.values {
             if job.acknowledged {
                 try retireControl(for: job)
@@ -940,6 +1086,13 @@ actor CloudUploadQueue {
                 continue
             }
             job.generation = context.generation
+            if job.phase == .pausedTerminal, job.operation != .objectPut,
+               job.responseDisposition == .authentication, let rejected = job.credentialVersion,
+               let currentCredentialVersion, currentCredentialVersion != rejected {
+                job.phase = .retryPending; job.nextAttemptAt = nil
+                job.authenticationRefreshCount = 0; job.authenticationRefreshPending = false
+                job.authenticationRejectedVersion = nil; job.authenticationRefreshedVersion = nil
+            }
             // Build 365 correctly retained rows when the older receiver returned an otherwise
             // matching 2xx ACK without a durability receipt, but those jobs became terminal. After
             // the receiver upgrade, replay those exact persisted bytes once. A second legacy ACK
@@ -1058,15 +1211,27 @@ actor CloudUploadQueue {
                 job.phase = .receiptSaved
             }
             if job.phase == .transferring {
-                let matching = tasks.filter { $0.description == job.taskDescription }
+                let matching = tasks.filter { $0.description == job.taskDescription &&
+                    $0.transportKind == (job.transportKind ?? .background) }
                 let networkAllowed = (admission.allowsCellular || job.allowsCellular == false) &&
                     (admission.allowsConstrained || job.allowsConstrained == false)
-                if let task = matching.first, !admission.cancelTransfers, networkAllowed, mayDeliver(job),
+                if let task = matching.first, job.transportKind == .ordinary,
+                   (job.ordinaryCancellationRequested == true || ordinaryLeases[job.id].map {
+                       !resourceBudget.isCurrent($0.opportunity) || ProcessInfo.processInfo.systemUptime >= $0.deadline
+                   } ?? true) {
+                    job.ordinaryCancellationRequested = true
+                    if let attempt = job.attempt { cancelledOrdinaryAttempts.insert(attempt) }
+                    job.taskIdentifier = task.identifier
+                    claimed.insert(task.identifier); cancellingTasks.insert(task.identifier)
+                    adapter.cancel(task.identifier); finishOrdinaryLease(job.id)
+                } else if let task = matching.first, !admission.cancelTransfers, networkAllowed, mayDeliver(job),
                    !cancellingTasks.contains(task.identifier) {
                     job.taskIdentifier = task.identifier
                     claimed.insert(task.identifier)
                 } else {
+                    if let attempt = job.attempt { cancelledOrdinaryAttempts.remove(attempt) }
                     job.taskIdentifier = nil; job.attempt = nil; job.phase = .retryPending
+                    if job.transportKind == .ordinary { job.ordinaryCancellationRequested = false; finishOrdinaryLease(job.id) }
                 }
             }
             try commit(job)
@@ -1076,7 +1241,7 @@ actor CloudUploadQueue {
             adapter.cancel(task.identifier)
         }
         reconciled = true
-        for identifier in claimed { adapter.resume(identifier) }
+        for identifier in claimed where !cancellingTasks.contains(identifier) { adapter.resume(identifier) }
         reconciling = false
         await pump()
     }
@@ -1088,6 +1253,10 @@ actor CloudUploadQueue {
             if let task = job.taskIdentifier, cancellingTasks.insert(task).inserted { adapter.cancel(task) }
         }
         for var job in active {
+            if job.transportKind == .ordinary, let attempt = job.attempt {
+                cancelOrdinary(job.id, attempt: attempt)
+                continue
+            }
             job.taskIdentifier = nil; job.attempt = nil; job.phase = .retryPending
             try commit(job)
         }
@@ -1102,6 +1271,7 @@ actor CloudUploadQueue {
     /// Logout fences callbacks immediately via isCurrent; cancellation never assigns old jobs to a new owner.
     func suspend() {
         suspended = true
+        for id in Array(ordinaryLeases.keys) { finishOrdinaryLease(id) }
         resourceBudget.queuedCloud(owner: budgetOwner, bytes: 0, jobs: 0)
         for job in jobs.values { if let task = job.taskIdentifier { adapter.cancel(task) } }
         for id in Array(waiters.keys) { resolve(id, result: .failure(CloudUploadError.staleOwner)) }
@@ -1109,11 +1279,36 @@ actor CloudUploadQueue {
     }
 
     func receive(_ task: CloudUploadTaskSnapshot, status: Int, body: Data, error: Bool, retryAfter: String? = nil) async {
-        if cancellingTasks.remove(task.identifier) != nil { await pump(); return }
+        if cancellingTasks.remove(task.identifier) != nil {
+            if !suspended, isCurrent(context), var cancelled = jobs.values.first(where: {
+                $0.phase == .transferring && $0.transportKind == .ordinary &&
+                task.transportKind == .ordinary && ($0.taskIdentifier == task.identifier || $0.taskIdentifier == nil) && $0.taskDescription == task.description
+            }) {
+                if let attempt = cancelled.attempt { cancelledOrdinaryAttempts.remove(attempt) }
+                cancelled.taskIdentifier = nil; cancelled.attempt = nil; cancelled.phase = .retryPending
+                cancelled.ordinaryCancellationRequested = false
+                cancelled.responseStatus = nil; cancelled.responseBody = nil; cancelled.responseRetryAfter = nil
+                cancelled.responseCode = nil; cancelled.responseDisposition = .retryable
+                backoff(&cancelled)
+                try? commit(cancelled)
+                finishOrdinaryLease(cancelled.id)
+            }
+            await pump(); return
+        }
         guard reconciled, !suspended, isCurrent(context), let description = task.description,
               var job = jobs.values.first(where: { $0.taskDescription == description }),
               job.generation == context.generation, job.phase == .transferring,
+              task.transportKind == (job.transportKind ?? .background),
               job.taskIdentifier == task.identifier || job.taskIdentifier == nil else { return }
+        if job.transportKind == .ordinary,
+           job.ordinaryCancellationRequested == true || job.attempt.map({ cancelledOrdinaryAttempts.contains($0) }) == true ||
+           ordinaryLeases[job.id].map({ !resourceBudget.isCurrent($0.opportunity) || ProcessInfo.processInfo.systemUptime >= $0.deadline }) != false {
+            if let attempt = job.attempt { cancelOrdinary(job.id, attempt: attempt) }
+            cancellingTasks.insert(task.identifier)
+            // This callback itself proves retirement; process it through the cancellation branch.
+            await receive(task, status: status, body: Data(), error: true, retryAfter: nil)
+            return
+        }
         job.correlation = job.correlation ?? (job.objectID ?? job.batchID).flatMap(UUID.init(uuidString:)) ?? UUID()
         let interval = SyncPipelineTrace.begin(.uploadReceipt, correlation: job.correlation!)
         var outcome = SyncPipelineTrace.Outcome.failed
@@ -1139,7 +1334,10 @@ actor CloudUploadQueue {
             if status == 401 || status == 403 {
                 job.responseDisposition = .authentication
                 if job.operation == .objectPut {
-                    if (job.signedURLRenewalCount ?? 0) == 0 {
+                    let expired = job.signedExpiry.map({ $0 <= now() }) == true
+                    let freshDenials = expired ? 0 : min(2, (job.consecutiveFreshIntentDenials ?? 0) + 1)
+                    job.consecutiveFreshIntentDenials = freshDenials
+                    if expired || ((job.signedURLRenewalCount ?? 0) == 0 && freshDenials < 2) {
                         job.signedURLRenewalCount = 1
                         job.needsNewIntent = true
                         job.phase = .retryPending
@@ -1147,6 +1345,7 @@ actor CloudUploadQueue {
                     } else { pause(&job, authentication: true) }
                 } else if (job.authenticationRefreshCount ?? 0) == 0 {
                     job.authenticationRefreshCount = 1
+                    job.authenticationRejectedVersion = job.credentialVersion
                     if refreshCredentials != nil {
                         job.authenticationRefreshPending = true
                         job.phase = .retryPending
@@ -1164,6 +1363,7 @@ actor CloudUploadQueue {
             result = job.operation == .request ? .success(response) : .failure(PushTransportException(failure))
         } else if job.operation == .objectPut {
             job.phase = .uploaded; job.operation = .objectComplete
+            job.consecutiveFreshIntentDenials = 0
             job.responseDisposition = .awaitingReceipt
             job.failures = 0; job.nextAttemptAt = nil
             result = .success(response); outcome = .waitingForServer
@@ -1193,6 +1393,7 @@ actor CloudUploadQueue {
             reconciled = false
             resolve(job.id, result: .failure(error))
         }
+        finishOrdinaryLease(job.id, outcome: outcome)
         await pump()
     }
 
@@ -1224,6 +1425,35 @@ actor CloudUploadQueue {
         if waiters[id]?.isEmpty == true { waiters.removeValue(forKey: id) }
     }
 
+    private var transferRotationNamespace: String { AccountScope.digest("transfer-opportunities-v1") }
+
+    // Freshness is an explicit immutable source selection, never a newly created historical job.
+    private func transferClass(_ job: CloudUploadJob) -> Int {
+        if job.operation == .objectComplete { return 0 }
+        if let id = job.preparedSelectionID, journal.continuations[id]?.sourceCommitted == false,
+           journal.selectionIndex[id]?.commit.kind.rawValue == "freshAppend" { return 1 }
+        return 2
+    }
+    private func reservesHistoricalSlot(_ job: CloudUploadJob) -> Bool {
+        transferClass(job) == 2 && (job.preparedSelectionID != nil || job.operation == .objectPut)
+    }
+    private func orderedTransferIDs() throws -> [String] {
+        var lanes = [[String](), [String](), [String]()]
+        for job in jobs.values.sorted(by: { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt < $1.createdAt }) {
+            guard job.phase == .prepared || job.phase == .retryPending || job.phase == .uploaded ||
+                (job.phase == .responseSaved && job.operation == .objectComplete),
+                mayDeliver(job), job.nextAttemptAt.map({ $0 <= now() }) ?? true else { continue }
+            lanes[transferClass(job)].append(job.id)
+        }
+        var cursor = try rotationCheckpoint(namespace: transferRotationNamespace, captured: context).index % 3
+        var positions = [0, 0, 0], result: [String] = []
+        while let lane = (0..<3).map({ (cursor + $0) % 3 }).first(where: { positions[$0] < lanes[$0].count }) {
+            result.append(lanes[lane][positions[lane]])
+            positions[lane] += 1; cursor = (lane + 1) % 3
+        }
+        return result
+    }
+
     private func pump() async {
         guard reconciled, !pumping, !reconciling else { return }
         pumping = true
@@ -1231,11 +1461,18 @@ actor CloudUploadQueue {
         guard !suspended, isCurrent(context) else { suspend(); return }
         let limit = max(0, min(2, policy().concurrency))
         var active = jobs.values.filter { $0.phase == .transferring }.count + cancellingTasks.count
-        for id in jobs.values.sorted(by: { $0.createdAt < $1.createdAt }).map(\.id) {
+        var activeHistory = jobs.values.filter { $0.phase == .transferring && reservesHistoricalSlot($0) }.count
+        let ordered: [String]
+        do { ordered = try orderedTransferIDs() }
+        catch { for id in Array(waiters.keys) { resolve(id, result: .failure(error)) }; return }
+        for id in ordered {
             guard active < limit else { break }
             guard var job = jobs[id], job.phase == .prepared || job.phase == .retryPending || job.phase == .uploaded ||
                     (job.phase == .responseSaved && job.operation == .objectComplete) else { continue }
             guard mayDeliver(job) else { continue }
+            // Keep one of two nominal slots available for fresh data/receipts. Existing OS-owned
+            // tasks are never cancelled to manufacture room; a one-slot opportunity rotates fairly.
+            if limit > 1, activeHistory >= 1, reservesHistoricalSlot(job) { continue }
             guard job.nextAttemptAt.map({ $0 <= now() }) ?? true else {
                 resolve(id, result: .failure(CloudUploadError.retryScheduled)); continue
             }
@@ -1246,15 +1483,25 @@ actor CloudUploadQueue {
             defer { SyncPipelineTrace.end(interval, outcome: outcome) }
             do {
                 try check(context)
-                guard resourceBudget.permits(.cloudTransfer) else { throw CloudUploadError.retryScheduled }
+                guard resourceBudget.permits(job.operation == .objectComplete ? .cloudControl : .cloudTransfer) else { throw CloudUploadError.retryScheduled }
+                var authorizedToken: String?
                 if job.authenticationRefreshPending == true {
-                    job.authenticationRefreshPending = false
-                    job.phase = .pausedTerminal
-                    try commit(job) // Reserve exactly one refresh before suspending for credentials.
-                    guard let refreshCredentials else { throw pausedFailure(job) }
-                    try await refreshCredentials(context)
+                    var token = try await authorize(context)
                     try check(context)
+                    if job.authenticationRejectedVersion == nil { job.authenticationRejectedVersion = credentialVersion(token) }
+                    job.credentialVersion = credentialVersion(token)
+                    guard let refreshCredentials else { throw AccountAuthError.signedOut }
+                    if job.authenticationRejectedVersion == nil || job.authenticationRejectedVersion == credentialVersion(token) {
+                        try commit(job) // Pending debt survives a crash before/after credential rotation.
+                        try await refreshCredentials(context)
+                        try check(context)
+                        token = try await authorize(context)
+                        try check(context)
+                    }
+                    job.authenticationRefreshPending = false
+                    job.authenticationRefreshedVersion = credentialVersion(token)
                     job.phase = .retryPending
+                    authorizedToken = token
                     try commit(job)
                 }
                 if job.operation == .objectPut && (job.needsNewIntent || job.signedExpiry.map({ $0 <= now().addingTimeInterval(30) }) == true) {
@@ -1272,8 +1519,16 @@ actor CloudUploadQueue {
                     for (key, value) in job.signedHeaders { request.setValue(value, forHTTPHeaderField: key) }
                     try journal.verifyBody(job); file = try journal.bodyURL(job)
                 } else {
-                    let token = try await authorize(context)
+                    let token: String
+                    if let authorizedToken { token = authorizedToken }
+                    else { token = try await authorize(context) }
                     try check(context)
+                    let submittedVersion = credentialVersion(token)
+                    if let refreshed = job.authenticationRefreshedVersion, refreshed != submittedVersion {
+                        job.authenticationRefreshCount = 0
+                        job.authenticationRejectedVersion = nil; job.authenticationRefreshedVersion = nil
+                    }
+                    job.credentialVersion = submittedVersion
                     request = URLRequest(url: try apiURL(job, completion: job.operation == .objectComplete))
                     request.httpMethod = "POST"
                     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -1293,24 +1548,58 @@ actor CloudUploadQueue {
                 }
                 try check(context)
                 let admission = policy()
-                guard admission.concurrency > active else { throw CloudUploadError.retryScheduled }
+                guard admission.concurrency > active,
+                      resourceBudget.permits(job.operation == .objectComplete ? .cloudControl : .cloudTransfer) else {
+                    throw CloudUploadError.retryScheduled
+                }
                 request.allowsCellularAccess = admission.allowsCellular
                 request.allowsExpensiveNetworkAccess = admission.allowsCellular
                 request.allowsConstrainedNetworkAccess = admission.allowsConstrained
                 job.allowsCellular = admission.allowsCellular
                 job.allowsConstrained = admission.allowsConstrained
+                let transferBytes = job.operation == .objectComplete ? 0 : job.payloadBytes
+                let opportunity = adapter.supportsOrdinaryTransfers && transferBytes <= 64 * 1024 &&
+                    job.ordinaryAttemptOperation != job.operation.rawValue ? resourceBudget.currentOpportunity : nil
+                let ordinaryDeadline = ProcessInfo.processInfo.systemUptime + min(2,
+                    opportunity.flatMap { resourceBudget.remainingDuration(for: $0) } ?? 0)
+                job.transportKind = opportunity == nil ? .background : .ordinary
+                job.ordinaryOpportunityID = opportunity?.id
+                job.ordinaryCancellationRequested = false
+                if opportunity != nil {
+                    job.ordinaryAttemptOperation = job.operation.rawValue
+                    ordinaryIntervals[job.id] = SyncPipelineTrace.begin(.ordinaryTransfer, correlation: job.correlation!)
+                }
                 job.generation = context.generation
                 job.attempt = UUID(); job.phase = .transferring; job.taskIdentifier = nil
                 try commit(job) // Crash between this and task-ID commit is reconciled by taskDescription.
-                let task = adapter.create(request: request, file: file, description: job.taskDescription!)
+                try saveRotationCheckpoint(namespace: transferRotationNamespace,
+                    index: (transferClass(job) + 1) % 3, carryMore: false, captured: context)
+                if let opportunity, !resourceBudget.isCurrent(opportunity) || ordinaryDeadline <= ProcessInfo.processInfo.systemUptime {
+                    job.attempt = nil; job.phase = .retryPending
+                    try commit(job)
+                    finishOrdinaryLease(job.id, outcome: .timedOut)
+                    continue
+                }
+                let task = adapter.create(request: request, file: file, description: job.taskDescription!,
+                                          transportKind: job.transportKind ?? .background)
+                guard task.transportKind == job.transportKind else { adapter.cancel(task.identifier); throw CloudUploadError.invalidRequest }
                 job.taskIdentifier = task.identifier
                 do { try commit(job) } catch { adapter.cancel(task.identifier); throw error }
-                adapter.resume(task.identifier)
-                active += 1; outcome = .waitingForOS
+                if let opportunity {
+                    if armOrdinary(job, opportunity: opportunity, deadline: ordinaryDeadline) { adapter.resume(task.identifier) }
+                } else { adapter.resume(task.identifier) }
+                active += 1
+                if reservesHistoricalSlot(job) { activeHistory += 1 }
+                outcome = .waitingForOS
             } catch {
+                finishOrdinaryLease(id, outcome: .failed)
                 if let saved = error as? SavedOutcomeError {
                     resolve(id, result: .failure(saved.underlying))
                     continue
+                }
+                guard !suspended, isCurrent(context) else {
+                    resolve(id, result: .failure(CloudUploadError.staleOwner))
+                    break
                 }
                 if !reconciled {
                     resolve(id, result: .failure(error))
@@ -1323,6 +1612,9 @@ actor CloudUploadQueue {
                 job.attempt = nil; job.taskIdentifier = nil
                 if (error as? CloudUploadError) == .responseTooLarge {
                     pause(&job, code: "response_too_large")
+                } else if Self.terminalAuthorization(error) {
+                    job.authenticationRefreshPending = false
+                    pause(&job, authentication: true)
                 } else if job.phase != .pausedTerminal {
                     job.phase = .retryPending
                     backoff(&job)
@@ -1344,7 +1636,7 @@ actor CloudUploadQueue {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let token = try await authorize(context)
         try check(context)
-        guard policy().concurrency > 0 else { throw CloudUploadError.retryScheduled }
+        guard policy().concurrency > 0, resourceBudget.permits(.cloudControl) else { throw CloudUploadError.retryScheduled }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let fleet = fleetToken(), !fleet.isEmpty {
             request.setValue(fleet, forHTTPHeaderField: CloudPushTransport.fleetTokenHeader)
@@ -1353,6 +1645,7 @@ actor CloudUploadQueue {
         try check(context)
         guard (200...299).contains(response.statusCode) else {
             var job = original
+            job.credentialVersion = credentialVersion(token)
             job.responseStatus = response.statusCode
             job.responseBody = Data(response.body.prefix(PushProtocolLimits.maxAckBytes))
             job.responseRetryAfter = response.retryAfter
@@ -1360,6 +1653,7 @@ actor CloudUploadQueue {
             let failure = PushFailure.http(status: response.statusCode, receiverCode: job.responseCode)
             if failure.code == .httpAuth, (job.authenticationRefreshCount ?? 0) == 0, refreshCredentials != nil {
                 job.authenticationRefreshCount = 1
+                job.authenticationRejectedVersion = job.credentialVersion
                 job.authenticationRefreshPending = true
                 job.responseDisposition = .authentication
                 job.phase = .retryPending
@@ -1385,11 +1679,34 @@ actor CloudUploadQueue {
             throw SavedOutcomeError(underlying: PushTransportException(PushFailure(code: .ackInvalid)))
         }
         var job = original
+        let version = Self.intentVersion(url: intent.uploadUrl, headers: intent.requiredHeaders, expiry: intent.expiresAt)
+        if version != job.signedIntentVersion {
+            job.signedIntentVersion = version
+            job.signedURLRenewalCount = 0
+        }
+        job.credentialVersion = credentialVersion(token)
         job.signedURL = intent.uploadUrl; job.signedHeaders = intent.requiredHeaders
         job.signedExpiry = Self.expiry(intent.expiresAt); job.needsNewIntent = false
         if intent.duplicate { job.operation = .objectComplete; job.phase = .uploaded }
         try commit(job)
         return job
+    }
+
+    private func credentialVersion(_ token: String) -> String {
+        AccountScope.digest("cloud-credential-v1\u{0}" + context.scope.namespace + "\u{0}" + token)
+    }
+
+    private static func terminalAuthorization(_ error: Error) -> Bool {
+        guard let value = error as? AccountAuthError else { return false }
+        switch value {
+        case .signedOut, .sessionRevoked, .invalidIdentity, .invalidCredentials, .notConfigured, .unboundCapture: return true
+        default: return false
+        }
+    }
+
+    private static func intentVersion(url: String?, headers: [String: String], expiry: String?) -> String {
+        let fields = [url ?? "", expiry ?? ""] + headers.keys.sorted().flatMap { [$0, headers[$0]!] }
+        return AccountScope.digest(fields.map { "\($0.utf8.count):\($0)" }.joined())
     }
 
     private func validateEndpoint(_ endpoint: String) throws {
@@ -1474,7 +1791,8 @@ actor CloudUploadQueue {
         job.responseDisposition = nil; job.responseStatus = nil; job.responseBody = nil
         job.responseRetryAfter = nil; job.responseCode = nil
         job.authenticationRefreshCount = 0; job.authenticationRefreshPending = false
-        job.signedURLRenewalCount = 0
+        job.authenticationRejectedVersion = nil; job.authenticationRefreshedVersion = nil
+        job.signedURLRenewalCount = 0; job.consecutiveFreshIntentDenials = 0
         try commit(job)
         await pump()
     }

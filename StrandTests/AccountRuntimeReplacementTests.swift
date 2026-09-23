@@ -232,6 +232,29 @@ final class AccountRuntimeReplacementTests: XCTestCase {
         XCTAssertEqual(fixture.retainedContexts, [a.context])
     }
 
+    func testPermittedBackgroundWakeDrainsOldOwnerWithoutForegroundAndUnblocksCurrentCapture() async throws {
+        let old = try identity(), next = try identity()
+        let fixture = try fixture(initial: old)
+        fixture.identity.publish(next)
+        XCTAssertFalse(fixture.runtime.model.captureAdmissionEnabled)
+        XCTAssertEqual(fixture.retired.pendingCount, 1)
+        fixture.barrier.finish(true)
+        let resumed = expectation(description: "background local debt settled")
+        fixture.runtime.$model.dropFirst().sink { model in
+            if model.captureAdmissionEnabled { resumed.fulfill() }
+        }.store(in: &fixture.observations)
+        let budget = ResourceBudget(cooldown: 0, thermal: { 0 }, lowPower: { false })
+        budget.lifecycle(backgroundRemaining: 0)
+        let opportunity = budget.beginOpportunity(kind: .urlSession, owner: UUID())
+        fixture.runtime.retryCaptureDuringOpportunity(opportunity, budget: budget)
+        await fulfillment(of: [resumed], timeout: 2)
+        budget.endOpportunity(opportunity)
+        XCTAssertEqual(fixture.barrier.calls, [old.context])
+        XCTAssertEqual(fixture.runtime.generation, next.generation)
+        XCTAssertEqual(fixture.runtime.model.accountStorage?.scope, next.scope)
+        XCTAssertEqual(fixture.retired.pendingCount, 0)
+    }
+
     func testOtherOwnerChangeDuringConstructionNeverPublishesObsoleteCandidate() async throws {
         try await constructionRace(sameOwner: false)
     }

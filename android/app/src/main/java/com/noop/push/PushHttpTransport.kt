@@ -27,6 +27,7 @@ class PushHttpTransport(
     private val client: OkHttpClient = defaultClient(),
     private val uploadClient: OkHttpClient = defaultUploadClient(),
     private val onBatchStart: (PushBatch) -> Unit = {},
+    private val now: () -> java.time.Instant = { java.time.Instant.now() },
 ) : PushTransport {
     init {
         require(PushEnrollmentCredential.isValidUploadToken(uploadToken)) { "invalid upload authorization" }
@@ -116,6 +117,9 @@ class PushHttpTransport(
     }
 
     override suspend fun uploadObject(intent: PushObjectIntent, body: ByteArray) {
+        fun expired() = intent.expiresAt?.let { runCatching { java.time.Instant.parse(it) }.getOrNull() }
+            ?.let { !it.isAfter(now()) } == true
+        if (expired()) throw PushTransportException(PushFailure(PushFailureCode.OBJECT_INTENT_EXPIRED))
         val uploadUrl = intent.uploadUrl
             ?: throw PushTransportException(PushFailure(PushFailureCode.ACK_INVALID))
         val request = Request.Builder()
@@ -128,14 +132,18 @@ class PushHttpTransport(
             .removeHeader(FLEET_TOKEN_HEADER)
             .build()
         val response = try {
-            uploadClient.newCall(request).await().use { it.code to (it.body?.bytes() ?: ByteArray(0)) }
+            // PUT status is not a durable receipt. Its response body is unused; closing it avoids
+            // materializing an arbitrary bucket error page while retaining the immutable payload.
+            uploadClient.newCall(request).await().use { it.code }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (io: IOException) {
             throw PushTransportException(classifyPushTransportFailure(io), io)
         }
-        if (response.first !in 200..299) {
-            throw PushTransportException(PushFailure.http(response.first))
+        if (response !in 200..299) {
+            if (response in setOf(401, 403) && expired())
+                throw PushTransportException(PushFailure(PushFailureCode.OBJECT_INTENT_EXPIRED, response))
+            throw PushTransportException(PushFailure.http(response))
         }
     }
 

@@ -31,6 +31,32 @@ class SharedPrefsPushProgressStore internal constructor(
         }
     }
 
+    override suspend fun freshCursor(table: PushAppendTable, deviceId: String): PushCursor? {
+        val prefix = key("freshAppend", table.wireName, deviceId)
+        val row = prefs.getLong("$prefix.row", 0)
+        val hash = prefs.getString("$prefix.key", null)
+        return if (row > 0 && hash != null) PushCursor(row, hash) else null
+    }
+
+    override suspend fun saveFreshCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor?) {
+        val prefix = key("freshAppend", table.wireName, deviceId)
+        val edit = prefs.edit()
+        if (cursor == null) edit.remove("$prefix.row").remove("$prefix.key")
+        else edit.putLong("$prefix.row", cursor.rowId).putString("$prefix.key", cursor.naturalKeyFingerprint)
+        check(edit.commit())
+        check(freshCursor(table, deviceId) == cursor)
+    }
+
+    override suspend fun pendingFreshBatch(table: PushAppendTable, deviceId: String): PushBatch? =
+        prefs.getString(key("freshPending", table.wireName, deviceId), null)?.let(PushFreshSelection::decode)
+
+    override suspend fun savePendingFreshBatch(table: PushAppendTable, deviceId: String, batch: PushBatch?) {
+        val entry = key("freshPending", table.wireName, deviceId)
+        val encoded = batch?.let(PushFreshSelection::encode)
+        check(prefs.edit().putString(entry, encoded).commit())
+        check(prefs.getString(entry, null) == encoded)
+    }
+
     override suspend fun binaryCursor(table: PushBinaryTable, deviceId: String): PushCursor? {
         val prefix = key("binary", table.wireName, deviceId)
         val rowId = prefs.getLong("$prefix.row", 0L)

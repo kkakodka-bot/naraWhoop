@@ -5,7 +5,7 @@ import UIKit
 
 /// One admission snapshot for workers on any executor. Essential receipt/commit/ACK work stays admitted.
 final class ResourceBudget: @unchecked Sendable {
-    enum Work { case localCommit, acknowledgement, urgentControl, bulk, cloudPreparation, cloudTransfer, scoring, projection, rawBulk }
+    enum Work { case localCommit, acknowledgement, urgentControl, bulk, cloudPreparation, cloudTransfer, cloudControl, scoring, projection, rawBulk }
     enum PauseReason: String {
         case history, fifo, heat, lowPower, backgroundDeadline, storage, network, queuedCloud, cooldown
     }
@@ -17,7 +17,20 @@ final class ResourceBudget: @unchecked Sendable {
         let queuedCloudJobs: Int
         let maximumTransfers: Int
     }
+    enum OpportunityKind: String, Sendable { case bleCallback, restoration, taskAssertion, backgroundTask, urlSession }
+    /// The work deadline bounds application work. It is never a claimed CoreBluetooth OS grant.
+    struct Opportunity: Equatable, Sendable {
+        let id: UUID
+        let owner: UUID
+        let kind: OpportunityKind
+        let workDeadlineUptime: TimeInterval
+        let platformDeadlineUptime: TimeInterval?
+    }
+    // Initial conservative preparation limits; throughput/energy qualification is a separate gate.
+    static let maximumPreparationFIFODepth = 64
+    static let maximumPreparationFIFOAge: TimeInterval = 1
     static let changed = Notification.Name("ResourceBudgetChanged")
+    static let opportunityBegan = Notification.Name("ResourceBudgetOpportunityBegan")
     static let shared = ResourceBudget(observeProcess: true)
     private let lock = NSLock()
     private var historyOwners: Set<UUID> = []
@@ -25,6 +38,8 @@ final class ResourceBudget: @unchecked Sendable {
     private var cloudDebt: [UUID: (bytes: Int, jobs: Int)] = [:]
     private var backgroundDeadline: TimeInterval?
     private var backgroundOpportunities: Set<UUID> = []
+    private var opportunities: [UUID: Opportunity] = [:]
+    private var relayResumeAfter: TimeInterval = 0
     private var availableStorageBytes: Int64?
     private var networkPermitted = true
     private var resumeAfter: TimeInterval = 0
@@ -114,7 +129,64 @@ final class ResourceBudget: @unchecked Sendable {
         let changed = active ? backgroundOpportunities.insert(owner).inserted
             : backgroundOpportunities.remove(owner) != nil
         lock.unlock()
+        if changed {
+            if active { _ = beginOpportunity(kind: .backgroundTask, owner: owner) }
+            else { endOpportunities(owner: owner) }
+            NotificationCenter.default.post(name: Self.changed, object: nil)
+        }
+    }
+
+    @discardableResult
+    func beginOpportunity(kind: OpportunityKind, owner: UUID, maximumDuration: TimeInterval = 2,
+                          platformRemaining: TimeInterval? = nil) -> Opportunity {
+        lock.lock()
+        let now = clock()
+        let duration = maximumDuration.isFinite ? min(5, max(0, maximumDuration)) : 0
+        let platform = platformRemaining.flatMap { $0.isFinite ? now + max(0, $0) : nil }
+        let opportunity = Opportunity(id: UUID(), owner: owner, kind: kind,
+            workDeadlineUptime: min(now + duration, platform ?? now + duration),
+            platformDeadlineUptime: platform)
+        opportunities[opportunity.id] = opportunity
+        lock.unlock()
+        NotificationCenter.default.post(name: Self.opportunityBegan, object: self,
+            userInfo: ["opportunity": opportunity])
+        NotificationCenter.default.post(name: Self.changed, object: nil)
+        return opportunity
+    }
+
+    /// Only explicitly admitted, still-live events may optimize ordinary transfers. A nil
+    /// background deadline is not evidence of a foreground grant.
+    var currentOpportunity: Opportunity? {
+        lock.lock(); defer { lock.unlock() }
+        let now = clock()
+        return opportunities.values.filter { $0.workDeadlineUptime > now }
+            .min { $0.workDeadlineUptime < $1.workDeadlineUptime }
+    }
+
+    func remainingDuration(for opportunity: Opportunity) -> TimeInterval? {
+        lock.lock(); defer { lock.unlock() }
+        guard opportunities[opportunity.id] == opportunity else { return nil }
+        let remaining = opportunity.workDeadlineUptime - clock()
+        return remaining > 0 ? remaining : nil
+    }
+
+    func isCurrent(_ opportunity: Opportunity) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return opportunities[opportunity.id] == opportunity && clock() < opportunity.workDeadlineUptime
+    }
+
+    func endOpportunity(_ opportunity: Opportunity) {
+        lock.lock()
+        let changed = opportunities.removeValue(forKey: opportunity.id) != nil
+        lock.unlock()
         if changed { NotificationCenter.default.post(name: Self.changed, object: nil) }
+    }
+
+    func endOpportunities(owner: UUID) {
+        lock.lock()
+        opportunities = opportunities.filter { $0.value.owner != owner }
+        lock.unlock()
+        NotificationCenter.default.post(name: Self.changed, object: nil)
     }
 
     func storage(availableBytes: Int64?) {
@@ -136,21 +208,31 @@ final class ResourceBudget: @unchecked Sendable {
         let bytes = cloudDebt.values.reduce(0) { $0 + $1.bytes }
         let jobs = cloudDebt.values.reduce(0) { $0 + $1.jobs }
         let essential = work == .localCommit || work == .acknowledgement || work == .urgentControl
+        let relay = work == .cloudPreparation || work == .cloudTransfer || work == .cloudControl
+        opportunities = opportunities.filter { $0.value.workDeadlineUptime > now }
+        let finiteRelayOpportunity = relay && !opportunities.isEmpty
         var reason: PauseReason?
         if !essential {
             if heat >= ProcessInfo.ThermalState.serious.rawValue { reason = .heat }
-            else if !historyOwners.isEmpty { reason = .history }
-            else if depth > 0 { reason = .fifo }
-            else if powerSaving { reason = .lowPower }
-            else if backgroundOpportunities.isEmpty, let backgroundDeadline, backgroundDeadline - now < 5 { reason = .backgroundDeadline }
+            else if !relay && !historyOwners.isEmpty { reason = .history }
+            else if !relay && depth > 0 { reason = .fifo }
+            else if work == .cloudPreparation &&
+                (depth > Self.maximumPreparationFIFODepth || oldest >= Self.maximumPreparationFIFOAge) { reason = .fifo }
+            else if powerSaving && work != .cloudControl && work != .cloudTransfer { reason = .lowPower }
+            else if backgroundOpportunities.isEmpty && !finiteRelayOpportunity,
+                    let backgroundDeadline, backgroundDeadline - now < 5 { reason = .backgroundDeadline }
             else if let availableStorageBytes, availableStorageBytes < 64 * 1_048_576 { reason = .storage }
-            else if (work == .cloudPreparation || work == .cloudTransfer), !networkPermitted { reason = .network }
-            else if work == .cloudPreparation, bytes >= 256 * 1_048_576 || jobs >= 128 { reason = .queuedCloud }
-            else if now < resumeAfter { reason = .cooldown }
+            else if relay && !networkPermitted { reason = .network }
+            else if work == .cloudPreparation && (bytes >= 256 * 1_048_576 || jobs >= 128) { reason = .queuedCloud }
+            else if now < (relay ? relayResumeAfter : resumeAfter) { reason = .cooldown }
         }
+        // History alone does not reduce the two slots: one historical transfer and one fresh/control.
+        // Actual background or thermal pressure can leave one slot, which the queue must alternate fairly.
+        let constrained = backgroundDeadline != nil || !backgroundOpportunities.isEmpty ||
+            heat > 0 || powerSaving
         return Snapshot(reason: reason, fifoDepth: depth, oldestFIFOAge: oldest,
                         queuedCloudBytes: bytes, queuedCloudJobs: jobs,
-                        maximumTransfers: reason != nil ? 0 : (backgroundDeadline != nil || !backgroundOpportunities.isEmpty || heat > 0 ? 1 : 2))
+                        maximumTransfers: reason != nil ? 0 : (constrained ? 1 : 2))
     }
 
     private func observePressure(now: TimeInterval, processPressure: Bool) {
@@ -158,6 +240,7 @@ final class ResourceBudget: @unchecked Sendable {
         else if processPressureObserved {
             processPressureObserved = false
             resumeAfter = max(resumeAfter, now + cooldown)
+            relayResumeAfter = max(relayResumeAfter, now + cooldown)
         }
         if !historyOwners.isEmpty || !pipelines.isEmpty || processPressure { resumeAfter = max(resumeAfter, now + cooldown) }
     }

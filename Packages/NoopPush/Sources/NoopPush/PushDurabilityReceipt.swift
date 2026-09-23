@@ -85,7 +85,7 @@ public struct PushDurabilityReceipt: Codable, Equatable, Sendable {
 
 /// Replayable progress plus cleanup debt. Receipt association must precede writing this intent.
 public struct PushSourceCommit: Codable, Sendable {
-    public enum Kind: String, Codable, Sendable { case append, binary, mutable }
+    public enum Kind: String, Codable, Sendable { case append, freshAppend, binary, mutable }
     public let kind: Kind
     public let table: String
     public let deviceID: String

@@ -37,6 +37,7 @@ object PushProtocol {
         startCursor: PushCursor?,
         records: List<PushAppendRecord>,
         protocolVersion: String = VERSION,
+        fresh: Boolean = false,
     ): PushBatch {
         validateUuid(sourceId, "sourceId")
         val selectedVersion = when {
@@ -53,7 +54,8 @@ object PushProtocol {
             "append records must be strictly ordered by rowid"
         }
         if (!table.isScalarExtension) records.forEach { validateRecord(table, it.key, it.data) }
-        val candidates = records.take(MAX_RECORDS)
+        val candidates = records.take(if (fresh) PushFreshSelection.MAX_RECORDS else MAX_RECORDS)
+        val byteLimit = if (fresh) PushFreshSelection.MAX_BYTES else MAX_BODY_BYTES
         val selectedRows = ArrayList<PushAppendRecord>(candidates.size)
         val selectedLines = ArrayList<ByteArray>(candidates.size)
         var rowBytes = 0
@@ -67,7 +69,7 @@ object PushProtocol {
             val headerSize = appendHeader(
                 sourceId, table, deviceId, startCursor, end, candidateCount, UUID_PLACEHOLDER, selectedVersion,
             ).size
-            if (headerSize + rowBytes + encodedRow.size > MAX_BODY_BYTES) break
+            if (headerSize + rowBytes + encodedRow.size > byteLimit) break
             selectedRows += candidate
             selectedLines += encodedRow
             rowBytes += encodedRow.size
@@ -76,7 +78,7 @@ object PushProtocol {
 
         val endCursor = cursorFor(table, deviceId, selectedRows.last())
         val identity = appendIdentity(sourceId, table, deviceId, startCursor, endCursor, selectedRows.size, selectedVersion)
-        val batchId = stableUuid(identity, selectedLines)
+        val batchId = stableUuid(if (fresh) identity + ("identityDomain" to "fresh-append-v1") else identity, selectedLines)
         val header = appendHeader(sourceId, table, deviceId, startCursor, endCursor, selectedRows.size, batchId, selectedVersion)
         val body = concatenate(header, selectedLines)
         check(body.size <= MAX_BODY_BYTES)
@@ -556,6 +558,20 @@ object PushProtocol {
 
     private fun cursorFor(table: PushAppendTable, deviceId: String, record: PushAppendRecord) =
         PushCursor(record.rowId, keyFingerprint(table, deviceId, record.key))
+
+    /** Restored local selections cannot relabel an ordinary append request as fresh progress. */
+    internal fun hasFreshIdentity(batch: PushBatch): Boolean {
+        val table = batch.table as? PushAppendTable ?: return false
+        val end = batch.endCursor ?: return false
+        val text = batch.body.toString(Charsets.UTF_8)
+        if (!text.toByteArray(Charsets.UTF_8).contentEquals(batch.body)) return false
+        val lines = text.split('\n')
+        if (lines.size != batch.recordCount + 2 || lines.last().isNotEmpty()) return false
+        val records = lines.drop(1).dropLast(1).map { (it + "\n").toByteArray(Charsets.UTF_8) }
+        val identity = appendIdentity(batch.sourceId, table, batch.deviceId, batch.startCursor,
+            end, batch.recordCount, batch.protocolVersion) + ("identityDomain" to "fresh-append-v1")
+        return stableUuid(identity, records) == batch.batchId
+    }
 
     private fun cursorJson(cursor: PushCursor): Map<String, Any?> = mapOf(
         "keySha256" to cursor.naturalKeyFingerprint,

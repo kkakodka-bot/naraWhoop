@@ -9,5 +9,5 @@ suite.addTest(RealtimeIntentControllerTests.defaultTestSuite)
 suite.run()
 guard let result = suite.testRun else { exit(2) }
 print("PersistentSyncNative: executed=\(result.executionCount) failures=\(result.totalFailureCount) skipped=\(result.skipCount)")
-guard result.executionCount == 39, result.skipCount == 0 else { exit(2) }
+guard result.executionCount == 44, result.skipCount == 0 else { exit(2) }
 exit(result.hasSucceeded ? 0 : 1)

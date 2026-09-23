@@ -34,7 +34,12 @@ fixtureSources=(
   Strand/Push/CloudImuArchive.swift
   Strand/Push/CloudPushSnapshot.swift
 )
-fixtureTests=(StrandTests/CloudImuPushSourceTests.swift)
+fixtureTests=(StrandTests/CloudImuPushSourceTests.swift StrandTests/CloudPushSnapshotTests.swift
+  StrandTests/CloudPushPreparedSelectionTests.swift)
+fixtureNativeFilter=CloudImuPushSourceTests/testExportActualSwiftImf1FixturesForSessionAndContinuous
+if [[ -n "${NARA_SERVER_FIXTURE_EXTRA_TEST_FILTER:-}" ]]; then
+  fixtureNativeFilter="$fixtureNativeFilter|$NARA_SERVER_FIXTURE_EXTRA_TEST_FILTER"
+fi
 fixtureFingerprint() {
   for fixtureFile in "${fixtureSources[@]}" "${fixtureTests[@]}"; do shasum -a 256 "$fixtureRoot/$fixtureFile"; done
   shasum -a 256 "$fixtureScript"/*(.N) "$fixtureRoot/Tests/CloudUploadNative/BoundaryStubs.swift" \
@@ -52,7 +57,7 @@ git -C "$fixtureRoot" rev-parse HEAD > "$fixtureOutput/source-head.txt"
 mkdir -p "$fixtureOutput/tmp" "$fixtureOutput/representation-swift" \
   "$fixtureHarness/Sources/CloudUploadHarness" "$fixtureHarness/Tests/CloudUploadHarnessTests"
 ln -s "$fixtureScript/Package.swift" "$fixtureHarness/Package.swift"
-ln -s "$fixtureRoot/Tests/CloudUploadNative/BoundaryStubs.swift" "$fixtureHarness/Sources/CloudUploadHarness/BoundaryStubs.swift"
+ln -s "$fixtureScript/BoundaryStubs.swift" "$fixtureHarness/Sources/CloudUploadHarness/BoundaryStubs.swift"
 ln -s "$fixtureRoot/Tests/CloudUploadNative/ReceiptFixture.swift" "$fixtureHarness/Tests/CloudUploadHarnessTests/ReceiptFixture.swift"
 ln -s "$fixtureScript/ObjectReceiptFixture.swift" "$fixtureHarness/Tests/CloudUploadHarnessTests/ObjectReceiptFixture.swift"
 for fixtureFile in "${fixtureSources[@]}"; do
@@ -75,7 +80,7 @@ env -i PATH=/opt/homebrew/bin:/usr/bin:/bin DEVELOPER_DIR="$fixtureDeveloper" TM
 env -i PATH=/opt/homebrew/bin:/usr/bin:/bin DEVELOPER_DIR="$fixtureDeveloper" TMPDIR="$fixtureOutput/tmp/" \
   NARA_SERVER_FIXTURE_SOURCE_ROOT="$fixtureRoot" NARA_IMF1_FIXTURE_DIR="$fixtureOutput/imf1-swift-native-v1" \
   /usr/bin/xcrun swift test --package-path "$fixtureHarness" --scratch-path "$fixtureOutput/imu-build" \
-  --jobs 4 --filter CloudImuPushSourceTests/testExportActualSwiftImf1FixturesForSessionAndContinuous \
+  --jobs 4 --filter "$fixtureNativeFilter" \
   2>&1 | tee "$fixtureOutput/imu-tests.log"
 
 for fixtureFile in mutable-generation-swift/mutable-generations.json representation-swift/representation-compatibility.json \

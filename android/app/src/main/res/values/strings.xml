@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="push_error_object_intent_expired">Upload link expired. Retained data will retry with a new link.</string>
     <string name="terms_point_cloud_head">Personal cloud enrollment</string>
     <string name="terms_point_cloud_body">This build uses your personal enrollment to upload wearable data for server processing and return results to your account. Each phone has its own installation credential. Earlier unassigned data stays on the phone and is not automatically uploaded. Removing enrollment stops cloud access; it does not delete data already uploaded.</string>
     <string name="terms_attest_cloud">I understand that enrolling connects this phone to my account for wearable data upload and server results.</string>

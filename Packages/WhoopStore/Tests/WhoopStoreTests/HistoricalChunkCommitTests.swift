@@ -306,6 +306,69 @@ final class HistoricalChunkCommitTests: XCTestCase {
         XCTAssertEqual(retained.map(\.frame), [Data([1, 2])])
     }
 
+    func testLiveCaptureRawDecodedAndDebtShareOneCommitWithoutTrimAndSurviveReopen() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("live.sqlite").path
+        let current = try await store(path: path)
+        let observer = HistoricalCommitObserver()
+        current.registryWriter.add(transactionObserver: observer)
+        _ = try await current.commitLiveCapture(streams, scope: scope, rawCapture: researchCapture())
+        XCTAssertEqual(observer.commits, 1)
+        let before = try await counts(current)
+        let jobs = try await current.owedJobs()
+        XCTAssertEqual(before["hrSample"], 1)
+        XCTAssertEqual(before["rawBatch"], 1)
+        XCTAssertEqual(before["cursors"], 0, "Live admission never authorizes a historical trim")
+        let reopened = try await WhoopStore(path: path)
+        let retained = try await reopened.rawFrames(batchId: "research-chunk")
+        XCTAssertEqual(retained, researchCapture().frames)
+        _ = try await reopened.commitLiveCapture(streams, scope: scope, rawCapture: researchCapture())
+        let after = try await counts(reopened)
+        let replayJobs = try await reopened.owedJobs()
+        XCTAssertEqual(before, after)
+        XCTAssertEqual(jobs.map(\.token), replayJobs.map(\.token))
+    }
+
+    func testLiveRawWriteFailureRollsBackDecodedRowsAndDebt() async throws {
+        let current = try await store()
+        let before = try await counts(current)
+        try await current.registryWriter.write { db in
+            try db.execute(sql: """
+                CREATE TEMP TRIGGER reject_live_raw BEFORE INSERT ON rawBatch
+                BEGIN SELECT RAISE(ABORT, 'synthetic raw write failure'); END
+                """)
+        }
+        do {
+            _ = try await current.commitLiveCapture(streams, scope: scope, rawCapture: researchCapture())
+            XCTFail("Partial live commit escaped")
+        } catch {}
+        let after = try await counts(current)
+        XCTAssertEqual(after, before)
+        try await current.registryWriter.write { db in try db.execute(sql: "DROP TRIGGER reject_live_raw") }
+        _ = try await current.commitLiveCapture(streams, scope: scope, rawCapture: researchCapture())
+        let recovered = try await counts(current)
+        XCTAssertEqual(recovered["hrSample"], 1)
+        XCTAssertEqual(recovered["rawBatch"], 1)
+    }
+
+    func testLiveReplayWrongScopeAndChangedBytesCannotMutateExistingRows() async throws {
+        let current = try await store()
+        _ = try await current.commitLiveCapture(streams, scope: scope, rawCapture: researchCapture())
+        let before = try await counts(current)
+        let wrong = DurableIngestScope(environment: scope.environment, accountID: "other-owner", deviceID: scope.deviceID)
+        for capture in [researchCapture(frames: [[0, 1]]), researchCapture(scope: wrong)] {
+            do {
+                _ = try await current.commitLiveCapture(Streams(hr: [HRSample(ts: 102, bpm: 61)]),
+                    scope: scope, rawCapture: capture)
+                XCTFail("Wrong immutable capture accepted")
+            } catch { XCTAssertEqual(error as? DurableIngestError, .identityConflict) }
+        }
+        let after = try await counts(current)
+        XCTAssertEqual(after, before)
+    }
+
     private func researchCapture(frames: [[UInt8]] = [[9, 8], [7, 6]],
                                  scope: DurableIngestScope? = nil) -> HistoricalRawCapture {
         let owner = scope ?? self.scope

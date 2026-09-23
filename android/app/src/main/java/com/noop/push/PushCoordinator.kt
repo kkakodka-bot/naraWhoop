@@ -15,6 +15,7 @@ class PushCoordinator(
     private val zoneId: ZoneId,
     private val destinationStillCurrent: () -> Boolean = { true },
     private val trace: (com.noop.ble.BlePipelineTrace.Stage) -> Unit = {},
+    private val nowSeconds: () -> Long = { Instant.now().epochSecond },
 ) {
     suspend fun pushAppend(table: PushAppendTable, deviceId: String, protocolVersion: String = PushProtocol.VERSION): PushResult {
         val stored = try {
@@ -68,6 +69,61 @@ class PushCoordinator(
             // The endpoint may have applied the bytes. Keeping the old cursor safely repeats the same upserts.
             rejected(PushFailure(PushFailureCode.LOCAL_DATABASE))
         }
+    }
+
+    suspend fun pushFreshAppend(table: PushAppendTable, deviceId: String,
+        protocolVersion: String = PushProtocol.VERSION): PushResult {
+        try {
+            var pending = progress.pendingFreshBatch(table, deviceId)
+            var stored = progress.freshCursor(table, deviceId)
+            if (pending != null) {
+                if (pending.sourceId != sourceId || pending.deviceId != deviceId || pending.table != table)
+                    return rejected(PushFailure(PushFailureCode.LOCAL_DATA))
+                if (stored == pending.endCursor) {
+                    // Receipt committed before process death; finish only this exact pending selection.
+                    progress.savePendingFreshBatch(table, deviceId, null)
+                    pending = null
+                } else if (stored != pending.startCursor) {
+                    return rejected(PushFailure(PushFailureCode.LOCAL_DATA))
+                }
+            }
+            var more = false
+            if (pending == null) {
+                stored?.let { cursor ->
+                    val row = source.appendRecordAt(table, deviceId, cursor.rowId)
+                    if (row == null || PushProtocol.keyFingerprint(table, deviceId, row.key) != cursor.naturalKeyFingerprint) {
+                        // A replaced/restored database may reuse rowids. This resets only fresh delivery;
+                        // an immutable in-flight selection above never depends on the mutable source.
+                        progress.saveFreshCursor(table, deviceId, null)
+                        stored = null
+                    }
+                }
+                val now = nowSeconds()
+                val rows = source.freshAppendRows(table, deviceId, stored?.rowId ?: 0,
+                    now - PushFreshSelection.WINDOW_SECONDS, now, PushFreshSelection.MAX_RECORDS + 1)
+                if (rows.isEmpty()) return PushResult.NoData
+                val batch = PushProtocol.appendBatch(table, sourceId, deviceId, stored, rows, protocolVersion, fresh = true)
+                more = rows.size > batch.recordCount
+                progress.savePendingFreshBatch(table, deviceId, batch)
+                pending = progress.pendingFreshBatch(table, deviceId)
+                if (pending == null || !pending.body.contentEquals(batch.body))
+                    return rejected(PushFailure(PushFailureCode.LOCAL_DATABASE))
+            }
+            val batch = pending
+            val accepted = deliver(batch)
+            if (accepted !is PushResult.Accepted) return accepted
+            requireCurrentDestination()
+            val end = requireNotNull(batch.endCursor)
+            progress.saveFreshCursor(table, deviceId, end)
+            check(progress.freshCursor(table, deviceId) == end)
+            progress.savePendingFreshBatch(table, deviceId, null)
+            // A replay may have current arrivals behind its frozen selection; one bounded continuation
+            // discovers those without depending on a second BLE notification.
+            return accepted.copy(hasMore = more || source.freshAppendRows(table, deviceId, end.rowId,
+                nowSeconds() - PushFreshSelection.WINDOW_SECONDS, nowSeconds(), 1).isNotEmpty())
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: IllegalArgumentException) { return rejected(PushFailure(PushFailureCode.LOCAL_DATA)) }
+        catch (_: Throwable) { return rejected(PushFailure(PushFailureCode.LOCAL_DATABASE)) }
     }
 
     suspend fun pushMutable(table: PushMutableTable, deviceId: String): PushResult {
@@ -412,6 +468,24 @@ class PushCoordinator(
         var selectedFailure: PushFailure? = null
         for (deviceId in selectedDevices) {
             if (ndjsonEnabled) {
+                for (table in PushAppendTable.entries.filter { it in capabilities.appendTables }) {
+                    if (table.isScalarExtension && capabilities.protocolVersion == PushProtocol.VERSION) continue
+                    when (val result = pushFreshAppend(table, deviceId, capabilities.protocolVersion)) {
+                        is PushResult.Accepted -> {
+                            accepted += result.batchCount
+                            acceptedRecords += result.recordCount
+                            more = more || result.hasMore
+                        }
+                        is PushResult.Rejected -> {
+                            rejected++
+                            if (selectedFailure == null || result.retryable && !retryableFailure)
+                                selectedFailure = result.failure?.attributedTo(table)
+                            retryableFailure = retryableFailure || result.retryable
+                        }
+                        PushResult.NoData -> Unit
+                        PushResult.PendingLocalInventory -> more = true
+                    }
+                }
                 for (table in PushAppendTable.entries.filter { it in capabilities.appendTables }) {
                     if (table.isScalarExtension && capabilities.protocolVersion == PushProtocol.VERSION) continue
                     when (val result = pushAppend(table, deviceId, capabilities.protocolVersion)) {

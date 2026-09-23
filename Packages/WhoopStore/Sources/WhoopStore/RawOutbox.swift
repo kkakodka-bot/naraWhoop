@@ -23,6 +23,9 @@ public struct RawBatchMeta: Equatable {
 
     public let batchId: String
     public let deviceId: String
+    /// Legacy archive anchor, not a calibrated sample clock. Preclock captures preserve
+    /// their receipt-time identity fallback. NPB1 rawBatch (kind 3) is archive-only and
+    /// cannot qualify waveform inference without separate independently verified timing.
     public let clockRef: ClockRef
     public let capturedAt: Int
     public let startTs: Int
@@ -42,7 +45,8 @@ public struct RawBatchMeta: Equatable {
 
 public enum RawCaptureBoundsError: Error { case exclusiveEndOverflow }
 
-/// Optional research bytes that share the historical chunk's SQLite durability boundary.
+/// Exact archive bytes sharing the live or historical SQLite durability boundary.
+/// This envelope provides byte conservation, not clock/channel/calibration qualification.
 public struct HistoricalRawCapture {
     public let meta: RawBatchMeta
     public let frames: [[UInt8]]
@@ -111,6 +115,13 @@ extension WhoopStore {
                 throw DurableIngestError.identityConflict
             }
             return
+        }
+        // Required raw evidence is never evicted to admit newer capture. Check inside the
+        // same transaction so concurrent preparation cannot exceed the durable outbox budget.
+        let pendingBytes = try Int.fetchOne(db,
+            sql: "SELECT COALESCE(SUM(length(framesBlob)), 0) FROM rawBatch WHERE syncedAt IS NULL") ?? 0
+        guard capture.compressed.count <= 128 * 1_024 * 1_024 - pendingBytes else {
+            throw DurableIngestError.capacityExceeded
         }
         try db.execute(sql: """
             INSERT INTO rawBatch(batchId, deviceId, capturedAt, deviceClockRef, wallClockRef,

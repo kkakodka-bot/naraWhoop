@@ -50,6 +50,7 @@ internal fun requiredPushNetworkType(wifiOnly: Boolean): NetworkType =
 
 /** The only entry point that queues pushes. Unique work serialises every trigger to one worker. */
 object SelfHostedPushScheduler {
+    internal const val LIVE_RELAY_COALESCE_MS = 3_000L
     internal const val UNIQUE_WORK = "self-hosted-health-push"
     internal const val BACKOFF_SECONDS = 30L
     // A new true offload supersedes stale/running work. Cancellable deterministic requests and exact
@@ -70,7 +71,7 @@ object SelfHostedPushScheduler {
             if (liveWakeups.containsKey(key)) return
             liveWakeups[key] = enqueueObserverScope.launch {
                 try {
-                    kotlinx.coroutines.delay(10_000)
+                    kotlinx.coroutines.delay(LIVE_RELAY_COALESCE_MS)
                     enqueueExternal(account)
                 } finally { synchronized(liveWakeups) { liveWakeups.remove(key) } }
             }

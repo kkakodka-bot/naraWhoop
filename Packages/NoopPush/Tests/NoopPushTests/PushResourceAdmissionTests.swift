@@ -47,7 +47,10 @@ final class PushResourceAdmissionTests: XCTestCase {
         XCTAssertEqual(run.acceptedBatches, 0)
         XCTAssertTrue(run.hasRetryableFailure)
         let calls = await probe.calls
-        XCTAssertEqual(calls, ["source.devices", "progress.remember", "progress.devices", "progress.window", "source.mutable"])
+        XCTAssertEqual(Array(calls.prefix(3)), ["source.devices", "progress.remember", "progress.devices"])
+        XCTAssertEqual(calls.last, "source.mutable", "no source, packing, progress or transport call may follow revocation")
+        XCTAssertEqual(calls.filter { $0 == "source.mutable" }.count, 1)
+        XCTAssertFalse(calls.contains("source.binary"))
     }
 
     func testAdmissionCanResumeWithoutRecreatingCoordinator() async throws {

@@ -9,7 +9,7 @@ import WhoopStore
 
 @MainActor
 final class StandardHRDurableCaptureTests: XCTestCase {
-    nonisolated static let expectedNativeCount = 31
+    nonisolated static let expectedNativeCount = 32
     private let project = "https://standard-hr-fixture.invalid"
     private let account = "00000000-0000-0000-0000-0000000000a1"
     private let device = "synthetic-standard-hr"
@@ -88,6 +88,23 @@ final class StandardHRDurableCaptureTests: XCTestCase {
     }
     private func hr(_ store: WhoopStore, id: String? = nil) async throws -> [HRSample] {
         try await store.hrSamples(deviceId: id ?? device, from: timestamp - 10, to: timestamp + 100, limit: 200)
+    }
+
+    func testAcceptedStandardNotificationOffersCapturedWakeButMalformedAndStoppedDoNot() async throws {
+        let store = try await store(), journal = try await prepare(store)
+        var opportunities = 0
+        let source = try StandardHRSource(live: LiveState(), deviceId: device,
+            durableCapture: journal.standardHRSink(deviceID: device), startCentral: false,
+            onCaptureOpportunity: { opportunities += 1 })
+        XCTAssertFalse(source.ingestHeartRateMeasurement([], at: timestamp))
+        XCTAssertEqual(opportunities, 0)
+        XCTAssertTrue(source.ingestHeartRateMeasurement(measurement, at: timestamp))
+        XCTAssertEqual(opportunities, 1)
+        source.stop()
+        XCTAssertFalse(source.ingestHeartRateMeasurement(measurement, at: timestamp + 1))
+        XCTAssertEqual(opportunities, 1)
+        await finish(journal)
+        XCTAssertEqual(try occurrences(store).count, 1)
     }
 
     func testSubthresholdOriginalBytesAndFrozenMappingCommitWithoutStopThreshold() async throws {

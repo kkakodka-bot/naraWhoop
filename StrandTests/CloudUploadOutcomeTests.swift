@@ -67,9 +67,10 @@ final class CloudUploadOutcomeTests: XCTestCase {
                        current: @escaping CloudUploadQueue.Current = { _ in true },
                        control: @escaping @Sendable (URLRequest) async throws -> PushTransportResponse = { _ in throw CloudUploadError.unavailable },
                        journalWriteObserver: (@Sendable (URL) throws -> Void)? = nil,
-                       refresh: (@Sendable (AccountSessionContext) async throws -> Void)? = nil) throws -> CloudUploadQueue {
+                       refresh: (@Sendable (AccountSessionContext) async throws -> Void)? = nil,
+                       authorize: @escaping CloudUploadQueue.Authorize = { _ in "synthetic-token" }) throws -> CloudUploadQueue {
         try CloudUploadQueue(context: context ?? f.context, layout: f.layout, adapter: adapter,
-            authorize: { _ in "synthetic-token" }, isCurrent: current,
+            authorize: authorize, isCurrent: current,
             policy: { .init(concurrency: 1, allowsCellular: false, allowsConstrained: false) },
             control: control, now: { clock.value }, journalWriteObserver: journalWriteObserver,
             randomUnit: { randomUnit }, refreshCredentials: refresh, resourceBudget: resourceBudget)
@@ -547,6 +548,150 @@ final class CloudUploadOutcomeTests: XCTestCase {
         try assertSourceRetained(f)
     }
 
+    func testTransientRefreshFailureRetainsDebtAndLaterWakeRetries() async throws {
+        let f = try fixture(), adapter = OutcomeSessionAdapter(), clock = OutcomeClock()
+        let refreshes = OutcomeCounter()
+        let q = try queue(f, adapter: adapter, clock: clock, refresh: { _ in
+            refreshes.increment()
+            if refreshes.value == 1 { throw AccountAuthError.retryable }
+        })
+        try await q.reconcile()
+        let first = try XCTUnwrap(adapter.last).task
+        adapter.finish(first.identifier)
+        await q.receive(first, status: 401, body: try errorBody("unauthorized"), error: false)
+        clock.set(try XCTUnwrap(persisted(f).nextAttemptAt).addingTimeInterval(1))
+        try await q.reconcile()
+        let pending = try persisted(f)
+        XCTAssertEqual(pending.phase, .retryPending)
+        XCTAssertEqual(pending.authenticationRefreshPending, true)
+        XCTAssertEqual(adapter.count, 1)
+        try assertSourceRetained(f)
+        clock.set(try XCTUnwrap(pending.nextAttemptAt).addingTimeInterval(1))
+        try await q.reconcile()
+        XCTAssertEqual(refreshes.value, 2)
+        XCTAssertEqual(adapter.count, 2)
+    }
+
+    func testRelaunchUsesAlreadyRotatedCredentialWithoutAnotherRefresh() async throws {
+        let f = try fixture(), adapter = OutcomeSessionAdapter(), clock = OutcomeClock()
+        let refreshes = OutcomeCounter()
+        let q = try queue(f, adapter: adapter, clock: clock, refresh: { _ in refreshes.increment() })
+        try await q.reconcile()
+        let first = try XCTUnwrap(adapter.last).task
+        adapter.finish(first.identifier)
+        await q.receive(first, status: 401, body: try errorBody("unauthorized"), error: false)
+        await q.suspend()
+        clock.advance(by: 86_400)
+        let restarted = OutcomeSessionAdapter()
+        let nextContext = AccountSessionContext(scope: f.context.scope, generation: UUID())
+        let reopened = try queue(f, adapter: restarted, clock: clock, context: nextContext,
+            refresh: { _ in refreshes.increment() }, authorize: { _ in "rotated-token" })
+        try await reopened.reconcile()
+        XCTAssertEqual(restarted.count, 1)
+        XCTAssertEqual(refreshes.value, 0)
+        XCTAssertEqual(restarted.last?.request.value(forHTTPHeaderField: "Authorization"), "Bearer rotated-token")
+        try assertSourceRetained(f)
+    }
+
+    func testControlTransientRefreshFailureRetainsScheduledDebt() async throws {
+        let f = try fixture(), clock = OutcomeClock(), calls = OutcomeCounter(), refreshes = OutcomeCounter()
+        let q = try queue(f, adapter: OutcomeSessionAdapter(), clock: clock, control: { _ in
+            calls.increment()
+            return .init(statusCode: 401, body: Data())
+        }, refresh: { _ in refreshes.increment(); throw AccountAuthError.retryable })
+        do { _ = try await q.capabilities(endpoint: endpoint, captured: f.context) } catch { }
+        clock.advance(by: 1000)
+        do { _ = try await q.capabilities(endpoint: endpoint, captured: f.context) } catch { }
+        let saved = try XCTUnwrap(f.journal.loadControlOutcomes(owner: f.context.scope).values.first)
+        XCTAssertFalse(saved.paused)
+        XCTAssertTrue(saved.authenticationRefreshPending)
+        XCTAssertNotNil(saved.nextAttemptAt)
+        clock.advance(by: 1000)
+        do { _ = try await q.capabilities(endpoint: endpoint, captured: f.context) } catch { }
+        XCTAssertEqual(refreshes.value, 2)
+        XCTAssertEqual(calls.value, 1)
+    }
+
+    func testLegacyAmbiguousRefreshMigratesOnceAndRevocationStaysStoppedAcrossRelaunch() async throws {
+        let f = try fixture(), clock = OutcomeClock(), refreshes = OutcomeCounter()
+        var legacy = f.job
+        legacy.phase = .pausedTerminal; legacy.responseDisposition = .authentication
+        legacy.responseStatus = 401; legacy.authenticationRefreshCount = 1
+        legacy.authenticationRefreshPending = false
+        try f.journal.save(legacy)
+        let adapter = OutcomeSessionAdapter()
+        let q = try queue(f, adapter: adapter, clock: clock, refresh: { _ in
+            refreshes.increment(); throw AccountAuthError.sessionRevoked
+        })
+        try await q.reconcile()
+        let stopped = try persisted(f)
+        XCTAssertEqual(stopped.phase, .pausedTerminal)
+        XCTAssertEqual(stopped.legacyAuthenticationRecoveryCount, 1)
+        XCTAssertNotNil(stopped.credentialVersion)
+        XCTAssertEqual(refreshes.value, 1)
+        await q.suspend()
+        let reopened = try queue(f, adapter: OutcomeSessionAdapter(), clock: clock,
+            refresh: { _ in refreshes.increment() })
+        clock.advance(by: 86_400)
+        try await reopened.reconcile()
+        XCTAssertEqual(refreshes.value, 1)
+        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        XCTAssertEqual(adapter.count, 0)
+        try assertSourceRetained(f)
+    }
+
+    func testTransientRefreshRestartKeepsBackoffAndCredentialMetadataContainsNoToken() async throws {
+        let f = try fixture(), clock = OutcomeClock(), firstAdapter = OutcomeSessionAdapter()
+        let q = try queue(f, adapter: firstAdapter, clock: clock, refresh: { _ in throw AccountAuthError.retryable })
+        try await q.reconcile()
+        let first = try XCTUnwrap(firstAdapter.last).task
+        firstAdapter.finish(first.identifier)
+        await q.receive(first, status: 401, body: try errorBody("unauthorized"), error: false)
+        clock.set(try XCTUnwrap(persisted(f).nextAttemptAt).addingTimeInterval(1))
+        try await q.reconcile()
+        let retryAt = try XCTUnwrap(persisted(f).nextAttemptAt)
+        await q.suspend()
+        let adapter = OutcomeSessionAdapter(), refreshes = OutcomeCounter()
+        let reopened = try queue(f, adapter: adapter, clock: clock, refresh: { _ in refreshes.increment() })
+        try await reopened.reconcile()
+        XCTAssertEqual(refreshes.value, 0)
+        XCTAssertEqual(adapter.count, 0)
+        XCTAssertEqual(try persisted(f).nextAttemptAt, retryAt)
+        clock.set(retryAt.addingTimeInterval(1))
+        try await reopened.reconcile()
+        XCTAssertEqual(refreshes.value, 1)
+        XCTAssertEqual(adapter.count, 1)
+        let metadata = String(decoding: try XCTUnwrap(f.journal.metadata.read(f.job.id + ".json")), as: UTF8.self)
+        XCTAssertFalse(metadata.contains("synthetic-token"))
+        XCTAssertEqual(try persisted(f).credentialVersion?.count, 64)
+        try assertSourceRetained(f)
+    }
+
+    func testOnlyChangedScopedCredentialRecoversRepeatedAuthenticationPause() async throws {
+        let f = try fixture(), clock = OutcomeClock(), adapter = OutcomeSessionAdapter()
+        let versions = OutcomeCounter(), refreshes = OutcomeCounter()
+        let q = try queue(f, adapter: adapter, clock: clock, refresh: { _ in
+            refreshes.increment(); versions.increment()
+        }, authorize: { _ in "private-test-token-\(versions.value)" })
+        try await q.reconcile()
+        for _ in 0..<2 {
+            let task = try XCTUnwrap(adapter.last).task
+            adapter.finish(task.identifier)
+            await q.receive(task, status: 401, body: try errorBody("unauthorized"), error: false)
+            if let retry = try persisted(f).nextAttemptAt { clock.set(retry.addingTimeInterval(1)); try await q.reconcile() }
+        }
+        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        try await q.reconcile()
+        XCTAssertEqual(adapter.count, 2)
+        XCTAssertEqual(refreshes.value, 1)
+        versions.increment() // A separately authorized session supplied a newer credential.
+        try await q.reconcile()
+        XCTAssertEqual(adapter.count, 3)
+        XCTAssertEqual(refreshes.value, 1)
+        XCTAssertEqual(adapter.last?.request.value(forHTTPHeaderField: "Authorization"), "Bearer private-test-token-2")
+        try assertSourceRetained(f)
+    }
+
     func testAuthenticationRefreshRunsOnceThenPausesOnSecondRejection() async throws {
         for status in [401, 403] {
             let f = try fixture()
@@ -592,7 +737,7 @@ final class CloudUploadOutcomeTests: XCTestCase {
         }
     }
 
-    func testRelaunchCannotSpendAnAmbiguousRefreshAllowanceAgain() async throws {
+    func testRelaunchRetriesPendingRefreshOnceThenSubmitsImmutableWork() async throws {
         let f = try fixture()
         let adapter = OutcomeSessionAdapter()
         let clock = OutcomeClock()
@@ -613,11 +758,11 @@ final class CloudUploadOutcomeTests: XCTestCase {
             refresh: { _ in refreshes.increment() })
         try await reopened.reconcile()
         try await reopened.reconcile()
-        XCTAssertEqual(try persisted(f).phase, .pausedTerminal)
+        XCTAssertEqual(try persisted(f).phase, .transferring)
         XCTAssertEqual(try persisted(f).authenticationRefreshCount, 1)
         XCTAssertEqual(try persisted(f).failures, 1)
-        XCTAssertEqual(refreshes.value, 0)
-        XCTAssertEqual(reopenedAdapter.count, 0)
+        XCTAssertEqual(refreshes.value, 1)
+        XCTAssertEqual(reopenedAdapter.count, 1)
         try assertSourceRetained(f)
     }
 
@@ -950,6 +1095,7 @@ private final class OutcomeClock: @unchecked Sendable {
 private final class OutcomeSessionAdapter: CloudUploadSessionAdapter, @unchecked Sendable {
     struct Created {
         let task: CloudUploadTaskSnapshot
+        let request: URLRequest
         let file: URL
     }
     private let lock = NSLock()
@@ -965,7 +1111,7 @@ private final class OutcomeSessionAdapter: CloudUploadSessionAdapter, @unchecked
         lock.lock(); defer { lock.unlock() }
         let task = CloudUploadTaskSnapshot(identifier: 100 + created.count, description: description)
         active[task.identifier] = task
-        created.append(.init(task: task, file: file))
+        created.append(.init(task: task, request: request, file: file))
         return task
     }
     func resume(_ identifier: Int) {}

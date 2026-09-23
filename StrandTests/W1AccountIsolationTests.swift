@@ -84,6 +84,55 @@ final class W1AccountIsolationTests: XCTestCase {
         XCTAssertFalse(manager.send(.sendHistoricalData))
     }
 
+    func testCaptureWakeCoalescesNotificationsWithinOriginalDeadlineAndExpiresOnce() async throws {
+        let fixture = try fixture()
+        let scope = try AccountScope(projectURL: "https://fixture.invalid", userID: "11111111-1111-4111-8111-111111111111")
+        let manager = BLEManager(state: LiveState(), startCentral: false,
+            databasePath: fixture.directory.appendingPathComponent("wake.sqlite").path,
+            storageDirectory: fixture.directory, accountScope: scope, defaults: fixture.defaults, resourceBudget: fixture.budget)
+        fixture.managers.append(manager)
+        var began = 0, ended = 0
+        var expire: (() -> Void)?
+        manager.captureOpportunityLeaseFactoryForTesting = { failed in
+            HistoricalCommitLease(begin: { expiration in began += 1; expire = expiration; return began },
+                end: { _ in ended += 1 }, expired: failed)
+        }
+        fixture.budget.lifecycle(backgroundRemaining: 0)
+        manager.beginCaptureOpportunity(kind: .bleCallback)
+        let first = try XCTUnwrap(manager.test_captureOpportunity)
+        for _ in 0..<100 { manager.beginCaptureOpportunity(kind: .bleCallback) }
+        await Task.yield()
+        manager.beginCaptureOpportunity(kind: .bleCallback)
+        XCTAssertEqual(manager.test_captureOpportunity, first)
+        XCTAssertEqual(began, 1)
+        XCTAssertNil(first.platformDeadlineUptime)
+        expire?()
+        await manager.test_waitForCaptureOpportunity()
+        XCTAssertEqual(ended, 1)
+        XCTAssertNil(manager.test_captureOpportunity)
+        XCTAssertFalse(fixture.budget.isCurrent(first))
+    }
+
+    func testFailedCaptureAssertionRevokesOpportunityBeforeAnyDeferredWork() async throws {
+        let fixture = try fixture()
+        let manager = BLEManager(state: LiveState(), startCentral: false,
+            databasePath: fixture.directory.appendingPathComponent("blocked.sqlite").path,
+            storageDirectory: fixture.directory, defaults: fixture.defaults, resourceBudget: fixture.budget)
+        fixture.managers.append(manager)
+        var began = 0
+        manager.captureOpportunityLeaseFactoryForTesting = { failed in
+            HistoricalCommitLease(begin: { _ in began += 1; return nil }, end: { _ in XCTFail("No OS assertion acquired") }, expired: failed)
+        }
+        fixture.budget.lifecycle(backgroundRemaining: 0)
+        manager.beginCaptureOpportunity(kind: .taskAssertion)
+        await manager.test_waitForCaptureOpportunity()
+        XCTAssertEqual(began, 1)
+        XCTAssertNil(manager.test_captureOpportunity)
+        XCTAssertNil(fixture.budget.currentOpportunity)
+        XCTAssertFalse(fixture.budget.permits(.cloudTransfer))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: manager.databasePath!))
+    }
+
     func testStandardHRBuffersKeepSourceWhenDeviceChangesBeforeFlush() async throws {
         let fixture = try fixture()
         let directory = fixture.directory, defaults = fixture.defaults

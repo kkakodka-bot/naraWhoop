@@ -664,6 +664,13 @@ internal class FakePushSource(
         }
     }
 
+    override suspend fun freshAppendRows(table: PushAppendTable, deviceId: String, afterRowId: Long,
+        fromTs: Long, throughTs: Long, limit: Int): List<PushAppendRecord> =
+        append[key(table, deviceId)].orEmpty().filter {
+            val ts = (it.key["ts"] ?: it.data["ts"]) as? Number
+            it.rowId > afterRowId && ts != null && ts.toLong() in fromTs..throughTs
+        }.take(limit)
+
     override suspend fun mutableRows(
         table: PushMutableTable,
         deviceId: String,
@@ -699,6 +706,20 @@ internal class MemoryProgress : PushProgressStore {
     override suspend fun cursor(table: PushAppendTable, deviceId: String): PushCursor? = cursors[key(table, deviceId)]
     override suspend fun saveCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor) {
         cursors[key(table, deviceId)] = cursor
+    }
+
+    val freshCursors = mutableMapOf<String, PushCursor>()
+    val pendingFresh = mutableMapOf<String, String>()
+    override suspend fun freshCursor(table: PushAppendTable, deviceId: String) = freshCursors[key(table, deviceId)]
+    override suspend fun saveFreshCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor?) {
+        if (cursor == null) freshCursors.remove(key(table, deviceId))
+        else freshCursors[key(table, deviceId)] = cursor
+    }
+    override suspend fun pendingFreshBatch(table: PushAppendTable, deviceId: String) =
+        pendingFresh[key(table, deviceId)]?.let(PushFreshSelection::decode)
+    override suspend fun savePendingFreshBatch(table: PushAppendTable, deviceId: String, batch: PushBatch?) {
+        if (batch == null) pendingFresh.remove(key(table, deviceId))
+        else pendingFresh[key(table, deviceId)] = PushFreshSelection.encode(batch)
     }
 
     override suspend fun binaryCursor(table: PushBinaryTable, deviceId: String): PushCursor? =

@@ -19,7 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal fun persistedDeviceIndex(startDeviceIndex: Int, nextDeviceIndex: Int, retryableFailure: Boolean): Int =
-    if (retryableFailure) startDeviceIndex else nextDeviceIndex
+    nextDeviceIndex
 internal const val PUSH_MAX_ATTEMPTS = 32
 internal fun shouldRetryPush(runAttemptCount: Int): Boolean = runAttemptCount + 1 < PUSH_MAX_ATTEMPTS
 internal fun shouldContinuePushRun(run: PushRunResult, cycleNeedsAnotherPass: Boolean): Boolean =
@@ -379,37 +379,25 @@ class SelfHostedPushWorker(
             run.acceptedBatches,
             records = run.acceptedRecords.toLong(),
         )
-        if (run.hasRetryableFailure) {
-            // Do not rotate away from a failing device: this WorkRequest retries the exact same
-            // device with its bounded runAttemptCount. Already-acked tables remain idempotent.
-            return ExecutionOutcome(
-                Execution.RETRY_FAILURE,
-                run.failure ?: PushFailure(PushFailureCode.NETWORK_IO),
-            )
-        }
-        settings.saveNextDeviceIndex(
-            namespace,
-            persistedDeviceIndex(startDeviceIndex, run.nextDeviceIndex, retryableFailure = false),
-        )
         val cycleNeedsAnotherPass = settings.cycleNeedsAnotherPass(namespace) ||
             run.hasMoreAppendRows || run.hasMoreBinaryRows
         val runHadTerminalRejection = run.rejectedBatches > 0 && !run.hasRetryableFailure
         val cycleHadRejection = settings.cycleHadRejection(namespace) || runHadTerminalRejection
         val cycleFailure = settings.cycleFailure(namespace) ?: run.failure.takeIf { runHadTerminalRejection }
         val cycleCompleted = run.nextDeviceIndex == 0
-        settings.saveCycleNeedsAnotherPass(namespace, if (cycleCompleted) false else cycleNeedsAnotherPass)
-        // If append pagination starts another cycle, carry any terminal rejection through that cycle;
-        // otherwise a rejected table alongside a full append page could later be reported as success.
-        settings.saveCycleHadRejection(
-            namespace,
-            if (cycleCompleted && !cycleNeedsAnotherPass) false else cycleHadRejection,
-        )
-        settings.saveCycleFailure(
-            namespace,
-            if (cycleCompleted && !cycleNeedsAnotherPass) null else cycleFailure,
-        )
+        val cycleRetryable = settings.cycleHadRetryableFailure(namespace) || run.hasRetryableFailure
+        settings.saveCycleCheckpoint(namespace,
+            nextIndex = run.nextDeviceIndex,
+            more = !cycleCompleted && cycleNeedsAnotherPass,
+            rejected = !(cycleCompleted && !cycleNeedsAnotherPass) && cycleHadRejection,
+            failure = if (cycleCompleted && !cycleNeedsAnotherPass) null else cycleFailure,
+            retryable = !cycleCompleted && cycleRetryable)
 
         return when {
+            // Keep the same WorkRequest/backoff budget across a failed cycle while rotating devices.
+            // A healthy neighbor must neither hide retained failed debt nor reset its retry budget.
+            cycleRetryable -> ExecutionOutcome(Execution.RETRY_FAILURE,
+                run.failure ?: PushFailure(PushFailureCode.NETWORK_IO))
             shouldContinuePushRun(run, cycleNeedsAnotherPass) -> {
                 ExecutionOutcome(Execution.CONTINUE)
             }
@@ -577,6 +565,9 @@ class AccountFencedSnapshot(
         admission.fenced { base.appendRecordAt(table, deviceId, rowId) }
     override suspend fun appendRows(table: PushAppendTable, deviceId: String, afterRowId: Long, limit: Int) =
         admission.fenced { base.appendRows(table, deviceId, afterRowId, limit) }
+    override suspend fun freshAppendRows(table: PushAppendTable, deviceId: String, afterRowId: Long,
+        fromTs: Long, throughTs: Long, limit: Int) =
+        admission.fenced { base.freshAppendRows(table, deviceId, afterRowId, fromTs, throughTs, limit) }
     override suspend fun mutableRows(table: PushMutableTable, deviceId: String, window: PushWindow, limit: Int) =
         admission.fenced { base.mutableRows(table, deviceId, window, limit) }
     override suspend fun binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Long) =
@@ -599,6 +590,14 @@ class AccountFencedProgress(
     override suspend fun cursor(table: PushAppendTable, deviceId: String) = admission.fenced { base.cursor(table, deviceId) }
     override suspend fun saveCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor) =
         admission.fenced { base.saveCursor(table, deviceId, cursor) }
+    override suspend fun freshCursor(table: PushAppendTable, deviceId: String) =
+        admission.fenced { base.freshCursor(table, deviceId) }
+    override suspend fun saveFreshCursor(table: PushAppendTable, deviceId: String, cursor: PushCursor?) =
+        admission.fenced { base.saveFreshCursor(table, deviceId, cursor) }
+    override suspend fun pendingFreshBatch(table: PushAppendTable, deviceId: String) =
+        admission.fenced { base.pendingFreshBatch(table, deviceId) }
+    override suspend fun savePendingFreshBatch(table: PushAppendTable, deviceId: String, batch: PushBatch?) =
+        admission.fenced { base.savePendingFreshBatch(table, deviceId, batch) }
     override suspend fun binaryCursor(table: PushBinaryTable, deviceId: String) = admission.fenced { base.binaryCursor(table, deviceId) }
     override suspend fun saveBinaryCursor(table: PushBinaryTable, deviceId: String, cursor: PushCursor) =
         admission.fenced { base.saveBinaryCursor(table, deviceId, cursor) }

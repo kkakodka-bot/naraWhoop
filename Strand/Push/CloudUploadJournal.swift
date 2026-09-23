@@ -40,6 +40,10 @@ struct CloudUploadJob: Codable, Sendable {
     var needsNewIntent = false
     var attempt: UUID?
     var taskIdentifier: Int?
+    var transportKind: CloudUploadTransportKind?
+    var ordinaryOpportunityID: UUID?
+    var ordinaryAttemptOperation: String?
+    var ordinaryCancellationRequested: Bool?
     var failures = 0
     var nextAttemptAt: Date?
     var responseStatus: Int?
@@ -50,12 +54,20 @@ struct CloudUploadJob: Codable, Sendable {
     var responseAttempt: UUID?
     var authenticationRefreshCount: Int?
     var authenticationRefreshPending: Bool?
+    /// Nonsecret digest of the credential actually submitted; never a bearer or refresh token.
+    var credentialVersion: String?
+    var authenticationRejectedVersion: String?
+    var authenticationRefreshedVersion: String?
+    var legacyAuthenticationRecoveryCount: Int?
     /// One persisted retry for ACKs produced by the pre-durability receiver contract.
     var receiptUpgradeRetryCount: Int?
     /// One prompt replay after a process restart for a retained retryable server failure.
     var serverRetryRecoveryCount: Int?
     var fleetAuthorizationApplied: Bool?
     var signedURLRenewalCount: Int?
+    /// Identity of signed URL, headers and expiry; immutable object/payload identity is separate.
+    var signedIntentVersion: String?
+    var consecutiveFreshIntentDenials: Int?
     var acknowledged = false
     var receiverStateID: String = ""
     var batchID: String?
@@ -67,7 +79,9 @@ struct CloudUploadJob: Codable, Sendable {
     var deliveryAdmitted: Bool?
     var localVersion: Int?
 
-    var taskDescription: String? { attempt.map { "\(id):\($0.uuidString)" } }
+    var taskDescription: String? {
+        attempt.map { "\(id):\($0.uuidString)" + (transportKind.map { ":" + $0.rawValue } ?? "") }
+    }
     var context: AccountSessionContext { .init(scope: owner, generation: generation) }
     var response: PushTransportResponse? {
         guard let status = responseStatus, let body = responseBody else { return nil }
@@ -87,6 +101,10 @@ struct CloudControlOutcome: Codable, Sendable {
     var disposition: CloudUploadJob.Disposition?
     var authenticationRefreshCount = 0
     var authenticationRefreshPending = false
+    var credentialVersion: String?
+    var authenticationRejectedVersion: String?
+    var authenticationRefreshedVersion: String?
+    var legacyAuthenticationRecoveryCount: Int?
     var paused = false
     var responseValidated = false
     var responseAttempt: UUID?
@@ -104,6 +122,7 @@ final class CloudUploadJournal: @unchecked Sendable {
     private let fm = FileManager.default
     private let afterWrite: (@Sendable (URL) throws -> Void)?
     private let allowsPreparation: @Sendable () -> Bool
+    private let allowsSelectionRead: @Sendable (Bool) -> Bool
     private var validatedOwner: AccountScope?
     let metadata: CloudMetadataStore
     private(set) var selectionIndex: [String: CloudSelectionIndex] = [:]
@@ -122,7 +141,10 @@ final class CloudUploadJournal: @unchecked Sendable {
         self.directory = directory
         self.maximumBytes = maximumBytes
         self.afterWrite = afterWrite
-        self.allowsPreparation = allowsPreparation ?? { resourceBudget.permits(.bulk) }
+        self.allowsPreparation = allowsPreparation ?? { resourceBudget.permits(.cloudPreparation) }
+        self.allowsSelectionRead = { legacy in
+            allowsPreparation?() ?? resourceBudget.permits(legacy ? .bulk : .cloudControl)
+        }
         try fm.createDirectory(at: directory, withIntermediateDirectories: true,
                                attributes: [.posixPermissions: 0o700])
         var excluded = directory
@@ -483,7 +505,7 @@ final class CloudUploadJournal: @unchecked Sendable {
     func selection(_ id: String) throws -> CloudPushPreparedSelection? {
         if cachedSelection?.id == id { return cachedSelection }
         guard let index = selectionIndex[id] else { return nil }
-        guard permitsPreparation() else { throw CloudUploadError.retryScheduled }
+        guard allowsSelectionRead(index.isLegacy) else { throw CloudUploadError.retryScheduled }
         guard let bytes = try metadata.read(id + ".selection") else { throw CloudUploadError.corruptJournal }
         let value: CloudPushPreparedSelection
         if index.isLegacy {

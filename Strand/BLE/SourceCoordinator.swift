@@ -60,6 +60,7 @@ final class SourceCoordinator: ObservableObject {
     /// call sites (and tests) compile unchanged.
     private let straplog: (String) -> Void
     private let collectionAllowed: () -> Bool
+    private let onCaptureOpportunity: () -> Void
     private let notifications: NotificationCenter
     struct SourceCallbacks {
         let persist: (Streams) -> Void
@@ -124,10 +125,11 @@ final class SourceCoordinator: ObservableObject {
         return genericCapture
     }
 
-    func retryCapturePersistence() async -> Bool {
+    func retryCapturePersistence(allowing: (() -> Bool)? = nil) async -> Bool {
+        guard allowing?() ?? true else { return false }
         guard let genericCapture else { return true }
-        let succeeded = await genericCapture.drain()
-        if succeeded, !accountShutdown { activeDeviceChanged(to: registry.activeDeviceId) }
+        let succeeded = await genericCapture.drain(allowing: allowing, maximumTransactions: 4)
+        if succeeded, allowing?() ?? true, !accountShutdown { activeDeviceChanged(to: registry.activeDeviceId) }
         return succeeded
     }
 
@@ -164,7 +166,8 @@ final class SourceCoordinator: ObservableObject {
          notifications: NotificationCenter = .default,
          sourceFactory: ((String, SourceCallbacks) -> any LiveHRSource)? = nil,
          genericCapture: GenericCaptureJournal? = nil,
-         standardSourceFactory: ((String) -> StandardHRSource)? = nil) {
+         standardSourceFactory: ((String) -> StandardHRSource)? = nil,
+         onCaptureOpportunity: @escaping () -> Void = {}) {
         self.registry = registry
         self.live = live
         self.storeHandle = storeHandle
@@ -177,6 +180,7 @@ final class SourceCoordinator: ObservableObject {
         self.connectedPeripheralUUID = connectedPeripheralUUID
         self.straplog = straplog
         self.collectionAllowed = collectionAllowed
+        self.onCaptureOpportunity = onCaptureOpportunity
         self.notifications = notifications
         self.sourceFactory = sourceFactory
         genericCapture?.didHoldCapture = { [weak self] in self?.holdGenericCapture() }
@@ -245,6 +249,15 @@ final class SourceCoordinator: ObservableObject {
                       self.permitsCollection(generation: generation) else { return }
                 _ = try? await store.insert(streams, deviceId: deviceId)
             }
+        }
+    }
+
+    /// The closure stays bound to this coordinator and privacy generation after source retirement.
+    func captureOpportunityCallback() -> () -> Void {
+        let generation = privacyGeneration
+        return { [weak self] in
+            guard let self, !self.accountShutdown, self.permitsCollection(generation: generation) else { return }
+            self.onCaptureOpportunity()
         }
     }
 
@@ -443,7 +456,8 @@ final class SourceCoordinator: ObservableObject {
             onBattery: guardedBattery(),
             // #polar-debug: read the toggle live at connect so a Polar strap logs its identified model
             // (default off; the Test Centre only exposes the toggle when a Polar strap is paired).
-            polarDebug: { UserDefaults.standard.bool(forKey: AppModel.polarDebugLoggingKey) })
+            polarDebug: { UserDefaults.standard.bool(forKey: AppModel.polarDebugLoggingKey) },
+            onCaptureOpportunity: captureOpportunityCallback())
         } catch {
             straplog("HR-strap: capture held because its durable account journal is unavailable")
             return nil

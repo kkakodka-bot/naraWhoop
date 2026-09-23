@@ -14,6 +14,12 @@ public struct PushPreparationLane: Sendable {
     }
 }
 
+public struct PushDeviceDiscovery: Sendable {
+    public let deviceIDs: [String]
+    public let isComplete: Bool
+    public init(deviceIDs: [String], isComplete: Bool) { self.deviceIDs = deviceIDs; self.isComplete = isComplete }
+}
+
 public struct PushAppendPage: Sendable {
     public let rows: [PushAppendRecord]
     public let hasMore: Bool
@@ -62,6 +68,14 @@ public struct PushSourceReadLimits: Sendable {
 }
 
 public extension PushSnapshotSource {
+    func discoverDevices(capabilities: PushCapabilities) async throws -> PushDeviceDiscovery {
+        .init(deviceIDs: try await knownDeviceIds(capabilities: capabilities), isComplete: true)
+    }
+    /// Legacy adapters have no timestamp-indexed fresh lane. Never turn an unbounded scan into one.
+    func freshAppendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64, sinceTs: Int64, throughTs: Int64,
+                         limit: Int, limits: PushSourceReadLimits) async throws -> PushAppendPage {
+        .init(rows: [], hasMore: false)
+    }
     func mutableDirtyRanges(table: PushMutableTable, deviceId: String, afterRevision: Int64,
                             afterKey: String, limit: Int, calendar: Calendar) async throws -> PushMutableDirtyPage? { nil }
     func appendPage(table: PushAppendTable, deviceId: String, afterRowId: Int64,

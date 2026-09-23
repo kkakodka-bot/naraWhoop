@@ -359,6 +359,23 @@ extension WhoopStore {
             v18AuxPruneEveryRows: Self.v18AuxPruneEveryRows, captureScope: captureScope)
     }
 
+    /// Live capture uses the existing raw outbox and the same FULL SQLite commit as decoded
+    /// rows and upload debt. A failed raw write rolls the entire transaction back; no trim
+    /// cursor is read or advanced. Exact retries retain the first raw capture metadata.
+    @discardableResult
+    public func commitLiveCapture(_ streams: Streams, scope: DurableIngestScope,
+                                  rawCapture: HistoricalRawCapture,
+                                  note: String? = nil) async throws -> BackfillInsertOutcome {
+        let raw = try Self.prepareHistoricalRawCapture(rawCapture, scope: scope)
+        return try await insertAndMarkIfNeeded(streams, deviceId: scope.deviceID,
+            postOffloadJobKinds: ["cloudPush"], note: note,
+            v18AuxRetentionRows: Self.v18AuxRetentionRows,
+            v18AuxPruneEveryRows: Self.v18AuxPruneEveryRows, captureScope: scope,
+            performRetention: false, transactionTail: { db in
+                try Self.insertHistoricalRawCapture(db, capture: raw, scope: scope)
+            })
+    }
+
     /// Commits historical rows, exact raw evidence, debt and cursor before authorizing ACK.
     /// The caller flushes any touched external IMU files before entering this transaction.
     @discardableResult

@@ -207,6 +207,27 @@ extension CloudPushPreparedSelection {
 }
 
 enum CloudPushPreparedRecovery {
+    /// Replay exactly one scheduled operation. Reuse the current namespace actor so a second
+    /// in-memory copy cannot overwrite newer cursors when the next lane commits its state.
+    static func resume(_ lane: PushPendingLane, queue: CloudUploadQueue, context: AccountSessionContext,
+                       directory: URL, currentNamespace: String, currentProgress: CloudPushProgressStore,
+                       coordinator: (CloudPushProgressStore, String) -> PushCoordinator) async -> PushResult {
+        do {
+            let selection = try await queue.preparedSelection(lane.selectionID, captured: context)
+            guard selection.commit.kind == lane.kind, selection.commit.table == lane.table,
+                  selection.commit.deviceID == lane.deviceID else { throw CloudUploadError.corruptJournal }
+            try await queue.prepareSelection(selection, captured: context)
+            let progress = selection.progressNamespace == currentNamespace ? currentProgress :
+                try CloudPushProgressStore(namespace: selection.progressNamespace, directory: directory,
+                    auxiliaryIdentityV2: selection.progressVersion == PushProtocol.auxiliaryIdentityVersion)
+            let manifest = try await queue.resumeManifest(selectionID: selection.id, captured: context)
+            return await coordinator(progress, selection.progressVersion).resumePrepared(selection.selection, manifestOverride: manifest)
+        } catch {
+            return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true,
+                failure: PushFailure(code: .localDatabase))
+        }
+    }
+
     /// Staged debt is finished first by the caller. Each operation reopens its ORIGINAL namespace;
     /// current negotiation and today's rolling window are irrelevant to its saved continuation.
     /// A blocked lane stays reserved while independent lanes may continue.

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "commonBaseSha": "76f2d70f621de91268e295ebcb6c6da29162991f",
+  "scope": "Development receipts; these do not transfer acceptance to the later combined SHA",
+  "receipts": [
+    {
+      "path": "/Volumes/Untitled/ble-repair-design-76f/capture-implementation-receipt.json",
+      "sha256": "7183a88f66293cf5cbcbd84c76f60ce09afc81bba4a1a18ea8bc09596f9241f8"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-edge-review/ble-fresh-history-implementation-receipt.json",
+      "sha256": "9266abaa3184c27ebbe8700d64a5da81c15cae07e2e23de1462f3ae3a537ddff"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-evidence/ble-queue-repair/owned-source-receipt.json",
+      "sha256": "2f5279afffaeb3542e018b577c937b992707387d38edddc6a7b4317dd0d7e651"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-evidence/ble-push-android.g8SV8g/receipt.json",
+      "sha256": "3af19a1abd546d528a967625412d00869ec6a7be87c5aa943ed4daa8f476f4bb"
+    }
+  ],
+  "intervalMetrics": {
+    "log": "/Volumes/Untitled/server-repair-evidence/ble-intervals-v2.log",
+    "sha256": "638fce94a925a301638a2a734853c199390b2332c569a89470222e5d4a30614e",
+    "tests": 4,
+    "failures": 0
+  },
+  "physicalAcceptance": "NOT_MEASURED"
+}
