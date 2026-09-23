@@ -14,6 +14,8 @@ struct GenericNotificationEnvelope: Encodable {
     let receivedUnixSeconds: Int
     let receivedUptime: Double
     let clockQuality = "host_receipt_unverified"
+    let rrProjectionStatus = "unqualified"
+    let rrProjectionReason = "producer_not_implemented"
     let payload: Data
 }
 
@@ -86,7 +88,13 @@ public final class GenericRawCaptureSink {
     /// Delayed reassembly uses the last original notification as its archive dependency.
     /// Earlier fragments remain ahead of it in the same journal; no payload is manufactured.
     @discardableResult
-    func persist(_ streams: Streams) -> Bool {
+    func persist(_ input: Streams) -> Bool {
+        guard input.rrPackets.isEmpty, input.standardHrReceipts.isEmpty else { return false }
+        // Frozen-v1 consumes legacy RR without a qualified beat-clock filter. A ring record
+        // anchor or callback time cannot qualify individual beats. Retain the exact words
+        // in the raw envelope until the generic beat adapter is implemented and validated.
+        var streams = input
+        streams.rr = []
         guard !streams.isEmpty else { return true }
         guard let size = try? JSONEncoder().encode(streams).count, size <= 49_152 else { return false }
         if let current {

@@ -56,6 +56,7 @@ class FtmsSource(
     /** Diagnostic sink for the connect lifecycle — the SAME exportable strap log (issue #421). Every line
      *  is prefixed "FTMS: " so it's distinguishable in the shared log. Default no-op keeps tests silent. */
     private val log: (String) -> Unit = {},
+    private val durableCapture: GenericNotificationCapture? = null,
 ) : LiveHrSource {
 
     /** An FTMS machine seen during a scan (UI affordance). */
@@ -150,7 +151,11 @@ class FtmsSource(
     }
 
     /** Tear down: cancel the connection and stop scanning. Idempotent. */
+    @Volatile private var acceptingCapture = true
+
     override fun stop() {
+        acceptingCapture = false
+        durableCapture?.seal()
         stopScan()
         pendingConnectAddress = null
         gatt?.let { runCatching { it.disconnect(); it.close() } }
@@ -242,12 +247,12 @@ class FtmsSource(
             g: BluetoothGatt,
             ch: BluetoothGattCharacteristic,
             value: ByteArray,
-        ) = handleMachine(ch.uuid, value)
+        ) { ingestNotification(ch.service?.uuid?.toString() ?: "unknown", ch.uuid, value) }
 
         @Deprecated("Deprecated in Java")
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
-            handleMachine(ch.uuid, ch.value ?: return)
+            ingestNotification(ch.service?.uuid?.toString() ?: "unknown", ch.uuid, ch.value ?: return)
         }
 
         override fun onCharacteristicRead(
@@ -256,13 +261,13 @@ class FtmsSource(
             value: ByteArray,
             status: Int,
         ) {
-            if (ch.uuid == BATTERY_CHAR && status == BluetoothGatt.GATT_SUCCESS) handleBattery(value)
+            if (ch.uuid == BATTERY_CHAR && status == BluetoothGatt.GATT_SUCCESS) ingestNotification(ch.service?.uuid?.toString() ?: "unknown", ch.uuid, value)
         }
 
         @Deprecated("Deprecated in Java")
         @Suppress("DEPRECATION")
         override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
-            if (ch.uuid == BATTERY_CHAR && status == BluetoothGatt.GATT_SUCCESS) handleBattery(ch.value ?: return)
+            if (ch.uuid == BATTERY_CHAR && status == BluetoothGatt.GATT_SUCCESS) ingestNotification(ch.service?.uuid?.toString() ?: "unknown", ch.uuid, ch.value ?: return)
         }
     }
 
@@ -308,6 +313,15 @@ class FtmsSource(
             log("FTMS: receiving ${reading.kind.displayName} data — first reading" +
                 (reading.heartRate?.let { " HR $it bpm" } ?: ""))
         }
+        val ts = System.currentTimeMillis() / 1000
+        val payload = org.json.JSONObject(linkedMapOf(
+            "machine_kind" to reading.kind.name, "clock_quality" to "host_receipt_unverified",
+            "speed_kmh" to reading.speedKmh, "cadence" to reading.cadence, "power_watts" to reading.powerWatts,
+            "distance_m" to reading.distanceM, "total_energy_kcal" to reading.totalEnergyKcal,
+            "heart_rate_bpm" to reading.heartRate, "elapsed_time_seconds" to reading.elapsedTimeSec).mapValues { it.value ?: org.json.JSONObject.NULL }).toString()
+        durableCapture?.persist(com.noop.data.StreamBatch(
+            hr = reading.heartRate?.takeIf { it in 30..220 }?.let { listOf(com.noop.data.HrRow(ts, it)) } ?: emptyList(),
+            events = listOf(com.noop.data.EventEntry(ts, "FTMS_READING", payload))))
         handler.post {
             guarded("reading-sink") {
                 _latest.value = reading
@@ -315,6 +329,25 @@ class FtmsSource(
                 reading.heartRate?.takeIf { it in 30..220 }?.let { liveSink(it) }
             }
         }
+    }
+
+    internal fun ingestNotification(service: String, uuid: UUID, data: ByteArray): Boolean {
+        if (!acceptingCapture || (uuid != BATTERY_CHAR && MACHINE_CHARS.none { it.first == uuid })) return false
+        val decode = {
+            if (uuid == BATTERY_CHAR) {
+                handleBattery(data)
+                StandardBattery.parse(data)?.let { pct ->
+                    durableCapture?.persist(com.noop.data.StreamBatch(battery = listOf(com.noop.data.BatteryRow(
+                        System.currentTimeMillis() / 1000, pct.toDouble(), null))))
+                }
+            } else handleMachine(uuid, data)
+            Unit
+        }
+        val sink = durableCapture
+        if (sink == null) { decode(); return true }
+        val accepted = sink.capture(data, service, uuid.toString(), decode)
+        if (!accepted) stop()
+        return accepted
     }
 
     companion object {

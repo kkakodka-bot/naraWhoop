@@ -4,6 +4,9 @@ import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -93,4 +96,27 @@ class LiveCaptureQueueTest {
         queue.stopAccepting()
         assertEquals(0, queue.pendingCount)
     }
+    @Test fun sealedQueueRetriesAcceptedPrefixThenReleasesItsWriterJob() = runTest {
+        val owner = SupervisorJob()
+        val scope = CoroutineScope(owner + StandardTestDispatcher(testScheduler))
+        var failing = true
+        val persisted = mutableListOf<Packet>()
+        val queue = LiveCaptureQueue(scope, Packet::identity,
+            persist = { if (failing) throw IOException("held"); persisted += it },
+            committed = {}, blocked = {}, batchRecords = 1,
+            monotonicMs = { testScheduler.currentTime })
+        try {
+            assertTrue(queue.offer(Packet(a, 1), 10))
+            queue.finishWhenDrained(); runCurrent()
+            assertEquals(1, queue.pendingCount)
+            assertTrue(owner.children.any { it.isActive })
+            assertFalse(queue.offer(Packet(a, 2), 10))
+            failing = false
+            advanceTimeBy(5_000); runCurrent()
+            assertEquals(listOf(Packet(a, 1)), persisted)
+            assertEquals(0, queue.pendingCount)
+            assertFalse(owner.children.any { it.isActive })
+        } finally { scope.cancel() }
+    }
+
 }

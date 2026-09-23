@@ -7,6 +7,11 @@ import org.json.JSONObject
 object StandardHrMapping {
     const val CONTACT_EVENT_KIND = "STANDARD_HR_CONTACT"
 
+    /** Arrival clocks and observed RR words are not qualified beat times. Keep exact receipts. */
+    fun canonicalProjection(batch: StreamBatch): StreamBatch =
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) batch.copy(rr = emptyList()) else batch
+
+
     /**
      * Should this reading record a contact event, given the last one recorded?
      *
