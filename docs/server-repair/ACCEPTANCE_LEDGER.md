@@ -21,8 +21,9 @@ Frozen executable source: `405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2`. Evidence-b
 | producer parity | source | FAIL | Canonical history/live/session and generic raw numerical adapters remain engineering work; unimplemented is not unsupported hardware |
 | normal route access | deployed read only | BLOCKED | Signed405fleet/anon configuration matches project; strict read-only token-hash SELECT found one active unexpired fleet row. Account and installation bearer values absent from8normal parity environment variables and normal configs; ordinarily phone Keychain. No Keychain extraction or authenticated enrolled GET executed. Such GETs update token-use timestamps and require explicit approval. The same8names are absent in normal target scoring.env/secrets.env; target intake.env is absent. |
 | matched deployment proposal | source and artifact review | PASS | Sealed source405 proposal binds129catalog/12forward migrations,6Edge roles,3immutable images,2one-pair guarded workers and originaliPhone373. GlobalSQL129 read policy disclosed. Single full-plan approval covers enumerated stages; access and stop gates remain mandatory. No execution. |
-| deployment | deployed | NOT_MEASURED | Exact reviewed approval proposal ready; no approval granted, registry publication, production mutation or physical installation performed. |
-| real phone readback | physical | NOT_MEASURED | No candidate installed or actual phone readback observed |
+| iphone build 373 installation | physical | PASS | The connected iPhone16 was upgraded in place from build371 to signed build373 under the same bundle identifier. The main application and widget processes launched. No uninstall, phone reset, enrollment reset, Watch install or server mutation occurred; app data-container identity was not captured before installation. |
+| deployment | deployed | NOT_MEASURED | Signed iPhone build373 was installed and launched under the user's explicit instruction. Registry publication, hosted migrations, Edge/config changes and VPS worker deployment remain NOT_PERFORMED. |
+| real phone readback | physical | NOT_MEASURED | Candidate build373 is installed and launched; no supported immutable/API/cache/UI result equality or physical zero-local-inference interval has been observed. |
 | locked 4h | physical | NOT_MEASURED | Not performed |
 | soak 24h | physical | NOT_MEASURED | Not performed |
 | soak 72h | physical | NOT_MEASURED | Not performed |
@@ -40,8 +41,8 @@ Source-bound slice receipts retain their executed SHA; historical artifacts and 
 
 ## External gates
 
-- **approval:** No production migration, registry push, service/Edge mutation, phone install/launch/reset, promotion or main merge authorized.
-- **physical:** Read-only refresh has no usable iPhone16 tunnel/DDI; version is best-known inventory after device-info timeout. Candidate installation/readback remain unverified. Watch profiles omit paired Watch and DeveloperMode/DDI unavailable. No activation, portal/device registration or install authorized.
+- **approval:** The user explicitly authorized and the operator completed the in-place iPhone build373 install and launch. No production migration, registry push, service/Edge mutation, reset, Watch install, promotion or main merge has occurred.
+- **physical:** The iPhone16 tunnel and DDI were available for build373 installation and launch. Actual supported result readback and physical zero-local-inference evidence remain unmeasured. Watch installation/profile registration and Android installation were not performed.
 - **elapsed:** 4h/24h/72h require actual elapsed observed runs.
 - **capacity:** 1000-user claim unsupported; actual target mixedworkload admission remains unknown.
 - **configuration:** Local private exact traced owner/device admission and normal intake.env prepared; target intake.env absent and target dedicated scoring URI requires approved strict-TLS correction. No target change.

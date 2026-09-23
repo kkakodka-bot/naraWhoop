@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "status": "PASS",
+  "recordedAt": "2026-09-23T07:17:33Z",
+  "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+  "sourceTree": "ed228cc12171dd521b41340e9a3c631740649fb0",
+  "bleTip": "e2cb1f8ab15d302f07f416b8d017ae4b33003ac3",
+  "bleTipIsAncestorOfSource": true,
+  "reviewedRemoteExecutableHeadsIncluded": [
+    "a972493212f2eae29f01ecaddf9182260153400f",
+    "5caa31689da0023e111beb36850d3f81d67e1be2",
+    "5bd1b6cbb40aa6c1754cccbb5f85366004312859",
+    "d1b313b712ca101c1e561dbb59ef09773272c561",
+    "e8f7d3de2fc87cd9e8ef123e0a61a68f424c218c",
+    "293fd6b84aa8f3e86f18cfab35933206aa53403d"
+  ],
+  "artifact": {
+    "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/phones/NOOP-373.ipa",
+    "sha256": "09b9ec446de52ec91d7eb28a03b24a19f7ddf9da6401bc09be8c06bb60b9e8cf",
+    "bundleIdentifier": "com.rahulvijayan.nara.noop",
+    "version": "11.1.1",
+    "build": "373"
+  },
+  "device": {
+    "coreDeviceIdentifier": "97672F64-21A1-5693-86CC-EF78A2795011",
+    "model": "iPhone 16",
+    "productType": "iPhone17,3",
+    "osVersion": "27.0",
+    "osBuild": "24A435",
+    "developerMode": "enabled",
+    "ddiServices": "available",
+    "tunnel": "connected"
+  },
+  "previousInstalledBuild": "371",
+  "installedBuild": "373",
+  "installMode": "in_place_same_bundle_identifier",
+  "uninstallPerformed": false,
+  "phoneResetPerformed": false,
+  "enrollmentResetPerformed": false,
+  "dataContainerIdentityBeforeAfter": "NOT_CAPTURED",
+  "launch": {
+    "status": "PASS",
+    "mainProcessObserved": true,
+    "widgetProcessObserved": true
+  },
+  "watchInstallation": "NOT_PERFORMED",
+  "serverDeployment": "NOT_PERFORMED",
+  "registryPublication": "NOT_PERFORMED",
+  "productionSchemaOrEdgeMutation": "NOT_PERFORMED",
+  "phoneResultReadback": "NOT_MEASURED",
+  "zeroLocalPhysiologyOnPhysicalProcess": "NOT_MEASURED",
+  "lockedFourHourContinuity": "NOT_MEASURED",
+  "soak24Hour": "NOT_MEASURED",
+  "soak72Hour": "NOT_MEASURED",
+  "targetVpsCapacity": "NOT_MEASURED",
+  "productionBackendMutation": false,
+  "physicalDeviceMutation": true,
+  "mutationScope": "authorized in-place iPhone application installation and launch only"
+}

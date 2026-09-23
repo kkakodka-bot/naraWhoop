@@ -372,11 +372,27 @@
       ]
     },
     {
+      "id": "iphone_build_373_installation",
+      "evidenceTier": "physical",
+      "status": "PASS",
+      "expectedCriterion": "Install and launch the signed final405 iPhone artifact without uninstall, reset, re-signing or scope expansion",
+      "observedResult": "The connected iPhone16 was upgraded in place from build371 to signed build373 under the same bundle identifier. The main application and widget processes launched. No uninstall, phone reset, enrollment reset, Watch install or server mutation occurred; app data-container identity was not captured before installation.",
+      "commandOrProtocol": "Fetch remote heads; verify BLE/VPS ancestry and IPA identity; xcrun devicectl in-place install, installed-app query and bounded launch/process observation",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "physical_iPhone16_iOS27.0_build24A435",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/WHOOP NARA-repair-evidence/docs/server-repair/deployment/iphone-install-373-receipt.json",
+          "sha256": "f7d9c07bf76e742ba8a184f65be23a09caba9f2a631153e69702598b99d57774"
+        }
+      ]
+    },
+    {
       "id": "deployment",
       "evidenceTier": "deployed",
       "status": "NOT_MEASURED",
       "expectedCriterion": "Explicit approval for exact matched plan and successful observed deployment",
-      "observedResult": "Exact reviewed approval proposal ready; no approval granted, registry publication, production mutation or physical installation performed.",
+      "observedResult": "Signed iPhone build373 was installed and launched under the user's explicit instruction. Registry publication, hosted migrations, Edge/config changes and VPS worker deployment remain NOT_PERFORMED.",
       "commandOrProtocol": "Pinned hosted migration plan; bound scoped services/Edge/phone artifacts",
       "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
       "environment": "deployed",
@@ -392,7 +408,7 @@
       "evidenceTier": "physical",
       "status": "NOT_MEASURED",
       "expectedCriterion": "Consented real supported numerical result equals immutable/API/cache/UI revision with zero local physiology",
-      "observedResult": "No candidate installed or actual phone readback observed",
+      "observedResult": "Candidate build373 is installed and launched; no supported immutable/API/cache/UI result equality or physical zero-local-inference interval has been observed.",
       "commandOrProtocol": "Normal enrolled/account API and physical native capture/render trace",
       "sourceSha": null,
       "environment": "physical",
@@ -475,15 +491,15 @@
       ]
     }
   ],
-  "recordedAt": "2026-09-23T07:03:45.399119+00:00",
+  "recordedAt": "2026-09-23T07:17:33Z",
   "engineeringGaps": [
     "Canonical history-family selected publication and several live/session numerical producers remain incomplete.",
     "Generic exact-byte capture is implemented; qualified server adapters for its numerical outputs remain incomplete.",
     "RR_Estimation raw production assembler/preprocessing and CorrEncoder selected rate producer remain incomplete; scientific qualification is separate."
   ],
   "externalGates": {
-    "approval": "No production migration, registry push, service/Edge mutation, phone install/launch/reset, promotion or main merge authorized.",
-    "physical": "Read-only refresh has no usable iPhone16 tunnel/DDI; version is best-known inventory after device-info timeout. Candidate installation/readback remain unverified. Watch profiles omit paired Watch and DeveloperMode/DDI unavailable. No activation, portal/device registration or install authorized.",
+    "approval": "The user explicitly authorized and the operator completed the in-place iPhone build373 install and launch. No production migration, registry push, service/Edge mutation, reset, Watch install, promotion or main merge has occurred.",
+    "physical": "The iPhone16 tunnel and DDI were available for build373 installation and launch. Actual supported result readback and physical zero-local-inference evidence remain unmeasured. Watch installation/profile registration and Android installation were not performed.",
     "elapsed": "4h/24h/72h require actual elapsed observed runs.",
     "capacity": "1000-user claim unsupported; actual target mixedworkload admission remains unknown.",
     "configuration": "Local private exact traced owner/device admission and normal intake.env prepared; target intake.env absent and target dedicated scoring URI requires approved strict-TLS correction. No target change.",
@@ -797,6 +813,7 @@
     "localSourceArtifactReview": "PASS",
     "fullProducerParity": "INCOMPLETE",
     "deployment": "NOT_PERFORMED",
+    "iphoneBuild373Installation": "PASS",
     "physicalAcceptance": "NOT_MEASURED"
   }
 }
