@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-23T06:49:29.032701+00:00",
+  "status": "INDEPENDENT_IMMUTABLE_OCI_PUBLICATION_PREPARATION_ACCEPTED",
+  "sourceRevision": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+  "publisher": {
+    "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/publish-approved-oci.py",
+    "sha256": "4ea6213200be7a94e646ece25cb3048c0fde65f3e9a132c701634cfe3d2d2d45"
+  },
+  "plan": {
+    "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/publication-plan.json",
+    "sha256": "5a9070e0a3ebb9236fa7f1e5f96f5e3d177fa49e1b9b8c3432362ab9711a4941"
+  },
+  "actualLocalRoundtrip": {
+    "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/local-roundtrip-final/receipt.json",
+    "sha256": "78cbc850ab2c44c37ad8ada46f1764865cbb541d8d7c2aa3e9f21890f37ad4a4"
+  },
+  "tests": {
+    "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/test-publish-approved-oci.py",
+    "sha256": "042b83eef6edd142372ae025332bf0e8f61bf028bb143c37d53a354913b19561",
+    "independentlyExecuted": true,
+    "passed": 14,
+    "failed": 0
+  },
+  "byteConservation": {
+    "intake": {
+      "manifestAndConfigMatch": true,
+      "configAndLayerBlobsRehashed": 12,
+      "sourceArchiveUnchanged": true
+    },
+    "selectedV1": {
+      "manifestAndConfigMatch": true,
+      "configAndLayerBlobsRehashed": 12,
+      "sourceArchiveUnchanged": true
+    },
+    "shadowV2": {
+      "manifestAndConfigMatch": true,
+      "configAndLayerBlobsRehashed": 11,
+      "sourceArchiveUnchanged": true
+    }
+  },
+  "checks": [
+    "Exact frozen source/aggregate/archive/index/manifest/config/alllayer validation before execution.",
+    "Default dry run performs no network or subprocess call and reads no auth; explicit exact plan hash required for execute.",
+    "Remote destinations are only three fixed GHCR repositories with immutable digest references; no tags or rebuild.",
+    "Remote auth must be explicit owner-only GHCR-only inline auth JSON; no ambient helper, Docker socket, or credentials in argv.",
+    "Pinned official Skopeo image selects linux/amd64 child image and preserve-digests; local mode sends no credentials and targets only loopback registry.",
+    "Source review finding of unbounded Docker controls fixed with30s controls/cleanup and900s attached copy; two regression tests cover hanging controls/exact-ID cleanup.",
+    "Independently hashed all three returned manifests and35 config/layer blobs; actual readback bytes and original archives match approved aggregate."
+  ],
+  "productionMutation": false,
+  "remoteRegistryPublication": "NOT_RUN",
+  "registryPermissions": "NOT_VERIFIED",
+  "targetPullAvailability": "NOT_VERIFIED",
+  "limits": [
+    "Local disposable registry transport proves byte conservation, not GHCR permission or target availability.",
+    "No credential retrieval, external publication, runtime deployment, model activation or phone operation performed.",
+    "Normal authenticated route proof and explicit user approval remain prerequisites before any production mutation."
+  ]
+}

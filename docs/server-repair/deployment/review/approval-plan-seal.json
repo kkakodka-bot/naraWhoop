@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "kind": "matched-deployment-public-review-seal",
+  "sealedAt": "2026-09-23T07:01:04.927345+00:00",
+  "status": "REVIEW_COMPLETE_APPROVAL_AND_ACCESS_GATES_PENDING",
+  "source": {
+    "commit": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+    "tree": "ed228cc12171dd521b41340e9a3c631740649fb0",
+    "workingTree": "CLEAN",
+    "operatorTooling": "External reviewed operator helpers; does not change runtime405"
+  },
+  "approval": "NOT_GRANTED",
+  "productionMutation": false,
+  "registryPublication": "NOT_PERFORMED",
+  "deviceInstallation": "NOT_PERFORMED",
+  "publicPlanSha256": "1e1eadfde1ded44cef4c4bf613cdbef20e490d3c7c557c07943204c6f6b71f20",
+  "runbookSha256": "758b5697bf95bd146ee78e087f697e098dd246c2d8ad6ddd3817a77c1bbb6393",
+  "independentReviewSha256": "f59a631a59790874fdcbf8a313b1457bb0cc5b521f5d674f66910ec87615c433",
+  "aggregateSha256": "9a6f857574fa1019f69013ec912cabc54ab0d59b4baaf755e5df8ced493b1b0c",
+  "aggregateFingerprint": "9c22456cabbab3196b6472ad2f0d67de004a930a0d6b86618ade7fc82fa0aeff",
+  "workerDeploymentFingerprint": "cb938cae5377abb026bbcae8b956d82cfcd679045ba7b1590e7a93eff81e9746",
+  "privateWorkerPlanSha256": "0e9873d0ace063f80200daa901b8bd047526bdfe6e025797e5c3ff8ff8caaef5",
+  "hostedMigrationPlanFingerprint": "21243b3e4d1a17b974289478806c191fb71309a6eed86b85c0f632433539fce6",
+  "publisherPlanSha256": "5a9070e0a3ebb9236fa7f1e5f96f5e3d177fa49e1b9b8c3432362ab9711a4941",
+  "publisherSourceSha256": "4ea6213200be7a94e646ece25cb3048c0fde65f3e9a132c701634cfe3d2d2d45",
+  "publisherTransportProofSha256": "d8eeb6dd2bab2e43969617f2e792cbf81492a2e7a2a98f70ac4483189f662b5f",
+  "files": [
+    {
+      "path": "MATCHED_DEPLOYMENT_APPROVAL_405.md",
+      "sha256": "758b5697bf95bd146ee78e087f697e098dd246c2d8ad6ddd3817a77c1bbb6393",
+      "sizeBytes": 28439
+    },
+    {
+      "path": "apply-scoring-tls-update.py",
+      "sha256": "7ca11750e5559c28801fc24485adfa5efc80df07c7a321df681cc1b583c4bc36",
+      "sizeBytes": 6404
+    },
+    {
+      "path": "bind-final-worker-plan.py",
+      "sha256": "a91e46431cef943e06fe8462469b5e1ca7b4b96093391b3c30d351e7c735a049",
+      "sizeBytes": 2682
+    },
+    {
+      "path": "final-405-runtime-source-binding.json",
+      "sha256": "a932013212d0050d0ef868aa904a92543059ab4cddc3e6d8a0ae15c272d62777",
+      "sizeBytes": 2885
+    },
+    {
+      "path": "hosted-actual-schema-405-independent-review.json",
+      "sha256": "6e9e8d13cc39cbbd3d160b2b66632234d51ff100b9800b629cc160de0afb8efc",
+      "sizeBytes": 899
+    },
+    {
+      "path": "local-deploy-key-preparation.json",
+      "sha256": "590ca18f363771b57f233a0a509b09dfa60b91c8c24d0a93788307bb5891c2f7",
+      "sizeBytes": 753
+    },
+    {
+      "path": "matched-deployment-plan.json",
+      "sha256": "1e1eadfde1ded44cef4c4bf613cdbef20e490d3c7c557c07943204c6f6b71f20",
+      "sizeBytes": 26715
+    },
+    {
+      "path": "matched-plan-405-final-independent-review.json",
+      "sha256": "f59a631a59790874fdcbf8a313b1457bb0cc5b521f5d674f66910ec87615c433",
+      "sizeBytes": 3139
+    },
+    {
+      "path": "normal-route-credential-access.json",
+      "sha256": "2744a28943979a8e3cb5bc18d49d0b24e6f7f8fdb4d0a9415440a62178d98dc1",
+      "sizeBytes": 5489
+    },
+    {
+      "path": "normal-server-route-config-presence.json",
+      "sha256": "c12f8ad4109132b983a161c086b12771d74187eff168c75d9f09c453831517cc",
+      "sizeBytes": 1661
+    },
+    {
+      "path": "oci-publication/OPERATOR.md",
+      "sha256": "2e6a13cbd9bc4c82ab5879150a66981e320c90fdb96565dcf708ad5c2e209e35",
+      "sizeBytes": 6970
+    },
+    {
+      "path": "oci-publication/direct-registry-http-conservation.json",
+      "sha256": "cce3a3e4297840f11e8edc3514e668a39e1a09096c9d500ad18af00f47428fb5",
+      "sizeBytes": 7205
+    },
+    {
+      "path": "oci-publication/independent-review.json",
+      "sha256": "3cb6cbff69b968ce164c5f4be33940999bc05fc5f22c547db92689d9c406532b",
+      "sizeBytes": 3295
+    },
+    {
+      "path": "oci-publication/local-roundtrip-final/receipt.json",
+      "sha256": "78cbc850ab2c44c37ad8ada46f1764865cbb541d8d7c2aa3e9f21890f37ad4a4",
+      "sizeBytes": 16097
+    },
+    {
+      "path": "oci-publication/publication-plan.json",
+      "sha256": "5a9070e0a3ebb9236fa7f1e5f96f5e3d177fa49e1b9b8c3432362ab9711a4941",
+      "sizeBytes": 752
+    },
+    {
+      "path": "oci-publication/publish-approved-oci.py",
+      "sha256": "4ea6213200be7a94e646ece25cb3048c0fde65f3e9a132c701634cfe3d2d2d45",
+      "sizeBytes": 15695
+    },
+    {
+      "path": "oci-publication/test-publish-approved-oci.py",
+      "sha256": "042b83eef6edd142372ae025332bf0e8f61bf028bb143c37d53a354913b19561",
+      "sizeBytes": 6825
+    },
+    {
+      "path": "oci-publication/transport-evidence-files.json",
+      "sha256": "c676340221074ba04aec14c0d60f990a99566df96228da635ef3b2f53fd97d4d",
+      "sizeBytes": 25990
+    },
+    {
+      "path": "oci-publication/transport-proof-receipt.json",
+      "sha256": "d8eeb6dd2bab2e43969617f2e792cbf81492a2e7a2a98f70ac4483189f662b5f",
+      "sizeBytes": 4012
+    },
+    {
+      "path": "oci-publication/unit-tests.log",
+      "sha256": "81783036d97f162037cc444c3978ef76797c9b8a6d60181d70f250c26cf96df3",
+      "sizeBytes": 1545
+    },
+    {
+      "path": "offline-worker-plan-verification.json",
+      "sha256": "b3fb410910ff5cc0e26b95e7d07a1581b9cf76970e8806281a00056a8fc60c65",
+      "sizeBytes": 2250
+    },
+    {
+      "path": "target-root-supervisor-readonly.json",
+      "sha256": "2574746e91fcf4492157f5aedd1520873ad8eb22da6899b358af7e0657676b28",
+      "sizeBytes": 630
+    },
+    {
+      "path": "test_apply_scoring_tls_update.py",
+      "sha256": "e95a388064f3c49528ab7cf008eddc400d552bad77226b4c44b7fc859a4e3754",
+      "sizeBytes": 4759
+    },
+    {
+      "path": "tls-update-helper-tests.log",
+      "sha256": "291adc1f6bbd3d4c96297b94cfc2cc4a3537ff11f37b9e0f0ff7eccd266a40eb",
+      "sizeBytes": 1013
+    },
+    {
+      "path": "tls-update-peer-review.json",
+      "sha256": "70d9985424f317fc5213cf3cbd8132866a62ae560f4c8c65cede90c344804682",
+      "sizeBytes": 1071
+    }
+  ],
+  "publicFileCountExcludingSeal": 25,
+  "excludedPrivateMaterial": [
+    "Admission identity JSON",
+    "Private executable worker deployment plan and guard inputs",
+    "Intake environment and TLS replacement values",
+    "Registry auth",
+    "SSH private key",
+    "Account/enrollment tokens",
+    "Raw health recording and schema DDL dump"
+  ],
+  "mandatoryUnresolvedGates": [
+    "Explicit approval for this complete exact plan; no redundant approval unless artifact or scope changes",
+    "Existing genuine account JWT/enrolled bearer and normal original phone access; first approved GET includes token usage timestamp updates",
+    "Normal registry permissions and private approved package visibility before source-bearing image publication; no public release scope",
+    "Approved execution of migration/config/Edge/stopped staging and exact container guard binding; actual state must pass all gates",
+    "Original iPhone installation must stop if Watch companion provisioning/install or package rejection requires scope expansion"
+  ],
+  "acceptance": {
+    "firstTenMinuteReadback": "NOT_MEASURED",
+    "fourHourLockedContinuity": "NOT_MEASURED",
+    "24HourSoak": "NOT_MEASURED",
+    "72HourSoak": "NOT_MEASURED",
+    "targetVpsCapacity": "NOT_MEASURED",
+    "1000UserCapacity": "UNSUPPORTED"
+  },
+  "evidenceBoundary": "Local implementation/artifact/rehearsal evidence does not establish original physical-phone issue fixed."
+}

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-23T07:00:12.101448+00:00",
+  "status": "INDEPENDENT_MATCHED_PLAN_SOURCE_REVIEW_ACCEPTED",
+  "sourceRevision": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+  "sourceTree": "ed228cc12171dd521b41340e9a3c631740649fb0",
+  "reviewedPlan": {
+    "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/matched-deployment-plan.json",
+    "sha256": "1e1eadfde1ded44cef4c4bf613cdbef20e490d3c7c557c07943204c6f6b71f20"
+  },
+  "reviewedRunbook": {
+    "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/MATCHED_DEPLOYMENT_APPROVAL_405.md",
+    "sha256": "758b5697bf95bd146ee78e087f697e098dd246c2d8ad6ddd3817a77c1bbb6393"
+  },
+  "hashReferencesVerified": 59,
+  "publicReviewFilesChecked": 24,
+  "checks": [
+    "All59 path/hash bindings match actual files; reviewed source contracts remain exact405.",
+    "Final publisher/tool/local conservation proof and14test review bound; external GHCR permission/private visibility/target pulls remain unverified.",
+    "First genuine normal account/enrolled route request requires approval including opaque-token last_used_at writes; missing account/installation bearer material disclosed without assuming expiry.",
+    "Exact route proof then private registry publication/target pull precede12 wrappers; config and six Edge roles precede stopped restart=no intake/baseline staging; actual root binding precedes guard start.",
+    "No-existing-hosted-v1/intake check required immediately before generic deployer invocation; unexpected replacement remains outside approval.",
+    "SQL129 global read eligibility change disclosed separately from single owner/device processing admission.",
+    "Phone-only scope excludes Watch/Android; abort if bundled Watch provisioning/install required, without repackaging/registering/resetting.",
+    "Rollback stops only bound exact candidates; preserves additive schema/raw/debt/results and refuses stale insecure or unfenced rollback.",
+    "Private admission owner/device IDs absent from all24 public review files.",
+    "Six operator source/test/plan review copies and three sanitized recording copies match canonical bytes.",
+    "One explicit full-plan approval covers the enumerated immutable stages including guarded activation and original iPhone install; unchanged scope does not require repeated confirmation. Access and stop gates remain mandatory."
+  ],
+  "approval": "NOT_GRANTED",
+  "productionMutation": false,
+  "executionReadiness": "BLOCKED_NORMAL_ACCOUNT_ENROLLED_CREDENTIALS_AND_DEVICE_ACCESS; REGISTRY_SCOPE_ACCESS_UNVERIFIED",
+  "physicalAcceptance": "NOT_MEASURED",
+  "capacityAcceptance": "NOT_MEASURED",
+  "limits": [
+    "Approval proposal and source review are complete for this narrow plan; original incident remains open.",
+    "No production command, registry request/publication, phone operation, model promotion or main merge performed in review.",
+    "Evidence-branch handoff/ledger final status synchronization is owned by root and is not an executable source change."
+  ]
+}

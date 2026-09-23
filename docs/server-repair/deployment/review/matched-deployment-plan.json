@@ -1,0 +1,478 @@
+{
+  "schemaVersion": 1,
+  "kind": "sanitized-matched-deployment-approval-proposal",
+  "preparedAt": "2026-09-23T06:58:09.163207+00:00",
+  "reviewedSource": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+  "finalSource": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+  "artifactDigests": {
+    "selectedV1": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/workers/baseline.oci.tar",
+      "sha256": "1717f5527dad18783c02dcebbdbb12cb05b367dbcfafa4275575073f244accd2",
+      "sizeBytes": 106254336,
+      "manifestDigest": "sha256:aa69800d726b3c9d6e0fac617903035d1a39d99c2f2000bc96c0b66e86d17dbe",
+      "configDigest": "sha256:fa8cf9c71f2f2af25f08b9a154793e7fa82082cc90a0d96f65a77ee2ffcfa57c",
+      "platform": "linux/amd64",
+      "sourceRevision": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "proposedReference": "ghcr.io/kkakodka-bot/frwhoop_v2/baseline@sha256:aa69800d726b3c9d6e0fac617903035d1a39d99c2f2000bc96c0b66e86d17dbe"
+    },
+    "shadowV2": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/workers/physiology.oci.tar",
+      "sha256": "f7415824479ef69ddfcc66a0ac819110eb3136a2866d6d328540d301a25ea8a5",
+      "sizeBytes": 107575808,
+      "manifestDigest": "sha256:875e81ef8072cf449475c38d3b22259853ec45c67498b50ef4801a46eae5747e",
+      "configDigest": "sha256:396efc4f3168181f612417235cf4d1e83e946eba9d9f64be981dee5bb522ed77",
+      "platform": "linux/amd64",
+      "sourceRevision": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "proposedReference": "ghcr.io/kkakodka-bot/frwhoop_v2/physiology@sha256:875e81ef8072cf449475c38d3b22259853ec45c67498b50ef4801a46eae5747e"
+    },
+    "intake": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/workers/intake.oci.tar",
+      "sha256": "2874312bc0619fab685c829bb86fe3358c9498ddc6272baed23bd4a93ef9605d",
+      "sizeBytes": 78639616,
+      "manifestDigest": "sha256:0db2cab4d193034225e6d7f067e4b2beaa368d65785ecb9c73857de131e1030c",
+      "configDigest": "sha256:4cf40b4df7ee7d5a4fd1d99c6d31d2b42cc2ab2bbeb6cef02f948849e277f2ae",
+      "platform": "linux/amd64",
+      "sourceRevision": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "proposedReference": "ghcr.io/kkakodka-bot/frwhoop_v2/intake@sha256:0db2cab4d193034225e6d7f067e4b2beaa368d65785ecb9c73857de131e1030c"
+    },
+    "ios": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/phones/NOOP-373.ipa",
+      "sha256": "09b9ec446de52ec91d7eb28a03b24a19f7ddf9da6401bc09be8c06bb60b9e8cf",
+      "sizeBytes": 27919419,
+      "build": "373",
+      "signing": "development verified",
+      "installScope": "original iPhone16 only after explicit approval; Watch blocked separately",
+      "installationFeasibility": "NOT_VERIFIED; companion/provisioning requirement may block phone-only installation"
+    },
+    "android": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/phones/app-full-release.apk",
+      "sha256": "784514b706bf430f408a77934df4904f7ccabe72972e40790f6caf4fd72bff20",
+      "sizeBytes": 24755193,
+      "versionCode": 452,
+      "signing": "staging verified",
+      "installScope": "NO_IDENTIFIED_HARDWARE_NO_INSTALL_PROPOSED"
+    },
+    "migrations": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/migrations/migration-manifest.json",
+      "sha256": "a4e5ab76ff10379895d5c3bf64922f3582cde84951a7d38fb7e1301e14031a68",
+      "sizeBytes": 157018
+    },
+    "edge": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/edge/source-bundle/edge-source-bundle.tar",
+      "sha256": "750cee57864858a4d9d8a13035ade61d9ef94b58b76d7ee5031520a05c2e7d40",
+      "sizeBytes": 325120
+    },
+    "deployment": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/source-bundle/deployment-source-bundle.tar",
+      "sha256": "b486b9389654dd2828a1b1f85f6bc1bebbcaf8d3f71629a381db0553c29d292a",
+      "sizeBytes": 1076224
+    }
+  },
+  "workerDeploymentFingerprint": "cb938cae5377abb026bbcae8b956d82cfcd679045ba7b1590e7a93eff81e9746",
+  "hostedMigrationPlanFingerprint": "21243b3e4d1a17b974289478806c191fb71309a6eed86b85c0f632433539fce6",
+  "approval": "NOT_GRANTED",
+  "productionMutation": false,
+  "scope": {
+    "newContinuousWorkers": [
+      "intake-consumer",
+      "scoring-baseline-v1"
+    ],
+    "admission": "ONE_ORIGINAL_TRACE_OWNER_DEVICE_PAIR",
+    "admissionSha256": "77ae1403816bc64b0f71ab2b79241c5ffd39c5baf1ce4100106b8f7f2358e05e",
+    "pairEvidence": "Historical build371 owner/source + exact original authenticated server receipt; current owned active device/current installation checked; physical linkage NOT_MEASURED",
+    "globalReadChange": "SQL129 masks unqualified legacy-v1 beat-dependent API metrics for all readers; immutable payloads unchanged",
+    "globalImpactAtCapture": {
+      "capturedAt": "2026-09-23T05:30:46.101537+00:00",
+      "storedHostedLegacyV1Publications": 0,
+      "truncated": false,
+      "compatibilityDailyRows": 0,
+      "compatibilityNightRows": 0,
+      "installedOldCaches": "UNKNOWN_REQUIRES_UPDATED_PHONE"
+    },
+    "asyncVerification": "OFF; NOOP_ASYNC_OBJECT_VERIFICATION=0; scoped consumer cannot authorize global async",
+    "newPersistentShadowHistoryOrModels": "EXCLUDED",
+    "existingContainers": "PRESERVE_IDENTITIES_CONFIGS_AND_RUNNING_STATES; abort if a previously absent hosted-v1 candidate appears; no implicit old shadow quiescence",
+    "pairLimitation": "Original local snapshot device catalogue does not independently match server receipt device; gravity-table read reported corruption. No repair/reset performed. Admission uses exact authenticated original receipt pair; physical radio linkage remains NOT_MEASURED.",
+    "phoneInstall": "Only original observed iPhone16 with iOS373 and traced WHOOP pair; preserve enrollment; actual physical linkage required",
+    "immediatePreDeployInventoryRequired": true,
+    "genericDeployerLimit": "initial scope does not itself prohibit replacing an unexpected matching hosted-v1; operator must abort on changed absence immediately before invocation",
+    "companionProvisioningBoundary": "IPA includes Watch companion whose profile excludes observed paired Watch. If normal iPhone installation requires companion provisioning/install or rejects package, STOP. No stripping, re-signing, repackaging, registration, Developer Mode change, reset or scope expansion."
+  },
+  "migrations": {
+    "catalogue": 129,
+    "alreadyAppliedFullIdentities": 117,
+    "nativeLedgerRowsPreserved": 110,
+    "forwardMigrations": 12,
+    "catalogueFingerprint": "bd78bdc02131edb3f5de974158202dc948e899cffb85b05970a45b1db2ae4edd",
+    "expectedDatabaseFingerprint": "d9fb8fcb73324dcc94c67190756c3ec292fec89a2d959ef05bdc3c9915c957f4",
+    "schemaRestore": "ACTUAL_HOSTED_405_SCHEMA_RESTORE_AND_12_WRAPPERS_PASS_NO_APP_DATA",
+    "rollback": "KEEP_ADDITIVE_SCHEMA; NO OLD_MIGRATION_REPLAY"
+  },
+  "configuration": {
+    "privateIntakeEnv": {
+      "path": "/Volumes/Untitled/server-repair-private/deployment/intake.env",
+      "sha256": "fbbc669c17c8c729f0e43830b39ff16c3f22b300561f7393f4735942338ba33d",
+      "authentication": "EXISTING_NORMAL_KEY_READ_ONLY_REST_200",
+      "bucket": "FRWHOOP_PROVIDER_DECLARED_AND_SIGNED_HEAD200"
+    },
+    "privateDatabaseUpdate": {
+      "path": "/Volumes/Untitled/server-repair-private/deployment/scoring-database-tls-update.json",
+      "sha256": "50d9604769d29d7741d92ecf3129f058a24447c5e82d01d3e54978ed1606b155",
+      "changesOnly": "SCORING_DATABASE_URL sslmode=require -> verify-full and pinned sslrootcert",
+      "targetCAPath": "/opt/frwhoop/supabase-prod-ca-2021.crt",
+      "allOtherSharedConfig": "BYTE_IDENTICAL_REQUIRED",
+      "operatorHelper": {
+        "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/apply-scoring-tls-update.py",
+        "sha256": "7ca11750e5559c28801fc24485adfa5efc80df07c7a321df681cc1b583c4bc36",
+        "mode": "DEFAULT_DRY_RUN_EXPLICIT_EXECUTE_AFTER_APPROVAL_ONLY",
+        "tests": 9,
+        "targetExecuted": false,
+        "sizeBytes": 6404
+      }
+    },
+    "runtimeAdmission": "REVALIDATE_ACTUAL_NEW_RPC_AFTER_MIGRATIONS",
+    "rootSupervisorAccess": "VERIFIED_READ_ONLY_ROOT_UID0_DEPLOY_UID1000_SYSTEMD_PRESENT_NO_SUPERVISOR_COMMAND",
+    "supabaseCLI": {
+      "path": "/opt/homebrew/Cellar/supabase/2.75.0/bin/supabase",
+      "version": "2.75.0",
+      "sha256": "e4c3a5d90e4ebb1782459a50d5cedac2fc6512c9cdc228bf73d80deea34d3c43"
+    },
+    "localDeployKey": {
+      "status": "PREPARED_ORIGINAL_KEY_COPY_0600_REGULAR_IGNORED",
+      "receipt": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/local-deploy-key-preparation.json",
+      "sha256": "590ca18f363771b57f233a0a509b09dfa60b91c8c24d0a93788307bb5891c2f7",
+      "originalPreserved": true,
+      "rotation": false
+    },
+    "normalRouteAccess": {
+      "receipt": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/normal-route-credential-access.json",
+      "sha256": "2744a28943979a8e3cb5bc18d49d0b24e6f7f8fdb4d0a9415440a62178d98dc1",
+      "accountJWT": "NOT_AVAILABLE_IN_NAMED_OPERATOR_ENV_NORMAL_BUILD_CONFIG; DEVICE_LOCAL_KEYCHAIN_NOT_ACCESSED",
+      "installationBearer": "NOT_AVAILABLE; CURRENT_SCOPED_SERVER_HASH_IS_NOT_PLAINTEXT_BEARER",
+      "fleetBearer": "AVAILABLE_FROM_SIGNED405IPA; MATCHED_ACTIVE_UNEXPIRED_EXPLICIT_FLEET_HASH_READ_ONLY",
+      "anonKey": "AVAILABLE_FROM_SIGNED405IPA",
+      "credentialExpiry": "MISSING_ACCOUNT_OR_INSTALLATION_MATERIAL_EXPIRY_NOT_INFERRED",
+      "firstApprovedAction": "Actual normal account/enrolled route GET proof including opaque-token last_used_at writes, before registry/DDL/config",
+      "resetOrNewCredentialFabrication": false,
+      "normalServerConfigReceipt": {
+        "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/normal-server-route-config-presence.json",
+        "sha256": "c12f8ad4109132b983a161c086b12771d74187eff168c75d9f09c453831517cc",
+        "sizeBytes": 1661
+      }
+    }
+  },
+  "proposedResourceLimits": {
+    "intake": {
+      "cpus": 1,
+      "memoryBytes": 2147483648
+    },
+    "baseline": {
+      "cpus": 1,
+      "memoryBytes": 1073741824
+    },
+    "transientV2CheckConfig": {
+      "cpus": 1,
+      "memoryBytes": 1073741824,
+      "persistent": false
+    },
+    "targetLogicalCPUs": 4,
+    "existingOtherUncappedServices": 13,
+    "capacity": "NOT_MEASURED",
+    "thousandUsers": "UNSUPPORTED"
+  },
+  "stopPolicy": {
+    "schemaVersion": 1,
+    "scope": "one-owner-one-device",
+    "capacityStatus": "NOT_MEASURED",
+    "pollSeconds": 5,
+    "startupGraceSeconds": 60,
+    "maximumObservationAgeSeconds": 30,
+    "maximumLaneAgeSeconds": 30,
+    "maximumPendingPerQueue": 1000,
+    "maximumDebtStallSeconds": 120,
+    "maximumContainerMemoryPercent": 90,
+    "maximumDatabaseConnectionPercent": 80,
+    "minimumHostAvailableMemoryBytes": 1073741824,
+    "minimumHostFreeDiskBytes": 10737418240,
+    "stopTimeoutSeconds": 10,
+    "physicalAcceptance": "Separate operator-observed phone and BLE protocol; this server guard cannot establish device latency, continuity, zero local inference, or fleet capacity."
+  },
+  "sourceContracts": [
+    {
+      "path": "infra/vps/scoped-canary-stop-policy.json",
+      "sha256": "c49190a0a555a5469523392ded8f45f47aa2ce25c9e2f00c6635a0fd469d1a32",
+      "sizeBytes": 665
+    },
+    {
+      "path": "infra/vps/scripts/scoped-canary-guard.py",
+      "sha256": "238ffd42905d53ebf65350d80f034e8170c13df6a310bc6d9a09a2c7c114b156",
+      "sizeBytes": 21991
+    },
+    {
+      "path": "infra/vps/templates/frwhoop-scoped-canary.service",
+      "sha256": "c740d2c16674126eb837af6b244320c80af15e73e306ddde5b069b4bc8cdedf7",
+      "sizeBytes": 781
+    },
+    {
+      "path": "infra/vps/scripts/scoring-admission.py",
+      "sha256": "77ded6dced8975753774da3dc30d82e07d2f0105af3ea91d75bb3ad7d314dae4",
+      "sizeBytes": 7012
+    },
+    {
+      "path": "infra/vps/scripts/verify-worker-image.py",
+      "sha256": "4111d7e00d18714eab4398d236c8ed247b05b4a4f9ac51ca0f37372423d47712",
+      "sizeBytes": 5534
+    },
+    {
+      "path": "infra/vps/scripts/verify-pinned-postgres-client.py",
+      "sha256": "2488b4a31b7dc2df0b0e96fe4c70ac5b1becc19e7b6095111cc6c540ddda11ec",
+      "sizeBytes": 7425
+    },
+    {
+      "path": "infra/vps/scripts/deploy-scoring-service.sh",
+      "sha256": "5d697101517e7d74a8e487a76d49345ea40de5e9895854ca571f893488acff32",
+      "sizeBytes": 44074
+    },
+    {
+      "path": "infra/vps/templates/docker-compose.intake.yml",
+      "sha256": "48763675a253fda775614eddf8ac17ca3516987383787452cf72e87f47d25d96",
+      "sizeBytes": 1425
+    },
+    {
+      "path": "infra/vps/scripts/scoring-hosted-query.py",
+      "sha256": "b0a472b7725310cebfbea206c4b3e0129dbc037151b379cbe7b586a92e31041d",
+      "sizeBytes": 4150
+    },
+    {
+      "path": "infra/vps/scripts/scoring-tls.py",
+      "sha256": "def7f9d379d35d66af6f58df3694c857e497cbe4c3c289db9443aa190389d4c6",
+      "sizeBytes": 887
+    },
+    {
+      "path": "Tools/release/certificates/supabase-prod-ca-2021.crt",
+      "sha256": "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7",
+      "sizeBytes": 1367
+    },
+    {
+      "path": "supabase/migrations/20260923120000_legacy_beat_read_eligibility.sql",
+      "sha256": "819513ea27f2d6f6fb9f32b317db056262e25abe6af05f6514eb87ade11161b7",
+      "sizeBytes": 29475
+    }
+  ],
+  "physicalAcceptance": {
+    "newIPA": "BUILT_VERIFIED_373_SOURCE405_NOT_INSTALLED",
+    "newAPK": "BUILT_VERIFIED_452_SOURCE405_NO_INSTALL_TARGET",
+    "phoneReadback": "NOT_MEASURED",
+    "fourHourLocked": "NOT_MEASURED",
+    "24HourSoak": "NOT_MEASURED",
+    "72HourSoak": "NOT_MEASURED",
+    "targetVpsCapacity": "NOT_MEASURED",
+    "initialTenMinuteReadback": "NOT_MEASURED_SEPARATE_FROM_FOUR_HOURS",
+    "iPhoneAccess": "NO_USABLE_TUNNEL_DDI_DETAILS15S_TIMEOUT",
+    "watchAccess": "DEVELOPER_MODE_OFF_DDI_UNAVAILABLE_OBSERVED_WATCH_NOT_IN_SIGNING_PROFILE_NO_CHANGE_AUTHORIZED",
+    "protocol": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/physical-readiness/HANDOFF_physical_review.md",
+      "sha256": "5cc7be52ed4fa93d9d739dfe2c6cb4793b842122224809705fdbdee5ab0d84ad",
+      "note": "Engineering budgets and full observation durations; earlier pending artifacts/systemd items superseded by this actual plan."
+    },
+    "iPhoneCompanionInstallBoundary": "IPA includes Watch companion whose profile excludes observed paired Watch. If normal iPhone installation requires companion provisioning/install or rejects package, STOP. No stripping, re-signing, repackaging, registration, Developer Mode change, reset or scope expansion."
+  },
+  "blockingPrerequisites": [
+    "Normal registry credentials, private approved destination package visibility, read/write and target pull permission; explicit approval before any remote publication",
+    "Account JWT and enrolled bearer unavailable from examined normal operator/build config; phone ThisDeviceOnly Keychain inaccessible. Fleet and anon available. First approved normal route GET includes token last_used_at writes; no service-role substitution",
+    "Physical phone access/normal preserved enrollment",
+    "Approved private intake.env installation + hash-guarded strictTLS single-key update",
+    "Fresh exact oldcontainer/backlog/resource inventory; no scope widening",
+    "Guard real stoppedcontainer binding then supervised activation under the complete plan approval"
+  ],
+  "receipts": [
+    {
+      "path": "/Volumes/Untitled/server-repair-edge-review/private-admission-preparation.json",
+      "sha256": "adc8dc9ccf5d66c608c8038a5cdf699042ccb2a34f0c58267072fba0c58dcc16"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-edge-review/private-intake-env-preparation.json",
+      "sha256": "21bf0725943873bb2da7426d1fd2de91ee7254ab5d2e7df88beec46176ee9c1e"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-edge-review/private-scoring-tls-update-preparation.json",
+      "sha256": "1f51b035d5eac3143d4a25a537c2e93c1a1fc611ad5d0d9aaed5d738332467c5"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-edge-review/legacy-read-filtered-global-impact.json",
+      "sha256": "a1eaaca2a2de25197bfcb1d8014c8be26ef2d4b9aa52ddf045dc6919acce40ec"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-edge-review/legacy-read-global-impact.json",
+      "sha256": "7853d6924a10cc14fe22d07517c1529e7641c193f03772ae69b9de30526aa4d2"
+    },
+    {
+      "path": "/Volumes/Untitled/server-repair-edge-review/b2-admission-preflight-20260923T051208Z.json",
+      "sha256": "86519861fe2a31418ebe1f12d6eb66a3f843f9403b0fd3d37d524b01bf4f2b32"
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/hosted-readonly-plan/read-only-plan-receipt.json",
+      "sha256": "c87c51a919e130b4408d1d63d586a2723d5ee5499f85371ef3c47545a445d1df"
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/hosted-actual-schema-405-independent-review.json",
+      "sha256": "6e9e8d13cc39cbbd3d160b2b66632234d51ff100b9800b629cc160de0afb8efc"
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/tls-update-peer-review.json",
+      "sha256": "70d9985424f317fc5213cf3cbd8132866a62ae560f4c8c65cede90c344804682"
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/target-root-supervisor-readonly.json",
+      "sha256": "2574746e91fcf4492157f5aedd1520873ad8eb22da6899b358af7e0657676b28"
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/final-405-runtime-source-binding.json",
+      "sha256": "a932013212d0050d0ef868aa904a92543059ab4cddc3e6d8a0ae15c272d62777"
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/offline-worker-plan-verification.json",
+      "sha256": "b3fb410910ff5cc0e26b95e7d07a1581b9cf76970e8806281a00056a8fc60c65"
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/normal-route-credential-access.json",
+      "sha256": "2744a28943979a8e3cb5bc18d49d0b24e6f7f8fdb4d0a9415440a62178d98dc1",
+      "sizeBytes": 5489
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/normal-server-route-config-presence.json",
+      "sha256": "c12f8ad4109132b983a161c086b12771d74187eff168c75d9f09c453831517cc",
+      "sizeBytes": 1661
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/transport-proof-receipt.json",
+      "sha256": "d8eeb6dd2bab2e43969617f2e792cbf81492a2e7a2a98f70ac4483189f662b5f",
+      "sizeBytes": 4012
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/independent-review.json",
+      "sha256": "3cb6cbff69b968ce164c5f4be33940999bc05fc5f22c547db92689d9c406532b",
+      "sizeBytes": 3295
+    }
+  ],
+  "sourceReview": "All12 deployment contract file bytes independently matched6a to405; tests/harness/docs only final delta.",
+  "aggregate": {
+    "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/release/release-artifact-manifest.json",
+    "sha256": "9a6f857574fa1019f69013ec912cabc54ab0d59b4baaf755e5df8ced493b1b0c",
+    "fingerprintSha256": "9c22456cabbab3196b6472ad2f0d67de004a930a0d6b86618ade7fc82fa0aeff"
+  },
+  "privateWorkerPlan": {
+    "path": "/Volumes/Untitled/server-repair-private/deployment/worker-deployment.json",
+    "sha256": "0e9873d0ace063f80200daa901b8bd047526bdfe6e025797e5c3ff8ff8caaef5",
+    "mode": "0600",
+    "verification": "ACTUAL_OFFLINE_BINDER_AND_VERIFY_DEPLOYMENT_PASS"
+  },
+  "compiledIntakeComposeSha256": "fd7472ec86df40fb96f6d22b2f17ddcbb1a96d00acb50b36712717c55236fd97",
+  "canaryGuard": {
+    "dependencies": [
+      {
+        "path": "infra/vps/scripts/scoring-admission.py",
+        "sha256": "77ded6dced8975753774da3dc30d82e07d2f0105af3ea91d75bb3ad7d314dae4",
+        "sizeBytes": 7012
+      },
+      {
+        "path": "infra/vps/scripts/verify-worker-image.py",
+        "sha256": "4111d7e00d18714eab4398d236c8ed247b05b4a4f9ac51ca0f37372423d47712",
+        "sizeBytes": 5534
+      },
+      {
+        "path": "infra/vps/scripts/verify-pinned-postgres-client.py",
+        "sha256": "2488b4a31b7dc2df0b0e96fe4c70ac5b1becc19e7b6095111cc6c540ddda11ec",
+        "sizeBytes": 7425
+      }
+    ],
+    "helper": {
+      "path": "infra/vps/scripts/scoped-canary-guard.py",
+      "sha256": "238ffd42905d53ebf65350d80f034e8170c13df6a310bc6d9a09a2c7c114b156",
+      "sizeBytes": 21991
+    },
+    "policy": {
+      "path": "infra/vps/scoped-canary-stop-policy.json",
+      "sha256": "c49190a0a555a5469523392ded8f45f47aa2ce25c9e2f00c6635a0fd469d1a32",
+      "sizeBytes": 665
+    },
+    "service": {
+      "path": "infra/vps/templates/frwhoop-scoped-canary.service",
+      "sha256": "c740d2c16674126eb837af6b244320c80af15e73e306ddde5b069b4bc8cdedf7",
+      "sizeBytes": 781
+    }
+  },
+  "registryPublication": {
+    "status": "NOT_PERFORMED",
+    "approvalScope": "publish all three actual OCI archives preserving approved linux/amd64 manifest/config digests; no rebuild",
+    "namespace": "ghcr.io/kkakodka-bot/frwhoop_v2",
+    "credentialsPermissionsAndTargetPull": "NOT_VERIFIED",
+    "mustPrecedeHostedSchemaMutation": true,
+    "publisherToolReceipt": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/transport-proof-receipt.json",
+      "sha256": "d8eeb6dd2bab2e43969617f2e792cbf81492a2e7a2a98f70ac4483189f662b5f",
+      "sizeBytes": 4012
+    },
+    "publisher": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/publish-approved-oci.py",
+      "sha256": "4ea6213200be7a94e646ece25cb3048c0fde65f3e9a132c701634cfe3d2d2d45",
+      "sizeBytes": 15695
+    },
+    "publicationPlan": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/publication-plan.json",
+      "sha256": "5a9070e0a3ebb9236fa7f1e5f96f5e3d177fa49e1b9b8c3432362ab9711a4941",
+      "sizeBytes": 752
+    },
+    "independentReview": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/independent-review.json",
+      "sha256": "3cb6cbff69b968ce164c5f4be33940999bc05fc5f22c547db92689d9c406532b",
+      "sizeBytes": 3295
+    },
+    "operator": {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/OPERATOR.md",
+      "sha256": "2e6a13cbd9bc4c82ab5879150a66981e320c90fdb96565dcf708ad5c2e209e35",
+      "sizeBytes": 6970
+    },
+    "toolImage": "quay.io/skopeo/stable@sha256:3f276c7780973ede33a7ae4a5f5ac002cb2fd53d6d892f38ab313def3570188d",
+    "toolPlatform": "linux/arm64",
+    "payloadPlatform": "linux/amd64",
+    "localTransport": "PASS_3_SELECTED_MANIFESTS_35_CONFIG_LAYER_DESCRIPTORS_14_TESTS",
+    "remoteContact": false,
+    "destinationVisibility": "NOT_VERIFIED_PRIVATE_APPROVED_PACKAGES_REQUIRED_BEFORE_PUSH",
+    "publicReleaseAuthorization": false,
+    "visibilityFailureDisposition": "STOP_IF_PUBLIC_OR_UNVERIFIABLE_REQUIRE_EXPLICIT_ADDITIONAL_SCOPE_APPROVAL"
+  },
+  "orderedMutationStages": [
+    "Obtain existing genuine same-scope account/enrolled credentials and explicit approval; FIRST approved route GET includes normal token last_used_at updates before registry/DDL/config",
+    "Verify approved private package visibility and normal registry permissions; publish and verify all three exact images and target pull availability before hosted SQL/config changes; abort on public/unverifiable destinations",
+    "Apply12matched wrappers and verify129full/110native/global129readpolicy",
+    "Install scoped config and strictTLS single-key update; forceasyncOFF and deploy6matchedEdgefunctions+realrouteparity",
+    "Stageintake+baselineSTOPPEDrestartNO; preservealloldcontainers",
+    "Bindactual stoppedIDs+images/source/scope/policy thenexplicit supervisedstart",
+    "Within complete plan approval: original iPhone373 normal install (abort on Watch companion/provisioning requirement or rejection) plus first10min actual readback; separate4h/24h/72h and target capacity gates"
+  ],
+  "runbook": {
+    "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/MATCHED_DEPLOYMENT_APPROVAL_405.md",
+    "sha256": "758b5697bf95bd146ee78e087f697e098dd246c2d8ad6ddd3817a77c1bbb6393",
+    "sizeBytes": 28439
+  },
+  "operatorFiles": [
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/apply-scoring-tls-update.py",
+      "sha256": "7ca11750e5559c28801fc24485adfa5efc80df07c7a321df681cc1b583c4bc36",
+      "sizeBytes": 6404
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/test_apply_scoring_tls_update.py",
+      "sha256": "e95a388064f3c49528ab7cf008eddc400d552bad77226b4c44b7fc859a4e3754",
+      "sizeBytes": 4759
+    },
+    {
+      "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/bind-final-worker-plan.py",
+      "sha256": "a91e46431cef943e06fe8462469b5e1ca7b4b96093391b3c30d351e7c735a049",
+      "sizeBytes": 2682
+    }
+  ],
+  "publicReviewDirectory": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review",
+  "approvalSemantics": "Approval of this complete plan covers all enumerated exact stages, including guarded activation and original iPhone installation. No repeated confirmation unless artifact or scope changes. All access, identity, visibility, resource and stop gates remain mandatory; approval is not acceptance evidence."
+}

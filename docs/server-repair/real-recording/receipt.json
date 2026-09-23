@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "status": "PASS",
+  "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+  "sourceTree": "ed228cc12171dd521b41340e9a3c631740649fb0",
+  "recordedAt": "2026-09-23T06:39:50.120374+00:00",
+  "evidenceTier": "local_private_recording_replay",
+  "privateRun": "/Volumes/Untitled/server-repair-private/final-replay-4x6ljfex",
+  "privateExecutionReceiptSha256": "57f657f37bc80b1ee6595b3601da6965046b05a242b29a5a4d009586c7e3e90b",
+  "privateWorkerInventorySha256": "cc7fa791017f3c0c176261cbe697de9ea574b30177e95ee979563e6478ae59c3",
+  "nativeWorkerDistributionsUnchangedBeforeAfter": true,
+  "workerRuntime": "native_JVM_distributions_not_OCI_runtime",
+  "selectedAlgorithm": "frwhoop-server-1",
+  "execution": "explicit_baseline_replay_day",
+  "selectedQueueCreatedBy": "actual_atomic_projection",
+  "sourceInputSha256": "7aed414ae54e23d4462dd82b7acb1f75a629948f91f260612d5f07e538846206",
+  "sourceExportProvenanceSha256": "a8aa86f543ed63c7996779c0d7a1eb96ddcf3d652ba4d74905ad02ae2c3e89e7",
+  "inputCounts": {
+    "hr": 109633,
+    "gravity": 107540,
+    "events": 1044,
+    "rr": 0,
+    "respiration": 0
+  },
+  "verifiedIndexedProjectedBatchCount": 220,
+  "positiveComputedMetrics": [
+    "sleep_total_min",
+    "resting_hr_bpm"
+  ],
+  "realDisposableGoTrueAccountAuthentication": true,
+  "enrolledAccountEnvelopeIdentityEqual": true,
+  "nativePersistedSelections": {
+    "swift": 2,
+    "kotlin": 2
+  },
+  "privateLogSha256": {
+    "runner": "e5e14dcd7443bc202af65fba1cf9ca2dfe77c35e5401ea52f35d66abc986240a",
+    "recording": "6231eb8b3a91321e35a98ca1ff1f739301210f86cc1f64c6f4edb2c5219fd17e",
+    "mobile": "fe42269abea8f2f02de223aa3e41159477012af1fcc56e6028064faf4232f198"
+  },
+  "sanitizedTrace": {
+    "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/real-recording/decoders/real_recording_input_to_result_trace.sanitized.json",
+    "sha256": "e75b5c64a8d2ee236b9035aa3408f2d500077392ff23ac700f35d6149a908127"
+  },
+  "originalIncidentTraceReplaced": false,
+  "originalMobileBytes": "NOT_ESTABLISHED",
+  "hostedB2Acceptance": "NOT_MEASURED",
+  "physicalPhoneReadback": "NOT_MEASURED",
+  "productionMutation": false,
+  "patientValues": "PRIVATE_NOT_PUBLISHED"
+}

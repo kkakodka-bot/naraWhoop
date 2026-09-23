@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-23T06:17:01.222746+00:00",
+  "sourceIndependent": true,
+  "scope": "normal pinned SSH effective identity and supervisor presence only",
+  "sshIdentityReceiptSha256": "3b9b36acfa57a6b6116c3fd5d60f84e7d47502c5fbf7d69ebf8aeb8232d0bc82",
+  "normalAccess": {
+    "root": {
+      "effectiveUid": 0,
+      "systemctlPresent": true,
+      "initProcess": "systemd"
+    },
+    "deploy": {
+      "effectiveUid": 1000,
+      "systemctlPresent": true,
+      "initProcess": "systemd"
+    }
+  },
+  "productionMutation": false,
+  "systemdCommandExecuted": false,
+  "credentialValuesRead": false
+}

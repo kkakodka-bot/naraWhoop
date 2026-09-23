@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-23T06:45:42.392693+00:00",
+  "scope": "only eight named parity-variable key presences in three existing normal server config paths",
+  "checks": [
+    {
+      "path": "/opt/frwhoop/scoring.env",
+      "exists": true,
+      "namedParityKeyPresence": {
+        "FRWHOOP_HOSTED_ACCOUNT_JWT": false,
+        "FRWHOOP_HOSTED_ANON_KEY": false,
+        "FRWHOOP_HOSTED_ENROLLMENT_TOKEN": false,
+        "FRWHOOP_HOSTED_FLEET_TOKEN": false,
+        "FRWHOOP_HOSTED_USER_ID": false,
+        "FRWHOOP_HOSTED_SOURCE_ID": false,
+        "FRWHOOP_HOSTED_DEVICE_ID": false,
+        "FRWHOOP_HOSTED_DAY": false
+      }
+    },
+    {
+      "path": "/opt/frwhoop/secrets.env",
+      "exists": true,
+      "namedParityKeyPresence": {
+        "FRWHOOP_HOSTED_ACCOUNT_JWT": false,
+        "FRWHOOP_HOSTED_ANON_KEY": false,
+        "FRWHOOP_HOSTED_ENROLLMENT_TOKEN": false,
+        "FRWHOOP_HOSTED_FLEET_TOKEN": false,
+        "FRWHOOP_HOSTED_USER_ID": false,
+        "FRWHOOP_HOSTED_SOURCE_ID": false,
+        "FRWHOOP_HOSTED_DEVICE_ID": false,
+        "FRWHOOP_HOSTED_DAY": false
+      }
+    },
+    {
+      "path": "/opt/frwhoop/intake.env",
+      "exists": false,
+      "namedParityKeyPresence": {
+        "FRWHOOP_HOSTED_ACCOUNT_JWT": false,
+        "FRWHOOP_HOSTED_ANON_KEY": false,
+        "FRWHOOP_HOSTED_ENROLLMENT_TOKEN": false,
+        "FRWHOOP_HOSTED_FLEET_TOKEN": false,
+        "FRWHOOP_HOSTED_USER_ID": false,
+        "FRWHOOP_HOSTED_SOURCE_ID": false,
+        "FRWHOOP_HOSTED_DEVICE_ID": false,
+        "FRWHOOP_HOSTED_DAY": false
+      }
+    }
+  ],
+  "productionMutation": false,
+  "valuesPrintedOrPersisted": false
+}

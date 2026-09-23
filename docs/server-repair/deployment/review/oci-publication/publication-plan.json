@@ -1,0 +1,14 @@
+{
+  "aggregateSha256": "9a6f857574fa1019f69013ec912cabc54ab0d59b4baaf755e5df8ced493b1b0c",
+  "authorization": "NOT_GRANTED; explicit approval required for actual registry writes; local test does not establish GHCR permissions",
+  "publisherSha256": "4ea6213200be7a94e646ece25cb3048c0fde65f3e9a132c701634cfe3d2d2d45",
+  "repositories": {
+    "intake": "ghcr.io/kkakodka-bot/frwhoop_v2/intake",
+    "selectedV1": "ghcr.io/kkakodka-bot/frwhoop_v2/baseline",
+    "shadowV2": "ghcr.io/kkakodka-bot/frwhoop_v2/physiology"
+  },
+  "schemaVersion": 1,
+  "skopeoImage": "quay.io/skopeo/stable@sha256:3f276c7780973ede33a7ae4a5f5ac002cb2fd53d6d892f38ab313def3570188d",
+  "skopeoPlatform": "linux/arm64",
+  "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2"
+}

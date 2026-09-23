@@ -1,0 +1,418 @@
+{
+  "aggregateSha256": "9a6f857574fa1019f69013ec912cabc54ab0d59b4baaf755e5df8ced493b1b0c",
+  "approval": "EXTERNAL_EXPLICIT_AUTHORIZATION_REQUIRED_BEFORE_REMOTE_EXECUTION",
+  "archives": {
+    "intake": {
+      "archiveBytes": 78639616,
+      "archiveSha256": "2874312bc0619fab685c829bb86fe3358c9498ddc6272baed23bd4a93ef9605d",
+      "config": {
+        "digest": "sha256:4cf40b4df7ee7d5a4fd1d99c6d31d2b42cc2ab2bbeb6cef02f948849e277f2ae",
+        "mediaType": "application/vnd.oci.image.config.v1+json",
+        "size": 6108
+      },
+      "layers": [
+        {
+          "digest": "sha256:835d7baf2dd768c670b86b8f32d8010527323d9a9e4ab6909d4cf1220f587435",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 29777924
+        },
+        {
+          "digest": "sha256:9b352e7058bcc92b345068b8bdeb4b5b735c44210f51ba29fc86bb0dc4e4d63f",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 1207
+        },
+        {
+          "digest": "sha256:83f782c2d70514702f7bc2611f96bd483644a2d307d418b0067410958a3b86cb",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 47361189
+        },
+        {
+          "digest": "sha256:58363b6db527c13e52dc59ea4f0ba6bcc4937d1db825d7bc69e188b0880d2ae3",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 9459
+        },
+        {
+          "digest": "sha256:d58f4de44b36bdcce8913bbf7d5cc99cc156f6f7fac33ce13f9b23f61ca83f80",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 456
+        },
+        {
+          "digest": "sha256:d2bfb14e587782cbcd442a6d797811927007c2de5c26c0c960c19fe8aacee2d3",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 453
+        },
+        {
+          "digest": "sha256:4b05df2643ea46b4f19531e99f7b2f58194fbae0c8804cc90eb9cb9cd2e2467c",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 93
+        },
+        {
+          "digest": "sha256:21c24218d43cff32140dd079e5de7f387288f1db1bc8778f3f3c3dcb1b2f1110",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 69096
+        },
+        {
+          "digest": "sha256:f049ee9d29669ba594a608703ad41d82d38ae169fb1246944ebd001b600d4ffa",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 701
+        },
+        {
+          "digest": "sha256:3406f558ae4c1037a46d2decc40a960a0da4e626485d24f9fc0ed2f0c75e2723",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 1131
+        },
+        {
+          "digest": "sha256:8a0e8490cd9d28c5fc0c5965f011cbed489469da322be01cced870348538cdb0",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 1395237
+        }
+      ],
+      "manifestBytes": 2375,
+      "manifestDigest": "sha256:0db2cab4d193034225e6d7f067e4b2beaa368d65785ecb9c73857de131e1030c",
+      "platform": "linux/amd64"
+    },
+    "selectedV1": {
+      "archiveBytes": 106254336,
+      "archiveSha256": "1717f5527dad18783c02dcebbdbb12cb05b367dbcfafa4275575073f244accd2",
+      "config": {
+        "digest": "sha256:fa8cf9c71f2f2af25f08b9a154793e7fa82082cc90a0d96f65a77ee2ffcfa57c",
+        "mediaType": "application/vnd.oci.image.config.v1+json",
+        "size": 11997
+      },
+      "layers": [
+        {
+          "digest": "sha256:20c3783cc497b5b0df1fc5f92bd64c3d2fbb24057c88692c8fda205b6ea8a2f2",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 29750251
+        },
+        {
+          "digest": "sha256:d6c1d6a61d094697e666f04528996193033c36c1814aea101259a81e534170db",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 16112098
+        },
+        {
+          "digest": "sha256:f55090376df5aa7c8b8c491e09b78740ca39a7f86a3332b4d19f7c37545c0014",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 47519565
+        },
+        {
+          "digest": "sha256:4f25832de09f1fb94ee88f411243c8ca3f668eefd47ef0fe2b07040acecf29ec",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 155
+        },
+        {
+          "digest": "sha256:8dd5a59f4a7675c2e6556d69d41cc0749f9b46d5860744b77301e197baf0751a",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 2464
+        },
+        {
+          "digest": "sha256:a945a07603d44e08d5cfca95ddf1090cc32ae614e7a3b780ed03599469f52f97",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 93
+        },
+        {
+          "digest": "sha256:00e40393cd7add07d672dffb579d2d04cb18db859f8089af9dfbb23e7d62a82d",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 12837655
+        },
+        {
+          "digest": "sha256:7bc984d5e72085b5229cb88d23ba8bcaf7775337398811d549d275293d44c0f2",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 1044
+        },
+        {
+          "digest": "sha256:3f4a61c1f84552cbaf46582a568243d68772d4798d6e4ae32ca4b67b75bfb307",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 1097
+        },
+        {
+          "digest": "sha256:59efd61a4baf3d00127ccb9b765e38f2095c8a44726646e08baed9176010d186",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 1097
+        },
+        {
+          "digest": "sha256:f86ee7cb702be3291e4d0f4a3c9a88c35466a7448f09c8ee3e3c22b648aac516",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 163
+        }
+      ],
+      "manifestBytes": 2381,
+      "manifestDigest": "sha256:aa69800d726b3c9d6e0fac617903035d1a39d99c2f2000bc96c0b66e86d17dbe",
+      "platform": "linux/amd64"
+    },
+    "shadowV2": {
+      "archiveBytes": 107575808,
+      "archiveSha256": "f7415824479ef69ddfcc66a0ac819110eb3136a2866d6d328540d301a25ea8a5",
+      "config": {
+        "digest": "sha256:396efc4f3168181f612417235cf4d1e83e946eba9d9f64be981dee5bb522ed77",
+        "mediaType": "application/vnd.oci.image.config.v1+json",
+        "size": 10711
+      },
+      "layers": [
+        {
+          "digest": "sha256:20c3783cc497b5b0df1fc5f92bd64c3d2fbb24057c88692c8fda205b6ea8a2f2",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 29750251
+        },
+        {
+          "digest": "sha256:d6c1d6a61d094697e666f04528996193033c36c1814aea101259a81e534170db",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 16112098
+        },
+        {
+          "digest": "sha256:f55090376df5aa7c8b8c491e09b78740ca39a7f86a3332b4d19f7c37545c0014",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 47519565
+        },
+        {
+          "digest": "sha256:4f25832de09f1fb94ee88f411243c8ca3f668eefd47ef0fe2b07040acecf29ec",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 155
+        },
+        {
+          "digest": "sha256:8dd5a59f4a7675c2e6556d69d41cc0749f9b46d5860744b77301e197baf0751a",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 2464
+        },
+        {
+          "digest": "sha256:a945a07603d44e08d5cfca95ddf1090cc32ae614e7a3b780ed03599469f52f97",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 93
+        },
+        {
+          "digest": "sha256:7084ac57856283e40e98d5476435ec9297bcb14f33f7bd7a4c22f417be020204",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 14162835
+        },
+        {
+          "digest": "sha256:29cbaec3ffe24d3d88cb3be7a47a08cb31086daeaf18ac16f19b0920d9ddf1cd",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 1096
+        },
+        {
+          "digest": "sha256:021a68197b59990ad94f2e10430eba6490c2ccc2e6c018fc89a5d51de0887242",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 1096
+        },
+        {
+          "digest": "sha256:1d1edfa527aa7b27cea72f51ebe9b33fc5bca18b056e6f9bfc9fcc78aa54da71",
+          "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+          "size": 163
+        }
+      ],
+      "manifestBytes": 2192,
+      "manifestDigest": "sha256:875e81ef8072cf449475c38d3b22259853ec45c67498b50ef4801a46eae5747e",
+      "platform": "linux/amd64"
+    }
+  },
+  "mode": "DISPOSABLE_LOCAL_REGISTRY_TEST",
+  "networkAccess": true,
+  "observations": {
+    "intake": {
+      "configAndLayerCount": 12,
+      "configAndLayers": [
+        {
+          "byteIdentity": "PASS",
+          "bytes": 6108,
+          "digest": "sha256:4cf40b4df7ee7d5a4fd1d99c6d31d2b42cc2ab2bbeb6cef02f948849e277f2ae"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 29777924,
+          "digest": "sha256:835d7baf2dd768c670b86b8f32d8010527323d9a9e4ab6909d4cf1220f587435"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 1207,
+          "digest": "sha256:9b352e7058bcc92b345068b8bdeb4b5b735c44210f51ba29fc86bb0dc4e4d63f"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 47361189,
+          "digest": "sha256:83f782c2d70514702f7bc2611f96bd483644a2d307d418b0067410958a3b86cb"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 9459,
+          "digest": "sha256:58363b6db527c13e52dc59ea4f0ba6bcc4937d1db825d7bc69e188b0880d2ae3"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 456,
+          "digest": "sha256:d58f4de44b36bdcce8913bbf7d5cc99cc156f6f7fac33ce13f9b23f61ca83f80"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 453,
+          "digest": "sha256:d2bfb14e587782cbcd442a6d797811927007c2de5c26c0c960c19fe8aacee2d3"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 93,
+          "digest": "sha256:4b05df2643ea46b4f19531e99f7b2f58194fbae0c8804cc90eb9cb9cd2e2467c"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 69096,
+          "digest": "sha256:21c24218d43cff32140dd079e5de7f387288f1db1bc8778f3f3c3dcb1b2f1110"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 701,
+          "digest": "sha256:f049ee9d29669ba594a608703ad41d82d38ae169fb1246944ebd001b600d4ffa"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 1131,
+          "digest": "sha256:3406f558ae4c1037a46d2decc40a960a0da4e626485d24f9fc0ed2f0c75e2723"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 1395237,
+          "digest": "sha256:8a0e8490cd9d28c5fc0c5965f011cbed489469da322be01cced870348538cdb0"
+        }
+      ],
+      "destination": "docker://127.0.0.1:5000/frwhoop-test/intake@sha256:0db2cab4d193034225e6d7f067e4b2beaa368d65785ecb9c73857de131e1030c",
+      "selectedManifestPreserved": true,
+      "sourceArchiveUnchanged": true
+    },
+    "selectedV1": {
+      "configAndLayerCount": 12,
+      "configAndLayers": [
+        {
+          "byteIdentity": "PASS",
+          "bytes": 11997,
+          "digest": "sha256:fa8cf9c71f2f2af25f08b9a154793e7fa82082cc90a0d96f65a77ee2ffcfa57c"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 29750251,
+          "digest": "sha256:20c3783cc497b5b0df1fc5f92bd64c3d2fbb24057c88692c8fda205b6ea8a2f2"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 16112098,
+          "digest": "sha256:d6c1d6a61d094697e666f04528996193033c36c1814aea101259a81e534170db"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 47519565,
+          "digest": "sha256:f55090376df5aa7c8b8c491e09b78740ca39a7f86a3332b4d19f7c37545c0014"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 155,
+          "digest": "sha256:4f25832de09f1fb94ee88f411243c8ca3f668eefd47ef0fe2b07040acecf29ec"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 2464,
+          "digest": "sha256:8dd5a59f4a7675c2e6556d69d41cc0749f9b46d5860744b77301e197baf0751a"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 93,
+          "digest": "sha256:a945a07603d44e08d5cfca95ddf1090cc32ae614e7a3b780ed03599469f52f97"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 12837655,
+          "digest": "sha256:00e40393cd7add07d672dffb579d2d04cb18db859f8089af9dfbb23e7d62a82d"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 1044,
+          "digest": "sha256:7bc984d5e72085b5229cb88d23ba8bcaf7775337398811d549d275293d44c0f2"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 1097,
+          "digest": "sha256:3f4a61c1f84552cbaf46582a568243d68772d4798d6e4ae32ca4b67b75bfb307"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 1097,
+          "digest": "sha256:59efd61a4baf3d00127ccb9b765e38f2095c8a44726646e08baed9176010d186"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 163,
+          "digest": "sha256:f86ee7cb702be3291e4d0f4a3c9a88c35466a7448f09c8ee3e3c22b648aac516"
+        }
+      ],
+      "destination": "docker://127.0.0.1:5000/frwhoop-test/selectedv1@sha256:aa69800d726b3c9d6e0fac617903035d1a39d99c2f2000bc96c0b66e86d17dbe",
+      "selectedManifestPreserved": true,
+      "sourceArchiveUnchanged": true
+    },
+    "shadowV2": {
+      "configAndLayerCount": 11,
+      "configAndLayers": [
+        {
+          "byteIdentity": "PASS",
+          "bytes": 10711,
+          "digest": "sha256:396efc4f3168181f612417235cf4d1e83e946eba9d9f64be981dee5bb522ed77"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 29750251,
+          "digest": "sha256:20c3783cc497b5b0df1fc5f92bd64c3d2fbb24057c88692c8fda205b6ea8a2f2"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 16112098,
+          "digest": "sha256:d6c1d6a61d094697e666f04528996193033c36c1814aea101259a81e534170db"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 47519565,
+          "digest": "sha256:f55090376df5aa7c8b8c491e09b78740ca39a7f86a3332b4d19f7c37545c0014"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 155,
+          "digest": "sha256:4f25832de09f1fb94ee88f411243c8ca3f668eefd47ef0fe2b07040acecf29ec"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 2464,
+          "digest": "sha256:8dd5a59f4a7675c2e6556d69d41cc0749f9b46d5860744b77301e197baf0751a"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 93,
+          "digest": "sha256:a945a07603d44e08d5cfca95ddf1090cc32ae614e7a3b780ed03599469f52f97"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 14162835,
+          "digest": "sha256:7084ac57856283e40e98d5476435ec9297bcb14f33f7bd7a4c22f417be020204"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 1096,
+          "digest": "sha256:29cbaec3ffe24d3d88cb3be7a47a08cb31086daeaf18ac16f19b0920d9ddf1cd"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 1096,
+          "digest": "sha256:021a68197b59990ad94f2e10430eba6490c2ccc2e6c018fc89a5d51de0887242"
+        },
+        {
+          "byteIdentity": "PASS",
+          "bytes": 163,
+          "digest": "sha256:1d1edfa527aa7b27cea72f51ebe9b33fc5bca18b056e6f9bfc9fcc78aa54da71"
+        }
+      ],
+      "destination": "docker://127.0.0.1:5000/frwhoop-test/shadowv2@sha256:875e81ef8072cf449475c38d3b22259853ec45c67498b50ef4801a46eae5747e",
+      "selectedManifestPreserved": true,
+      "sourceArchiveUnchanged": true
+    }
+  },
+  "planSha256": "5a9070e0a3ebb9236fa7f1e5f96f5e3d177fa49e1b9b8c3432362ab9711a4941",
+  "recordedAtUtc": "2026-09-23T06:45:02.770024+00:00",
+  "registryMutation": true,
+  "schemaVersion": 1,
+  "selectedSourcePlatform": "linux/amd64",
+  "skopeoImage": "quay.io/skopeo/stable@sha256:3f276c7780973ede33a7ae4a5f5ac002cb2fd53d6d892f38ab313def3570188d",
+  "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2"
+}

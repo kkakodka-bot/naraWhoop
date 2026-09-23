@@ -1,0 +1,80 @@
+{
+  "aggregateSha256": "9a6f857574fa1019f69013ec912cabc54ab0d59b4baaf755e5df8ced493b1b0c",
+  "artifactManifest": {
+    "fileCount": 189,
+    "path": "transport-evidence-files.json",
+    "sha256": "c676340221074ba04aec14c0d60f990a99566df96228da635ef3b2f53fd97d4d"
+  },
+  "independentReview": {
+    "file": "independent-review.json",
+    "sha256": "3cb6cbff69b968ce164c5f4be33940999bc05fc5f22c547db92689d9c406532b",
+    "verdict": "ACCEPTED; peer independently reran14tests and rehashed3manifests/35config-layer blobs and3originalarchives"
+  },
+  "operations": {
+    "GHCRAuthRetrieved": false,
+    "GHCRContact": false,
+    "allOwnedRegistryContainersStoppedRemoved": true,
+    "deviceOperation": false,
+    "otherContainersChanged": false,
+    "productionMutation": false,
+    "remoteRegistryPush": false
+  },
+  "operator": "OPERATOR.md",
+  "preservedPriorAttempts": [
+    "anonymous Docker config lacked buildx plugin; official registry API used for public tool pin",
+    "ExternalSSD not shared in Colima; changed to private shared staging with exact byte hashes",
+    "Skopeo required bounded /var/tmp writable tmpfs",
+    "first full local roundtrip passed before timeout review; preserved separately",
+    "initial direct no-tags check expected200/null; actual digest-only tags route404 NAME_UNKNOWN with manifest/blob200 and absent tagdir; corrected observation only"
+  ],
+  "proof": {
+    "allDescriptorSizesAndBytesRetained": true,
+    "allDestinationsWereDisposableLoopback": true,
+    "configAndLayerDescriptors": 35,
+    "directRegistryHttp": "direct-registry-http-conservation.json",
+    "finalCopyReceipt": "local-roundtrip-final/receipt.json",
+    "finalCopyReceiptSha256": "78cbc850ab2c44c37ad8ada46f1764865cbb541d8d7c2aa3e9f21890f37ad4a4",
+    "mutableTagsCreated": false,
+    "selectedManifests": 3,
+    "sourceArchivesUnchanged": true,
+    "sourceIndexesNotPublished": true
+  },
+  "publicationPlanSha256": "5a9070e0a3ebb9236fa7f1e5f96f5e3d177fa49e1b9b8c3432362ab9711a4941",
+  "publisherSha256": "4ea6213200be7a94e646ece25cb3048c0fde65f3e9a132c701634cfe3d2d2d45",
+  "recordedAtUtc": "2026-09-23T06:53:19.246979+00:00",
+  "remainingBlockers": [
+    "Explicit approval for exact publication/deployment/install plan",
+    "Normal authorized account/enrollment route credentials and usable physical phone access before remote mutation",
+    "Normal GHCR authfile and registry read/write permission",
+    "GHCR digest-only manifest acceptance/readback not yet tested; fail closed if unavailable",
+    "Target systemd privilege and stopped-container binding; actualdeployment/phone/soak/capacity remain unmeasured"
+  ],
+  "schemaVersion": 1,
+  "skopeo": {
+    "officialCopySemantics": "https://github.com/podman-container-tools/skopeo/blob/main/docs/skopeo-copy.1.md",
+    "officialDigestDestinationSemantics": "https://github.com/containers/image/blob/main/docs/containers-transports.5.md",
+    "officialInstallation": "https://github.com/podman-container-tools/skopeo/blob/main/install.md",
+    "pinnedImage": "quay.io/skopeo/stable@sha256:3f276c7780973ede33a7ae4a5f5ac002cb2fd53d6d892f38ab313def3570188d",
+    "sourceSelectionPlatform": "linux/amd64",
+    "toolPlatform": "linux/arm64",
+    "version": "skopeo version 1.22.3 commit: 92397d5ba399784c6e2f9f229a4244b724743dba"
+  },
+  "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+  "sourceUnmodified": true,
+  "status": "PASS_IMMUTABLE_LOCAL_REGISTRY_TRANSPORT_ONLY",
+  "validation": {
+    "failed": 0,
+    "finalHelperBeforeAfterEqual": true,
+    "log": "unit-tests.log",
+    "offlineDefaultDoesNotLaunchProcessesOrReadCredentials": true,
+    "oldHangingControlRegressions": {
+      "expectedErrors": 2,
+      "log": "timeout-before-review.log",
+      "tests": 2
+    },
+    "reviewFindingRepaired": "30second Docker control/create/cleanup bounds;900second attached operation with exact-ID cleanup",
+    "skipped": 0,
+    "unitTests": 14
+  },
+  "workerPlanFingerprint": "cb938cae5377abb026bbcae8b956d82cfcd679045ba7b1590e7a93eff81e9746"
+}

@@ -1,0 +1,20 @@
+test_auth_is_explicit_private_and_no_helper_or_unrelated_registry (__main__.PublicationTests) ... ok
+test_changed_archive_cannot_pass_approved_file_hash (__main__.PublicationTests) ... ok
+test_control_commands_are_bounded_when_daemon_hangs (__main__.PublicationTests) ... ok
+test_default_runs_actual_405_validation_without_any_process_or_network (__main__.PublicationTests) ... ok
+test_duplicate_tar_name_cannot_shadow_verified_blob (__main__.PublicationTests) ... ok
+test_exact_image_descriptor_and_all_blob_bytes_validate (__main__.PublicationTests) ... ok
+test_execution_requires_exact_plan_confirmation_before_process (__main__.PublicationTests) ... ok
+test_index_cannot_substitute_for_selected_image (__main__.PublicationTests) ... ok
+test_inner_blob_tampering_rejected_even_when_outer_hash_is_updated (__main__.PublicationTests) ... ok
+test_repository_mutation_is_rejected_before_any_archive_process (__main__.PublicationTests) ... ok
+test_started_command_timeout_removes_only_exact_created_container (__main__.PublicationTests) ... ok
+test_symlink_auth_is_rejected (__main__.PublicationTests) ... ok
+test_wrong_config_digest_rejected (__main__.PublicationTests) ... ok
+test_wrong_platform_rejected (__main__.PublicationTests) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.452s
+
+OK
+{"mode": "DRY_RUN_OFFLINE", "receipt": "/private/var/folders/rk/rw132g3n6zv9hbqb1tw_ctxm0000gn/T/tmpx62c32um/dry/receipt.json", "sha256": "036521c8bd02022f0512e8eb02eed70564e22a735c012883b1e18a4f68d9f714"}

@@ -1,0 +1,14 @@
+test_atomic_replace_preserves_original_backup_and_mode (test_apply_scoring_tls_update.TLSUpdateTests) ... ok
+test_backup_directory_barrier_failure_leaves_original_target (test_apply_scoring_tls_update.TLSUpdateTests) ... ok
+test_changes_only_one_key_and_preserves_literal_other_bytes (test_apply_scoring_tls_update.TLSUpdateTests) ... ok
+test_credentials_project_or_other_query_change_rejected (test_apply_scoring_tls_update.TLSUpdateTests) ... ok
+test_duplicate_or_missing_key_rejected (test_apply_scoring_tls_update.TLSUpdateTests) ... ok
+test_old_file_drift_rejected (test_apply_scoring_tls_update.TLSUpdateTests) ... ok
+test_original_value_hash_required (test_apply_scoring_tls_update.TLSUpdateTests) ... ok
+test_racing_change_and_existing_backup_fail_closed (test_apply_scoring_tls_update.TLSUpdateTests) ... ok
+test_trust_downgrade_or_wrong_path_rejected (test_apply_scoring_tls_update.TLSUpdateTests) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.004s
+
+OK

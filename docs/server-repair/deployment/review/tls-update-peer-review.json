@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "2026-09-23T06:11:08.677951+00:00",
+  "status": "LOCAL_PREPARATION_REVIEW_ACCEPTED",
+  "helperSha256": "7ca11750e5559c28801fc24485adfa5efc80df07c7a321df681cc1b583c4bc36",
+  "testSha256": "e95a388064f3c49528ab7cf008eddc400d552bad77226b4c44b7fc859a4e3754",
+  "passedTests": 9,
+  "faultProbe": "Removing only the pre-replace backup directory fsync makes the original-target preservation assertion fail.",
+  "redLogSha256": "3d1ed0c9cda32fe7e6b3abf2f4df14788cfe23fb741a54c114af0d1b9ad75741",
+  "greenLogSha256": "291adc1f6bbd3d4c96297b94cfc2cc4a3537ff11f37b9e0f0ff7eccd266a40eb",
+  "productionExecution": false,
+  "targetConfigurationMutation": false,
+  "approvalStatus": "NOT_APPROVED_FOR_EXECUTION",
+  "reviewScope": [
+    "one-key byte-preserving fixed-project TLS strengthening",
+    "exact original file/value hashes and pinned CA",
+    "exclusive durable original backup before atomic replace",
+    "default dry-run and explicit execute gate",
+    "synthetic inputs only; no actual configuration credential read or output"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+  "status": "NOT_PERFORMED",
+  "approval": "AWAITING_EXPLICIT_USER_APPROVAL",
+  "planSha256": "1e1eadfde1ded44cef4c4bf613cdbef20e490d3c7c557c07943204c6f6b71f20",
+  "runbookSha256": "758b5697bf95bd146ee78e087f697e098dd246c2d8ad6ddd3817a77c1bbb6393",
+  "approvalSealSha256": "816818342fabaa817246eaa569df7a89fa5599b57c8b6b6eb1135470f74e40bf",
+  "aggregateFingerprint": "9c22456cabbab3196b6472ad2f0d67de004a930a0d6b86618ade7fc82fa0aeff",
+  "workerDeploymentFingerprint": "cb938cae5377abb026bbcae8b956d82cfcd679045ba7b1590e7a93eff81e9746",
+  "hostedMigrationPlanFingerprint": "21243b3e4d1a17b974289478806c191fb71309a6eed86b85c0f632433539fce6",
+  "productionSchemaMutation": false,
+  "registryPublication": false,
+  "serviceOrEdgeDeployment": false,
+  "phoneInstallation": false,
+  "modelPromotion": false,
+  "mainMerge": false,
+  "blockingAccess": [
+    "Genuine same-scope account and installation authentication",
+    "Usable original iPhone normal device services",
+    "Private destination registry permission and target pull availability"
+  ],
+  "firstAuthenticatedGETIncludesTokenUsageWrites": true,
+  "physicalPhoneReadback": "NOT_MEASURED",
+  "locked4h": "NOT_MEASURED",
+  "soak24h": "NOT_MEASURED",
+  "soak72h": "NOT_MEASURED",
+  "targetVpsCapacity": "NOT_MEASURED",
+  "thousandUserCapacity": "UNSUPPORTED",
+  "recordedAt": "2026-09-23T07:03:45.399119+00:00"
+}

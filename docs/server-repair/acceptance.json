@@ -12,13 +12,13 @@
   },
   "commonBaseSha": "76f2d70f621de91268e295ebcb6c6da29162991f",
   "frozenReleaseCandidate": {
-    "sha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
-    "tree": "b51ce51ff82e0ba8b6df0f0ab772342258c086b2",
+    "sha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+    "tree": "ed228cc12171dd521b41340e9a3c631740649fb0",
     "branch": "repair/vps-server-20260922",
-    "artifactRoot": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
+    "artifactRoot": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
     "evidenceBranch": "repair/combined-evidence-20260922",
     "evidenceBranchIsReleaseSource": false,
-    "disposition": "NOT_CANARY_READY_SUPERSEDED_BY_PENDING_REPAIRS"
+    "disposition": "LOCAL_OPERATIONAL_CANARY_REVIEW_COMPLETE_APPROVAL_AND_ACCESS_REQUIRED"
   },
   "latencyTargets": {
     "source": "02_SHARED_CONTRACT.md section6; initial targets fixed before canary; not observed performance",
@@ -56,13 +56,13 @@
     },
     {
       "id": "implementation",
-      "status": "FAIL",
-      "evidence": "Independent reviews caught projection, receipt-trigger, raw-lane and release identity defects; final repairs/reruns in progress"
+      "status": "PASS",
+      "evidence": "Independent source/implementation reviews and regression repairs complete for narrow operational candidate; combined final validation remains separate."
     },
     {
       "id": "pre_canary",
-      "status": "FAIL",
-      "evidence": "IndependentreviewsfoundunguardedOura callbacks andmissingoneowner/device admissioncap; sourcefixesinprogress. Physicalprotocolreviewisnotacceptance."
+      "status": "PASS",
+      "evidence": "Independent narrow operational source/artifact/schema/queue/native/physical-readiness/operator reviews complete; sealed exact plan accepted. Execution remains blocked on explicit approval and normal authentication/registry/device access; physical acceptance is NOT_MEASURED."
     },
     {
       "id": "after_physical_acceptance",
@@ -112,86 +112,206 @@
       ]
     },
     {
-      "id": "intake_and_migrations",
-      "evidenceTier": "local_integration",
+      "id": "combined_ble_source",
+      "evidenceTier": "source",
       "status": "PASS",
-      "expectedCriterion": "Atomic exact verification/index receipt and projection; full127 migrations including unchanged110 native predecessor ledger",
-      "observedResult": "Local intake7 steps and fresh/populated/wrapped predecessor chains passed; later source revalidation remains required",
-      "commandOrProtocol": "PIPELINE_TEST_INTAKE=1 test-server-pipeline.sh; test-physiology-migration-chain.sh fresh/populated/hosted-upgrade",
-      "sourceSha": null,
-      "environment": "local Mac disposable services",
+      "expectedCriterion": "Complete BLE branch and follow-on capture/cache repairs integrated with VPS source",
+      "observedResult": "Complete BLE branch and later Apple/Android capture/archive/Oura/cache repairs are ancestors of final405; exact source and shared contract verified.",
+      "commandOrProtocol": "git ancestry, full source review",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "source",
       "evidence": [
         {
-          "path": "/Volumes/Untitled/server-repair-evidence/physiology-chain-hosted-upgrade.0qZfkA/integrated-schema-verification.json",
-          "sha256": "dae43ba3e424ccd85400b26c1ba0ae785b1c000be0af25f3c2f0393447d3a8cf"
+          "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/combined-source-receipt.json",
+          "sha256": "53a3c4f19ba6b3649b026b9192edc61fee5aa3d540f9f687f806126523f968bf"
         }
       ]
     },
     {
-      "id": "computed_synthetic_chain",
+      "id": "rr_input_and_read_eligibility",
       "evidenceTier": "local_integration",
       "status": "PASS",
-      "expectedCriterion": "Actual selected computation through durable intake, actual JWT/enrolled API and native decoders",
-      "observedResult": "Exact8d local chain:22durable batches, selected persistent baseline computation, realGoTrue account/enrolled API,23Swift/23Kotlin envelopes andpersistedselections,8invalidresponse rejections. Syntheticfixture only; physicalreadbackNOT_MEASURED.",
-      "commandOrProtocol": "PIPELINE_TEST_V1_BINARY and PIPELINE_TEST_V2_BINARY test-server-pipeline.sh",
+      "expectedCriterion": "No unverified legacy RR enters selected v1; independent supported metrics remain available; old immutable bytes preserved",
+      "observedResult": "Actual frozen baseline/PostgreSQL regression preserves observed10800 unqualified RR but excludes them from scoring; marker included before immutable hash; native cached and nested old values gated",
+      "commandOrProtocol": "Frozen baseline integration, SQL129, Swift and Android actual cache tests",
       "sourceSha": null,
-      "environment": "local Mac disposable services",
+      "environment": "local_integration",
       "evidence": [
         {
-          "path": "/Volumes/Untitled/server-repair-evidence/server-pipeline.d0FzOU/receipt.json",
-          "sha256": "8fb03f5f44861542e5873ce7cdfdb1d4a219b4024a732ec093da42e3117ab1d0"
-        }
-      ]
-    },
-    {
-      "id": "raw_native_focused",
-      "evidenceTier": "local_integration",
-      "status": "PASS",
-      "expectedCriterion": "Bounded complete model input and scoped native consumers with meaningful negative cases",
-      "observedResult": "Combined native Swiftfocused43/Android41 passed; combined JVM fullservice includes complete raw-input metadata/budget/optional-lane tests. No model/reference qualification implied.",
-      "commandOrProtocol": "test-raw-model-pipeline.sh; compute app-host and Android consumer tests",
-      "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
-      "environment": "local Mac disposable services",
-      "evidence": [
-        {
-          "path": "/Volumes/Untitled/server-repair-evidence/combined-science-8d173c/combined-native-receipt.json",
-          "sha256": "4dd3a9f0d7042bdd1700dd8f4818046a9d58c2c4fca8489fbab57e9bee83c939"
+          "path": "/Volumes/Untitled/server-repair-evidence/baseline-qualified-input-129-receipt.json",
+          "sha256": "b1f1f1e85897c5b9655733fec36ee99f984bcbdd6e10a653f0453bd9deeb2a88"
         },
         {
-          "path": "/Volumes/Untitled/server-repair-evidence/server-jvm.mLqAEE/receipt.json",
-          "sha256": "deb149773e856381b0b90c9ce40c24254e14aa45cfc052794ff9cff4e63fd1b9"
-        }
-      ]
-    },
-    {
-      "id": "zero_inference_source",
-      "evidenceTier": "local_integration",
-      "status": "FAIL",
-      "expectedCriterion": "Exercise normal/background/session/debug guards without numerical local calls",
-      "observedResult": "Initial8d final-hosted exercised-path tests pass, but independent actual Oura callback audit reproduced local HR/sleep summary inference. Isolated guardb164672 fixes it with old-failing/new-passing tests; not yet integrated in8d artifacts.",
-      "commandOrProtocol": "FinalHostedChecks and Android final-hosted native suites",
-      "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
-      "environment": "local Mac disposable services",
-      "evidence": [
+          "path": "/Volumes/Untitled/server-repair-evidence/legacy-read-swift/receipt.json",
+          "sha256": "a37dce1f11dc1627ccff78aab09abe732d1515da21802ab1d701cc952995c14c"
+        },
         {
-          "path": "/Volumes/Untitled/server-repair-evidence/oura-hosted-guard/receipt.json",
-          "sha256": "f72f957a57681e60a4d146d6222c2624706b2c4cd30eff9c58f9845bec0eac56"
+          "path": "/Volumes/Untitled/server-repair-edge-review/legacy-read-android-receipt.json",
+          "sha256": "49ef4b83d2ee25dc1414eaf39bf93ad88e78118663e8f633949165f4aee1704e"
+        },
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/legacy-read-combined-app-receipt.json",
+          "sha256": "acc9eabfc2c4dbc2f8b469d4e7755982ff658155a60d4fa68c416d44a192472c"
+        },
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/legacy-read-fixtures/receipt.json",
+          "sha256": "6ba880783c7a87cb336fdc69b4b71d60de31f458039bbcef9e78d7701ec6d8df"
         }
       ]
     },
     {
-      "id": "full_server_suite",
+      "id": "capture_and_archive_repair",
       "evidenceTier": "local_integration",
       "status": "PASS",
-      "expectedCriterion": "Actual Swift corpus and all JVM tests pass; declared reference skips retained",
-      "observedResult": "Exact combined source: analytics1106, zero failures, five explicit unavailable private/reference fixtures; service590, zero failures/skips; actual current Swift corpus and disposable PostgreSQL; installDist bound to source.",
-      "commandOrProtocol": "bash scoring-service/scripts/test-server-jvm.sh",
-      "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
-      "environment": "local Mac disposable services",
+      "expectedCriterion": "Exact generic callback bytes and StandardHR historical occurrences retain durable scoped raw evidence",
+      "observedResult": "Apple and Android generic exact-byte acquisition, recovery and canonical RR exclusion; bounded idempotent old StandardHR archive upgrade; no fabricated event clock",
+      "commandOrProtocol": "Source-bound acquisition and archive regression suites",
+      "sourceSha": null,
+      "environment": "local_integration",
       "evidence": [
         {
-          "path": "/Volumes/Untitled/server-repair-evidence/server-jvm.mLqAEE/receipt.json",
-          "sha256": "deb149773e856381b0b90c9ce40c24254e14aa45cfc052794ff9cff4e63fd1b9"
+          "path": "/Volumes/Untitled/server-repair-evidence/android-capture-d0d7-final/commit-receipt.json",
+          "sha256": "b05895053adc59b90f55fe71f2fba1f5d064831ecc6f1b45c270f7c018b8a0ae"
+        },
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/standard-hr-archive-upgrade-receipt.json",
+          "sha256": "e59a3e0e8c085b7d161dae8d2b7bfd2f8257a37827e1eb3c95d78821bbb96aa9"
+        }
+      ]
+    },
+    {
+      "id": "final_full_server_suite",
+      "evidenceTier": "local_integration",
+      "status": "PASS",
+      "expectedCriterion": "New actual Swift corpus, all JVM tests and installDist bound to frozen SHA",
+      "observedResult": "Final405 actual Swift corpus and clean JVM build:1106 analytics tests,0failures,5 explicit private/reference skips;590 service tests,0failures/skips; native installDist source matches.",
+      "commandOrProtocol": "bash scoring-service/scripts/test-server-jvm.sh",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "local_integration",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/server-jvm.Dhx78w/receipt.json",
+          "sha256": "2e53d4aa15cf4003b240944d9f01ceecb8068fe8049fc87a36559e9e55549105"
+        },
+        {
+          "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/workers/baseline-tests-receipt.json",
+          "sha256": "bbfe4023dea4755674a309d1a8bbd72a7f9944f180eb19b16a7c2a636f5d7b88"
+        }
+      ]
+    },
+    {
+      "id": "final_positive_computed_chain",
+      "evidenceTier": "local_integration",
+      "status": "PASS",
+      "expectedCriterion": "Selected supported calculation through real durable/indexed input, worker, immutable publication, both authenticated APIs and native persisted selections",
+      "observedResult": "Final405 actual persistent baseline computes supported sleep/RHR from22 synthetic durable batches; real GoTrue account and enrolled routes;23 Swift/23 Kotlin persisted selections and8 negative rejections. No physical phone claim.",
+      "commandOrProtocol": "PIPELINE_TEST_V1_BINARY and PIPELINE_TEST_V2_BINARY test-server-pipeline.sh",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "local_integration",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/server-pipeline.P0pHvA/receipt.json",
+          "sha256": "a7cfb729f3621fb8681025fa2b7456b021ce2b2ffeb69fd3ee78516aceddafc3"
+        },
+        {
+          "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/synthetic-run/execution-receipt.json",
+          "sha256": "b99c6de0981a6dc04760c34b6286b9ee1ff8ab8f5efa2f4af508374ce78c2724"
+        }
+      ]
+    },
+    {
+      "id": "final_private_real_recording_replay",
+      "evidenceTier": "local_integration",
+      "status": "PASS",
+      "expectedCriterion": "Consented actual scalar recording with original timing through selected worker/authenticated APIs/native consumers",
+      "observedResult": "Final405 actual42-hour scalar recording replay:220verified/projected batches, existing frozen-v1 sleep/RHR computation in explicit replay-day mode, identical actual disposable account/enrolled output and2Swift/2Kotlin persisted native selections. No original mobile-byte, hostedB2 or physical-phone claim. Independent review rehashed private input, both18-file worker inventories and real API/native evidence.",
+      "commandOrProtocol": "Private exact-source test-server-pipeline.sh real-recording runner; immutable native worker bin/lib inventory before/after",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "local_integration",
+      "evidence": [
+        {
+          "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/real-recording/receipt.json",
+          "sha256": "9641b2a986e69d7946ce606ef33256e4e5e1ef3023cdfa89256feb7da7d44bdf"
+        },
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/real-recording-405-independent-review.json",
+          "sha256": "eb8860241b8d105d40b006f9bc9b18d3f37d5c0c5372909df990629ca0ff3e71"
+        }
+      ]
+    },
+    {
+      "id": "final_native_runtime",
+      "evidenceTier": "local_integration",
+      "status": "PASS",
+      "expectedCriterion": "BLE durability/fresh-history/account fences and zero local physiology with supported server consumers on combined source",
+      "observedResult": "Final405 app189+reference1+Android2107+Swift primitive17 pass; WhoopStore905 with1optional phone-database skip. Four exercised hosted paths record0physiological executions. Physical process intervals remain unmeasured.",
+      "commandOrProtocol": "Actual Swift and Android native regression suites",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "local_integration",
+      "evidence": [
+        {
+          "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/science-native/receipt.json",
+          "sha256": "9893f200d602236ee19357aa4e277a4a978ad3356edf4096562939bc457bebe2"
+        }
+      ]
+    },
+    {
+      "id": "final_migrations",
+      "evidenceTier": "local_integration",
+      "status": "PASS",
+      "expectedCriterion": "129 complete identities, exact native110/full117 predecessor,12 forward wrappers, real hosted schema semantics preserved",
+      "observedResult": "Final405 exact actual hosted-schema empty-data restore matches captured catalog semantics; twelve actual apply wrappers preserve110native and reach129full with expected32-function DB fingerprint. No production data exported.",
+      "commandOrProtocol": "Private captured schema restore/catalog comparison then exact-source hosted apply wrappers and schema verifier",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "local_integration",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/hosted-actual-schema-rehearsal-405ee1b6.json",
+          "sha256": "ddeba96c89a5ffe5e3edbe7b8014212eb63bcdab19b8612d203f51130718d3e3"
+        },
+        {
+          "path": "/Volumes/Untitled/server-repair-edge-review/hosted-actual-schema-405-independent-review.json",
+          "sha256": "6e9e8d13cc39cbbd3d160b2b66632234d51ff100b9800b629cc160de0afb8efc"
+        }
+      ]
+    },
+    {
+      "id": "final_matched_artifacts",
+      "evidenceTier": "artifact",
+      "status": "PASS",
+      "expectedCriterion": "Migration/Edge/deployment/intake/baseline/v2/IPA373/APK452 all match frozen source",
+      "observedResult": "Independent actual signed IPA373/APK452 and all3OCI/129migrations/Edge/deployment bundles match final405; digest and merged source/CA bytes verified. Watch profiles omit current paired Watch; identity PASS is not physical acceptance.",
+      "commandOrProtocol": "Exact-source archive/build/actual OCI and signed phone inspection/aggregate semantic verifier",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "artifact",
+      "evidence": [
+        {
+          "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/release/release-artifact-manifest.json",
+          "sha256": "9a6f857574fa1019f69013ec912cabc54ab0d59b4baaf755e5df8ced493b1b0c"
+        },
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/artifact-independent-405-receipt.json",
+          "sha256": "b2364d3b57a5bceedf4deb17ad4dbcfd02314220a86423c653564d1341ad804f"
+        }
+      ]
+    },
+    {
+      "id": "immutable_archive_publication_tool",
+      "evidenceTier": "local_integration",
+      "status": "PASS",
+      "expectedCriterion": "Transport approved existing archives without rebuild or changing selected linux/amd64 image identity; safe default and bounded operations",
+      "observedResult": "Default offline validation,14tests and final disposable local-registry roundtrip pass. Independent review rehashed3actual manifests and35config/layer blobs; originalarchives unchanged. No GHCR authentication/publication or target pull proof.",
+      "commandOrProtocol": "Pinned official Skopeo copy --preserve-digests and complete local readback; reviewed external operator helper",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "disposable_local_registry_on_Mac",
+      "evidence": [
+        {
+          "path": "/Volumes/Untitled/server-repair-evidence/oci-publication-405-independent-review.json",
+          "sha256": "3cb6cbff69b968ce164c5f4be33940999bc05fc5f22c547db92689d9c406532b"
+        },
+        {
+          "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/verification/oci-publication/transport-proof-receipt.json",
+          "sha256": "d8eeb6dd2bab2e43969617f2e792cbf81492a2e7a2a98f70ac4483189f662b5f"
         }
       ]
     },
@@ -199,63 +319,55 @@
       "id": "producer_parity",
       "evidenceTier": "source",
       "status": "FAIL",
-      "expectedCriterion": "Every supported family has actual numerical producer, selected publication and consumer",
-      "observedResult": "Canonical history-family wiring and several live/session producers remain incomplete; explicit missingness is not hardware exclusion",
-      "commandOrProtocol": "Actual callsite/queue/publication/consumer inspection",
-      "sourceSha": "9b51bfd42150f04f705b1aaf31da2b758aed2bcd",
-      "environment": "local Mac disposable services",
+      "expectedCriterion": "Every supported family has real numerical producer, selected publication and consumer",
+      "observedResult": "Canonical history/live/session and generic raw numerical adapters remain engineering work; unimplemented is not unsupported hardware",
+      "commandOrProtocol": "Actual producer/queue/API/native callsites and ownership matrix",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "source",
       "evidence": [
         {
           "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/compute/metric-ownership.json",
-          "sha256": "8a9a19899c338a69f8260a3453451cb6ec958ee659f86c9426f17fb8f077ddfd"
+          "sha256": "3797f25c62969c853f6cc3aee22f8f4a225ab2d44d9dc4107451b40419fcb7b0"
         }
       ]
     },
     {
-      "id": "combined_ble_source",
-      "evidenceTier": "source",
-      "status": "PASS",
-      "expectedCriterion": "Integrate complete BLE repair and rerun combined source",
-      "observedResult": "Merged BLEe2cb1f8 and VPS92c337a at8d173cde; queue99 and capture126 plus interval/export tests passed on exact combined source. No physical reliability claim.",
-      "commandOrProtocol": "Review and integrate repair/ble-sync-20260922",
-      "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
-      "environment": "local Mac disposable services",
+      "id": "normal_route_access",
+      "evidenceTier": "deployed_read_only",
+      "status": "BLOCKED",
+      "expectedCriterion": "Genuine account and enrolled credentials with original scope, before deployment mutations",
+      "observedResult": "Signed405fleet/anon configuration matches project; strict read-only token-hash SELECT found one active unexpired fleet row. Account and installation bearer values absent from8normal parity environment variables and normal configs; ordinarily phone Keychain. No Keychain extraction or authenticated enrolled GET executed. Such GETs update token-use timestamps and require explicit approval. The same8names are absent in normal target scoring.env/secrets.env; target intake.env is absent.",
+      "commandOrProtocol": "Allowlisted normal-config presence audit and strictTLS READ ONLY token-hash SELECT; no bearer disclosure",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "local_normal_configuration_and_hosted_read_only",
       "evidence": [
         {
-          "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/combined-source-receipt.json",
-          "sha256": "bcd775cbc57cb536970b5ca6d306196e646fd410153e0b706a5e83e32d203bb1"
+          "path": "/Volumes/Untitled/server-repair-edge-review/normal-route-credential-access.json",
+          "sha256": "2744a28943979a8e3cb5bc18d49d0b24e6f7f8fdb4d0a9415440a62178d98dc1"
         },
         {
-          "path": "/Volumes/Untitled/server-repair-evidence/combined-science-8d173c/combined-native-receipt.json",
-          "sha256": "4dd3a9f0d7042bdd1700dd8f4818046a9d58c2c4fca8489fbab57e9bee83c939"
-        },
-        {
-          "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/verification/cloud-upload-combined.log",
-          "sha256": "c861d6a7690bc487bf15d4ca04ca23f0f9395363521c2a4dc93513a1168c8162"
+          "path": "/Volumes/Untitled/server-repair-edge-review/normal-server-route-config-presence.json",
+          "sha256": "c12f8ad4109132b983a161c086b12771d74187eff168c75d9f09c453831517cc"
         }
       ]
     },
     {
-      "id": "matched_artifacts",
-      "evidenceTier": "source",
+      "id": "matched_deployment_proposal",
+      "evidenceTier": "source_and_artifact_review",
       "status": "PASS",
-      "expectedCriterion": "Exact migration/Edge/intake/baseline/v2/phone artifacts from reviewed frozen source",
-      "observedResult": "Exact8d artifactidentity verifies includingsignedIPA/APK, all3OCI images,127migrations andEdge/deployment source. This candidate is NOT_CANARY_READY because Oura inference and unboundedglobaladmission needsourcefixes. IdentityPASS doesnotgrantreadiness.",
-      "commandOrProtocol": "Release artifact builder and independent identity review",
-      "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
-      "environment": "local Mac disposable services",
+      "expectedCriterion": "Exact independently reviewed migration/Edge/verifier/worker/phone plan, scope, safeguards and data-preserving rollback before approval",
+      "observedResult": "Sealed source405 proposal binds129catalog/12forward migrations,6Edge roles,3immutable images,2one-pair guarded workers and originaliPhone373. GlobalSQL129 read policy disclosed. Single full-plan approval covers enumerated stages; access and stop gates remain mandatory. No execution.",
+      "commandOrProtocol": "Offline actual binder,59 referenced hashes,25 sealed public files, independent source/receipt review",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "local_public_plan_and_prior_bounded_read_only_observations",
       "evidence": [
         {
-          "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/release/release-artifact-manifest.json",
-          "sha256": "bdcf9ba1accfd44ffe7db285e390f85210bd1a1fea39e7ce9791d5c88b0df5c0"
+          "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/review/approval-plan-seal.json",
+          "sha256": "816818342fabaa817246eaa569df7a89fa5599b57c8b6b6eb1135470f74e40bf"
         },
         {
-          "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/workers/baseline-actual-assets-receipt.json",
-          "sha256": "541d2e9eb8386f19281387c389c6e422fcf0119b871cdc8552d3d394b891f85a"
-        },
-        {
-          "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/workers/physiology-actual-assets-receipt.json",
-          "sha256": "a7af185186ef00f25e1dadfeefdcfaf5eddfdf0ee42060e3ac4b66164bd5f896"
+          "path": "/Volumes/Untitled/server-repair-evidence/matched-plan-405-seal-independent-check.json",
+          "sha256": "b610bf971b0e16ac460ec79cb2456e2e699e82196d64a8cd9f87687a02fdf052"
         }
       ]
     },
@@ -264,11 +376,16 @@
       "evidenceTier": "deployed",
       "status": "NOT_MEASURED",
       "expectedCriterion": "Explicit approval for exact matched plan and successful observed deployment",
-      "observedResult": "No approval requested/granted, no production mutation",
+      "observedResult": "Exact reviewed approval proposal ready; no approval granted, registry publication, production mutation or physical installation performed.",
       "commandOrProtocol": "Pinned hosted migration plan; bound scoped services/Edge/phone artifacts",
-      "sourceSha": null,
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
       "environment": "deployed",
-      "evidence": []
+      "evidence": [
+        {
+          "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/deployment/deployment-status-receipt.json",
+          "sha256": "1d89d3acd192e996ab7bf222500b162700e77d89788c46f53ff60a2d245a3433"
+        }
+      ]
     },
     {
       "id": "real_phone_readback",
@@ -345,30 +462,341 @@
       "id": "hosted_readonly_plan",
       "evidenceTier": "deployed_read_only",
       "status": "PASS",
-      "expectedCriterion": "Exact manifest bound to pinned actualpsql, strict CA hostname validation and observed hosted ledger",
-      "observedResult": "PLAN_READY with10pending,117fullidentities/110native predecessor entries; planfingerprint639f842ad2a9c2ae96484176899d8b4c93458f28e39647a024b61d07aca79a1b; no apply",
-      "commandOrProtocol": "hosted-migration-release plan via actual pinnedpsql",
-      "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
-      "environment": "deployed_read_only",
+      "expectedCriterion": "Clean final source/manifest, pinned psql/CA and actual unchanged hosted110/117 ledger bind the twelve pending migrations",
+      "observedResult": "PLAN_READY_NOT_APPLIED; plan fingerprint21243b3e4d1a17b974289478806c191fb71309a6eed86b85c0f632433539fce6",
+      "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "environment": "normally configured hosted database; read-only transaction",
+      "commandOrProtocol": "Reviewed bind-target and plan only",
       "evidence": [
         {
-          "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/hosted-readonly-plan/read-only-plan-receipt.json",
-          "sha256": "6564478ecfee4eff9204d67fedfccae991c3693ee13bd8c5d1100a05bdb38eb2"
+          "path": "/Volumes/External SSD/server-repair-release-405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2/hosted-readonly-plan/read-only-plan-receipt.json",
+          "sha256": "c87c51a919e130b4408d1d63d586a2723d5ee5499f85371ef3c47545a445d1df"
         }
       ]
     }
   ],
-  "recordedAt": "2026-09-23T02:52:13.457937+00:00",
+  "recordedAt": "2026-09-23T07:03:45.399119+00:00",
   "engineeringGaps": [
-    "Integrate reviewed Oura guardb164672 and rebuild matched artifacts;8d is not finalcanarycandidate.",
-    "Implementoneowner/device canary scope acrossintakeandbaseline with128additiveSQL; preserve127prioridentities.",
-    "Huami/FTMS/Oura exactcallbackdurability remains separate follow-up implementation.",
-    "Canonicalhistory/live/session andOuraIBI-to-HR/sleep-summary VPSnumericalproducer parity remains incomplete."
+    "Canonical history-family selected publication and several live/session numerical producers remain incomplete.",
+    "Generic exact-byte capture is implemented; qualified server adapters for its numerical outputs remain incomplete.",
+    "RR_Estimation raw production assembler/preprocessing and CorrEncoder selected rate producer remain incomplete; scientific qualification is separate."
   ],
   "externalGates": {
-    "approval": "No production mutation, registry publication, service switch, phone install/launch/reset or model promotion authorized.",
-    "physical": "Matched candidate phone/wearable readback and lifecycle run have not occurred.",
+    "approval": "No production migration, registry push, service/Edge mutation, phone install/launch/reset, promotion or main merge authorized.",
+    "physical": "Read-only refresh has no usable iPhone16 tunnel/DDI; version is best-known inventory after device-info timeout. Candidate installation/readback remain unverified. Watch profiles omit paired Watch and DeveloperMode/DDI unavailable. No activation, portal/device registration or install authorized.",
     "elapsed": "4h/24h/72h require actual elapsed observed runs.",
-    "capacity": "1000-user claim unsupported; actual target mixedworkload admission remains unknown."
+    "capacity": "1000-user claim unsupported; actual target mixedworkload admission remains unknown.",
+    "configuration": "Local private exact traced owner/device admission and normal intake.env prepared; target intake.env absent and target dedicated scoring URI requires approved strict-TLS correction. No target change.",
+    "authentication": "Account and installation bearer credentials are absent from normal local/target parity configuration; normally held by phone Keychain. The signed IPA fleet token is active and unexpired. No Keychain extraction or authenticated enrolled GET was performed. First approved normal route checks include token-use timestamp writes and must pass before registry/DDL/config; final contract parity is checked again after Edge deployment.",
+    "registry": "Exact immutable archives survived a disposable local-registry roundtrip with original selectedamd64 manifest/config/all-layer bytes; independent review passed. This does not establish GHCR permission or target pull availability; those remain unverified and precede hosted schema changes. Destination package visibility must be private and verified before any approved publication."
+  },
+  "historicalCandidates": [
+    {
+      "candidate": {
+        "sha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
+        "tree": "b51ce51ff82e0ba8b6df0f0ab772342258c086b2",
+        "branch": "repair/vps-server-20260922",
+        "artifactRoot": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
+        "evidenceBranch": "repair/combined-evidence-20260922",
+        "evidenceBranchIsReleaseSource": false,
+        "disposition": "NOT_CANARY_READY_SUPERSEDED_BY_PENDING_REPAIRS"
+      },
+      "gates": [
+        {
+          "id": "shared_base",
+          "evidenceTier": "source",
+          "status": "PASS",
+          "expectedCriterion": "Preserve both complete histories and verify frozen release identity",
+          "observedResult": "Both histories retained; all supplied pack hashes match; unrelated dirty checkout preserved",
+          "commandOrProtocol": "git ancestry and exact artifact/source hash verification",
+          "sourceSha": "76f2d70f621de91268e295ebcb6c6da29162991f",
+          "environment": "local Mac disposable services",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/server-repair/stage0-receipts.json",
+              "sha256": "3029b918c27be6a7d2467004bd9e0ea82bb74598d97948f0a0d7bba462970763"
+            },
+            {
+              "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/server-repair/recovery-pack-receipt.json",
+              "sha256": "0eaaf59408ff1e1c723acbd84e612328e9842c69b3400652ad367aa0dd13d097"
+            }
+          ]
+        },
+        {
+          "id": "real_incident_trace",
+          "evidenceTier": "deployed_read_only",
+          "status": "PASS",
+          "expectedCriterion": "Identify first failed observed transition without production mutation",
+          "observedResult": "Accepted/indexed batch still has projection debt; selected-v1 queue pending with no compatible hosted consumer; physical capture/cache/render unmeasured",
+          "commandOrProtocol": "Bounded read-only scoped hosted queries and historical371 SQLite snapshot",
+          "sourceSha": null,
+          "environment": "deployed_read_only",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/server-repair/input_to_result_trace.json",
+              "sha256": "b6c508bb469b7cde264bc98c382e51c0c4310c21291c12fb9a1be6b5d1ffe6f3"
+            },
+            {
+              "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/server-repair/runtime-review.md",
+              "sha256": "c1bcc9a30ee09640c4abb4c8bf6cd6fc5aacba216355fa2c5bcd2a25fd9aa99c"
+            }
+          ]
+        },
+        {
+          "id": "intake_and_migrations",
+          "evidenceTier": "local_integration",
+          "status": "PASS",
+          "expectedCriterion": "Atomic exact verification/index receipt and projection; full127 migrations including unchanged110 native predecessor ledger",
+          "observedResult": "Local intake7 steps and fresh/populated/wrapped predecessor chains passed; later source revalidation remains required",
+          "commandOrProtocol": "PIPELINE_TEST_INTAKE=1 test-server-pipeline.sh; test-physiology-migration-chain.sh fresh/populated/hosted-upgrade",
+          "sourceSha": null,
+          "environment": "local Mac disposable services",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/server-repair-evidence/physiology-chain-hosted-upgrade.0qZfkA/integrated-schema-verification.json",
+              "sha256": "dae43ba3e424ccd85400b26c1ba0ae785b1c000be0af25f3c2f0393447d3a8cf"
+            }
+          ]
+        },
+        {
+          "id": "computed_synthetic_chain",
+          "evidenceTier": "local_integration",
+          "status": "PASS",
+          "expectedCriterion": "Actual selected computation through durable intake, actual JWT/enrolled API and native decoders",
+          "observedResult": "Exact8d local chain:22durable batches, selected persistent baseline computation, realGoTrue account/enrolled API,23Swift/23Kotlin envelopes andpersistedselections,8invalidresponse rejections. Syntheticfixture only; physicalreadbackNOT_MEASURED.",
+          "commandOrProtocol": "PIPELINE_TEST_V1_BINARY and PIPELINE_TEST_V2_BINARY test-server-pipeline.sh",
+          "sourceSha": null,
+          "environment": "local Mac disposable services",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/server-repair-evidence/server-pipeline.d0FzOU/receipt.json",
+              "sha256": "8fb03f5f44861542e5873ce7cdfdb1d4a219b4024a732ec093da42e3117ab1d0"
+            }
+          ]
+        },
+        {
+          "id": "raw_native_focused",
+          "evidenceTier": "local_integration",
+          "status": "PASS",
+          "expectedCriterion": "Bounded complete model input and scoped native consumers with meaningful negative cases",
+          "observedResult": "Combined native Swiftfocused43/Android41 passed; combined JVM fullservice includes complete raw-input metadata/budget/optional-lane tests. No model/reference qualification implied.",
+          "commandOrProtocol": "test-raw-model-pipeline.sh; compute app-host and Android consumer tests",
+          "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
+          "environment": "local Mac disposable services",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/server-repair-evidence/combined-science-8d173c/combined-native-receipt.json",
+              "sha256": "4dd3a9f0d7042bdd1700dd8f4818046a9d58c2c4fca8489fbab57e9bee83c939"
+            },
+            {
+              "path": "/Volumes/Untitled/server-repair-evidence/server-jvm.mLqAEE/receipt.json",
+              "sha256": "deb149773e856381b0b90c9ce40c24254e14aa45cfc052794ff9cff4e63fd1b9"
+            }
+          ]
+        },
+        {
+          "id": "zero_inference_source",
+          "evidenceTier": "local_integration",
+          "status": "FAIL",
+          "expectedCriterion": "Exercise normal/background/session/debug guards without numerical local calls",
+          "observedResult": "Initial8d final-hosted exercised-path tests pass, but independent actual Oura callback audit reproduced local HR/sleep summary inference. Isolated guardb164672 fixes it with old-failing/new-passing tests; not yet integrated in8d artifacts.",
+          "commandOrProtocol": "FinalHostedChecks and Android final-hosted native suites",
+          "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
+          "environment": "local Mac disposable services",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/server-repair-evidence/oura-hosted-guard/receipt.json",
+              "sha256": "f72f957a57681e60a4d146d6222c2624706b2c4cd30eff9c58f9845bec0eac56"
+            }
+          ]
+        },
+        {
+          "id": "full_server_suite",
+          "evidenceTier": "local_integration",
+          "status": "PASS",
+          "expectedCriterion": "Actual Swift corpus and all JVM tests pass; declared reference skips retained",
+          "observedResult": "Exact combined source: analytics1106, zero failures, five explicit unavailable private/reference fixtures; service590, zero failures/skips; actual current Swift corpus and disposable PostgreSQL; installDist bound to source.",
+          "commandOrProtocol": "bash scoring-service/scripts/test-server-jvm.sh",
+          "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
+          "environment": "local Mac disposable services",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/server-repair-evidence/server-jvm.mLqAEE/receipt.json",
+              "sha256": "deb149773e856381b0b90c9ce40c24254e14aa45cfc052794ff9cff4e63fd1b9"
+            }
+          ]
+        },
+        {
+          "id": "producer_parity",
+          "evidenceTier": "source",
+          "status": "FAIL",
+          "expectedCriterion": "Every supported family has actual numerical producer, selected publication and consumer",
+          "observedResult": "Canonical history-family wiring and several live/session producers remain incomplete; explicit missingness is not hardware exclusion",
+          "commandOrProtocol": "Actual callsite/queue/publication/consumer inspection",
+          "sourceSha": "9b51bfd42150f04f705b1aaf31da2b758aed2bcd",
+          "environment": "local Mac disposable services",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/WHOOP NARA-server-repair/docs/compute/metric-ownership.json",
+              "sha256": "8a9a19899c338a69f8260a3453451cb6ec958ee659f86c9426f17fb8f077ddfd"
+            }
+          ]
+        },
+        {
+          "id": "combined_ble_source",
+          "evidenceTier": "source",
+          "status": "PASS",
+          "expectedCriterion": "Integrate complete BLE repair and rerun combined source",
+          "observedResult": "Merged BLEe2cb1f8 and VPS92c337a at8d173cde; queue99 and capture126 plus interval/export tests passed on exact combined source. No physical reliability claim.",
+          "commandOrProtocol": "Review and integrate repair/ble-sync-20260922",
+          "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
+          "environment": "local Mac disposable services",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/combined-source-receipt.json",
+              "sha256": "bcd775cbc57cb536970b5ca6d306196e646fd410153e0b706a5e83e32d203bb1"
+            },
+            {
+              "path": "/Volumes/Untitled/server-repair-evidence/combined-science-8d173c/combined-native-receipt.json",
+              "sha256": "4dd3a9f0d7042bdd1700dd8f4818046a9d58c2c4fca8489fbab57e9bee83c939"
+            },
+            {
+              "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/verification/cloud-upload-combined.log",
+              "sha256": "c861d6a7690bc487bf15d4ca04ca23f0f9395363521c2a4dc93513a1168c8162"
+            }
+          ]
+        },
+        {
+          "id": "matched_artifacts",
+          "evidenceTier": "source",
+          "status": "PASS",
+          "expectedCriterion": "Exact migration/Edge/intake/baseline/v2/phone artifacts from reviewed frozen source",
+          "observedResult": "Exact8d artifactidentity verifies includingsignedIPA/APK, all3OCI images,127migrations andEdge/deployment source. This candidate is NOT_CANARY_READY because Oura inference and unboundedglobaladmission needsourcefixes. IdentityPASS doesnotgrantreadiness.",
+          "commandOrProtocol": "Release artifact builder and independent identity review",
+          "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
+          "environment": "local Mac disposable services",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/release/release-artifact-manifest.json",
+              "sha256": "bdcf9ba1accfd44ffe7db285e390f85210bd1a1fea39e7ce9791d5c88b0df5c0"
+            },
+            {
+              "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/workers/baseline-actual-assets-receipt.json",
+              "sha256": "541d2e9eb8386f19281387c389c6e422fcf0119b871cdc8552d3d394b891f85a"
+            },
+            {
+              "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/workers/physiology-actual-assets-receipt.json",
+              "sha256": "a7af185186ef00f25e1dadfeefdcfaf5eddfdf0ee42060e3ac4b66164bd5f896"
+            }
+          ]
+        },
+        {
+          "id": "deployment",
+          "evidenceTier": "deployed",
+          "status": "NOT_MEASURED",
+          "expectedCriterion": "Explicit approval for exact matched plan and successful observed deployment",
+          "observedResult": "No approval requested/granted, no production mutation",
+          "commandOrProtocol": "Pinned hosted migration plan; bound scoped services/Edge/phone artifacts",
+          "sourceSha": null,
+          "environment": "deployed",
+          "evidence": []
+        },
+        {
+          "id": "real_phone_readback",
+          "evidenceTier": "physical",
+          "status": "NOT_MEASURED",
+          "expectedCriterion": "Consented real supported numerical result equals immutable/API/cache/UI revision with zero local physiology",
+          "observedResult": "No candidate installed or actual phone readback observed",
+          "commandOrProtocol": "Normal enrolled/account API and physical native capture/render trace",
+          "sourceSha": null,
+          "environment": "physical",
+          "evidence": []
+        },
+        {
+          "id": "locked_4h",
+          "evidenceTier": "physical",
+          "status": "NOT_MEASURED",
+          "expectedCriterion": "Four elapsed locked hours with durable capture/receipt/results and resource evidence",
+          "observedResult": "Not performed",
+          "commandOrProtocol": "Matched phone/wearable/server capture with lifecycle and independent trace review",
+          "sourceSha": null,
+          "environment": "physical",
+          "evidence": []
+        },
+        {
+          "id": "soak_24h",
+          "evidenceTier": "physical",
+          "status": "NOT_MEASURED",
+          "expectedCriterion": "24 elapsed hours including recovery/fault/backlog cases",
+          "observedResult": "Not performed",
+          "commandOrProtocol": "Matched artifact soak protocol",
+          "sourceSha": null,
+          "environment": "physical",
+          "evidence": []
+        },
+        {
+          "id": "soak_72h",
+          "evidenceTier": "physical",
+          "status": "NOT_MEASURED",
+          "expectedCriterion": "72 elapsed hours with unfinished jobs and all process intervals reported",
+          "observedResult": "Not performed",
+          "commandOrProtocol": "Matched artifact soak protocol",
+          "sourceSha": null,
+          "environment": "physical",
+          "evidence": []
+        },
+        {
+          "id": "target_capacity",
+          "evidenceTier": "load",
+          "status": "NOT_MEASURED",
+          "expectedCriterion": "Target VPS sustained actual bytes/object/row/model mix with live and history fairness",
+          "observedResult": "Idle4CPU/7.755GiB snapshot only; prior1000-owner scalar run does not pass or establish capacity",
+          "commandOrProtocol": "Bounded authorized target workload with queue/resource distributions and uncompleted jobs",
+          "sourceSha": null,
+          "environment": "load",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/server-repair-edge-review/target-resource-baseline.json",
+              "sha256": "1b81a54974f8b7a5b8ff2d1b0d696635b405ddcc1f7da89fc2c999825df6ad5f"
+            }
+          ]
+        },
+        {
+          "id": "reference_qualification",
+          "evidenceTier": "scientific_reference",
+          "status": "NOT_MEASURED",
+          "expectedCriterion": "Held-out independent synchronized reference by modality, retained coverage and rights",
+          "observedResult": "No newly qualified adapter/model/SpO2 or calibration",
+          "commandOrProtocol": "Per-capability physical reference protocol; model promotion separately authorized",
+          "sourceSha": null,
+          "environment": "scientific_reference",
+          "evidence": []
+        },
+        {
+          "id": "hosted_readonly_plan",
+          "evidenceTier": "deployed_read_only",
+          "status": "PASS",
+          "expectedCriterion": "Exact manifest bound to pinned actualpsql, strict CA hostname validation and observed hosted ledger",
+          "observedResult": "PLAN_READY with10pending,117fullidentities/110native predecessor entries; planfingerprint639f842ad2a9c2ae96484176899d8b4c93458f28e39647a024b61d07aca79a1b; no apply",
+          "commandOrProtocol": "hosted-migration-release plan via actual pinnedpsql",
+          "sourceSha": "8d173cdeae3c8af1aee31ff89b927a6b8c05632f",
+          "environment": "deployed_read_only",
+          "evidence": [
+            {
+              "path": "/Volumes/Untitled/server-repair-release-8d173cdeae3c8af1aee31ff89b927a6b8c05632f/hosted-readonly-plan/read-only-plan-receipt.json",
+              "sha256": "6564478ecfee4eff9204d67fedfccae991c3693ee13bd8c5d1100a05bdb38eb2"
+            }
+          ]
+        }
+      ],
+      "disposition": "HISTORICAL_ONLY_NOT_CANARY_READY",
+      "reason": "Superseded after actual callback inference, unscoped admission and unqualified legacy RR/read findings. Prior predecessor fixture native111 was not actual native110."
+    }
+  ],
+  "operationalCanary": {
+    "localSourceArtifactReview": "PASS",
+    "fullProducerParity": "INCOMPLETE",
+    "deployment": "NOT_PERFORMED",
+    "physicalAcceptance": "NOT_MEASURED"
   }
 }

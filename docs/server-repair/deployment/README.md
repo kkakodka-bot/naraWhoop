@@ -1,0 +1,3 @@
+The `review/` directory is a byte-identical copy of the sealed public405 deployment proposal and reviewed operator helpers. `review/approval-plan-seal.json` records all approved input hashes. No deployment or installation has occurred.
+
+Use the canonical release-root paths specified in the runbook. The publication tests intentionally resolve the approved artifacts relative to their canonical `verification/oci-publication/` location; execute them there. These review copies do not alter the frozen phone/worker source405 and do not grant execution permission. Private credentials, admission identities, TLS replacement values, private worker plans and raw health data remain outside this repository.

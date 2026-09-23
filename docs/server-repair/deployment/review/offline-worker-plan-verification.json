@@ -1,0 +1,42 @@
+{
+  "status": "WORKER_DEPLOYMENT_VERIFIED",
+  "sourceSha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+  "sourceTree": "ed228cc12171dd521b41340e9a3c631740649fb0",
+  "fingerprint": "cb938cae5377abb026bbcae8b956d82cfcd679045ba7b1590e7a93eff81e9746",
+  "scope": "initial-selected-v1",
+  "admissionMode": "canary",
+  "admissionSha256": "77ae1403816bc64b0f71ab2b79241c5ffd39c5baf1ce4100106b8f7f2358e05e",
+  "selectedV1": {
+    "configDigest": "sha256:fa8cf9c71f2f2af25f08b9a154793e7fa82082cc90a0d96f65a77ee2ffcfa57c",
+    "manifestDigest": "sha256:aa69800d726b3c9d6e0fac617903035d1a39d99c2f2000bc96c0b66e86d17dbe",
+    "reference": "ghcr.io/kkakodka-bot/frwhoop_v2/baseline@sha256:aa69800d726b3c9d6e0fac617903035d1a39d99c2f2000bc96c0b66e86d17dbe"
+  },
+  "shadowV2": {
+    "configDigest": "sha256:396efc4f3168181f612417235cf4d1e83e946eba9d9f64be981dee5bb522ed77",
+    "manifestDigest": "sha256:875e81ef8072cf449475c38d3b22259853ec45c67498b50ef4801a46eae5747e",
+    "reference": "ghcr.io/kkakodka-bot/frwhoop_v2/physiology@sha256:875e81ef8072cf449475c38d3b22259853ec45c67498b50ef4801a46eae5747e"
+  },
+  "intake": {
+    "configDigest": "sha256:4cf40b4df7ee7d5a4fd1d99c6d31d2b42cc2ab2bbeb6cef02f948849e277f2ae",
+    "manifestDigest": "sha256:0db2cab4d193034225e6d7f067e4b2beaa368d65785ecb9c73857de131e1030c",
+    "reference": "ghcr.io/kkakodka-bot/frwhoop_v2/intake@sha256:0db2cab4d193034225e6d7f067e4b2beaa368d65785ecb9c73857de131e1030c"
+  },
+  "intakeContract": 2,
+  "postgresqlClient": {
+    "configDigest": "sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537",
+    "manifestDigest": "sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3",
+    "platform": "linux/amd64",
+    "reference": "docker.io/library/postgres@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3",
+    "version": "17.11-alpine3.24"
+  },
+  "target": {
+    "deployPublicKeyFingerprint": "SHA256:+IViEoY/wbWkDbAtWJvGubGgn/H0nn4xyomex58IMm8",
+    "ip": "209.38.66.209",
+    "sshHostPublicKey": {
+      "fingerprint": "SHA256:DXhwgFpinUcTpDiDXgiCbka9Y/dPPtsibUgHf6mIGls",
+      "line": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG3irSj9b5h7LNm69mLwCwttIhxalL8JILA8MDEiiENw",
+      "type": "ssh-ed25519"
+    },
+    "sshPort": 22
+  }
+}

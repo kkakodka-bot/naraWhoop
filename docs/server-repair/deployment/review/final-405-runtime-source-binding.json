@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-23T06:18:36.337911+00:00",
+  "sourceRevision": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+  "priorExecutionReceipt": {
+    "path": "/Volumes/Untitled/server-repair-edge-review/final-6a-runtime-receipt.json",
+    "sha256": "bc83f9723d4af10a7c26a3c881715fdf456374488f80fd185ac06f8e85171339"
+  },
+  "executionEquivalence": [
+    {
+      "path": "infra/vps",
+      "gitObjectId": "801c4d87236207fa1c81dd2368e1e99149f70424",
+      "unchanged": true
+    },
+    {
+      "path": "supabase",
+      "gitObjectId": "0dfe818b28a1cdfae3b1ffc8dab911d913a40d18",
+      "unchanged": true
+    },
+    {
+      "path": "workers",
+      "gitObjectId": "2e2802295ab676dd716bdbb5412209c335edc6f8",
+      "unchanged": true
+    },
+    {
+      "path": "scoring-service",
+      "gitObjectId": "9940023954444b1193e6218648dcfc6981b0ca8f",
+      "unchanged": true
+    },
+    {
+      "path": "Tools/release/release-artifact-manifest.mjs",
+      "gitObjectId": "9af453ae6df0647b663e96a17abd234640b777dd",
+      "unchanged": true
+    },
+    {
+      "path": "Tools/release/hosted-migration-release.mjs",
+      "gitObjectId": "815ecb0e7775528d7575ab04ba7378874433d3a0",
+      "unchanged": true
+    },
+    {
+      "path": "Tools/release/verify-integrated-schema.sql",
+      "gitObjectId": "a402ceb75dc90df153412ca7f9706a9c78a3e015",
+      "unchanged": true
+    },
+    {
+      "path": "Tools/release/generate-migration-manifest.mjs",
+      "gitObjectId": "ea55b2c68de95f63cdaa9c96591008f9596ed8e0",
+      "unchanged": true
+    }
+  ],
+  "entireSourceDelta": [
+    "StrandTests/CaptureDurabilityTests.swift",
+    "Tools/release/HOSTED_MIGRATION_RUNBOOK.md",
+    "Tools/server-score-contract/android/build.gradle.kts",
+    "Tools/server-score-contract/android/src/main/kotlin/DecodeContract.kt",
+    "Tools/server-score-contract/android/src/test/kotlin/CanonicalEvidenceTest.kt",
+    "android/app/src/test/java/com/noop/data/SchemaOracleTest.kt"
+  ],
+  "newFinalSourceExecutions": [
+    {
+      "suite": "admission",
+      "tests": 6,
+      "failures": 0,
+      "skips": 0,
+      "log": "/Volumes/Untitled/server-repair-edge-review/final-405-admission-tests.log",
+      "sha256": "3ba2ccbb6d510610ace013df4d9adf16989d36233ea053d8bbbb70730beb4826"
+    },
+    {
+      "suite": "guard",
+      "tests": 13,
+      "failures": 0,
+      "skips": 0,
+      "log": "/Volumes/Untitled/server-repair-edge-review/final-405-guard-tests.log",
+      "sha256": "30a56fadba219de6b8cea55f7854cceab235a6f06cd894d531ba2bb3b6d90dfc"
+    }
+  ],
+  "isolatedSourceArchiveFilesVerifiedAfterTests": 83,
+  "scope": "77 prior top-level runtime/Edge tests and32steps apply by unchanged relevant source;19 guard/admission tests additionally re-executed405. Prior optional pair fixture remains1ignored.",
+  "physicalAcceptance": "NOT_MEASURED",
+  "capacity": "NOT_MEASURED",
+  "productionMutation": false
+}
