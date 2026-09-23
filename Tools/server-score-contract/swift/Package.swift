@@ -5,5 +5,8 @@ let package = Package(
     name: "ServerScoreContract",
     platforms: [.macOS(.v13)],
     dependencies: [.package(path: "../../../Packages/WhoopStore")],
-    targets: [.executableTarget(name: "DecodeContract", dependencies: ["WhoopStore"])]
+    targets: [
+        .executableTarget(name: "DecodeContract", dependencies: ["WhoopStore"]),
+        .testTarget(name: "DecodeContractTests", dependencies: ["DecodeContract", "WhoopStore"])
+    ]
 )

@@ -219,7 +219,13 @@ class IndependentScoringWorkIntegrationTest {
         assertTrue(outbox.finish(retry,"b".repeat(64),null))
         assertEquals(1L,number("select count(*) from server_physiology_results where user_id='$user'"))
         assertEquals("verified",readFeature().getString("archive_status"))
-        assertEquals(42,readSnapshot().getJSONObject("daily").getInt("hrv_rmssd_ms"))
+        // Archive identity is unchanged; read eligibility does not promote the old RR value.
+        assertEquals(42,first.payload.getJSONObject("daily").getInt("hrv_rmssd_ms"))
+        val read = readSnapshot()
+        assertTrue(read.getJSONObject("daily").isNull("hrv_rmssd_ms"))
+        assertEquals("beat_timing_unverified", read.getJSONObject("compute").getJSONObject("families")
+            .getJSONObject("night_hrv").getJSONObject("details").getJSONObject("metric_availability")
+            .getJSONObject("hrv_rmssd_ms").getString("reason"))
     }
 
     private fun expectState(state:String,operation:()->Unit) {
