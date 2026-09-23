@@ -47,7 +47,7 @@ public struct ServerVitalSelection: Equatable {
             let family = overlay?.day == selectedDay ? overlay?.canonicalResults?.result(for: metric.key) : nil
             let pending = overlay?.day == selectedDay ? overlay?.pendingCanonicalResults : nil
             var result = Self(value: family?.number(metric.key), fromServer: true, day: selectedDay,
-                status: overlay?.readFailure ?? family?.reason ?? family?.status ?? pending?.reason ?? "awaiting_server_result",
+                status: overlay?.readFailure ?? family?.missingReason(metric.key) ?? family?.reason ?? family?.status ?? pending?.reason ?? "awaiting_server_result",
                 stale: overlay?.stale == true || family?.freshness != "current",
                 sourceFeature: metric.feature, deviceId: family?.deviceID, algorithmVersion: family?.algorithmVersion)
             result.canonicalResult = family
@@ -82,11 +82,15 @@ public struct ServerVitalSelection: Equatable {
         let available = feature?.isCanonicalAvailable == true
         // Missing/unqualified server results remain unavailable rather than falling back locally.
         if !available || value == nil {
+            let legacyReason = feature?.algorithmVersion == ServerLegacyReadEligibility.algorithm &&
+                (ServerLegacyReadEligibility.always.contains(metric.key) ||
+                 overlay.legacySleepWithheld && (ServerLegacyReadEligibility.sleep.contains(metric.key) || metric == .rest))
+                ? ServerLegacyReadEligibility.reason : nil
             let processing = feature?.processingStatus.flatMap {
                 ["pending", "running", "retry", "failed", "exhausted"].contains($0) ? $0 : nil
             }
             return Self(value: nil, fromServer: true,
-                        day: selectedDay, status: overlay.readFailure ?? processing ?? feature?.reason ?? (available ? "insufficient_input" : "unavailable"), stale: overlay.stale,
+                        day: selectedDay, status: overlay.readFailure ?? legacyReason ?? processing ?? feature?.reason ?? (available ? "insufficient_input" : "unavailable"), stale: overlay.stale,
                         sourceFeature: feature == nil ? nil : featureKey, deviceId: feature?.deviceId,
                         algorithmVersion: feature?.algorithmVersion)
         }

@@ -114,15 +114,15 @@ final class ServerRespirationSummaryTests: XCTestCase {
         }
     }
 
-    func testLegacyRateNeverClaimsV2QualityEvenWithUnexpectedSummaryFields() throws {
+    func testLegacyRateIsWithheldForUnverifiedBeatTimingEvenWithUnexpectedSummaryFields() throws {
         let input = try cache(version: "frwhoop-server-1")
         let value = try XCTUnwrap(ServerRespirationSummary.project(input, day: input.day))
-        XCTAssertEqual(value.breathsPerMinute, 16)
+        XCTAssertNil(value.breathsPerMinute)
         XCTAssertTrue(value.legacy)
         XCTAssertNil(value.mean)
         XCTAssertNil(value.coverage)
         XCTAssertNil(value.method)
         XCTAssertTrue(value.distribution.isEmpty)
-        XCTAssertEqual(value.reason, "legacy_quality_unavailable")
+        XCTAssertEqual(value.reason, "beat_timing_unverified")
     }
 }

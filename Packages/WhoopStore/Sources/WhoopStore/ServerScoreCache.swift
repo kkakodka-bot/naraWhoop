@@ -250,8 +250,41 @@ public struct ServerScoreDayCache: Equatable, Codable {
     public var ownerId: String = ""
     public var schemaVersion: Int = 2
     public var features: [String: ServerScoreFeatureCache] = [:]
-    public var rawSnapshotJSON: String?
-    public var fullDaySleepEpochs: [ServerScoreStageCache]?
+    private var storedRawSnapshotJSON: String?
+    private var storedFullDaySleepEpochs: [ServerScoreStageCache]?
+    public var rawSnapshotJSON: String? {
+        get {
+            guard let raw = storedRawSnapshotJSON, features.values.contains(where: {
+                $0.algorithmVersion == ServerLegacyReadEligibility.algorithm
+            }) else { return storedRawSnapshotJSON }
+            guard let data = raw.data(using: .utf8),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let eligible = try? ServerLegacyReadEligibility.snapshot(root),
+                  let encoded = try? JSONSerialization.data(withJSONObject: eligible, options: [.sortedKeys]) else { return nil }
+            return String(data: encoded, encoding: .utf8)
+        }
+        set { storedRawSnapshotJSON = newValue }
+    }
+    public var fullDaySleepEpochs: [ServerScoreStageCache]? {
+        get { legacySleepWithheld ? [] : storedFullDaySleepEpochs }
+        set { storedFullDaySleepEpochs = newValue }
+    }
+    var legacySleepWithheld: Bool {
+        isLegacyFeature("sleep", family: "sleep") &&
+            !ServerLegacyReadEligibility.excluded(canonicalResults != nil
+                ? canonicalResults?.families["sleep"]?.details["input_eligibility"]
+                : ServerLegacyReadEligibility.helperMarker(storedRawSnapshotJSON))
+    }
+    func isLegacyFeature(_ feature: String, family: String) -> Bool {
+        (features[feature]?.algorithmVersion ?? canonicalResults?.families[family]?.algorithmVersion ?? algorithmVersion)
+            == ServerLegacyReadEligibility.algorithm
+    }
+    enum CodingKeys: String, CodingKey {
+        case canonicalResults, pendingCanonicalResults, ownedMetrics, readFailure, ownerId, schemaVersion, features
+        case day, algorithmVersion, computedAt, stale, fetchedAt
+        case storedRawSnapshotJSON = "rawSnapshotJSON", storedFullDaySleepEpochs = "fullDaySleepEpochs"
+        case storedDaily = "daily", storedNights = "nights"
+    }
     public var measurementsJSON: String? {
         guard let data = rawSnapshotJSON?.data(using: .utf8),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -284,8 +317,8 @@ public struct ServerScoreDayCache: Equatable, Codable {
     ) {
         self.day = day
         self.algorithmVersion = algorithmVersion
-        self.daily = daily
-        self.nights = nights
+        self.storedDaily = daily
+        self.storedNights = nights
         self.computedAt = computedAt
         self.stale = stale
         self.fetchedAt = fetchedAt
@@ -293,8 +326,20 @@ public struct ServerScoreDayCache: Equatable, Codable {
 
     public let day: String
     public let algorithmVersion: String
-    public let daily: ServerScoreDailyCache?
-    public let nights: [ServerScoreNightCache]
+    private let storedDaily: ServerScoreDailyCache?
+    private let storedNights: [ServerScoreNightCache]
+    public var daily: ServerScoreDailyCache? {
+        ServerLegacyReadEligibility.daily(storedDaily, hrv: isLegacyFeature("hrv", family: "night_hrv"),
+            respiration: isLegacyFeature("respiration", family: "respiration"), sleep: legacySleepWithheld)
+    }
+    public var nights: [ServerScoreNightCache] {
+        let legacySleep = isLegacyFeature("sleep", family: "sleep")
+        let legacyHrv = legacySleep || isLegacyFeature("hrv", family: "night_hrv")
+        let legacyRespiration = legacySleep || isLegacyFeature("respiration", family: "respiration")
+        guard legacySleep || legacyHrv || legacyRespiration else { return storedNights }
+        return storedNights.map { ServerLegacyReadEligibility.night($0, sleepWithheld: legacySleepWithheld,
+            hrvWithheld: legacyHrv, respirationWithheld: legacyRespiration) }
+    }
     public let computedAt: String?
     public var stale: Bool
     public let fetchedAt: Date
@@ -343,7 +388,7 @@ public enum ServerScoreCacheCodec {
         "main_sleep_group_id", "opportunity_kind", "full_day_sleep_epochs",
     ]
 
-    private static func semanticJSON(_ value: Any) throws -> ServerJSONValue {
+    static func semanticJSON(_ value: Any) throws -> ServerJSONValue {
         if value is NSNull { return .null }
         if let number = value as? NSNumber {
             if CFGetTypeID(number) == CFBooleanGetTypeID() { return .bool(number.boolValue) }
@@ -358,7 +403,7 @@ public enum ServerScoreCacheCodec {
         throw DecodeError.invalidPayload
     }
 
-    private static func foundationJSON(_ value: ServerJSONValue) -> Any {
+    static func foundationJSON(_ value: ServerJSONValue) -> Any {
         switch value {
         case .null: return NSNull()
         case .number(let value): return value
@@ -521,8 +566,11 @@ public enum ServerScoreCacheCodec {
 
     public static func parseSnapshot(_ data: Data, day: String, ownerId: String,
                                      fetchedAt: Date = Date()) throws -> ServerScoreDayCache {
+        guard let decoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DecodeError.invalidPayload
+        }
+        var root = try ServerLegacyReadEligibility.snapshot(decoded)
         guard !ownerId.isEmpty,
-              var root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               var o = root["server_scoring"] as? [String: Any],
               (o["schema_version"] as? NSNumber)?.intValue == schemaVersion,
               (o["user_id"] as? String)?.lowercased() == ownerId.lowercased(),
@@ -847,7 +895,8 @@ public extension ServerScoreDayCache {
             lines.append("Legacy baseline · quality and evidence coverage unavailable")
         }
         if !feature.hasCanonicalAuthorization { lines.append("Unavailable: signed feature qualification missing") }
-        if let epochs = fullDaySleepEpochs, feature.hasCanonicalAuthorization {
+        if legacySleepWithheld { lines.append("Sleep staging unavailable: beat timing unverified") }
+        if let epochs = fullDaySleepEpochs, feature.hasCanonicalAuthorization, !legacySleepWithheld {
             let unknown = epochs.filter { $0.state == "state_unknown" }.reduce(0) { $0 + $1.end - $1.start }
             let offBody = epochs.filter { $0.state == "off_body" }.reduce(0) { $0 + $1.end - $1.start }
             lines.append("Full-day unknown: \(unknown / 60) min · off body: \(offBody / 60) min")

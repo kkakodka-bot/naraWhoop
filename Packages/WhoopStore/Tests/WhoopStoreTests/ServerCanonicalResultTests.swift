@@ -52,11 +52,11 @@ final class ServerCanonicalResultTests: XCTestCase {
         cache.canonicalResults = canonical
         var localCalls = 0
         func fallback() -> Double? { localCalls += 1; return 88 }
-        let selected = ServerVitalSelection.resolve(.charge, serverEnabled: false, selectedDay: day, overlay: cache, localValue: fallback())
+        let selected = ServerVitalSelection.resolve(.restingHR, serverEnabled: false, selectedDay: day, overlay: cache, localValue: fallback())
         XCTAssertEqual(selected.value, 0)
         XCTAssertEqual(selected.canonicalResult?.resultRevision, "compute:1")
         cache.canonicalResults = try decode(document())
-        XCTAssertNil(ServerVitalSelection.resolve(.charge, serverEnabled: false, selectedDay: day, overlay: cache, localValue: fallback()).value)
+        XCTAssertNil(ServerVitalSelection.resolve(.restingHR, serverEnabled: false, selectedDay: day, overlay: cache, localValue: fallback()).value)
         XCTAssertEqual(localCalls, 0)
     }
 
@@ -118,18 +118,18 @@ final class ServerCanonicalResultTests: XCTestCase {
         for freshness in ["expired", "unavailable"] {
             var raw = document(status: "available", value: 0)
             var families = raw["families"] as! [String: [String: Any]]
-            families["recovery"]?["freshness"] = freshness
+            families["night_hrv"]?["freshness"] = freshness
             raw["families"] = families
             let result = try decode(raw)
             try result.validate(owner: owner, day: day, project: project, source: source, device: device)
-            let recovery = try XCTUnwrap(result.families["recovery"])
+            let recovery = try XCTUnwrap(result.families["night_hrv"])
             XCTAssertFalse(recovery.admitsCanonicalPublication(), freshness)
-            XCTAssertNil(recovery.number("recovery"), freshness)
+            XCTAssertNil(recovery.number("resting_hr_bpm"), freshness)
         }
 
         var invalid = document(status: "available", value: 0)
         var families = invalid["families"] as! [String: [String: Any]]
-        families["recovery"]?["freshness"] = "future"
+        families["night_hrv"]?["freshness"] = "future"
         invalid["families"] = families
         XCTAssertThrowsError(try decode(invalid).validate(owner: owner, day: day,
             project: project, source: source, device: device))
