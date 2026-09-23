@@ -254,6 +254,112 @@ final class GenericCaptureStoreTests: XCTestCase {
         let raw = try await count(s, "standardHRCaptureOccurrence"); XCTAssertEqual(raw, 2)
     }
 
+    private func legacyCompleted(_ store: WhoopStore, count: Int) async throws -> [StandardHRFrozenBatch] {
+        let session = try await begin(store)
+        var batches: [StandardHRFrozenBatch] = []
+        for sequence in 0..<count {
+            let value = try batch(session, sequence: Int64(sequence))
+            _ = try await store.appendStandardHRCapture(value, session: session)
+            batches.append(value)
+        }
+        try await store.registryWriter.write { db in
+            try db.execute(sql: "UPDATE standardHRCaptureOccurrence SET projectionState=1,projectedAt=1 WHERE sessionID=?",
+                arguments: [session.sessionID.uuidString.lowercased()])
+        }
+        try await store.sealStandardHRCapture(session)
+        return batches
+    }
+
+    func testArchiveUpgradePagesSurviveReopenVacuumAndKeepOriginalsUnchanged() async throws {
+        let path = try temporaryPath(), store = try await fixture(path: path)
+        let batches = try await legacyCompleted(store, count: 5)
+        let before = try await store.registryWriter.read { try Row.fetchAll($0, sql: "SELECT * FROM standardHRCaptureOccurrence ORDER BY sequence") }
+        let first = try await store.registryWriter.write { try WhoopStore.advanceStandardHRArchiveUpgrade($0, maximumRows: 2) }
+        XCTAssertEqual(first.rowsRead, 2); XCTAssertFalse(first.isComplete)
+        try await store.registryWriter.writeWithoutTransaction { try $0.execute(sql: "VACUUM") }
+        let reopened = try await fixture(path: path)
+        let second = try await reopened.registryWriter.write { try WhoopStore.advanceStandardHRArchiveUpgrade($0, maximumRows: 2) }
+        XCTAssertEqual(second.rowsRead, 2); XCTAssertFalse(second.isComplete)
+        let third = try await reopened.registryWriter.write { try WhoopStore.advanceStandardHRArchiveUpgrade($0, maximumRows: 2) }
+        XCTAssertEqual(third.rowsRead, 1); XCTAssertTrue(third.isComplete)
+        let metas = try await reopened.rawBatchMetas(deviceId: device)
+        XCTAssertEqual(Set(metas.map(\.batchId)), Set(batches.map { "standard-hr-raw-v1." + $0.intentSHA256 }))
+        let after = try await reopened.registryWriter.read { try Row.fetchAll($0, sql: "SELECT * FROM standardHRCaptureOccurrence ORDER BY sequence") }
+        XCTAssertEqual(before, after)
+        let canonical = try await count(reopened, "hrSample"); XCTAssertEqual(canonical, 0, "upgrade is archive-only")
+        let cursorPlan = try await reopened.registryWriter.read { db in
+            try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN SELECT * FROM standardHRCaptureOccurrence WHERE sessionID=? AND sequence>? ORDER BY sequence LIMIT ?",
+                arguments: [batches[0].id.sessionID.uuidString.lowercased(), 1, 2]).map { $0["detail"] as String }.joined(separator: " ")
+        }
+        XCTAssertTrue(cursorPlan.contains("sessionID=? AND sequence>?"), cursorPlan)
+    }
+
+    func testArchiveUpgradeFailureAndCancellationRollbackArchivesDebtAndCursorTogether() async throws {
+        let store = try await fixture(), batches = try await legacyCompleted(store, count: 2)
+        try await store.registryWriter.write { db in
+            let key = "standard-hr-raw-v1." + batches[1].intentSHA256
+            try db.execute(sql: "CREATE TRIGGER fail_upgrade BEFORE INSERT ON rawBatch WHEN NEW.batchId='\(key)' BEGIN SELECT RAISE(ABORT,'fixture'); END")
+        }
+        do { _ = try await store.registryWriter.write { try WhoopStore.advanceStandardHRArchiveUpgrade($0) }; XCTFail("expected atomic raw failure") }
+        catch { XCTAssertTrue(error is DatabaseError) }
+        for table in ["rawBatch", "ingestRawResource", "syncJob", "cursors"] {
+            let actual = try await count(store, table); XCTAssertEqual(actual, 0, table)
+        }
+        try await store.registryWriter.write { try $0.execute(sql: "DROP TRIGGER fail_upgrade") }
+        do {
+            _ = try await store.registryWriter.write { db in
+                var checks = 0
+                return try WhoopStore.advanceStandardHRArchiveUpgrade(db, shouldContinue: { checks += 1; return checks < 4 })
+            }
+            XCTFail("expected mid-page cancellation")
+        } catch { XCTAssertTrue(error is CancellationError) }
+        for table in ["rawBatch", "ingestRawResource", "syncJob", "cursors"] {
+            let actual = try await count(store, table); XCTAssertEqual(actual, 0, table)
+        }
+        let done = try await store.registryWriter.write { try WhoopStore.advanceStandardHRArchiveUpgrade($0) }
+        XCTAssertTrue(done.isComplete); XCTAssertEqual(done.rowsRead, 2)
+    }
+
+    func testArchiveUpgradeDoesNotAdoptAnotherOwnerOrResurrectReceiptedRawBytes() async throws {
+        let store = try await fixture(), batches = try await legacyCompleted(store, count: 1)
+        try await store.registryWriter.write { db in try db.execute(sql: "UPDATE localAccountOwner SET userID=?", arguments: [UUID().uuidString]) }
+        do { _ = try await store.registryWriter.write { try WhoopStore.advanceStandardHRArchiveUpgrade($0) }; XCTFail("expected owner fence") }
+        catch { XCTAssertEqual(error as? StandardHRCaptureError, .ownerMismatch) }
+        let blockedRaw = try await count(store, "rawBatch"); XCTAssertEqual(blockedRaw, 0)
+        try await store.registryWriter.write { db in try db.execute(sql: "UPDATE localAccountOwner SET userID=?", arguments: [self.owner.userID]) }
+        _ = try await store.registryWriter.write { try WhoopStore.advanceStandardHRArchiveUpgrade($0) }
+        // Explicit synthetic verified receipt models the existing exact-body prune authority.
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                INSERT INTO rawDurabilityReceipt(lane,deviceId,resourceKey,scopeKey,contentSHA256,objectKey,receiptId,verifiedAt,retainUntil)
+                SELECT lane,deviceId,resourceKey,scopeKey,contentSHA256,'fixture/verified-object','fixture/verified-receipt',1,1 FROM ingestRawResource
+                """)
+            try db.execute(sql: "DELETE FROM rawBatch WHERE batchId=?", arguments: ["standard-hr-raw-v1." + batches[0].intentSHA256])
+            try db.execute(sql: "DELETE FROM cursors WHERE name LIKE 'standard-hr-archive-upgrade-v1:%'")
+        }
+        let jobs = try await store.owedJobs()
+        for job in jobs { _ = try await store.settleJob(kind: job.kind, token: job.token) }
+        _ = try await store.registryWriter.write { try WhoopStore.advanceStandardHRArchiveUpgrade($0) }
+        let raw = try await count(store, "rawBatch"), originals = try await count(store, "standardHRCaptureOccurrence")
+        XCTAssertEqual(raw, 0); XCTAssertEqual(originals, 1)
+        let after = try await store.owedJobs(); XCTAssertTrue(after.isEmpty)
+    }
+
+    func testArchiveUpgradeBoundsEmptySessionsAndNormalPendingRecoveryStillArchives() async throws {
+        let store = try await fixture()
+        for _ in 0..<20 { let session = try await begin(store); try await store.sealStandardHRCapture(session) }
+        let session = try await begin(store), original = try batch(session)
+        _ = try await store.appendStandardHRCapture(original, session: session)
+        let first = try await store.registryWriter.write { try WhoopStore.advanceStandardHRArchiveUpgrade($0) }
+        XCTAssertFalse(first.isComplete); XCTAssertEqual(first.rowsRead, 0)
+        let second = try await store.registryWriter.write { try WhoopStore.advanceStandardHRArchiveUpgrade($0) }
+        XCTAssertTrue(second.isComplete); XCTAssertEqual(second.rowsRead, 1)
+        let before = try await count(store, "rawBatch"); XCTAssertEqual(before, 0, "pending originals remain owned by normal T2 recovery")
+        _ = try await store.recoverStandardHRCapture(owner: owner)
+        let after = try await store.rawBatchMetas(deviceId: device)
+        XCTAssertEqual(after.map(\.batchId), ["standard-hr-raw-v1." + original.intentSHA256])
+    }
+
     func testRecoveredLegacyT1ExportsOriginalOpaqueNotificationWithUnknownUptime() async throws {
         let path = try temporaryPath(), s = try await fixture(path: path), session = try await begin(s)
         let original = try batch(session, raw: [0x1e, 72, 0x34, 0x12, 0, 4, 0, 4])
