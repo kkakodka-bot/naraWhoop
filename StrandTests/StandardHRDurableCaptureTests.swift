@@ -4,6 +4,7 @@ import GRDB
 import WhoopProtocol
 import WhoopStore
 #if !GENERIC_CAPTURE_NATIVE_TESTS
+import NoopPush
 @testable import Strand
 #endif
 
@@ -134,6 +135,44 @@ final class StandardHRDurableCaptureTests: XCTestCase {
     }
 
     #if !GENERIC_CAPTURE_NATIVE_TESTS
+    func testHostedStandardCallbackExportsOriginalThroughRawObjectSnapshot() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            let store = try await store(), journal = try await prepare(store), source = try source(journal)
+            XCTAssertTrue(source.ingestHeartRateMeasurement(measurement, at: timestamp))
+            source.stop(); await finish(journal)
+            let occurrence = try XCTUnwrap(occurrences(store).first)
+            let snapshot = CloudPushSnapshot(db: store.registryWriter)
+            let rows = try await snapshot.binaryRows(table: .rawBatch, deviceId: device, afterRowId: 0, limit: 2)
+            XCTAssertEqual(rows.count, 1)
+            guard case let .rawBatch(record) = try XCTUnwrap(rows.first) else { return XCTFail("expected raw archive") }
+            XCTAssertEqual(record.batchId, "standard-hr-raw-v1." + (occurrence["intentSHA256"] as String))
+            let frames = try await store.rawFrames(batchId: record.batchId)
+            let envelope = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(frames.first))) as? [String: Any])
+            XCTAssertEqual(Data(base64Encoded: try XCTUnwrap(envelope["payload"] as? String)), Data(measurement))
+            XCTAssertTrue(envelope["receivedUptime"] is NSNull)
+            XCTAssertEqual(envelope["receivedUnixSeconds"] as? Int, timestamp)
+            let batch = try PushProtocol.binaryObjectBatch(table: .rawBatch, sourceId: "00000000-0000-0000-0000-0000000000b1",
+                deviceId: device, startCursor: nil, rows: rows, protocolVersion: PushProtocol.objectVersion,
+                decodedLimit: PushProtocolLimits.maxObjectDecodedBytes)
+            let packed = try PushBinaryCodec.pack(table: .rawBatch, rows: rows)
+            XCTAssertEqual(Array(packed.prefix(6)), [0x4e, 0x50, 0x42, 0x31, 1, 3], "NPB1 archive-only kind")
+            XCTAssertEqual(Data(packed.suffix(record.framesBlob.count)), record.framesBlob)
+            XCTAssertEqual(batch.contentSha256, DurableIngestScope.sha256(packed))
+            XCTAssertEqual(try batch.payload, try PushBinaryCompression.compressObject(packed, encoding: batch.contentEncoding))
+            XCTAssertNotNil(UUID(uuidString: batch.batchId), "outer transport identity remains a UUID")
+            let retryRows = try await snapshot.binaryRows(table: .rawBatch, deviceId: device, afterRowId: 0, limit: 2)
+            let retry = try PushProtocol.binaryObjectBatch(table: .rawBatch, sourceId: "00000000-0000-0000-0000-0000000000b1",
+                deviceId: device, startCursor: nil, rows: retryRows, protocolVersion: PushProtocol.objectVersion,
+                decodedLimit: PushProtocolLimits.maxObjectDecodedBytes)
+            XCTAssertEqual(batch.manifestJSON, retry.manifestJSON)
+            XCTAssertEqual(try batch.payload, try retry.payload)
+            let jobs = try await store.owedJobs()
+            XCTAssertEqual(jobs.map(\.kind), ["cloudPush"])
+            let retained = try await store.rawBatchMetas(deviceId: device)
+            XCTAssertEqual(retained.count, 1, "encoding is not an authenticated receipt or permission to prune")
+        }
+    }
+
     func testHostedWhoopStandardCollectorRetainsRawReceiptAndHRWithoutBeatProjection() async throws {
         try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
             let store = try await store()

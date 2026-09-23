@@ -82,6 +82,30 @@ public struct StandardHRFrozenBatch: Equatable, Sendable {
         self.intentSHA256 = DurableIngestScope.sha256(tuple)
     }
 
+    /// A deterministic archive of the original T1 observation, including pre-repair pending
+    /// captures. Its identity never depends on recovery time or the current account. The legacy
+    /// T1 schema did not retain uptime; null must not be replaced with a fabricated clock.
+    fileprivate func rawArchive() throws -> HistoricalRawCapture {
+        guard let timestamp = Int(exactly: hostTimestampSeconds), timestamp < Int.max else {
+            throw StandardHRCaptureError.invalidIntent
+        }
+        let envelope: [String: Any] = [
+            "format": "nara.generic-notification.v1", "family": "standard_hr",
+            "serviceUUID": "180D", "characteristicUUID": "2A37",
+            "sessionID": id.sessionID.uuidString.lowercased(), "sequence": id.sequence,
+            "receivedUnixSeconds": hostTimestampSeconds, "receivedUptime": NSNull(),
+            "clockQuality": "host_receipt_unverified", "rrProjectionStatus": "unqualified",
+            "rrProjectionReason": "producer_not_implemented", "payload": rawBytes.base64EncodedString()
+        ]
+        let encoded = try JSONSerialization.data(withJSONObject: envelope,
+            options: [.sortedKeys, .withoutEscapingSlashes])
+        let meta = RawBatchMeta(batchId: "standard-hr-raw-v1." + intentSHA256, deviceId: scope.deviceID,
+            clockRef: ClockRef(device: timestamp, wall: timestamp), capturedAt: timestamp,
+            startTs: timestamp, endTs: timestamp + 1, frameCount: 1, byteSize: encoded.count,
+            captureScope: scope)
+        return HistoricalRawCapture(meta: meta, frames: [[UInt8](encoded)])
+    }
+
     fileprivate static func decodeProjection(_ bytes: Data, timestamp: Int64) throws -> Streams {
         do {
             let streams = try JSONDecoder().decode(Streams.self, from: bytes)
@@ -431,9 +455,9 @@ extension WhoopStore {
             let captured = try StandardHRFrozenBatch.decodeProjection(batch.projectionJSON, timestamp: batch.hostTimestampSeconds)
             let streams = StandardHRMapping.canonicalProjection(captured)
             try Task.checkCancellation()
-            // T2: existing canonical insertion and upload debt, one immutable notification.
-            _ = try await insertAndMarkJobsOwed(streams, deviceId: batch.scope.deviceID,
-                postOffloadJobKinds: [], note: nil, captureScope: batch.scope)
+            // T2: canonical rows, exact opaque archive, scoped raw ledger and upload debt
+            // share one FULL SQLite commit. Kind-3 archives confer no timing qualification.
+            _ = try await commitLiveCapture(streams, scope: batch.scope, rawCapture: batch.rawArchive())
             // T3 is deliberately separate. A failure here retains T1 and replays T2 idempotently.
             try standardHRWrite { db in
                 try Self.standardHROwner(db, owner)
