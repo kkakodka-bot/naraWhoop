@@ -2,7 +2,7 @@ FROM docker.io/denoland/deno:2.5.6@sha256:3ea71953ff50e3ff15c377ead1a8521f624e2f
 ARG SOURCE_REVISION
 LABEL org.opencontainers.image.revision=$SOURCE_REVISION \
     org.frwhoop.worker.role=intake \
-    org.frwhoop.intake.contract-version=1 \
+    org.frwhoop.intake.contract-version=2 \
     io.frwhoop.runtime.image="docker.io/denoland/deno:2.5.6@sha256:3ea71953ff50e3ff15c377ead1a8521f624e2f43d27713675a8bed7b33f166aa" \
     io.frwhoop.image.platform=linux/amd64
 WORKDIR /app

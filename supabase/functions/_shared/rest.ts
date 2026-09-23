@@ -62,6 +62,9 @@ export function createSupabaseRest({ cfg, fetchImpl = fetch }: { cfg: RestConfig
       if (json?.code === '55P03' && json?.message === 'scoring_input_gate_busy') {
         err.receiverCode = 'scoring_input_gate_busy';
       }
+      if (json?.code === '42501' && json?.message === 'intake_admission_scope_mismatch') {
+        err.receiverCode = 'intake_admission_scope_mismatch';
+      }
       throw err;
     }
     return json;

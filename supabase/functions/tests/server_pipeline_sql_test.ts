@@ -293,7 +293,7 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
       const workerEnv={PATH:Deno.env.get('PATH')!,JAVA_HOME:Deno.env.get('JAVA_HOME')!,
         DATABASE_URL:Deno.env.get('PIPELINE_TEST_DATABASE_URL')!,SUPABASE_URL:restUrl!,
         SUPABASE_SERVICE_ROLE_KEY:token,INGEST_SECRET:'isolated-pipeline-only',
-        SCORING_WORKER_SOURCE_REVISION:sourceRevision};
+        SCORING_ADMISSION_MODE: 'all-eligible', SCORING_WORKER_SOURCE_REVISION:sourceRevision};
       if (positive) {
         assert.equal(await sql(`select status from scoring_work_items where user_id='${identity.userId}'
           and device_id='${identity.deviceId}' and day='${workerDay}';`),'pending',
@@ -341,7 +341,7 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
         const child: Deno.ChildProcess = new Deno.Command(binary, { args:['--replay-day'], clearEnv:true,
           env:{...workerEnv,
             SCORING_ALGORITHM_VERSION:version!,REPLAY_USER_ID:identity.userId,REPLAY_DEVICE_ID:identity.deviceId,REPLAY_DAY:workerDay,
-            SCORING_WORKER_INSTANCE_ID:crypto.randomUUID(),SCORING_WORKER_SOURCE_REVISION:sourceRevision},
+            SCORING_WORKER_INSTANCE_ID:crypto.randomUUID(),SCORING_ADMISSION_MODE: 'all-eligible', SCORING_WORKER_SOURCE_REVISION:sourceRevision},
           stdout:'piped',stderr:'piped' }).spawn();
         const timeout=setTimeout(()=>{try {child.kill('SIGTERM');} catch { /* Already exited. */ }},120_000);
         const result: Deno.CommandOutput = await child.output(); clearTimeout(timeout);

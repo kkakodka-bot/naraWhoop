@@ -93,14 +93,15 @@ Review these files before authorization:
 - `hosted-migration-state.json`
 
 The plan fingerprint binds the target, candidate SHA and tree, migration manifest, verifier hash,
-psql path/hash/version, bounded timeouts, native ledger fingerprint, exact ten migration files,
+psql path/hash/version, bounded timeouts, native ledger fingerprint, exact eleven migration files,
 apply order, and both expected schema fingerprints. The migration-catalog fingerprint is
-`e71489e9317a7a47c1f4c591ca8c26187bf726149e4c456246098673c4d66b24`. The final integrated database
-definition fingerprint is `8c0f6b62fadc0d42fafab8b7ff0140b75198fddbbc728b8b5f2e62ded0e69663`, measured on the final predecessor upgrade; final fresh/populated reruns are pending. The earlier draft was measured on the
-fresh, populated, and representative 117-to-127 disposable database paths. These are separate
-contracts and neither substitutes for the other. The final verifier asserts 18 functions, 11 triggers,
-24 policies and RLS on 135 tables. The predecessor test executes the actual hosted apply wrapper for
-all ten pending migrations and proves that the native timestamp ledger remains unchanged.
+`f5d9f630389b1236efbe8494878faecb0fe8e9e17f5d25b47723759d9c58d92d`. The integrated database
+definition fingerprint is `b8e62f83ddb071099869cf1e194a6ef5bf9bf857bca06f6b6624c250be20f90b`,
+measured identically on fresh, populated, and representative 117-to-128 disposable database paths.
+The verifier asserts 30 functions, 11 triggers, 24 policies and RLS on 136 tables. The predecessor
+test executes the actual hosted apply wrapper for all eleven pending migrations and proves that
+the native timestamp ledger remains unchanged. These local receipts do not establish deployment
+or phone acceptance.
 
 ## 3. Apply the reviewed plan
 
@@ -152,7 +153,7 @@ node Tools/release/hosted-migration-release.mjs verify \
   --psql-path /absolute/canonical/path/to/psql
 ```
 
-`verify` performs no mutation. It requires all 127 full identities with their manifest hashes, the
+`verify` performs no mutation. It requires all 128 full identities with their manifest hashes, the
 unchanged reviewed native ledger, and a passing integrated schema verification.
 
 ## Repository test

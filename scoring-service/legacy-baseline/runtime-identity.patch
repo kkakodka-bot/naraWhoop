@@ -1,20 +1,166 @@
+diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
+index 07069edefcba6349e75294b5baf1a844a6e31248..d87183501b84568a1c1a52fb24bd3321b3d51fa2 100644
+--- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
++++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
+@@ -5,6 +5,7 @@ import com.frwhoop.scoring.db.PostgresClient
+ import com.frwhoop.scoring.db.ScoringWorkQueue
+ import com.frwhoop.scoring.db.SignalSampleReader
+ import com.frwhoop.scoring.health.HeartbeatReporter
++import com.frwhoop.scoring.scoring.BaselineAdmission
+ import com.frwhoop.scoring.scoring.DayScorer
+ import com.frwhoop.scoring.scoring.ScoringPoller
+ import org.slf4j.LoggerFactory
+@@ -15,17 +16,32 @@ private val log = LoggerFactory.getLogger("ScoringApplication")
+ fun main(args: Array<String>) {
+     val config = ScoringConfig.fromEnv()
+     require(config.algorithmVersion == "frwhoop-server-1") { "Frozen baseline must retain its v1 identity" }
++    require(args.isEmpty() || args.contentEquals(arrayOf("--replay-day"))) { "Unsupported baseline command" }
++    val workerId = System.getenv("SCORING_WORKER_INSTANCE_ID") ?: error("Baseline worker identity required")
++    require(UUID.fromString(workerId) != UUID(0, 0)) { "Invalid baseline worker identity" }
++    val revision = System.getenv("SCORING_WORKER_SOURCE_REVISION") ?: error("Baseline source identity required")
++    require(revision.matches(Regex("[0-9a-f]{40}"))) { "Invalid baseline source identity" }
++    val packaged = java.nio.file.Path.of("/app/release.sha")
++    if (java.nio.file.Files.exists(packaged)) {
++        require(java.nio.file.Files.readString(packaged).trim() == revision) { "Packaged baseline revision mismatch" }
++    }
++    if (args.isEmpty() &&
++        listOf(config.replayUserId, config.replayDay, config.replayDeviceId).any { it != null }) {
++        log.warn("Ignoring REPLAY_* in persistent baseline mode; explicit --replay-day is required")
++    }
++    val admission = BaselineAdmission.fromEnvironment(System.getenv())
+     val db = PostgresClient(config.databaseUrl)
+     val reader = SignalSampleReader(db)
+     val queue = ScoringWorkQueue(db)
++    if (admission.ownerId != null) queue.validateCanary(admission.ownerId, admission.deviceId!!)
+     val scorer = DayScorer()
+     val writer = EngineIngestWriter(config.supabaseUrl, config.serviceRoleKey, config.ingestSecret)
+     // Publication creates durable immutable archive debt for the shared archive worker.
+     // Never invoke the original mutable-key baseline B2 writer from this fenced worker.
+     val heartbeat = HeartbeatReporter(db, config.algorithmVersion)
+-    val poller = ScoringPoller(config, reader, queue, scorer, writer, heartbeat)
++    val poller = ScoringPoller(config, reader, queue, scorer, writer, heartbeat, admission)
+ 
+-    if (args.contains("--replay-day") || config.replayUserId != null) {
++    if (args.contentEquals(arrayOf("--replay-day"))) {
+         val userId = UUID.fromString(config.replayUserId ?: error("REPLAY_USER_ID required for --replay-day"))
+         val day = config.replayDay ?: error("REPLAY_DAY required for --replay-day")
+         val deviceId = resolveReplayDeviceId(reader, userId, config.replayDeviceId)
+diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt
+index cd95d5a01e438a239b56f45c5522216344f787ee..5cc2d8c76e7040557d57d11350daa6211dcb2780 100644
+--- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt
++++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/EngineIngestWriter.kt
+@@ -95,7 +95,7 @@ class EngineIngestWriter(
+         }
+     }
+ 
+-    fun write(bundle: ServerScoreBundle, item: ScoringWorkQueue.WorkItem) {
++    fun write(bundle: ServerScoreBundle, item: ScoringWorkQueue.WorkItem, requireCanaryAdmission: Boolean = false) {
+         require(bundle.algorithmVersion == "frwhoop-server-1") { "Frozen baseline must retain its v1 identity" }
+         require(bundle.userId == item.userId && bundle.deviceId == item.deviceId.toString() && bundle.day == item.day) {
+             "Publication owner differs from the baseline claim"
+@@ -106,18 +106,19 @@ class EngineIngestWriter(
+             .put("input_revision", item.inputRevision)
+             .put("lease_token", item.leaseToken.toString())
+             .put("run_id", item.runId.toString())
+-        val body = JSONObject()
+-            .put("p_secret", ingestSecret)
+-            .put("p_payload", payload)
+-            .toString()
+-            .toRequestBody(jsonType)
++        val envelope = JSONObject().put("p_secret", ingestSecret).put("p_payload", payload)
++        if (requireCanaryAdmission) {
++            envelope.put("p_user", item.userId.toString()).put("p_device", item.deviceId.toString())
++        }
++        val body = envelope.toString().toRequestBody(jsonType)
++        val publicationPath = if (requireCanaryAdmission) "rpc/engine_publish_canary_legacy_fenced" else rpcPath
+ 
+         val req = Request.Builder()
+             // Internal PostgREST serves RPCs at /rpc/<fn> (no Kong /rest/v1 prefix); the public
+             // gateway path is /rest/v1/rpc/<fn>. The VPS container talks to http://rest:3000 directly,
+             // so the default is the internal form (Phase 3 gate: engine_ingest_scored 404 PGRST125 on
+             // /rest/v1/rpc against the internal endpoint).
+-            .url("$supabaseUrl/$rpcPath")
++            .url("$supabaseUrl/$publicationPath")
+             .post(body)
+             .header("apikey", serviceRoleKey)
+             .header("Authorization", "Bearer $serviceRoleKey")
+@@ -126,6 +127,9 @@ class EngineIngestWriter(
+             .build()
+ 
+         http.newCall(req).execute().use { resp ->
++            if (requireCanaryAdmission && resp.code == 403) {
++                throw com.frwhoop.scoring.scoring.BaselineAdmissionViolation()
++            }
+             if (!resp.isSuccessful) {
+                 error("Fenced baseline publication failed: HTTP ${resp.code}")
+             }
+diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ScoringWorkQueue.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ScoringWorkQueue.kt
+index d63d1247372183f72c94d66c3f808b66d1b6270a..019a7d868bf3a17a27a279f778a430753e1887de 100644
+--- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ScoringWorkQueue.kt
++++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ScoringWorkQueue.kt
+@@ -25,9 +25,13 @@ class ScoringWorkQueue(
+     )
+ 
+     /** This serial worker claims one runnable item, never a backlog whose leases age in memory. */
+-    fun claimOne(userId: UUID? = null, deviceId: UUID? = null, day: String? = null): WorkItem? =
++    fun claimOne(userId: UUID? = null, deviceId: UUID? = null, day: String? = null,
++        requireCanaryAdmission: Boolean = false): WorkItem? =
+         db.withConnection { conn ->
+-            conn.prepareStatement("select * from public.scoring_legacy_claim_one(?, ?, ?, ?, ?::date)").use { ps ->
++            require(!requireCanaryAdmission || (userId != null && deviceId != null))
++            // The scoped wrapper holds account/device lifecycle locks through the legacy claim.
++            val function = if (requireCanaryAdmission) "scoring_canary_claim_one" else "scoring_legacy_claim_one"
++            conn.prepareStatement("select * from public.$function(?, ?, ?, ?, ?::date)").use { ps ->
+                 ps.setInt(1, claimLease.seconds.toInt())
+                 ps.setInt(2, maxAttempts)
+                 ps.setObject(3, userId)
+@@ -37,6 +41,12 @@ class ScoringWorkQueue(
+             }
+         }
+ 
++    fun validateCanary(owner: UUID, device: UUID) = db.withConnection { conn ->
++        conn.prepareStatement("select public.noop_intake_canary_validate(?, ?)").use { ps ->
++            ps.setObject(1, owner); ps.setObject(2, device); ps.execute()
++        }
++    }
++
+     fun renew(item: WorkItem): Boolean = db.withConnection { conn ->
+         conn.prepareStatement("select public.scoring_legacy_renew_lease(?, ?, ?::date, ?, ?, ?, ?)").use { ps ->
+             ps.bindIdentity(item)
+@@ -63,10 +73,12 @@ class ScoringWorkQueue(
+         }
+ 
+     /** Explicit replay is a new revision and uses the same publication fence as arrival work. */
+-    fun dirtyWorkItem(userId: UUID, deviceId: UUID, day: String): Long = db.withConnection { conn ->
++    fun dirtyWorkItem(userId: UUID, deviceId: UUID, day: String,
++        requireCanaryAdmission: Boolean = false): Long = db.withConnection { conn ->
++        val function = if (requireCanaryAdmission) "scoring_canary_enqueue_legacy" else "scoring_enqueue_legacy_fenced"
+         conn.prepareStatement(
+             """
+-            select public.scoring_enqueue_legacy_fenced(?, ?, ?::date,
++            select public.$function(?, ?, ?::date,
+               coalesce((select timezone_id from public.scoring_work_items
+                 where user_id=? and device_id=? and day=?::date),
+                 public.scoring_timezone_at(?, ?::date::timestamp at time zone 'UTC')), 0)
 diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/health/HeartbeatReporter.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/health/HeartbeatReporter.kt
+index b1ea87d6806a04d0f612f96e0c0053c32b02b0b5..e94631f199166f5ee439bd6e131a82a2a180cb40 100644
 --- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/health/HeartbeatReporter.kt
 +++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/health/HeartbeatReporter.kt
-@@ -1,59 +1,80 @@
--package com.frwhoop.scoring.health
--
--import com.frwhoop.scoring.db.PostgresClient
--import org.slf4j.LoggerFactory
--import java.util.UUID
--
+@@ -4,56 +4,77 @@ import com.frwhoop.scoring.db.PostgresClient
+ import org.slf4j.LoggerFactory
+ import java.util.UUID
+ 
 -/** Records scorer liveness in the singleton scoring_service_heartbeats row. */
--class HeartbeatReporter(
--    private val db: PostgresClient,
--    private val version: String,
--) {
--    private val log = LoggerFactory.getLogger(HeartbeatReporter::class.java)
--
++/** Records exact process progress and retains the older singleton for existing diagnostics. */
+ class HeartbeatReporter(
+     private val db: PostgresClient,
+     private val version: String,
++    private val workerInstanceId: UUID = System.getenv("SCORING_WORKER_INSTANCE_ID")?.let(UUID::fromString) ?: UUID.randomUUID(),
++    private val sourceRevision: String = System.getenv("SCORING_WORKER_SOURCE_REVISION") ?: "5caa31689da0023e111beb36850d3f81d67e1be2",
++    private val processInstanceId: UUID = UUID.randomUUID(),
+ ) {
+     private val log = LoggerFactory.getLogger(HeartbeatReporter::class.java)
+ 
 -    fun recordPoll() {
 -        db.withConnection { conn ->
 -            conn.prepareStatement(
@@ -26,57 +172,6 @@ diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/health/
 -            ).use { ps ->
 -                ps.setString(1, version)
 -                ps.executeUpdate()
--            }
--        }
--    }
--
--    fun recordScore(userId: UUID, day: String) {
--        db.withConnection { conn ->
--            conn.prepareStatement(
--                """
--                update public.scoring_service_heartbeats
--                set last_score_at = now(), version = ?, last_error = null
--                where id = 1
--                """.trimIndent(),
--            ).use { ps ->
--                ps.setString(1, version)
--                ps.executeUpdate()
--            }
--        }
--        log.debug("scored {} {}", userId, day)
--    }
--
--    fun recordError(message: String) {
--        db.withConnection { conn ->
--            conn.prepareStatement(
--                """
--                update public.scoring_service_heartbeats
--                set last_error = ?
--                where id = 1
--                """.trimIndent(),
--            ).use { ps ->
--                ps.setString(1, message.take(2000))
--                ps.executeUpdate()
--            }
--        }
--    }
--}
-+package com.frwhoop.scoring.health
-+
-+import com.frwhoop.scoring.db.PostgresClient
-+import org.slf4j.LoggerFactory
-+import java.util.UUID
-+
-+/** Records exact process progress and retains the older singleton for existing diagnostics. */
-+class HeartbeatReporter(
-+    private val db: PostgresClient,
-+    private val version: String,
-+    private val workerInstanceId: UUID = System.getenv("SCORING_WORKER_INSTANCE_ID")?.let(UUID::fromString) ?: UUID.randomUUID(),
-+    private val sourceRevision: String = System.getenv("SCORING_WORKER_SOURCE_REVISION") ?: "5caa31689da0023e111beb36850d3f81d67e1be2",
-+    private val processInstanceId: UUID = UUID.randomUUID(),
-+) {
-+    private val log = LoggerFactory.getLogger(HeartbeatReporter::class.java)
-+
 +    init {
 +        require(sourceRevision.matches(Regex("[0-9a-f]{40}")))
 +        require(workerInstanceId != UUID(0, 0) && processInstanceId != UUID(0, 0))
@@ -92,18 +187,41 @@ diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/health/
 +                statement.setString(4, version)
 +                // Reusing a process identity must fail rather than inherit earlier progress.
 +                statement.executeUpdate()
-+            }
-+        }
-+    }
-+
+             }
+         }
+     }
+ 
 +    fun recordPoll() = record("last_poll_at", null)
 +
-+    fun recordScore(userId: UUID, day: String) {
+     fun recordScore(userId: UUID, day: String) {
+-        db.withConnection { conn ->
+-            conn.prepareStatement(
+-                """
+-                update public.scoring_service_heartbeats
+-                set last_score_at = now(), version = ?, last_error = null
+-                where id = 1
+-                """.trimIndent(),
+-            ).use { ps ->
+-                ps.setString(1, version)
+-                ps.executeUpdate()
+-            }
+-        }
 +        record("last_score_at", null)
-+        log.debug("scored {} {}", userId, day)
-+    }
-+
-+    fun recordError(message: String) {
+         log.debug("scored {} {}", userId, day)
+     }
+ 
+     fun recordError(message: String) {
+-        db.withConnection { conn ->
+-            conn.prepareStatement(
+-                """
+-                update public.scoring_service_heartbeats
+-                set last_error = ?
+-                where id = 1
+-                """.trimIndent(),
+-            ).use { ps ->
+-                ps.setString(1, message.take(2000))
+-                ps.executeUpdate()
+-            }
 +        val code = message.takeIf { it.matches(Regex("[A-Za-z][A-Za-z0-9_.:-]{0,127}")) }
 +            ?: "scoring_worker_error"
 +        record(null, code)
@@ -138,33 +256,294 @@ diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/health/
 +                runCatching { connection.rollback() }
 +                throw error
 +            } finally { connection.autoCommit = true }
+         }
+     }
+ }
+diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt
+index 149c079d712aca810c9ffede2b9e81a703d8e464..aa7428d4f883601d4b25ea031c504fa18b41808c 100644
+--- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt
++++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/scoring/ScoringPoller.kt
+@@ -20,6 +20,7 @@ class ScoringPoller(
+     private val scorer: DayScorer,
+     private val writer: EngineIngestWriter,
+     private val heartbeat: HeartbeatReporter,
++    private val admission: BaselineAdmission,
+ ) {
+     private val log = LoggerFactory.getLogger(ScoringPoller::class.java)
+ 
+@@ -33,6 +34,7 @@ class ScoringPoller(
+             try {
+                 pollOnce()
+             } catch (err: Exception) {
++                if (err is BaselineAdmissionViolation) throw err
+                 log.error("baseline poll cycle failed: {}", err.javaClass.simpleName)
+                 heartbeat.recordError(err.javaClass.simpleName)
+             }
+@@ -41,22 +43,30 @@ class ScoringPoller(
+     }
+ 
+     fun pollOnce() {
+-        heartbeat.recordPoll()
+         // The worker is serial: do not age a batch of unused leases while scoring the first item.
+         repeat(8) {
+-            val item = queue.claimOne() ?: return
++            val item = try {
++                queue.claimOne(admission.ownerId, admission.deviceId, requireCanaryAdmission = admission.ownerId != null)
++            } catch (err: Exception) {
++                if (admission.ownerId != null) throw BaselineAdmissionViolation()
++                throw err
++            }
++            if (it == 0) heartbeat.recordPoll()
++            if (item == null) return
+             processWorkItem(item)
+         }
+     }
+ 
+     fun scoreDay(userId: UUID, deviceId: UUID, day: String) {
+-        queue.dirtyWorkItem(userId, deviceId, day)
+-        val item = queue.claimOne(userId, deviceId, day)
++        admission.requireScope(userId, deviceId)
++        queue.dirtyWorkItem(userId, deviceId, day, requireCanaryAdmission = admission.ownerId != null)
++        val item = queue.claimOne(userId, deviceId, day, requireCanaryAdmission = admission.ownerId != null)
+             ?: error("Baseline replay is owned by another worker")
+         check(processWorkItem(item)) { "Baseline replay did not publish; inspect its durable work status" }
+     }
+ 
+     private fun processWorkItem(item: ScoringWorkQueue.WorkItem): Boolean {
++        admission.requireScope(item.userId, item.deviceId)
+         val started = System.nanoTime()
+         RunningLegacyLease({ queue.renew(item) }, queue.claimLease.dividedBy(3)).use { lease ->
+             try {
+@@ -65,17 +75,21 @@ class ScoringPoller(
+                     queue.markWaiting(item, "no device or hr/rr inputs")
+                     return false
+                 }
++                if (input.userId != item.userId || input.deviceId != item.deviceId.toString()) {
++                    throw BaselineAdmissionViolation()
++                }
+                 val bundle = scorer.score(input, config.algorithmVersion)
+                 check(lease.checkOwned()) { "Baseline lease lost before publication" }
+                 // The RPC atomically validates this exact lease, publishes v1 and records archive
+                 // debt. The old unfenced B2 writer must not overwrite a newer revision's object.
+-                writer.write(bundle, item)
++                writer.write(bundle, item, requireCanaryAdmission = admission.ownerId != null)
+                 val durationMs = ((System.nanoTime() - started) / 1_000_000)
+                     .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                 val done = queue.markDone(item, durationMs)
+                 if (done) heartbeat.recordScore(item.userId, item.day)
+                 return done
+             } catch (err: Exception) {
++                if (err is BaselineAdmissionViolation) throw err
+                 if (queue.markFailed(item, err.javaClass.simpleName)) {
+                     heartbeat.recordError(err.javaClass.simpleName)
+                     log.warn("baseline run {} failed: {}", item.runId, err.javaClass.simpleName)
+@@ -112,3 +126,36 @@ internal class RunningLegacyLease(
+         executor.shutdownNow()
+     }
+ }
++
++/** Fixed admission for one process. This never reads replay variables or mutable defaults. */
++class BaselineAdmission private constructor(val ownerId: UUID?, val deviceId: UUID?) {
++    fun requireScope(owner: UUID, device: UUID) {
++        if (ownerId != null && (ownerId != owner || deviceId != device)) throw BaselineAdmissionViolation()
++    }
++
++    companion object {
++        fun fromEnvironment(env: Map<String, String>): BaselineAdmission {
++            val owner = env["SCORING_CANARY_OWNER_ID"]
++            val device = env["SCORING_CANARY_DEVICE_ID"]
++            return when (env["SCORING_ADMISSION_MODE"]) {
++                "all-eligible" -> {
++                    require(owner == null && device == null) { "Unexpected canary scope in all-eligible mode" }
++                    BaselineAdmission(null, null)
++                }
++                "canary" -> BaselineAdmission(canonicalUUID(owner), canonicalUUID(device))
++                else -> error("Explicit baseline admission mode required")
++            }
++        }
++
++        private fun canonicalUUID(value: String?): UUID {
++            require(value != null) { "Complete canary owner and device required" }
++            val parsed = try { UUID.fromString(value) } catch (_: IllegalArgumentException) {
++                throw IllegalArgumentException("Invalid canary scope")
++            }
++            require(parsed != UUID(0, 0) && parsed.toString() == value) { "Invalid canary scope" }
++            return parsed
 +        }
 +    }
 +}
-diff --git a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
---- a/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
-+++ b/scoring-service/service/src/main/kotlin/com/frwhoop/scoring/ScoringApplication.kt
-@@ -16,3 +16,16 @@
-     val config = ScoringConfig.fromEnv()
-     require(config.algorithmVersion == "frwhoop-server-1") { "Frozen baseline must retain its v1 identity" }
-+    require(args.isEmpty() || args.contentEquals(arrayOf("--replay-day"))) { "Unsupported baseline command" }
-+    val workerId = System.getenv("SCORING_WORKER_INSTANCE_ID") ?: error("Baseline worker identity required")
-+    require(UUID.fromString(workerId) != UUID(0, 0)) { "Invalid baseline worker identity" }
-+    val revision = System.getenv("SCORING_WORKER_SOURCE_REVISION") ?: error("Baseline source identity required")
-+    require(revision.matches(Regex("[0-9a-f]{40}"))) { "Invalid baseline source identity" }
-+    val packaged = java.nio.file.Path.of("/app/release.sha")
-+    if (java.nio.file.Files.exists(packaged)) {
-+        require(java.nio.file.Files.readString(packaged).trim() == revision) { "Packaged baseline revision mismatch" }
++
++class BaselineAdmissionViolation : IllegalStateException("baseline_admission_scope_mismatch")
+diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
+index 0e74b5ab8f76b15ebe7541d338f7b99b37f14e50..d31ece9446af25408ce242b390ff7b772cc7af63 100644
+--- a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
++++ b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyQueueIntegrationTest.kt
+@@ -6,6 +6,7 @@ import com.frwhoop.scoring.db.EngineIngestWriter
+ import com.frwhoop.scoring.db.ScoreInputProvider
+ import com.frwhoop.scoring.db.SignalSampleReader
+ import com.frwhoop.scoring.health.HeartbeatReporter
++import com.frwhoop.scoring.scoring.BaselineAdmission
+ import com.frwhoop.scoring.scoring.DayScorer
+ import com.frwhoop.scoring.scoring.ScoringPoller
+ import com.noop.analytics.UserProfile
+@@ -142,6 +143,79 @@ class LegacyQueueIntegrationTest {
+         assertTrue(queue.renew(successor!!))
+     }
+ 
++    @Test fun persistentCanaryPublishesOnlyAdmittedDeviceAndRetainsOtherQueueDebt() {
++        val otherDevice = UUID.randomUUID()
++        val otherOwner = UUID.randomUUID()
++        val otherOwnerDevice = UUID.randomUUID()
++        sql("insert into auth.users(id) values ('$otherOwner')")
++        sql("insert into profiles(id,timezone) values ('$otherOwner','UTC') on conflict(id) do update set timezone=excluded.timezone")
++        sql("insert into devices(id,user_id,source_kind,external_device_id,device_family) values " +
++            "('$otherDevice','$user','noop_push','$otherDevice','whoop5')," +
++            "('$otherOwnerDevice','$otherOwner','noop_push','$otherOwnerDevice','whoop5')")
++        queue.dirtyWorkItem(user, otherDevice, day)
++        queue.dirtyWorkItem(otherOwner, otherOwnerDevice, day)
++        queue.dirtyWorkItem(user, device, day)
++        var inputReads = 0
++        val provider = object : ScoreInputProvider {
++            override fun loadDay(userId: UUID, day: String, deviceId: UUID): SignalSampleReader.DayInputs {
++                assertEquals(user, userId); assertEquals(device, deviceId); inputReads++
++                return input()
++            }
++        }
++        val admission = BaselineAdmission.fromEnvironment(mapOf("SCORING_ADMISSION_MODE" to "canary",
++            "SCORING_CANARY_OWNER_ID" to user.toString(), "SCORING_CANARY_DEVICE_ID" to device.toString()))
++        val worker = poller(provider, rpcWriter(), admission)
++        worker.pollOnce()
++        assertEquals(1, inputReads)
++        assertEquals("1", scalarText("select count(*)::text from server_physiology_results where user_id='$user' and device_id='$device'"))
++        assertEquals("2", scalarText("select count(*)::text from scoring_work_items where device_id in ('$otherDevice','$otherOwnerDevice') and status='pending' and lease_token is null"))
++        try {
++            worker.scoreDay(user, otherDevice, day)
++            fail("Canary accepted replay outside its fixed device")
++        } catch (_: com.frwhoop.scoring.scoring.BaselineAdmissionViolation) {}
++        assertEquals(1, inputReads)
++        assertEquals("0", scalarText("select count(*)::text from server_physiology_results where device_id in ('$otherDevice','$otherOwnerDevice')"))
++        val markerQuery = "select public.noop_intake_canary_status('$user','$device','${"a".repeat(40)}','${UUID.randomUUID()}')->>'latest_publication_marker'"
++        val previousMarker = scalarText(markerQuery)
++        assertNotNull(previousMarker)
++        // Exercise the actual JVM scoped enqueue and claim, including its SQL signature.
++        worker.scoreDay(user, device, day)
++        assertEquals(2, inputReads)
++        assertNotEquals(previousMarker, scalarText(markerQuery))
++        assertEquals("2", scalarText("select count(*)::text from server_physiology_results where user_id='$user' and device_id='$device'"))
++        assertEquals("2", scalarText("select count(*)::text from scoring_work_items where device_id in ('$otherDevice','$otherOwnerDevice') and status='pending' and lease_token is null"))
++        // A lifecycle change after a successful preflight must not reopen this queue.
++        queue.validateCanary(user, device)
++        sql("update devices set is_active=false where id='$device'")
++        val retired = scalarText("select to_jsonb(w.*)::text from scoring_work_items w where user_id='$user' and device_id='$device' and day='$day'")
++        try {
++            worker.scoreDay(user, device, day)
++            fail("Inactive canary replay reopened work")
++        } catch (_: java.sql.SQLException) {}
++        assertEquals(retired, scalarText("select to_jsonb(w.*)::text from scoring_work_items w where user_id='$user' and device_id='$device' and day='$day'"))
++        assertEquals(2, inputReads)
++
 +    }
-+    if (args.isEmpty() &&
-+        listOf(config.replayUserId, config.replayDay, config.replayDeviceId).any { it != null }) {
-+        log.warn("Ignoring REPLAY_* in persistent baseline mode; explicit --replay-day is required")
++
++    @Test fun canaryRetirementDuringInputReadCannotPublishOrSettle() {
++        queue.dirtyWorkItem(user, device, day)
++        val provider = object : ScoreInputProvider {
++            override fun loadDay(userId: UUID, day: String, deviceId: UUID): SignalSampleReader.DayInputs {
++                sql("update devices set is_active=false where id='$device'")
++                return input()
++            }
++        }
++        val admission = BaselineAdmission.fromEnvironment(mapOf("SCORING_ADMISSION_MODE" to "canary",
++            "SCORING_CANARY_OWNER_ID" to user.toString(), "SCORING_CANARY_DEVICE_ID" to device.toString()))
++        try {
++            poller(provider, rpcWriter(), admission).pollOnce()
++            fail("Retired canary published")
++        } catch (_: com.frwhoop.scoring.scoring.BaselineAdmissionViolation) {}
++        assertEquals("0", scalarText("select count(*)::text from server_physiology_results where user_id='$user' and device_id='$device'"))
++        assertEquals("0", scalarText("select count(*)::text from legacy_scoring_receipts where user_id='$user' and device_id='$device'"))
++        assertEquals("1", scalarText("select count(*)::text from scoring_work_items where user_id='$user' and device_id='$device' and status='running' and done_at is null"))
 +    }
-     val db = PostgresClient(config.databaseUrl)
-@@ -28,5 +41,5 @@
--    if (args.contains("--replay-day") || config.replayUserId != null) {
-+    if (args.contentEquals(arrayOf("--replay-day"))) {
-         val userId = UUID.fromString(config.replayUserId ?: error("REPLAY_USER_ID required for --replay-day"))
-         val day = config.replayDay ?: error("REPLAY_DAY required for --replay-day")
-         val deviceId = resolveReplayDeviceId(reader, userId, config.replayDeviceId)
-         log.info("replay mode: user={} device={} day={}", userId, deviceId, day)
++
+     private fun input(): SignalSampleReader.DayInputs {
+         val start = java.time.Instant.parse("2026-09-17T00:00:00Z").epochSecond
+         return SignalSampleReader.DayInputs(user, day, device.toString(), 0L, start, start+86399,
+@@ -150,24 +224,37 @@ class LegacyQueueIntegrationTest {
+             emptyList(), emptyList(), DeviceFamily.WHOOP5)
+     }
+ 
+-    private fun poller(provider: ScoreInputProvider, writer: EngineIngestWriter) = ScoringPoller(
++    private fun poller(provider: ScoreInputProvider, writer: EngineIngestWriter,
++        admission: BaselineAdmission = BaselineAdmission.fromEnvironment(mapOf("SCORING_ADMISSION_MODE" to "all-eligible"))) = ScoringPoller(
+         ScoringConfig("unused", "test", "http://127.0.0.1", "fixture-role"), provider, queue,
+-        DayScorer(), writer, HeartbeatReporter(db, "frwhoop-server-1"))
++        DayScorer(), writer, HeartbeatReporter(db, "frwhoop-server-1"), admission)
+ 
+     private fun rpcWriter(): EngineIngestWriter {
+         val http = OkHttpClient.Builder().addInterceptor { chain ->
+-            assertEquals("/rpc/engine_publish_legacy_fenced", chain.request().url.encodedPath)
++            val canary = chain.request().url.encodedPath == "/rpc/engine_publish_canary_legacy_fenced"
++            if (!canary) assertEquals("/rpc/engine_publish_legacy_fenced", chain.request().url.encodedPath)
+             val buffer = okio.Buffer()
+             chain.request().body!!.writeTo(buffer)
+             val envelope = JSONObject(buffer.readUtf8())
+-            val result = db.withConnection { connection ->
+-                connection.prepareStatement("select engine_publish_legacy_fenced(?, ?::jsonb)::text").use { ps ->
++            var status = 200
++            val result = try { db.withConnection { connection ->
++                val statement = if (canary) "select engine_publish_canary_legacy_fenced(?, ?::jsonb, ?::uuid, ?::uuid)::text"
++                    else "select engine_publish_legacy_fenced(?, ?::jsonb)::text"
++                connection.prepareStatement(statement).use { ps ->
+                     ps.setString(1, envelope.getString("p_secret"))
+                     ps.setString(2, envelope.getJSONObject("p_payload").toString())
++                    if (canary) {
++                        ps.setString(3, envelope.getString("p_user")); ps.setString(4, envelope.getString("p_device"))
++                    }
+                     ps.executeQuery().use { rows -> check(rows.next()); rows.getString(1) }
+                 }
+             }
+-            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200)
++            } catch (error: java.sql.SQLException) {
++                if (error.sqlState != "42501") throw error
++                status = 403
++                "{}"
++            }
++            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(status)
+                 .message("OK").body(result.toResponseBody()).build()
+         }.build()
+         return EngineIngestWriter("http://127.0.0.1", "fixture-role", "test", http)
+diff --git a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyTransportTest.kt b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyTransportTest.kt
+index 8b8c3786eb1a8cf22191dfef78537c0f55921c6e..e088ea4d29b37550747f7bfdc06848a1b3b265e8 100644
+--- a/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyTransportTest.kt
++++ b/scoring-service/service/src/test/kotlin/com/frwhoop/scoring/LegacyTransportTest.kt
+@@ -21,6 +21,32 @@ import java.util.concurrent.TimeUnit
+ import java.util.concurrent.atomic.AtomicInteger
+ 
+ class LegacyTransportTest {
++    @org.junit.Test fun baselineAdmissionRequiresExplicitCompleteCanonicalScope() {
++        val owner = "00000000-0000-4000-8000-000000000001"
++        val device = "00000000-0000-4000-8000-000000000002"
++        val invalid = listOf(emptyMap(), mapOf("SCORING_ADMISSION_MODE" to "canary"),
++            mapOf("SCORING_ADMISSION_MODE" to "unknown"),
++            mapOf("SCORING_ADMISSION_MODE" to "all-eligible", "SCORING_CANARY_OWNER_ID" to owner),
++            mapOf("SCORING_ADMISSION_MODE" to "canary", "SCORING_CANARY_OWNER_ID" to owner)) +
++            listOf("", "1-1-1-1-1", "00000000-0000-0000-0000-000000000000", "not-a-uuid").map {
++                mapOf("SCORING_ADMISSION_MODE" to "canary", "SCORING_CANARY_OWNER_ID" to owner, "SCORING_CANARY_DEVICE_ID" to it)
++            }
++        for (env in invalid) {
++            var rejected = false
++            try { com.frwhoop.scoring.scoring.BaselineAdmission.fromEnvironment(env) }
++            catch (_: IllegalArgumentException) { rejected = true }
++            catch (_: IllegalStateException) { rejected = true }
++            org.junit.Assert.assertTrue("Invalid admission must fail before a claim", rejected)
++        }
++        val scope = com.frwhoop.scoring.scoring.BaselineAdmission.fromEnvironment(mapOf(
++            "SCORING_ADMISSION_MODE" to "canary", "SCORING_CANARY_OWNER_ID" to owner, "SCORING_CANARY_DEVICE_ID" to device))
++        scope.requireScope(java.util.UUID.fromString(owner), java.util.UUID.fromString(device))
++        try {
++            scope.requireScope(java.util.UUID.fromString(owner), java.util.UUID.randomUUID())
++            org.junit.Assert.fail("Wrong device accepted")
++        } catch (_: com.frwhoop.scoring.scoring.BaselineAdmissionViolation) {}
++    }
++
+     private val user = UUID.fromString("00000000-0000-4000-8000-000000000001")
+     private val device = UUID.fromString("00000000-0000-4000-8000-000000000002")
+     private val item = ScoringWorkQueue.WorkItem(user, device, "2026-09-17", Instant.EPOCH,

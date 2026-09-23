@@ -37,9 +37,18 @@ RELEASE_SHA="$(deployment_field sourceSha)"
 RELEASE_TREE="$(deployment_field sourceTree)"
 DEPLOYMENT_FINGERPRINT="$(deployment_field fingerprint)"
 DEPLOYMENT_SCOPE="$(deployment_field scope)"
+ADMISSION_SHA256="$(deployment_field admissionSha256)"
+ADMISSION_MODE="$(deployment_field admissionMode)"
+[[ "$ADMISSION_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 3
+[[ ( "$DEPLOYMENT_SCOPE" == initial-selected-v1 && "$ADMISSION_MODE" == canary ) ||
+   ( "$DEPLOYMENT_SCOPE" == full-fleet && "$ADMISSION_MODE" == all-eligible ) ]] || {
+  echo "NOT_READY: reviewed scope requires explicit matched admission" >&2; exit 3;
+}
 [[ "$DEPLOYMENT_SCOPE" == initial-selected-v1 || "$DEPLOYMENT_SCOPE" == full-fleet ]] || {
   echo 'NOT_READY: unrecognized reviewed deployment scope' >&2; exit 3;
 }
+INTAKE_IMAGE="$(deployment_field intake.reference)"
+INTAKE_CONFIG="$(deployment_field intake.configDigest)"
 SELECTED_V1_IMAGE="$(deployment_field selectedV1.reference)"
 SELECTED_V1_CONFIG="$(deployment_field selectedV1.configDigest)"
 SHADOW_V2_IMAGE="$(deployment_field shadowV2.reference)"
@@ -57,7 +66,7 @@ DEPLOY_PUBLIC_KEY_FINGERPRINT="$(deployment_field target.deployPublicKeyFingerpr
 [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'NOT_READY: verified release SHA is invalid' >&2; exit 3; }
 [[ "$RELEASE_TREE" =~ ^[0-9a-f]{40}$ ]] || { echo 'NOT_READY: verified release tree is invalid' >&2; exit 3; }
 [[ "$DEPLOYMENT_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]] || { echo 'NOT_READY: verified deployment fingerprint is invalid' >&2; exit 3; }
-for image in "$SELECTED_V1_IMAGE" "$SHADOW_V2_IMAGE"; do
+for image in "$SELECTED_V1_IMAGE" "$SHADOW_V2_IMAGE" "$INTAKE_IMAGE"; do
   [[ "$image" =~ ^[a-z0-9][a-z0-9._:-]*(/[a-z0-9][a-z0-9._-]*)+@sha256:[0-9a-f]{64}$ ]] || {
     echo 'NOT_READY: verified worker image reference is invalid' >&2
     exit 3
@@ -82,7 +91,7 @@ PY
    "$DEPLOY_PUBLIC_KEY_FINGERPRINT" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || {
   echo 'NOT_READY: verified target SSH identity is invalid' >&2; exit 3;
 }
-for digest in "$SELECTED_V1_CONFIG" "$SHADOW_V2_CONFIG"; do
+for digest in "$SELECTED_V1_CONFIG" "$SHADOW_V2_CONFIG" "$INTAKE_CONFIG"; do
   [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
     echo 'NOT_READY: verified worker config digest is invalid' >&2
     exit 3
@@ -130,6 +139,11 @@ else
 fi
 OBSERVATION_DIR="$(mktemp -d "${OBSERVATION_BASE}/${DEPLOYMENT_FINGERPRINT}.XXXXXX")"
 chmod 700 "$OBSERVATION_DIR"
+PRIVATE_ADMISSION="$OBSERVATION_DIR/worker-admission.json"
+PRIVATE_DEPLOYMENT="$OBSERVATION_DIR/deployment.json"
+python3 "$ROOT/infra/vps/scripts/scoring-admission.py" extract-plan --input "$6" \
+  --plan-fingerprint "$DEPLOYMENT_FINGERPRINT" --admission-sha256 "$ADMISSION_SHA256" \
+  --output "$PRIVATE_ADMISSION" --plan-output "$PRIVATE_DEPLOYMENT" >/dev/null
 KNOWN_HOSTS="$OBSERVATION_DIR/known_hosts"
 if [[ "$SSH_PORT" == 22 ]]; then KNOWN_HOST_TOKEN="$DROPLET_IP"; else KNOWN_HOST_TOKEN="[$DROPLET_IP]:$SSH_PORT"; fi
 umask 077
@@ -212,16 +226,61 @@ release_git archive "$RELEASE_SHA" android scoring-service \
   infra/vps/scripts/scoring-progress.sh infra/vps/scripts/remote/verify-scoring-runtime.sh \
   infra/vps/scripts/scoring-hosted-query.py infra/vps/scripts/remote/read-scoring-query.sh \
   infra/vps/scripts/verify-pinned-postgres-client.py infra/vps/scripts/verify-worker-image.py \
-  infra/vps/scripts/scoring-tls.py Tools/release/certificates/supabase-prod-ca-2021.crt \
-  infra/vps/templates/docker-compose.scoring-override.yml | \
+  infra/vps/scripts/scoring-tls.py infra/vps/scripts/scoring-admission.py Tools/release/certificates/supabase-prod-ca-2021.crt \
+  infra/vps/templates/docker-compose.scoring-override.yml \
+  infra/vps/scripts/scoped-canary-guard.py infra/vps/scoped-canary-stop-policy.json \
+  infra/vps/templates/frwhoop-scoped-canary.service | \
   ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" \
     "tar -xf - -C '${REMOTE_BUILD}'"
+
+# Send only the plan-derived scope over encrypted stdin, never command arguments or public receipts.
+ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" \
+  "umask 077; set -C; cat > '${REMOTE_BUILD}/worker-admission.json'" <"$PRIVATE_ADMISSION"
+ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" \
+  "umask 077; set -C; cat > '${REMOTE_BUILD}/deployment.json'" <"$PRIVATE_DEPLOYMENT"
+if [[ "$DEPLOYMENT_SCOPE" == initial-selected-v1 ]]; then
+  # Both containers remain stopped until the separately approved guard starts their exact IDs.
+  ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$REMOTE_BUILD" "$RELEASE_SHA" \
+    "$INTAKE_IMAGE" "$INTAKE_CONFIG" "$DEPLOYMENT_FINGERPRINT" "$ADMISSION_SHA256" <<'INTAKE'
+set -euo pipefail
+build="$1"; revision="$2"; reference="$3"; config="$4"; plan_fingerprint="$5"; admission_sha="$6"
+compiled="${build}/intake-canary-compose.json"
+python3 "${build}/infra/vps/scripts/scoring-admission.py" export-intake \
+  --input "${build}/deployment.json" --plan-fingerprint "$plan_fingerprint" \
+  --admission-sha256 "$admission_sha" --output "$compiled" >/dev/null
+# Refuse an unknown prior intake rather than displacing it under staging authority.
+if docker inspect -f '{{.Id}}' intake-consumer >/dev/null 2>&1; then
+  echo 'NOT_READY: existing intake requires separately reviewed quiescence/recovery' >&2; exit 3
+fi
+if ! timeout 300 docker pull "$reference" >/dev/null 2>&1; then
+  echo 'NOT_READY: reviewed intake image unavailable' >&2; exit 3
+fi
+engine_id="$(python3 "${build}/infra/vps/scripts/verify-worker-image.py" \
+  --reference "$reference" --config-digest "$config" --source-revision "$revision" --role intake --output image-id)"
+if ! timeout 60 docker compose -p frwhoop-intake -f "$compiled" create --no-deps intake-consumer >/dev/null 2>&1; then
+  echo 'NOT_READY: intake creation failed; preserve any stopped candidate for review' >&2; exit 3
+fi
+container_id="$(docker inspect -f '{{.Id}}' intake-consumer)"
+[[ "$container_id" =~ ^[0-9a-f]{64}$ &&
+   "$(docker inspect -f '{{.State.Running}}' "$container_id")" == false &&
+   "$(docker inspect -f '{{.Image}}' "$container_id")" == "$engine_id" &&
+   "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$container_id")" == no &&
+   "$(docker inspect -f '{{.HostConfig.Memory}}' "$container_id")" == 2147483648 &&
+   "$(docker inspect -f '{{.HostConfig.NanoCpus}}' "$container_id")" == 1000000000 ]] || {
+  echo 'NOT_READY: stopped intake candidate identity or resource policy differs' >&2; exit 3
+}
+python3 "${build}/infra/vps/scripts/scoring-admission.py" verify-intake \
+  --input "${build}/deployment.json" --plan-fingerprint "$plan_fingerprint" \
+  --admission-sha256 "$admission_sha" >/dev/null
+printf '%s\n' 'INTAKE_STAGED_NOT_STARTED'
+INTAKE
+fi
 
 echo "========== configure scoring env + deploy reviewed images =========="
 deploy_lane() {
 ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$REMOTE_BUILD" "$1" \
   "$SELECTED_V1_IMAGE" "$SHADOW_V2_IMAGE" "$SELECTED_V1_CONFIG" "$SHADOW_V2_CONFIG" \
-  "$POSTGRES_CLIENT_IMAGE" "$POSTGRES_CLIENT_CONFIG" "$POSTGRES_CLIENT_PLATFORM" "$POSTGRES_CLIENT_VERSION" "$DEPLOYMENT_SCOPE" <<'REMOTE'
+  "$POSTGRES_CLIENT_IMAGE" "$POSTGRES_CLIENT_CONFIG" "$POSTGRES_CLIENT_PLATFORM" "$POSTGRES_CLIENT_VERSION" "$DEPLOYMENT_SCOPE" "$ADMISSION_SHA256" <<'REMOTE'
 set -euo pipefail
 RELEASE_SHA="$1"
 BASE="/opt/frwhoop"
@@ -237,6 +296,10 @@ SCORING_POSTGRES_CLIENT_CONFIG_DIGEST="$9"
 SCORING_POSTGRES_CLIENT_PLATFORM="${10}"
 SCORING_POSTGRES_CLIENT_VERSION="${11}"
 DEPLOYMENT_SCOPE="${12}"
+ADMISSION_SHA256="${13}"
+python3 "${BUILD}/infra/vps/scripts/scoring-admission.py" validate \
+  --input "${BUILD}/worker-admission.json" --scope "$DEPLOYMENT_SCOPE" \
+  --admission-sha256 "$ADMISSION_SHA256" >/dev/null
 case "$DEPLOYMENT_SCOPE" in
   initial-selected-v1) [[ "$SCORING_SERVICE" == scoring-baseline-v1 ]] || exit 3 ;;
   full-fleet) ;;
@@ -451,6 +514,9 @@ scoring_identity_valid
   printf 'SCORING_WORKER_SOURCE_REVISION=%s\n' "$SCORING_WORKER_SOURCE_REVISION"
   printf 'SCORING_ALGORITHM_VERSION=%s\n' "$SCORING_ALGORITHM_VERSION"
 } >"$candidate_env"
+python3 "${BUILD}/infra/vps/scripts/scoring-admission.py" append-env \
+  --input "${BUILD}/worker-admission.json" --scope "$DEPLOYMENT_SCOPE" \
+  --admission-sha256 "$ADMISSION_SHA256" --output "$candidate_env" >/dev/null
 {
   printf 'SCORING_POSTGRES_CLIENT_IMAGE=%s\n' "$SCORING_POSTGRES_CLIENT_IMAGE"
   printf 'SCORING_POSTGRES_CLIENT_CONFIG_DIGEST=%s\n' "$SCORING_POSTGRES_CLIENT_CONFIG_DIGEST"
@@ -529,21 +595,49 @@ for ((index=0; index<${#previous_v2[@]}; index++)); do
   timeout 12 docker rename "$id" "scoring-rollback-${RELEASE_SHA:0:12}-${id:0:12}"
 done
 # Capture only after previous deterministic workers stop, so their progress cannot qualify this image.
-baseline="$(scoring_progress_snapshot)"
-scoring_parse_snapshot "$baseline"
+if [[ "$DEPLOYMENT_SCOPE" == full-fleet ]]; then
+  baseline="$(scoring_progress_snapshot)"
+  scoring_parse_snapshot "$baseline"
+fi
 install -m 600 "$candidate_env" "$SCORING_ENV"
 install -m 600 "$CANDIDATE_COMPOSE" "$COMPOSE_FILE"
 unset SCORING_ENV_FILE
 candidate_attempted=true
 export SCORING_ENV_FILE="$SCORING_ENV" SCORING_BASELINE_ENV_FILE="$SCORING_ENV" SCORING_HISTORY_ENV_FILE="$SCORING_ENV"
-timeout 60 docker compose -p "$compose_project" -f docker-compose.yml \
-  run -d --no-deps --name "$SCORING_SERVICE" "$SCORING_SERVICE"
+# The initial canary is staged only. The guard is the sole owner of its first start.
+if [[ "$DEPLOYMENT_SCOPE" == initial-selected-v1 ]]; then
+  canary_compose="${BUILD}/baseline-canary-compose.json"
+  python3 - "$canary_compose" <<'CANARY_COMPOSE'
+import json, os, sys
+descriptor = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+with os.fdopen(descriptor, 'w') as output:
+    json.dump({'services': {'scoring-baseline-v1': {'restart': 'no'}}}, output)
+    output.flush()
+    os.fsync(output.fileno())
+CANARY_COMPOSE
+  timeout 60 docker compose -p "$compose_project" -f docker-compose.yml -f "$canary_compose" \
+    create --no-deps "$SCORING_SERVICE"
+else
+  timeout 60 docker compose -p "$compose_project" -f docker-compose.yml \
+    run -d --no-deps --name "$SCORING_SERVICE" "$SCORING_SERVICE"
+fi
 candidate_id="$(timeout 12 docker inspect -f '{{.Id}}' "$SCORING_SERVICE")"
 candidate_project="$(timeout 12 docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$candidate_id")"
 [[ "$candidate_project" == "$compose_project" ]] || { echo 'Candidate ownership changed before restart policy update' >&2; exit 1; }
-export SCORING_REQUIRE_PUBLICATION=true
-scoring_wait_for_progress "$RELEASE_SHA" "$baseline"
-timeout 12 docker update --restart unless-stopped "$candidate_id" >/dev/null
+python3 "${BUILD}/infra/vps/scripts/scoring-admission.py" verify-container \
+  --input "${BUILD}/worker-admission.json" --scope "$DEPLOYMENT_SCOPE" \
+  --admission-sha256 "$ADMISSION_SHA256" --container "$SCORING_SERVICE" >/dev/null
+if [[ "$DEPLOYMENT_SCOPE" == initial-selected-v1 ]]; then
+  [[ "$(timeout 12 docker inspect -f '{{.State.Running}}' "$candidate_id")" == false &&
+     "$(timeout 12 docker inspect -f '{{.Image}}' "$candidate_id")" == "$SCORING_EXPECTED_IMAGE_ID" ]] || {
+    echo 'NOT_READY: initial candidate must remain stopped with its reviewed image' >&2; exit 3
+  }
+  [[ "$(timeout 12 docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$candidate_id")" == no ]] || exit 3
+else
+  export SCORING_REQUIRE_PUBLICATION=true
+  scoring_wait_for_progress "$RELEASE_SHA" "$baseline"
+  timeout 12 docker update --restart unless-stopped "$candidate_id" >/dev/null
+fi
 accepted=true
 install -m 600 "$candidate_client_env" "${BASE}/scoring-client.env"
 install -m 700 "${BUILD}/infra/vps/scripts/scoring-progress.sh" "${COMPOSE_DIR}/scoring-progress.sh"
@@ -553,6 +647,7 @@ install -m 700 "${BUILD}/infra/vps/scripts/remote/read-scoring-query.sh" "${COMP
 install -m 700 "${BUILD}/infra/vps/scripts/verify-worker-image.py" "${COMPOSE_DIR}/verify-worker-image.py"
 install -m 700 "${BUILD}/infra/vps/scripts/verify-pinned-postgres-client.py" "${COMPOSE_DIR}/verify-pinned-postgres-client.py"
 install -m 700 "${BUILD}/infra/vps/scripts/scoring-tls.py" "${COMPOSE_DIR}/scoring-tls.py"
+install -m 700 "${BUILD}/infra/vps/scripts/scoring-admission.py" "${COMPOSE_DIR}/scoring-admission.py"
 echo "Prior worker/configuration retained for rollback: ${rollback_dir}"
 REMOTE
 }
@@ -565,13 +660,24 @@ for lane in "${scoring_lanes[@]}"; do
   deploy_lane "$lane"
 done
 
+if [[ "$DEPLOYMENT_SCOPE" == initial-selected-v1 ]]; then
+  # Retain the session lock until guarded activation and acceptance are reconciled.
+  echo "CANARY_STAGED_NOT_STARTED: ${RELEASE_SHA}; private build ${REMOTE_BUILD}; guard activation and publication acceptance required"
+  exit 0
+fi
+
 ssh "${SSH_ARGS[@]}" "deploy@${DROPLET_IP}" bash -s -- "$RELEASE_SHA" "$SELECTED_V1_CONFIG" "$SHADOW_V2_CONFIG" \
-  "$SELECTED_V1_IMAGE" "$SHADOW_V2_IMAGE" "$DEPLOYMENT_SCOPE" <<'VERIFY'
+  "$SELECTED_V1_IMAGE" "$SHADOW_V2_IMAGE" "$DEPLOYMENT_SCOPE" "$REMOTE_BUILD" "$ADMISSION_SHA256" <<'VERIFY'
 set -euo pipefail
 revision="$1"
 v1_config="$2"
 v2_config="$3"
 scope="$6"
+build="$7"
+admission_sha256="$8"
+python3 "${build}/infra/vps/scripts/scoring-admission.py" validate \
+  --input "${build}/worker-admission.json" --scope "$scope" \
+  --admission-sha256 "$admission_sha256" >/dev/null
 [[ "$scope" == initial-selected-v1 || "$scope" == full-fleet ]] || exit 3
 [[ "$revision" =~ ^[0-9a-f]{40}$ && "$v1_config" =~ ^sha256:[0-9a-f]{64}$ &&
    "$v2_config" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
@@ -604,6 +710,9 @@ verify_lane() {
      "$(timeout 12 docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container")" == "$revision" &&
      "$(environment_value "$container" SCORING_ALGORITHM_VERSION)" == "$algorithm" &&
      "$(environment_value "$container" SCORING_WORKER_SOURCE_REVISION)" == "$revision" ]] || return 1
+  python3 "${build}/infra/vps/scripts/scoring-admission.py" verify-container \
+    --input "${build}/worker-admission.json" --scope "$scope" \
+    --admission-sha256 "$admission_sha256" --container "$container" >/dev/null || return 1
   worker="$(environment_value "$container" SCORING_WORKER_INSTANCE_ID)"
   [[ "$worker" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || return 1
   printf '%s' "$worker"

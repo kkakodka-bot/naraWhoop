@@ -24,7 +24,7 @@ Deno.test('async admission requires opt-in and compatible successful queue servi
 
 Deno.test('intake startup binds packaged source and configured hosted project', () => {
   const revision='a'.repeat(40);
-  const env={INTAKE_WORKER_SOURCE_REVISION:revision,INTAKE_WORKER_INSTANCE_ID:'11111111-1111-4111-8111-111111111111',
+  const env={INTAKE_ADMISSION_MODE:'all-eligible',INTAKE_WORKER_SOURCE_REVISION:revision,INTAKE_WORKER_INSTANCE_ID:'11111111-1111-4111-8111-111111111111',
     INTAKE_EXPECTED_SUPABASE_PROJECT:'abcdefghijklmnopqrst',SUPABASE_URL:'https://abcdefghijklmnopqrst.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-only'};
   assert.equal(validateIntakeEnvironment(env,revision+'\n').sourceRevision,revision);
   for(const variant of [

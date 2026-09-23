@@ -104,7 +104,7 @@ end $$;
 select jsonb_build_object(
   'status','PASS',
   'upgrade_baseline_full_identities',117,
-  'pending_migrations_applied',10,
+  'pending_migrations_applied',11,
   'preserved_installations',2,
   'preserved_users',2,
   'preserved_devices',2,

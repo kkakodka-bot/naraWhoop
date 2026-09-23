@@ -48,7 +48,7 @@ def verify_worker_archive(archive, inspection, reference, config_digest, source_
     require(labels.get('io.frwhoop.image.platform') == 'linux/amd64', 'worker platform label differs')
     if role == 'intake':
         require(labels.get('org.frwhoop.worker.role') == 'intake' and
-                labels.get('org.frwhoop.intake.contract-version') == '1', 'intake role or contract differs')
+                labels.get('org.frwhoop.intake.contract-version') == '2', 'intake role or contract differs')
     else:
         require(labels.get('io.frwhoop.database.ca.sha256') ==
                 '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7',

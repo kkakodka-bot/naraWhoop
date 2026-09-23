@@ -12,7 +12,11 @@ if (import.meta.main) {
     const rest = createSupabaseRest({ cfg: restConfigFromEnv(env),
       fetchImpl: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(30_000) }) });
     if (Deno.args.includes('--status')) {
-      console.log(JSON.stringify(await rest.rpc('noop_intake_status', {})));
+      const status = identity.admission.mode === 'canary'
+        ? await rest.rpc('noop_intake_canary_status', { p_user: identity.admission.ownerId,
+          p_device: identity.admission.deviceId, p_source_revision: identity.sourceRevision, p_instance: identity.instanceId })
+        : await rest.rpc('noop_intake_status', {});
+      console.log(JSON.stringify(status));
       Deno.exit(0);
     }
     const cfg = pushConfig(env);

@@ -6,6 +6,7 @@ import { PushProtocolError } from './registry.ts';
 import { MAX_OBJECT_LANE_BYTES } from './retention.ts';
 import { ZstdBounds } from './zstdBounds.ts';
 import { AuxiliaryIdentityValidator } from './auxiliaryIdentity.ts';
+import { assertIntakeScope, intakeAdmissionArguments, isIntakeAdmissionError, type IntakeAdmission } from './intakeAdmission.ts';
 
 // Streaming verification bounds output even when the compressed input is small.
 export const MAX_DECODED_OBJECT_BYTES = 512 * 1024 * 1024;
@@ -125,9 +126,10 @@ export async function verifyStoredObject(raw: S3Store, row: any, key: string) {
     auxiliaryValidation: auxiliary?.finish() };
 }
 
-export async function completeDurableObject({ rest, raw, row, verificationToken }: {
-  rest: SupabaseRest; raw: S3Store; row: any; verificationToken?: string;
+export async function completeDurableObject({ rest, raw, row, verificationToken, admission }: {
+  rest: SupabaseRest; raw: S3Store; row: any; verificationToken?: string; admission?: IntakeAdmission;
 }): Promise<DurabilityReceipt> {
+  assertIntakeScope(row, admission);
   if (['deleted', 'deleting', 'expired'].includes(row.status)) mismatch('object_unavailable');
   const owner = await rest.select('devices', `id=eq.${row.device_id}&user_id=eq.${row.user_id}&select=id`);
   if (!owner.length) throw new PushProtocolError('device_owner_conflict', 403);
@@ -176,7 +178,14 @@ export async function completeDurableObject({ rest, raw, row, verificationToken 
       p_wire_sha256: verified.wireSha256, p_content_sha256: verified.contentSha256,
       p_compressed_bytes: verified.compressedBytes, p_uncompressed_bytes: verified.uncompressedBytes,
     };
-    const receipt: DurabilityReceipt = intent
+    const receipt: DurabilityReceipt = admission?.mode === 'canary'
+      ? await rest.rpc('noop_intake_canary_commit_receipt', {
+        p_user: admission.ownerId, p_device: admission.deviceId, p_object: row.id,
+        p_intent: intent?.id ?? null, p_lease: intent?.lease_token ?? null, p_verified_key: verifiedKey,
+        ...verifiedArgs, p_verification_ms: Math.max(0, Math.round(performance.now() - started)),
+        p_validation: verified.auxiliaryValidation ?? null,
+      })
+      : intent
       ? await rest.rpc('noop_commit_copy_receipt', {
         p_intent_id: intent.id, p_lease_token: intent.lease_token, ...verifiedArgs,
         p_verification_ms: Math.max(0, Math.round(performance.now() - started)),
@@ -189,6 +198,7 @@ export async function completeDurableObject({ rest, raw, row, verificationToken 
     if (receipt.version !== 1 || receipt.state !== 'verified_indexed') throw new Error('invalid_durability_receipt');
     return receipt;
   } catch (err) {
+    if (isIntakeAdmissionError(err)) throw err;
     if (intent) await rest.rpc('noop_abandon_copy_intent', {
       p_intent_id: intent.id, p_lease_token: intent.lease_token, p_failure_code: failureCode,
     }).catch(() => {});
@@ -202,13 +212,16 @@ export async function completeDurableObject({ rest, raw, row, verificationToken 
 }
 
 /** The DB cursor persists across stateless worker invocations and wraps after the last page. */
-export async function reconcileIntake(rest: SupabaseRest, raw: S3Store, limit = 16) {
-  const rows = await rest.rpc('noop_intake_reconcile_page', { p_limit: limit });
+export async function reconcileIntake(rest: SupabaseRest, raw: S3Store, limit = 16, admission?: IntakeAdmission) {
+  const rows = await rest.rpc(admission?.mode === 'canary' ? 'noop_intake_reconcile_page_scoped' : 'noop_intake_reconcile_page', {
+    ...intakeAdmissionArguments(admission), p_limit: limit });
+  // Validate the entire returned page before touching any object in it.
+  for (const row of rows) assertIntakeScope(row, admission);
   const report = { scanned: 0, verifiedIndexed: 0, deferred: 0 };
   for (const row of rows) {
     report.scanned++;
-    try { await completeDurableObject({ rest, raw, row }); report.verifiedIndexed++; }
-    catch { report.deferred++; }
+    try { await completeDurableObject({ rest, raw, row, admission }); report.verifiedIndexed++; }
+    catch (error) { if (isIntakeAdmissionError(error)) throw error; report.deferred++; }
   }
   return report;
 }

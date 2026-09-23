@@ -1,5 +1,6 @@
 """Run the remote deployment payload against stateful disposable Docker/DB doubles."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -20,6 +21,17 @@ POSTGRES_IMAGE = "docker.io/library/postgres@sha256:aa90e97ee862e558111d34cfb8b2
 POSTGRES_CONFIG = "sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537"
 POSTGRES_PLATFORM = "linux/amd64"
 POSTGRES_VERSION = "17.11-alpine3.24"
+
+CANARY_ADMISSION = {'mode':'canary','ownerId':'11111111-1111-4111-8111-111111111112',
+                    'deviceId':'11111111-1111-4111-8111-111111111113'}
+def admission_fixture(build, scope='full-fleet'):
+    value = CANARY_ADMISSION if scope == 'initial-selected-v1' else {'mode':'all-eligible'}
+    encoded = json.dumps(value,sort_keys=True,separators=(',',':'))
+    (build/'infra/vps/scripts').mkdir(parents=True,exist_ok=True)
+    shutil.copy(VPS/'scripts/scoring-admission.py',build/'infra/vps/scripts')
+    (build/'worker-admission.json').write_text(encoded)
+    (build/'worker-admission.json').chmod(0o600)
+    return hashlib.sha256(encoded.encode()).hexdigest()
 
 # Transaction tests stub this boundary; test_worker_image hashes real archive bytes.
 WORKER_VERIFIER = '''import os, sys, json, pathlib
@@ -99,6 +111,8 @@ elif args[0] == 'inspect':
         print(json.dumps({'containerId': key, 'imageId': 'sha256:'+'a'*64,
             'state': {'status': 'running' if row['running'] else 'exited', 'running': row['running'],
                       'exitCode': 0, 'oomKilled': False}, 'restartCount': 0, 'sourceRevision': 'a'*40}))
+    elif field == '{{json .Config.Env}}':
+        print(json.dumps([key+'='+value for key,value in state['candidate_env'].items()]))
     elif '.Config.Env' in field:
         print('SCORING_ALGORITHM_VERSION=' + row['version'])
         if key == 'new-v2':
@@ -201,7 +215,7 @@ elif args[0] != 'build': raise AssertionError(args)
 
 class ScoringDeployTest(unittest.TestCase):
     def test_reviewed_scope_executes_only_its_selected_scoring_services(self):
-        body = SCRIPT.read_text().split('scoring_lanes=(scoring-baseline-v1)', 1)[1].split('\n\nssh ', 1)[0]
+        body = SCRIPT.read_text().split('scoring_lanes=(scoring-baseline-v1)', 1)[1].split('\ndone\n', 1)[0] + '\ndone\n'
         body = 'scoring_lanes=(scoring-baseline-v1)' + body
         for scope, expected in (
             ('initial-selected-v1', ['scoring-baseline-v1']),
@@ -288,6 +302,7 @@ assert args['--version'] == os.environ['POSTGRES_VERSION']
                 path = binary_dir / name
                 path.write_text(body)
                 path.chmod(0o755)
+            admission_sha = admission_fixture(build)
             remote = SCRIPT.read_text().split("<<'REMOTE'\n", 1)[1].split("\nREMOTE\n", 1)[0]
             remote = remote.replace('BASE="/opt/frwhoop"', 'BASE="' + str(base) + '"')
             env = os.environ.copy()
@@ -298,7 +313,7 @@ assert args['--version'] == os.environ['POSTGRES_VERSION']
             bash = "/opt/homebrew/bin/bash" if Path("/opt/homebrew/bin/bash").exists() else "bash"
             result = subprocess.run([bash, "-s", "--", SHA, str(build), "scoring-physiology-v2",
                                      V1_IMAGE, V2_IMAGE, V1_CONFIG, V2_CONFIG, POSTGRES_IMAGE,
-                                     POSTGRES_CONFIG, POSTGRES_PLATFORM, POSTGRES_VERSION, 'full-fleet'], input=remote, text=True,
+                                     POSTGRES_CONFIG, POSTGRES_PLATFORM, POSTGRES_VERSION, 'full-fleet', admission_sha], input=remote, text=True,
                                     capture_output=True, env=env, timeout=20)
             log = root / "docker.jsonl"
             commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
@@ -309,7 +324,7 @@ assert args['--version'] == os.environ['POSTGRES_VERSION']
                     [p.name for p in base.glob("scoring-rollback.*/candidate.env")])
 
     def run_final_verifier(self, *, defaults=None, source_selections=None,
-                           v2_canonical=None, history_canonical=None, scope='full-fleet'):
+                           v2_canonical=None, history_canonical=None, scope='full-fleet', observed_admission=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binary_dir = root / "bin"
@@ -325,7 +340,7 @@ assert args['--version'] == os.environ['POSTGRES_VERSION']
             state_file.write_text(json.dumps(state))
             docker = binary_dir / "docker"
             docker.write_text(r'''#!/usr/bin/env python3
-import os, sys
+import os, sys, json
 args=sys.argv[1:]
 assert args[0]=='inspect' and '-f' in args
 field=args[args.index('-f')+1]; name=args[-1]
@@ -335,7 +350,13 @@ lanes={
  'scoring-physiology-v2':('frwhoop-physiology-2','sha256:'+('a'*64),'22222222-2222-4222-8222-222222222222','[]'),
  'scoring-history':('frwhoop-server-2-history','sha256:'+('a'*64),'33333333-3333-4333-8333-333333333333','["--history"]')}
 algorithm,config,worker,command=lanes[name]
-if '.Config.Env' in field:
+if field == '{{json .Config.Env}}':
+ mode='canary' if os.environ.get('TEST_SCOPE')=='initial-selected-v1' else 'all-eligible'
+ values=['SCORING_ADMISSION_MODE='+mode]
+ if mode=='canary': values += ['SCORING_CANARY_OWNER_ID=11111111-1111-4111-8111-111111111112','SCORING_CANARY_DEVICE_ID=11111111-1111-4111-8111-111111111113']
+ if os.environ.get('TEST_ADMISSION_OVERRIDE'): values=json.loads(os.environ['TEST_ADMISSION_OVERRIDE'])
+ print(json.dumps(values))
+elif '.Config.Env' in field:
  print('SCORING_ALGORITHM_VERSION='+algorithm)
  print('SCORING_WORKER_SOURCE_REVISION='+('a'*40))
  print('SCORING_WORKER_INSTANCE_ID='+worker)
@@ -370,6 +391,7 @@ elif 'physiology_feature_defaults' in body and 'physiology_source_selection' in 
 else: raise AssertionError(body)
 ''')
             query.chmod(0o755)
+            admission_sha = admission_fixture(root,scope)
             remote = SCRIPT.read_text().split("<<'VERIFY'\n", 1)[1].split("\nVERIFY\n", 1)[0]
             remote = remote.replace('/opt/frwhoop/scoring/read-scoring-query.sh', str(query))
             worker_verifier = root / 'verify-worker-image.py'
@@ -377,9 +399,23 @@ else: raise AssertionError(body)
             remote = remote.replace('/opt/frwhoop/scoring/verify-worker-image.py', str(worker_verifier))
             env = os.environ.copy()
             env.update(PATH=str(binary_dir) + os.pathsep + env["PATH"], RELEASE_STATE=str(state_file), TEST_SCOPE=scope)
+            if observed_admission is not None: env['TEST_ADMISSION_OVERRIDE']=json.dumps(observed_admission)
             bash = "/opt/homebrew/bin/bash" if Path("/opt/homebrew/bin/bash").exists() else "bash"
-            return subprocess.run([bash, "-s", "--", SHA, V1_CONFIG, V2_CONFIG, V1_IMAGE, V2_IMAGE, scope], input=remote,
+            return subprocess.run([bash, "-s", "--", SHA, V1_CONFIG, V2_CONFIG, V1_IMAGE, V2_IMAGE, scope, str(root), admission_sha], input=remote,
                                   text=True, capture_output=True, env=env, timeout=10)
+
+    def test_initial_scope_rejects_wrong_live_container_admission_without_private_output(self):
+        valid = ['SCORING_ADMISSION_MODE=canary',
+                 'SCORING_CANARY_OWNER_ID='+CANARY_ADMISSION['ownerId'],
+                 'SCORING_CANARY_DEVICE_ID='+CANARY_ADMISSION['deviceId']]
+        for values in ([], ['SCORING_ADMISSION_MODE=all-eligible'], valid+valid[:1],
+                       [v.replace(CANARY_ADMISSION['deviceId'],CANARY_ADMISSION['ownerId']) for v in valid]):
+            with self.subTest(values=values):
+                result=self.run_final_verifier(scope='initial-selected-v1', observed_admission=values)
+                self.assertNotEqual(result.returncode,0)
+                self.assertIn('private worker admission validation failed',result.stderr)
+                self.assertNotIn(CANARY_ADMISSION['ownerId'],result.stdout+result.stderr)
+                self.assertNotIn(CANARY_ADMISSION['deviceId'],result.stdout+result.stderr)
 
     def assert_preserved(self, result, commands, config, compose, state, pending, running=False,
                          rollback_blocked=True):
@@ -606,14 +642,20 @@ else: raise AssertionError(body)
                 binary_dir.mkdir()
                 docker = binary_dir / "docker"
                 docker.write_text(r'''#!/usr/bin/env python3
-import sys
+import os, sys, json
 args=sys.argv[1:]; field=args[args.index('-f')+1]; name=args[-1]
 lanes={
  'scoring-baseline-v1':('frwhoop-server-1','sha256:'+('3'*64),'11111111-1111-4111-8111-111111111111','null'),
  'scoring-physiology-v2':('frwhoop-physiology-2','sha256:'+('a'*64),'22222222-2222-4222-8222-222222222222','[]'),
  'scoring-history':('frwhoop-server-2-history','sha256:'+('a'*64),'33333333-3333-4333-8333-333333333333','["--history"]')}
 algorithm,config,worker,command=lanes[name]
-if '.Config.Env' in field:
+if field == '{{json .Config.Env}}':
+ mode='canary' if os.environ.get('TEST_SCOPE')=='initial-selected-v1' else 'all-eligible'
+ values=['SCORING_ADMISSION_MODE='+mode]
+ if mode=='canary': values += ['SCORING_CANARY_OWNER_ID=11111111-1111-4111-8111-111111111112','SCORING_CANARY_DEVICE_ID=11111111-1111-4111-8111-111111111113']
+ if os.environ.get('TEST_ADMISSION_OVERRIDE'): values=json.loads(os.environ['TEST_ADMISSION_OVERRIDE'])
+ print(json.dumps(values))
+elif '.Config.Env' in field:
  print('SCORING_ALGORITHM_VERSION='+algorithm); print('SCORING_WORKER_SOURCE_REVISION='+('a'*40)); print('SCORING_WORKER_INSTANCE_ID='+worker)
 elif '.Config.Cmd' in field: print(command)
 elif '.State.Running' in field: print('true')
@@ -629,6 +671,7 @@ else: raise AssertionError(field)
                                  " -X -qAt -v ON_ERROR_STOP=1 -h " + shlex.quote(str(socket)) +
                                  " -p " + port + " -d postgres\n")
                 query.chmod(0o755)
+                admission_sha = admission_fixture(root)
                 remote = SCRIPT.read_text().split("<<'VERIFY'\n", 1)[1].split("\nVERIFY\n", 1)[0]
                 remote = remote.replace('/opt/frwhoop/scoring/read-scoring-query.sh', str(query))
                 worker_verifier = root / 'verify-worker-image.py'
@@ -639,7 +682,7 @@ else: raise AssertionError(field)
                 bash = "/opt/homebrew/bin/bash" if Path("/opt/homebrew/bin/bash").exists() else "bash"
                 def verify():
                     return subprocess.run([bash, "-s", "--", SHA, V1_CONFIG, V2_CONFIG, V1_IMAGE, V2_IMAGE,
-                                           'full-fleet'], input=remote,
+                                           'full-fleet', str(root), admission_sha], input=remote,
                                           text=True, capture_output=True, env=env, timeout=10)
                 def reset(extra=""):
                     sql("truncate public.physiology_feature_defaults,public.physiology_source_selection,"

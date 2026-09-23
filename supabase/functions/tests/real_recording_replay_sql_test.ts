@@ -193,7 +193,7 @@ Deno.test({ name: 'private real scalar recording -> durable local intake -> froz
     const child = new Deno.Command(baselineBinary, { args: ['--replay-day'], clearEnv: true, env: {
       PATH: Deno.env.get('PATH')!, JAVA_HOME: Deno.env.get('JAVA_HOME')!, DATABASE_URL: databaseUrl,
       SUPABASE_URL: restUrl, SUPABASE_SERVICE_ROLE_KEY: token, INGEST_SECRET: 'isolated-pipeline-only',
-      SCORING_WORKER_SOURCE_REVISION: workerSource, SCORING_WORKER_INSTANCE_ID: crypto.randomUUID(),
+      SCORING_ADMISSION_MODE: 'all-eligible', SCORING_WORKER_SOURCE_REVISION: workerSource, SCORING_WORKER_INSTANCE_ID: crypto.randomUUID(),
       SCORING_ALGORITHM_VERSION: 'frwhoop-server-1', REPLAY_USER_ID: owner, REPLAY_DEVICE_ID: identity.deviceId, REPLAY_DAY: recording.day,
     }, stdout: 'piped', stderr: 'piped' }).spawn();
     const timeout = setTimeout(() => { try { child.kill('SIGTERM'); } catch { /* Completed. */ } }, 300_000);
