@@ -583,8 +583,10 @@ final class Collector {
         let rr = takeStandardPrefix(&stdRR, count: rrCount) { $0.deviceID == deviceId }.map(\.sample)
         let contact = takeStandardPrefix(&stdContact, count: contactCount) { $0.deviceID == deviceId }.map(\.sample)
         let receipts = takeStandardPrefix(&stdReceipts, count: receiptCount) { $0.deviceID == deviceId }.map(\.row)
+        let streams = StandardHRMapping.canonicalProjection(
+            Streams(hr: hr, rr: rr, events: contact, standardHrReceipts: receipts))
         log?(LivePersistTrace.standardHRFlushAttemptLine(
-            reason: reason, offeredHRRows: hr.count, offeredRRRows: rr.count))
+            reason: reason, offeredHRRows: streams.hr.count, offeredRRRows: streams.rr.count))
         // #1118: census this batch BEFORE it is stored, exactly as the historical path does, so a strap
         // log carries one `ratioRep` per transport. If each transport reports ~1.0 while the stored night
         // reads 2.77, the over-count is the UNION of the transports and no single decoder is at fault —
@@ -602,7 +604,6 @@ final class Collector {
         }
         do {
             lastWriteFailed = false
-            let streams = Streams(hr: hr, rr: rr, events: contact, standardHrReceipts: receipts)
             let inserted: BankedCounts
             if let concreteStore, let captureScope {
                 inserted = try await concreteStore.insertAndMarkJobsOwed(streams, deviceId: deviceId,
@@ -613,7 +614,7 @@ final class Collector {
             SyncPipelineTrace.event(.localCommit)
             if acceptingCapture { onBanked?(inserted) }
             log?(LivePersistTrace.standardHRFlushSucceededLine(
-                reason: reason, offeredHRRows: hr.count, offeredRRRows: rr.count,
+                reason: reason, offeredHRRows: streams.hr.count, offeredRRRows: streams.rr.count,
                 insertedHRRows: inserted.hr, insertedRRRows: inserted.rr))
             outcome = .succeeded
             return true
@@ -625,7 +626,7 @@ final class Collector {
             stdReceipts.insert(contentsOf: receipts.map { (deviceId, $0) }, at: 0)
             stdInsertFailures += 1
             log?(LivePersistTrace.standardHRRebufferedForRetryLine(
-                reason: reason, attemptedHRRows: hr.count, attemptedRRRows: rr.count,
+                reason: reason, attemptedHRRows: streams.hr.count, attemptedRRRows: streams.rr.count,
                 pendingHRRows: stdHR.count, pendingRRRows: stdRR.count,
                 consecutiveFailures: stdInsertFailures))
             let nowMs = Int64(Date().timeIntervalSince1970 * 1000)

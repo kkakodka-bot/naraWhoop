@@ -787,6 +787,18 @@ class OuraDriverTest {
         )
     }
 
+    @Test
+    fun rawLiveIBIEntryRetainsOriginalIntervalWithoutHR() {
+        val d = OuraDriver(ringGen = OuraRingGen.GEN3, authKey = key)
+        d.ingest(OuraFraming.parseRecord(bytes("420d0200010000d2dd639001000002"))!!)
+        val push = bytes("020002000001040000000000007f")
+        assertEquals(listOf(OuraEvent.Ibi(OuraIBI(ringTimestamp = rt, ibiMs = 1025))), d.ingestLiveIBIPush(push))
+        assertTrue(d.ingestLiveIBIPush(intArrayOf(1, 2)).isEmpty())
+        assertTrue(d.ingestLiveIBIPush(push.copyOf().apply { this[5] = 0; this[6] = 0 }).isEmpty())
+        // Raw transport preserves a positive transmitted interval; this is not physiological approval.
+        assertEquals(1, OuraDecoders.decodeLiveIBIPush(push.copyOf().apply { this[5] = 1; this[6] = 0 }, rt)?.ibiMs)
+    }
+
     // MARK: - Notification-level ingest (one-packet-per-notification, twin of Swift dae3d7a4)
 
     @Test

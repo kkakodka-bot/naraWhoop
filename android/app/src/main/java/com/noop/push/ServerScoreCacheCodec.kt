@@ -7,6 +7,7 @@ import org.json.JSONObject
 object ServerScoreCacheCodec {
     fun parseSnapshot(body: String, day: String, ownerId: String, fetchedAtMs: Long = System.currentTimeMillis()): ServerScoreDayCache {
         val root = JSONObject(body)
+        LegacyBeatReadEligibility.apply(root)
         val o = root.getJSONObject("server_scoring")
         val projectionState = o.opt("compatibility_projection")
         require(projectionState == null || projectionState == canonicalProjectionState) { "invalid compatibility projection state" }

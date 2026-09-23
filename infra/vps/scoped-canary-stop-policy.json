@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "scope": "one-owner-one-device",
+  "capacityStatus": "NOT_MEASURED",
+  "pollSeconds": 5,
+  "startupGraceSeconds": 60,
+  "maximumObservationAgeSeconds": 30,
+  "maximumLaneAgeSeconds": 30,
+  "maximumPendingPerQueue": 1000,
+  "maximumDebtStallSeconds": 120,
+  "maximumContainerMemoryPercent": 90,
+  "maximumDatabaseConnectionPercent": 80,
+  "minimumHostAvailableMemoryBytes": 1073741824,
+  "minimumHostFreeDiskBytes": 10737418240,
+  "stopTimeoutSeconds": 10,
+  "physicalAcceptance": "Separate operator-observed phone and BLE protocol; this server guard cannot establish device latency, continuity, zero local inference, or fleet capacity."
+}

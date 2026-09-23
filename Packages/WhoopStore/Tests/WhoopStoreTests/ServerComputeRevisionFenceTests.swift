@@ -23,10 +23,10 @@ final class ServerComputeRevisionFenceTests: XCTestCase {
                 "reason": pending ? "device_registration_pending" : active ? null : "reference_required",
                 "result_revision": pending ? null : "compute:8", "input_revision": pending ? null : 8,
                 "computed_at": pending ? null : "2026-09-22T06:00:00Z", "observed_through": NSNull(),
-                "algorithm_version": active ? "frwhoop-server-1" : "vps-only-1",
+                "algorithm_version": active ? "frwhoop-physiology-2" : "vps-only-1",
                 "configuration_version": "vps-only-1", "timezone_id": pending ? null : "UTC",
                 "manifest_hash": active ? String(repeating: "a", count: 64) : null,
-                "feature_manifest_hash": NSNull(), "canonical_qualification": active ? "retained_legacy" : null,
+                "feature_manifest_hash": active ? String(repeating: "c", count: 64) : null, "canonical_qualification": active ? "signed_reference_approval" : null,
                 "freshness": pending ? "unavailable" : "current", "values": values, "details": [String: Any](),
             ]
         }
@@ -38,9 +38,10 @@ final class ServerComputeRevisionFenceTests: XCTestCase {
         })
         if !pending {
             features["hrv"] = ["status": "available", "device_id": device,
-                "algorithm_version": "frwhoop-server-1", "input_revision": 8,
+                "algorithm_version": "frwhoop-physiology-2", "input_revision": 8,
                 "manifest_hash": String(repeating: "a", count: 64),
-                "canonical_qualification": "retained_legacy"]
+                "canonical_qualification": "signed_reference_approval",
+                "feature_manifest_hash": String(repeating: "c", count: 64)]
         }
         let daily: Any = pending ? NSNull() : ["recovery": 0]
         return ["server_scoring": ["schema_version": 2, "contract_revision": 2,
@@ -228,7 +229,7 @@ final class ServerComputeRevisionFenceTests: XCTestCase {
 
     func testFeatureAndFamilyIdentityMustMatchBeforeCompatibilityProjection() throws {
         for (key, value): (String, Any) in [
-            ("input_revision", 9), ("algorithm_version", "frwhoop-physiology-2"),
+            ("input_revision", 9), ("algorithm_version", "other-qualified-2"),
             ("manifest_hash", String(repeating: "b", count: 64)), ("canonical_qualification", "signed_reference_approval"),
         ] {
             var changed = document(), score = changed["server_scoring"] as! [String: Any]

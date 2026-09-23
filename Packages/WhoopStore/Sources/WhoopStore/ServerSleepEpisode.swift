@@ -72,7 +72,8 @@ public struct ServerSleepEpisode: Identifiable {
                 asleepMin: night.measurementAvailable == true ? night.asleepMin : nil,
                 inBedMin: night.inBedMin,
                 opportunityKind: night.opportunityKind,
-                reason: overlap ? "Conflicting server epochs" : bands.isEmpty ? "No server epochs available" : nil,
+                reason: cache.legacySleepWithheld ? ServerLegacyReadEligibility.reason :
+                    overlap ? "Conflicting server epochs" : bands.isEmpty ? "No server epochs available" : nil,
                 startTimezoneId: night.startTimezoneId, endTimezoneId: night.endTimezoneId, canonicalResult: result)
         }.sorted { $0.start < $1.start }
     }

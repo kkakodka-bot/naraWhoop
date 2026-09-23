@@ -58,7 +58,7 @@ android {
         applicationId = "com.noop.whoop"
         minSdk = 26
         targetSdk = 34
-        versionCode = 451
+        versionCode = 452
         versionName = "11.1.1"
         buildConfigField("boolean", "FINAL_HOSTED_COMPUTE", "true")
         buildConfigField("String", "NOOP_SOURCE_REVISION", "\"$noopSourceRevision\"")

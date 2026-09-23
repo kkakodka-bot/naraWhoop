@@ -101,15 +101,16 @@ class ServerRespirationSummaryTest {
         }
     }
 
-    @Test fun legacyRateNeverClaimsV2QualityEvenWithUnexpectedSummaryFields() {
+    @Test fun legacyRateIsWithheldEvenWithUnexpectedSummaryFields() {
         val input = cache(version = "frwhoop-server-1")
         val value = ServerRespirationSummary.project(input, input.day)!!
-        assertEquals(16.0, value.breathsPerMinute!!, 0.0)
+        assertNull(value.breathsPerMinute)
         assertTrue(value.legacy)
         assertNull(value.mean)
         assertNull(value.coverage)
         assertNull(value.method)
         assertTrue(value.distribution.isEmpty())
-        assertEquals("legacy_quality_unavailable", value.reason)
+        assertNull(value.breathsPerMinute)
+        assertEquals("beat_timing_unverified", value.reason)
     }
 }

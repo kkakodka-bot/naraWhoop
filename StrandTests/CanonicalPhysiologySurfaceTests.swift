@@ -9,33 +9,45 @@ import StrandDesign
 @MainActor
 final class CanonicalPhysiologySurfaceTests: XCTestCase {
     private func result(status: String = "available", value: Any = 0,
-                        revision: Any = "compute:17", authorization: String = "frwhoop-server-1") throws -> ServerCanonicalFamilyResult {
+                        revision: Any = "compute:17", authorization: String = "frwhoop-server-1", details: [String: Any] = [:]) throws -> ServerCanonicalFamilyResult {
         let json: [String: Any] = [
-            "owner": "server", "metrics": ["recovery"], "status": status,
+            "owner": "server", "metrics": ["resting_hr_bpm"], "status": status,
             "result_revision": revision, "input_revision": 17,
             "algorithm_version": authorization, "configuration_version": "config-1",
             "manifest_hash": String(repeating: "a", count: 64), "canonical_qualification": "retained_legacy",
             "project": "https://example.supabase.co", "owner_id": UUID().uuidString,
             "source_id": UUID().uuidString, "device_id": UUID().uuidString,
             "window": "2026-09-21", "computed_at": "2026-09-21T00:00:00Z",
-            "freshness": "current", "values": ["recovery": value], "details": [:]
+            "freshness": "current", "values": ["resting_hr_bpm": value], "details": details
         ]
         return try JSONDecoder().decode(ServerCanonicalFamilyResult.self,
                                         from: JSONSerialization.data(withJSONObject: json))
     }
 
     func testCanonicalFormatterPreservesValidZeroAndOwnedNull() throws {
-        XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(), metric: "recovery"), "0")
-        XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(value: NSNull()), metric: "recovery"), "—")
+        XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(), metric: "resting_hr_bpm"), "0")
+        XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(value: NSNull()), metric: "resting_hr_bpm"), "—")
         XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(), metric: "hrv_rmssd_ms"), "—")
     }
 
     func testMissingRevokedAndUnauthorizedValuesCannotRenderEvenIfPayloadContainsNumber() throws {
         for status in ["unsupported", "insufficient_input", "insufficient_quality", "unqualified", "processing", "failed", "unavailable", "revoked"] {
-            XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(status: status, value: 99), metric: "recovery"), "—", status)
+            XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(status: status, value: 99), metric: "resting_hr_bpm"), "—", status)
         }
-        XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(revision: NSNull()), metric: "recovery"), "—")
-        XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(authorization: "shadow-algorithm"), metric: "recovery"), "—")
+        XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(revision: NSNull()), metric: "resting_hr_bpm"), "—")
+        XCTAssertEqual(CanonicalPhysiologySection.display(result: try result(authorization: "shadow-algorithm"), metric: "resting_hr_bpm"), "—")
+    }
+
+    func testMetricMissingnessDoesNotHideTheReasonInsideAPIDetails() throws {
+        let missing = try result(value: NSNull(), details: ["metric_availability": [
+            "resting_hr_bpm": ["status": "insufficient_input", "reason": "observed_hr_required"]]])
+        XCTAssertEqual(CanonicalPhysiologySection.display(result: missing, metric: "resting_hr_bpm"), "—")
+        XCTAssertEqual(CanonicalPhysiologySection.missingReason(result: missing, metric: "resting_hr_bpm"), "observed hr required")
+        XCTAssertNil(CanonicalPhysiologySection.missingReason(result: missing, metric: "hrv_rmssd_ms"))
+        XCTAssertNil(CanonicalPhysiologySection.missingReason(result: try result(value: 60), metric: "resting_hr_bpm"))
+        let contradictory = try result(value: 60, details: ["metric_availability": [
+            "resting_hr_bpm": ["status": "insufficient_input", "reason": "observed_hr_required"]]])
+        XCTAssertNil(CanonicalPhysiologySection.missingReason(result: contradictory, metric: "resting_hr_bpm"))
     }
 
     func testFinalHostedEntrypointsDoNotOpenRawStoreOrRunPhysiology() async {

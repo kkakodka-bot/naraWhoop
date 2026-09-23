@@ -293,7 +293,7 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
       const workerEnv={PATH:Deno.env.get('PATH')!,JAVA_HOME:Deno.env.get('JAVA_HOME')!,
         DATABASE_URL:Deno.env.get('PIPELINE_TEST_DATABASE_URL')!,SUPABASE_URL:restUrl!,
         SUPABASE_SERVICE_ROLE_KEY:token,INGEST_SECRET:'isolated-pipeline-only',
-        SCORING_WORKER_SOURCE_REVISION:sourceRevision};
+        SCORING_ADMISSION_MODE: 'all-eligible', SCORING_WORKER_SOURCE_REVISION:sourceRevision};
       if (positive) {
         assert.equal(await sql(`select status from scoring_work_items where user_id='${identity.userId}'
           and device_id='${identity.deviceId}' and day='${workerDay}';`),'pending',
@@ -341,7 +341,7 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
         const child: Deno.ChildProcess = new Deno.Command(binary, { args:['--replay-day'], clearEnv:true,
           env:{...workerEnv,
             SCORING_ALGORITHM_VERSION:version!,REPLAY_USER_ID:identity.userId,REPLAY_DEVICE_ID:identity.deviceId,REPLAY_DAY:workerDay,
-            SCORING_WORKER_INSTANCE_ID:crypto.randomUUID(),SCORING_WORKER_SOURCE_REVISION:sourceRevision},
+            SCORING_WORKER_INSTANCE_ID:crypto.randomUUID(),SCORING_ADMISSION_MODE: 'all-eligible', SCORING_WORKER_SOURCE_REVISION:sourceRevision},
           stdout:'piped',stderr:'piped' }).spawn();
         const timeout=setTimeout(()=>{try {child.kill('SIGTERM');} catch { /* Already exited. */ }},120_000);
         const result: Deno.CommandOutput = await child.output(); clearTimeout(timeout);
@@ -463,7 +463,18 @@ Deno.test({ name: 'real SQL -> enrolled Edge contract, qualification, isolation,
         p_user:owner,p_device:identity.deviceId,p_day:workerDay});
       assert.equal(result.nights.length,1);
       assert.equal(result.nights[0].device_id,identity.deviceId);
-      assert.equal(result.nights[0].asleep_min,360+index*30);
+      assert.equal(result.nights[0].asleep_min,null,'old unmarked sleep cannot acquire input eligibility');
+      assert.equal(result.nights[0].in_bed_min,480,'independent episode bounds remain readable');
+      assert.equal(new Date(result.nights[0].start_at).toISOString(),`${workerDay}T00:00:00.000Z`);
+      assert.equal(new Date(result.nights[0].end_at).toISOString(),`${workerDay}T08:00:00.000Z`);
+      assert.deepEqual(result.nights[0].stages,[]);
+      assert.equal(result.nights[0].measurement_available,false);
+      assert.equal(result.nights[0].measurement_unavailable_reason,'beat_timing_unverified');
+      const original=JSON.parse(await sql(`select payload from server_physiology_results where user_id='${owner}'
+        and device_id='${identity.deviceId}' and period_day='${workerDay}' and algorithm_version='frwhoop-server-1'
+        order by input_revision desc limit 1;`));
+      assert.equal(original.nights[0].asleep_min,360+index*30,'read policy must preserve the original immutable episode');
+      assert.equal(original.input_eligibility ?? null,null,'old hand-authored fixture must remain unmarked');
     }
     // The forward serializer repair must retain private entrypoints, immutable retries,
     // and the same live revision/lease checks even when the history queue owns a key.

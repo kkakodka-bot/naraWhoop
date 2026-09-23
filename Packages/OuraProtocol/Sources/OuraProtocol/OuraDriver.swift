@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 // OuraDriver: the transport-agnostic protocol state machine (architecture plan s1). It holds NO BLE
 // handle: the app's OuraLiveSource owns the CBCentralManager / BluetoothGatt and feeds the driver
@@ -490,11 +491,18 @@ public final class OuraDriver {
     /// Decode a live-HR push (0x2F sub-op 0x28). The body is the bytes AFTER `2f 0f 28`; the push is
     /// not a TLV record, so it is stamped with the last seen ring time. Per OURA_PROTOCOL.md s5.6.
     public func ingestLiveHRPush(body: [UInt8]) -> [OuraEvent] {
+        guard PhoneComputeRuntime.permitsLocal("oura_live_ibi_hr") else { return ingestLiveIBIPush(body: body) }
         guard let hr = OuraDecoders.decodeLiveHRPush(body, ringTimestamp: lastRingTimestamp) else {
             return []
         }
         // The push also carries the IBI; surface both so HRV analytics see the R-R.
         return [.hr(hr), .ibi(OuraIBI(ringTimestamp: lastRingTimestamp, ibiMs: hr.ibiMs))]
+    }
+
+    /// Preserve the wire observation when the caller is not permitted to derive HR.
+    public func ingestLiveIBIPush(body: [UInt8]) -> [OuraEvent] {
+        guard let ibi = OuraDecoders.decodeLiveIBIPush(body, ringTimestamp: lastRingTimestamp) else { return [] }
+        return [.ibi(ibi)]
     }
 
     /// Route a parsed secure sub-frame: extract the auth nonce / status, or a live-HR push body, so

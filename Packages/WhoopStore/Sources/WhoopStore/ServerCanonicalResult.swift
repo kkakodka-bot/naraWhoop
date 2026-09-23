@@ -28,8 +28,8 @@ public enum ServerJSONValue: Codable, Equatable, Sendable {
 public struct ServerCanonicalFamilyResult: Codable, Equatable, Sendable {
     public let owner: String
     public let metrics: [String]
-    public let status: String
-    public let reason: String?
+    private let storedStatus: String
+    private let storedReason: String?
     public let resultRevision: String?
     public let inputRevision: Int64?
     public let algorithmVersion: String?
@@ -51,11 +51,29 @@ public struct ServerCanonicalFamilyResult: Codable, Equatable, Sendable {
     public let freshness: String
     public let expiresAt: String?
     public let decisionID: String?
-    public let values: [String: ServerJSONValue]
-    public let details: [String: ServerJSONValue]
+    private let storedValues: [String: ServerJSONValue]
+    private let storedDetails: [String: ServerJSONValue]
+
+    // Guard direct decoded/cached family access as well as normal snapshot decoding.
+    public var values: [String: ServerJSONValue] {
+        ServerLegacyReadEligibility.values(storedValues, algorithm: algorithmVersion, details: storedDetails)
+    }
+    public var details: [String: ServerJSONValue] {
+        ServerLegacyReadEligibility.details(storedDetails, values: storedValues, algorithm: algorithmVersion)
+    }
+    private var withheldLegacyFamily: Bool {
+        algorithmVersion == ServerLegacyReadEligibility.algorithm && hasCanonicalAuthorization &&
+            ["available", "stale", "insufficient_quality"].contains(storedStatus) &&
+            storedValues.keys.contains(where: { ServerLegacyReadEligibility.always.contains($0) }) &&
+            values.values.allSatisfy { $0 == .null }
+    }
+    public var status: String { withheldLegacyFamily ? "unqualified" : storedStatus }
+    public var reason: String? { withheldLegacyFamily ? ServerLegacyReadEligibility.reason : storedReason }
 
     enum CodingKeys: String, CodingKey {
-        case owner, metrics, status, reason, project, window, freshness, values, details
+        case owner, metrics, project, window, freshness
+        case storedStatus = "status", storedReason = "reason"
+        case storedValues = "values", storedDetails = "details"
         case resultRevision = "result_revision", inputRevision = "input_revision"
         case algorithmVersion = "algorithm_version", configurationVersion = "configuration_version"
         case modelVersion = "model_version", preprocessingVersion = "preprocessing_version", qualityVersion = "quality_version"
@@ -80,6 +98,13 @@ public struct ServerCanonicalFamilyResult: Codable, Equatable, Sendable {
     public func number(_ metric: String, now: Date = Date()) -> Double? {
         guard metrics.contains(metric), admitsCanonicalPublication(at: now) else { return nil }
         return values[metric]?.number
+    }
+    public func missingReason(_ metric: String) -> String? {
+        guard status != "revoked", metrics.contains(metric), values[metric] == .null,
+              case .object(let availability) = details["metric_availability"],
+              case .object(let disposition) = availability[metric],
+              case .string(let reason) = disposition["reason"] else { return nil }
+        return reason
     }
     public func isExpired(at now: Date = Date()) -> Bool {
         guard let expiresAt else { return false }

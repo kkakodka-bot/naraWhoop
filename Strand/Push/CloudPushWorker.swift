@@ -173,7 +173,7 @@ enum CloudPushWorker {
         let capturedSnapshot = CloudPushSnapshot(db: db, imuPushSource: binding.imuSource, allowsPreparation: {
             ResourceBudget.shared.permits(.cloudPreparation) && wakeBudget.permitsFinishingPreparation &&
                 (try? admission.check()) != nil
-        })
+        }, allowsArchiveUpgrade: { ResourceBudget.shared.permits(.bulk) })
         let snapshot = AccountFencedSnapshot(source: capturedSnapshot, admission: admission)
         let coordinator: PushCoordinator
         let pendingLanes: [PushPendingLane]

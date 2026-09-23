@@ -41,6 +41,7 @@ internal class LiveCaptureQueue<T>(
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private var bytes = 0
     private var accepting = true
+    private var finishRequested = false
     private var inFlight: List<Entry<T>>? = null
     val pendingCount: Int get() = synchronized(lock) { pending.size }
 
@@ -60,6 +61,7 @@ internal class LiveCaptureQueue<T>(
                     }
                     if (!drain()) delay(retryMs)
                 }
+                if (synchronized(lock) { finishRequested && pending.isEmpty() }) { wake.close(); return@launch }
             }
         }
     }
@@ -79,6 +81,11 @@ internal class LiveCaptureQueue<T>(
     }
 
     fun stopAccepting() = synchronized(lock) { accepting = false }
+
+    fun finishWhenDrained() {
+        synchronized(lock) { accepting = false; finishRequested = true }
+        wake.trySend(Unit)
+    }
 
     suspend fun drain(): Boolean = writer.withLock {
         // Each invocation has a finite IO budget even if notifications keep arriving.

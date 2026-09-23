@@ -155,6 +155,7 @@ class OuraLiveSource(
      * on RNG failure (then provisioning stays honest rather than installing a weak key).
      */
     private val randomKey: () -> IntArray? = { secureRandom16() },
+    private val durableCapture: GenericNotificationCapture? = null,
 ) : LiveHrSource {
 
     /**
@@ -698,16 +699,36 @@ class OuraLiveSource(
             log("Oura: history $how but the ring served data older than cursor $resumeCursorAtFetchStart" +
                 " - clock reset/seek ignored; next connect does a full pull")
             historyCursor = 0
-            OuraHistoryCursorStore.save(appContext, deviceId, 0)
+            saveResumeCursorAfterDurability(0)
         } else if (newCursor != historyCursor) {
             historyCursor = newCursor
-            OuraHistoryCursorStore.save(appContext, deviceId, newCursor)
+            saveResumeCursorAfterDurability(newCursor)
             log("Oura: history $how - resume cursor advanced to $historyCursor")
         } else if (drain.maxStoredRingTime > historyCursor) {
             log("Oura: history $how but resume candidate ${drain.maxStoredRingTime} does not resolve " +
                 "under the current anchor - keeping cursor $historyCursor")
         } else {
             log("Oura: history $how (resume cursor unchanged $historyCursor)")
+        }
+    }
+
+    private var pendingDurableCursor: Long? = null
+    internal fun saveResumeCursorAfterDurability(cursor: Long) {
+        if (durableCapture == null) { OuraHistoryCursorStore.save(appContext, deviceId, cursor); return }
+        durableCapture.withProjection {
+            pendingDurableCursor = cursor
+            retryAcceptedProjection()
+        }
+    }
+
+    private fun retryAcceptedProjection(): Boolean {
+        val sink = durableCapture ?: return true
+        return sink.withProjection {
+            flush()
+            if (synchronized(bufferLock) { buffer.isNotEmpty() }) return@withProjection false
+            val cursor = pendingDurableCursor ?: return@withProjection true
+            if (sink.setCursorAfterDurablePrefix { OuraHistoryCursorStore.save(appContext, deviceId, cursor) }) pendingDurableCursor = null
+            pendingDurableCursor == null
         }
     }
 
@@ -772,6 +793,11 @@ class OuraLiveSource(
         }
         for (code in laid) enqueue(listOf(OuraEvent.SleepPhaseEvent(code.phase)), code.ts.toInt())
         drain.noteStoredRingTime(burst.lastRingTimestamp, resumeCursorAtFetchStart)
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("oura_sleep_stage_totals")) {
+            log("Oura: retained ${laid.size} anchored sleep-phase codes; awaiting server result")
+            return
+        }
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("oura_sleep_stage_totals")
         val mins = DoubleArray(4)
         for (code in laid) mins[code.phase.stage.raw] += 0.5   // 30 s/code = 0.5 min
         log("Oura: hypnogram reconstructed [${laid.first().ts} -> $end, anchored] codes=${burst.totalCodes}" +
@@ -1033,7 +1059,7 @@ class OuraLiveSource(
         historyCursor = OuraHistoryDrain.sanitizeLoadedCursor(loadedCursor)
         if (historyCursor != loadedCursor) {
             log("Oura: persisted resume cursor $loadedCursor exceeds the plausibility ceiling (pre-fix garbage) - full pull")
-            OuraHistoryCursorStore.save(appContext, deviceId, 0)
+            saveResumeCursorAfterDurability(0)
         }
         // connectGatt can throw (SecurityException if BLUETOOTH_CONNECT was revoked mid-session,
         // IllegalArgumentException on a stale device) - never let that crash the app; a failed start
@@ -1052,7 +1078,10 @@ class OuraLiveSource(
     }
 
     /** Tear down: cancel the connection and stop scanning, persisting anything still buffered. Idempotent. */
+    @Volatile private var acceptingCapture = true
+
     override fun stop() {
+        acceptingCapture = false
         // A deliberate teardown (device switch / removal) must NOT auto-reconnect: mark it intentional and
         // drop the reconnect target so any pending backoff bails and no fresh one is scheduled (#912). Remove
         // any already-posted reconnect from the main-looper handler too, so it isn't retained for the full
@@ -1111,6 +1140,7 @@ class OuraLiveSource(
         _batteryPct.value = null   // a stale charge must not outlive the link
         resetWear()                // #628: clear the wear badge too
         flush()
+        durableCapture?.seal(::retryAcceptedProjection)
     }
 
     // MARK: - Buffer / persistence
@@ -1120,15 +1150,35 @@ class OuraLiveSource(
      *  Swift `enqueue(_ events:ts:)`. */
     private fun enqueue(events: List<OuraEvent>, ts: Int) {
         if (events.isEmpty()) return
+        val capture = durableCapture
+        if (capture != null && capture.persist(StreamPersistence.toBatch(OuraStreamMapping.streams(events) { ts }))) return
         val shouldFlush = synchronized(bufferLock) {
             buffer.add(Batch(events, ts))
             buffer.size >= flushCount ||
                 System.currentTimeMillis() - lastFlushMs >= flushIntervalMs
         }
         if (shouldFlush) flush()
+        if (capture != null) {
+            capture.seal(::retryAcceptedProjection)
+            handler.post { stop() }
+        }
     }
 
     private fun flush() {
+        val capture = durableCapture
+        if (capture != null) {
+            // Always capture lock before buffer lock, including retries from the writer.
+            capture.withProjection {
+                synchronized(bufferLock) {
+                    while (buffer.isNotEmpty()) {
+                        val item = buffer.first()
+                        if (!capture.persist(StreamPersistence.toBatch(OuraStreamMapping.streams(item.events) { item.ts }))) return@withProjection
+                        buffer.removeAt(0)
+                    }
+                }
+            }
+            return
+        }
         val snapshot: List<Batch>
         synchronized(bufferLock) {
             lastFlushMs = System.currentTimeMillis()
@@ -1160,6 +1210,12 @@ class OuraLiveSource(
      * samples). Reset the buffer afterward so nothing is drained twice. Kotlin twin of Swift's
      * `drainPendingAnchorEvents`.
      */
+    private fun parkUnanchored(event: Pair<OuraEvent, Long>) {
+        if (durableCapture == null) pendingAnchorEvents.add(event)
+    }
+
+    internal val retainedUnknownClockCount: Int get() = pendingAnchorEvents.size + pendingUnanchoredBursts.size
+
     private fun drainPendingAnchorEvents(): Unit = guardedCallback("drain-pending") {
         if (pendingAnchorEvents.isEmpty()) return@guardedCallback
         val d = driver ?: return@guardedCallback
@@ -1326,14 +1382,14 @@ class OuraLiveSource(
             ch: BluetoothGattCharacteristic,
             value: ByteArray,
         ) {
-            if (ch.uuid == NOTIFY_UUID) handleNotification(value)
+            if (ch.uuid == NOTIFY_UUID) ingestNotification(value, ch.service?.uuid?.toString() ?: "unknown", ch.uuid.toString())
         }
 
         // Legacy (< API 33) characteristic-changed callback: read the value off the characteristic.
         @Deprecated("Deprecated in Java")
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
-            if (ch.uuid == NOTIFY_UUID) handleNotification(ch.value ?: return)
+            if (ch.uuid == NOTIFY_UUID) ingestNotification(ch.value ?: return, ch.service?.uuid?.toString() ?: "unknown", ch.uuid.toString())
         }
     }
 
@@ -1543,6 +1599,16 @@ class OuraLiveSource(
      * The pure driver owns every decode; we only route bytes and turn its results into transitions /
      * persisted rows. A throw anywhere here is contained by [guardedCallback] (degrade to "no data").
      */
+    internal fun ingestNotification(data: ByteArray, service: String = SERVICE_UUID.toString(),
+                                    characteristic: String = NOTIFY_UUID.toString()): Boolean {
+        if (!acceptingCapture) return false
+        val sink = durableCapture
+        if (sink == null) { handleNotification(data); return true }
+        val accepted = sink.capture(data, service, characteristic) { handleNotification(data) }
+        if (!accepted) stop()
+        return accepted
+    }
+
     private fun handleNotification(data: ByteArray) = guardedCallback("notification") {
         val d = driver ?: return@guardedCallback
         val bytes = IntArray(data.size) { data[it].toInt() and 0xFF }
@@ -1652,7 +1718,9 @@ class OuraLiveSource(
             }
             OuraDriver.SecureRouting.EnableAck -> advance(OuraTransition.EnableAckReceived)
             is OuraDriver.SecureRouting.FeatureStatus -> logFeatureStatus(routing.value)   // read-only; no advance
-            is OuraDriver.SecureRouting.LiveHRPush -> emit(d.ingestLiveHRPush(routing.body))
+            is OuraDriver.SecureRouting.LiveHRPush -> emit(
+                if (com.noop.analytics.PhoneComputeRuntime.finalHosted) d.ingestLiveIBIPush(routing.body)
+                else d.ingestLiveHRPush(routing.body))
             OuraDriver.SecureRouting.Unhandled -> Unit
         }
     }
@@ -1715,7 +1783,7 @@ class OuraLiveSource(
         // (meaningless for sleep) envelope time. A returned burst means a ring-time gap closed the
         // previous one.
         val phases = events.mapNotNull { (it as? OuraEvent.SleepPhaseEvent)?.value }
-        if (phases.isNotEmpty()) {
+        if (durableCapture == null && phases.isNotEmpty()) {
             val counts = IntArray(4)
             for (p in phases) counts[p.stage.raw] += 1
             log("Oura: sleep-phase record codes=${phases.size} " +
@@ -1730,7 +1798,7 @@ class OuraLiveSource(
         // emit). Live batches ([Hr, Ibi]) are excluded, so live HR is never double-counted. Per-record
         // ring-time anchored; an unanchored record is skipped (re-derived when it re-serves after 0x42).
         val hasLiveHR = events.any { it is OuraEvent.Hr }
-        if (!hasLiveHR) {
+        if (!hasLiveHR && com.noop.analytics.PhoneComputeRuntime.allowsLocal("oura_ibi_hr")) {
             val bankedIbis = events.mapNotNull { (it as? OuraEvent.Ibi)?.value }
             for (hr in OuraIbiHr.perRecordMedianHR(bankedIbis)) {
                 val ts = d.unixSeconds(forRingTimestamp = hr.ringTimestamp)
@@ -1797,7 +1865,7 @@ class OuraLiveSource(
                 // were ALREADY enqueued above, as one batch per record (#1072); all this arm still owns is
                 // the live readout and parking the ones no anchor can place yet.
                 if (d.unixSeconds(forRingTimestamp = e.value.ringTimestamp) == null) {
-                    pendingAnchorEvents.add(e to e.value.ringTimestamp)
+                    parkUnanchored(e to e.value.ringTimestamp)
                 }
             }
             is OuraEvent.Battery -> {
@@ -2030,7 +2098,7 @@ class OuraLiveSource(
      */
     private fun enqueueAnchoredOrPark(event: OuraEvent, ringTimestamp: Long, d: OuraDriver) {
         val ts = d.unixSeconds(forRingTimestamp = ringTimestamp)
-        if (ts != null) enqueue(listOf(event), ts.toInt()) else pendingAnchorEvents.add(event to ringTimestamp)
+        if (ts != null) enqueue(listOf(event), ts.toInt()) else parkUnanchored(event to ringTimestamp)
     }
 
     private fun handleBattery(pct: Int) = guardedCallback("battery") {

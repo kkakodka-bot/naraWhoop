@@ -82,6 +82,30 @@ public struct StandardHRFrozenBatch: Equatable, Sendable {
         self.intentSHA256 = DurableIngestScope.sha256(tuple)
     }
 
+    /// A deterministic archive of the original T1 observation, including pre-repair pending
+    /// captures. Its identity never depends on recovery time or the current account. The legacy
+    /// T1 schema did not retain uptime; null must not be replaced with a fabricated clock.
+    fileprivate func rawArchive() throws -> HistoricalRawCapture {
+        guard let timestamp = Int(exactly: hostTimestampSeconds), timestamp < Int.max else {
+            throw StandardHRCaptureError.invalidIntent
+        }
+        let envelope: [String: Any] = [
+            "format": "nara.generic-notification.v1", "family": "standard_hr",
+            "serviceUUID": "180D", "characteristicUUID": "2A37",
+            "sessionID": id.sessionID.uuidString.lowercased(), "sequence": id.sequence,
+            "receivedUnixSeconds": hostTimestampSeconds, "receivedUptime": NSNull(),
+            "clockQuality": "host_receipt_unverified", "rrProjectionStatus": "unqualified",
+            "rrProjectionReason": "producer_not_implemented", "payload": rawBytes.base64EncodedString()
+        ]
+        let encoded = try JSONSerialization.data(withJSONObject: envelope,
+            options: [.sortedKeys, .withoutEscapingSlashes])
+        let meta = RawBatchMeta(batchId: "standard-hr-raw-v1." + intentSHA256, deviceId: scope.deviceID,
+            clockRef: ClockRef(device: timestamp, wall: timestamp), capturedAt: timestamp,
+            startTs: timestamp, endTs: timestamp + 1, frameCount: 1, byteSize: encoded.count,
+            captureScope: scope)
+        return HistoricalRawCapture(meta: meta, frames: [[UInt8](encoded)])
+    }
+
     fileprivate static func decodeProjection(_ bytes: Data, timestamp: Int64) throws -> Streams {
         do {
             let streams = try JSONDecoder().decode(Streams.self, from: bytes)
@@ -120,6 +144,11 @@ public struct StandardHRLocalReceipt: Equatable, Sendable {
 public enum StandardHRProjectionStep: Equatable, Sendable {
     case empty
     case completed(id: StandardHRCaptureID, intentSHA256: String)
+}
+
+public struct StandardHRArchiveUpgradeProgress: Equatable, Sendable {
+    public let rowsRead: Int
+    public let isComplete: Bool
 }
 
 private struct StandardHRStoredBatch: Decodable, FetchableRecord {
@@ -413,6 +442,89 @@ extension WhoopStore {
         return StandardHRProjectionKey(path: canonical, project: owner.projectURL, user: owner.userID)
     }
 
+    /// Incrementally exports completed pre-repair T1 originals. Call only in a write
+    /// transaction: archive, raw ledger, debt and progress commit together. Stable session
+    /// ordinals plus sequence survive VACUUM; hidden SQLite rowids do not provide that guarantee.
+    /// Pending T1s are left to normal recovery, whose repaired T2 also archives exact originals.
+    public nonisolated static func advanceStandardHRArchiveUpgrade(_ db: Database,
+        maximumRows: Int = 16, shouldContinue: () -> Bool = { true }
+    ) throws -> StandardHRArchiveUpgradeProgress {
+        guard db.isInsideTransaction, (1...16).contains(maximumRows) else {
+            throw StandardHRCaptureError.invalidIntent
+        }
+        guard shouldContinue() else { throw CancellationError() }
+        guard let state = try standardHRArchiveUpgradeState(db) else { return .init(rowsRead: 0, isComplete: true) }
+        let (owner, namespace, savedOrdinal, savedSequence) = state
+        let comparison = savedSequence == Int64.max ? ">" : ">="
+        // Both dimensions are indexed seeks. At most 16 sessions and maximumRows payloads
+        // are examined, even with many empty sessions or a large retained notification history.
+        let sessions = try Row.fetchAll(db, sql: "SELECT ordinal,sessionID,projectURL,userID FROM standardHRCaptureSession WHERE ordinal \(comparison) ? ORDER BY ordinal LIMIT 16",
+            arguments: [savedOrdinal])
+        var ordinal = savedOrdinal, sequence = savedSequence, read = 0
+        var complete = sessions.count < 16
+        for session in sessions {
+            guard shouldContinue() else { throw CancellationError() }
+            guard (session["projectURL"] as String) == owner.projectURL,
+                  (session["userID"] as String) == owner.userID else { throw StandardHRCaptureError.ownerMismatch }
+            let currentOrdinal: Int64 = session["ordinal"]
+            let after = currentOrdinal == savedOrdinal ? savedSequence : -1
+            let remaining = maximumRows - read
+            let rows = try Row.fetchAll(db, sql: "SELECT * FROM standardHRCaptureOccurrence WHERE sessionID=? AND sequence>? ORDER BY sequence LIMIT ?",
+                arguments: [session["sessionID"] as String, after, remaining])
+            ordinal = currentOrdinal
+            for row in rows {
+                guard shouldContinue() else { throw CancellationError() }
+                let batch = try standardHRBatch(row, owner: owner)
+                if (row["projectionState"] as Int) == 1 {
+                    let raw = try prepareHistoricalRawCapture(batch.rawArchive(), scope: batch.scope)
+                    try insertHistoricalRawCapture(db, capture: raw, scope: batch.scope)
+                }
+                sequence = batch.id.sequence
+                read += 1
+            }
+            if rows.count == remaining { complete = false; break }
+            // Later arrivals in this session use repaired T2; completed legacy members in
+            // this snapshot were exhausted. Do not rescan an empty session every upload wake.
+            sequence = Int64.max
+        }
+        guard shouldContinue() else { throw CancellationError() }
+        if ordinal != savedOrdinal || sequence != savedSequence {
+            for (suffix, value) in [(":session", ordinal), (":sequence", sequence)] {
+                try db.execute(sql: "INSERT INTO cursors(name,value) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                    arguments: [namespace + suffix, value])
+            }
+        }
+        return .init(rowsRead: read, isComplete: complete)
+    }
+
+    /// Read-only admission check: denying historical preparation must not invent pending
+    /// upgrade debt after its cursor has caught up, or for stores with no generic originals.
+    public nonisolated static func standardHRArchiveUpgradeIsComplete(_ db: Database) throws -> Bool {
+        guard let (_, _, ordinal, sequence) = try standardHRArchiveUpgradeState(db) else { return true }
+        let comparison = sequence == Int64.max ? ">" : ">="
+        return try !(Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM standardHRCaptureSession WHERE ordinal \(comparison) ?)",
+            arguments: [ordinal]) ?? false)
+    }
+
+    private nonisolated static func standardHRArchiveUpgradeState(_ db: Database)
+        throws -> (StandardHRCaptureOwner, String, Int64, Int64)? {
+        guard let account = try Row.fetchOne(db, sql: "SELECT projectURL,userID FROM localAccountOwner WHERE singleton=1") else {
+            // An empty, unbound store has no originals to adopt. Retained originals require
+            // the exact durable owner; a current login is never inferred here.
+            guard try !(Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM standardHRCaptureSession)") ?? false) else {
+                throw StandardHRCaptureError.unassignedOwner
+            }
+            return nil
+        }
+        let owner = try StandardHRCaptureOwner(projectURL: account["projectURL"], userID: account["userID"])
+        let namespace = "standard-hr-archive-upgrade-v1:" + DurableIngestScope.sha256(
+            Data((owner.projectURL + "\0" + owner.userID).utf8))
+        let savedOrdinal = try Int64.fetchOne(db, sql: "SELECT value FROM cursors WHERE name=?", arguments: [namespace + ":session"]) ?? 0
+        let savedSequence = try Int64.fetchOne(db, sql: "SELECT value FROM cursors WHERE name=?", arguments: [namespace + ":sequence"]) ?? -1
+        guard savedOrdinal >= 0, savedSequence >= -1 else { throw StandardHRCaptureError.integrityFailure }
+        return (owner, namespace, savedOrdinal, savedSequence)
+    }
+
     private func standardHRProjectLocked(_ owner: StandardHRCaptureOwner) async throws -> StandardHRProjectionStep {
         try Task.checkCancellation()
         let row = try syncRead { db -> Row? in
@@ -428,11 +540,12 @@ extension WhoopStore {
         guard let row else { return .empty }
         do {
             let batch = try Self.standardHRBatch(row, owner: owner)
-            let streams = try StandardHRFrozenBatch.decodeProjection(batch.projectionJSON, timestamp: batch.hostTimestampSeconds)
+            let captured = try StandardHRFrozenBatch.decodeProjection(batch.projectionJSON, timestamp: batch.hostTimestampSeconds)
+            let streams = StandardHRMapping.canonicalProjection(captured)
             try Task.checkCancellation()
-            // T2: existing canonical insertion and upload debt, one immutable notification.
-            _ = try await insertAndMarkJobsOwed(streams, deviceId: batch.scope.deviceID,
-                postOffloadJobKinds: [], note: nil, captureScope: batch.scope)
+            // T2: canonical rows, exact opaque archive, scoped raw ledger and upload debt
+            // share one FULL SQLite commit. Kind-3 archives confer no timing qualification.
+            _ = try await commitLiveCapture(streams, scope: batch.scope, rawCapture: batch.rawArchive())
             // T3 is deliberately separate. A failure here retains T1 and replays T2 idempotently.
             try standardHRWrite { db in
                 try Self.standardHROwner(db, owner)

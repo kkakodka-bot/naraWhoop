@@ -7,6 +7,8 @@ declare
   owned_metric_count integer;
 begin
   foreach object_name in array array[
+    'public.server_legacy_read_eligibility(jsonb)',
+    'internal.engine_publish_legacy_fenced(text,jsonb)',
     'public.server_scoring_read_contract(uuid,date,uuid)',
     'public.server_scoring_read_contract_v1(uuid,date,uuid)',
     'public.server_scoring_read_contract_before_signals(uuid,date,uuid)',
@@ -28,12 +30,49 @@ begin
     'public.noop_intake_consumer_poll(uuid,uuid,text,text,integer,integer,integer)',
     'public.noop_async_verification_ready()',
     'public.noop_intake_status()',
+    'public.noop_intake_canary_validate(uuid,uuid)',
+    'public.noop_intake_reconcile_page_scoped(uuid,uuid,integer)',
+    'public.noop_seed_projection_debt_scoped(uuid,uuid,integer)',
+    'public.noop_claim_object_verification_scoped(uuid,uuid,bigint,bigint)',
+    'public.noop_claim_projection_debt_scoped(uuid,uuid)',
+    'public.scoring_canary_claim_one(integer,integer,uuid,uuid,date)',
+    'public.scoring_canary_enqueue_legacy(uuid,uuid,date,text,integer)',
+    'public.noop_intake_consumer_poll_v2(uuid,uuid,text,text,integer,integer,integer,text,uuid,uuid)',
+    'public.noop_intake_canary_status(uuid,uuid,text,uuid)',
+    'public.noop_intake_canary_commit_receipt(uuid,uuid,uuid,uuid,uuid,text,text,text,bigint,bigint,integer,jsonb)',
+    'public.noop_intake_canary_commit_projection(uuid,uuid,uuid,text,jsonb,jsonb,jsonb,uuid)',
+    'public.engine_publish_canary_legacy_fenced(text,jsonb,uuid,uuid)',
     'public.noop_claim_object_verification(bigint,bigint)',
     'public.noop_commit_object_receipt(uuid,uuid,text,text,text,bigint,bigint)',
     'public.noop_commit_push_projection(uuid,text,jsonb,jsonb,jsonb,uuid)'
   ] loop
     assert to_regprocedure(object_name) is not null, 'missing final function: ' || object_name;
   end loop;
+
+  definition := pg_get_functiondef('internal.engine_publish_legacy_fenced(text,jsonb)'::regprocedure);
+  assert position('invalid legacy input eligibility' in definition)>0
+    and position('stored:=stored||jsonb_build_object(''input_eligibility''' in definition)>0
+    and position('stored:=stored||jsonb_build_object(''input_eligibility''' in definition)
+      < position('content_hash:=' in definition),
+    'legacy exclusion marker is not validated and bound before immutable hashing';
+  definition := pg_get_functiondef('public.server_scoring_read_contract_before_signals(uuid,date,uuid)'::regprocedure);
+  assert position('server_legacy_read_eligibility(result)' in definition)>0,
+    'legacy compatibility reader bypasses beat-input eligibility';
+  assert public.server_legacy_read_eligibility(
+    '{"daily":{"hrv_rmssd_ms":42,"resting_hr_bpm":60,"sleep_total_min":420},"nights":[]}')
+      #>'{daily,hrv_rmssd_ms}'='null'::jsonb,
+    'old beat-derived HRV remains readable';
+  assert public.server_legacy_read_eligibility(
+    '{"daily":{"resting_hr_bpm":60,"sleep_total_min":420},"nights":[]}')
+      #>>'{daily,resting_hr_bpm}'='60',
+    'legacy read eligibility discarded independent observed-HR result';
+  assert public.server_legacy_read_eligibility(
+    '{"daily":{"sleep_total_min":420},"nights":[]}')#>'{daily,sleep_total_min}'='null'::jsonb,
+    'old RR-dependent sleep remains readable';
+  assert public.server_legacy_read_eligibility(
+    '{"daily":{"sleep_total_min":420},"nights":[],"input_eligibility":{"policy_version":"legacy-rr-excluded-1","rr_input":"excluded"}}')
+      #>>'{daily,sleep_total_min}'='420',
+    'RR-excluded scalar sleep is not preserved';
 
   definition := pg_get_functiondef('public.server_scoring_read_contract(uuid,date,uuid)'::regprocedure);
   assert position('server_scoring_read_contract_v1' in definition) > 0,
@@ -53,9 +92,18 @@ begin
     'enrollment route bypasses the canonical final contract';
 
   assert public.noop_intake_consumer_contract() = jsonb_build_object(
-    'contract_version',1,'completion','verified_indexed','projection','atomic_lifecycle_v1',
-    'lanes',jsonb_build_array('verification','projection','legacy')),
+    'contract_version',2,'completion','verified_indexed','projection','atomic_lifecycle_v1',
+    'lanes',jsonb_build_array('verification','projection','legacy'),
+    'admission_modes',jsonb_build_array('canary','all-eligible')),
     'intake service contract differs from the packaged consumer';
+  assert exists(select 1 from pg_class where oid='public.noop_intake_canary_state'::regclass and relrowsecurity),
+    'scoped scheduler state lacks RLS';
+  assert not has_table_privilege('authenticated','public.noop_intake_canary_state','SELECT')
+    and not has_table_privilege('anon','public.noop_intake_canary_state','SELECT'),
+    'scoped scheduler state is readable by clients';
+  definition := pg_get_functiondef('public.noop_async_verification_ready()'::regprocedure);
+  assert position('contract_version=2' in definition)>0 and position('admission_mode=''all-eligible''' in definition)>0,
+    'canary or legacy polls can enable global async admission';
   definition := pg_get_functiondef('public.noop_apply_projection_rows(text,jsonb)'::regprocedure);
   assert position('noop_project_append_batch' in definition)>0,
     'atomic projection bypasses lifecycle/source admission';
@@ -151,6 +199,18 @@ begin
     'public.noop_intake_consumer_poll(uuid,uuid,text,text,integer,integer,integer)',
     'public.noop_async_verification_ready()',
     'public.noop_intake_status()',
+    'public.noop_intake_canary_validate(uuid,uuid)',
+    'public.noop_intake_reconcile_page_scoped(uuid,uuid,integer)',
+    'public.noop_seed_projection_debt_scoped(uuid,uuid,integer)',
+    'public.noop_claim_object_verification_scoped(uuid,uuid,bigint,bigint)',
+    'public.noop_claim_projection_debt_scoped(uuid,uuid)',
+    'public.scoring_canary_claim_one(integer,integer,uuid,uuid,date)',
+    'public.scoring_canary_enqueue_legacy(uuid,uuid,date,text,integer)',
+    'public.noop_intake_consumer_poll_v2(uuid,uuid,text,text,integer,integer,integer,text,uuid,uuid)',
+    'public.noop_intake_canary_status(uuid,uuid,text,uuid)',
+    'public.noop_intake_canary_commit_receipt(uuid,uuid,uuid,uuid,uuid,text,text,text,bigint,bigint,integer,jsonb)',
+    'public.noop_intake_canary_commit_projection(uuid,uuid,uuid,text,jsonb,jsonb,jsonb,uuid)',
+    'public.engine_publish_canary_legacy_fenced(text,jsonb,uuid,uuid)',
     'public.noop_claim_object_verification(bigint,bigint)',
     'public.noop_commit_object_receipt(uuid,uuid,text,text,text,bigint,bigint)',
     'public.noop_commit_push_projection(uuid,text,jsonb,jsonb,jsonb,uuid)'
@@ -191,7 +251,9 @@ with selected_functions as (
   select p.oid, n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' identity,
     pg_get_functiondef(p.oid) definition, coalesce(p.proacl::text, '') acl
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.oid in (
+  where n.nspname in ('public','internal') and p.oid in (
+    'public.server_legacy_read_eligibility(jsonb)'::regprocedure,
+    'internal.engine_publish_legacy_fenced(text,jsonb)'::regprocedure,
     'public.server_scoring_read_contract(uuid,date,uuid)'::regprocedure,
     'public.server_scoring_read_contract_v1(uuid,date,uuid)'::regprocedure,
     'public.server_scoring_read_contract_before_signals(uuid,date,uuid)'::regprocedure,
@@ -204,6 +266,18 @@ with selected_functions as (
     'public.noop_intake_consumer_poll(uuid,uuid,text,text,integer,integer,integer)'::regprocedure,
     'public.noop_async_verification_ready()'::regprocedure,
     'public.noop_intake_status()'::regprocedure,
+    'public.noop_intake_canary_validate(uuid,uuid)'::regprocedure,
+    'public.noop_intake_reconcile_page_scoped(uuid,uuid,integer)'::regprocedure,
+    'public.noop_seed_projection_debt_scoped(uuid,uuid,integer)'::regprocedure,
+    'public.noop_claim_object_verification_scoped(uuid,uuid,bigint,bigint)'::regprocedure,
+    'public.noop_claim_projection_debt_scoped(uuid,uuid)'::regprocedure,
+    'public.scoring_canary_claim_one(integer,integer,uuid,uuid,date)'::regprocedure,
+    'public.scoring_canary_enqueue_legacy(uuid,uuid,date,text,integer)'::regprocedure,
+    'public.noop_intake_consumer_poll_v2(uuid,uuid,text,text,integer,integer,integer,text,uuid,uuid)'::regprocedure,
+    'public.noop_intake_canary_status(uuid,uuid,text,uuid)'::regprocedure,
+    'public.noop_intake_canary_commit_receipt(uuid,uuid,uuid,uuid,uuid,text,text,text,bigint,bigint,integer,jsonb)'::regprocedure,
+    'public.noop_intake_canary_commit_projection(uuid,uuid,uuid,text,jsonb,jsonb,jsonb,uuid)'::regprocedure,
+    'public.engine_publish_canary_legacy_fenced(text,jsonb,uuid,uuid)'::regprocedure,
     'public.noop_claim_object_verification(bigint,bigint)'::regprocedure,
     'public.noop_commit_object_receipt(uuid,uuid,text,text,text,bigint,bigint)'::regprocedure,
     'public.noop_claim_projection_debt()'::regprocedure,

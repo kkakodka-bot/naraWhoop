@@ -13,7 +13,7 @@ const sourceRoot = path.resolve(testDirectory, '../..');
 const generator = path.join(testDirectory, 'generate-migration-manifest.mjs');
 const catalogRelative = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
 const migrationsRelative = 'supabase/migrations';
-const expectedFingerprint = 'e71489e9317a7a47c1f4c591ca8c26187bf726149e4c456246098673c4d66b24';
+const expectedFingerprint = 'bd78bdc02131edb3f5de974158202dc948e899cffb85b05970a45b1db2ae4edd';
 
 const sources = {
   'persistent-sync-followup': {
@@ -110,7 +110,7 @@ function invoke(f, output = f.output) {
   ], { encoding: 'utf8' });
 }
 
-test('emits one deterministic manifest for the 117 applied and ten pending migrations', () => {
+test('emits one deterministic manifest for the 117 applied and twelve pending migrations', () => {
   const f = fixture();
   try {
     const first = invoke(f);
@@ -123,9 +123,9 @@ test('emits one deterministic manifest for the 117 applied and ten pending migra
 
     const manifest = JSON.parse(firstBytes);
     assert.equal(manifest.schemaFingerprintSha256, expectedFingerprint);
-    assert.deepEqual(manifest.counts, { applied: 117, pending: 10, total: 127 });
-    assert.equal(manifest.entries.length, 127);
-    assert.deepEqual(manifest.entries.map(row => row.ordinal), Array.from({ length: 127 }, (_, index) => index + 1));
+    assert.deepEqual(manifest.counts, { applied: 117, pending: 12, total: 129 });
+    assert.equal(manifest.entries.length, 129);
+    assert.deepEqual(manifest.entries.map(row => row.ordinal), Array.from({ length: 129 }, (_, index) => index + 1));
     assert.equal(manifest.sourceWorkstreams.find(row => row.workstream === 'ble-sync').migrationCount, 0);
 
     const sensor = manifest.entries[121];

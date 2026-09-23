@@ -466,24 +466,27 @@ final class SourceCoordinator: ObservableObject {
 
     /// Build the isolated `FTMSSource` for a gym machine `id`. HR (when the machine reports it) rides the
     /// SAME `LiveState` channel, so the existing live-workout recorder scores it — no new scoring loop.
-    private func makeFTMSSource(id: String) -> any LiveHRSource {
-        FTMSSource(
+    private func makeFTMSSource(id: String) -> (any LiveHRSource)? {
+        guard let sink = try? genericCapture?.rawNotificationSink(deviceID: id, family: "ftms") else { return nil }
+        return FTMSSource(
             live: live,
             log: straplog,
-            onBattery: guardedBattery())
+            onBattery: guardedBattery(), durableCapture: sink,
+            onCaptureOpportunity: captureOpportunityCallback())
     }
 
     /// Build the EXPERIMENTAL Huami source (Amazfit / Zepp / Mi Band) for `id`. HR (standard 0x180D when
     /// exposed, else the documented Huami custom characteristic) rides the SAME `LiveState` channel as the
     /// other sources, so the existing live UI + recorder handle it — no new scoring loop, no fabricated
     /// data (the source stays at "—" when it can't read a real HR).
-    private func makeHuamiSource(id: String) -> any LiveHRSource {
-        HuamiHRSource(
+    private func makeHuamiSource(id: String) -> (any LiveHRSource)? {
+        guard let sink = try? genericCapture?.rawNotificationSink(deviceID: id, family: "huami") else { return nil }
+        return HuamiHRSource(
             live: live,
             deviceId: id,
-            persist: guardedPersist(deviceId: id),
             log: straplog,
-            onBattery: guardedBattery())
+            onBattery: guardedBattery(), durableCapture: sink,
+            onCaptureOpportunity: captureOpportunityCallback())
     }
 
     /// One duplicate-candidate's shape for the `dup-gen(#1284)` line: the window, its duration, and the two
@@ -514,7 +517,8 @@ final class SourceCoordinator: ObservableObject {
     /// Also publishes the typed `ouraSource` handle (`AppModel` observes it for the adopt wizard) and
     /// consumes the one-shot adopt consent — both side effects the coordinator must own, so they live here
     /// rather than in the plain `makeStandard/FTMS/Huami` factories.
-    private func makeOuraSource(id: String) -> any LiveHRSource {
+    private func makeOuraSource(id: String) -> (any LiveHRSource)? {
+        guard let sink = try? genericCapture?.rawNotificationSink(deviceID: id, family: "oura") else { return nil }
         let generation = privacyGeneration
         let ringGen = OuraRingGen.from(model: model(for: id) ?? "")
         // Adopt consent is consumed for exactly this build: only the session the user explicitly granted may
@@ -595,7 +599,8 @@ final class SourceCoordinator: ObservableObject {
                 self.adoptOuraSerial(currentId: id, serial: serial)
             },  // #771
             onsetKeying: { UserDefaults.standard.bool(forKey: AppModel.ouraOnsetKeyingKey) },  // #1284 residual 3
-            adoptIntent: adoptIntent)
+            adoptIntent: adoptIntent, durableCapture: sink,
+            onCaptureOpportunity: captureOpportunityCallback())
         if adoptIntent { straplog("Oura: adopt consent granted - this session may install NOOP's key") }
         ouraSource = source   // the published typed handle for the adopt mirror (same object as activeSource)
         return source
@@ -614,6 +619,12 @@ final class SourceCoordinator: ObservableObject {
         let generation = privacyGeneration
         let serialId = "\(ExperimentalBrand.oura.idPrefix)-\(serial)"
         guard permitsCollection(generation: generation), currentId != serialId, registry.activeDeviceId == currentId else { return }
+        // Pending and committed capture bytes keep their installed identity. A serial observation
+        // does not authorize rebinding that scope before its first SQLite transaction settles.
+        guard genericCapture == nil else {
+            straplog("Oura: serial observed; preserving installed capture identity")
+            return
+        }
         Task { @MainActor [weak self] in
             guard let self, self.permitsCollection(generation: generation), self.registry.activeDeviceId == currentId else { return }
             if self.registry.adoptSerialIdentity(from: currentId, to: serialId) {
@@ -647,6 +658,9 @@ final class SourceCoordinator: ObservableObject {
     private func tearDownNonWhoopSource() {
         activeSource?.stop()
         if let source = activeSource as? StandardHRSource, source.pendingCaptureCount > 0 {
+            genericCapture?.retainFinalBuffer(owner: source) { [source] in source.retryBufferedPersistence() }
+        }
+        if let source = activeSource as? OuraLiveSource, source.pendingCaptureCount > 0 {
             genericCapture?.retainFinalBuffer(owner: source) { [source] in source.retryBufferedPersistence() }
         }
         activeSource = nil

@@ -166,6 +166,10 @@ public final class OuraLiveSource: NSObject, ObservableObject {
     private let live: LiveState
     private let deviceId: String
     private let persist: (Streams) -> Void
+    private let durableCapture: GenericRawCaptureSink?
+    private let onCaptureOpportunity: () -> Void
+    private var acceptingCapture = true
+    private var pendingDurableCursor: UInt32?
     /// Upsert the ring-PROVIDED reconstructed hypnogram as a `CachedSleepSession` (banked under the ring's
     /// own `deviceId`, the imported/measured side, so `SleepMerge`'s imported-over-computed rule makes
     /// Oura's own SleepNet staging win over NOOP's sparse-motion computed night — "richer record wins").
@@ -727,16 +731,41 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         if drain.sawPreResumeData {
             log("Oura: history \(how) but the ring served data older than cursor \(resumeCursorAtFetchStart) - clock reset/seek ignored; next connect does a full pull")
             historyCursor = 0
-            OuraHistoryCursorStore.save(0, deviceId: deviceId)
+            saveResumeCursorAfterDurability(0)
         } else if newCursor != historyCursor {
             historyCursor = newCursor
-            OuraHistoryCursorStore.save(newCursor, deviceId: deviceId)
+            saveResumeCursorAfterDurability(newCursor)
             log("Oura: history \(how) - resume cursor advanced to \(historyCursor) [\(describeCursor(historyCursor))]")
         } else if drain.maxStoredRingTime > historyCursor {
             log("Oura: history \(how) but resume candidate \(drain.maxStoredRingTime) does not resolve under the current anchor - keeping cursor \(historyCursor)")
         } else {
             log("Oura: history \(how) (resume cursor unchanged \(historyCursor) [\(describeCursor(historyCursor))])")
         }
+    }
+
+    private func saveResumeCursorAfterDurability(_ cursor: UInt32) {
+        guard let durableCapture else {
+            OuraHistoryCursorStore.save(cursor, deviceId: deviceId)
+            return
+        }
+        pendingDurableCursor = cursor
+        flush()
+        queueDurableCursorIfReady(durableCapture)
+    }
+
+    private func queueDurableCursorIfReady(_ sink: GenericRawCaptureSink) {
+        guard buffer.isEmpty, let cursor = pendingDurableCursor else { return }
+        let capturedDevice = deviceId, capturedScope = sink.cursorScope
+        if sink.setCursorAfterDurablePrefix({
+            OuraHistoryCursorStore.save(cursor, deviceId: capturedDevice, scope: capturedScope)
+        }) { pendingDurableCursor = nil }
+    }
+
+    var pendingCaptureCount: Int { buffer.count }
+    func retryBufferedPersistence() -> Bool {
+        flush()
+        if let durableCapture { queueDurableCursorIfReady(durableCapture) }
+        return buffer.isEmpty
     }
 
     /// The 0x49 window in `windows` whose envelope ring-time is nearest `rt` and within `tolerance` ticks,
@@ -826,6 +855,8 @@ public final class OuraLiveSource: NSObject, ObservableObject {
             enqueue([.sleepPhase(code.phase)], ts: code.ts)
         }
         noteStoredHistoryRingTime(burst.lastRingTimestamp)   // banked → the resume cursor may advance
+        guard PhoneComputeRuntime.permitsLocal("oura_sleep_stage_totals") else { return }
+        PhoneComputeRuntime.entered("oura_sleep_stage_totals")
         var mins = [0.0, 0.0, 0.0, 0.0]
         for code in laid { mins[code.phase.stage.rawValue] += 0.5 }   // 30 s/code = 0.5 min
         let fmt = Self.cursorDateFormatter
@@ -1087,12 +1118,17 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                 onSerial: @escaping (String) -> Void = { _ in },
                 onsetKeying: @escaping () -> Bool = { false },
                 feedsLive: Bool = true,
-                adoptIntent: Bool = false) {
+                adoptIntent: Bool = false,
+                startCentral: Bool = true,
+                durableCapture: GenericRawCaptureSink? = nil,
+                onCaptureOpportunity: @escaping () -> Void = {}) {
         self.live = live
         self.deviceId = deviceId
         self.ringGen = ringGen
         self.authKey = authKey
         self.persist = persist
+        self.durableCapture = durableCapture
+        self.onCaptureOpportunity = onCaptureOpportunity
         self.persistSleepSession = persistSleepSession
         self.log = log
         self.onBattery = onBattery
@@ -1102,14 +1138,15 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         self.feedsLive = feedsLive
         self.adoptIntent = adoptIntent
         // Tier-B MET research corpus: only on a live/persisting source, never the discovery-only scanner.
-        self.activityDump = feedsLive && !deviceId.isEmpty ? OuraActivityDump(deviceId: deviceId, log: log) : nil
+        self.activityDump = feedsLive && !deviceId.isEmpty && durableCapture == nil ? OuraActivityDump(deviceId: deviceId, log: log) : nil
         // 0x47 motion calibration corpus: same gate as the activity dump (live/persisting source only).
-        self.motionDump = feedsLive && !deviceId.isEmpty ? OuraMotionDump(deviceId: deviceId, log: log) : nil
+        self.motionDump = feedsLive && !deviceId.isEmpty && durableCapture == nil ? OuraMotionDump(deviceId: deviceId, log: log) : nil
         // RAW undecoded history-drain capture: same live/persisting gate; complements the decoded sidecars.
-        self.rawDump = feedsLive && !deviceId.isEmpty ? OuraRawDump(deviceId: deviceId, log: log) : nil
+        self.rawDump = feedsLive && !deviceId.isEmpty && durableCapture == nil ? OuraRawDump(deviceId: deviceId, log: log) : nil
         // 0x7E/0x7F real_steps research corpus: same gate as the other Tier-B dumps.
-        self.realStepsDump = feedsLive && !deviceId.isEmpty ? OuraRealStepsDump(deviceId: deviceId, log: log) : nil
+        self.realStepsDump = feedsLive && !deviceId.isEmpty && durableCapture == nil ? OuraRealStepsDump(deviceId: deviceId, log: log) : nil
         super.init()
+        guard startCentral else { return }
         // Dedicated queue-less central -> callbacks arrive on the main queue, matching @MainActor.
         #if os(iOS)
         // iOS state restoration (#1213): only the PERSISTENT live source (feedsLive, real deviceId) carries a
@@ -1256,7 +1293,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
 
     public func stopScan() {
         scanning = false
-        if central.state == .poweredOn { central.stopScan() }
+        if central?.state == .poweredOn { central.stopScan() }
     }
 
     // MARK: - Connecting
@@ -1293,6 +1330,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
 
     /// Tear down: cancel the connection, stop scanning, flush, clear all transient state. Idempotent.
     public func stop() {
+        acceptingCapture = false
         // A deliberate teardown (device switch / removal) must NOT auto-reconnect: mark it intentional and
         // drop the reconnect target so any pending backoff bails and no fresh one is scheduled (#912).
         intentionalDisconnect = true
@@ -1366,7 +1404,8 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         adoptPhase = .idle
         batteryPct = nil
         needsPairing = nil
-        flush()                       // persist anything still buffered
+        flush()                       // retain any frozen projection that could not yet transfer
+        durableCapture?.sealIntake()
         if feedsLive { live.connected = false; live.streamingLiveHR = false }
     }
 
@@ -1515,6 +1554,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
 
     private func enqueue(_ events: [OuraEvent], ts: Int) {
         guard !events.isEmpty else { return }
+        if let durableCapture, durableCapture.persist(OuraStreamMapping.streams(from: events, at: ts)) { return }
         buffer.append((events: events, ts: ts))
         if buffer.count >= flushCount || Date().timeIntervalSince(lastFlush) >= flushInterval {
             flush()
@@ -1523,20 +1563,29 @@ public final class OuraLiveSource: NSObject, ObservableObject {
 
     private func flush() {
         guard feedsLive, !buffer.isEmpty else { lastFlush = Date(); return }
-        for entry in buffer {
-            // Pure, unit-tested mapping (events -> Streams) keyed by each entry's own ts (wall-clock for
-            // live pushes, ring-time-anchored for history-fetched records). A signal that could not be
-            // decoded never reaches here, so a missing stream stays empty, never faked.
-            persist(OuraStreamMapping.streams(from: entry.events, at: entry.ts))
+        while let entry = buffer.first {
+            let streams = OuraStreamMapping.streams(from: entry.events, at: entry.ts)
+            if let durableCapture {
+                guard durableCapture.persist(streams) else { return }
+            } else {
+                persist(streams)
+            }
+            buffer.removeFirst()
         }
-        buffer.removeAll()
         lastFlush = Date()
     }
 
+    /// Without a qualified clock, the prepared path retains the complete original
+    /// notification and any later anchor in the same scoped raw journal. It does not
+    /// retain an unbounded decoded history in RAM or assign host time to old beats.
+    private func parkUnanchored(_ event: OuraEvent, ringTimestamp: UInt32) {
+        guard durableCapture == nil else { return }
+        pendingAnchorEvents.append((event, ringTimestamp))
+    }
+
     /// Flush every event parked in `pendingAnchorEvents`, now that `driver.unixSeconds` can resolve them
-    /// (called right after the anchor is set) - OR, if called at session teardown with NO anchor ever
-    /// having arrived, with an honest wall-clock fallback (a rough stamp beats silently dropping real
-    /// decoded samples). Reset the buffer afterward so nothing is drained twice.
+    /// (called right after the anchor is set). Hosted capture never assigns receipt time to unanchored
+    /// history. Its exact notification remains in the raw archive for a later qualified decoder.
     private func drainPendingAnchorEvents() {
         guard !pendingAnchorEvents.isEmpty, let driver else { return }
         let now = Int(Date().timeIntervalSince1970)
@@ -1550,8 +1599,8 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                 if case .ibi = pending.event {} else {
                     noteStoredHistoryRingTime(pending.ringTimestamp)   // parked history sample placed → advance resume cursor
                 }
-            } else {
-                stamped.append((event: pending.event, ts: now))   // honest wall-clock fallback; NEVER advances the cursor
+            } else if durableCapture == nil && !PhoneComputeRuntime.isFinalHosted {
+                stamped.append((event: pending.event, ts: now)) // reference compatibility only
             }
         }
         // Batched by resolved second, exactly like the live path (#1072): a record's parked beats are
@@ -1600,7 +1649,10 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         let phases = events.compactMap { e -> OuraSleepPhase? in
             if case .sleepPhase(let v) = e { return v } else { return nil }
         }
-        if let firstPhase = phases.first {
+        // Prepared production capture keeps the original phase record in its raw archive.
+        // Its ring counter is a write time, not a qualified per-code sleep timeline.
+        // Reconstructing a whole night remains a VPS producer responsibility.
+        if durableCapture == nil, let firstPhase = phases.first {
             let utc = driver.unixSeconds(forRingTimestamp: firstPhase.ringTimestamp)
             let when = utc.map { Self.cursorDateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval($0))) } ?? "no anchor yet"
             var counts = [0, 0, 0, 0]
@@ -1633,7 +1685,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         // double-counted. Per-record ring-time anchored; an unanchored record is skipped (re-derived when
         // it re-serves after the 0x42 anchor, exactly like the sibling `.ibi` rows).
         let hasLiveHR = events.contains { if case .hr = $0 { return true } else { return false } }
-        if !hasLiveHR {
+        if !hasLiveHR && PhoneComputeRuntime.permitsLocal("oura_banked_ibi_hr") {
             let bankedIbis: [OuraIBI] = events.compactMap { if case .ibi(let v) = $0 { return v } else { return nil } }
             for hr in OuraIbiHr.perRecordMedianHR(bankedIbis) {
                 if let ts = driver.unixSeconds(forRingTimestamp: hr.ringTimestamp) {
@@ -1724,7 +1776,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                 // driven correctly by the history-only siblings (hrv/temp/spo2/sleepPhase) that share the
                 // same night window; this also matches Kotlin, which notes no stream's ring-time.
                 if driver.unixSeconds(forRingTimestamp: ibi.ringTimestamp) == nil {
-                    pendingAnchorEvents.append((e, ibi.ringTimestamp))
+                    parkUnanchored(e, ringTimestamp: ibi.ringTimestamp)
                 }
 
             case .battery(let bat):
@@ -1743,7 +1795,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                     enqueue([e], ts: ts)
                     noteStoredHistoryRingTime(t.ringTimestamp)
                 } else {
-                    pendingAnchorEvents.append((e, t.ringTimestamp))
+                    parkUnanchored(e, ringTimestamp: t.ringTimestamp)
                 }
 
             case .spo2(let s):
@@ -1755,7 +1807,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                     enqueue([e], ts: ts)
                     noteStoredHistoryRingTime(s.ringTimestamp)
                 } else {
-                    pendingAnchorEvents.append((e, s.ringTimestamp))
+                    parkUnanchored(e, ringTimestamp: s.ringTimestamp)
                 }
 
             case .hrv(let v):
@@ -1763,7 +1815,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                     enqueue([e], ts: ts)
                     noteStoredHistoryRingTime(v.ringTimestamp)
                 } else {
-                    pendingAnchorEvents.append((e, v.ringTimestamp))
+                    parkUnanchored(e, ringTimestamp: v.ringTimestamp)
                 }
 
             case .sleepPhase:
@@ -1888,7 +1940,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                 }
                 // Accumulate the MET series by local day for the drain-end estimate, and observe the
                 // per-sample cadence from consecutive record times (both investigation-only, never scored).
-                if let utc = utc {
+                if durableCapture == nil, let utc = utc {
                     let dayKey = Self.activityDayFormatter.string(from: Date(timeIntervalSince1970: Double(utc)))
                     activityMETByDay[dayKey, default: []].append(contentsOf: info.met)
                     if let prev = lastActivityUtc, lastActivitySampleCount > 0 {
@@ -1940,7 +1992,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                     enqueue([e], ts: ts)
                     noteStoredHistoryRingTime(info.ringTimestamp)
                 } else {
-                    pendingAnchorEvents.append((e, info.ringTimestamp))
+                    parkUnanchored(e, ringTimestamp: info.ringTimestamp)
                 }
 
             case .state(let s):
@@ -1965,7 +2017,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                     enqueue([e], ts: ts)
                     noteStoredHistoryRingTime(m.ringTimestamp)
                 } else {
-                    pendingAnchorEvents.append((e, m.ringTimestamp))
+                    parkUnanchored(e, ringTimestamp: m.ringTimestamp)
                 }
 
             default:
@@ -2320,11 +2372,11 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
         // a routine reconnect doesn't re-fetch the ring's entire banked history every time. A persisted
         // value above the plausibility ceiling is garbage banked by a pre-fix build (a bytes_left count or
         // a misframe-era ring-time) - seeking to it would starve the fetch; reset to a full pull instead.
-        let loadedCursor = OuraHistoryCursorStore.read(deviceId: deviceId)
+        let loadedCursor = OuraHistoryCursorStore.read(deviceId: deviceId, scope: durableCapture?.cursorScope)
         historyCursor = OuraHistoryDrain.sanitizeLoadedCursor(loadedCursor)
         if historyCursor != loadedCursor {
             log("Oura: persisted resume cursor \(loadedCursor) exceeds the plausibility ceiling (pre-fix garbage) - full pull")
-            OuraHistoryCursorStore.save(0, deviceId: deviceId)
+            saveResumeCursorAfterDurability(0)
         }
         peripheral.discoverServices([Self.service])
     }
@@ -2472,6 +2524,22 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value, characteristic.uuid == Self.notifyChar else { return }
+        ingestNotification(value, serviceUUID: characteristic.service?.uuid.uuidString ?? "unknown",
+            characteristicUUID: characteristic.uuid.uuidString)
+    }
+
+    /// Shared by CoreBluetooth and the host callback regression; no connection is created here.
+    func ingestNotification(_ value: Data, serviceUUID: String? = nil, characteristicUUID: String? = nil) {
+        guard acceptingCapture else { return }
+        guard let durableCapture else { decodeNotification(value); return }
+        let accepted = durableCapture.capture(value, serviceUUID: serviceUUID ?? Self.service.uuidString,
+            characteristicUUID: characteristicUUID ?? Self.notifyChar.uuidString,
+            at: Int(Date().timeIntervalSince1970)) { self.decodeNotification(value) }
+        if accepted { onCaptureOpportunity() }
+        if !accepted || !durableCapture.isOpen { stop() }
+    }
+
+    private func decodeNotification(_ value: Data) {
         let bytes = [UInt8](value)
         // The notify char carries TWO framings on the same channel (OURA_PROTOCOL.md s2):
         //   - 0x2F secure-session sub-frames (auth nonce/status, enable ACKs, live-HR pushes)
@@ -2563,6 +2631,15 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
         ingestHistory(driver.ingest(notification: bytes, reassembler: reassembler))
     }
 
+#if DEBUG
+    func prepareNotificationTestDriver(_ driver: OuraDriver) { self.driver = driver }
+    func flushNotificationTestBuffer() { flush() }
+    func saveNotificationTestCursor(_ cursor: UInt32) { saveResumeCursorAfterDurability(cursor) }
+    var notificationTestRetainedHistoryCount: Int {
+        pendingAnchorEvents.count + pendingUnanchoredBursts.count + activityMETByDay.values.reduce(0) { $0 + $1.count }
+    }
+#endif
+
     /// The ring-time floor the 0x13 unit test disambiguates against: the persisted resume cursor, or the
     /// largest envelope ring-time this drain has seen when that is further along. `maxSeenRingTime` is the
     /// half that breaks the deadlock (2026-09-02/03 captures) — it counts EVERY history record, anchored or not, so it is
@@ -2635,7 +2712,11 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
             logFeatureStatus(st)   // read-only diagnostic; never advances the state machine
         case .liveHRPush(let body):
             guard let driver else { return }
-            ingest(driver.ingestLiveHRPush(body: body))
+            if PhoneComputeRuntime.permitsLocal("oura_live_ibi_hr") {
+                ingest(driver.ingestLiveHRPush(body: body))
+            } else {
+                ingest(driver.ingestLiveIBIPush(body: body))
+            }
         case .unhandled:
             break
         }
@@ -2700,16 +2781,18 @@ public enum OuraKeyStore {
 /// on every single connect. Unlike `OuraKeyStore` this is NOT sensitive - it's an opaque ring-clock tick
 /// counter, not a credential - so plain `UserDefaults` is the right (and simplest) store.
 enum OuraHistoryCursorStore {
-    private static func key(deviceId: String) -> String { "com.noop.oura.historyCursor.\(deviceId)" }
+    private static func key(deviceId: String, scope: String?) -> String {
+        "com.noop.oura.historyCursor." + (scope.map { "scoped.\($0)." } ?? "") + deviceId
+    }
 
     /// The persisted cursor for `deviceId`, or 0 (fetch everything) if none is stored yet.
-    static func read(deviceId: String) -> UInt32 {
-        let raw = UserDefaults.standard.object(forKey: key(deviceId: deviceId)) as? Int ?? 0
+    static func read(deviceId: String, scope: String? = nil) -> UInt32 {
+        let raw = UserDefaults.standard.object(forKey: key(deviceId: deviceId, scope: scope)) as? Int ?? 0
         return UInt32(clamping: raw)
     }
 
     /// Store the advanced cursor for `deviceId`.
-    static func save(_ cursor: UInt32, deviceId: String) {
-        UserDefaults.standard.set(Int(cursor), forKey: key(deviceId: deviceId))
+    static func save(_ cursor: UInt32, deviceId: String, scope: String? = nil) {
+        UserDefaults.standard.set(Int(cursor), forKey: key(deviceId: deviceId, scope: scope))
     }
 }

@@ -73,7 +73,7 @@ final class ServerSleepViewModelTests: XCTestCase {
         XCTAssertEqual(episode.end - episode.start, 90)
     }
 
-    func testLegacyDatabaseRowThroughCodecPreservesBaselineStagesAndTotals() throws {
+    func testLegacyDatabaseRowThroughCodecPreservesBoundsAndWithholdsRRDependentSleep() throws {
         let start = Int(try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-18T14:00:00Z")).timeIntervalSince1970)
         let body = """
         {"server_scoring":{"schema_version":2,"user_id":"owner","day":"2026-09-18","algorithm_version":"per_feature",
@@ -86,8 +86,9 @@ final class ServerSleepViewModelTests: XCTestCase {
         """
         let value = try ServerScoreCacheCodec.parseSnapshot(Data(body.utf8), day: "2026-09-18", ownerId: "owner")
         let episode = try XCTUnwrap(ServerSleepEpisode.episodes(value, day: value.day).first)
-        XCTAssertEqual(episode.bands.map(\.state), ["wake", "deep", "rem"])
-        XCTAssertEqual(episode.asleepMin, 1)
+        XCTAssertTrue(episode.bands.isEmpty)
+        XCTAssertNil(episode.asleepMin)
+        XCTAssertEqual(episode.reason, "beat_timing_unverified")
         XCTAssertEqual(episode.episodeType, "nap")
         XCTAssertEqual(value.nights[0].stateCoverageDescription, "State coverage: unavailable")
         let v2 = try ServerScoreCacheCodec.parseSnapshot(Data(body.replacingOccurrences(of: "frwhoop-server-1", with: "frwhoop-physiology-2").utf8), day: value.day, ownerId: "owner")

@@ -13,9 +13,11 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
         let metricSeries: [MetricPoint]
     }
 
+    // Synthetic approved-successor envelope for consumer contract tests only; no model approval is granted.
     private func result(revision: String = "compute:17", inputRevision: Int64 = 17, status: String = "available",
                         sleep: Any = NSNull(), hrv: Any = NSNull(), vitals: [String: Double] = [:],
-                        freshness: String = "current", insight: String? = nil) throws -> ServerCanonicalResults {
+                        freshness: String = "current", insight: String? = nil,
+                        algorithmVersion: String = "frwhoop-physiology-2") throws -> ServerCanonicalResults {
         let owner = "11111111-1111-4111-8111-111111111111"
         let source = "22222222-2222-4222-8222-222222222222"
         let device = "33333333-3333-4333-8333-333333333333"
@@ -33,8 +35,10 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
             families[name] = ["owner": "server", "metrics": metrics.sorted(), "status": status,
                 "reason": status == "available" ? NSNull() : "qualification_pending",
                 "result_revision": revision, "input_revision": inputRevision,
-                "algorithm_version": "frwhoop-server-1", "configuration_version": "config-1",
-                "manifest_hash": String(repeating: "a", count: 64), "canonical_qualification": "retained_legacy",
+                "algorithm_version": algorithmVersion, "configuration_version": "config-1",
+                "manifest_hash": String(repeating: "a", count: 64),
+                "feature_manifest_hash": String(repeating: "b", count: 64),
+                "canonical_qualification": algorithmVersion == "frwhoop-server-1" ? "retained_legacy" : "signed_reference_approval",
                 "project": project, "owner_id": owner, "source_id": source, "device_id": device,
                 "window": day, "computed_at": "2026-09-21T01:00:00Z",
                 "observed_through": "2026-09-21T00:00:00Z", "timezone_id": "UTC",
@@ -93,7 +97,7 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
         let project = "https://example.supabase.co", day = "2026-09-21"
         let computedAt = "2026-09-21T01:00:00Z", manifest = String(repeating: "a", count: 64)
         var night = observedSleep()
-        night["user_id"] = owner; night["device_id"] = device; night["algorithm_version"] = "frwhoop-server-1"
+        night["user_id"] = owner; night["device_id"] = device; night["algorithm_version"] = "frwhoop-physiology-2"
         let compatibility: [String: Any] = [
             "sleep_onset_at": NSNull(), "wake_onset_at": NSNull(), "sleep_unstaged_min": 0,
             "state_unknown_min": NSNull(), "off_body_min": 0, "main_sleep_group_id": NSNull(),
@@ -118,8 +122,9 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
             complete.merge(values, uniquingKeysWith: { _, next in next })
             family["status"] = "available"; family["reason"] = NSNull()
             family["result_revision"] = "compute:17"; family["input_revision"] = 17
-            family["algorithm_version"] = "frwhoop-server-1"; family["configuration_version"] = "config-1"
-            family["manifest_hash"] = manifest; family["canonical_qualification"] = "retained_legacy"
+            family["algorithm_version"] = "frwhoop-physiology-2"; family["configuration_version"] = "config-1"
+            family["manifest_hash"] = manifest; family["feature_manifest_hash"] = String(repeating: "b", count: 64)
+            family["canonical_qualification"] = "signed_reference_approval"
             family["computed_at"] = computedAt; family["observed_through"] = "2026-09-21T00:00:00Z"
             family["freshness"] = "current"; family["values"] = complete; family["details"] = details
             families[name] = family
@@ -131,8 +136,9 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
             "sleep_efficiency": 75, "disturbances": 0, "sleep_sessions": [night],
         ], details: ["nights": [night], "sleep_overrides": [Any](), "daily_compatibility": compatibility])
         let feature: [String: Any] = [
-            "status": "available", "device_id": device, "algorithm_version": "frwhoop-server-1",
-            "input_revision": 17, "manifest_hash": manifest, "canonical_qualification": "retained_legacy",
+            "status": "available", "device_id": device, "algorithm_version": "frwhoop-physiology-2",
+            "input_revision": 17, "manifest_hash": manifest,
+            "feature_manifest_hash": String(repeating: "b", count: 64), "canonical_qualification": "signed_reference_approval",
             "computed_at": computedAt, "observed_through": "2026-09-21T00:00:00Z",
         ]
         var daily = compatibility
@@ -509,6 +515,32 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
         XCTAssertEqual(document.windows.first?.currentResult, selected.canonicalDays[selected.currentDay])
     }
 
+    func testUnmarkedLegacyValuesCannotReachConsumersButIndependentHRRemains() throws {
+        let legacy = try result(sleep: [observedSleep()], hrv: 42,
+            vitals: ["resting_hr_bpm": 51, "resp_rate_bpm": 12], algorithmVersion: "frwhoop-server-1")
+        let selected = state(legacy, phase: .available)
+        XCTAssertNil(CanonicalConsumerPublication.value("recovery", in: legacy))
+        XCTAssertNil(CanonicalConsumerPublication.value("hrv_sdnn_ms", in: legacy))
+        XCTAssertNil(CanonicalConsumerPublication.value("resp_rate_bpm", in: legacy))
+        XCTAssertEqual(CanonicalConsumerPublication.value("resting_hr_bpm", in: legacy), 51)
+        let widget = CanonicalConsumerPublication.widgetSnapshot(state: selected,
+            accountNamespace: "legacy-test", heartRate: nil, batteryPct: nil, bonded: true)
+        let watch = CanonicalConsumerPublication.watchSnapshot(state: selected,
+            accountNamespace: "legacy-test", heartRate: nil)
+        XCTAssertNil(widget.recovery); XCTAssertNil(widget.hrv); XCTAssertNil(watch.charge)
+        XCTAssertEqual(widget.restingHr, 51)
+        let plans = try CanonicalHealthWritebackPlan.replacements(state: selected, accountNamespace: "legacy-test")
+        let forbidden: Set<String> = ["hrv_rmssd_ms", "hrv_sdnn_ms", "resp_rate_bpm", "recovery"]
+        for plan in plans { for record in plan.records {
+            if case .quantity(let metric, _, _) = record.payload { XCTAssertFalse(forbidden.contains(metric)) }
+            if case .sleep(let stage) = record.payload { XCTAssertEqual(stage, .inBed) }
+        } }
+        let csv = CsvExport.canonicalCSV(selected)
+        XCTAssertFalse(csv.contains("\"hrv_sdnn_ms\",\"42.0\""))
+        XCTAssertFalse(csv.contains("\"resp_rate_bpm\",\"12.0\""))
+        XCTAssertTrue(csv.contains("\"resting_hr_bpm\",\"51.0\""))
+    }
+
     func testPublicationAndCSVRetainExactRevisionValidZeroAndOwnedNull() throws {
         let result = try result()
         let ledger = try XCTUnwrap(CanonicalConsumerPublication.ledger(result))
@@ -522,7 +554,7 @@ final class CanonicalConsumerPublicationTests: XCTestCase {
         let csv = CsvExport.canonicalCSV(state(result))
         XCTAssertTrue(csv.contains("\"recovery\",\"recovery\",\"0.0\",\"available\""))
         XCTAssertTrue(csv.contains("\"night_hrv\",\"hrv_sdnn_ms\",\"\",\"available\""))
-        XCTAssertTrue(csv.contains("\"17\",\"compute:17\",\"frwhoop-server-1\",\"config-1\""))
+        XCTAssertTrue(csv.contains("\"17\",\"compute:17\",\"frwhoop-physiology-2\",\"config-1\""))
     }
 
     func testUnavailableOrExpiredFreshnessCannotReachUIWidgetWatchHealthOrCSV() throws {

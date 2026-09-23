@@ -39,9 +39,13 @@ struct CanonicalPhysiologySection: View {
                                 HStack(alignment: .top) {
                                     Text(metric.replacingOccurrences(of: "_", with: " "))
                                     Spacer(minLength: 12)
-                                    Text(repo.serverPresentation.days[window]?.phase == .failed
-                                         ? "—" : Self.display(result: result, metric: metric))
-                                        .multilineTextAlignment(.trailing)
+                                    VStack(alignment: .trailing) {
+                                        Text(Self.display(result: result, metric: metric))
+                                        if let reason = Self.missingReason(result: result, metric: metric) {
+                                            Text(reason).font(StrandFont.caption)
+                                                .foregroundStyle(StrandPalette.textSecondary)
+                                        }
+                                    }.multilineTextAlignment(.trailing)
                                 }
                                 .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                             }
@@ -50,6 +54,10 @@ struct CanonicalPhysiologySection: View {
                             }
                             Text(result.resultRevision.map { "Result revision: \($0)" } ?? "No published result revision")
                                 .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                            if let computed = result.computedAt {
+                                Text("Computed: \(computed)")
+                                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                            }
                             if let through = result.observedThrough {
                                 Text("Observed through: \(through)")
                                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
@@ -71,6 +79,15 @@ struct CanonicalPhysiologySection: View {
               let value = result.values[metric]
         else { return "—" }
         return display(value)
+    }
+
+    static func missingReason(result: ServerCanonicalFamilyResult, metric: String) -> String? {
+        if result.admitsCanonicalPublication(), let value = result.values[metric], value != .null { return nil }
+        guard result.metrics.contains(metric),
+              case .object(let availability) = result.details["metric_availability"],
+              case .object(let missing) = availability[metric],
+              case .string(let reason) = missing["reason"], !reason.isEmpty else { return nil }
+        return reason.replacingOccurrences(of: "_", with: " ")
     }
 
     private static func display(_ value: ServerJSONValue) -> String {

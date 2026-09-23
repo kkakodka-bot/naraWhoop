@@ -4,12 +4,14 @@ import { APPEND_STREAM_PROJECTIONS, REPLACE_STREAM_PROJECTIONS, parseNdjsonEntit
 import { sha256Hex, type S3Store } from './s3.ts';
 import type { SupabaseRest } from './rest.ts';
 import type { DurabilityReceipt } from './durability.ts';
+import { assertIntakeScope, intakeAdmissionArguments, isIntakeAdmissionError, type IntakeAdmission } from './intakeAdmission.ts';
 
 export const MAX_INLINE_ARCHIVE_BYTES = 4 * 1024 * 1024 + 64 * 1024;
 
 /** Both the live request and server repair use the same mapper and atomic SQL settlement. */
 export async function commitArchivedBatch(rest: SupabaseRest, receipt: DurabilityReceipt,
-  decodedBody: Uint8Array, leaseToken: string | null = null) {
+  decodedBody: Uint8Array, leaseToken: string | null = null, admission?: IntakeAdmission) {
+  assertIntakeScope({user_id:receipt.ownerUserId,device_id:receipt.deviceId}, admission);
   const { header, records } = parseNdjsonEntity(decodedBody);
   const digest = sha256Hex(decodedBody);
   if (decodedBody.length > MAX_INLINE_ARCHIVE_BYTES || receipt.state !== 'verified_indexed' || receipt.version !== 1 ||
@@ -28,7 +30,8 @@ export async function commitArchivedBatch(rest: SupabaseRest, receipt: Durabilit
     batchId: header.batchId, headerDeviceId: header.deviceId, record,
     replacementId: header.window?.replacementId || header.batchId, protocolVersion: header.protocolVersion,
   })).filter(Boolean);
-  const ack = await rest.rpc('noop_commit_push_projection', {
+  const ack = await rest.rpc(admission?.mode === 'canary' ? 'noop_intake_canary_commit_projection' : 'noop_commit_push_projection', {
+    ...(admission?.mode === 'canary' ? {p_user:admission.ownerId,p_device:admission.deviceId} : {}),
     p_object_id: receipt.objectId, p_body_sha256: digest, p_header: header, p_rows: rows,
     p_keep_keys: [...replacementKeys(header.stream, records, header.deviceId)], p_token: leaseToken,
   }).catch((error: unknown) => {
@@ -82,19 +85,23 @@ async function readVerifiedArchive(raw: S3Store, manifest: any): Promise<Uint8Ar
   return bytes;
 }
 
-export async function reconcileProjections(rest: SupabaseRest, raw: S3Store, limit = 16) {
+export async function reconcileProjections(rest: SupabaseRest, raw: S3Store, limit = 16, admission?: IntakeAdmission) {
   const boundedLimit = Math.max(1, Math.min(64, Math.trunc(limit) || 16));
-  await rest.rpc('noop_seed_projection_debt', { p_limit: boundedLimit });
+  const scoped = admission?.mode === 'canary';
+  await rest.rpc(scoped ? 'noop_seed_projection_debt_scoped' : 'noop_seed_projection_debt', {
+    ...intakeAdmissionArguments(admission), p_limit: boundedLimit });
   const report = { scanned: 0, settled: 0, deferred: 0 };
   for (let count = 0; count < boundedLimit; count++) {
-    const job = await rest.rpc('noop_claim_projection_debt', {});
+    const job = await rest.rpc(scoped ? 'noop_claim_projection_debt_scoped' : 'noop_claim_projection_debt', intakeAdmissionArguments(admission));
     if (!job) break;
+    assertIntakeScope(job.manifest, admission);
     report.scanned++;
     try {
       const bytes = await readVerifiedArchive(raw, job.manifest);
-      await commitArchivedBatch(rest, job.manifest.durability_receipt, bytes, job.leaseToken);
+      await commitArchivedBatch(rest, job.manifest.durability_receipt, bytes, job.leaseToken, admission);
       report.settled++;
-    } catch {
+    } catch (error) {
+      if (isIntakeAdmissionError(error)) throw error;
       report.deferred++;
       await rest.rpc('noop_fail_projection_debt', { p_object_id: job.manifest.id, p_token: job.leaseToken });
     }

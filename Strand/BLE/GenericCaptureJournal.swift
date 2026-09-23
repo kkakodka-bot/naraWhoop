@@ -28,11 +28,13 @@ final class GenericCaptureJournal {
     private var sealed = false
     private var flushingAcceptedBuffer = false
     private var standardHR: StandardHRJournalState?
+    private var rawPending: [GenericRawCaptureEntry] = []
+    private var rawSinks: [WeakGenericRawCaptureSink] = []
     private var retryTimer: Task<Void, Never>?
     private static var standardHRSlots: [StandardHRSlotKey: WeakStandardHRSlot] = [:]
     private(set) var isHeld = false
     private(set) var pendingBytes = 0
-    var pendingBatchCount: Int { standardHR.map { $0.pending.count + ($0.heldSink == nil ? 0 : 1) } ?? pending.count }
+    var pendingBatchCount: Int { rawPending.count + (standardHR.map { $0.pending.count + ($0.heldSink == nil ? 0 : 1) } ?? pending.count) }
     var pendingFinalBufferCount: Int { finalBuffers.count }
     var didHoldCapture: (() -> Void)?
     var didCommitStandardHR: ((StandardHRLocalReceipt) -> Void)?
@@ -76,6 +78,7 @@ final class GenericCaptureJournal {
     func sealCapture() {
         sealed = true
         standardHR?.sinks.forEach { $0.value?.sealIntake() }
+        rawSinks.forEach { $0.value?.sealIntake() }
         retryTimer?.cancel()
         retryTimer = nil
     }
@@ -208,6 +211,40 @@ final class GenericCaptureJournal {
         return sink
     }
 
+    func rawNotificationSink(deviceID: String, family: String) throws -> GenericRawCaptureSink {
+        guard let state = standardHR, !sealed, !isHeld, state.slot != nil,
+              !deviceID.isEmpty, deviceID.utf8.count <= 256,
+              ["huami", "ftms", "oura"].contains(family) else {
+            throw StandardHRCaptureError.closedSession
+        }
+        let sink = GenericRawCaptureSink(journal: self, deviceID: deviceID, family: family,
+            sessionID: state.session.sessionID,
+            scope: DurableIngestScope(environment: state.session.owner.projectURL,
+                accountID: state.session.owner.userID, deviceID: deviceID))
+        rawSinks.removeAll { $0.value == nil }
+        rawSinks.append(WeakGenericRawCaptureSink(value: sink))
+        return sink
+    }
+
+    var canReserveRawNotification: Bool {
+        standardHR?.slot != nil && !sealed && !isHeld && pendingBatchCount < 64
+            && pendingBytes <= maxBytes - GenericRawCaptureEntry.reservationBytes
+    }
+
+    var isDrainingAcceptedBuffer: Bool { flushingAcceptedBuffer }
+
+    func reserveRawNotification(_ entry: GenericRawCaptureEntry, acceptedProjection: Bool = false) -> Bool {
+        let retainedTransfer = acceptedProjection && flushingAcceptedBuffer && standardHR?.slot != nil
+            && pendingBatchCount < 64 && pendingBytes <= maxBytes - GenericRawCaptureEntry.reservationBytes
+        guard canReserveRawNotification || retainedTransfer else { return false }
+        rawPending.append(entry)
+        pendingBytes += GenericRawCaptureEntry.reservationBytes
+        // The final admitted callback is retained in this journal before stopping intake.
+        if pendingBatchCount == 64 || pendingBytes > maxBytes - GenericRawCaptureEntry.reservationBytes { hold() }
+        startWriteIfNeeded()
+        return true
+    }
+
     fileprivate var canReserveStandardHR: Bool {
         standardHR?.slot != nil && !sealed && !isHeld
     }
@@ -254,13 +291,30 @@ final class GenericCaptureJournal {
 
     private func startStandardHRWriteIfNeeded(_ state: StandardHRJournalState) {
         guard running == nil,
-              !state.pending.isEmpty || state.heldSink != nil || !finalBuffers.isEmpty
+              !rawPending.isEmpty || !state.pending.isEmpty || state.heldSink != nil || !finalBuffers.isEmpty
                 || holdNotification != nil || (sealed && !state.sessionSealed) else { return }
         running = Task { [self] in
             defer { running = nil; passAllows = { true }; passTransactionsRemaining = Int.max }
             do {
                 while true {
                     guard !Task.isCancelled, passAllows() else { return false }
+                    if let entry = rawPending.first {
+                        try await state.encoder.checkCapacity(path: state.path, force: false)
+                        try await state.hooks.beforeRawCommit()
+                        guard passAllows(), !Task.isCancelled, passTransactionsRemaining > 0 else { return false }
+                        passTransactionsRemaining -= 1
+                        _ = try await state.store.commitLiveCapture(entry.streams, scope: entry.scope,
+                            rawCapture: entry.capture, note: "generic notification archive")
+                        try await state.hooks.afterRawCommit()
+                        rawPending.removeFirst()
+                        pendingBytes -= GenericRawCaptureEntry.reservationBytes
+                        state.failures = 0
+                        entry.committed = true
+                        let completion = entry.cursorCompletion
+                        entry.cursorCompletion = nil
+                        completion?()
+                        continue
+                    }
                     if let entry = state.pending.first {
                         if entry.batch == nil {
                             entry.batch = try await state.encoder.freeze(entry.offer)
@@ -307,10 +361,12 @@ final class GenericCaptureJournal {
                     if let notification = holdNotification { await notification.value; continue }
                     if !finalBuffers.isEmpty {
                         let offered = finalBuffers
+                        flushingAcceptedBuffer = true
                         for buffer in offered where buffer.flush() {
                             finalBuffers.removeAll { $0.id == buffer.id }
                         }
-                        if !state.pending.isEmpty || state.heldSink != nil { continue }
+                        flushingAcceptedBuffer = false
+                        if !rawPending.isEmpty || !state.pending.isEmpty || state.heldSink != nil { continue }
                         if !finalBuffers.isEmpty { throw StandardHRCaptureError.storageUnavailable }
                     }
                     if sealed && !state.sessionSealed {
@@ -388,6 +444,8 @@ final class StandardHRCaptureSink {
 
 struct StandardHRJournalHooks: Sendable {
     var beforeRecovery: @Sendable () async throws -> Void = {}
+    var beforeRawCommit: @Sendable () async throws -> Void = {}
+    var afterRawCommit: @Sendable () async throws -> Void = {}
     var beforeAppend: @Sendable (StandardHRFrozenBatch) async throws -> Void = { _ in }
     var afterAppend: @Sendable (StandardHRLocalReceipt) async throws -> Void = { _ in }
     var beforeProjection: @Sendable () async throws -> Void = {}

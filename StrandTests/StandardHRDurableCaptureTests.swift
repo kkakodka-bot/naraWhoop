@@ -4,12 +4,13 @@ import GRDB
 import WhoopProtocol
 import WhoopStore
 #if !GENERIC_CAPTURE_NATIVE_TESTS
+import NoopPush
 @testable import Strand
 #endif
 
 @MainActor
 final class StandardHRDurableCaptureTests: XCTestCase {
-    nonisolated static let expectedNativeCount = 32
+    nonisolated static let expectedNativeCount = 34
     private let project = "https://standard-hr-fixture.invalid"
     private let account = "00000000-0000-0000-0000-0000000000a1"
     private let device = "synthetic-standard-hr"
@@ -90,6 +91,183 @@ final class StandardHRDurableCaptureTests: XCTestCase {
         try await store.hrSamples(deviceId: id ?? device, from: timestamp - 10, to: timestamp + 100, limit: 200)
     }
 
+    func testHostedStandardCallbackRetainsOriginalRRWordsWithoutCanonicalBeatRows() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            let store = try await store(), journal = try await prepare(store), source = try source(journal)
+            XCTAssertTrue(source.ingestHeartRateMeasurement(measurement, at: timestamp))
+            source.stop(); await finish(journal)
+            let row = try XCTUnwrap(occurrences(store).first)
+            XCTAssertEqual(row["rawBytes"] as Data, Data(measurement))
+            let captured = try JSONDecoder().decode(Streams.self, from: row["projectionJSON"] as Data)
+            XCTAssertEqual(captured.rr.map(\.rrMs), [1000, 1000], "original captured values remain immutable")
+            let heartRate = try await hr(store)
+            XCTAssertEqual(heartRate.map(\.bpm), [72])
+            let rrCount = try await store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rrInterval") }
+            XCTAssertEqual(rrCount, 0, "host arrival is not qualified beat timing")
+            XCTAssertEqual(row["projectionState"] as Int, 1)
+        }
+    }
+
+    func testHostedRecoveryGatesPreviouslyFrozenRRIntentWithoutRewritingIt() async throws {
+        let store = try await store()
+        let session = try await store.beginStandardHRCapture(owner: owner(), sessionID: UUID(),
+            runtimeGeneration: UUID(), openedAtUnixSeconds: Int64(timestamp))
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let bytes = try encoder.encode(StandardHRMapping.samples(fromHR: 72, rr: [1000, 1000],
+            contact: .supportedDetected, at: timestamp))
+        let batch = try StandardHRFrozenBatch(id: StandardHRCaptureID(sessionID: session.sessionID, sequence: 0),
+            scope: DurableIngestScope(environment: project, accountID: account, deviceID: device),
+            hostTimestampSeconds: Int64(timestamp), rawBytes: Data(measurement), projectionJSON: bytes)
+        _ = try await store.appendStandardHRCapture(batch, session: session)
+        try await store.sealStandardHRCapture(session)
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            let journal = try await prepare(store)
+            await finish(journal)
+            let row = try XCTUnwrap(occurrences(store).first)
+            XCTAssertEqual(row["projectionJSON"] as Data, bytes)
+            XCTAssertEqual(row["rawBytes"] as Data, batch.rawBytes)
+            XCTAssertEqual(row["intentSHA256"] as String, batch.intentSHA256)
+            let heartRate = try await hr(store)
+            XCTAssertEqual(heartRate.map(\.bpm), [72])
+            let rrCount = try await store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rrInterval") }
+            XCTAssertEqual(rrCount, 0)
+        }
+    }
+
+    #if !GENERIC_CAPTURE_NATIVE_TESTS
+    func testDiscoveryArchivesCompletedLegacyT1IncrementallyWithoutCanonicalReprojection() async throws {
+        let store = try await store()
+        let session = try await store.beginStandardHRCapture(owner: owner(), sessionID: UUID(),
+            runtimeGeneration: UUID(), openedAtUnixSeconds: Int64(timestamp))
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let streams = StandardHRMapping.samples(fromHR: 72, rr: [1000, 1000], contact: .supportedDetected, at: timestamp)
+        let scope = DurableIngestScope(environment: project, accountID: account, deviceID: device)
+        for sequence in 0..<20 {
+            let batch = try StandardHRFrozenBatch(id: StandardHRCaptureID(sessionID: session.sessionID, sequence: Int64(sequence)),
+                scope: scope, hostTimestampSeconds: Int64(timestamp), rawBytes: Data(measurement),
+                projectionJSON: encoder.encode(streams))
+            _ = try await store.appendStandardHRCapture(batch, session: session)
+        }
+        // Reproduce pre-repair T2/T3: exact original T1s remain, scalar rows are committed,
+        // completion markers exist, but no raw archive was ever enqueued.
+        _ = try await store.insertAndMarkJobsOwed(streams, deviceId: device,
+            postOffloadJobKinds: [], note: nil, captureScope: scope)
+        try await store.registryWriter.write { db in
+            try db.execute(sql: "UPDATE standardHRCaptureOccurrence SET projectionState=1,projectedAt=1")
+        }
+        try await store.sealStandardHRCapture(session)
+        let originals = try occurrences(store)
+        let before = try await store.registryWriter.read { db in
+            try ["hrSample", "rrInterval", "event"].flatMap { table in
+                try Row.fetchAll(db, sql: "SELECT * FROM \(table) ORDER BY rowid").map(\.description)
+            }
+        }
+        let snapshot = CloudPushSnapshot(db: store.registryWriter)
+        let capabilities = PushCapabilities(appendTables: [.hrSample], mutableTables: [], binaryTables: [.rawBatch])
+        let bulkDenied = CloudPushSnapshot(db: store.registryWriter, allowsArchiveUpgrade: { false })
+        let deferred = try await bulkDenied.discoverDevices(capabilities: capabilities)
+        XCTAssertFalse(deferred.isComplete)
+        XCTAssertTrue(deferred.deviceIDs.contains(device), "fresh discovery survives historical archive deferral")
+        let deferredRaw = try await store.rawBatchMetas(deviceId: device)
+        XCTAssertTrue(deferredRaw.isEmpty)
+        try await store.registryWriter.write { db in
+            try db.execute(sql: "CREATE TRIGGER fail_upgrade BEFORE INSERT ON rawBatch BEGIN SELECT RAISE(ABORT,'fixture'); END")
+        }
+        let blocked = try await snapshot.discoverDevices(capabilities: capabilities)
+        XCTAssertFalse(blocked.isComplete)
+        XCTAssertTrue(blocked.deviceIDs.contains(device))
+        let liveRows = try await snapshot.appendRows(table: .hrSample, deviceId: device, afterRowId: 0, limit: 1)
+        XCTAssertEqual(liveRows.count, 1, "archive failure must not block the existing scalar source")
+        let failedRaw = try await store.rawBatchMetas(deviceId: device)
+        XCTAssertTrue(failedRaw.isEmpty)
+        try await store.registryWriter.write { try $0.execute(sql: "DROP TRIGGER fail_upgrade") }
+        let first = try await snapshot.discoverDevices(capabilities: capabilities)
+        let firstRaw = try await store.rawBatchMetas(deviceId: device, limit: 100)
+        XCTAssertEqual(firstRaw.count, 16, "one discovery cannot migrate the whole retained history")
+        XCTAssertFalse(first.isComplete)
+        XCTAssertTrue(first.deviceIDs.contains(device), "partial upgrade still exposes existing scalar and raw work")
+        let second = try await snapshot.discoverDevices(capabilities: capabilities)
+        XCTAssertTrue(second.isComplete)
+        let caughtUp = try await bulkDenied.discoverDevices(capabilities: capabilities)
+        XCTAssertTrue(caughtUp.isComplete, "bulk deferral cannot invent unfinished debt after the migration cursor catches up")
+        let allRaw = try await store.rawBatchMetas(deviceId: device, limit: 100)
+        XCTAssertEqual(allRaw.count, 20)
+        let after = try await store.registryWriter.read { db in
+            try ["hrSample", "rrInterval", "event"].flatMap { table in
+                try Row.fetchAll(db, sql: "SELECT * FROM \(table) ORDER BY rowid").map(\.description)
+            }
+        }
+        XCTAssertEqual(before, after, "archive migration cannot reproject or revise canonical samples")
+        XCTAssertEqual(originals, try occurrences(store), "T1 originals and completion evidence remain immutable")
+        let jobs = try await store.owedJobs()
+        _ = try await snapshot.discoverDevices(capabilities: capabilities)
+        let afterJobs = try await store.owedJobs()
+        XCTAssertEqual(jobs.map(\.token), afterJobs.map(\.token), "completed migration cannot refresh debt")
+        let rows = try await snapshot.binaryRows(table: .rawBatch, deviceId: device, afterRowId: 0, limit: 1)
+        XCTAssertEqual(rows.count, 1, "upgraded originals enter the real existing object source")
+    }
+
+    func testHostedStandardCallbackExportsOriginalThroughRawObjectSnapshot() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            let store = try await store(), journal = try await prepare(store), source = try source(journal)
+            XCTAssertTrue(source.ingestHeartRateMeasurement(measurement, at: timestamp))
+            source.stop(); await finish(journal)
+            let occurrence = try XCTUnwrap(occurrences(store).first)
+            let snapshot = CloudPushSnapshot(db: store.registryWriter)
+            let rows = try await snapshot.binaryRows(table: .rawBatch, deviceId: device, afterRowId: 0, limit: 2)
+            XCTAssertEqual(rows.count, 1)
+            guard case let .rawBatch(record) = try XCTUnwrap(rows.first) else { return XCTFail("expected raw archive") }
+            XCTAssertEqual(record.batchId, "standard-hr-raw-v1." + (occurrence["intentSHA256"] as String))
+            let frames = try await store.rawFrames(batchId: record.batchId)
+            let envelope = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(frames.first))) as? [String: Any])
+            XCTAssertEqual(Data(base64Encoded: try XCTUnwrap(envelope["payload"] as? String)), Data(measurement))
+            XCTAssertTrue(envelope["receivedUptime"] is NSNull)
+            XCTAssertEqual(envelope["receivedUnixSeconds"] as? Int, timestamp)
+            let batch = try PushProtocol.binaryObjectBatch(table: .rawBatch, sourceId: "00000000-0000-0000-0000-0000000000b1",
+                deviceId: device, startCursor: nil, rows: rows, protocolVersion: PushProtocol.objectVersion,
+                decodedLimit: PushProtocolLimits.maxObjectDecodedBytes)
+            let packed = try PushBinaryCodec.pack(table: .rawBatch, rows: rows)
+            XCTAssertEqual(Array(packed.prefix(6)), [0x4e, 0x50, 0x42, 0x31, 1, 3], "NPB1 archive-only kind")
+            XCTAssertEqual(Data(packed.suffix(record.framesBlob.count)), record.framesBlob)
+            XCTAssertEqual(batch.contentSha256, DurableIngestScope.sha256(packed))
+            XCTAssertEqual(try batch.payload, try PushBinaryCompression.compressObject(packed, encoding: batch.contentEncoding))
+            XCTAssertNotNil(UUID(uuidString: batch.batchId), "outer transport identity remains a UUID")
+            let retryRows = try await snapshot.binaryRows(table: .rawBatch, deviceId: device, afterRowId: 0, limit: 2)
+            let retry = try PushProtocol.binaryObjectBatch(table: .rawBatch, sourceId: "00000000-0000-0000-0000-0000000000b1",
+                deviceId: device, startCursor: nil, rows: retryRows, protocolVersion: PushProtocol.objectVersion,
+                decodedLimit: PushProtocolLimits.maxObjectDecodedBytes)
+            XCTAssertEqual(batch.manifestJSON, retry.manifestJSON)
+            XCTAssertEqual(try batch.payload, try retry.payload)
+            let jobs = try await store.owedJobs()
+            XCTAssertEqual(jobs.map(\.kind), ["cloudPush"])
+            let retained = try await store.rawBatchMetas(deviceId: device)
+            XCTAssertEqual(retained.count, 1, "encoding is not an authenticated receipt or permission to prune")
+        }
+    }
+
+    func testHostedWhoopStandardCollectorRetainsRawReceiptAndHRWithoutBeatProjection() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            let store = try await store()
+            let collector = Collector(store: store, deviceId: device, now: { self.timestamp })
+            collector.ingestStandardHRReceipt(measurement, receivedUnixMs: Int64(timestamp) * 1000,
+                receivedMonotonicNs: 123_456_789)
+            collector.ingestStandardHR(hr: 72, rr: [1000, 1000], contact: .supportedDetected,
+                family: .whoop5, at: timestamp)
+            let flushed = await collector.flushStandardHR()
+            XCTAssertTrue(flushed)
+            let receipts = try await store.standardHrReceipts(deviceId: device, from: timestamp, to: timestamp + 1)
+            XCTAssertEqual(receipts.count, 1)
+            XCTAssertEqual(receipts.first?.rawHex, "164800040004")
+            XCTAssertEqual(receipts.first?.rrRawTicks, [1024, 1024])
+            XCTAssertEqual(receipts.first?.clockVersion, "host-arrival-unmapped")
+            let heartRate = try await hr(store)
+            XCTAssertEqual(heartRate.map(\.bpm), [72])
+            let rrCount = try await store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rrInterval") }
+            XCTAssertEqual(rrCount, 0)
+        }
+    }
+    #endif
+
     func testAcceptedStandardNotificationOffersCapturedWakeButMalformedAndStoppedDoNot() async throws {
         let store = try await store(), journal = try await prepare(store)
         var opportunities = 0
@@ -140,8 +318,12 @@ final class StandardHRDurableCaptureTests: XCTestCase {
         let canonical = try await hr(store)
         let rr = try await store.rrIntervals(deviceId: device, from: timestamp, to: timestamp + 1, limit: 20)
         XCTAssertEqual(canonical.count, 1)
-        XCTAssertEqual(rr.count, 2, "one notification is one original fixed mapping batch")
-        XCTAssertEqual(rr.map(\.seq), [0, 1])
+        if PhoneComputeRuntime.isFinalHosted {
+            XCTAssertTrue(rr.isEmpty, "each original notification remains retained; arrival time is not beat time")
+        } else {
+            XCTAssertEqual(rr.count, 2, "reference mode preserves the original mapping")
+            XCTAssertEqual(rr.map(\.seq), [0, 1])
+        }
     }
 
     func testEnergyAndMutableCallerBytesRetainedIndependentlyOfProjection() async throws {
@@ -482,8 +664,12 @@ final class StandardHRDurableCaptureTests: XCTestCase {
         let projection = try JSONDecoder().decode(Streams.self, from: rows[0]["projectionJSON"] as Data)
         XCTAssertEqual(projection.rr.map(\.rrMs), Array(repeating: 63999, count: 255))
         let canonical = try await store.rrIntervals(deviceId: device, from: timestamp, to: timestamp + 1, limit: 300)
-        XCTAssertEqual(canonical.count, 255)
-        XCTAssertEqual(canonical.map(\.seq), Array(0..<255))
+        if PhoneComputeRuntime.isFinalHosted {
+            XCTAssertTrue(canonical.isEmpty, "all255 raw observations remain in the immutable captured batch")
+        } else {
+            XCTAssertEqual(canonical.count, 255)
+            XCTAssertEqual(canonical.map(\.seq), Array(0..<255))
+        }
     }
 
     func testSixteenBitHRAndAcceptedTrailingByteStayFaithfulToExistingParser() async throws {

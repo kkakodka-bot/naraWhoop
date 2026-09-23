@@ -64,6 +64,7 @@ class HuamiHrSource(
     private val log: (String) -> Unit = {},
     /** Fired with the band's battery percent (0–100) when read off 0x2A19. */
     private val onBattery: (Int) -> Unit = {},
+    private val durableCapture: GenericNotificationCapture? = null,
 ) : LiveHrSource {
 
     /** A Huami-family device seen during a scan (UI affordance). */
@@ -169,7 +170,11 @@ class HuamiHrSource(
         }
     }
 
+    @Volatile private var acceptingCapture = true
+
     override fun stop() {
+        acceptingCapture = false
+        durableCapture?.seal()
         stopScan()
         pendingConnectAddress = null
         gatt?.let { runCatching { it.disconnect(); it.close() } }
@@ -208,7 +213,7 @@ class HuamiHrSource(
             log("Huami: receiving data — first sample $hr bpm")
         }
         handler.post { guarded("live-sink") { liveSink(hr) } }
-        enqueue(hr)
+        if (durableCapture == null) enqueue(hr)
     }
 
     // MARK: - Scan callback
@@ -310,23 +315,23 @@ class HuamiHrSource(
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray) {
-            handleHr(ch.uuid, value)
+            ingestNotification(ch.service?.uuid?.toString() ?: "unknown", ch.uuid, value)
         }
 
         @Deprecated("Deprecated in Java")
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
-            handleHr(ch.uuid, ch.value ?: return)
+            ingestNotification(ch.service?.uuid?.toString() ?: "unknown", ch.uuid, ch.value ?: return)
         }
 
         override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, value: ByteArray, status: Int) {
-            if (ch.uuid == BATTERY_CHAR && status == BluetoothGatt.GATT_SUCCESS) handleBattery(value)
+            if (ch.uuid == BATTERY_CHAR && status == BluetoothGatt.GATT_SUCCESS) ingestNotification(ch.service?.uuid?.toString() ?: "unknown", ch.uuid, value)
         }
 
         @Deprecated("Deprecated in Java")
         @Suppress("DEPRECATION")
         override fun onCharacteristicRead(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
-            if (ch.uuid == BATTERY_CHAR && status == BluetoothGatt.GATT_SUCCESS) handleBattery(ch.value ?: return)
+            if (ch.uuid == BATTERY_CHAR && status == BluetoothGatt.GATT_SUCCESS) ingestNotification(ch.service?.uuid?.toString() ?: "unknown", ch.uuid, ch.value ?: return)
         }
     }
 
@@ -367,13 +372,32 @@ class HuamiHrSource(
         handler.post { guarded("battery-sink") { onBattery(pct) } }
     }
 
-    private fun handleHr(uuid: UUID, data: ByteArray) = guarded("hr-parse") {
-        val hr = when (uuid) {
-            STD_HEART_RATE_CHAR -> StandardHeartRate.parse(data)?.hr   // standard 0x2A37 layout
-            HUAMI_HEART_RATE_CHAR -> HuamiHeartRate.parse(data)        // Huami custom layout
-            else -> return@guarded
-        } ?: return@guarded                                            // no usable reading → "—", never faked
-        ingest(hr)
+    internal fun ingestNotification(service: String, uuid: UUID, data: ByteArray): Boolean {
+        if (!acceptingCapture || uuid !in listOf(STD_HEART_RATE_CHAR, HUAMI_HEART_RATE_CHAR, BATTERY_CHAR)) return false
+        val decode = {
+            if (uuid == BATTERY_CHAR) {
+                handleBattery(data)
+                StandardBattery.parse(data)?.let { pct ->
+                    durableCapture?.persist(StreamBatch(battery = listOf(com.noop.data.BatteryRow(
+                        System.currentTimeMillis() / 1000, pct.toDouble(), null))))
+                }
+            } else {
+                val standard = if (uuid == STD_HEART_RATE_CHAR) StandardHeartRate.parse(data) else null
+                val hr = standard?.hr ?: if (uuid == HUAMI_HEART_RATE_CHAR) HuamiHeartRate.parse(data) else null
+                if (hr != null && hr in 30..220) {
+                    ingest(hr)
+                    val ts = System.currentTimeMillis() / 1000
+                    durableCapture?.persist(StreamBatch(hr = listOf(HrRow(ts, hr)),
+                        rr = (standard?.rr ?: emptyList()).filter { it > 0 }.map { com.noop.data.RrRow(ts, it) }))
+                }
+            }
+            Unit
+        }
+        val sink = durableCapture
+        if (sink == null) { guarded("notification", decode); return true }
+        val accepted = sink.capture(data, service, uuid.toString()) { guarded("notification", decode) }
+        if (!accepted) stop()
+        return accepted
     }
 
     private fun announceNeedsPairing() {

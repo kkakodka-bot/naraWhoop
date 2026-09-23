@@ -123,6 +123,225 @@ final class ServerCanonicalCompatibilityTests: XCTestCase {
         ]]
     }
 
+    private func legacyDocument(marker: [String: Any]? = nil) throws -> [String: Any] {
+        func rewrite(_ value: Any, key: String? = nil) -> Any {
+            if let value = value as? [String: Any] { return value.mapValues { $0 }.reduce(into: [String: Any]()) { $0[$1.key] = rewrite($1.value, key: $1.key) } }
+            if let value = value as? [Any] { return value.map { rewrite($0) } }
+            if key == "algorithm_version", value as? String == algorithm { return "frwhoop-server-1" }
+            if key == "canonical_qualification", value as? String == "signed_reference_approval" { return "retained_legacy" }
+            if ["resting_hr_bpm", "overnight_hr_bpm"].contains(key ?? "") { return 53 }
+            if ["hrv_rmssd_ms", "hrv_sdnn_ms"].contains(key ?? "") { return 37 }
+            if ["sleep_total_min", "asleep_min"].contains(key ?? "") { return 42 }
+            return value
+        }
+        var root = rewrite(document()) as! [String: Any]
+        if let marker {
+            root = editFamily(root, "sleep") { family in
+                var details = family["details"] as! [String: Any]
+                details["input_eligibility"] = marker; family["details"] = details
+            }
+        }
+        return root
+    }
+
+    func testLegacyUnqualifiedBeatResultsAreWithheldAtEveryReadWhileHeartRateSurvives() throws {
+        let cache = try decode(legacyDocument())
+        XCTAssertNil(cache.daily?.hrvRmssdMs)
+        XCTAssertNil(cache.daily?.respRateBpm)
+        XCTAssertNil(cache.daily?.recovery)
+        XCTAssertNil(cache.daily?.sleepTotalMin)
+        XCTAssertEqual(cache.daily?.restingHrBpm, 53)
+        XCTAssertEqual(cache.daily?.sleepInBedMin, 60)
+        XCTAssertEqual(cache.nights.first?.restingHrBpm, 53)
+        XCTAssertEqual(cache.nights.first?.inBedMin, 60)
+        XCTAssertEqual(cache.nights.first?.startAt, "2026-09-21T00:00:00Z")
+        XCTAssertNil(cache.nights.first?.asleepMin)
+        XCTAssertNil(cache.nights.first?.hrvRmssdMs)
+        XCTAssertEqual(cache.nights.first?.measurementAvailable, false)
+        XCTAssertTrue(cache.nights.first?.stages.isEmpty == true)
+        XCTAssertTrue(cache.fullDaySleepEpochs?.isEmpty == true)
+        let hrv = try XCTUnwrap(cache.canonicalResults?.families["night_hrv"])
+        XCTAssertNil(hrv.number("hrv_rmssd_ms"))
+        XCTAssertEqual(hrv.number("resting_hr_bpm"), 53)
+        XCTAssertEqual(hrv.details["summary"], .null)
+        guard case .object(let missing) = hrv.details["metric_availability"] else { return XCTFail("missing metric disposition") }
+        XCTAssertEqual(missing["hrv_rmssd_ms"], .object(["status": .string("unqualified"), "reason": .string("beat_timing_unverified")]))
+        XCTAssertNil(missing["resting_hr_bpm"])
+        XCTAssertEqual(cache.canonicalResults?.families["respiration"]?.status, "unqualified")
+        XCTAssertEqual(cache.canonicalResults?.families["recovery"]?.reason, "beat_timing_unverified")
+        XCTAssertTrue(ServerHrvSeries.from(cache, day: day).windows.isEmpty)
+        XCTAssertNil(ServerRespirationSummary.project(cache, day: day)?.breathsPerMinute)
+    }
+
+    func testExactImmutableRRExcludedMarkerPermitsSleepOnlyAndInvalidMarkersDoNot() throws {
+        let marker = ["policy_version": "legacy-rr-excluded-1", "rr_input": "excluded"]
+        let cache = try decode(legacyDocument(marker: marker))
+        XCTAssertEqual(cache.daily?.sleepTotalMin, 42)
+        XCTAssertEqual(cache.nights.first?.asleepMin, 42)
+        XCTAssertEqual(cache.nights.first?.stages.count, 1)
+        XCTAssertEqual(cache.fullDaySleepEpochs?.count, 1)
+        XCTAssertNil(cache.daily?.hrvRmssdMs)
+        XCTAssertNil(cache.daily?.respRateBpm)
+        XCTAssertNil(cache.daily?.recovery)
+        XCTAssertNil(cache.nights.first?.hrvRmssdMs)
+        for invalid: [String: Any] in [
+            ["policy_version": "legacy-rr-excluded-1", "rr_input": "included"],
+            ["policy_version": "other", "rr_input": "excluded"],
+            ["policy_version": "legacy-rr-excluded-1", "rr_input": "excluded", "invented_qualification": true]
+        ] {
+            XCTAssertNil(try decode(legacyDocument(marker: invalid)).daily?.sleepTotalMin)
+        }
+    }
+
+    func testDirectCanonicalDecoderCannotRestoreLegacyValuesOrNestedDetails() throws {
+        let root = try legacyDocument(), score = root["server_scoring"] as! [String: Any]
+        let canonical = try JSONDecoder().decode(ServerCanonicalResults.self,
+            from: JSONSerialization.data(withJSONObject: score["compute"]!))
+        try canonical.validate(owner: owner, day: day)
+        XCTAssertEqual(canonical.families["night_hrv"]?.number("resting_hr_bpm"), 53)
+        XCTAssertNil(canonical.families["night_hrv"]?.number("hrv_rmssd_ms"))
+        XCTAssertEqual(canonical.families["current_hrv"]?.details["measurements"], .array([]))
+        guard case .array(let nights) = canonical.families["sleep"]?.values["sleep_sessions"],
+              case .object(let night) = nights.first else { return XCTFail("missing retained episode") }
+        XCTAssertEqual(night["asleep_min"], .null)
+        XCTAssertEqual(night["hrv_rmssd_ms"], .null)
+        XCTAssertEqual(night["resting_hr_bpm"], .number(53))
+        XCTAssertEqual(night["stages"], .array([]))
+        XCTAssertEqual(night["measurement_unavailable_reason"], .string("beat_timing_unverified"))
+    }
+
+    func testActualWhoopStoreOfflineOldPayloadWithAndWithoutRawSnapshotKeepsEligibleScopedResults() async throws {
+        let store = try await WhoopStore.inMemory()
+        let persistence = ServerScoreCacheStore(db: store.registryWriter)
+        let document = try legacyDocument()
+        let decoded = try decode(document)
+        let original = String(data: try JSONSerialization.data(withJSONObject: document), encoding: .utf8)!
+        for retainRaw in [false, true] {
+            var night = ServerScoreNightCache(id: "old", startAt: "2026-09-21T00:00:00Z", endAt: "2026-09-21T01:00:00Z",
+                isNap: false, asleepMin: 42, inBedMin: 60, hrvRmssdMs: 37, restingHrBpm: 53)
+            night.measurementAvailable = true
+            var old = ServerScoreDayCache(day: day, algorithmVersion: "frwhoop-server-1",
+                daily: ServerScoreDailyCache(recovery: 84, hrvRmssdMs: 37, restingHrBpm: 53,
+                    sleepTotalMin: 42, sleepInBedMin: 60, respRateBpm: 14.2), nights: [night],
+                computedAt: decoded.computedAt, stale: true, fetchedAt: Date())
+            old.ownerId = owner; old.features = decoded.features
+            let score = document["server_scoring"] as! [String: Any]
+            old.canonicalResults = try JSONDecoder().decode(ServerCanonicalResults.self,
+                from: JSONSerialization.data(withJSONObject: score["compute"]!))
+            old.rawSnapshotJSON = retainRaw ? original : nil
+            // Codable retains the pre-repair bytes: read eligibility must not depend on a rewrite.
+            let stored = String(data: try JSONEncoder().encode(old), encoding: .utf8)!
+            XCTAssertTrue(stored.contains("\"hrvRmssdMs\":37"))
+            try persistence.upsert(old)
+            let loaded = try XCTUnwrap(persistence.load(ownerId: owner, day: day, scopeKey: old.scopeKey, deviceId: device))
+            XCTAssertNil(loaded.daily?.hrvRmssdMs)
+            XCTAssertNil(loaded.daily?.respRateBpm)
+            XCTAssertNil(loaded.daily?.recovery)
+            XCTAssertNil(loaded.daily?.sleepTotalMin)
+            XCTAssertEqual(loaded.daily?.restingHrBpm, 53)
+            XCTAssertEqual(loaded.daily?.sleepInBedMin, 60)
+            XCTAssertNil(loaded.nights.first?.hrvRmssdMs)
+            XCTAssertNil(loaded.nights.first?.asleepMin)
+            XCTAssertEqual(loaded.nights.first?.restingHrBpm, 53)
+            XCTAssertNil(try persistence.load(ownerId: source, day: day))
+            XCTAssertNil(try persistence.load(ownerId: owner, day: day, deviceId: source))
+        }
+    }
+
+    func testSameHashEligibilityRefreshDoesNotBlockReadRepairOrPermitRetainedValueMutation() throws {
+        let document = try legacyDocument()
+        let fresh = try decode(document)
+        let score = document["server_scoring"] as! [String: Any]
+        var old = fresh
+        old.canonicalResults = try JSONDecoder().decode(ServerCanonicalResults.self,
+            from: JSONSerialization.data(withJSONObject: score["compute"]!))
+        XCTAssertTrue(ServerComputeRevisionFence.admits(previous: old, next: fresh),
+            "The immutable result hash remains unchanged by a read eligibility policy")
+        for (family, key) in [("night_hrv", "resting_hr_bpm"), ("sleep", "sleep_in_bed_min")] {
+            let changed = editFamily(document, family) { row in
+                var values = row["values"] as! [String: Any]; values[key] = 99; row["values"] = values
+            }
+            var next = fresh
+            let score = changed["server_scoring"] as! [String: Any]
+            next.canonicalResults = try JSONDecoder().decode(ServerCanonicalResults.self,
+                from: JSONSerialization.data(withJSONObject: score["compute"]!))
+            XCTAssertFalse(ServerComputeRevisionFence.admits(previous: old, next: next), key)
+        }
+        let marked = try decode(legacyDocument(marker: ["policy_version": "legacy-rr-excluded-1", "rr_input": "excluded"]))
+        XCTAssertFalse(ServerComputeRevisionFence.admits(previous: old, next: marked),
+            "An input receipt cannot change under the same immutable hash")
+        let qualified = try decode(self.document())
+        let changedV2 = editFamily(self.document(), "night_hrv") { row in
+            var values = row["values"] as! [String: Any]; values["hrv_rmssd_ms"] = 99; row["values"] = values
+        }
+        var qualifiedMutation = qualified
+        let changedScore = changedV2["server_scoring"] as! [String: Any]
+        qualifiedMutation.canonicalResults = try JSONDecoder().decode(ServerCanonicalResults.self,
+            from: JSONSerialization.data(withJSONObject: changedScore["compute"]!))
+        XCTAssertFalse(ServerComputeRevisionFence.admits(previous: qualified, next: qualifiedMutation))
+    }
+
+    func testLegacyMaskingPreservesAuthorizationRejectionAndRevocationReason() throws {
+        for (key, value): (String, Any) in [("canonical_qualification", NSNull()),
+            ("manifest_hash", NSNull()), ("manifest_hash", "invalid")] {
+            let malformed = editFamily(try legacyDocument(), "recovery") { $0[key] = value }
+            XCTAssertThrowsError(try decode(malformed), key)
+        }
+        let revoked = editFamily(try legacyDocument(), "recovery") {
+            $0["status"] = "revoked"; $0["reason"] = "approval_revoked"
+        }
+        let family = try XCTUnwrap(try decode(revoked).canonicalResults?.families["recovery"])
+        XCTAssertEqual(family.status, "revoked")
+        XCTAssertEqual(family.reason, "approval_revoked")
+        XCTAssertNil(family.number("recovery"))
+    }
+
+    func testConstructedMixedFamilyCacheKeepsQualifiedSleepWhileWithholdingLegacyNestedHRV() throws {
+        let qualified = try decode(document()), legacy = try decode(legacyDocument())
+        var night = ServerScoreNightCache(id: "mixed", startAt: "2026-09-21T00:00:00Z", endAt: "2026-09-21T01:00:00Z",
+            isNap: false, asleepMin: 42, inBedMin: 60, hrvRmssdMs: 37, restingHrBpm: 53)
+        night.respRateBpm = 14.2
+        var mixed = ServerScoreDayCache(day: day, algorithmVersion: "per_feature",
+            daily: ServerScoreDailyCache(recovery: 84, hrvRmssdMs: 37, restingHrBpm: 53,
+                sleepTotalMin: 42, sleepInBedMin: 60, respRateBpm: 14.2), nights: [night],
+            computedAt: qualified.computedAt, stale: false, fetchedAt: Date())
+        mixed.ownerId = owner; mixed.features = qualified.features
+        mixed.features["hrv"] = legacy.features["hrv"]
+        XCTAssertNil(mixed.daily?.hrvRmssdMs)
+        XCTAssertNil(mixed.daily?.recovery)
+        XCTAssertNil(mixed.nights.first?.hrvRmssdMs)
+        XCTAssertEqual(mixed.nights.first?.restingHrBpm, 53)
+        XCTAssertEqual(mixed.nights.first?.respRateBpm, 14.2)
+        XCTAssertEqual(mixed.nights.first?.asleepMin, 42)
+        XCTAssertEqual(mixed.daily?.sleepTotalMin, 42)
+        let unavailable = ServerVitalSelection.resolve(.hrv, serverEnabled: true, selectedDay: day,
+            overlay: mixed, localValue: 99)
+        XCTAssertNil(unavailable.value)
+        XCTAssertEqual(unavailable.status, "beat_timing_unverified")
+    }
+
+    func testHelperFeatureMarkerIsAcceptedOnlyWhenNoCanonicalContractExists() throws {
+        let document = try legacyDocument()
+        var root = document, score = root["server_scoring"] as! [String: Any]
+        var features = score["features"] as! [String: [String: Any]]
+        features["sleep"]?["input_eligibility"] = ["policy_version": "legacy-rr-excluded-1", "rr_input": "excluded"]
+        score["features"] = features; root["server_scoring"] = score
+        XCTAssertNil(try decode(root).daily?.sleepTotalMin,
+            "A feature-only receipt cannot override a canonical result that lacks the immutable receipt")
+        score.removeValue(forKey: "compute"); root["server_scoring"] = score
+        let helper = try decode(root)
+        XCTAssertEqual(helper.daily?.sleepTotalMin, 42)
+        XCTAssertEqual(helper.nights.first?.asleepMin, 42)
+        XCTAssertNil(helper.daily?.hrvRmssdMs)
+        XCTAssertNil(helper.nights.first?.hrvRmssdMs)
+        features["sleep"]?["input_eligibility"] = ["policy_version": "wrong", "rr_input": "excluded"]
+        score["features"] = features; root["server_scoring"] = score
+        let unmarked = try decode(root)
+        XCTAssertNil(unmarked.daily?.sleepTotalMin)
+        XCTAssertTrue(unmarked.sleepMetadataLines.contains("Sleep staging unavailable: beat timing unverified"))
+        XCTAssertFalse(unmarked.sleepMetadataLines.contains(where: { $0.hasPrefix("Full-day unknown:") }))
+    }
+
     private func decode(_ document: [String: Any]) throws -> ServerScoreDayCache {
         try ServerScoreCacheCodec.parseSnapshot(JSONSerialization.data(withJSONObject: document), day: day, ownerId: owner)
     }

@@ -17,7 +17,7 @@ xcrun swiftc -D GENERIC_CAPTURE_NATIVE_TESTS \
   -Xlinker -rpath -Xlinker "$capturePlatform/Library/Frameworks" \
   -Xlinker -rpath -Xlinker "$capturePlatform/Library/PrivateFrameworks" \
   -Xlinker -rpath -Xlinker "$capturePlatform/usr/lib" \
-  Strand/BLE/GenericCaptureJournal.swift Strand/BLE/StandardHRSource.swift Strand/BLE/StandardHeartRate.swift \
+  Strand/BLE/GenericCaptureJournal.swift Strand/BLE/GenericRawCaptureSink.swift Strand/BLE/StandardHRSource.swift Strand/BLE/StandardHeartRate.swift \
   Strand/App/RetiredCaptureDrain.swift StrandTests/GenericCaptureJournalTests.swift \
   Tests/GenericCaptureNative/Fixtures.swift Tests/GenericCaptureNative/main.swift \
   "$captureStoreBuild"/WhoopStore.build/*.swift.o "$captureStoreBuild"/GRDB.build/*.swift.o \

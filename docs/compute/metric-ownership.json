@@ -146,10 +146,9 @@
         "android": "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt"
       },
       "requiredInputs": [
-        "RR intervals with original packet identity and verified beat spans",
-        "worn state",
-        "event-time calendar",
-        "baseline history"
+        "Resting HR: original device-reported HR and source/window",
+        "HRV: original intervals/beat identities, independently verified elapsed span and gaps, accepted coverage, worn state and event-time calendar",
+        "Legacy RR rows and arrival-time Standard HR words do not satisfy the HRV input contract"
       ],
       "serverProducer": {
         "implementation": "scoring-service/service/src/main/kotlin/com/frwhoop/scoring/db/ComputeContractPublisher.kt",
@@ -282,8 +281,7 @@
           "referenceQualified": "NOT_MEASURED"
         },
         "notes": [
-          "Synthetic supported HR/gravity produced sleep_total_min179.98333333333332 and resting_hr_bpm53; no RR, respiration or oxygen was fabricated. Final clean-source rerun and physical readback remain required.",
-          "Positive evidence covers resting_hr_bpm only, not RMSSD/SDNN. Real beat timing and coverage remain unqualified."
+          "Metric-level eligibility preserves observed-HR resting_hr_bpm. Legacy RR lacks verified beat timing: RMSSD/SDNN remain explicitly missing until the qualified producer/adapter exists. A visible RHR does not establish HRV producer parity."
         ],
         "testedMetricIds": [
           "resting_hr_bpm"
@@ -731,7 +729,7 @@
           "referenceQualified": "NOT_MEASURED"
         },
         "notes": [
-          "Synthetic supported HR/gravity produced sleep_total_min179.98333333333332 and resting_hr_bpm53; no RR, respiration or oxygen was fabricated. Final clean-source rerun and physical readback remain required."
+          "Selected legacy sleep retains unchanged HR/gravity computation only after worker RR exclusion is bound into the immutable result. Old unmarked stage-dependent totals/timelines are ineligible; independent source bounds/in-bed and HR remain available. Existing sleep heuristic is not a newly reference-qualified stage model."
         ],
         "testedMetricIds": [
           "sleep_total_min",
@@ -1039,7 +1037,9 @@
           "readable": "NOT_MEASURED_HOSTED_AUTHENTICATED_READBACK",
           "referenceQualified": "NOT_MEASURED"
         },
-        "notes": [],
+        "notes": [
+          "All legacy RR is excluded from selected-v1 computation. No selected numerical respiration proof: qualified modulation/timing adapter and independent respiratory reference remain absent. Imported observations and mean HR cannot establish beat-modulation respiration."
+        ],
         "testedMetricIds": []
       }
     },
@@ -3999,8 +3999,8 @@
         "android/app/src/main/java/com/noop/ui/HydrationScreen.kt"
       ],
       "allowedLocal": "User water input and totals only",
-      "status": "unsupported",
-      "reason": "qualified_insight_producer_unavailable",
+      "status": "unqualified",
+      "reason": "producer_not_implemented",
       "numericContract": false,
       "resultBinding": "compute.families.insights explicit missing state/revision; not an invented metric value"
     },
@@ -4013,8 +4013,8 @@
         "android/app/src/main/java/com/noop/ui/RhythmScreen.kt"
       ],
       "allowedLocal": "Consent and direct observations only",
-      "status": "unsupported",
-      "reason": "qualified_insight_producer_unavailable",
+      "status": "unqualified",
+      "reason": "producer_not_implemented",
       "numericContract": false,
       "resultBinding": "compute.families.insights explicit missing state/revision; not an invented metric value"
     },
@@ -4027,8 +4027,8 @@
         "android/app/src/main/java/com/noop/ui/CaffeineLog.kt"
       ],
       "allowedLocal": "User intake input only; no elimination or active-dose inference",
-      "status": "unsupported",
-      "reason": "qualified_insight_producer_unavailable",
+      "status": "unqualified",
+      "reason": "producer_not_implemented",
       "numericContract": false,
       "resultBinding": "compute.families.insights explicit missing state/revision; not an invented metric value"
     }
@@ -4045,16 +4045,35 @@
   },
   "producerRoutes": {
     "retained_baseline": {
-      "inputAdapter": "Frozen SignalSampleReader over noop_hr_samples/noop_gravity_samples/noop_rr_intervals/noop_resp_samples",
-      "queue": "scoring_work_items / scoring_legacy_claim_one",
+      "inputAdapter": "Frozen SignalSampleReader plus selected-worker input eligibility adapter: original observed HR/gravity remain; all legacy RR rows are excluded because no verified beat-clock/receipt join exists. Original RR rows and raw words remain durable.",
+      "queue": "scoring_work_items / scoring_legacy_claim_one; canary uses scoring_canary_claim_one and scoring_canary_enqueue_legacy for one admitted owner/device",
       "entrypoint": "scoring-service/legacy-baseline/runtime-identity.patch persistent main (explicit --replay-day only)",
       "algorithmVersion": "frwhoop-server-1",
       "numericalSource": "5caa31689da0023e111beb36850d3f81d67e1be2",
       "assetConfiguration": "Frozen kernel and legacy mapper identities in baseline-transport-provenance.json",
-      "qualification": "retained_legacy; no changed formulas or fabricated reference approval",
+      "qualification": "retained_legacy with unchanged numerical kernel/mapper; input_eligibility policy legacy-rr-excluded-1 is a transport/input-exclusion fact, never beat or model qualification",
       "publicationSelector": "server_physiology_results immutable revision -> physiology_feature_defaults -> server_scoring_read_contract",
-      "workerImage": "REPAIR_ARTIFACT_PENDING; observed old selected-v1 image targets the wrong database",
-      "nativeConsumers": "#/sharedConsumers and each entry validation.finalHosted.consumerFiles"
+      "workerImage": "Exact matched worker OCI digest in release-artifact-manifest.json; source rebuild pending, no repair worker deployed",
+      "nativeConsumers": "#/sharedConsumers and each entry validation.finalHosted.consumerFiles",
+      "inputEligibility": {
+        "policyVersion": "legacy-rr-excluded-1",
+        "rrInput": "excluded",
+        "markerPath": "server_physiology_results.payload.input_eligibility",
+        "originalObservations": "Preserved; exclusion occurs in the selected worker before scoring",
+        "blockedMetrics": [
+          "hrv_rmssd_ms",
+          "hrv_sdnn_ms",
+          "resp_rate_bpm",
+          "recovery"
+        ],
+        "missingReason": "beat_timing_unverified",
+        "missingPrerequisite": "Qualified original beat timing, gaps, coverage and provenance adapter",
+        "independentMetrics": [
+          "resting_hr_bpm"
+        ],
+        "sleepRestriction": "Pre-policy v1 stages and stage-derived sleep metrics are withheld by API/cache read eligibility. New RR-excluded v1 may expose unchanged HR/gravity sleep estimates; no PSG qualification implied.",
+        "engineeringPrerequisiteReason": "producer_not_implemented"
+      }
     },
     "physiology_shadow": {
       "inputAdapter": "SignalSampleReader; BoundedRawFeatureLane with SensorAcquisitionReader receipts for dependent raw capabilities",

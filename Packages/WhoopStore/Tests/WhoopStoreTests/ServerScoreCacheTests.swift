@@ -117,7 +117,7 @@ final class ServerScoreCacheTests: XCTestCase {
         XCTAssertFalse(state.accept(older, generation: state.generation, currentOwnerId: owner))
     }
 
-    func testLegacySelectedRowsKeepTotalsWithoutClaimingV2Quality() async throws {
+    func testLegacySelectedRowsKeepBoundsButWithholdRRDependentTotals() async throws {
         let body = """
         {"server_scoring":{"schema_version":2,"user_id":"\(owner)","day":"\(day)","algorithm_version":"per_feature",
         "features":{"sleep":{"status":"fresh","device_id":"device","algorithm_version":"frwhoop-server-1",
@@ -130,9 +130,10 @@ final class ServerScoreCacheTests: XCTestCase {
         {"start":1789516890,"end":1789516920,"stage":"rem"}]}]}}
         """
         let cache = try ServerScoreCacheCodec.parseSnapshot(Data(body.utf8), day: day, ownerId: owner, fetchedAt: Date(timeIntervalSince1970: 1))
-        XCTAssertEqual(cache.nights[0].stages.map(\.state), ["awake", "sleep", "sleep", "sleep"])
-        XCTAssertEqual(cache.nights[0].measurementAvailable, true)
-        XCTAssertEqual(cache.nights[0].asleepMin, 1.5)
+        XCTAssertTrue(cache.nights[0].stages.isEmpty)
+        XCTAssertEqual(cache.nights[0].measurementAvailable, false)
+        XCTAssertNil(cache.nights[0].asleepMin)
+        XCTAssertEqual(cache.nights[0].inBedMin, 2)
         XCTAssertNil(cache.nights[0].stateCoverage)
         XCTAssertTrue(cache.nights[0].stages.allSatisfy { $0.evidenceCoverage == nil && $0.sleepProbability == nil && $0.algorithmVersion == "frwhoop-server-1" && $0.reason == "legacy_quality_unavailable" })
         XCTAssertTrue(cache.sleepMetadataLines.contains("Legacy baseline · quality and evidence coverage unavailable"))
@@ -150,7 +151,7 @@ final class ServerScoreCacheTests: XCTestCase {
         let explicitUnknown = body.replacingOccurrences(of: "\"stage\":\"light\"", with: "\"stage\":\"light\",\"state\":\"state_unknown\"")
             .replacingOccurrences(of: "\"asleep_min\":1.5", with: "\"asleep_min\":1.5,\"measurement_available\":false")
         let abstained = try ServerScoreCacheCodec.parseSnapshot(Data(explicitUnknown.utf8), day: day, ownerId: owner)
-        XCTAssertEqual(abstained.nights[0].stages[1].state, "state_unknown")
+        XCTAssertTrue(abstained.nights[0].stages.isEmpty)
         XCTAssertEqual(abstained.nights[0].measurementAvailable, false)
     }
 }

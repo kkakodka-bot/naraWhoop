@@ -52,7 +52,13 @@ export const REQUIRED_CAPABILITIES = Object.freeze({
     'infra/vps/scripts/verify-pinned-postgres-client.py',
     'infra/vps/scripts/verify-worker-image.py',
     'infra/vps/scripts/scoring-tls.py',
+    'infra/vps/scripts/scoring-admission.py',
     'Tools/release/certificates/supabase-prod-ca-2021.crt',
+  ]),
+  canarySupervision: Object.freeze([
+    'infra/vps/scripts/scoped-canary-guard.py',
+    'infra/vps/scoped-canary-stop-policy.json',
+    'infra/vps/templates/frwhoop-scoped-canary.service',
   ]),
   deploymentBundle: Object.freeze(['Tools/release/deployment-source-bundle.mjs']),
   deploymentRunbook: Object.freeze(['infra/vps/SERVER_PIPELINE_DEPLOYMENT.md']),

@@ -3,6 +3,7 @@ import { PushProtocolError } from './registry.ts';
 import type { SupabaseRest } from './rest.ts';
 import type { S3Store } from './s3.ts';
 import type { PushFunctionConfig } from './config.ts';
+import { assertIntakeScope, intakeAdmissionArguments, isIntakeAdmissionError, type IntakeAdmission } from './intakeAdmission.ts';
 
 export const ASYNC_OBJECT_COMPLETION = 'async-v1';
 export const ASYNC_OBJECT_HEADER = 'Noop-Push-Completion';
@@ -80,7 +81,9 @@ export async function requestObjectVerification(rest: SupabaseRest, userId: stri
 export async function reconcileObjectVerification(rest: SupabaseRest, raw: S3Store, {
   limit = 4, maxBytes = 256 * 1024 * 1024, maxDecodedBytes = 512 * 1024 * 1024,
   maxMilliseconds = 10_000, clock = () => performance.now(),
-} = {}) {
+  admission,
+}: { limit?: number; maxBytes?: number; maxDecodedBytes?: number; maxMilliseconds?: number;
+  clock?: () => number; admission?: IntakeAdmission } = {}) {
   const cap = Math.max(0, Math.min(16, Math.floor(limit)));
   const bytesCap = Math.max(0, Math.min(256 * 1024 * 1024, Math.floor(maxBytes)));
   const decodedCap = Math.max(0, Math.min(512 * 1024 * 1024, Math.floor(maxDecodedBytes)));
@@ -88,12 +91,14 @@ export async function reconcileObjectVerification(rest: SupabaseRest, raw: S3Sto
   const report = { claimed: 0, verifiedIndexed: 0, retry: 0, paused: 0, leaseLost: 0, deferred: 0,
     admittedBytes: 0, admittedDecodedBytes: 0, verificationMs: 0 };
   while (report.claimed < cap && clock() - started < Math.max(0, maxMilliseconds)) {
-    const claimed = await rest.rpc('noop_claim_object_verification', {
+    const claimed = await rest.rpc(admission?.mode === 'canary' ? 'noop_claim_object_verification_scoped' : 'noop_claim_object_verification', {
+      ...intakeAdmissionArguments(admission),
       p_max_bytes: bytesCap - report.admittedBytes,
       p_max_decoded_bytes: decodedCap - report.admittedDecodedBytes,
     });
     if (!claimed) break;
     const row = claimed.manifest;
+    assertIntakeScope(row, admission);
     report.claimed++;
     report.admittedBytes += Number(row.compressed_bytes);
     report.admittedDecodedBytes += Number(row.uncompressed_bytes ?? 512 * 1024 * 1024);
@@ -111,11 +116,12 @@ export async function reconcileObjectVerification(rest: SupabaseRest, raw: S3Sto
         report.deferred++; break;
       }
       if (!prior) {
-        await completeDurableObject({ rest, raw, row, verificationToken: claimed.token });
+        await completeDurableObject({ rest, raw, row, verificationToken: claimed.token, admission });
         const verified = await rest.rpc('noop_current_object_receipt', { p_user_id: row.user_id, p_object_id: row.id });
         if (!verified) throw new PushProtocolError('receipt_mismatch', 409);
       }
     } catch (err) {
+      if (isIntakeAdmissionError(err)) throw err;
       failureCode = err instanceof PushProtocolError ? err.code : 'verification_failed';
       failureStatus = err instanceof PushProtocolError ? err.status : 503;
       retryable = [408, 429].includes(failureStatus) || failureStatus >= 500;
