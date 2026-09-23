@@ -44,6 +44,16 @@ public enum StandardHRMapping {
         )
     }
 
+    /// Keep captured notification values unchanged in the raw journal. Arrival time does not
+    /// qualify an interval as a beat timestamp, so hosted physiological inputs omit these rows.
+    /// Apply at publication as well as first capture: older immutable intents can still replay.
+    public static func canonicalProjection(_ captured: Streams) -> Streams {
+        guard PhoneComputeRuntime.isFinalHosted else { return captured }
+        var projected = captured
+        projected.rr = []
+        return projected
+    }
+
     /// Parse a persisted `STANDARD_HR_CONTACT` `payloadJSON`. Throws on malformed JSON or a missing /
     /// unknown `contact` field so a parse failure is not the same as "no contact event".
     public static func contactSample(ts: Int, payloadJSON: String) throws -> StandardHRContactSample {
