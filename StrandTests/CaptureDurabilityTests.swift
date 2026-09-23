@@ -219,24 +219,49 @@ final class CaptureDurabilityTests: XCTestCase {
             policy: .init(maxFrames: 64, maxInterval: 100), imuStore: try imu())
         collector.ingestStandardHR(hr: 70, rr: [], at: 100)
         collector.deviceId = "b"
+        // Exact synthetic notifications retain the interval words and arrival clocks.
+        // Arrival time never qualifies their physiological RR projection in hosted mode.
+        collector.ingestStandardHRReceipt([0x10, 0, 0x9a, 0x03],
+            receivedUnixMs: 100_000, receivedMonotonicNs: 1_000_000)
         collector.ingestStandardHR(hr: 0, rr: [900], at: 100)
         store.inserted = {
             store.inserted = nil
             collector.deviceId = "a"
             collector.ingestStandardHR(hr: 71, rr: [], at: 101)
             collector.deviceId = "b"
+            collector.ingestStandardHRReceipt([0x10, 0, 0x9b, 0x03],
+                receivedUnixMs: 101_000, receivedMonotonicNs: 2_000_000)
             collector.ingestStandardHR(hr: 0, rr: [901], at: 101)
         }
         let first = await collector.flushStandardHR()
         XCTAssertTrue(first)
         XCTAssertEqual(store.inserts.map { $0.0 }, ["a", "b"])
         XCTAssertEqual(store.inserts.flatMap { $0.1.hr.map(\.bpm) }, [70])
-        XCTAssertEqual(store.inserts.flatMap { $0.1.rr.map(\.rrMs) }, [900])
+        XCTAssertEqual(store.inserts.flatMap { $0.1.rr.map(\.rrMs) }, PhoneComputeRuntime.isFinalHosted ? [] : [900])
+        let firstReceipts = store.inserts.flatMap { $0.1.standardHrReceipts }
+        XCTAssertEqual(firstReceipts.map(\.rawHex), ["10009a03"])
+        XCTAssertEqual(firstReceipts.map(\.rrRawTicks), [[922]])
+        XCTAssertEqual(firstReceipts.map(\.notificationOrdinal), [0])
+        XCTAssertEqual(firstReceipts.map(\.receivedUnixMs), [100_000])
+        XCTAssertEqual(firstReceipts.map(\.receivedMonotonicNs), [1_000_000])
+        XCTAssertEqual(firstReceipts.map(\.clockVersion), ["host-arrival-unmapped"])
+        XCTAssertEqual(store.inserts.filter { !$0.1.standardHrReceipts.isEmpty }.map { $0.0 }, ["b"])
         let second = await collector.drainForShutdown()
         XCTAssertTrue(second)
         XCTAssertEqual(store.inserts.map { $0.0 }, ["a", "b", "a", "b"])
         XCTAssertEqual(store.inserts.flatMap { $0.1.hr.map(\.bpm) }, [70, 71])
-        XCTAssertEqual(store.inserts.flatMap { $0.1.rr.map(\.rrMs) }, [900, 901])
+        XCTAssertEqual(store.inserts.flatMap { $0.1.rr.map(\.rrMs) }, PhoneComputeRuntime.isFinalHosted ? [] : [900, 901])
+        let allReceipts = store.inserts.flatMap { $0.1.standardHrReceipts }
+        XCTAssertEqual(Array(allReceipts.prefix(1)), firstReceipts, "The admitted original receipt must not change")
+        XCTAssertEqual(allReceipts.map(\.rawHex), ["10009a03", "10009b03"])
+        XCTAssertEqual(allReceipts.map(\.rrRawTicks), [[922], [923]])
+        XCTAssertEqual(allReceipts.map(\.notificationOrdinal), [0, 1])
+        XCTAssertEqual(allReceipts.map(\.receivedUnixMs), [100_000, 101_000])
+        XCTAssertEqual(allReceipts.map(\.receivedMonotonicNs), [1_000_000, 2_000_000])
+        XCTAssertEqual(allReceipts.map(\.clockVersion), ["host-arrival-unmapped", "host-arrival-unmapped"])
+        XCTAssertEqual(Set(allReceipts.map(\.sessionId)).count, 1)
+        XCTAssertEqual(Set(allReceipts.map(\.receiptId)).count, 2)
+        XCTAssertEqual(store.inserts.filter { !$0.1.standardHrReceipts.isEmpty }.map { $0.0 }, ["b", "b"])
     }
 
     func testProductionPreclockCaptureAtomicallyArchivesWithoutDecodedTimeOrWaveformQualification() async throws {
