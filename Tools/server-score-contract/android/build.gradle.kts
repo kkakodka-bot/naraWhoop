@@ -19,7 +19,7 @@ sourceSets {
     }
     test {
         kotlin.srcDir("../../../android/app/src/test/java")
-        kotlin.include("com/noop/push/ServerScoreCacheCodecTest.kt", "com/noop/push/ServerSignalWindowCacheTest.kt",
+        kotlin.include("CanonicalEvidenceTest.kt", "com/noop/push/ServerScoreCacheCodecTest.kt", "com/noop/push/ServerSignalWindowCacheTest.kt",
             "com/noop/push/ServerMetricOwnershipTest.kt", "com/noop/push/ServerVitalSelectionTest.kt",
             "com/noop/push/ServerComputeContractTest.kt")
         resources.srcDir("../../../android/app/src/test/resources")
