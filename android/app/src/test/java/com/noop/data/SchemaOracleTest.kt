@@ -247,13 +247,14 @@ class SchemaOracleTest {
         val oracle = loadOracle()
         val grdb = oracle.getJSONArray("grdbMigrations").strings()
         assertEquals("duplicate GRDB migration identifier in schema_oracle.json", grdb.size, grdb.toSet().size)
-        assertTrue("integrated deployed GRDB history is incomplete", grdb.size >= 48)
+        assertTrue("integrated deployed GRDB history is incomplete", grdb.size >= 63)
         assertEquals("preserve both deployed feature-line identifiers",
             listOf("v46-rr-source-index", "v47-server-score-cache", "v46-ppg-record-identity"),
             grdb.subList(45, 48))
         grdb.forEachIndexed { i, id ->
             val n = id.removePrefix("v").takeWhile { it.isDigit() }.toIntOrNull()
             val expected = when {
+                i >= 59 -> 55 + i - 59 // PR22 follow-ups append after both preserved feature lines.
                 i >= 55 -> 48 + i - 55 // Second deployed sensor feature-line, registered after v54.
                 i == 47 -> 46
                 i > 47 -> i
@@ -268,6 +269,10 @@ class SchemaOracleTest {
         assertEquals("preserve sensor feature-line deployed identifiers",
             listOf("v48-ppg-record-identity", "v49-owner-scoped-physiology-cache", "v50-rr-packet-provenance", "v51-standard-hr-receipts"),
             grdb.subList(55, 59))
+        assertEquals("PR22 follow-ups append after the preserved integration history",
+            listOf("v55-quarantine-maintenance", "v56-cloud-mutable-revisions",
+                "v57-cloud-mutable-order", "v58-cloud-source-membership"),
+            grdb.subList(59, grdb.size))
         // loadRoomSchema asserts the exported version equals this; call it so the check is not vacuous.
         loadRoomSchema(oracle.getInt("roomVersion"))
     }
