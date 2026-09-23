@@ -93,15 +93,26 @@ Review these files before authorization:
 - `hosted-migration-state.json`
 
 The plan fingerprint binds the target, candidate SHA and tree, migration manifest, verifier hash,
-psql path/hash/version, bounded timeouts, native ledger fingerprint, exact eleven migration files,
+psql path/hash/version, bounded timeouts, native ledger fingerprint, exact twelve migration files,
 apply order, and both expected schema fingerprints. The migration-catalog fingerprint is
-`f5d9f630389b1236efbe8494878faecb0fe8e9e17f5d25b47723759d9c58d92d`. The integrated database
-definition fingerprint is `b8e62f83ddb071099869cf1e194a6ef5bf9bf857bca06f6b6624c250be20f90b`,
-measured identically on fresh, populated, and representative 117-to-128 disposable database paths.
-The verifier asserts 30 functions, 11 triggers, 24 policies and RLS on 136 tables. The predecessor
-test executes the actual hosted apply wrapper for all eleven pending migrations and proves that
-the native timestamp ledger remains unchanged. These local receipts do not establish deployment
-or phone acceptance.
+`bd78bdc02131edb3f5de974158202dc948e899cffb85b05970a45b1db2ae4edd`. The integrated database
+definition fingerprint is `d9fb8fcb73324dcc94c67190756c3ec292fec89a2d959ef05bdc3c9915c957f4`,
+measured identically on fresh, populated, and representative 117-to-129 disposable database paths.
+The verifier asserts 32 functions, 11 triggers, 24 policies and RLS on 136 tables. The predecessor
+test executes the actual hosted apply wrapper for all twelve pending migrations and proves that
+the captured 110-row native timestamp/name ledger remains unchanged, alongside the 117 full source
+identities. Older runs generated a 111-row native surrogate from source timestamps; those receipts
+are retained as surrogate tests and do not prove fidelity to the hosted native ledger. The corrected
+fixture rejects the extra superseded timestamp and the colliding timestamp's wrong native name.
+This is local DDL replay with captured ledger metadata, not a restored production data snapshot.
+These local receipts do not establish deployment or phone acceptance.
+
+Migration 129 changes legacy read eligibility globally: unqualified beat-derived values and old
+unmarked stage-dependent sleep values are withheld, while independently eligible HR and in-bed
+bounds remain readable. Newly published RR-excluded results preserve the unchanged scalar sleep
+computation. The immutable historical payloads/hashes remain untouched. One-owner/device worker
+admission does not restrict this schema/read-policy change to that pair; include this effect in the
+explicit deployment approval.
 
 ## 3. Apply the reviewed plan
 
@@ -153,7 +164,7 @@ node Tools/release/hosted-migration-release.mjs verify \
   --psql-path /absolute/canonical/path/to/psql
 ```
 
-`verify` performs no mutation. It requires all 128 full identities with their manifest hashes, the
+`verify` performs no mutation. It requires all 129 full identities with their manifest hashes, the
 unchanged reviewed native ledger, and a passing integrated schema verification.
 
 ## Repository test
