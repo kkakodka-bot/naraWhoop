@@ -10,7 +10,7 @@ hosted ledgers before any mutation. Git object replacement, lazy fetch, hooks, g
 and nonlocal protocols are disabled during source verification. The native Supabase ledger remains a
 110-row timestamp ledger. The runner does not rewrite or backfill it. The full identity ledger in
 `supabase_migrations.scoring_source_identities` must contain the exact 117-row reviewed baseline. The
-plan then names the ten forward migrations in their immutable order.
+plan then names the twelve forward migrations in their immutable order.
 
 Do not use `supabase db push` for this release. Do not run the `apply` command without explicit
 production-migration authorization and a reviewed plan fingerprint.
@@ -142,7 +142,7 @@ written. If the response is lost, the read-only reconciliation distinguishes an 
 rollback and stops without replaying the migration. Drift or an unreconciled partial result stops the
 run.
 
-After all ten migrations, the runner executes the already captured, candidate-commit-verified bytes
+After all twelve migrations, the runner executes the already captured, candidate-commit-verified bytes
 of `verify-integrated-schema.sql` inside a read-only transaction. It does not reread the worktree after
 mutation begins. Its assertions cover the final account and enrollment routes, immutable result
 identity, metric ownership, queue claims, grants, triggers, RLS tables and policies, and
