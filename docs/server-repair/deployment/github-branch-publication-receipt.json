@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-23T07:41:08Z",
+  "repository": "kkakodka-bot/naraWhoop",
+  "repositoryVisibility": "PUBLIC",
+  "defaultBranch": "main",
+  "defaultBranchMutated": false,
+  "publishedBranches": [
+    {
+      "branch": "repair/ble-sync-20260922",
+      "sha": "e2cb1f8ab15d302f07f416b8d017ae4b33003ac3",
+      "verifiedBy": "GitHub branches API and git ls-remote"
+    },
+    {
+      "branch": "repair/vps-server-20260922",
+      "sha": "405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2",
+      "verifiedBy": "GitHub branches API and git ls-remote"
+    },
+    {
+      "branch": "repair/combined-evidence-20260922",
+      "sha": "dbe1ff82b62402299f744e86f3d846165467347b",
+      "verifiedBy": "GitHub branches API and git ls-remote"
+    }
+  ],
+  "ancestry": {
+    "bleShaIsAncestorOfVpsSha": true,
+    "command": "git merge-base --is-ancestor e2cb1f8ab15d302f07f416b8d017ae4b33003ac3 405ee1b6a6238e7f4c77e2e2f8274d01f524e5f2"
+  },
+  "registryPublication": "NOT_PERFORMED_ACCOUNT_ROUTE_GATE_OPEN",
+  "hostedMigrations": "NOT_PERFORMED_ACCOUNT_ROUTE_GATE_OPEN",
+  "hostedEdgeDeployment": "NOT_PERFORMED_ACCOUNT_ROUTE_GATE_OPEN",
+  "vpsWorkerDeployment": "NOT_PERFORMED_ACCOUNT_ROUTE_GATE_OPEN",
+  "phoneBuild": {
+    "build": "373",
+    "installation": "PASS",
+    "authenticatedResultReadback": "NOT_MEASURED_ACCOUNT_SESSION_ABSENT"
+  },
+  "secretsPublished": false
+}
