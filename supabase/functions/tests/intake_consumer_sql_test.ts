@@ -159,3 +159,86 @@ Deno.test({name:'actual intake consumer preserves source-scoped atomic projectio
     });
   } finally {await bucket.close();}
 }});
+
+const freshHistoryFixture = Deno.env.get('PIPELINE_TEST_FRESH_HISTORY_FIXTURE');
+Deno.test({name:'actual Swift fresh/history batches retain two receipts and one unchanged canonical measurement',
+  ignore:!container||!origin||!freshHistoryFixture,fn:async(t)=>{
+  assert.equal(new URL(origin!).hostname,'127.0.0.1');
+  const fixture=JSON.parse(await Deno.readTextFile(freshHistoryFixture!));
+  assert.equal(fixture.schemaVersion,1);assert.equal(fixture.syntheticOnly,true);
+  assert.equal(fixture.producer,'actual_swift_PushProtocol_appendBatch');
+  assert.equal(fixture.sourceId,'00000000-0000-4000-8000-000000000071');
+  assert.equal(fixture.deviceId,'fresh-history-validation');assert.equal(fixture.pairs.length,4);
+  assert.deepEqual(fixture.pairs.map((p:any)=>`${p.stream}:${p.arrivalOrder.join(',')}`).sort(),[
+    'gravitySample:fresh,history','gravitySample:history,fresh','hrSample:fresh,history','hrSample:history,fresh']);
+  const rest=createSupabaseRest({cfg:{supabaseUrl:origin!,supabaseServiceRoleKey:token()},
+    fetchImpl:(input,init)=>fetch(String(input).replace('/rest/v1/','/'),{...init,signal:AbortSignal.timeout(15_000)})});
+  const bucket=startObjectHttp({versioned:true});
+  const owner=crypto.randomUUID(),device=crypto.randomUUID(),code=crypto.randomUUID(),source=fixture.sourceId;
+  await sql(`insert into auth.users(id) values('${owner}');
+    insert into noop_enrollment_codes(id,user_id,code_hash,expires_at) values('${code}','${owner}',repeat('c',64),now()+interval '1 day');
+    insert into noop_app_installations(source_id,user_id,enrollment_code_id,platform,app_version)
+      values('${source}','${owner}','${code}','ios','actual-swift-validation');
+    insert into devices(id,user_id,source_kind,external_device_id)
+      values('${device}','${owner}','noop_push','fresh-history-validation');`);
+  const cfg:any={b2KeyId:'fixture',b2ApplicationKey:'fixture',b2Bucket:'fixture',rawStore:'b2'};
+  const archive=createPushArchive({cfg,rest,raw:bucket.raw});
+  const ingest=createPushIngest({walStore:createPushWalStore({rest})!,archiveObject:archive.archiveObject,
+    resolveDeviceId:async()=>device,commitProjection:(receipt,bytes)=>commitArchivedBatch(rest,receipt,bytes)});
+  const scope={userId:owner,sourceId:source,tokenId:null,authMode:'installation' as const};
+  async function revisionSnapshot() {
+    const rows=[];
+    for(const table of ['scoring_work_items','physiology_work_items']) {
+      const revisions=JSON.parse(await sql(`select coalesce(jsonb_agg(jsonb_build_object('day',day,'revision',input_revision) order by day),'[]'::jsonb)
+        from ${table} where user_id='${owner}' and device_id='${device}';`));
+      assert(revisions.length>0,`${table} was not enqueued by actual projection`);
+      assert(revisions.every((row:any)=>Number(row.revision)>0));rows.push(revisions);
+    }
+    return rows;
+  }
+  try {
+    for(const pair of fixture.pairs) await t.step(`${pair.stream}: ${pair.arrivalOrder.join(' then ')}`,async()=>{
+      const table=pair.stream==='hrSample'?'noop_hr_samples':'noop_gravity_samples';
+      assert(Number.isSafeInteger(pair.timestamp));
+      const bodies=pair.arrivalOrder.map((lane:string)=>{
+        const expected=pair.bodies[lane];const bytes=Uint8Array.from(atob(expected.bodyBase64),(c)=>c.charCodeAt(0));
+        assert.equal(sha256Hex(bytes),expected.bodySha256);
+        const [header,record]=new TextDecoder().decode(bytes).trim().split('\n').map((line)=>JSON.parse(line));
+        assert.equal(header.batchId,expected.batchId);assert.equal(header.sourceId,source);
+        assert.equal(header.stream,pair.stream);assert.equal(header.deviceId,fixture.deviceId);
+        assert.equal(header.recordCount,1);assert.equal(record.key.ts,pair.timestamp);
+        assert.equal(new TextDecoder().decode(bytes).includes('identityDomain'),false,'identity salt must not alter wire records');
+        return {bytes,header,record};
+      });
+      assert.notEqual(bodies[0].header.batchId,bodies[1].header.batchId);
+      assert.deepEqual(bodies[0].record,bodies[1].record,'both lanes retain the same original scalar and timestamp');
+      const first=await ingest.acceptBatch({...scope,decodedBody:bodies[0].bytes});
+      assert.equal(first.durabilityReceipt.state,'verified_indexed');
+      const beforeRevisions=await revisionSnapshot();
+      const original=await sql(`select to_jsonb(t.*)::text from ${table} t where user_id='${owner}' and device_id='${device}' and ts=${pair.timestamp};`);
+      assert(original.length>0);
+      const second=await ingest.acceptBatch({...scope,decodedBody:bodies[1].bytes});
+      assert.equal(second.durabilityReceipt.state,'verified_indexed');
+      assert.notEqual(first.durabilityReceipt.receiptId,second.durabilityReceipt.receiptId);
+      assert.deepEqual(await revisionSnapshot(),beforeRevisions,'second lane must not dirty either worker revision');
+      assert.equal(await sql(`select count(*) from ${table} where user_id='${owner}' and device_id='${device}' and ts=${pair.timestamp};`),'1');
+      assert.equal(await sql(`select to_jsonb(t.*)::text from ${table} t where user_id='${owner}' and device_id='${device}' and ts=${pair.timestamp};`),original,
+        'the second reception preserves the canonical measurement, including its original provenance');
+      for(const [index,body] of bodies.entries()) {
+        const ack=index===0?first:second;
+        assert.equal(ack.durabilityReceipt.contentSha256,sha256Hex(body.bytes));
+        assert.equal(ack.durabilityReceipt.batchId,body.header.batchId);
+        assert.equal(ack.durabilityReceipt.sourceId,source);assert.equal(ack.durabilityReceipt.ownerUserId,owner);
+        assert.equal(ack.durabilityReceipt.deviceId,device);
+        assert.equal(await sql(`select state from noop_projection_debt where object_id='${body.header.batchId}';`),'complete');
+        assert.equal(await sql(`select sha256_source from object_manifests where id='${body.header.batchId}';`),'server_verified');
+        assert.equal(await sql(`select count(*) from noop_projection_observations where user_id='${owner}' and source_id='${source}' and batch_id='${body.header.batchId}';`),'1');
+        assert.deepEqual(await ingest.acceptBatch({...scope,decodedBody:body.bytes}),ack,'each exact original body replays its own receipt');
+      }
+      assert.deepEqual(await revisionSnapshot(),beforeRevisions);
+      assert.equal(await sql(`select count(*) from noop_projection_conflicts where user_id='${owner}' and device_id='${device}';`),'0');
+    });
+    assert.equal(await sql(`select count(*) from noop_projection_observations where user_id='${owner}' and source_id='${source}';`),'8');
+    assert.equal(await sql(`select count(*) from object_manifests where user_id='${owner}' and source_id='${source}' and sha256_source='server_verified';`),'8');
+  } finally {await bucket.close();}
+}});

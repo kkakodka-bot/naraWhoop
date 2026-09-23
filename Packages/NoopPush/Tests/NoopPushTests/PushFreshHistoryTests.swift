@@ -3,6 +3,41 @@ import XCTest
 @testable import NoopPush
 
 final class PushFreshHistoryTests: XCTestCase {
+    func testExportActualSwiftFreshHistoryPairs() throws {
+        let source = "00000000-0000-4000-8000-000000000071"
+        let device = "fresh-history-validation"
+        var pairs: [[String: Any]] = []
+        for (index, table) in [PushAppendTable.hrSample, .gravitySample].enumerated() {
+            for freshFirst in [true, false] {
+                let timestamp = Int64(1_788_796_800 + index * 10 + (freshFirst ? 0 : 1))
+                let values: [String: PushJSONValue] = table == .hrSample
+                    ? ["bpm": .int(62)] : ["x": .double(0.25), "y": .double(0), "z": .double(1), "dynAccel": .null]
+                let rows = [PushAppendRecord(rowId: timestamp, key: ["ts": .int(timestamp)], data: values)]
+                let history = try PushProtocol.appendBatch(table: table, sourceId: source,
+                    deviceId: device, startCursor: nil, records: rows)
+                let fresh = try PushProtocol.appendBatch(table: table, sourceId: source,
+                    deviceId: device, startCursor: nil, records: rows, freshAppend: true)
+                XCTAssertNotEqual(history.batchId, fresh.batchId)
+                XCTAssertEqual(history.body.split(separator: 10).dropFirst(), fresh.body.split(separator: 10).dropFirst())
+                let bodies: [String: Any] = Dictionary(uniqueKeysWithValues: [("fresh", fresh), ("history", history)].map { lane, batch in
+                    (lane, ["batchId": batch.batchId, "bodyBase64": batch.body.base64EncodedString(),
+                            "bodySha256": PushDurabilityReceipt.sha256(batch.body)] as [String: Any])
+                })
+                pairs.append(["stream": table.wireName, "timestamp": timestamp,
+                    "arrivalOrder": freshFirst ? ["fresh", "history"] : ["history", "fresh"], "bodies": bodies])
+            }
+        }
+        XCTAssertEqual(pairs.count, 4)
+        if let directory = ProcessInfo.processInfo.environment["NOOP_FRESH_HISTORY_FIXTURES"] {
+            let output = URL(fileURLWithPath: directory, isDirectory: true)
+            try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            let artifact: [String: Any] = ["schemaVersion": 1, "syntheticOnly": true,
+                "sourceId": source, "deviceId": device, "producer": "actual_swift_PushProtocol_appendBatch", "pairs": pairs]
+            try JSONSerialization.data(withJSONObject: artifact, options: [.sortedKeys, .prettyPrinted])
+                .write(to: output.appendingPathComponent("fresh-history.json"), options: .atomic)
+        }
+    }
+
     func testRecentRowsReachFirstShortWakeWithoutAdvancingHistory() async throws {
         let fixture = FreshHistoryFixture()
         let coordinator = PushCoordinator(source: fixture, transport: fixture, progress: fixture,
