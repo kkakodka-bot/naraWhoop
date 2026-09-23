@@ -254,6 +254,95 @@ final class GenericCaptureStoreTests: XCTestCase {
         let raw = try await count(s, "standardHRCaptureOccurrence"); XCTAssertEqual(raw, 2)
     }
 
+    func testRecoveredLegacyT1ExportsOriginalOpaqueNotificationWithUnknownUptime() async throws {
+        let path = try temporaryPath(), s = try await fixture(path: path), session = try await begin(s)
+        let original = try batch(session, raw: [0x1e, 72, 0x34, 0x12, 0, 4, 0, 4])
+        _ = try await s.appendStandardHRCapture(original, session: session)
+        try await s.sealStandardHRCapture(session)
+        let reopened = try await fixture(path: path)
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            let completed = try await reopened.recoverStandardHRCapture(owner: owner)
+            XCTAssertEqual(completed, 1)
+            let metas = try await reopened.rawBatchMetas(deviceId: device)
+            let meta = try XCTUnwrap(metas.first)
+            XCTAssertEqual(metas.count, 1)
+            XCTAssertEqual(meta.batchId, "standard-hr-raw-v1." + original.intentSHA256)
+            XCTAssertEqual(meta.capturedAt, Int(timestamp)); XCTAssertEqual(meta.startTs, Int(timestamp))
+            XCTAssertEqual(meta.endTs, Int(timestamp) + 1)
+            let frames = try await reopened.rawFrames(batchId: meta.batchId)
+            XCTAssertEqual(frames.count, 1)
+            let envelope = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(frames[0])) as? [String: Any])
+            XCTAssertEqual(envelope["format"] as? String, "nara.generic-notification.v1")
+            XCTAssertEqual(envelope["family"] as? String, "standard_hr")
+            XCTAssertEqual(envelope["serviceUUID"] as? String, "180D")
+            XCTAssertEqual(envelope["characteristicUUID"] as? String, "2A37")
+            XCTAssertEqual(envelope["sessionID"] as? String, session.sessionID.uuidString.lowercased())
+            XCTAssertEqual(envelope["sequence"] as? Int, 0)
+            XCTAssertEqual(envelope["receivedUnixSeconds"] as? Int64, timestamp)
+            XCTAssertTrue(envelope["receivedUptime"] is NSNull, "old T1 did not capture a monotonic clock")
+            XCTAssertEqual(envelope["clockQuality"] as? String, "host_receipt_unverified")
+            XCTAssertEqual(envelope["rrProjectionStatus"] as? String, "unqualified")
+            XCTAssertEqual(envelope["rrProjectionReason"] as? String, "producer_not_implemented")
+            XCTAssertEqual(Data(base64Encoded: try XCTUnwrap(envelope["payload"] as? String)), original.rawBytes)
+            let evidence = try await reopened.registryWriter.read { db in
+                try Row.fetchOne(db, sql: "SELECT scopeKey,contentSHA256 FROM ingestRawResource WHERE lane='rawBatch' AND resourceKey=?", arguments: [meta.batchId])
+            }
+            XCTAssertEqual(evidence?["scopeKey"] as String?, original.scope.key)
+            XCTAssertEqual(evidence?["contentSHA256"] as String?, DurableIngestScope.sha256(WhoopStore.packFrames(frames)))
+            let rrCount = try await count(reopened, "rrInterval"), hrCount = try await count(reopened, "hrSample")
+            XCTAssertEqual(rrCount, 0); XCTAssertEqual(hrCount, 1)
+            let frozen = try await reopened.registryWriter.read { db in
+                try Row.fetchOne(db, sql: "SELECT rawBytes,projectionJSON,intentSHA256 FROM standardHRCaptureOccurrence")
+            }
+            XCTAssertEqual(frozen?["rawBytes"] as Data?, original.rawBytes)
+            XCTAssertEqual(frozen?["projectionJSON"] as Data?, original.projectionJSON)
+            XCTAssertEqual(frozen?["intentSHA256"] as String?, original.intentSHA256)
+        }
+    }
+
+    func testRawArchiveFailureRollsBackCanonicalRowsAndDebtBeforeT3() async throws {
+        let s = try await fixture(), session = try await begin(s)
+        _ = try await s.appendStandardHRCapture(batch(session), session: session)
+        try await s.registryWriter.write { db in
+            try db.execute(sql: "CREATE TRIGGER fail_raw BEFORE INSERT ON rawBatch BEGIN SELECT RAISE(ABORT,'fixture'); END")
+        }
+        await expect(.storageUnavailable) { _ = try await s.projectNextStandardHRCapture(owner: self.owner) }
+        for table in ["hrSample", "event", "rawBatch", "ingestRawResource", "syncJob"] {
+            let actual = try await count(s, table); XCTAssertEqual(actual, 0, table)
+        }
+        let retained = try await pending(s); XCTAssertEqual(retained, 1)
+        try await s.registryWriter.write { try $0.execute(sql: "DROP TRIGGER fail_raw") }
+        let completed = try await s.recoverStandardHRCapture(owner: owner)
+        XCTAssertEqual(completed, 1)
+        let rawCount = try await count(s, "rawBatch"), hrCount = try await count(s, "hrSample")
+        XCTAssertEqual(rawCount, 1); XCTAssertEqual(hrCount, 1)
+    }
+
+    func testArchiveRetriesAfterT3FailureKeepExactBytesAndDistinctOccurrences() async throws {
+        let path = try temporaryPath(), s = try await fixture(path: path), session = try await begin(s)
+        let first = try batch(session), second = try batch(session, sequence: 1)
+        _ = try await s.appendStandardHRCapture(first, session: session)
+        _ = try await s.appendStandardHRCapture(second, session: session)
+        try await s.registryWriter.write { db in
+            try db.execute(sql: "CREATE TRIGGER fail_marker BEFORE UPDATE OF projectionState ON standardHRCaptureOccurrence BEGIN SELECT RAISE(ABORT,'fixture'); END")
+        }
+        await expect(.storageUnavailable) { _ = try await s.projectNextStandardHRCapture(owner: self.owner) }
+        let before = try await s.registryWriter.read { db in try Row.fetchOne(db, sql: "SELECT * FROM rawBatch") }
+        XCTAssertNotNil(before, "raw and canonical commit precedes the separate T3 marker")
+        let reopened = try await fixture(path: path)
+        try await reopened.registryWriter.write { try $0.execute(sql: "DROP TRIGGER fail_marker") }
+        let completed = try await reopened.recoverStandardHRCapture(owner: owner)
+        XCTAssertEqual(completed, 2)
+        let after = try await reopened.registryWriter.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM rawBatch WHERE batchId=?", arguments: ["standard-hr-raw-v1." + first.intentSHA256])
+        }
+        XCTAssertEqual(before, after, "replay cannot change compressed bytes, metadata, or row identity")
+        let metas = try await reopened.rawBatchMetas(deviceId: device)
+        XCTAssertEqual(Set(metas.map(\.batchId)), Set([first, second].map { "standard-hr-raw-v1." + $0.intentSHA256 }))
+        let more = try await reopened.recoverStandardHRCapture(owner: owner)
+        XCTAssertEqual(more, 0)
+    }
+
     func testT2FailureRollsBackCanonicalAndUploadDebtButKeepsT1() async throws {
         let s = try await fixture(); let session = try await begin(s)
         _ = try await s.appendStandardHRCapture(batch(session), session: session)
@@ -496,7 +585,7 @@ final class GenericCaptureStoreTests: XCTestCase {
         }
     }
 
-    func testLiveProjectionIgnoresBackfillFrontierAndPreservesExistingDebtTokenOnReplay() async throws {
+    func testLiveProjectionIgnoresBackfillFrontierAndNewRawOccurrenceFencesOldDebtSettlement() async throws {
         let s = try await fixture(); let session = try await begin(s); let b = try batch(session, ts: 10)
         try await s.registryWriter.write { db in
             for stream in ["hr", "rr", "event"] {
@@ -510,7 +599,11 @@ final class GenericCaptureStoreTests: XCTestCase {
         let jobs = try await s.owedJobs(); XCTAssertEqual(jobs.count, 1)
         _ = try await s.appendStandardHRCapture(batch(session, sequence: 1, ts: 10), session: session)
         _ = try await s.projectNextStandardHRCapture(owner: owner)
-        let after = try await s.owedJobs(); XCTAssertEqual(after.map(\.token), jobs.map(\.token))
+        let after = try await s.owedJobs()
+        XCTAssertNotEqual(after.map(\.token), jobs.map(\.token), "same scalar values in a new raw occurrence create new upload debt")
+        let settled = try await s.settleJob(kind: jobs[0].kind, token: jobs[0].token)
+        XCTAssertFalse(settled, "an earlier upload cannot settle the later raw occurrence")
+        let rawCount = try await count(s, "rawBatch"); XCTAssertEqual(rawCount, 2)
         let rows = try await count(s, "hrSample"); XCTAssertEqual(rows, 1)
     }
 
