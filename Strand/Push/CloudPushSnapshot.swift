@@ -12,12 +12,15 @@ struct CloudPushSnapshot: PushSnapshotSource {
     private let db: any DatabaseWriter
     private let imuPushSource: (any ImuSessionPushSource)?
     private let allowsPreparation: @Sendable () -> Bool
+    private let allowsArchiveUpgrade: @Sendable () -> Bool
 
     init(db: any DatabaseWriter, imuPushSource: (any ImuSessionPushSource)? = nil,
-         allowsPreparation: @escaping @Sendable () -> Bool = { true }) {
+         allowsPreparation: @escaping @Sendable () -> Bool = { true },
+         allowsArchiveUpgrade: @escaping @Sendable () -> Bool = { true }) {
         self.db = db
         self.imuPushSource = imuPushSource
         self.allowsPreparation = allowsPreparation
+        self.allowsArchiveUpgrade = allowsArchiveUpgrade
     }
 
     func knownDeviceIds(capabilities: PushCapabilities) async throws -> [String] {
@@ -32,6 +35,24 @@ struct CloudPushSnapshot: PushSnapshotSource {
             + capabilities.mutableTables.map { sqlTable($0) }
             + capabilities.binaryTables.filter { $0 != .rawImuSession }.map { binarySqlTable($0) })
             .compactMap(CloudSourceTable.init(rawValue:)))
+        var archiveUpgradeComplete = true
+        if tables.contains(.rawBatch) && !allowsArchiveUpgrade() {
+            archiveUpgradeComplete = (try? await db.read { try WhoopStore.standardHRArchiveUpgradeIsComplete($0) }) ?? false
+        } else if tables.contains(.rawBatch) {
+            do {
+                archiveUpgradeComplete = try await db.write { db in
+                    try WhoopStore.advanceStandardHRArchiveUpgrade(db, shouldContinue: {
+                        allowsPreparation() && allowsArchiveUpgrade() && !Task.isCancelled
+                    }).isComplete
+                }
+            } catch {
+                // Existing prepared/scalar/raw work must still drain when archive capacity or
+                // an old original blocks this upgrade. No cursor commits on failure; incomplete
+                // discovery retains durable upload debt for the next admitted periodic pass.
+                archiveUpgradeComplete = false
+                SyncPipelineTrace.event(.uploadPreparation, outcome: .failed)
+            }
+        }
         // Commit each bounded bootstrap page before reporting deferred work. Throwing inside
         // the write transaction would roll back its cursor and repeat the same source page.
         let membershipReady = try await db.read { try WhoopStore.cloudSourceMembership($0, tables: tables).isComplete }
@@ -64,7 +85,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
             }
         }
         guard allowsPreparation() else { throw PushSourceReadError.deferred }
-        return .init(deviceIDs: Array(ids).sorted(), isComplete: discovery.isComplete)
+        return .init(deviceIDs: Array(ids).sorted(), isComplete: discovery.isComplete && archiveUpgradeComplete)
     }
 
     func mutableDirtyRanges(table: PushMutableTable, deviceId: String, afterRevision: Int64,

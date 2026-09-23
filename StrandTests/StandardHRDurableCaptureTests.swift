@@ -135,6 +135,78 @@ final class StandardHRDurableCaptureTests: XCTestCase {
     }
 
     #if !GENERIC_CAPTURE_NATIVE_TESTS
+    func testDiscoveryArchivesCompletedLegacyT1IncrementallyWithoutCanonicalReprojection() async throws {
+        let store = try await store()
+        let session = try await store.beginStandardHRCapture(owner: owner(), sessionID: UUID(),
+            runtimeGeneration: UUID(), openedAtUnixSeconds: Int64(timestamp))
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let streams = StandardHRMapping.samples(fromHR: 72, rr: [1000, 1000], contact: .supportedDetected, at: timestamp)
+        let scope = DurableIngestScope(environment: project, accountID: account, deviceID: device)
+        for sequence in 0..<20 {
+            let batch = try StandardHRFrozenBatch(id: StandardHRCaptureID(sessionID: session.sessionID, sequence: Int64(sequence)),
+                scope: scope, hostTimestampSeconds: Int64(timestamp), rawBytes: Data(measurement),
+                projectionJSON: encoder.encode(streams))
+            _ = try await store.appendStandardHRCapture(batch, session: session)
+        }
+        // Reproduce pre-repair T2/T3: exact original T1s remain, scalar rows are committed,
+        // completion markers exist, but no raw archive was ever enqueued.
+        _ = try await store.insertAndMarkJobsOwed(streams, deviceId: device,
+            postOffloadJobKinds: [], note: nil, captureScope: scope)
+        try await store.registryWriter.write { db in
+            try db.execute(sql: "UPDATE standardHRCaptureOccurrence SET projectionState=1,projectedAt=1")
+        }
+        try await store.sealStandardHRCapture(session)
+        let originals = try occurrences(store)
+        let before = try await store.registryWriter.read { db in
+            try ["hrSample", "rrInterval", "event"].flatMap { table in
+                try Row.fetchAll(db, sql: "SELECT * FROM \(table) ORDER BY rowid").map(\.description)
+            }
+        }
+        let snapshot = CloudPushSnapshot(db: store.registryWriter)
+        let capabilities = PushCapabilities(appendTables: [.hrSample], mutableTables: [], binaryTables: [.rawBatch])
+        let bulkDenied = CloudPushSnapshot(db: store.registryWriter, allowsArchiveUpgrade: { false })
+        let deferred = try await bulkDenied.discoverDevices(capabilities: capabilities)
+        XCTAssertFalse(deferred.isComplete)
+        XCTAssertTrue(deferred.deviceIDs.contains(device), "fresh discovery survives historical archive deferral")
+        let deferredRaw = try await store.rawBatchMetas(deviceId: device)
+        XCTAssertTrue(deferredRaw.isEmpty)
+        try await store.registryWriter.write { db in
+            try db.execute(sql: "CREATE TRIGGER fail_upgrade BEFORE INSERT ON rawBatch BEGIN SELECT RAISE(ABORT,'fixture'); END")
+        }
+        let blocked = try await snapshot.discoverDevices(capabilities: capabilities)
+        XCTAssertFalse(blocked.isComplete)
+        XCTAssertTrue(blocked.deviceIDs.contains(device))
+        let liveRows = try await snapshot.appendRows(table: .hrSample, deviceId: device, afterRowId: 0, limit: 1)
+        XCTAssertEqual(liveRows.count, 1, "archive failure must not block the existing scalar source")
+        let failedRaw = try await store.rawBatchMetas(deviceId: device)
+        XCTAssertTrue(failedRaw.isEmpty)
+        try await store.registryWriter.write { try $0.execute(sql: "DROP TRIGGER fail_upgrade") }
+        let first = try await snapshot.discoverDevices(capabilities: capabilities)
+        let firstRaw = try await store.rawBatchMetas(deviceId: device, limit: 100)
+        XCTAssertEqual(firstRaw.count, 16, "one discovery cannot migrate the whole retained history")
+        XCTAssertFalse(first.isComplete)
+        XCTAssertTrue(first.deviceIDs.contains(device), "partial upgrade still exposes existing scalar and raw work")
+        let second = try await snapshot.discoverDevices(capabilities: capabilities)
+        XCTAssertTrue(second.isComplete)
+        let caughtUp = try await bulkDenied.discoverDevices(capabilities: capabilities)
+        XCTAssertTrue(caughtUp.isComplete, "bulk deferral cannot invent unfinished debt after the migration cursor catches up")
+        let allRaw = try await store.rawBatchMetas(deviceId: device, limit: 100)
+        XCTAssertEqual(allRaw.count, 20)
+        let after = try await store.registryWriter.read { db in
+            try ["hrSample", "rrInterval", "event"].flatMap { table in
+                try Row.fetchAll(db, sql: "SELECT * FROM \(table) ORDER BY rowid").map(\.description)
+            }
+        }
+        XCTAssertEqual(before, after, "archive migration cannot reproject or revise canonical samples")
+        XCTAssertEqual(originals, try occurrences(store), "T1 originals and completion evidence remain immutable")
+        let jobs = try await store.owedJobs()
+        _ = try await snapshot.discoverDevices(capabilities: capabilities)
+        let afterJobs = try await store.owedJobs()
+        XCTAssertEqual(jobs.map(\.token), afterJobs.map(\.token), "completed migration cannot refresh debt")
+        let rows = try await snapshot.binaryRows(table: .rawBatch, deviceId: device, afterRowId: 0, limit: 1)
+        XCTAssertEqual(rows.count, 1, "upgraded originals enter the real existing object source")
+    }
+
     func testHostedStandardCallbackExportsOriginalThroughRawObjectSnapshot() async throws {
         try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
             let store = try await store(), journal = try await prepare(store), source = try source(journal)
