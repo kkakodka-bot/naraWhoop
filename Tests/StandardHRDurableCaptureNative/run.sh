@@ -29,6 +29,10 @@ else
   print -u2 "Unknown capture mode: $captureMode"
   exit 64
 fi
+captureRawSources=()
+if [[ -f "$captureSourceRoot/Strand/BLE/GenericRawCaptureSink.swift" ]]; then
+  captureRawSources+=("$captureSourceRoot/Strand/BLE/GenericRawCaptureSink.swift")
+fi
 capturePolarObjects=()
 if [[ -f "$capturePolarBuild/PolarProtocol.o" ]]; then
   capturePolarObjects+=("$capturePolarBuild/PolarProtocol.o")
@@ -46,6 +50,7 @@ xcrun swiftc -module-name Strand -enable-testing "${captureFlags[@]}" \
   -Xlinker -rpath -Xlinker "$capturePlatform/Library/PrivateFrameworks" \
   -Xlinker -rpath -Xlinker "$capturePlatform/usr/lib" \
   "$captureSourceRoot/Strand/BLE/GenericCaptureJournal.swift" \
+  "${captureRawSources[@]}" \
   "$captureSourceRoot/Strand/BLE/StandardHRSource.swift" \
   "$captureSourceRoot/Strand/BLE/StandardHeartRate.swift" \
   "$captureSourceRoot/Strand/App/RetiredCaptureDrain.swift" \

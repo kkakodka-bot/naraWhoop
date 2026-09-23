@@ -66,6 +66,9 @@ public final class HuamiHRSource: NSObject, ObservableObject {
     private let onBattery: (Int) -> Void
     /// When false (the wizard's discovery-only scanner) this source never writes `LiveState`.
     private let feedsLive: Bool
+    private let durableCapture: GenericRawCaptureSink?
+    private var acceptingCapture = true
+    private let onCaptureOpportunity: () -> Void
 
     private var loggedFirstHR = false
     /// True once we've enabled notifications on EITHER HR characteristic, so the disconnect handler can
@@ -93,15 +96,20 @@ public final class HuamiHRSource: NSObject, ObservableObject {
                 persist: @escaping (Streams) -> Void = { _ in },
                 log: @escaping (String) -> Void = { _ in },
                 onBattery: @escaping (Int) -> Void = { _ in },
-                feedsLive: Bool = true) {
+                feedsLive: Bool = true,
+                durableCapture: GenericRawCaptureSink? = nil,
+                startCentral: Bool = true,
+                onCaptureOpportunity: @escaping () -> Void = {}) {
         self.live = live
         self.deviceId = deviceId
         self.persist = persist
         self.log = log
         self.onBattery = onBattery
         self.feedsLive = feedsLive
+        self.durableCapture = durableCapture
+        self.onCaptureOpportunity = onCaptureOpportunity
         super.init()
-        self.central = CBCentralManager(delegate: self, queue: nil)
+        if startCentral { self.central = CBCentralManager(delegate: self, queue: nil) }
     }
 
     // MARK: - Scanning
@@ -125,7 +133,7 @@ public final class HuamiHRSource: NSObject, ObservableObject {
 
     public func stopScan() {
         scanning = false
-        if central.state == .poweredOn { central.stopScan() }
+        if central?.state == .poweredOn { central.stopScan() }
     }
 
     // MARK: - Connecting
@@ -153,6 +161,8 @@ public final class HuamiHRSource: NSObject, ObservableObject {
     }
 
     public func stop() {
+        acceptingCapture = false
+        durableCapture?.sealIntake()
         stopScan()
         pendingConnectID = nil
         if let p = peripheral { central.cancelPeripheralConnection(p) }
@@ -196,7 +206,7 @@ public final class HuamiHRSource: NSObject, ObservableObject {
             live.heartRate = hr
             live.connected = true
         }
-        enqueue(hr: hr)
+        if durableCapture == nil { enqueue(hr: hr) }
     }
 }
 
@@ -346,25 +356,38 @@ extension HuamiHRSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value else { return }
-        if characteristic.uuid == Self.batteryLevel {
-            if let pct = StandardBattery.parse([UInt8](value)) {
-                log("Huami: battery \(pct)%")
-                batteryPct = pct
-                onBattery(pct)
+        _ = ingestNotification(value, serviceUUID: characteristic.service?.uuid.uuidString ?? "unknown",
+            characteristicUUID: characteristic.uuid.uuidString, at: Int(Date().timeIntervalSince1970))
+    }
+
+    @discardableResult
+    func ingestNotification(_ value: Data, serviceUUID: String, characteristicUUID: String, at timestamp: Int) -> Bool {
+        guard acceptingCapture else { return false }
+        let uuid = CBUUID(string: characteristicUUID)
+        guard uuid == Self.stdHeartRateMeasurement || uuid == Self.huamiHeartRateMeasurement || uuid == Self.batteryLevel else { return false }
+        let decode = {
+            let bytes = [UInt8](value)
+            if uuid == Self.batteryLevel {
+                if let pct = StandardBattery.parse(bytes) {
+                    self.batteryPct = pct; self.onBattery(pct)
+                    _ = self.durableCapture?.persist(Streams(battery: [BatterySample(ts: timestamp, soc: Double(pct), mv: nil)]))
+                }
+                return
             }
-            return
+            let standard = uuid == Self.stdHeartRateMeasurement ? StandardHeartRate.parse(bytes) : nil
+            let hr = standard?.hr ?? (uuid == Self.huamiHeartRateMeasurement ? HuamiHeartRate.parse(bytes) : nil)
+            guard let hr, (30...220).contains(hr) else { return }
+            self.ingest(hr: hr)
+            // Only the actual SIG characteristic can carry its decoded RR observations.
+            let streams = StandardHRMapping.samples(fromHR: hr, rr: standard?.rr ?? [], at: timestamp)
+            _ = self.durableCapture?.persist(streams)
         }
-        let bytes = [UInt8](value)
-        let hr: Int?
-        if characteristic.uuid == Self.stdHeartRateMeasurement {
-            hr = StandardHeartRate.parse(bytes)?.hr     // standard 0x2A37 layout
-        } else if characteristic.uuid == Self.huamiHeartRateMeasurement {
-            hr = HuamiHeartRate.parse(bytes)            // Huami custom layout
-        } else {
-            return
-        }
-        guard let hr else { return }   // no usable reading → stay at "—", never fabricate
-        ingest(hr: hr)
+        guard let durableCapture else { decode(); return true }
+        let accepted = durableCapture.capture(value, serviceUUID: serviceUUID,
+            characteristicUUID: characteristicUUID, at: timestamp, decode: decode)
+        if accepted { onCaptureOpportunity() }
+        if !accepted || !durableCapture.isOpen { stop() }
+        return accepted
     }
 
     /// Record + log the honest "this band needs pairing we can't do yet" outcome (once).

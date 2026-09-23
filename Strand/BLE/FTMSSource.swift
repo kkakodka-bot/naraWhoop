@@ -69,6 +69,9 @@ public final class FTMSSource: NSObject, ObservableObject {
     /// Whether to push the machine's HR into the shared `LiveState` (true for the active machine; false
     /// for the throwaway discovery-only scanner the wizard uses).
     private let feedsLive: Bool
+    private let durableCapture: GenericRawCaptureSink?
+    private var acceptingCapture = true
+    private let onCaptureOpportunity: () -> Void
 
     private var loggedFirstReading = false
 
@@ -89,13 +92,18 @@ public final class FTMSSource: NSObject, ObservableObject {
     public init(live: LiveState,
                 log: @escaping (String) -> Void = { _ in },
                 onBattery: @escaping (Int) -> Void = { _ in },
-                feedsLive: Bool = true) {
+                feedsLive: Bool = true,
+                durableCapture: GenericRawCaptureSink? = nil,
+                startCentral: Bool = true,
+                onCaptureOpportunity: @escaping () -> Void = {}) {
         self.live = live
         self.log = log
         self.onBattery = onBattery
         self.feedsLive = feedsLive
+        self.durableCapture = durableCapture
+        self.onCaptureOpportunity = onCaptureOpportunity
         super.init()
-        self.central = CBCentralManager(delegate: self, queue: nil)
+        if startCentral { self.central = CBCentralManager(delegate: self, queue: nil) }
     }
 
     // MARK: - Scanning
@@ -117,7 +125,7 @@ public final class FTMSSource: NSObject, ObservableObject {
     /// Stop an in-progress scan.
     public func stopScan() {
         scanning = false
-        if central.state == .poweredOn { central.stopScan() }
+        if central?.state == .poweredOn { central.stopScan() }
     }
 
     // MARK: - Connecting
@@ -146,6 +154,8 @@ public final class FTMSSource: NSObject, ObservableObject {
 
     /// Tear down: cancel the connection and stop scanning. Idempotent.
     public func stop() {
+        acceptingCapture = false
+        durableCapture?.sealIntake()
         stopScan()
         pendingConnectID = nil
         if let p = peripheral {
@@ -288,22 +298,46 @@ extension FTMSSource: @preconcurrency CBPeripheralDelegate {
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value else { return }
         // Battery Level.
-        if characteristic.uuid == Self.batteryLevel {
-            if let pct = StandardBattery.parse([UInt8](value)) {
-                log("FTMS: battery \(pct)%")
-                batteryPct = pct
-                onBattery(pct)
-            }
-            return
-        }
-        // Machine data — map the characteristic UUID to its FTMS kind (CBUUID compare, not string
-        // formatting, so we don't depend on whether the OS reports the 16-bit or 128-bit form).
-        guard let kind = Self.machineKind(for: characteristic.uuid),
-              let reading = FTMSDecode.decode(uuid16: kind.characteristicUUID16, [UInt8](value)) else { return }
-        if !loggedFirstReading {
-            loggedFirstReading = true
-            log("FTMS: receiving \(reading.kind.displayName) data — first reading\(reading.heartRate.map { " HR \($0) bpm" } ?? "")")
-        }
-        ingest(reading)
+        _ = ingestNotification(value, serviceUUID: characteristic.service?.uuid.uuidString ?? "unknown",
+            characteristicUUID: characteristic.uuid.uuidString, at: Int(Date().timeIntervalSince1970))
     }
+    @discardableResult
+    func ingestNotification(_ value: Data, serviceUUID: String, characteristicUUID: String, at timestamp: Int) -> Bool {
+        guard acceptingCapture else { return false }
+        let uuid = CBUUID(string: characteristicUUID)
+        let kind = Self.machineKind(for: uuid)
+        guard kind != nil || uuid == Self.batteryLevel else { return false }
+        let decode = {
+            if uuid == Self.batteryLevel {
+                if let pct = StandardBattery.parse([UInt8](value)) {
+                    self.batteryPct = pct; self.onBattery(pct)
+                    _ = self.durableCapture?.persist(Streams(battery: [BatterySample(ts: timestamp, soc: Double(pct), mv: nil)]))
+                }
+                return
+            }
+            guard let kind, let reading = FTMSDecode.decode(uuid16: kind.characteristicUUID16, [UInt8](value)) else { return }
+            self.ingest(reading)
+            let hr = reading.heartRate.flatMap { (30...220).contains($0) ? HRSample(ts: timestamp, bpm: $0) : nil }
+            let fields: [String: ParsedValue] = [
+                "machine_kind": .string(reading.kind.rawValue),
+                "clock_quality": .string("host_receipt_unverified"),
+                "speed_kmh": reading.speedKmh.map(ParsedValue.double) ?? .null,
+                "cadence": reading.cadence.map(ParsedValue.double) ?? .null,
+                "power_watts": reading.powerWatts.map(ParsedValue.int) ?? .null,
+                "distance_m": reading.distanceM.map(ParsedValue.int) ?? .null,
+                "total_energy_kcal": reading.totalEnergyKcal.map(ParsedValue.int) ?? .null,
+                "heart_rate_bpm": reading.heartRate.map(ParsedValue.int) ?? .null,
+                "elapsed_time_seconds": reading.elapsedTimeSec.map(ParsedValue.int) ?? .null,
+            ]
+            _ = self.durableCapture?.persist(Streams(hr: hr.map { [$0] } ?? [],
+                events: [WhoopEvent(ts: timestamp, kind: "FTMS_READING", payload: fields)]))
+        }
+        guard let durableCapture else { decode(); return true }
+        let accepted = durableCapture.capture(value, serviceUUID: serviceUUID,
+            characteristicUUID: characteristicUUID, at: timestamp, decode: decode)
+        if accepted { onCaptureOpportunity() }
+        if !accepted || !durableCapture.isOpen { stop() }
+        return accepted
+    }
+
 }
